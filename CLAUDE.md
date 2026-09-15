@@ -4,7 +4,7 @@
 
 ## Структура
 
-- `backend/` — .NET 10 minimal API (`AgentKitWeb.slnx`): `src/AgentKitWeb.Api`, тесты в `tests/AgentKitWeb.Api.Tests`.
+- `backend/` — .NET 10 minimal API (`AgentsKitWeb.slnx`): `src/AgentsKitWeb.Api`, тесты в `tests/AgentsKitWeb.Api.Tests`.
 - `frontend/` — React + TypeScript на Vite. Фронт ходит на относительный `/api`, dev-сервер Vite проксирует его на API.
 - `design/` — временный набросок, не спецификация.
 
@@ -12,7 +12,7 @@
 
 ```sh
 # API на http://localhost:5078
-dotnet run --project backend/src/AgentKitWeb.Api --launch-profile http
+dotnet run --project backend/src/AgentsKitWeb.Api --launch-profile http
 
 # фронт на http://localhost:5173
 cd frontend

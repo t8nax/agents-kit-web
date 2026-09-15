@@ -1,8 +1,0 @@
-<Solution>
-  <Folder Name="/src/">
-    <Project Path="src/AgentKitWeb.Api/AgentKitWeb.Api.csproj" />
-  </Folder>
-  <Folder Name="/tests/">
-    <Project Path="tests/AgentKitWeb.Api.Tests/AgentKitWeb.Api.Tests.csproj" />
-  </Folder>
-</Solution>

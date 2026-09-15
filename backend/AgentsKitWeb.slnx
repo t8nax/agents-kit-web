@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AgentsKitWeb.Api/AgentsKitWeb.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AgentsKitWeb.Api.Tests/AgentsKitWeb.Api.Tests.csproj" />
+  </Folder>
+</Solution>

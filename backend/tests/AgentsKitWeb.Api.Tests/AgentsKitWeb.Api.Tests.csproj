@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\AgentKitWeb.Api\AgentKitWeb.Api.csproj" />
+    <ProjectReference Include="..\..\src\AgentsKitWeb.Api\AgentsKitWeb.Api.csproj" />
   </ItemGroup>
 
 </Project>
