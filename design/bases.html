@@ -1,0 +1,278 @@
+<title>Окно «Базы»</title>
+<style>
+  :root {
+    --bg-base: #09090b;
+    --bg-surface: #121214;
+    --bg-surface-hover: #18181b;
+    --border-subtle: #27272a;
+    --border-strong: #3f3f46;
+    --text-primary: #ededed;
+    --text-secondary: #a1a1aa;
+    --text-tertiary: #71717a;
+    --accent-waiting-bg: rgba(245, 158, 11, 0.15);
+    --accent-waiting-text: #fbbf24;
+    --accent-waiting-border: rgba(245, 158, 11, 0.3);
+    --accent-active-bg: rgba(16, 185, 129, 0.1);
+    --accent-active-text: #34d399;
+    --accent-free-bg: rgba(161, 161, 170, 0.1);
+    --accent-error-text: #f87171;
+    --accent-error-bg: rgba(248, 113, 113, 0.08);
+    --accent-error-border: rgba(248, 113, 113, 0.35);
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  button { font: inherit; }
+  :focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+
+  .note {
+    display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline;
+    padding: 8px 24px; border-bottom: 1px dashed var(--border-strong);
+    color: var(--text-tertiary); font-size: 12px;
+  }
+  .note b { color: var(--text-secondary); font-weight: 500; }
+
+  .app { position: relative; min-height: 640px; }
+  .app-header {
+    height: 56px; border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center; gap: 12px; padding: 0 24px;
+  }
+  .app-header h3 { margin: 0; font-size: 14px; font-weight: 500; }
+  .header-right { margin-left: auto; display: flex; gap: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--bg-surface); color: var(--text-primary);
+    border: 1px solid var(--border-subtle); border-radius: 6px;
+    padding: 6px 12px; cursor: pointer; white-space: nowrap;
+  }
+  .btn:hover { background: var(--bg-surface-hover); border-color: var(--border-strong); }
+  .btn.primary { background: var(--text-primary); color: var(--bg-base); border-color: var(--text-primary); font-weight: 500; }
+  .btn.primary:hover { opacity: 0.9; }
+  .btn.danger {
+    padding: 4px 10px; font-size: 12px;
+    background: var(--bg-surface-hover); color: var(--text-primary);
+    border-color: var(--border-strong);
+  }
+  .btn.danger svg { width: 14px; height: 14px; color: var(--accent-error-text); }
+  .btn.danger:hover { color: var(--accent-error-text); background: var(--accent-error-bg); border-color: var(--accent-error-border); }
+  .count { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+  .main-content { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; color: var(--text-secondary); font-weight: 400; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 16px;
+    border-bottom: 1px solid var(--border-subtle); white-space: nowrap;
+  }
+  td { padding: 10px 16px; vertical-align: middle; white-space: nowrap; border-bottom: 1px solid var(--border-subtle); }
+  td.task-col { width: 32%; white-space: normal; }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
+  .text-sec { color: var(--text-secondary); }
+  .text-ter { color: var(--text-tertiary); }
+  .proj { font-weight: 500; }
+  .sub { margin-top: 2px; }
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 4px;
+    font-size: 12px; font-weight: 500; border: 1px solid transparent;
+  }
+  .status-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+  .status-in-work { background: var(--accent-active-bg); color: var(--accent-active-text); }
+  .status-in-work::before { background: var(--accent-active-text); }
+  .status-waiting { background: var(--accent-waiting-bg); color: var(--accent-waiting-text); border-color: var(--accent-waiting-border); }
+  .status-waiting::before { background: var(--accent-waiting-text); }
+  .status-free { background: var(--accent-free-bg); color: var(--text-secondary); }
+  .status-free::before { border: 1.5px solid var(--text-secondary); width: 4px; height: 4px; }
+  .warning-text { color: var(--accent-error-text); display: inline-flex; align-items: center; gap: 6px; }
+  .empty { padding: 32px 24px; color: var(--text-secondary); }
+
+  .overlay {
+    position: absolute; inset: 0; background: rgba(9, 9, 11, 0.72);
+    display: flex; align-items: flex-start; justify-content: center;
+    padding: 72px 16px 16px;
+  }
+  .overlay[hidden] { display: none; }
+  .modal {
+    width: 560px; max-width: 100%;
+    background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 8px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  }
+  .modal-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border-subtle); }
+  .modal-header h3 { margin: 0; font-size: 14px; font-weight: 500; }
+  .icon-btn { background: none; border: none; color: var(--text-secondary); padding: 4px; border-radius: 4px; cursor: pointer; margin-left: auto; display: inline-flex; }
+  .icon-btn:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
+  .modal-body { padding: 16px 20px 20px; display: grid; gap: 16px; }
+  .lead { margin: 0; color: var(--text-secondary); max-width: 60ch; }
+
+  .bases { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-subtle); border-radius: 6px; }
+  .bases li { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; }
+  .bases li + li { border-top: 1px solid var(--border-subtle); }
+  .bases .path { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .bases .meta { color: var(--text-tertiary); font-size: 12px; white-space: nowrap; }
+  .bases .empty-list { color: var(--text-tertiary); padding: 12px; }
+
+  .add { display: grid; gap: 6px; }
+  .add label { font-size: 12px; color: var(--text-secondary); }
+  .add-row { display: flex; gap: 8px; }
+  .add-row input {
+    flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12px;
+    background: var(--bg-base); color: var(--text-primary);
+    border: 1px solid var(--border-subtle); border-radius: 6px; padding: 7px 10px;
+  }
+  .add-row input::placeholder { color: var(--text-tertiary); }
+  .add-row input:focus { outline: none; border-color: var(--border-strong); }
+  .add-row input[aria-invalid="true"] { border-color: var(--accent-error-border); }
+  .error { color: var(--accent-error-text); font-size: 12px; display: flex; gap: 6px; align-items: flex-start; }
+  .error[hidden] { display: none; }
+  .error svg { margin-top: 2px; width: 14px; height: 14px; }
+
+  .modal-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--border-subtle); }
+
+  @media (max-width: 480px) {
+    .app-header, .note { padding-inline: 16px; }
+    .add-row { flex-wrap: wrap; }
+    .add-row .btn { flex: 1; justify-content: center; }
+    .bases .meta { display: none; }
+  }
+</style>
+
+<div class="note">
+  <span><b>Набросок</b> окна «Базы знаний» — демо-данные, ничего не пишется.</span>
+  <span>Попробуйте: удалить базу, добавить пустой путь, повтор или <span class="mono">D:\Projects\nota</span> (нет agents-kit.json), затем <span class="mono">D:\Projects\nota-knowledge</span>.</span>
+</div>
+
+<div class="app">
+  <header class="app-header">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    <h3>agents-kit-web</h3>
+    <div class="header-right">
+      <button type="button" class="btn" id="open-bases">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        Базы знаний
+      </button>
+    </div>
+  </header>
+
+  <main class="main-content" id="table-host"></main>
+
+  <div class="overlay" id="overlay">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bases-title">
+      <div class="modal-header">
+        <h3 id="bases-title">Отслеживаемые базы</h3>
+        <button type="button" class="icon-btn" id="close-x" aria-label="Закрыть">
+          <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="lead">Панель показывает рабочие копии этих баз знаний. Список хранится у панели; сами базы не меняются.</p>
+        <ul class="bases" id="bases-list"></ul>
+        <form class="add" id="add-form" novalidate>
+          <label for="new-path">Путь к каталогу базы</label>
+          <div class="add-row">
+            <input id="new-path" type="text" placeholder="D:\Projects\project-knowledge" autocomplete="off" spellcheck="false" aria-describedby="add-error">
+            <button type="submit" class="btn">Добавить</button>
+          </div>
+          <div class="error" id="add-error" role="alert" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span id="add-error-text"></span>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn primary" id="done">Готово</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Демо: на диске «есть» только эти базы с agents-kit.json и их копии.
+  const disk = {
+    'D:\\Projects\\agents-kit-web-knowledge': [
+      { path: 'D:\\Projects\\agents-kit-web', branch: 'dev', task: 'Настройка путей к отслеживаемым базам из панели', step: 'Критерий', status: 'waiting' },
+      { path: 'D:\\Projects\\agents-kit-web-health', branch: 'feat/health', task: null, step: null, status: 'free' },
+    ],
+    'D:\\Projects\\agents-kit-knowledge': [
+      { path: 'D:\\Projects\\agents-kit', branch: 'master', task: 'Сверка потолков файлов решений', step: 'Реализация', status: 'in-work' },
+    ],
+    'D:\\Projects\\nota-knowledge': [
+      { path: 'D:\\Projects\\nota', branch: 'dev', task: 'Экспорт заметок в PDF', step: 'Приёмка', status: 'in-work' },
+    ],
+  };
+  let bases = ['D:\\Projects\\agents-kit-web-knowledge', 'D:\\Projects\\agents-kit-knowledge'];
+  const labels = { free: 'Свободна', 'in-work': 'В работе', waiting: 'Ждёт оператора' };
+  const norm = (p) => p.trim().replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
+  const name = (p) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const $ = (id) => document.getElementById(id);
+
+  function renderTable() {
+    if (!bases.length) {
+      $('table-host').innerHTML = '<p class="empty">Нет отслеживаемых баз. Добавьте путь в окне «Базы знаний».</p>';
+      return;
+    }
+    const rows = bases.flatMap((b) => (disk[b] || []).map((c) => ({ ...c, project: name(b) })));
+    $('table-host').innerHTML = `<table><thead><tr><th>Проект и копия</th><th>Задача</th><th>Шаг флоу</th><th>Статус</th></tr></thead><tbody>${
+      rows.map((r) => `<tr><td><div class="proj">${esc(r.project)}</div><div class="mono text-sec sub">${esc(r.branch)} · ${esc(r.path)}</div></td>
+        <td class="task-col ${r.task ? '' : 'text-ter'}">${r.task ? esc(r.task) : '—'}</td>
+        <td class="${r.step ? '' : 'text-ter'}">${r.step ? esc(r.step) : '—'}</td>
+        <td><span class="status-badge status-${r.status}">${labels[r.status]}</span></td></tr>`).join('')
+    }</tbody></table>`;
+  }
+
+  function renderList() {
+    $('bases-list').innerHTML = bases.length
+      ? bases.map((b, i) => `<li><span class="path mono">${esc(b)}</span><span class="meta">${(disk[b] || []).length} коп.</span>
+          <button type="button" class="btn danger" data-remove="${i}" aria-label="Удалить ${esc(b)}"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Удалить</button></li>`).join('')
+      : '<li class="empty-list">Список пуст.</li>';
+  }
+
+  function showError(text) {
+    $('add-error-text').textContent = text;
+    $('add-error').hidden = !text;
+    $('new-path').setAttribute('aria-invalid', text ? 'true' : 'false');
+  }
+
+  $('bases-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-remove]');
+    if (!btn) return;
+    bases.splice(Number(btn.dataset.remove), 1);
+    renderList();
+  });
+
+  $('add-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const raw = $('new-path').value.trim();
+    if (!raw) return showError('Введите путь к каталогу базы.');
+    if (bases.some((b) => norm(b) === norm(raw))) return showError('Эта база уже в списке.');
+    const known = Object.keys(disk).find((k) => norm(k) === norm(raw));
+    if (!known) return showError('В каталоге нет agents-kit.json — это не база знаний кита. Проверьте путь.');
+    bases.push(known);
+    $('new-path').value = '';
+    showError('');
+    renderList();
+  });
+
+  $('new-path').addEventListener('input', () => showError(''));
+
+  const open = () => { renderList(); $('overlay').hidden = false; $('new-path').focus(); };
+  const close = () => { $('overlay').hidden = true; showError(''); renderTable(); };
+  $('open-bases').addEventListener('click', open);
+  $('close-x').addEventListener('click', close);
+  $('done').addEventListener('click', close);
+  $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('overlay').hidden) close(); });
+
+  renderTable();
+  renderList();
+</script>
