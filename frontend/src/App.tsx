@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import BasesModal from './BasesModal'
 import ReplyModal from './ReplyModal'
@@ -23,24 +23,52 @@ const statusLabels: Record<WorkspaceStatus, string> = {
   waiting: 'Ждёт оператора',
 }
 
-type State = { kind: 'loading' } | { kind: 'failed' } | { kind: 'loaded'; rows: WorkspaceRow[] }
+const refreshIntervalMs = 3000
+
+// rows — последний удачно прочитанный список: сбой опроса его не стирает
+type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
 function App() {
-  const [state, setState] = useState<State>({ kind: 'loading' })
+  const [state, setState] = useState<State>({ rows: null, failed: false })
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [basesOpen, setBasesOpen] = useState(false)
+  const lastRequest = useRef(0)
+  const inFlight = useRef(0)
 
   const loadRows = useCallback(() => {
+    const request = ++lastRequest.current
+    inFlight.current++
     fetch('/api/workspaces')
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json() as Promise<WorkspaceRow[]>
       })
-      .then((rows) => setState({ kind: 'loaded', rows }))
-      .catch(() => setState({ kind: 'failed' }))
+      .then(
+        (rows) => {
+          if (request === lastRequest.current) setState({ rows, failed: false })
+        },
+        () => {
+          if (request === lastRequest.current) setState((prev) => ({ ...prev, failed: true }))
+        },
+      )
+      .finally(() => inFlight.current--)
   }, [])
 
-  useEffect(loadRows, [loadRows])
+  useEffect(() => {
+    loadRows()
+    const timer = setInterval(() => {
+      if (document.visibilityState === 'hidden' || inFlight.current > 0) return
+      loadRows()
+    }, refreshIntervalMs)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') loadRows()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [loadRows])
 
   const closeReply = useCallback(() => setReplyTo(null), [])
   const closeBases = useCallback(() => {
@@ -65,9 +93,9 @@ function App() {
         </button>
       </header>
       <main className="main-content">
-        {state.kind === 'failed' && <p className="message warning-text">Нет связи с API</p>}
-        {state.kind === 'loaded' && <WorkspacesTable rows={state.rows} onReply={setReplyTo} />}
-        {state.kind === 'loaded' && state.rows.length === 0 && (
+        {state.failed && <p className="message warning-text">Нет связи с API</p>}
+        {state.rows && <WorkspacesTable rows={state.rows} onReply={setReplyTo} />}
+        {state.rows?.length === 0 && (
           <p className="empty-message">Нет отслеживаемых баз или рабочих копий. Базы добавляются в окне «Базы знаний».</p>
         )}
       </main>
