@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import BasesModal from './BasesModal'
 import ReplyModal from './ReplyModal'
 
 export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
@@ -27,6 +28,7 @@ type State = { kind: 'loading' } | { kind: 'failed' } | { kind: 'loaded'; rows: 
 function App() {
   const [state, setState] = useState<State>({ kind: 'loading' })
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
+  const [basesOpen, setBasesOpen] = useState(false)
 
   const loadRows = useCallback(() => {
     fetch('/api/workspaces')
@@ -41,6 +43,10 @@ function App() {
   useEffect(loadRows, [loadRows])
 
   const closeReply = useCallback(() => setReplyTo(null), [])
+  const closeBases = useCallback(() => {
+    setBasesOpen(false)
+    loadRows()
+  }, [loadRows])
 
   return (
     <>
@@ -49,12 +55,24 @@ function App() {
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
         <h3>agents-kit-web</h3>
+        <button type="button" className="bases-btn header-btn" onClick={() => setBasesOpen(true)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+          </svg>
+          Базы знаний
+        </button>
       </header>
       <main className="main-content">
         {state.kind === 'failed' && <p className="message warning-text">Нет связи с API</p>}
         {state.kind === 'loaded' && <WorkspacesTable rows={state.rows} onReply={setReplyTo} />}
+        {state.kind === 'loaded' && state.rows.length === 0 && (
+          <p className="empty-message">Нет отслеживаемых баз или рабочих копий. Базы добавляются в окне «Базы знаний».</p>
+        )}
       </main>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
+      {basesOpen && <BasesModal onClose={closeBases} />}
     </>
   )
 }
