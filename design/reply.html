@@ -1,329 +1,306 @@
-<html lang="ru" vid="0"><head vid="1">
-<meta charset="UTF-8" vid="2">
-<meta name="viewport" content="width=device-width, initial-scale=1.0" vid="3">
-<title vid="4">Agent Workspace Monitor - Redesigned Modal</title>
-<style vid="5">
-    :root {
-        --bg-base: #09090b;
-        --bg-surface: #121214;
-        --bg-surface-hover: #18181b;
-        --border-subtle: #27272a;
-        --border-strong: #3f3f46;
-        --text-primary: #ededed;
-        --text-secondary: #a1a1aa;
-        --text-tertiary: #71717a;
-        --accent-waiting-bg: rgba(245, 158, 11, 0.15);
-        --accent-waiting-text: #fbbf24;
-        --accent-waiting-border: rgba(245, 158, 11, 0.3);
-        --accent-active-text: #34d399;
-        --accent-done-text: #60a5fa;
-        --accent-error-text: #f87171;
-        --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-        --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
+<title>Окно ответа оператора</title>
+<style>
+  /* Токены и размеры — из design/reply.html (Variant), которые повторяют design/sketch.html. */
+  :root {
+    --bg-base: #09090b;
+    --bg-surface: #121214;
+    --bg-surface-hover: #18181b;
+    --border-subtle: #27272a;
+    --border-strong: #3f3f46;
+    --text-primary: #ededed;
+    --text-secondary: #a1a1aa;
+    --text-tertiary: #71717a;
+    --accent-waiting-bg: rgba(245, 158, 11, 0.15);
+    --accent-waiting-text: #fbbf24;
+    --accent-waiting-border: rgba(245, 158, 11, 0.3);
+    --accent-active-text: #34d399;
+    --accent-done-text: #60a5fa;
+    --accent-error-text: #f87171;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-base); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1080px; margin: 0 auto; padding-inline: 24px; padding-block: 28px 56px; }
+  .mono { font-family: var(--font-mono); font-size: 12px; }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-        background-color: var(--bg-base);
-        color: var(--text-primary);
-        font-family: var(--font-sans);
-        font-size: 13px;
-        line-height: 1.5;
-        height: 100vh;
-        overflow: hidden;
-    }
+  .intro { display: grid; gap: 6px; margin-bottom: 24px; max-width: 78ch; }
+  .intro h1 { font-size: 18px; font-weight: 500; margin: 0; text-wrap: balance; }
+  .intro p { margin: 0; color: var(--text-secondary); }
+  .notes { margin: 16px 0 0; padding-left: 18px; color: var(--text-tertiary); font-size: 12px; display: grid; gap: 4px; max-width: 78ch; }
+  .notes b { color: var(--text-secondary); font-weight: 500; }
 
-    
-    .app-header, .toolbar, .main-content { opacity: 0.3; pointer-events: none; }
+  .stage { position: relative; border: 1px solid var(--border-subtle); border-radius: 12px; padding: 32px 16px; display: flex; justify-content: center; overflow: hidden; background: rgba(0,0,0,0.85); }
+  .stage::before { content: ''; position: absolute; inset: 0; opacity: 0.08; background: repeating-linear-gradient(0deg, var(--text-primary) 0 1px, transparent 1px 44px); }
 
-    
-    .modal-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.85);
-        backdrop-filter: blur(8px);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-    }
+  svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 
-    .modal-wizard {
-        background: var(--bg-surface);
-        border: 1px solid var(--border-strong);
-        border-radius: 12px;
-        width: 800px;
-        max-height: 90vh;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-        overflow: hidden;
-    }
+  .modal-wizard { position: relative; background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 12px; width: 100%; max-width: 800px; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; }
 
-    
-    .wizard-stepper {
-        padding: 24px 40px;
-        border-bottom: 1px solid var(--border-subtle);
-        display: flex;
-        align-items: center;
-        gap: 12px;
-    }
-    .step-indicator {
-        flex: 1;
-        height: 4px;
-        background: var(--border-subtle);
-        border-radius: 2px;
-        position: relative;
-    }
-    .step-indicator.active { background: var(--accent-waiting-text); }
-    .step-label {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: var(--accent-waiting-text);
-        font-weight: 600;
-        margin-bottom: 8px;
-    }
+  .wizard-stepper { padding: 24px 40px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 12px; }
+  .stepper-main { flex: 1; min-width: 0; }
+  .step-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent-waiting-text); font-weight: 600; margin-bottom: 8px; font-variant-numeric: tabular-nums; }
+  .steps { display: flex; gap: 8px; }
+  .step-indicator { flex: 1; height: 12px; padding: 4px 0; border: none; background: none; cursor: pointer; border-radius: 2px; }
+  .step-indicator::before { content: ''; display: block; height: 4px; border-radius: 2px; background: var(--border-subtle); }
+  .step-indicator[aria-current="step"]::before { background: var(--accent-waiting-text); }
+  .step-indicator:hover::before { filter: brightness(1.3); }
+  .step-indicator:disabled { cursor: default; }
 
-    .modal-scroll-area {
-        flex: 1;
-        overflow-y: auto;
-        padding: 40px;
-    }
+  .modal-scroll-area { padding: 40px; min-height: 560px; }
+  .central-column { max-width: 640px; margin: 0 auto; }
 
-    .central-column {
-        max-width: 640px;
-        margin: 0 auto;
-    }
+  .context-accordion { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 8px; margin-bottom: 32px; }
+  .context-accordion summary { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; color: var(--text-secondary); font-weight: 500; list-style: none; }
+  .context-accordion summary::-webkit-details-marker { display: none; }
+  .context-accordion summary svg { transition: transform 0.15s; }
+  .context-accordion[open] summary svg { transform: rotate(180deg); }
+  .acc-title { display: grid; gap: 2px; min-width: 0; }
+  .acc-task { color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .context-accordion[open] .acc-task { white-space: normal; }
+  .acc-copy { font-family: var(--font-mono); font-size: 12px; color: var(--accent-done-text); font-weight: 400; overflow-wrap: anywhere; }
+  .accordion-content { padding: 12px 16px 16px; border-top: 1px solid var(--border-subtle); max-height: 260px; overflow-y: auto; }
+  .acc-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-tertiary); margin: 0 0 8px; }
+  .criterion { margin: 0; padding-left: 20px; display: grid; gap: 6px; color: var(--text-secondary); font-size: 12px; }
+  .criterion li::marker { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .out { margin: 10px 0 0; color: var(--text-tertiary); font-size: 12px; }
 
-    .massive-title {
-        font-size: 32px;
-        font-weight: 700;
-        line-height: 1.2;
-        margin-bottom: 32px;
-        color: var(--text-primary);
-    }
+  .massive-title { font-size: 32px; font-weight: 700; line-height: 1.2; margin: 0 0 24px; text-wrap: balance; }
+  .question-box { font-size: 16px; line-height: 1.6; margin-bottom: 24px; padding-left: 16px; border-left: 4px solid var(--accent-waiting-text); color: var(--text-primary); }
 
-    
-    .context-accordion {
-        background: var(--bg-base);
-        border: 1px solid var(--border-subtle);
-        border-radius: 8px;
-        margin-bottom: 32px;
-    }
-    .accordion-header {
-        padding: 12px 16px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        cursor: pointer;
-        color: var(--text-secondary);
-        font-weight: 500;
-    }
-    .accordion-content {
-        padding: 0 16px 16px 16px;
-        border-top: 1px solid var(--border-subtle);
-    }
-    .context-meta {
-        font-family: var(--font-mono);
-        font-size: 12px;
-        color: var(--accent-done-text);
-        margin-bottom: 12px;
-        padding-top: 12px;
-    }
-    .checklist {
-        list-style: none;
-    }
-    .checklist-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 4px 0;
-        color: var(--text-secondary);
-        font-size: 12px;
-    }
-    .checklist-item svg { color: var(--accent-active-text); width: 14px; }
+  .options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; margin-bottom: 24px; }
+  .option-card { font: inherit; text-align: left; color: inherit; background: var(--bg-base); border: 1px solid var(--border-subtle); padding: 16px; border-radius: 8px; cursor: pointer; transition: border-color 0.2s, background 0.2s; display: grid; gap: 4px; align-content: start; }
+  .option-card:hover:not(:disabled) { border-color: var(--accent-waiting-text); background: var(--accent-waiting-bg); }
+  .option-card[aria-pressed="true"] { border-color: var(--accent-waiting-text); box-shadow: 0 0 0 1px var(--accent-waiting-text); }
+  .option-card:disabled { cursor: default; }
+  .option-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .option-title { font-weight: 600; }
+  .option-desc { font-size: 12px; color: var(--text-secondary); }
+  .tag-rec { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px; color: var(--accent-waiting-text); background: var(--accent-waiting-bg); border: 1px solid var(--accent-waiting-border); }
 
-    .question-box {
-        font-size: 16px;
-        color: var(--text-primary);
-        line-height: 1.6;
-        margin-bottom: 24px;
-        padding-left: 16px;
-        border-left: 4px solid var(--accent-waiting-text);
-    }
+  .input-group label { display: block; margin-bottom: 12px; font-weight: 500; color: var(--text-secondary); }
+  .custom-textarea { width: 100%; display: block; background: var(--bg-base); border: 1px solid var(--border-strong); border-radius: 8px; padding: 16px; color: var(--text-primary); font-family: var(--font-sans); font-size: 14px; min-height: 120px; outline: none; resize: none; }
+  .custom-textarea:focus { border-color: var(--accent-waiting-text); }
+  .custom-textarea:disabled { color: var(--text-secondary); }
+  .field-status { margin-top: 10px; font-size: 12px; min-height: 18px; display: flex; align-items: center; gap: 6px; color: var(--text-tertiary); }
+  .field-status.error { color: var(--accent-error-text); }
+  .field-status svg { width: 14px; height: 14px; }
 
-    
-    .options-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 16px;
-        margin-bottom: 24px;
-    }
-    .option-card {
-        background: var(--bg-base);
-        border: 1px solid var(--border-subtle);
-        padding: 16px;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    .option-card:hover {
-        border-color: var(--accent-waiting-text);
-        background: var(--accent-waiting-bg);
-    }
-    .option-card.selected {
-        border-color: var(--accent-waiting-text);
-        box-shadow: 0 0 0 1px var(--accent-waiting-text);
-    }
-    .option-title { font-weight: 600; margin-bottom: 4px; }
-    .option-desc { font-size: 12px; color: var(--text-secondary); }
+  .modal-scroll-area.is-done { display: flex; align-items: center; justify-content: center; }
+  .modal-scroll-area.is-done .central-column { width: 100%; }
+  .all-done { text-align: center; display: grid; gap: 10px; justify-items: center; }
+  .all-done .icon { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--accent-active-text); border: 1px solid var(--border-strong); }
+  .all-done h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  .all-done p { margin: 0; color: var(--text-secondary); max-width: 46ch; }
 
-    .input-group label {
-        display: block;
-        margin-bottom: 12px;
-        font-weight: 500;
-        color: var(--text-secondary);
-    }
-    .custom-textarea {
-        width: 100%;
-        background: var(--bg-base);
-        border: 1px solid var(--border-strong);
-        border-radius: 8px;
-        padding: 16px;
-        color: var(--text-primary);
-        font-family: var(--font-sans);
-        font-size: 14px;
-        min-height: 120px;
-        outline: none;
-        resize: none;
-    }
-    .custom-textarea:focus { border-color: var(--accent-waiting-text); }
-
-    
-    .modal-footer {
-        padding: 24px 40px;
-        background: rgba(0,0,0,0.2);
-        border-top: 1px solid var(--border-subtle);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    
-    .btn {
-        padding: 10px 20px;
-        border-radius: 6px;
-        font-weight: 600;
-        cursor: pointer;
-        border: 1px solid var(--border-strong);
-        background: transparent;
-        color: var(--text-primary);
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .btn-primary {
-        background: var(--accent-waiting-text);
-        border-color: var(--accent-waiting-text);
-        color: #000;
-    }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
+  .modal-footer { padding: 24px 40px; background: rgba(0,0,0,0.2); border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .footer-right { display: flex; gap: 12px; align-items: center; margin-left: auto; }
+  .footer-msg { font-size: 12px; color: var(--accent-error-text); display: inline-flex; align-items: center; gap: 6px; }
+  .footer-msg svg { width: 14px; height: 14px; }
+  .btn { font: inherit; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; border: 1px solid var(--border-strong); background: transparent; color: var(--text-primary); display: inline-flex; align-items: center; gap: 8px; }
+  .btn:hover:not(:disabled) { background: var(--bg-surface-hover); }
+  .btn-primary { background: var(--accent-waiting-text); border-color: var(--accent-waiting-text); color: #000; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-waiting-text); filter: brightness(1.08); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-icon { border: none; padding: 5px; color: var(--text-secondary); }
+  .btn:focus-visible, .option-card:focus-visible, .step-indicator:focus-visible, summary:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+  .toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tool { font: inherit; font-size: 12px; background: none; border: 1px solid var(--border-subtle); color: var(--text-secondary); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  .tool:hover { background: var(--bg-surface-hover); }
 </style>
-</head>
-<body vid="6">
 
-    
-    <header class="app-header" vid="7"></header>
-    <div class="toolbar" vid="8"></div>
-    <main class="main-content" vid="9"></main>
+<div class="page">
+  <header class="intro">
+    <h1>Окно ответа на вопрос оператору</h1>
+    <p>Макет Variant из <span class="mono">design/reply.html</span>, приведённый к панели. Ответ пишется на каждый вопрос, а отправляются все ответы разом, одной кнопкой. Вопросы настоящие, из памяти этой задачи. Окно живое; кнопки над окном заполняют пример и показывают ошибку записи.</p>
+  </header>
 
-    
-    <div class="modal-overlay" vid="10">
-        <div class="modal-wizard" vid="11">
-            
-            <div class="wizard-stepper" vid="12">
-                <div style="flex: 1;" vid="13">
-                    <div class="step-label" vid="14">Вопрос 1 из 3</div>
-                    <div style="display: flex; gap: 8px;" vid="15">
-                        <div class="step-indicator active" vid="16"></div>
-                        <div class="step-indicator" vid="17"></div>
-                        <div class="step-indicator" vid="18"></div>
-                    </div>
-                </div>
-                <button class="btn" style="border:none; padding: 5px;" vid="19">
-                    <svg viewBox="0 0 24 24" vid="20"><line x1="18" y1="6" x2="6" y2="18" vid="21"></line><line x1="6" y1="6" x2="18" y2="18" vid="22"></line></svg>
-                </button>
-            </div>
+  <div class="toolbar">
+    <button class="tool" type="button" id="fill">Заполнить все ответы</button>
+    <button class="tool" type="button" id="conflict">Отправить с ошибкой записи</button>
+    <button class="tool" type="button" id="reset">Сбросить пример</button>
+  </div>
 
-            <div class="modal-scroll-area" vid="23">
-                <div class="central-column" vid="24">
-                    <h1 class="massive-title" vid="25">Требуется уточнение по обработке данных</h1>
-
-                    <div class="context-accordion" vid="26">
-                        <div class="accordion-header" vid="27">
-                            <span vid="28">Контекст задачи</span>
-                            <svg viewBox="0 0 24 24" vid="29"><polyline points="6 9 12 15 18 9" vid="30"></polyline></svg>
-                        </div>
-                        <div class="accordion-content" vid="31">
-                            <div class="context-meta" vid="32">Project: Data-Pipeline / Branch: fix/mem-leak</div>
-                            <ul class="checklist" vid="33">
-                                <li class="checklist-item" vid="34"><svg viewBox="0 0 24 24" vid="35"><polyline points="20 6 9 17 4 12" vid="36"></polyline></svg> Инициализация профилировщика памяти</li>
-                                <li class="checklist-item" vid="37"><svg viewBox="0 0 24 24" vid="38"><polyline points="20 6 9 17 4 12" vid="39"></polyline></svg> Анализ чанков потока данных</li>
-                                <li class="checklist-item" vid="40"><svg viewBox="0 0 24 24" vid="41"><polyline points="20 6 9 17 4 12" vid="42"></polyline></svg> Обнаружение бинарного блоба</li>
-                                <li class="checklist-item" vid="43"><svg viewBox="0 0 24 24" vid="44"><polyline points="20 6 9 17 4 12" vid="45"></polyline></svg> Попытка автоматического декодирования</li>
-                                <li class="checklist-item" vid="46"><svg viewBox="0 0 24 24" vid="47"><polyline points="20 6 9 17 4 12" vid="48"></polyline></svg> Ошибка: Неизвестная кодировка</li>
-                                <li class="checklist-item" vid="49"><svg viewBox="0 0 24 24" style="color:var(--text-tertiary)" vid="50"><circle cx="12" cy="12" r="10" vid="51"></circle></svg> Ожидание решения пользователя</li>
-                            </ul>
-                        </div>
-                    </div>
-
-                    <div class="question-box" vid="52">
-                        Я обнаружил неструктурированный бинарный блоб в потоке. Должен ли я попытаться декодировать его, используя запасную кодировку, или полностью пропустить этот чанк?
-                    </div>
-
-                    <div class="options-grid" vid="53">
-                        <div class="option-card selected" vid="54">
-                            <div class="option-title" vid="55">Декодировать (Fallback)</div>
-                            <div class="option-desc" vid="56">Попробовать ASCII/UTF-8. Риск потери данных.</div>
-                        </div>
-                        <div class="option-card" vid="57">
-                            <div class="option-title" vid="58">Пропустить чанк</div>
-                            <div class="option-desc" vid="59">Безопасно отбросить блок и продолжить работу.</div>
-                        </div>
-                        <div class="option-card" vid="60">
-                            <div class="option-title" vid="61">Логировать в файл</div>
-                            <div class="option-desc" vid="62">Сохранить сырые данные для ручного анализа позже.</div>
-                        </div>
-                        <div class="option-card" vid="63">
-                            <div class="option-title" vid="64">Остановить процесс</div>
-                            <div class="option-desc" vid="65">Прекратить выполнение всей задачи немедленно.</div>
-                        </div>
-                    </div>
-
-                    <div class="input-group" vid="66">
-                        <label vid="67">Дополнительные инструкции (необязательно)</label>
-                        <textarea class="custom-textarea" placeholder="Например: Если это JSON, попробуй восстановить структуру..." vid="68"></textarea>
-                    </div>
-                </div>
-            </div>
-
-            <div class="modal-footer" vid="69">
-                <button class="btn" disabled="" vid="70">
-                    <svg viewBox="0 0 24 24" vid="71"><polyline points="15 18 9 12 15 6" vid="72"></polyline></svg>
-                    Назад
-                </button>
-                <div style="display: flex; gap: 12px;" vid="73">
-                    <button class="btn" vid="74">Пропустить шаг</button>
-                    <button class="btn btn-primary" vid="75">
-                        Отправить и продолжить
-                        <svg viewBox="0 0 24 24" vid="76"><polyline points="9 18 15 12 9 6" vid="77"></polyline></svg>
-                    </button>
-                </div>
-            </div>
+  <div class="stage">
+    <div class="modal-wizard" role="dialog" aria-label="Ответ оператора">
+      <div class="wizard-stepper">
+        <div class="stepper-main">
+          <div class="step-label" id="step-label"></div>
+          <div class="steps" id="steps"></div>
         </div>
+        <button class="btn btn-icon" type="button" aria-label="Закрыть"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+      </div>
+
+      <div class="modal-scroll-area" id="scroll">
+        <div class="central-column" id="body"></div>
+      </div>
+
+      <div class="modal-footer" id="footer">
+        <button class="btn" type="button" id="prev"><svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>Назад</button>
+        <div class="footer-right">
+          <span class="footer-msg" id="footer-msg" hidden></span>
+          <button class="btn" type="button" id="next">Далее<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></button>
+          <button class="btn btn-primary" type="button" id="send">Отправить</button>
+          <button class="btn btn-primary" type="button" id="close" hidden>Закрыть</button>
+        </div>
+      </div>
     </div>
+  </div>
 
+  <ul class="notes">
+    <li><b>Отправка одна на всё окно.</b> Ответы по вопросам — черновики, пока окно открыто. «Отправить» записывает в память все ответы сразу.</li>
+    <li><b>Нужен ответ на каждый вопрос.</b> Если какой-то вопрос без ответа, запись не идёт: окно открывает первый такой вопрос и пишет под полем «Напишите свой ответ». Отдельного счётчика нет.</li>
+    <li><b>Ошибка записи.</b> Если хоть один вопрос к моменту отправки исчез из памяти или получил ответ из другого места, окно не записывает ничего, открывает этот вопрос и показывает причину. Остальные ответы остаются в полях.</li>
+    <li><b>Аккордеон «Контекст задачи»:</b> заголовок задачи, проект и путь копии, критерий закрытия и «Не входит» вместо шагов агента из макета.</li>
+    <li><b>Карточки</b> — строки «вариант», «Рекомендовано» — вариант сессии без довода. Выбор карточки вписывает её текст в поле «Ответ».</li>
+    <li><b>Цвета как в макете:</b> жёлтая полоска — текущий вопрос, полоса контекста всегда жёлтая.</li>
+  </ul>
+</div>
 
-</body></html>
+<script>
+  const TASK = {
+    title: 'Ответ на вопрос оператору из панели: окно показывает блок вопроса «Оператору:» и записывает в него строку «ответ:»',
+    copy: 'agents-kit-web-knowledge · D:\\Projects\\agents-kit-web',
+    criterion: [
+      'В таблице у строки со статусом «Ждёт оператора» есть кнопка «Ответить», у остальных строк её нет.',
+      'Кнопка открывает окно ответа. В нём заголовок задачи, рабочая копия и критерий закрытия; неотвеченные вопросы блоками: заголовок, контекст, варианты; вариант из строки «сессия за» помечен «Рекомендовано». У вопроса поле ответа и отправка.',
+      'Отправка дописывает «- ответ: <текст>» последней строкой блока своего вопроса. Остальной файл не меняется, включая переводы строк CRLF/LF. Панель не коммитит и больше ничего не пишет.',
+      'Пустой ответ не отправляется. Ответ записывается одной строкой.',
+      'Если вопроса уже нет или в его блоке уже есть ответ, панель ничего не пишет и показывает в окне ошибку.',
+      'Писать можно только в work/*.md баз из настройки Bases. API принимает базу, копию и заголовок вопроса, путь к файлу не принимает.',
+      '«Ждёт оператора» — есть блок вопроса без строки «ответ». Сейчас разбор смотрит только соседнюю строку, это переделывается. После отправки таблица перечитывается.',
+      'Проверки: тесты бэкенда на разбор блоков и запись во временную базу (CRLF, несколько вопросов, уже отвеченный вопрос, чужой путь), тест фронта на окно, e2e «открыть → ответить → статус сменился», lint, build.'
+    ],
+    out: 'Не входит: health, настройка путей к базам, пробуждение сессии (сессия сама ждёт свой файл), статус «resuming» из наброска.'
+  };
+
+  const QUESTIONS = [
+    { title: 'Подтвердить критерий закрытия задачи «ответ из панели»?',
+      context: 'В критерии за вами объём окна и набор проверок. В «Не входит» вынесены health, пути к базам, пробуждение сессии и статус resuming. Развилки с альтернативами (несколько вопросов, переносы, e2e, кнопки вариантов) идут следующими вопросами. Запись и разбор следуют раскладке кита и решениям base-access, operator-answers, ui.',
+      variants: [], sample: 'Подтверждаю' },
+    { title: 'Как показывать в окне несколько неотвеченных вопросов одной копии?',
+      context: 'В памяти копии может быть сразу несколько блоков «Оператору:». В наброске design/sketch.html окно рассчитано на один вопрос и одно поле.',
+      variants: [
+        { choice: 'Все вопросы в одном окне, у каждого своё поле и «Отправить»', effect: 'Видно всё сразу, окно длиннее', rec: true },
+        { choice: 'По одному вопросу, «Следующий» после отправки', effect: 'Окно как в наброске, остальные вопросы не видны до отправки', rec: false }
+      ], sample: 'Переключать вопросы, отправлять все ответы разом' },
+    { title: 'Как быть с переносами строк в ответе из панели?',
+      context: 'Ответ записывается в память одной строкой «ответ:». Многострочный текст из поля ввода её сломает.',
+      variants: [
+        { choice: 'Заменять переносы пробелами', effect: 'Ответ пишется всегда, абзацы теряются', rec: true },
+        { choice: 'Не отправлять ответ с переносом', effect: 'Оператор переписывает сам, окно показывает ошибку', rec: false }
+      ], sample: 'Заменять переносы пробелами' },
+    { title: 'На чём гонять e2e окна ответа?',
+      context: 'dev-API читает настоящую базу знаний из appsettings.Development.json. Если e2e запишет ответ, он попадёт в живую память задачи.',
+      variants: [
+        { choice: 'e2e подменяет /api', effect: 'Живая база не трогается, запись на диск проверяют только тесты бэкенда', rec: true },
+        { choice: 'API на временной копии базы', effect: 'Проверена вся цепочка до файла, прогон сложнее', rec: false }
+      ], sample: 'e2e подменяет /api' },
+    { title: 'Делать ли строки «вариант» кнопками в окне ответа?',
+      context: 'У вопроса в новой форме кита бывают строки «вариант: что выбрать — что изменит». Сейчас в критерии они только показываются текстом.',
+      variants: [
+        { choice: 'Кнопка у варианта подставляет его в поле ответа', effect: 'Меньше набирать, поле можно поправить до отправки', rec: true },
+        { choice: 'Только текстом', effect: 'Окно проще, ответ набирается руками', rec: false }
+      ], sample: 'Кнопка у варианта подставляет его в поле ответа' }
+  ];
+
+  const ICON_OK = '<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>';
+  const ICON_WARN = '<svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+  // problem: { i, kind: 'empty' | 'conflict' } — почему отправка не прошла
+  let answers, current, sent, problem, ctxOpen = false;
+
+  function reset() { answers = QUESTIONS.map(() => ''); current = 0; sent = false; problem = null; render(); }
+
+  function render() {
+    const ctx = $('ctx'); if (ctx) ctxOpen = ctx.open;
+    $('scroll').classList.toggle('is-done', sent);
+
+    $('steps').innerHTML = QUESTIONS.map((q, i) =>
+      `<button class="step-indicator" type="button" data-i="${i}" ${!sent && i === current ? 'aria-current="step"' : ''} ${sent ? 'disabled' : ''} aria-label="Вопрос ${i + 1}: ${esc(q.title)}" title="${esc(q.title)}"></button>`).join('');
+    $('steps').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { current = +b.dataset.i; render(); }));
+
+    const context = `<details class="context-accordion" id="ctx"${ctxOpen ? ' open' : ''}>
+      <summary><span class="acc-title"><span>Контекст задачи</span><span class="acc-task">${esc(TASK.title)}</span><span class="acc-copy">${esc(TASK.copy)}</span></span>
+      <svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></summary>
+      <div class="accordion-content"><p class="acc-label">Критерий закрытия</p>
+        <ol class="criterion">${TASK.criterion.map((c) => `<li>${esc(c)}</li>`).join('')}</ol>
+        <p class="out">${esc(TASK.out)}</p></div>
+    </details>`;
+
+    if (sent) {
+      $('step-label').hidden = true;
+      $('body').innerHTML = `<div class="all-done"><div class="icon">${ICON_OK}</div><h2>Ответы записаны</h2><p>Все ${QUESTIONS.length} ответов записаны в память копии. Агент подхватит их сам, таблица уже перечитана.</p></div>`;
+      $('prev').hidden = true; $('next').hidden = true; $('send').hidden = true; $('close').hidden = false; $('footer-msg').hidden = true;
+      return;
+    }
+
+    const q = QUESTIONS[current];
+    $('step-label').hidden = false;
+    $('step-label').textContent = `Вопрос ${current + 1} из ${QUESTIONS.length}`;
+    let status = '';
+    if (problem && problem.i === current) {
+      status = problem.kind === 'empty'
+        ? `<div class="field-status error">${ICON_WARN}Напишите свой ответ</div>`
+        : `<div class="field-status error">${ICON_WARN}На этот вопрос уже ответили из другого места. Ничего не записано — закройте окно, чтобы увидеть актуальную память.</div>`;
+    } else {
+      status = `<div class="field-status">Ответ записывается одной строкой</div>`;
+    }
+
+    $('body').innerHTML = context + `
+      <section>
+        <h2 class="massive-title">${esc(q.title)}</h2>
+        <div class="question-box">${esc(q.context)}</div>
+        ${q.variants.length ? `<div class="options-grid">${q.variants.map((v, i) => `
+          <button class="option-card" type="button" data-v="${i}" aria-pressed="${answers[current] === v.choice}">
+            <span class="option-head"><span class="option-title">${esc(v.choice)}</span>${v.rec ? '<span class="tag-rec">Рекомендовано</span>' : ''}</span>
+            <span class="option-desc">${esc(v.effect)}</span>
+          </button>`).join('')}</div>` : ''}
+        <div class="input-group">
+          <label for="answer">Ответ</label>
+          <textarea class="custom-textarea" id="answer" placeholder="${q.variants.length ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}">${esc(answers[current])}</textarea>
+          ${status}
+        </div>
+      </section>`;
+
+    const field = $('answer');
+    const sync = () => {
+      answers[current] = field.value;
+      document.querySelectorAll('.option-card').forEach((c) => c.setAttribute('aria-pressed', String(answers[current] === q.variants[+c.dataset.v].choice)));
+      if (problem && problem.i === current && problem.kind === 'empty' && field.value.trim()) { problem = null; const s = document.querySelector('.field-status'); s.className = 'field-status'; s.textContent = 'Ответ записывается одной строкой'; syncFooter(); }
+    };
+    field.addEventListener('input', sync);
+    document.querySelectorAll('.option-card').forEach((c) => c.addEventListener('click', () => { field.value = q.variants[+c.dataset.v].choice; sync(); field.focus(); }));
+
+    $('prev').hidden = false; $('prev').disabled = current === 0;
+    $('next').hidden = current === QUESTIONS.length - 1;
+    $('send').hidden = false; $('close').hidden = true;
+    syncFooter();
+  }
+
+  function syncFooter() {
+    const msg = $('footer-msg');
+    if (problem && problem.kind === 'conflict') { msg.hidden = false; msg.innerHTML = `${ICON_WARN}Ответы не записаны`; }
+    else msg.hidden = true;
+  }
+
+  function send(simulateConflict) {
+    const empty = answers.findIndex((a) => !a.trim());
+    if (empty >= 0) { problem = { i: empty, kind: 'empty' }; current = empty; render(); $('answer').focus(); return; }
+    if (simulateConflict) { problem = { i: 3, kind: 'conflict' }; current = 3; render(); return; }
+    answers = answers.map((a) => a.replace(/\s*\n\s*/g, ' ').trim());
+    problem = null; sent = true; render();
+  }
+
+  $('prev').addEventListener('click', () => { current = Math.max(0, current - 1); render(); });
+  $('next').addEventListener('click', () => { current = Math.min(QUESTIONS.length - 1, current + 1); render(); });
+  $('send').addEventListener('click', () => send(false));
+  $('close').addEventListener('click', reset);
+  $('reset').addEventListener('click', reset);
+  $('fill').addEventListener('click', () => { answers = QUESTIONS.map((q) => q.sample); problem = null; render(); });
+  $('conflict').addEventListener('click', () => { answers = QUESTIONS.map((q, i) => answers[i].trim() ? answers[i] : q.sample); send(true); });
+  reset();
+</script>
