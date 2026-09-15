@@ -4,25 +4,34 @@ namespace AgentsKitWeb.Api.Tests;
 
 public class WorkMemoryTests
 {
-    private const string Memory = """
+    // Переводы строк приводятся к LF: при core.autocrlf=true сырая строка в исходнике получает CRLF.
+    private static readonly string Memory = """
         # Таблица рабочих копий
         рабочая копия: D:\Projects\app
         ветка: feat/table
+        Решения: нет
 
-        - Критерий закрытия: таблица есть
-        - Оператору: нечего
-        - Решения: нет
+        ## Критерии закрытия
+        - таблица есть
+        - не входит: health
 
-        ## Шаги
-        - [x] API — результат: abc123
-        - [ ] Фронт
+        ## Условия
+
+        ## Оператору
 
         ## Флоу
         - [x] 1. Критерий — выход: подтверждён
         - [x] 2. Ветка — выход: feat/table
         - [ ] 3. Реализация
         - [ ] 4. Приёмка
-        """;
+
+        ## Шаги
+        - [x] API — результат: abc123
+        - [ ] Фронт
+        """.ReplaceLineEndings("\n");
+
+    private static WorkMemory WithQuestions(string questions) =>
+        WorkMemory.Parse(Memory.Replace("## Оператору\n", "## Оператору\n\n" + questions.ReplaceLineEndings("\n") + "\n"));
 
     [Fact]
     public void Parse_ReadsHeaderAndFirstOpenFlowStepWithoutNumber()
@@ -34,51 +43,103 @@ public class WorkMemoryTests
         Assert.Equal("Таблица рабочих копий", memory.Task);
         Assert.Equal("Реализация", memory.FlowStep);
         Assert.Equal(50, memory.Progress);
+        Assert.Empty(memory.Questions);
         Assert.False(memory.WaitingForOperator);
     }
 
     [Fact]
-    public void Parse_QuestionWithoutAnswer_IsWaiting()
+    public void Parse_Criteria_ReadsLinesOfCriteriaSectionWithOutOfScope()
     {
-        var memory = WorkMemory.Parse(Memory.Replace("- Оператору: нечего", "- Оператору: подтвердите критерий"));
+        var memory = WorkMemory.Parse(Memory);
 
+        Assert.Equal(["таблица есть", "не входит: health"], memory.Criterion);
+    }
+
+    [Fact]
+    public void Parse_NoCriteriaSection_HasNoCriterion()
+    {
+        var memory = WorkMemory.Parse(Memory.Replace("## Критерии закрытия\n- таблица есть\n- не входит: health\n", ""));
+
+        Assert.Empty(memory.Criterion);
+    }
+
+    [Fact]
+    public void Parse_QuestionWithEmptyAnswer_IsWaiting()
+    {
+        var memory = WithQuestions("""
+            ### Подтвердить критерии
+            За вами объём проверок.
+
+            ответ:
+            """);
+
+        Assert.Null(Assert.Single(memory.Questions).Answer);
+        Assert.True(memory.WaitingForOperator);
+    }
+
+    [Fact]
+    public void Parse_QuestionWithoutAnswerLine_IsWaiting()
+    {
+        var memory = WithQuestions("""
+            ### Подтвердить критерии
+            За вами объём проверок.
+            """);
+
+        Assert.Null(Assert.Single(memory.Questions).Answer);
         Assert.True(memory.WaitingForOperator);
     }
 
     [Fact]
     public void Parse_AnsweredQuestion_IsNotWaiting()
     {
-        var memory = WorkMemory.Parse(Memory.Replace(
-            "- Оператору: нечего",
-            "- Оператору: подтвердите критерий\n  - ответ: подтверждаю"));
+        var memory = WithQuestions("""
+            ### Подтвердить критерии
+            За вами объём проверок.
 
+            ответ: да
+            """);
+
+        Assert.Equal("да", Assert.Single(memory.Questions).Answer);
         Assert.False(memory.WaitingForOperator);
     }
 
     [Fact]
     public void Parse_OneOfTwoQuestionsUnanswered_IsWaiting()
     {
-        var memory = WorkMemory.Parse(Memory.Replace(
-            "- Оператору: нечего",
-            "- Оператору: первый\n  - ответ: да\n- Оператору: второй"));
+        var memory = WithQuestions("""
+            ### Первый
+            к
 
+            ответ: да
+
+            ### Второй
+            к
+
+            ответ:
+            """);
+
+        Assert.Equal(["Первый", "Второй"], memory.Questions.Select(q => q.Title));
         Assert.True(memory.WaitingForOperator);
     }
 
     [Fact]
-    public void Parse_QuestionBlock_ReadsContextVariantsAndRecommendation()
+    public void Parse_QuestionBlock_ReadsContextVariantsAndExactRecommendation()
     {
-        var memory = WorkMemory.Parse(Memory.Replace("- Оператору: нечего", """
-            - Оператору: Как быть с переносами строк в ответе из панели?
-              - контекст: ответ записывается в память одной строкой
-              - вариант: заменять переносы пробелами — ответ пишется всегда, абзацы теряются
-              - вариант: не отправлять ответ с переносом — оператор переписывает сам
-              - сессия за: заменять пробелами — абзацы в ответе редки
-            """));
+        var memory = WithQuestions("""
+            ### Как быть с переносами строк в ответе из панели?
+            Ответ записывается в память одной строкой.
+            Абзацы в ответах редки.
+
+            - вариант: заменять переносы пробелами — ответ пишется всегда, абзацы теряются
+            - вариант: не отправлять ответ с переносом — оператор переписывает сам
+            - рекомендовано: заменять переносы пробелами — ответ пишется всегда, абзацы теряются
+
+            ответ:
+            """);
 
         var question = Assert.Single(memory.Questions);
         Assert.Equal("Как быть с переносами строк в ответе из панели?", question.Title);
-        Assert.Equal("ответ записывается в память одной строкой", question.Context);
+        Assert.Equal("Ответ записывается в память одной строкой.\nАбзацы в ответах редки.", question.Context);
         Assert.Null(question.Answer);
         Assert.Collection(question.Variants,
             v =>
@@ -90,58 +151,62 @@ public class WorkMemoryTests
             v =>
             {
                 Assert.Equal("не отправлять ответ с переносом", v.Choice);
+                Assert.Equal("оператор переписывает сам", v.Effect);
                 Assert.False(v.Recommended);
             });
-        Assert.True(memory.WaitingForOperator);
     }
 
-    [Fact]
-    public void Parse_AnswerLastInBlockAfterOtherLines_IsNotWaiting()
+    [Theory]
+    [InlineData("заменять переносы пробелами")]
+    [InlineData("заменять пробелами — проще")]
+    public void Parse_RecommendationNotWordForWord_MarksNone(string recommended)
     {
-        var memory = WorkMemory.Parse(Memory.Replace("- Оператору: нечего", """
-            - Оператору: Подтвердить критерий?
-              - контекст: за вами объём проверок
-              - ответ: принимаю
-            """));
+        var memory = WithQuestions($"""
+            ### Как быть с переносами?
+            к
 
-        Assert.Equal("принимаю", Assert.Single(memory.Questions).Answer);
-        Assert.False(memory.WaitingForOperator);
-    }
+            - вариант: заменять переносы пробелами — абзацы теряются
+            - вариант: не отправлять — оператор переписывает
+            - рекомендовано: {recommended}
 
-    [Fact]
-    public void Parse_RecommendationMatchingTwoVariantsEqually_MarksNone()
-    {
-        var memory = WorkMemory.Parse(Memory.Replace("- Оператору: нечего", """
-            - Оператору: Где гонять e2e?
-              - контекст: dev-API смотрит в живую базу
-              - вариант: подменять api — живая база не трогается
-              - вариант: api на копии базы — прогон сложнее
-              - сессия за: api — проще
-            """));
+            ответ:
+            """);
 
         Assert.All(Assert.Single(memory.Questions).Variants, v => Assert.False(v.Recommended));
     }
 
     [Fact]
-    public void Parse_Criterion_ReadsSubLines()
+    public void Parse_QuestionsOutsideOperatorSection_AreIgnored()
     {
-        var memory = WorkMemory.Parse(Memory.Replace("- Критерий закрытия: таблица есть", """
-            - Критерий закрытия:
-              1. Таблица есть.
-              Не входит: health.
-            """));
+        var memory = WorkMemory.Parse(Memory.Replace("## Условия\n", "## Условия\n### не вопрос\n\nответ:\n"));
 
-        Assert.Equal(["1. Таблица есть.", "Не входит: health."], memory.Criterion);
+        Assert.Empty(memory.Questions);
     }
 
     [Fact]
-    public void Parse_CrlfMemory_ReadsQuestions()
+    public void Parse_OldFormInHeader_HasNoQuestionsOrCriterion()
     {
         var memory = WorkMemory.Parse(Memory
-            .Replace("- Оператору: нечего", "- Оператору: первый\n  - контекст: к\n  - ответ: да")
+            .Replace("## Критерии закрытия\n- таблица есть\n- не входит: health\n", "")
+            .Replace("Решения: нет\n", "Решения: нет\n- Критерий закрытия: таблица есть\n- Оператору: подтвердите критерий\n  - контекст: к\n"));
+
+        Assert.Empty(memory.Questions);
+        Assert.Empty(memory.Criterion);
+        Assert.False(memory.WaitingForOperator);
+    }
+
+    [Fact]
+    public void Parse_CrlfMemory_ReadsQuestionsAndCriteria()
+    {
+        var memory = WorkMemory.Parse(Memory
+            .Replace("## Оператору\n", "## Оператору\n\n### Первый\nк\n\nответ: да\n")
             .Replace("\n", "\r\n"));
 
-        Assert.Equal("да", Assert.Single(memory.Questions).Answer);
+        var question = Assert.Single(memory.Questions);
+        Assert.Equal("Первый", question.Title);
+        Assert.Equal("к", question.Context);
+        Assert.Equal("да", question.Answer);
+        Assert.Equal(["таблица есть", "не входит: health"], memory.Criterion);
         Assert.Equal("Реализация", memory.FlowStep);
     }
 

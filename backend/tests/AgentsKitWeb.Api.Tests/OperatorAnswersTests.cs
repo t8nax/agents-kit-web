@@ -5,30 +5,46 @@ namespace AgentsKitWeb.Api.Tests;
 
 public class OperatorAnswersTests
 {
-    private const string Memory = """
+    // Переводы строк приводятся к LF: при core.autocrlf=true сырая строка в исходнике получает CRLF.
+    private static readonly string Memory = """
         # Задача
         рабочая копия: D:\Projects\app
         ветка: feat/x
+        Решения: нет
 
-        - Критерий закрытия: окно есть
-        - Оператору: Подтвердить критерий?
-          - контекст: за вами объём проверок
-        - Оператору: Как быть с переносами?
-          - контекст: ответ одной строкой
-          - вариант: заменять пробелами — абзацы теряются
-          - вариант: не отправлять — оператор переписывает
-          - сессия за: заменять пробелами — проще
-        - Решения: нет
+        ## Критерии закрытия
+        - окно есть
 
-        ## Шаги
-        - [ ] Окно
+        ## Условия
+
+        ## Оператору
+
+        ### Подтвердить критерий?
+        За вами объём проверок.
+
+        ответ:
+
+        ### Как быть с переносами?
+        Ответ одной строкой.
+
+        - вариант: заменять пробелами — абзацы теряются
+        - вариант: не отправлять — оператор переписывает
+        - рекомендовано: заменять пробелами — абзацы теряются
+
+        ответ:
 
         ## Флоу
         - [ ] 1. Критерий
-        """;
+
+        ## Шаги
+        - [ ] Окно
+        """.ReplaceLineEndings("\n");
+
+    private const string FirstAnswer = "За вами объём проверок.\n\nответ:\n";
+    private const string SecondAnswer = "- рекомендовано: заменять пробелами — абзацы теряются\n\nответ:\n";
 
     [Fact]
-    public void Apply_WritesEachAnswerAsLastLineOfItsBlock()
+    public void Apply_WritesEachAnswerAfterColonOfItsEmptyAnswerLine()
     {
         var (text, rejection) = OperatorAnswers.Apply(Memory, [
             new("Как быть с переносами?", "заменять пробелами"),
@@ -37,10 +53,42 @@ public class OperatorAnswersTests
 
         Assert.Null(rejection);
         Assert.Equal(Memory
-            .Replace("  - контекст: за вами объём проверок\n", "  - контекст: за вами объём проверок\n  - ответ: принимаю\n")
-            .Replace("  - сессия за: заменять пробелами — проще\n", "  - сессия за: заменять пробелами — проще\n  - ответ: заменять пробелами\n"),
+            .Replace(FirstAnswer, "За вами объём проверок.\n\nответ: принимаю\n")
+            .Replace(SecondAnswer, "- рекомендовано: заменять пробелами — абзацы теряются\n\nответ: заменять пробелами\n"),
             text);
         Assert.False(WorkMemory.Parse(text!).WaitingForOperator);
+    }
+
+    [Fact]
+    public void Apply_AnswerLineWithTrailingSpaces_IsReplacedWhole()
+    {
+        var memory = Memory.Replace(FirstAnswer, "За вами объём проверок.\n\nответ:   \n");
+
+        var (text, _) = OperatorAnswers.Apply(memory, [new("Подтвердить критерий?", "да")]);
+
+        Assert.Equal(Memory.Replace(FirstAnswer, "За вами объём проверок.\n\nответ: да\n"), text);
+    }
+
+    [Fact]
+    public void Apply_QuestionWithoutAnswerLine_AppendsAnswerLastInBlock()
+    {
+        var memory = Memory.Replace(FirstAnswer, "За вами объём проверок.\n");
+
+        var (text, rejection) = OperatorAnswers.Apply(memory, [new("Подтвердить критерий?", "да")]);
+
+        Assert.Null(rejection);
+        Assert.Equal(Memory.Replace(FirstAnswer, "За вами объём проверок.\n\nответ: да\n"), text);
+        Assert.Equal("да", WorkMemory.Parse(text!).Questions[0].Answer);
+    }
+
+    [Fact]
+    public void Apply_BlockAtEndOfFileWithoutAnswerAndNewline_AddsAnswerAfterBlankLine()
+    {
+        const string memory = "# Задача\n\n## Оператору\n\n### Да?\nк";
+
+        var (text, _) = OperatorAnswers.Apply(memory, [new("Да?", "да")]);
+
+        Assert.Equal("# Задача\n\n## Оператору\n\n### Да?\nк\n\nответ: да", text);
     }
 
     [Fact]
@@ -51,17 +99,17 @@ public class OperatorAnswersTests
         var (text, rejection) = OperatorAnswers.Apply(crlf, [new("Подтвердить критерий?", "да")]);
 
         Assert.Null(rejection);
-        Assert.Equal(crlf.Replace("объём проверок\r\n", "объём проверок\r\n  - ответ: да\r\n"), text);
+        Assert.Equal(crlf.Replace("объём проверок.\r\n\r\nответ:\r\n", "объём проверок.\r\n\r\nответ: да\r\n"), text);
     }
 
     [Fact]
-    public void Apply_BlockAtEndOfFileWithoutNewline_AddsLineBreakBeforeAnswer()
+    public void Apply_CrlfMemoryWithoutAnswerLine_AppendsWithCrlf()
     {
-        const string memory = "# Задача\n- Оператору: Да?\n  - контекст: к";
+        var crlf = Memory.Replace(FirstAnswer, "За вами объём проверок.\n").Replace("\n", "\r\n");
 
-        var (text, _) = OperatorAnswers.Apply(memory, [new("Да?", "да")]);
+        var (text, _) = OperatorAnswers.Apply(crlf, [new("Подтвердить критерий?", "да")]);
 
-        Assert.Equal("# Задача\n- Оператору: Да?\n  - контекст: к\n  - ответ: да", text);
+        Assert.Equal(crlf.Replace("объём проверок.\r\n", "объём проверок.\r\n\r\nответ: да\r\n"), text);
     }
 
     [Fact]
@@ -69,7 +117,7 @@ public class OperatorAnswersTests
     {
         var (text, _) = OperatorAnswers.Apply(Memory, [new("Подтвердить критерий?", "  принимаю,\r\n\r\n  но проверьте e2e \n")]);
 
-        Assert.Contains("  - ответ: принимаю, но проверьте e2e\n", text);
+        Assert.Contains("\nответ: принимаю, но проверьте e2e\n", text);
     }
 
     [Theory]
@@ -89,7 +137,7 @@ public class OperatorAnswersTests
     [Fact]
     public void Apply_AlreadyAnsweredQuestion_WritesNothing()
     {
-        var answered = Memory.Replace("за вами объём проверок\n", "за вами объём проверок\n  - ответ: да\n");
+        var answered = Memory.Replace(FirstAnswer, "За вами объём проверок.\n\nответ: да\n");
 
         var (text, rejection) = OperatorAnswers.Apply(answered, [
             new("Как быть с переносами?", "заменять"),
@@ -110,9 +158,9 @@ public class OperatorAnswersTests
     }
 
     [Fact]
-    public void Apply_QuestionsInSectionsBelowHeader_AreIgnored()
+    public void Apply_QuestionsOutsideOperatorSection_AreIgnored()
     {
-        var memory = Memory.Replace("- [ ] Окно", "- [ ] Окно\n- Оператору: не вопрос");
+        var memory = Memory.Replace("- [ ] Окно", "- [ ] Окно\n\n### не вопрос\n\nответ:");
 
         var (_, rejection) = OperatorAnswers.Apply(memory, [new("не вопрос", "да")]);
 
@@ -129,7 +177,7 @@ public class OperatorAnswersTests
         var rejection = await OperatorAnswers.WriteAsync(path, [new("Подтвердить критерий?", "принимаю")], CancellationToken.None);
 
         Assert.Null(rejection);
-        var expected = crlf.Replace("объём проверок\r\n", "объём проверок\r\n  - ответ: принимаю\r\n");
+        var expected = crlf.Replace("объём проверок.\r\n\r\nответ:\r\n", "объём проверок.\r\n\r\nответ: принимаю\r\n");
         Assert.Equal([0xEF, 0xBB, 0xBF, .. Encoding.UTF8.GetBytes(expected)], await File.ReadAllBytesAsync(path));
         Assert.Single(Directory.EnumerateFiles(Path.GetDirectoryName(path)!));
     }

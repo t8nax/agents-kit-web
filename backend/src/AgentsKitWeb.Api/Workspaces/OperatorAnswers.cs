@@ -22,7 +22,6 @@ public sealed record AnswerRejection(string Question, AnswerProblem Problem);
 public static class OperatorAnswers
 {
     private static readonly Regex LineBreaks = new(@"\s*[\r\n]+\s*");
-    private static readonly Regex Indent = new(@"^\s+");
     private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
 
     /// <summary>Ответ пишется одной строкой: переносы строк заменяются пробелами.</summary>
@@ -37,7 +36,7 @@ public static class OperatorAnswers
         var lines = MemoryText.Lines(text);
         var blocks = QuestionBlocks.Find(lines);
         var taken = new HashSet<QuestionBlock>();
-        var inserts = new List<(int Offset, string Text)>();
+        var edits = new List<(int Start, int End, string Text)>();
         var eol = text.Contains("\r\n") ? "\r\n" : "\n";
 
         foreach (var answer in normalized)
@@ -51,18 +50,25 @@ public static class OperatorAnswers
             }
             taken.Add(block);
 
-            var indent = block.LastLine.Text.StartsWith("- ")
-                ? "  "
-                : Indent.Match(block.LastLine.Text).Value;
-            var answerLine = $"{indent}- ответ: {answer.Answer}";
-            inserts.Add(block.LastLine.HasBreak
-                ? (block.LastLine.End, answerLine + eol)
-                : (block.LastLine.End, eol + answerLine));
+            var answerLine = $"ответ: {answer.Answer}";
+            if (block.AnswerLine is { } emptyLine)
+            {
+                // Пустая «ответ:» заменяется целиком, перевод строки после неё остаётся.
+                edits.Add((emptyLine.Start, emptyLine.Start + emptyLine.Text.Length, answerLine));
+            }
+            else
+            {
+                // Строки «ответ:» нет — она дописывается последней в блоке, через пустую строку, как в форме кита.
+                var last = block.LastLine;
+                edits.Add(last.HasBreak
+                    ? (last.End, last.End, eol + answerLine + eol)
+                    : (last.End, last.End, eol + eol + answerLine));
+            }
         }
 
         var result = new StringBuilder(text);
-        foreach (var (offset, insert) in inserts.OrderByDescending(i => i.Offset))
-            result.Insert(offset, insert);
+        foreach (var (start, end, replacement) in edits.OrderByDescending(e => e.Start))
+            result.Remove(start, end - start).Insert(start, replacement);
         return (result.ToString(), null);
     }
 
