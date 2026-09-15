@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import BasesModal from './BasesModal'
+import { notifyStatusChange, useNotificationPermission, type NotificationPermissionState } from './notifications'
 import ReplyModal from './ReplyModal'
+import { statusChanges } from './statusChanges'
 
 export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
 
@@ -34,6 +36,9 @@ function App() {
   const [basesOpen, setBasesOpen] = useState(false)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
+  // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
+  const polledRows = useRef<WorkspaceRow[] | null>(null)
+  const notifications = useNotificationPermission()
 
   const loadRows = useCallback(() => {
     const request = ++lastRequest.current
@@ -45,7 +50,10 @@ function App() {
       })
       .then(
         (rows) => {
-          if (request === lastRequest.current) setState({ rows, failed: false })
+          if (request !== lastRequest.current) return
+          statusChanges(polledRows.current, rows).forEach(notifyStatusChange)
+          polledRows.current = rows
+          setState({ rows, failed: false })
         },
         () => {
           if (request === lastRequest.current) setState((prev) => ({ ...prev, failed: true }))
@@ -83,7 +91,8 @@ function App() {
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
         <h3>agents-kit-web</h3>
-        <button type="button" className="bases-btn header-btn" onClick={() => setBasesOpen(true)}>
+        <NotificationsControl permission={notifications.permission} onRequest={notifications.request} />
+        <button type="button" className="bases-btn" onClick={() => setBasesOpen(true)}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <ellipse cx="12" cy="5" rx="9" ry="3" />
             <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
@@ -102,6 +111,44 @@ function App() {
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {basesOpen && <BasesModal onClose={closeBases} />}
     </>
+  )
+}
+
+function NotificationsControl({
+  permission,
+  onRequest,
+}: {
+  permission: NotificationPermissionState
+  onRequest: () => void
+}) {
+  if (permission === 'default') {
+    return (
+      <button type="button" className="bases-btn header-start" onClick={onRequest}>
+        <BellIcon />
+        Включить уведомления
+      </button>
+    )
+  }
+  if (permission === 'granted') {
+    return (
+      <span className="header-start header-note text-sec">
+        <BellIcon />
+        Уведомления включены
+      </span>
+    )
+  }
+  if (permission === 'denied') {
+    return <span className="header-start header-note text-ter">Уведомления запрещены в браузере</span>
+  }
+  return <span className="header-start" />
+}
+
+function BellIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
   )
 }
 
