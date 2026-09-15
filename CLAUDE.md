@@ -45,7 +45,7 @@ npm run lint
 npm test
 npm run build
 
-# e2e: сам поднимает API и dev-сервер, если они не запущены
+# e2e: каждый прогон поднимает свои API и dev-сервер на свободных портах, запущенные не берёт
 npx playwright install chromium   # один раз
 npm run test:e2e
 ```
