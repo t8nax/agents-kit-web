@@ -1,0 +1,690 @@
+<html lang="en" vid="0"><head vid="1">
+<meta charset="UTF-8" vid="2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" vid="3">
+<title vid="4">Agent Workspace Monitor</title>
+<style vid="5">
+    
+    :root {
+        --bg-base: #09090b;
+        --bg-surface: #121214;
+        --bg-surface-hover: #18181b;
+        --bg-overlay: rgba(0, 0, 0, 0.7);
+        
+        --border-subtle: #27272a;
+        --border-strong: #3f3f46;
+        
+        --text-primary: #ededed;
+        --text-secondary: #a1a1aa;
+        --text-tertiary: #71717a;
+        
+        --accent-waiting-bg: rgba(245, 158, 11, 0.15);
+        --accent-waiting-text: #fbbf24;
+        --accent-waiting-border: rgba(245, 158, 11, 0.3);
+        
+        --accent-active-bg: rgba(16, 185, 129, 0.1);
+        --accent-active-text: #34d399;
+        
+        --accent-done-bg: rgba(37, 99, 235, 0.1);
+        --accent-done-text: #60a5fa;
+
+        --accent-error-text: #f87171;
+
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        background-color: var(--bg-base);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 13px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; 
+    }
+
+    
+    .mono { font-family: var(--font-mono); font-size: 12px; }
+    .text-sec { color: var(--text-secondary); }
+    .text-sm { font-size: 12px; }
+    h1, h2, h3 { font-weight: 500; color: var(--text-primary); }
+
+    
+    .app-header {
+        height: 56px;
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+        flex-shrink: 0;
+    }
+
+    .header-left, .header-right {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .global-issues {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background-color: rgba(248, 113, 113, 0.1);
+        border: 1px solid rgba(248, 113, 113, 0.2);
+        border-radius: 4px;
+        color: var(--accent-error-text);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+    }
+    .global-issues.empty { display: none; }
+
+    .toolbar {
+        padding: 12px 24px;
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--bg-base);
+        flex-shrink: 0;
+    }
+
+    .view-controls {
+        display: flex;
+        gap: 4px;
+        background: var(--bg-surface);
+        padding: 2px;
+        border-radius: 6px;
+        border: 1px solid var(--border-subtle);
+    }
+
+    .main-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0;
+    }
+
+    
+    input[type="text"] {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        outline: none;
+        width: 240px;
+    }
+    input[type="text"]:focus {
+        border-color: var(--border-strong);
+    }
+
+    button {
+        background: transparent;
+        border: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        transition: background 0.1s;
+    }
+    button:hover { background: var(--bg-surface-hover); }
+    
+    button.primary {
+        background: var(--text-primary);
+        color: var(--bg-base);
+        border-color: var(--text-primary);
+        font-weight: 500;
+    }
+    button.primary:hover { background: #d4d4d8; }
+
+    button.icon-btn {
+        padding: 6px;
+        color: var(--text-secondary);
+        border: none;
+    }
+    button.icon-btn.active {
+        background: var(--border-subtle);
+        color: var(--text-primary);
+    }
+
+    
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+    .status-badge::before {
+        content: '';
+        display: block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+    }
+
+    .status-active { background: var(--accent-active-bg); color: var(--accent-active-text); }
+    .status-active::before { background: var(--accent-active-text); }
+
+    .status-waiting { 
+        background: var(--accent-waiting-bg); 
+        color: var(--accent-waiting-text);
+        border: 1px solid var(--accent-waiting-border);
+        animation: pulse-border 2s infinite;
+    }
+    .status-waiting::before { background: var(--accent-waiting-text); }
+
+    .status-resuming { background: var(--accent-done-bg); color: var(--accent-done-text); }
+    .status-resuming::before { background: var(--accent-done-text); }
+
+    @keyframes pulse-border {
+        0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+        70% { box-shadow: 0 0 0 4px rgba(245, 158, 11, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+
+    
+    .progress-container { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 120px; }
+    .progress-track {
+        flex: 1;
+        height: 4px;
+        background: var(--border-subtle);
+        border-radius: 2px;
+        overflow: hidden;
+    }
+    .progress-fill {
+        height: 100%;
+        background: var(--text-secondary);
+        border-radius: 2px;
+    }
+    .progress-fill.waiting { background: var(--accent-waiting-text); }
+
+    
+    .action-btn-waiting {
+        background: var(--accent-waiting-text);
+        color: #000;
+        border: none;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    .action-btn-waiting:hover { opacity: 0.9; }
+
+    
+    .layout-table .data-grid { display: table; width: 100%; border-collapse: collapse; }
+    .layout-table .grid-header { display: table-header-group; }
+    .layout-table .grid-row { display: table-row; border-bottom: 1px solid var(--border-subtle); }
+    .layout-table .grid-row:hover { background: var(--bg-surface); }
+    .layout-table .grid-cell { 
+        display: table-cell; 
+        padding: 10px 16px; 
+        vertical-align: middle;
+        white-space: nowrap;
+    }
+    .layout-table .grid-cell.task-col { width: 35%; white-space: normal; }
+    .layout-table .cell-header { 
+        color: var(--text-secondary); 
+        font-weight: 400; 
+        font-size: 12px; 
+        border-bottom: 1px solid var(--border-subtle);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    
+    .layout-grid { padding: 24px; }
+    .layout-grid .data-grid { 
+        display: grid; 
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
+        gap: 16px; 
+    }
+    .layout-grid .grid-header { display: none; }
+    .layout-grid .grid-row {
+        display: flex;
+        flex-direction: column;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        border-radius: 6px;
+        padding: 16px;
+        gap: 12px;
+    }
+    .layout-grid .grid-cell { padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .layout-grid .grid-cell::before {
+        content: attr(data-label);
+        font-size: 11px;
+        color: var(--text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    .layout-grid .cell-actions { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;}
+
+    
+    .layout-board { padding: 24px; height: 100%; display: flex; flex-direction: column; }
+    .layout-board .board-columns {
+        display: flex; gap: 24px; height: 100%; overflow-x: auto;
+    }
+    .board-column {
+        flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 12px;
+        background: var(--bg-surface); border-radius: 6px; border: 1px solid var(--border-subtle); padding: 16px;
+    }
+    .board-col-header { font-weight: 500; display: flex; justify-content: space-between; margin-bottom: 8px;}
+    .board-card {
+        background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 12px;
+        display: flex; flex-direction: column; gap: 8px;
+    }
+    .layout-board .data-grid, .layout-board .grid-header { display: none; } 
+
+    
+    .layout-compact .data-grid { display: table; width: 100%; border-collapse: collapse; }
+    .layout-compact .grid-header { display: none; }
+    .layout-compact .grid-row { display: table-row; border-bottom: 1px solid var(--border-subtle); }
+    .layout-compact .grid-row:hover { background: var(--bg-surface); }
+    .layout-compact .grid-cell { display: table-cell; padding: 6px 16px; vertical-align: middle; }
+    .layout-compact .task-col, .layout-compact .issues-col { display: none; } 
+
+
+    
+    .modal-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: var(--bg-overlay);
+        backdrop-filter: blur(2px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+    }
+    .modal-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    
+    .modal-content {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        width: 100%;
+        max-width: 500px;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.3);
+        transform: translateY(10px);
+        transition: transform 0.15s ease;
+    }
+    .modal-overlay.active .modal-content { transform: translateY(0); }
+
+    .modal-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .modal-body { padding: 20px; }
+    .modal-footer {
+        padding: 16px 20px;
+        border-top: 1px solid var(--border-subtle);
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        background: rgba(0,0,0,0.2);
+        border-bottom-left-radius: 8px;
+        border-bottom-right-radius: 8px;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px; }
+    .form-group textarea {
+        width: 100%;
+        background: var(--bg-base);
+        border: 1px solid var(--border-strong);
+        color: var(--text-primary);
+        padding: 12px;
+        border-radius: 4px;
+        font-family: var(--font-mono);
+        font-size: 13px;
+        resize: vertical;
+        min-height: 100px;
+        outline: none;
+    }
+    .form-group textarea:focus { border-color: var(--text-primary); }
+
+    .agent-prompt-box {
+        background: var(--bg-base);
+        border: 1px dashed var(--border-strong);
+        padding: 12px;
+        border-radius: 4px;
+        margin-bottom: 16px;
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 13px;
+    }
+
+    
+    svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    
+    .warning-text { color: var(--accent-error-text); display: flex; align-items: center; gap: 4px;}
+</style>
+</head>
+<body vid="6">
+
+<header class="app-header" vid="7">
+    <div class="header-left" vid="8">
+        <svg viewBox="0 0 24 24" vid="9"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" vid="10"></path></svg>
+        <h3 vid="11">Agent Ops</h3>
+    </div>
+    <div class="header-right" vid="12">
+        <div class="global-issues" id="global-issues-badge" vid="13">
+            <svg viewBox="0 0 24 24" vid="14"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" vid="15"></path><line x1="12" y1="9" x2="12" y2="13" vid="16"></line><line x1="12" y1="17" x2="12.01" y2="17" vid="17"></line></svg>
+            <span id="global-issues-count" vid="18">3 System Warnings</span>
+        </div>
+        <button id="btn-data-sources" vid="19">
+            <svg viewBox="0 0 24 24" vid="20"><ellipse cx="12" cy="5" rx="9" ry="3" vid="21"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" vid="22"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" vid="23"></path></svg>
+            Data Sources
+        </button>
+    </div>
+</header>
+
+<div class="toolbar" vid="24">
+    <div class="search-box" vid="25">
+        <input type="text" id="search-input" placeholder="Filter projects, branches, tasks..." vid="26">
+    </div>
+    <div class="view-controls" vid="27">
+        <button class="icon-btn active" data-view="table" title="List View" vid="28">
+            <svg viewBox="0 0 24 24" vid="29"><line x1="8" y1="6" x2="21" y2="6" vid="30"></line><line x1="8" y1="12" x2="21" y2="12" vid="31"></line><line x1="8" y1="18" x2="21" y2="18" vid="32"></line><line x1="3" y1="6" x2="3.01" y2="6" vid="33"></line><line x1="3" y1="12" x2="3.01" y2="12" vid="34"></line><line x1="3" y1="18" x2="3.01" y2="18" vid="35"></line></svg>
+        </button>
+        <button class="icon-btn" data-view="grid" title="Grid View" vid="36">
+            <svg viewBox="0 0 24 24" vid="37"><rect x="3" y="3" width="7" height="7" vid="38"></rect><rect x="14" y="3" width="7" height="7" vid="39"></rect><rect x="14" y="14" width="7" height="7" vid="40"></rect><rect x="3" y="14" width="7" height="7" vid="41"></rect></svg>
+        </button>
+        <button class="icon-btn" data-view="board" title="Board View" vid="42">
+            <svg viewBox="0 0 24 24" vid="43"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" vid="44"></rect><line x1="9" y1="3" x2="9" y2="21" vid="45"></line><line x1="15" y1="3" x2="15" y2="21" vid="46"></line></svg>
+        </button>
+        <button class="icon-btn" data-view="compact" title="Compact View" vid="47">
+            <svg viewBox="0 0 24 24" vid="48"><line x1="4" y1="6" x2="20" y2="6" vid="49"></line><line x1="4" y1="12" x2="20" y2="12" vid="50"></line><line x1="4" y1="18" x2="20" y2="18" vid="51"></line></svg>
+        </button>
+    </div>
+</div>
+
+<main class="main-content" id="main-content" vid="52">
+    <div id="view-container" class="layout-table" vid="53">
+        
+    </div>
+</main>
+
+
+<div id="modal-input" class="modal-overlay" vid="54">
+    <div class="modal-content" vid="55">
+        <div class="modal-header" vid="56">
+            <h3 id="modal-task-title" vid="57">Agent requires input</h3>
+            <button class="icon-btn close-modal" vid="58"><svg viewBox="0 0 24 24" vid="59"><line x1="18" y1="6" x2="6" y2="18" vid="60"></line><line x1="6" y1="6" x2="18" y2="18" vid="61"></line></svg></button>
+        </div>
+        <div class="modal-body" vid="62">
+            <div class="text-sec" style="margin-bottom: 8px; font-size: 12px;" id="modal-context" vid="63">Project / Branch</div>
+            <div class="agent-prompt-box" id="modal-question" vid="64">
+                Loading question...
+            </div>
+            <div class="form-group" vid="65">
+                <label vid="66">Your Response / Instruction</label>
+                <textarea id="human-response-text" placeholder="e.g. Skip this file and proceed, or format as JSON instead..." vid="67"></textarea>
+            </div>
+        </div>
+        <div class="modal-footer" vid="68">
+            <button class="close-modal" vid="69">Cancel</button>
+            <button class="primary" id="btn-submit-response" vid="70">Submit Response &amp; Resume</button>
+        </div>
+    </div>
+</div>
+
+
+<div id="modal-sources" class="modal-overlay" vid="71">
+    <div class="modal-content" vid="72">
+        <div class="modal-header" vid="73">
+            <h3 vid="74">Manage Data Sources</h3>
+            <button class="icon-btn close-modal" vid="75"><svg viewBox="0 0 24 24" vid="76"><line x1="18" y1="6" x2="6" y2="18" vid="77"></line><line x1="6" y1="6" x2="18" y2="18" vid="78"></line></svg></button>
+        </div>
+        <div class="modal-body" vid="79">
+            <p class="text-sec" style="margin-bottom: 16px;" vid="80">Configure root paths for agent database access.</p>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;" vid="81">
+                <input type="text" value="s3://prod-logs-bucket/2023/" style="flex:1;" vid="82">
+                <button vid="83">Remove</button>
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;" vid="84">
+                <input type="text" value="pg://analytics-db.internal:5432" style="flex:1;" vid="85">
+                <button vid="86">Remove</button>
+            </div>
+            <button style="width:100%; justify-content:center; margin-top: 8px;" vid="87">+ Add Source</button>
+        </div>
+        <div class="modal-footer" vid="88">
+            <button class="close-modal" vid="89">Done</button>
+        </div>
+    </div>
+</div>
+
+<script vid="90">
+    
+    const workspaces = [
+        { id: 'w1', project: 'Core-API', branch: 'feat/auth-v2', task: 'Migrate JWT validation logic to middleware', progress: 85, steps: 100, status: 'active', issues: 0 },
+        { id: 'w2', project: 'Data-Pipeline', branch: 'fix/mem-leak', task: 'Profile chunk processing memory usage', progress: 40, steps: 100, status: 'waiting', question: 'I encountered an unstructured binary blob in the stream. Should I attempt to decode it using fallback charset, or drop the chunk entirely?', issues: 2 },
+        { id: 'w3', project: 'Frontend-App', branch: 'refactor/components', task: 'Convert Class components to functional + hooks', progress: 12, steps: 50, status: 'active', issues: 0 },
+        { id: 'w4', project: 'ML-Models', branch: 'train/hyperopt', task: 'Run parameter sweep over learning rates', progress: 60, steps: 100, status: 'active', issues: 0 },
+        { id: 'w5', project: 'Core-API', branch: 'bug/rate-limit', task: 'Implement Redis sliding window', progress: 90, steps: 100, status: 'resuming', issues: 0 },
+        { id: 'w6', project: 'Infra-As-Code', branch: 'update/terraform', task: 'Upgrade AWS provider modules', progress: 5, steps: 10, status: 'waiting', question: 'The new provider version deprecates aws_s3_bucket_acl. I can write a migration script to use aws_s3_bucket_ownership_controls, but it requires downtime. Proceed?', issues: 0 },
+        { id: 'w7', project: 'Payment-Gateway', branch: 'feat/stripe-sync', task: 'Sync webhook events to local ledger', progress: 100, steps: 100, status: 'active', issues: 1 }
+    ];
+
+    let currentActiveWorkspaceId = null;
+
+    
+    const viewContainer = document.getElementById('view-container');
+    const searchInput = document.getElementById('search-input');
+    const viewButtons = document.querySelectorAll('.view-controls .icon-btn');
+    
+    
+    function render() {
+        const query = searchInput.value.toLowerCase();
+        const filtered = workspaces.filter(w => 
+            w.project.toLowerCase().includes(query) || 
+            w.branch.toLowerCase().includes(query) || 
+            w.task.toLowerCase().includes(query)
+        );
+
+        const currentLayout = document.getElementById('view-container').className;
+
+        if (currentLayout.includes('layout-board')) {
+            renderBoard(filtered);
+        } else {
+            renderGridForms(filtered, currentLayout);
+        }
+        
+        updateGlobalIssues(filtered);
+    }
+
+    function renderGridForms(data, layoutClass) {
+        let html = `<div class="data-grid">`;
+        
+        
+        html += `
+            <div class="grid-header">
+                <div class="grid-row">
+                    <div class="grid-cell cell-header">Project & Branch</div>
+                    <div class="grid-cell cell-header task-col">Current Task</div>
+                    <div class="grid-cell cell-header">Progress</div>
+                    <div class="grid-cell cell-header">Status</div>
+                    <div class="grid-cell cell-header issues-col">Issues</div>
+                    <div class="grid-cell cell-header">Action</div>
+                </div>
+            </div>`;
+        
+        data.forEach(w => {
+            const isWaiting = w.status === 'waiting';
+            const progressPct = (w.progress / w.steps) * 100;
+            
+            html += `
+                <div class="grid-row">
+                    <div class="grid-cell" data-label="Context">
+                        <div style="font-weight: 500;">${w.project}</div>
+                        <div class="mono text-sec" style="margin-top:2px;">${w.branch}</div>
+                    </div>
+                    <div class="grid-cell task-col" data-label="Task">
+                        ${w.task}
+                    </div>
+                    <div class="grid-cell" data-label="Progress">
+                        <div class="progress-container">
+                            <div class="progress-track">
+                                <div class="progress-fill ${isWaiting ? 'waiting' : ''}" style="width: ${progressPct}%"></div>
+                            </div>
+                            <span class="mono text-sec text-sm">${progressPct.toFixed(0)}%</span>
+                        </div>
+                    </div>
+                    <div class="grid-cell" data-label="Status">
+                        <span class="status-badge status-${w.status}">${w.status.charAt(0).toUpperCase() + w.status.slice(1)}</span>
+                    </div>
+                    <div class="grid-cell issues-col" data-label="Issues">
+                        ${w.issues > 0 ? `<span class="warning-text text-sm"><svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> ${w.issues}</span>` : '<span class="text-sec">-</span>'}
+                    </div>
+                    <div class="grid-cell cell-actions">
+                        ${isWaiting ? `<button class="action-btn-waiting" onclick="openInputModal('${w.id}')">Review & Reply</button>` : `<button class="icon-btn" disabled><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button>`}
+                    </div>
+                </div>
+            `;
+        });
+        html += `</div>`;
+        viewContainer.innerHTML = html;
+    }
+
+    function renderBoard(data) {
+        const statuses = ['active', 'waiting', 'resuming'];
+        let html = `<div class="board-columns">`;
+        
+        statuses.forEach(status => {
+            const cols = data.filter(w => w.status === status);
+            html += `
+                <div class="board-column">
+                    <div class="board-col-header">
+                        <span style="text-transform: capitalize;">${status}</span>
+                        <span class="mono text-sec">${cols.length}</span>
+                    </div>
+            `;
+            cols.forEach(w => {
+                const isWaiting = w.status === 'waiting';
+                const progressPct = (w.progress / w.steps) * 100;
+                html += `
+                    <div class="board-card" ${isWaiting ? 'style="border-color: var(--accent-waiting-border);"' : ''}>
+                        <div style="display:flex; justify-content:space-between;">
+                            <div style="font-weight: 500;">${w.project}</div>
+                            ${w.issues > 0 ? `<svg class="warning-text" style="width:14px;height:14px;" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>` : ''}
+                        </div>
+                        <div class="mono text-sec text-sm">${w.branch}</div>
+                        <div class="text-sm" style="margin: 4px 0;">${w.task}</div>
+                        
+                        <div class="progress-track" style="margin-top: auto;">
+                            <div class="progress-fill ${isWaiting ? 'waiting' : ''}" style="width: ${progressPct}%"></div>
+                        </div>
+                        
+                        ${isWaiting ? `<button class="action-btn-waiting" style="width:100%; margin-top:8px;" onclick="openInputModal('${w.id}')">Review Question</button>` : ''}
+                    </div>
+                `;
+            });
+            html += `</div>`;
+        });
+        html += `</div>`;
+        viewContainer.innerHTML = html;
+    }
+
+    function updateGlobalIssues(data) {
+        const totalIssues = data.reduce((sum, w) => sum + w.issues, 0);
+        const badge = document.getElementById('global-issues-badge');
+        const countText = document.getElementById('global-issues-count');
+        
+        if (totalIssues > 0) {
+            badge.classList.remove('empty');
+            countText.textContent = `${totalIssues} Active Warnings`;
+        } else {
+            badge.classList.add('empty');
+        }
+    }
+
+    
+    viewButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            viewButtons.forEach(b => b.classList.remove('active'));
+            const button = e.currentTarget;
+            button.classList.add('active');
+            
+            const view = button.dataset.view;
+            viewContainer.className = `layout-${view}`;
+            render();
+        });
+    });
+
+    
+    searchInput.addEventListener('input', render);
+
+    
+    const modalInput = document.getElementById('modal-input');
+    const modalSources = document.getElementById('modal-sources');
+
+    window.openInputModal = function(workspaceId) {
+        currentActiveWorkspaceId = workspaceId;
+        const workspace = workspaces.find(w => w.id === workspaceId);
+        
+        document.getElementById('modal-context').textContent = `${workspace.project} / ${workspace.branch}`;
+        document.getElementById('modal-question').textContent = workspace.question;
+        document.getElementById('human-response-text').value = '';
+        
+        modalInput.classList.add('active');
+    };
+
+    document.getElementById('btn-data-sources').addEventListener('click', () => {
+        modalSources.classList.add('active');
+    });
+
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.target.closest('.modal-overlay').classList.remove('active');
+        });
+    });
+
+    
+    window.addEventListener('click', (e) => {
+        if (e.target.classList.contains('modal-overlay')) {
+            e.target.classList.remove('active');
+        }
+    });
+
+    
+    document.getElementById('btn-submit-response').addEventListener('click', () => {
+        if (currentActiveWorkspaceId) {
+            const ws = workspaces.find(w => w.id === currentActiveWorkspaceId);
+            if (ws) {
+                ws.status = 'resuming';
+                render();
+            }
+        }
+        modalInput.classList.remove('active');
+    });
+
+    
+    render();
+
+</script>
+
+</body></html>
