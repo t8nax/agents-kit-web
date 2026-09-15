@@ -28,7 +28,7 @@ const questions: QuestionsResponse = {
     { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
     {
       title: 'Как быть с переносами?',
-      context: 'Ответ записывается одной строкой',
+      context: 'Абзацы из поля теряются.\n1. Заменить пробелами.\n2. Не отправлять.',
       variants: [
         { choice: 'Заменять пробелами', effect: 'Абзацы теряются', recommended: true },
         { choice: 'Не отправлять', effect: 'Оператор переписывает', recommended: false },
@@ -73,6 +73,11 @@ test('окно показывает вопрос копии с контекст�
 
   fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
   expect(dialog.getByText('Вопрос 2 из 2')).toBeInTheDocument()
+  // каждая строка контекста — своя строка в окне, а не кусок общего абзаца
+  const contextLines = ['Абзацы из поля теряются.', '1. Заменить пробелами.', '2. Не отправлять.'].map((line) =>
+    dialog.getByText(line),
+  )
+  expect(new Set(contextLines).size).toBe(3)
   expect(dialog.getByText('Рекомендовано')).toBeInTheDocument()
   expect(dialog.queryByRole('button', { name: 'Далее' })).not.toBeInTheDocument()
 

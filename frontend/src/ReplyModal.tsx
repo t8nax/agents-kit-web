@@ -209,7 +209,14 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
 
                 <section>
                   <h2 className="massive-title">{question.title}</h2>
-                  {question.context && <div className="question-box">{question.context}</div>}
+                  {question.context && (
+                    <div className="question-box">
+                      {/* строки контекста в памяти — отдельные строки, а не один абзац */}
+                      {question.context.split('\n').map((line, i) => (
+                        <div key={i}>{line}</div>
+                      ))}
+                    </div>
+                  )}
                   {question.variants.length > 0 && (
                     <div className="options-grid">
                       {question.variants.map((v, i) => (
