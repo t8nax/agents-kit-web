@@ -1,4 +1,4 @@
-<title>Окно «Базы»</title>
+<title>Окно «Базы знаний»</title>
 <style>
   :root {
     --bg-base: #09090b;
@@ -14,6 +14,7 @@
     --accent-waiting-border: rgba(245, 158, 11, 0.3);
     --accent-active-bg: rgba(16, 185, 129, 0.1);
     --accent-active-text: #34d399;
+    --accent-active-border: rgba(52, 211, 153, 0.3);
     --accent-free-bg: rgba(161, 161, 170, 0.1);
     --accent-error-text: #f87171;
     --accent-error-bg: rgba(248, 113, 113, 0.08);
@@ -43,7 +44,7 @@
   }
   .note b { color: var(--text-secondary); font-weight: 500; }
 
-  .app { position: relative; min-height: 640px; }
+  .app { position: relative; min-height: 720px; }
   .app-header {
     height: 56px; border-bottom: 1px solid var(--border-subtle);
     display: flex; align-items: center; gap: 12px; padding: 0 24px;
@@ -56,17 +57,16 @@
     border: 1px solid var(--border-subtle); border-radius: 6px;
     padding: 6px 12px; cursor: pointer; white-space: nowrap;
   }
-  .btn:hover { background: var(--bg-surface-hover); border-color: var(--border-strong); }
+  .btn:hover:not(:disabled) { background: var(--bg-surface-hover); border-color: var(--border-strong); }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
   .btn.primary { background: var(--text-primary); color: var(--bg-base); border-color: var(--text-primary); font-weight: 500; }
-  .btn.primary:hover { opacity: 0.9; }
-  .btn.danger {
-    padding: 4px 10px; font-size: 12px;
-    background: var(--bg-surface-hover); color: var(--text-primary);
-    border-color: var(--border-strong);
-  }
+  .btn.primary:hover:not(:disabled) { background: var(--text-primary); opacity: 0.9; }
+  .btn.small { padding: 4px 10px; font-size: 12px; }
+  .btn.danger { background: var(--bg-surface-hover); border-color: var(--border-strong); }
   .btn.danger svg { width: 14px; height: 14px; color: var(--accent-error-text); }
-  .btn.danger:hover { color: var(--accent-error-text); background: var(--accent-error-bg); border-color: var(--accent-error-border); }
-  .count { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .btn.danger:hover:not(:disabled) { color: var(--accent-error-text); background: var(--accent-error-bg); border-color: var(--accent-error-border); }
+  .btn.add-base { background: var(--accent-active-bg); color: var(--accent-active-text); border-color: var(--accent-active-border); font-weight: 500; }
+  .btn.add-base:hover:not(:disabled) { background: rgba(16, 185, 129, 0.18); border-color: var(--accent-active-text); }
 
   .main-content { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
@@ -93,7 +93,6 @@
   .status-waiting::before { background: var(--accent-waiting-text); }
   .status-free { background: var(--accent-free-bg); color: var(--text-secondary); }
   .status-free::before { border: 1.5px solid var(--text-secondary); width: 4px; height: 4px; }
-  .warning-text { color: var(--accent-error-text); display: inline-flex; align-items: center; gap: 6px; }
   .empty { padding: 32px 24px; color: var(--text-secondary); }
 
   .overlay {
@@ -103,16 +102,18 @@
   }
   .overlay[hidden] { display: none; }
   .modal {
-    width: 560px; max-width: 100%;
+    width: 600px; max-width: 100%;
     background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 8px;
     box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
   }
   .modal-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border-subtle); }
   .modal-header h3 { margin: 0; font-size: 14px; font-weight: 500; }
-  .icon-btn { background: none; border: none; color: var(--text-secondary); padding: 4px; border-radius: 4px; cursor: pointer; margin-left: auto; display: inline-flex; }
-  .icon-btn:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
+  .modal-header .crumb-title { color: var(--text-tertiary); font-weight: 400; }
+  .icon-btn { background: none; border: none; color: var(--text-secondary); padding: 4px; border-radius: 4px; cursor: pointer; display: inline-flex; }
+  .icon-btn:hover:not(:disabled) { color: var(--text-primary); background: var(--bg-surface-hover); }
+  .icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .modal-header .close { margin-left: auto; }
   .modal-body { padding: 16px 20px 20px; display: grid; gap: 16px; }
-  .lead { margin: 0; color: var(--text-secondary); max-width: 60ch; }
 
   .bases { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-subtle); border-radius: 6px; }
   .bases li { display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 12px; }
@@ -132,11 +133,50 @@
   .add-row input::placeholder { color: var(--text-tertiary); }
   .add-row input:focus { outline: none; border-color: var(--border-strong); }
   .add-row input[aria-invalid="true"] { border-color: var(--accent-error-border); }
-  .error { color: var(--accent-error-text); font-size: 12px; display: flex; gap: 6px; align-items: flex-start; }
+  .error { color: var(--accent-error-text); font-size: 12px; }
   .error[hidden] { display: none; }
-  .error svg { margin-top: 2px; width: 14px; height: 14px; }
 
-  .modal-footer { display: flex; justify-content: flex-end; padding: 12px 20px; border-top: 1px solid var(--border-subtle); }
+  /* Обзор папок */
+  .browser { display: grid; gap: 10px; }
+  .browser-bar { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .crumbs {
+    flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px;
+    background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 4px 6px;
+  }
+  .crumbs button {
+    background: none; border: none; color: var(--text-secondary); cursor: pointer;
+    font-family: var(--font-mono); font-size: 12px; padding: 2px 6px; border-radius: 4px;
+  }
+  .crumbs button:hover { color: var(--text-primary); background: var(--bg-surface-hover); }
+  .crumbs button[aria-current="location"] { color: var(--text-primary); }
+  .crumbs .sep { color: var(--text-tertiary); font-size: 12px; }
+
+  .folders {
+    list-style: none; margin: 0; padding: 4px; height: 300px; overflow-y: auto;
+    border: 1px solid var(--border-subtle); border-radius: 6px; background: var(--bg-base);
+  }
+  .folders li { display: flex; align-items: center; gap: 10px; padding: 0 6px 0 0; border-radius: 4px; min-height: 36px; }
+  .folders li:hover { background: var(--bg-surface-hover); }
+  .folders .open {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px;
+    background: none; border: none; color: var(--text-primary); cursor: pointer; text-align: left;
+    padding: 8px 10px; border-radius: 4px;
+  }
+  .folders .open svg { color: var(--text-tertiary); }
+  .folders .open .name { overflow-wrap: anywhere; }
+  .folders .open .chev { margin-left: auto; width: 14px; height: 14px; }
+  .folders li.is-base .open > svg:first-child { color: var(--accent-active-text); }
+  .kb-tag {
+    display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 4px;
+    background: var(--accent-active-bg); color: var(--accent-active-text); font-size: 11px; font-weight: 500; white-space: nowrap;
+  }
+  .in-list { color: var(--text-tertiary); font-size: 12px; white-space: nowrap; padding-right: 6px; }
+  .folders .hint { color: var(--text-tertiary); padding: 12px; }
+  .browser-legend { color: var(--text-tertiary); font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+  .modal-footer { display: flex; align-items: center; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border-subtle); }
+  .modal-footer .right { margin-left: auto; display: flex; gap: 8px; }
+  .toast { color: var(--accent-active-text); font-size: 12px; }
 
   @media (max-width: 480px) {
     .app-header, .note { padding-inline: 16px; }
@@ -144,11 +184,14 @@
     .add-row .btn { flex: 1; justify-content: center; }
     .bases .meta { display: none; }
   }
+  @media (prefers-reduced-motion: no-preference) {
+    .folders li { transition: background-color 80ms; }
+  }
 </style>
 
 <div class="note">
-  <span><b>Набросок</b> окна «Базы знаний» — демо-данные, ничего не пишется.</span>
-  <span>Попробуйте: удалить базу, добавить пустой путь, повтор или <span class="mono">D:\Projects\nota</span> (нет agents-kit.json), затем <span class="mono">D:\Projects\nota-knowledge</span>.</span>
+  <span><b>Набросок</b> окна «Базы знаний» с обзором папок — демо-данные, ничего не пишется.</span>
+  <span>«Обзор…» открывает папки. Зелёные — базы знаний (есть agents-kit.json), их можно добавить сразу; остальные открываются.</span>
 </div>
 
 <div class="app">
@@ -168,37 +211,76 @@
   <div class="overlay" id="overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="bases-title">
       <div class="modal-header">
-        <h3 id="bases-title">Базы знаний</h3>
-        <button type="button" class="icon-btn" id="close-x" aria-label="Закрыть">
+        <button type="button" class="icon-btn" id="back" aria-label="К списку баз" hidden>
+          <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h3 id="bases-title">Базы знаний<span class="crumb-title" id="title-suffix"></span></h3>
+        <button type="button" class="icon-btn close" id="close-x" aria-label="Закрыть">
           <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="modal-body">
+
+      <!-- Вид: список баз -->
+      <div class="modal-body" id="view-list">
         <ul class="bases" id="bases-list"></ul>
         <form class="add" id="add-form" novalidate>
           <label for="new-path">Путь к каталогу базы</label>
           <div class="add-row">
             <input id="new-path" type="text" placeholder="D:\Projects\project-knowledge" autocomplete="off" spellcheck="false" aria-describedby="add-error">
+            <button type="button" class="btn" id="browse">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              Обзор…
+            </button>
             <button type="submit" class="btn">Добавить</button>
           </div>
-          <div class="error" id="add-error" role="alert" hidden>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            <span id="add-error-text"></span>
-          </div>
+          <div class="error" id="add-error" role="alert" hidden></div>
         </form>
       </div>
+
+      <!-- Вид: обзор папок -->
+      <div class="modal-body browser" id="view-browser" hidden>
+        <div class="browser-bar">
+          <button type="button" class="icon-btn" id="up" aria-label="На уровень выше">
+            <svg viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"/></svg>
+          </button>
+          <nav class="crumbs" id="crumbs" aria-label="Текущая папка"></nav>
+        </div>
+        <ul class="folders" id="folders" aria-label="Папки"></ul>
+        <div class="browser-legend">
+          <span class="kb-tag">база знаний</span> — в папке есть agents-kit.json. Скрытые и системные папки не показываются.
+        </div>
+      </div>
+
       <div class="modal-footer">
-        <button type="button" class="btn primary" id="done">Готово</button>
+        <span class="toast" id="toast" role="status"></span>
+        <div class="right">
+          <button type="button" class="btn primary" id="done">Готово</button>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-  // Демо: на диске «есть» только эти базы с agents-kit.json и их копии.
-  const disk = {
+  // Демо-диск: у папки с kb:true есть agents-kit.json, copies — число копий в нём.
+  const fs = {
+    'C:': { children: { 'Users': { children: { 'Boris': { children: { 'Documents': {}, 'Downloads': {} } } } }, 'Program Files': {}, 'Windows': {} } },
+    'D:': { children: {
+      'Projects': { children: {
+        'agents-kit': { children: { 'scripts': {}, 'skills': {} } },
+        'agents-kit-knowledge': { kb: true, copies: 1, children: { 'decisions': {}, 'work': {} } },
+        'agents-kit-web': { children: { 'backend': {}, 'design': {}, 'frontend': {} } },
+        'agents-kit-web-knowledge': { kb: true, copies: 2, children: { 'decisions': {}, 'work': {} } },
+        'nota': { children: { 'src': {} } },
+        'nota-knowledge': { kb: true, copies: 1, children: { 'decisions': {}, 'work': {} } },
+        'sandbox': {},
+      } },
+      'Archive': { children: { 'old-knowledge': { kb: true, copies: 0, children: {} } } },
+    } },
+  };
+  const copiesOnDisk = {
     'D:\\Projects\\agents-kit-web-knowledge': [
-      { path: 'D:\\Projects\\agents-kit-web', branch: 'dev', task: 'Настройка путей к отслеживаемым базам из панели', step: 'Критерий', status: 'waiting' },
+      { path: 'D:\\Projects\\agents-kit-web', branch: 'feat/bases-settings', task: 'Настройка путей к отслеживаемым базам из панели', step: 'Приёмка', status: 'waiting' },
       { path: 'D:\\Projects\\agents-kit-web-health', branch: 'feat/health', task: null, step: null, status: 'free' },
     ],
     'D:\\Projects\\agents-kit-knowledge': [
@@ -208,19 +290,39 @@
       { path: 'D:\\Projects\\nota', branch: 'dev', task: 'Экспорт заметок в PDF', step: 'Приёмка', status: 'in-work' },
     ],
   };
-  let bases = ['D:\\Projects\\agents-kit-web-knowledge', 'D:\\Projects\\agents-kit-knowledge'];
+
+  let bases = ['D:\\Projects\\agents-kit-web-knowledge'];
+  let cwd = ['D:', 'Projects'];
   const labels = { free: 'Свободна', 'in-work': 'В работе', waiting: 'Ждёт оператора' };
   const norm = (p) => p.trim().replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
   const name = (p) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop();
-  const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const $ = (id) => document.getElementById(id);
+  const join = (parts) => parts.length === 1 ? parts[0] + '\\' : parts.join('\\');
+  const baseKey = (parts) => parts.join('\\');
+
+  function node(parts) {
+    let n = { children: fs };
+    for (const p of parts) n = n.children?.[p];
+    return n;
+  }
+  function lookup(path) {
+    const parts = path.trim().replace(/\//g, '\\').replace(/\\+$/, '').split('\\');
+    let n = { children: fs };
+    for (const p of parts) {
+      const key = Object.keys(n.children || {}).find((k) => k.toLowerCase() === p.toLowerCase());
+      if (!key) return null;
+      n = n.children[key];
+    }
+    return n;
+  }
 
   function renderTable() {
     if (!bases.length) {
-      $('table-host').innerHTML = '<p class="empty">Нет отслеживаемых баз. Добавьте путь в окне «Базы знаний».</p>';
+      $('table-host').innerHTML = '<p class="empty">Нет отслеживаемых баз или рабочих копий. Базы добавляются в окне «Базы знаний».</p>';
       return;
     }
-    const rows = bases.flatMap((b) => (disk[b] || []).map((c) => ({ ...c, project: name(b) })));
+    const rows = bases.flatMap((b) => (copiesOnDisk[b] || []).map((c) => ({ ...c, project: name(b) })));
     $('table-host').innerHTML = `<table><thead><tr><th>Проект и копия</th><th>Задача</th><th>Шаг флоу</th><th>Статус</th></tr></thead><tbody>${
       rows.map((r) => `<tr><td><div class="proj">${esc(r.project)}</div><div class="mono text-sec sub">${esc(r.branch)} · ${esc(r.path)}</div></td>
         <td class="task-col ${r.task ? '' : 'text-ter'}">${r.task ? esc(r.task) : '—'}</td>
@@ -231,15 +333,70 @@
 
   function renderList() {
     $('bases-list').innerHTML = bases.length
-      ? bases.map((b, i) => `<li><span class="path mono">${esc(b)}</span><span class="meta">${(disk[b] || []).length} коп.</span>
-          <button type="button" class="btn danger" data-remove="${i}" aria-label="Удалить ${esc(b)}"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Удалить</button></li>`).join('')
+      ? bases.map((b, i) => `<li><span class="path mono">${esc(b)}</span><span class="meta">${lookup(b)?.copies ?? 0} коп.</span>
+          <button type="button" class="btn small danger" data-remove="${i}" aria-label="Удалить ${esc(b)}"><svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Удалить</button></li>`).join('')
       : '<li class="empty-list">Список пуст.</li>';
   }
 
+  const folderIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>';
+  const driveIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="13" width="20" height="8" rx="2"/><path d="M5.5 13 8 4h8l2.5 9"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg>';
+  const chev = '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
+
+  function renderBrowser() {
+    const crumbs = [`<button type="button" data-go="0" ${cwd.length === 0 ? 'aria-current="location"' : ''}>Этот компьютер</button>`]
+      .concat(cwd.map((p, i) => `<span class="sep">›</span><button type="button" data-go="${i + 1}" ${i === cwd.length - 1 ? 'aria-current="location"' : ''}>${esc(p)}</button>`));
+    $('crumbs').innerHTML = crumbs.join('');
+    $('up').disabled = cwd.length === 0;
+
+    const here = node(cwd);
+    const entries = Object.entries(here?.children || {}).sort(([a, x], [b, y]) => (y.kb ? 1 : 0) - (x.kb ? 1 : 0) || a.localeCompare(b));
+    if (!entries.length) {
+      $('folders').innerHTML = '<li class="hint">В этой папке нет подпапок.</li>';
+      return;
+    }
+    $('folders').innerHTML = entries.map(([n, e]) => {
+      const full = baseKey([...cwd, n]);
+      const listed = bases.some((b) => norm(b) === norm(full));
+      const canOpen = e.children && Object.keys(e.children).length;
+      const action = !e.kb ? ''
+        : listed ? '<span class="in-list">уже в списке</span>'
+        : `<button type="button" class="btn small add-base" data-add="${esc(full)}">Добавить</button>`;
+      return `<li class="${e.kb ? 'is-base' : ''}">
+        <button type="button" class="open" data-open="${esc(n)}" ${canOpen ? '' : 'aria-disabled="true"'}>
+          ${cwd.length === 0 ? driveIcon : folderIcon}<span class="name">${esc(cwd.length === 0 ? n + '\\' : n)}</span>
+          ${e.kb ? `<span class="kb-tag">база знаний · ${e.copies} коп.</span>` : ''}
+          ${canOpen && !e.kb ? chev : ''}
+        </button>${action}</li>`;
+    }).join('');
+  }
+
+  function showView(view) {
+    const browsing = view === 'browser';
+    $('view-list').hidden = browsing;
+    $('view-browser').hidden = !browsing;
+    $('back').hidden = !browsing;
+    $('title-suffix').textContent = browsing ? ' · выбор папки' : '';
+    if (browsing) renderBrowser(); else renderList();
+  }
+
+  function flash(text) {
+    $('toast').textContent = text;
+    clearTimeout(flash.t);
+    flash.t = setTimeout(() => ($('toast').textContent = ''), 2500);
+  }
+
   function showError(text) {
-    $('add-error-text').textContent = text;
+    $('add-error').textContent = text;
     $('add-error').hidden = !text;
     $('new-path').setAttribute('aria-invalid', text ? 'true' : 'false');
+  }
+
+  function addBase(path) {
+    if (!path.trim()) return 'Введите путь к каталогу базы или выберите папку через «Обзор…».';
+    if (bases.some((b) => norm(b) === norm(path))) return 'Эта база уже в списке.';
+    if (!lookup(path)?.kb) return 'В каталоге нет agents-kit.json — это не база знаний кита. Проверьте путь.';
+    bases.push(path.trim().replace(/\\+$/, ''));
+    return null;
   }
 
   $('bases-list').addEventListener('click', (e) => {
@@ -251,27 +408,47 @@
 
   $('add-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const raw = $('new-path').value.trim();
-    if (!raw) return showError('Введите путь к каталогу базы.');
-    if (bases.some((b) => norm(b) === norm(raw))) return showError('Эта база уже в списке.');
-    const known = Object.keys(disk).find((k) => norm(k) === norm(raw));
-    if (!known) return showError('В каталоге нет agents-kit.json — это не база знаний кита. Проверьте путь.');
-    bases.push(known);
-    $('new-path').value = '';
-    showError('');
-    renderList();
+    const problem = addBase($('new-path').value);
+    showError(problem || '');
+    if (!problem) { $('new-path').value = ''; renderList(); }
   });
-
   $('new-path').addEventListener('input', () => showError(''));
 
-  const open = () => { renderList(); $('overlay').hidden = false; $('new-path').focus(); };
-  const close = () => { $('overlay').hidden = true; showError(''); renderTable(); };
-  $('open-bases').addEventListener('click', open);
-  $('close-x').addEventListener('click', close);
-  $('done').addEventListener('click', close);
-  $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) close(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('overlay').hidden) close(); });
+  $('browse').addEventListener('click', () => { showError(''); showView('browser'); });
+  $('back').addEventListener('click', () => showView('list'));
+  $('up').addEventListener('click', () => { cwd = cwd.slice(0, -1); renderBrowser(); });
+  $('crumbs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-go]');
+    if (b) { cwd = cwd.slice(0, Number(b.dataset.go)); renderBrowser(); }
+  });
+  $('folders').addEventListener('click', (e) => {
+    const add = e.target.closest('[data-add]');
+    if (add) {
+      const path = add.dataset.add;
+      addBase(path);
+      flash(`Добавлена ${name(path)}`);
+      renderBrowser();
+      return;
+    }
+    const open = e.target.closest('[data-open]');
+    if (open && open.getAttribute('aria-disabled') !== 'true') {
+      cwd = [...cwd, open.dataset.open];
+      renderBrowser();
+      $('folders').scrollTop = 0;
+    }
+  });
+
+  const openModal = () => { showView('list'); $('overlay').hidden = false; };
+  const closeModal = () => { $('overlay').hidden = true; showError(''); renderTable(); };
+  $('open-bases').addEventListener('click', openModal);
+  $('close-x').addEventListener('click', closeModal);
+  $('done').addEventListener('click', closeModal);
+  $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || $('overlay').hidden) return;
+    if (!$('view-browser').hidden) showView('list'); else closeModal();
+  });
 
   renderTable();
-  renderList();
+  showView('browser');
 </script>
