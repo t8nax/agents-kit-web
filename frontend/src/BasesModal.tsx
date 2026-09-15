@@ -105,7 +105,7 @@ export default function BasesModal({ onClose }: Props) {
     <div className="bases-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="bases-modal" role="dialog" aria-modal="true" aria-labelledby="bases-title">
         <div className="bases-header">
-          <h3 id="bases-title">Отслеживаемые базы</h3>
+          <h3 id="bases-title">Базы знаний</h3>
           <button type="button" className="bases-icon-btn" aria-label="Закрыть" onClick={onClose}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -115,10 +115,6 @@ export default function BasesModal({ onClose }: Props) {
         </div>
 
         <div className="bases-body">
-          <p className="bases-lead">
-            Панель показывает рабочие копии этих баз знаний. Список хранится у панели; сами базы не меняются.
-          </p>
-
           {load.kind === 'loading' && <p className="bases-lead">Загрузка списка…</p>}
           {load.kind === 'failed' && (
             <p className="bases-error" role="alert">

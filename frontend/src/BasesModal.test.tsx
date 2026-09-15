@@ -27,7 +27,7 @@ const existing: BaseEntry = { path: 'D:\\Projects\\app-knowledge', copies: 2 }
 async function openBases() {
   render(<App />)
   fireEvent.click(await screen.findByRole('button', { name: 'Базы знаний' }))
-  return screen.findByRole('dialog', { name: 'Отслеживаемые базы' })
+  return screen.findByRole('dialog', { name: 'Базы знаний' })
 }
 
 test('кнопка «Базы знаний» открывает окно со списком баз', async () => {

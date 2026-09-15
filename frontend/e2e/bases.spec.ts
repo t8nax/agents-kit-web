@@ -42,7 +42,7 @@ test('оператор добавляет и удаляет базу, и таб�
   await expect(page.getByText('Нет отслеживаемых баз или рабочих копий.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Базы знаний' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Отслеживаемые базы' })
+  const dialog = page.getByRole('dialog', { name: 'Базы знаний' })
   const input = dialog.getByLabel('Путь к каталогу базы')
 
   await input.fill('D:\\Projects\\nota')
