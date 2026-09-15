@@ -15,20 +15,33 @@ public sealed class OperatorEndpointsTests : IDisposable
     private readonly string _memoryPath;
     private readonly WebApplicationFactory<Program> _factory;
 
-    private const string Questions = """
-        - Критерий закрытия:
-          1. Окно есть.
-          Не входит: health.
-        - Оператору: Подтвердить критерий?
-          - контекст: за вами объём проверок
-        - Оператору: Как быть с переносами?
-          - контекст: ответ одной строкой
-          - вариант: заменять пробелами — абзацы теряются
-          - вариант: не отправлять — оператор переписывает
-          - сессия за: заменять пробелами — проще
-        - Оператору: Старый вопрос?
-          - контекст: уже решён
-          - ответ: да
+    private const string Sections = """
+        ## Критерии закрытия
+        - окно есть
+        - не входит: health
+
+        ## Условия
+
+        ## Оператору
+
+        ### Подтвердить критерий?
+        За вами объём проверок.
+
+        ответ:
+
+        ### Как быть с переносами?
+        Ответ одной строкой.
+
+        - вариант: заменять пробелами — абзацы теряются
+        - вариант: не отправлять — оператор переписывает
+        - рекомендовано: заменять пробелами — абзацы теряются
+
+        ответ:
+
+        ### Старый вопрос?
+        Уже решён.
+
+        ответ: да
         """;
 
     public OperatorEndpointsTests()
@@ -38,7 +51,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_base, "work"));
         File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{\"workspaces\":[]}");
         _memoryPath = Path.Combine(_base, "work", "app.md");
-        File.WriteAllText(_memoryPath, $"# Окно ответа\nрабочая копия: {_copy}\nветка: feat/x\n\n{Questions}\n\n## Флоу\n- [ ] 1. Критерий\n");
+        File.WriteAllText(_memoryPath, $"# Окно ответа\nрабочая копия: {_copy}\nветка: feat/x\n\n{Sections}\n\n## Флоу\n- [ ] 1. Критерий\n");
 
         var outsider = Path.Combine(_root, "other-knowledge");
         Directory.CreateDirectory(Path.Combine(outsider, "work"));
@@ -60,9 +73,11 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.NotNull(response);
         Assert.Equal("app-knowledge", response.Project);
         Assert.Equal("Окно ответа", response.Task);
-        Assert.Equal(["1. Окно есть.", "Не входит: health."], response.Criterion);
+        Assert.Equal(["окно есть", "не входит: health"], response.Criterion);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
+        Assert.Equal("За вами объём проверок.", response.Questions[0].Context);
         Assert.True(response.Questions[1].Variants[0].Recommended);
+        Assert.False(response.Questions[1].Variants[1].Recommended);
     }
 
     [Fact]

@@ -5,7 +5,7 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// <summary>Вариант ответа из строки «вариант: что выбрать — что изменит».</summary>
 public sealed record QuestionVariant(string Choice, string? Effect, bool Recommended);
 
-/// <summary>Блок вопроса «Оператору:» с его строками.</summary>
+/// <summary>Вопрос — подраздел «###» раздела «## Оператору».</summary>
 public sealed record OperatorQuestion(
     string Title,
     string? Context,
@@ -25,8 +25,6 @@ public sealed record WorkMemory(
     public bool WaitingForOperator => Questions.Any(q => q.Answer is null);
 
     private static readonly Regex FlowItem = new(@"^- \[(?<done>[ xX])\]\s*(?:\d+\.\s*)?(?<name>.*)$");
-    private static readonly Regex CriterionHeader = new(@"^- Критерий закрытия:\s*(?<text>.*)$");
-    private static readonly Regex SubLine = new(@"^\s+\S");
 
     public static WorkMemory Parse(string text)
     {
@@ -39,9 +37,9 @@ public sealed record WorkMemory(
         string? flowStep = null;
         string? section = null;
 
-        for (var i = 0; i < lines.Count; i++)
+        foreach (var memoryLine in lines)
         {
-            var line = lines[i].Text;
+            var line = memoryLine.Text;
 
             if (line.StartsWith("## "))
             {
@@ -57,23 +55,22 @@ public sealed record WorkMemory(
                     copy = line["рабочая копия:".Length..].Trim();
                 else if (line.StartsWith("ветка:"))
                     branch = line["ветка:".Length..].Trim();
-                else if (CriterionHeader.Match(line) is { Success: true } header)
-                {
-                    if (header.Groups["text"].Value.Trim() is { Length: > 0 } inline)
-                        criterion.Add(inline);
-                    while (i + 1 < lines.Count && SubLine.IsMatch(lines[i + 1].Text))
-                        criterion.Add(lines[++i].Text.Trim());
-                }
                 continue;
             }
 
-            if (section == "Флоу" && FlowItem.Match(line) is { Success: true } item)
+            if (section == "Критерии закрытия" && line.StartsWith("- ") && line[2..].Trim() is { Length: > 0 } item)
+            {
+                criterion.Add(item);
+                continue;
+            }
+
+            if (section == "Флоу" && FlowItem.Match(line) is { Success: true } flowItem)
             {
                 flowTotal++;
-                if (item.Groups["done"].Value != " ")
+                if (flowItem.Groups["done"].Value != " ")
                     flowDone++;
                 else
-                    flowStep ??= StepName(item.Groups["name"].Value);
+                    flowStep ??= StepName(flowItem.Groups["name"].Value);
             }
         }
 
@@ -115,81 +112,85 @@ internal static class MemoryText
     }
 }
 
-/// <summary>Блок вопроса и конец его последней строки — место, куда дописывается ответ.</summary>
-internal sealed record QuestionBlock(OperatorQuestion Question, MemoryLine LastLine);
+/// <summary>
+/// Блок вопроса: строка «ответ:», если она есть, и последняя непустая строка блока —
+/// после неё дописывается ответ, когда строки «ответ:» нет.
+/// </summary>
+internal sealed record QuestionBlock(OperatorQuestion Question, MemoryLine? AnswerLine, MemoryLine LastLine);
 
 internal static class QuestionBlocks
 {
-    private static readonly Regex Header = new(@"^- Оператору:\s*(?<text>.*)$");
-    private static readonly Regex KeyLine = new(@"^\s+- (?<key>[^:]+):\s*(?<value>.*)$");
-    private static readonly Regex Word = new(@"[\p{L}\p{N}]{3,}");
+    private static readonly Regex KeyLine = new(@"^- (?<key>[^:]+):\s*(?<value>.*)$");
+    private static readonly Regex AnswerLine = new(@"^ответ:(?<value>.*)$");
 
-    /// <summary>Вопросы из шапки памяти — до первого раздела «## ».</summary>
+    /// <summary>Вопросы — подразделы «### » раздела «## Оператору».</summary>
     public static IReadOnlyList<QuestionBlock> Find(IReadOnlyList<MemoryLine> lines)
     {
         var blocks = new List<QuestionBlock>();
+        var inOperator = false;
         for (var i = 0; i < lines.Count; i++)
         {
             var line = lines[i].Text;
             if (line.StartsWith("## "))
-                break;
-            if (Header.Match(line) is not { Success: true } header)
+            {
+                inOperator = line[3..].Trim() == "Оператору";
+                continue;
+            }
+            if (!inOperator || !line.StartsWith("### "))
                 continue;
 
-            var title = header.Groups["text"].Value.Trim();
-            string? context = null, answer = null, sessionFor = null;
-            var variants = new List<(string Choice, string? Effect)>();
+            var title = line[4..].Trim();
+            var context = new List<string>();
+            var variants = new List<string>();
+            string? recommended = null, answer = null;
+            MemoryLine? answerLine = null;
             var last = lines[i];
 
-            while (i + 1 < lines.Count && KeyLine.Match(lines[i + 1].Text) is { Success: true } key)
+            while (i + 1 < lines.Count && !lines[i + 1].Text.StartsWith("## ") && !lines[i + 1].Text.StartsWith("### "))
             {
-                last = lines[++i];
-                var value = key.Groups["value"].Value.Trim();
-                switch (key.Groups["key"].Value.Trim())
+                var current = lines[++i];
+                var text = current.Text.Trim();
+                if (text.Length == 0)
+                    continue;
+                last = current;
+
+                if (AnswerLine.Match(current.Text) is { Success: true } answerMatch)
                 {
-                    case "контекст": context = value; break;
-                    case "вариант": variants.Add(SplitVariant(value)); break;
-                    case "сессия за": sessionFor = value; break;
-                    case "ответ": answer = value; break;
+                    answerLine ??= current;
+                    answer ??= answerMatch.Groups["value"].Value.Trim() is { Length: > 0 } value ? value : null;
+                }
+                else if (KeyLine.Match(current.Text) is { Success: true } key)
+                {
+                    var value = key.Groups["value"].Value.Trim();
+                    switch (key.Groups["key"].Value.Trim())
+                    {
+                        case "вариант": variants.Add(value); break;
+                        case "рекомендовано": recommended = value; break;
+                    }
+                }
+                else
+                {
+                    context.Add(text);
                 }
             }
 
-            if (title == "нечего")
-                continue;
-
-            var recommended = Recommended(variants.Select(v => v.Choice).ToList(), sessionFor);
             var question = new OperatorQuestion(
                 title,
-                context,
-                variants.Select((v, n) => new QuestionVariant(v.Choice, v.Effect, n == recommended)).ToList(),
+                context.Count == 0 ? null : string.Join("\n", context),
+                variants.Select(v => Variant(v, recommended)).ToList(),
                 answer);
-            blocks.Add(new QuestionBlock(question, last));
+            blocks.Add(new QuestionBlock(question, answerLine, last));
         }
         return blocks;
     }
 
-    // «заменять пробелами — ответ пишется всегда» → («заменять пробелами», «ответ пишется всегда»)
-    private static (string Choice, string? Effect) SplitVariant(string value)
+    // «заменять пробелами — ответ пишется всегда» → («заменять пробелами», «ответ пишется всегда»).
+    // «рекомендовано:» повторяет вариант слово в слово — сравнивается значение строки целиком.
+    private static QuestionVariant Variant(string value, string? recommended)
     {
         var dash = value.IndexOf(" — ", StringComparison.Ordinal);
-        return dash < 0 ? (value, null) : (value[..dash].Trim(), value[(dash + 3)..].Trim());
+        return dash < 0
+            ? new QuestionVariant(value, null, value == recommended)
+            : new QuestionVariant(value[..dash].Trim(), value[(dash + 3)..].Trim(), value == recommended);
     }
-
-    // «сессия за» пишется своими словами, а не копией варианта: берётся вариант,
-    // у выбора которого с ней больше всего общих слов (по первым пяти буквам). Ничья — отметки нет.
-    private static int Recommended(IReadOnlyList<string> choices, string? sessionFor)
-    {
-        if (sessionFor is null || choices.Count == 0)
-            return -1;
-
-        var wanted = Stems(SplitVariant(sessionFor).Choice);
-        var scores = choices.Select(c => Stems(c).Count(wanted.Contains)).ToList();
-        var best = scores.Max();
-        return best > 0 && scores.Count(s => s == best) == 1 ? scores.IndexOf(best) : -1;
-    }
-
-    private static HashSet<string> Stems(string text) =>
-        Word.Matches(text.ToLowerInvariant())
-            .Select(m => m.Value.Length > 5 ? m.Value[..5] : m.Value)
-            .ToHashSet();
 }
