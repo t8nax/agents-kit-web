@@ -12,6 +12,7 @@ public static class WorkspaceStatus
 /// <summary>Строка таблицы рабочих копий. Error задан — данных по строке нет.</summary>
 public sealed record WorkspaceRow(
     string Project,
+    string Base,
     string Path,
     string? Branch,
     string? Task,
@@ -37,11 +38,11 @@ public static class WorkspaceCollector
         var project = new DirectoryInfo(basePath.TrimEnd('\\', '/')).Name;
 
         if (!Directory.Exists(basePath))
-            return [Unavailable(project, basePath, "База не найдена на диске")];
+            return [Unavailable(project, basePath, basePath, "База не найдена на диске")];
 
         var copies = ReadCopies(basePath);
         if (copies is null)
-            return [Unavailable(project, basePath, "Не прочитан agents-kit.json базы")];
+            return [Unavailable(project, basePath, basePath, "Не прочитан agents-kit.json базы")];
 
         var memories = ReadMemories(basePath);
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -52,7 +53,7 @@ public static class WorkspaceCollector
             if (!Directory.Exists(copy))
             {
                 claimed.Add(Normalize(copy));
-                rows.Add(Unavailable(project, copy, "Копия не найдена на диске"));
+                rows.Add(Unavailable(project, basePath, copy, "Копия не найдена на диске"));
                 continue;
             }
 
@@ -60,7 +61,7 @@ public static class WorkspaceCollector
             if (worktrees is null)
             {
                 claimed.Add(Normalize(copy));
-                rows.Add(Unavailable(project, copy, "git не прочитал копию"));
+                rows.Add(Unavailable(project, basePath, copy, "git не прочитал копию"));
                 continue;
             }
 
@@ -71,8 +72,8 @@ public static class WorkspaceCollector
                     continue;
                 var path = worktree.Path.Replace('/', '\\');
                 rows.Add(memories.TryGetValue(key, out var memory)
-                    ? FromMemory(project, path, worktree.Branch, memory)
-                    : new WorkspaceRow(project, path, worktree.Branch, null, null, null, WorkspaceStatus.Free, null));
+                    ? FromMemory(project, basePath, path, worktree.Branch, memory)
+                    : new WorkspaceRow(project, basePath, path, worktree.Branch, null, null, null, WorkspaceStatus.Free, null));
             }
         }
 
@@ -80,18 +81,18 @@ public static class WorkspaceCollector
         foreach (var (key, memory) in memories)
         {
             if (claimed.Add(key))
-                rows.Add(FromMemory(project, memory.Copy!, memory.Branch, memory));
+                rows.Add(FromMemory(project, basePath, memory.Copy!, memory.Branch, memory));
         }
 
         return rows;
     }
 
-    private static WorkspaceRow FromMemory(string project, string path, string? branch, WorkMemory memory) =>
-        new(project, path, branch, memory.Task, memory.FlowStep, memory.Progress,
+    private static WorkspaceRow FromMemory(string project, string basePath, string path, string? branch, WorkMemory memory) =>
+        new(project, basePath, path, branch, memory.Task, memory.FlowStep, memory.Progress,
             memory.WaitingForOperator ? WorkspaceStatus.Waiting : WorkspaceStatus.InWork, null);
 
-    private static WorkspaceRow Unavailable(string project, string path, string error) =>
-        new(project, path, null, null, null, null, null, error);
+    private static WorkspaceRow Unavailable(string project, string basePath, string path, string error) =>
+        new(project, basePath, path, null, null, null, null, null, error);
 
     private static List<string>? ReadCopies(string basePath)
     {
@@ -112,9 +113,13 @@ public static class WorkspaceCollector
         }
     }
 
-    private static Dictionary<string, WorkMemory> ReadMemories(string basePath)
+    private static Dictionary<string, WorkMemory> ReadMemories(string basePath) =>
+        MemoryFiles(basePath).ToDictionary(e => e.Key, e => e.Value.Memory, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Памяти work/*.md базы по нормализованному пути копии.</summary>
+    internal static Dictionary<string, (string File, WorkMemory Memory)> MemoryFiles(string basePath)
     {
-        var result = new Dictionary<string, WorkMemory>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, (string, WorkMemory)>(StringComparer.OrdinalIgnoreCase);
         var workDir = Path.Combine(basePath, "work");
         if (!Directory.Exists(workDir))
             return result;
@@ -131,11 +136,11 @@ public static class WorkspaceCollector
                 continue;
             }
             if (!string.IsNullOrWhiteSpace(memory.Copy))
-                result.TryAdd(Normalize(memory.Copy), memory);
+                result.TryAdd(Normalize(memory.Copy), (file, memory));
         }
         return result;
     }
 
-    private static string Normalize(string path) =>
+    internal static string Normalize(string path) =>
         path.Replace('/', '\\').TrimEnd('\\');
 }
