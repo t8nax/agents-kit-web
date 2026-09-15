@@ -47,7 +47,6 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [rejection, setRejection] = useState<Rejection | null>(null)
   const [footerError, setFooterError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
-  const [sent, setSent] = useState(false)
 
   useEffect(() => {
     const params = new URLSearchParams({ base, copy })
@@ -105,9 +104,9 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         }),
       })
       if (response.ok) {
-        setRejection(null)
-        setSent(true)
+        // ответы в памяти: окно больше не нужно, признак успеха — строка таблицы перестаёт ждать
         onAnswered()
+        onClose()
         return
       }
       if (response.status === 400 || response.status === 409) {
@@ -133,7 +132,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       <div className="modal-wizard" role="dialog" aria-modal="true" aria-label="Ответ оператора">
         <div className="wizard-stepper">
           <div className="stepper-main">
-            {load.kind === 'loaded' && !sent && questions.length > 0 && (
+            {load.kind === 'loaded' && questions.length > 0 && (
               <>
                 <div className="step-label">
                   Вопрос {current + 1} из {questions.length}
@@ -162,23 +161,14 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
           </button>
         </div>
 
-        <div className={`modal-scroll-area ${sent || load.kind !== 'loaded' || !question ? 'is-centered' : ''}`}>
+        <div className={`modal-scroll-area ${load.kind !== 'loaded' || !question ? 'is-centered' : ''}`}>
           <div className="central-column">
             {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
             {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
-            {load.kind === 'loaded' && sent && (
-              <div className="all-done">
-                <div className="icon">
-                  <CheckIcon />
-                </div>
-                <h2>Ответы записаны</h2>
-                <p>Ответы записаны в память копии. Агент подхватит их сам, таблица уже перечитана.</p>
-              </div>
-            )}
-            {load.kind === 'loaded' && !sent && !question && (
+            {load.kind === 'loaded' && !question && (
               <p className="modal-message">Вопросов без ответа нет</p>
             )}
-            {load.kind === 'loaded' && !sent && question && (
+            {load.kind === 'loaded' && question && (
               <>
                 <details className="context-accordion">
                   <summary>
@@ -261,7 +251,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         </div>
 
         <div className="modal-footer">
-          {!sent && load.kind === 'loaded' && question && (
+          {load.kind === 'loaded' && question && (
             <button type="button" className="btn" disabled={current === 0} onClick={() => setCurrent(current - 1)}>
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <polyline points="15 18 9 12 15 6" />
@@ -276,7 +266,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                 {footerError}
               </span>
             )}
-            {!sent && load.kind === 'loaded' && question ? (
+            {load.kind === 'loaded' && question ? (
               <>
                 {current < questions.length - 1 && (
                   <button type="button" className="btn" onClick={() => setCurrent(current + 1)}>
@@ -299,14 +289,6 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         </div>
       </div>
     </div>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
   )
 }
 

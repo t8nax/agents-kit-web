@@ -316,35 +316,6 @@
   color: var(--accent-error-text);
 }
 
-.all-done {
-  text-align: center;
-  display: grid;
-  gap: 10px;
-  justify-items: center;
-}
-
-.all-done .icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--accent-active-text);
-  border: 1px solid var(--border-strong);
-}
-
-.all-done h2 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.all-done p {
-  margin: 0;
-  color: var(--text-secondary);
-  max-width: 46ch;
-}
-
 .modal-footer {
   padding: 24px 40px;
   background: rgba(0, 0, 0, 0.2);

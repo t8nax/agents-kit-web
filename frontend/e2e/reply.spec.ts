@@ -58,7 +58,8 @@ test('оператор отвечает на вопросы копии, и ст�
   await dialog.getByRole('button', { name: /Заменять пробелами/ }).click()
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
-  await expect(dialog.getByRole('heading', { name: 'Ответы записаны' })).toBeVisible()
+  // после записи окно закрывается само, без экрана успеха и кнопки «Закрыть»
+  await expect(dialog).toBeHidden()
   expect(posted).toEqual({
     base: 'D:\\Projects\\app-knowledge',
     copy: 'D:\\Projects\\app',
@@ -68,7 +69,5 @@ test('оператор отвечает на вопросы копии, и ст�
     ],
   })
 
-  await dialog.locator('.modal-footer').getByRole('button', { name: 'Закрыть' }).click()
-  await expect(dialog).toBeHidden()
   await expect(tableRow.getByText('В работе')).toBeVisible()
 })
