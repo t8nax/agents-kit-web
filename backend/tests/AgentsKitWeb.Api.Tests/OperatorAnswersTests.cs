@@ -13,9 +13,9 @@ public class OperatorAnswersTests
         Решения: нет
 
         ## Критерии закрытия
-        - окно есть
 
-        ## Условия
+        ### 1. Окно есть
+        Оператор отвечает из панели.
 
         ## Оператору
 
@@ -33,10 +33,20 @@ public class OperatorAnswersTests
 
         ответ:
 
-        ## Флоу
+        ## Агенту
+
+        ### Критерии
+        - 1. проверка: тест окна — где: ReplyModal.test.tsx
+
+        ### Вопросы
+        - «Как быть с переносами?»: после ответа поправить Normalize
+
+        ### Факты
+
+        ### Флоу
         - [ ] 1. Критерий
 
-        ## Шаги
+        ### Шаги
         - [ ] Окно
         """.ReplaceLineEndings("\n");
 
@@ -79,6 +89,17 @@ public class OperatorAnswersTests
         Assert.Null(rejection);
         Assert.Equal(Memory.Replace(FirstAnswer, "За вами объём проверок.\n\nответ: да\n"), text);
         Assert.Equal("да", WorkMemory.Parse(text!).Questions[0].Answer);
+    }
+
+    [Fact]
+    public void Apply_LastQuestionWithoutAnswerLine_AppendsAnswerBeforeAgentPart()
+    {
+        var memory = Memory.Replace(SecondAnswer, "- рекомендовано: заменять пробелами — абзацы теряются\n");
+
+        var (text, rejection) = OperatorAnswers.Apply(memory, [new("Как быть с переносами?", "заменять")]);
+
+        Assert.Null(rejection);
+        Assert.Equal(Memory.Replace(SecondAnswer, "- рекомендовано: заменять пробелами — абзацы теряются\n\nответ: заменять\n"), text);
     }
 
     [Fact]

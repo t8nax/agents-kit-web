@@ -7,7 +7,8 @@ public sealed record QuestionsResponse(
     string Project,
     string Copy,
     string? Task,
-    IReadOnlyList<string> Criterion,
+    IReadOnlyList<ClosingCriterion> Criteria,
+    string? OutOfScope,
     IReadOnlyList<OperatorQuestion> Questions);
 
 public sealed record AnswersRequest(string Base, string Copy, IReadOnlyList<OperatorAnswer> Answers);
@@ -25,10 +26,11 @@ public static class OperatorEndpoints
 
             var (_, memory) = found;
             return Results.Ok(new QuestionsResponse(
-                new DirectoryInfo(@base.TrimEnd('\\', '/')).Name,
+                ProjectName.Of(@base),
                 memory.Copy!,
                 memory.Task,
-                memory.Criterion,
+                memory.Criteria,
+                memory.OutOfScope,
                 memory.Questions.Where(q => q.Answer is null).ToList()));
         });
 

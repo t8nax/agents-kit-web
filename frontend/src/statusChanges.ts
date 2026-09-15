@@ -2,8 +2,9 @@ import type { WorkspaceRow } from './App'
 
 export type StatusChange = { kind: 'waiting' | 'freed'; row: WorkspaceRow }
 
+// По базе, а не по названию проекта: переименованный в базе проект — та же копия
 export function rowKey(row: WorkspaceRow) {
-  return `${row.project}|${row.path}`
+  return `${row.base}|${row.path}`
 }
 
 // Смены статуса между двумя удачными опросами. Без прошлого опроса смен нет;

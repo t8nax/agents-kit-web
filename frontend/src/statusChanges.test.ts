@@ -45,6 +45,11 @@ test('прочие смены и неизменный статус молчат'
   ).toEqual([])
 })
 
+test('копия переименованного в базе проекта не теряет смену статуса', () => {
+  const next = [{ ...row('D:\\a', 'waiting'), project: 'App' }]
+  expect(statusChanges([row('D:\\a', 'in-work')], next)).toEqual([{ kind: 'waiting', row: next[0] }])
+})
+
 test('копия с ошибкой чтения, новая или пропавшая из списка молчит', () => {
   expect(
     statusChanges(

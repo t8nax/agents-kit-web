@@ -4,10 +4,11 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    // Переопределяются из env e2e-прогоном, который поднимает свою панель на свободных портах.
+    port: Number(process.env.WEB_PORT ?? 5173),
     strictPort: true,
     proxy: {
-      '/api': 'http://localhost:5078',
+      '/api': `http://localhost:${process.env.API_PORT ?? 5078}`,
     },
   },
   test: {

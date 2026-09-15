@@ -14,11 +14,17 @@ export type OperatorQuestion = {
   answer: string | null
 }
 
+export type ClosingCriterion = {
+  title: string
+  text: string | null
+}
+
 export type QuestionsResponse = {
   project: string
   copy: string
   task: string | null
-  criterion: string[]
+  criteria: ClosingCriterion[]
+  outOfScope: string | null
   questions: OperatorQuestion[]
 }
 
@@ -184,15 +190,24 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                     </svg>
                   </summary>
                   <div className="accordion-content">
-                    <p className="acc-label">Критерий закрытия</p>
-                    {load.data.criterion.length > 0 ? (
-                      <ul className="criterion">
-                        {load.data.criterion.map((line, i) => (
-                          <li key={i}>{line}</li>
+                    <p className="acc-label">Критерии закрытия</p>
+                    {load.data.criteria.length > 0 ? (
+                      <ul className="criteria">
+                        {load.data.criteria.map((criterion, i) => (
+                          <li key={i}>
+                            <div className="criterion-title">{criterion.title}</div>
+                            {criterion.text && <div className="criterion-text">{criterion.text}</div>}
+                          </li>
                         ))}
                       </ul>
                     ) : (
-                      <p className="criterion">Критерий не записан</p>
+                      <p className="criterion-text">Критерии не записаны</p>
+                    )}
+                    {load.data.outOfScope && (
+                      <>
+                        <p className="acc-label out-of-scope-label">Не входит</p>
+                        <div className="criterion-text">{load.data.outOfScope}</div>
+                      </>
                     )}
                   </div>
                 </details>

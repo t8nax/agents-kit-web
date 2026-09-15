@@ -5,6 +5,9 @@ test('страница показывает таблицу рабочих коп
   await page.goto('/')
   const rows: unknown[] = await (await response).json()
 
+  await expect(page).toHaveTitle('Agents Kit Web')
+  await expect(page.getByRole('banner').getByRole('heading', { name: 'Agents Kit Web' })).toBeVisible()
+
   const table = page.getByRole('table')
   for (const column of ['Проект и копия', 'Задача', 'Шаг флоу', 'Прогресс', 'Статус', 'Проблемы']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible()
