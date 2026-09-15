@@ -186,6 +186,36 @@ td.task-col {
   }
 }
 
+.action-btn-waiting {
+  font: inherit;
+  background: var(--accent-waiting-text);
+  color: #000;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.action-btn-waiting:hover {
+  opacity: 0.9;
+}
+
+.action-btn-waiting:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .warning-text {
   color: var(--accent-error-text);
   display: inline-flex;
