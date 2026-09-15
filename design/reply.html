@@ -1,0 +1,329 @@
+<html lang="ru" vid="0"><head vid="1">
+<meta charset="UTF-8" vid="2">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" vid="3">
+<title vid="4">Agent Workspace Monitor - Redesigned Modal</title>
+<style vid="5">
+    :root {
+        --bg-base: #09090b;
+        --bg-surface: #121214;
+        --bg-surface-hover: #18181b;
+        --border-subtle: #27272a;
+        --border-strong: #3f3f46;
+        --text-primary: #ededed;
+        --text-secondary: #a1a1aa;
+        --text-tertiary: #71717a;
+        --accent-waiting-bg: rgba(245, 158, 11, 0.15);
+        --accent-waiting-text: #fbbf24;
+        --accent-waiting-border: rgba(245, 158, 11, 0.3);
+        --accent-active-text: #34d399;
+        --accent-done-text: #60a5fa;
+        --accent-error-text: #f87171;
+        --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        background-color: var(--bg-base);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 13px;
+        line-height: 1.5;
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    
+    .app-header, .toolbar, .main-content { opacity: 0.3; pointer-events: none; }
+
+    
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+    }
+
+    .modal-wizard {
+        background: var(--bg-surface);
+        border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        width: 800px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+    }
+
+    
+    .wizard-stepper {
+        padding: 24px 40px;
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .step-indicator {
+        flex: 1;
+        height: 4px;
+        background: var(--border-subtle);
+        border-radius: 2px;
+        position: relative;
+    }
+    .step-indicator.active { background: var(--accent-waiting-text); }
+    .step-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--accent-waiting-text);
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+
+    .modal-scroll-area {
+        flex: 1;
+        overflow-y: auto;
+        padding: 40px;
+    }
+
+    .central-column {
+        max-width: 640px;
+        margin: 0 auto;
+    }
+
+    .massive-title {
+        font-size: 32px;
+        font-weight: 700;
+        line-height: 1.2;
+        margin-bottom: 32px;
+        color: var(--text-primary);
+    }
+
+    
+    .context-accordion {
+        background: var(--bg-base);
+        border: 1px solid var(--border-subtle);
+        border-radius: 8px;
+        margin-bottom: 32px;
+    }
+    .accordion-header {
+        padding: 12px 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        color: var(--text-secondary);
+        font-weight: 500;
+    }
+    .accordion-content {
+        padding: 0 16px 16px 16px;
+        border-top: 1px solid var(--border-subtle);
+    }
+    .context-meta {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--accent-done-text);
+        margin-bottom: 12px;
+        padding-top: 12px;
+    }
+    .checklist {
+        list-style: none;
+    }
+    .checklist-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 4px 0;
+        color: var(--text-secondary);
+        font-size: 12px;
+    }
+    .checklist-item svg { color: var(--accent-active-text); width: 14px; }
+
+    .question-box {
+        font-size: 16px;
+        color: var(--text-primary);
+        line-height: 1.6;
+        margin-bottom: 24px;
+        padding-left: 16px;
+        border-left: 4px solid var(--accent-waiting-text);
+    }
+
+    
+    .options-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    .option-card {
+        background: var(--bg-base);
+        border: 1px solid var(--border-subtle);
+        padding: 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .option-card:hover {
+        border-color: var(--accent-waiting-text);
+        background: var(--accent-waiting-bg);
+    }
+    .option-card.selected {
+        border-color: var(--accent-waiting-text);
+        box-shadow: 0 0 0 1px var(--accent-waiting-text);
+    }
+    .option-title { font-weight: 600; margin-bottom: 4px; }
+    .option-desc { font-size: 12px; color: var(--text-secondary); }
+
+    .input-group label {
+        display: block;
+        margin-bottom: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+    }
+    .custom-textarea {
+        width: 100%;
+        background: var(--bg-base);
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        padding: 16px;
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 14px;
+        min-height: 120px;
+        outline: none;
+        resize: none;
+    }
+    .custom-textarea:focus { border-color: var(--accent-waiting-text); }
+
+    
+    .modal-footer {
+        padding: 24px 40px;
+        background: rgba(0,0,0,0.2);
+        border-top: 1px solid var(--border-subtle);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    .btn {
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid var(--border-strong);
+        background: transparent;
+        color: var(--text-primary);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .btn-primary {
+        background: var(--accent-waiting-text);
+        border-color: var(--accent-waiting-text);
+        color: #000;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
+</style>
+</head>
+<body vid="6">
+
+    
+    <header class="app-header" vid="7"></header>
+    <div class="toolbar" vid="8"></div>
+    <main class="main-content" vid="9"></main>
+
+    
+    <div class="modal-overlay" vid="10">
+        <div class="modal-wizard" vid="11">
+            
+            <div class="wizard-stepper" vid="12">
+                <div style="flex: 1;" vid="13">
+                    <div class="step-label" vid="14">Вопрос 1 из 3</div>
+                    <div style="display: flex; gap: 8px;" vid="15">
+                        <div class="step-indicator active" vid="16"></div>
+                        <div class="step-indicator" vid="17"></div>
+                        <div class="step-indicator" vid="18"></div>
+                    </div>
+                </div>
+                <button class="btn" style="border:none; padding: 5px;" vid="19">
+                    <svg viewBox="0 0 24 24" vid="20"><line x1="18" y1="6" x2="6" y2="18" vid="21"></line><line x1="6" y1="6" x2="18" y2="18" vid="22"></line></svg>
+                </button>
+            </div>
+
+            <div class="modal-scroll-area" vid="23">
+                <div class="central-column" vid="24">
+                    <h1 class="massive-title" vid="25">Требуется уточнение по обработке данных</h1>
+
+                    <div class="context-accordion" vid="26">
+                        <div class="accordion-header" vid="27">
+                            <span vid="28">Контекст задачи</span>
+                            <svg viewBox="0 0 24 24" vid="29"><polyline points="6 9 12 15 18 9" vid="30"></polyline></svg>
+                        </div>
+                        <div class="accordion-content" vid="31">
+                            <div class="context-meta" vid="32">Project: Data-Pipeline / Branch: fix/mem-leak</div>
+                            <ul class="checklist" vid="33">
+                                <li class="checklist-item" vid="34"><svg viewBox="0 0 24 24" vid="35"><polyline points="20 6 9 17 4 12" vid="36"></polyline></svg> Инициализация профилировщика памяти</li>
+                                <li class="checklist-item" vid="37"><svg viewBox="0 0 24 24" vid="38"><polyline points="20 6 9 17 4 12" vid="39"></polyline></svg> Анализ чанков потока данных</li>
+                                <li class="checklist-item" vid="40"><svg viewBox="0 0 24 24" vid="41"><polyline points="20 6 9 17 4 12" vid="42"></polyline></svg> Обнаружение бинарного блоба</li>
+                                <li class="checklist-item" vid="43"><svg viewBox="0 0 24 24" vid="44"><polyline points="20 6 9 17 4 12" vid="45"></polyline></svg> Попытка автоматического декодирования</li>
+                                <li class="checklist-item" vid="46"><svg viewBox="0 0 24 24" vid="47"><polyline points="20 6 9 17 4 12" vid="48"></polyline></svg> Ошибка: Неизвестная кодировка</li>
+                                <li class="checklist-item" vid="49"><svg viewBox="0 0 24 24" style="color:var(--text-tertiary)" vid="50"><circle cx="12" cy="12" r="10" vid="51"></circle></svg> Ожидание решения пользователя</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="question-box" vid="52">
+                        Я обнаружил неструктурированный бинарный блоб в потоке. Должен ли я попытаться декодировать его, используя запасную кодировку, или полностью пропустить этот чанк?
+                    </div>
+
+                    <div class="options-grid" vid="53">
+                        <div class="option-card selected" vid="54">
+                            <div class="option-title" vid="55">Декодировать (Fallback)</div>
+                            <div class="option-desc" vid="56">Попробовать ASCII/UTF-8. Риск потери данных.</div>
+                        </div>
+                        <div class="option-card" vid="57">
+                            <div class="option-title" vid="58">Пропустить чанк</div>
+                            <div class="option-desc" vid="59">Безопасно отбросить блок и продолжить работу.</div>
+                        </div>
+                        <div class="option-card" vid="60">
+                            <div class="option-title" vid="61">Логировать в файл</div>
+                            <div class="option-desc" vid="62">Сохранить сырые данные для ручного анализа позже.</div>
+                        </div>
+                        <div class="option-card" vid="63">
+                            <div class="option-title" vid="64">Остановить процесс</div>
+                            <div class="option-desc" vid="65">Прекратить выполнение всей задачи немедленно.</div>
+                        </div>
+                    </div>
+
+                    <div class="input-group" vid="66">
+                        <label vid="67">Дополнительные инструкции (необязательно)</label>
+                        <textarea class="custom-textarea" placeholder="Например: Если это JSON, попробуй восстановить структуру..." vid="68"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer" vid="69">
+                <button class="btn" disabled="" vid="70">
+                    <svg viewBox="0 0 24 24" vid="71"><polyline points="15 18 9 12 15 6" vid="72"></polyline></svg>
+                    Назад
+                </button>
+                <div style="display: flex; gap: 12px;" vid="73">
+                    <button class="btn" vid="74">Пропустить шаг</button>
+                    <button class="btn btn-primary" vid="75">
+                        Отправить и продолжить
+                        <svg viewBox="0 0 24 24" vid="76"><polyline points="9 18 15 12 9 6" vid="77"></polyline></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+</body></html>
