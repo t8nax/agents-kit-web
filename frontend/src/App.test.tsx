@@ -172,10 +172,11 @@ function stubNotification(permission: NotificationPermission, requestResult: Not
     })
     onclick: (() => void) | null = null
     close = vi.fn()
-    constructor(
-      public title: string,
-      public options?: NotificationOptions,
-    ) {
+    title: string
+    options?: NotificationOptions
+    constructor(title: string, options?: NotificationOptions) {
+      this.title = title
+      this.options = options
       shown.push(this)
     }
   }
