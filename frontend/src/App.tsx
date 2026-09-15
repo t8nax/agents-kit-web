@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import './App.css'
+import ReplyModal from './ReplyModal'
 
 export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
 
 export type WorkspaceRow = {
   project: string
+  base: string
   path: string
   branch: string | null
   task: string | null
@@ -24,8 +26,9 @@ type State = { kind: 'loading' } | { kind: 'failed' } | { kind: 'loaded'; rows: 
 
 function App() {
   const [state, setState] = useState<State>({ kind: 'loading' })
+  const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
 
-  useEffect(() => {
+  const loadRows = useCallback(() => {
     fetch('/api/workspaces')
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -34,6 +37,10 @@ function App() {
       .then((rows) => setState({ kind: 'loaded', rows }))
       .catch(() => setState({ kind: 'failed' }))
   }, [])
+
+  useEffect(loadRows, [loadRows])
+
+  const closeReply = useCallback(() => setReplyTo(null), [])
 
   return (
     <>
@@ -45,13 +52,14 @@ function App() {
       </header>
       <main className="main-content">
         {state.kind === 'failed' && <p className="message warning-text">Нет связи с API</p>}
-        {state.kind === 'loaded' && <WorkspacesTable rows={state.rows} />}
+        {state.kind === 'loaded' && <WorkspacesTable rows={state.rows} onReply={setReplyTo} />}
       </main>
+      {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
     </>
   )
 }
 
-function WorkspacesTable({ rows }: { rows: WorkspaceRow[] }) {
+function WorkspacesTable({ rows, onReply }: { rows: WorkspaceRow[]; onReply: (row: WorkspaceRow) => void }) {
   return (
     <table>
       <thead>
@@ -62,6 +70,9 @@ function WorkspacesTable({ rows }: { rows: WorkspaceRow[] }) {
           <th>Прогресс</th>
           <th>Статус</th>
           <th>Проблемы</th>
+          <th>
+            <span className="visually-hidden">Действия</span>
+          </th>
         </tr>
       </thead>
       <tbody>
@@ -95,6 +106,13 @@ function WorkspacesTable({ rows }: { rows: WorkspaceRow[] }) {
               </>
             )}
             <td className="text-sec">-</td>
+            <td>
+              {row.status === 'waiting' && (
+                <button type="button" className="action-btn-waiting" onClick={() => onReply(row)}>
+                  Ответить
+                </button>
+              )}
+            </td>
           </tr>
         ))}
       </tbody>

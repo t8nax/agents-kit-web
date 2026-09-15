@@ -9,6 +9,7 @@ afterEach(() => {
 const rows: WorkspaceRow[] = [
   {
     project: 'app-knowledge',
+    base: 'D:\\Projects\\app-knowledge',
     path: 'D:\\Projects\\app',
     branch: 'feat/table',
     task: 'Таблица рабочих копий',
@@ -19,6 +20,7 @@ const rows: WorkspaceRow[] = [
   },
   {
     project: 'app-knowledge',
+    base: 'D:\\Projects\\app-knowledge',
     path: 'D:\\Projects\\app-wt',
     branch: 'dev',
     task: null,
@@ -29,6 +31,7 @@ const rows: WorkspaceRow[] = [
   },
   {
     project: 'app-knowledge',
+    base: 'D:\\Projects\\app-knowledge',
     path: 'E:\\gone',
     branch: null,
     task: null,
@@ -55,9 +58,11 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(waiting.getByText('Реализация')).toBeInTheDocument()
   expect(waiting.getByText('33%')).toBeInTheDocument()
   expect(waiting.getByText('Ждёт оператора')).toBeInTheDocument()
+  expect(waiting.getByRole('button', { name: 'Ответить' })).toBeInTheDocument()
 
   const free = within(tableRows[2])
   expect(free.getByText('Свободна')).toBeInTheDocument()
+  expect(free.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument()
   expect(free.queryByText(/%$/)).not.toBeInTheDocument()
 
   expect(within(tableRows[3]).getByText('Копия не найдена на диске')).toBeInTheDocument()
