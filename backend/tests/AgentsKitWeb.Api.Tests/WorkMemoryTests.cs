@@ -15,17 +15,25 @@ public class WorkMemoryTests
         - таблица есть
         - не входит: health
 
-        ## Условия
-
         ## Оператору
 
-        ## Флоу
+        ## Агенту
+
+        ### Критерии
+        - 1. проверка: тест таблицы — где: App.test.tsx
+
+        ### Вопросы
+
+        ### Факты
+        - [ ] не шаг флоу
+
+        ### Флоу
         - [x] 1. Критерий — выход: подтверждён
         - [x] 2. Ветка — выход: feat/table
         - [ ] 3. Реализация
         - [ ] 4. Приёмка
 
-        ## Шаги
+        ### Шаги
         - [x] API — результат: abc123
         - [ ] Фронт
         """.ReplaceLineEndings("\n");
@@ -178,9 +186,34 @@ public class WorkMemoryTests
     [Fact]
     public void Parse_QuestionsOutsideOperatorSection_AreIgnored()
     {
-        var memory = WorkMemory.Parse(Memory.Replace("## Условия\n", "## Условия\n### не вопрос\n\nответ:\n"));
+        var memory = WorkMemory.Parse(Memory.Replace("### Факты\n", "### Факты\n### не вопрос\n\nответ:\n"));
 
         Assert.Empty(memory.Questions);
+    }
+
+    [Fact]
+    public void Parse_LastQuestion_StopsAtAgentPart()
+    {
+        var memory = WithQuestions("""
+            ### Подтвердить критерии
+            За вами объём проверок.
+
+            ответ:
+            """);
+
+        var question = Assert.Single(memory.Questions);
+        Assert.Equal("За вами объём проверок.", question.Context);
+        Assert.Null(question.Answer);
+    }
+
+    [Fact]
+    public void Parse_FlowOutsideAgentPart_IsNotRead()
+    {
+        var memory = WorkMemory.Parse(Memory.Replace("## Агенту\n", "## Флоу\n- [ ] 1. Старый флоу\n\n## Агенту\n")
+            .Replace("### Флоу\n", "### Не флоу\n"));
+
+        Assert.Null(memory.FlowStep);
+        Assert.Null(memory.Progress);
     }
 
     [Fact]

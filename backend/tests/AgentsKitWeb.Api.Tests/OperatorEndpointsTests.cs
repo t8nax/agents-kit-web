@@ -20,8 +20,6 @@ public sealed class OperatorEndpointsTests : IDisposable
         - окно есть
         - не входит: health
 
-        ## Условия
-
         ## Оператору
 
         ### Подтвердить критерий?
@@ -51,7 +49,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_base, "work"));
         File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{\"workspaces\":[]}");
         _memoryPath = Path.Combine(_base, "work", "app.md");
-        File.WriteAllText(_memoryPath, $"# Окно ответа\nрабочая копия: {_copy}\nветка: feat/x\n\n{Sections}\n\n## Флоу\n- [ ] 1. Критерий\n");
+        File.WriteAllText(_memoryPath, $"# Окно ответа\nрабочая копия: {_copy}\nветка: feat/x\n\n{Sections}\n\n## Агенту\n\n### Флоу\n- [ ] 1. Критерий\n");
 
         var outsider = Path.Combine(_root, "other-knowledge");
         Directory.CreateDirectory(Path.Combine(outsider, "work"));

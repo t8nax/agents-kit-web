@@ -35,7 +35,7 @@ public sealed record WorkMemory(
         var flowTotal = 0;
         var flowDone = 0;
         string? flowStep = null;
-        string? section = null;
+        string? section = null, subsection = null;
 
         foreach (var memoryLine in lines)
         {
@@ -44,6 +44,12 @@ public sealed record WorkMemory(
             if (line.StartsWith("## "))
             {
                 section = line[3..].Trim();
+                subsection = null;
+                continue;
+            }
+            if (line.StartsWith("### "))
+            {
+                subsection = line[4..].Trim();
                 continue;
             }
 
@@ -64,7 +70,7 @@ public sealed record WorkMemory(
                 continue;
             }
 
-            if (section == "Флоу" && FlowItem.Match(line) is { Success: true } flowItem)
+            if (section == "Агенту" && subsection == "Флоу" && FlowItem.Match(line) is { Success: true } flowItem)
             {
                 flowTotal++;
                 if (flowItem.Groups["done"].Value != " ")
