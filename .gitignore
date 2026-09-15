@@ -8,3 +8,7 @@ build/
 Thumbs.db
 .idea/
 .vscode/
+bin/
+obj/
+test-results/
+playwright-report/
