@@ -106,14 +106,13 @@ public sealed class WorkspacesEndpointTests : IDisposable
         return basePath;
     }
 
-    private static async Task<List<WorkspaceRow>> GetRows(params string[] bases)
+    private async Task<List<WorkspaceRow>> GetRows(params string[] bases)
     {
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection(bases.Select((b, i) =>
-                    new KeyValuePair<string, string?>($"Bases:{i}", b)));
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases))]);
             }));
         var client = factory.CreateClient();
 

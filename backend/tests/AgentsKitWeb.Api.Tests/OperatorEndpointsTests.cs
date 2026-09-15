@@ -48,7 +48,7 @@ public sealed class OperatorEndpointsTests : IDisposable
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("Bases:0", _base)]);
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, _base))]);
             }));
     }
 

@@ -1,3 +1,5 @@
+using AgentsKitWeb.Api.Bases;
+
 namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>Неотвеченные вопросы копии и то, что оператор видит рядом с ними.</summary>
@@ -16,9 +18,9 @@ public static class OperatorEndpoints
 {
     public static void MapOperatorEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/questions", (string @base, string copy, IConfiguration configuration) =>
+        app.MapGet("/api/questions", (string @base, string copy, BasesStore bases) =>
         {
-            if (FindMemory(configuration, @base, copy) is not { } found)
+            if (FindMemory(bases, @base, copy) is not { } found)
                 return Results.NotFound();
 
             var (_, memory) = found;
@@ -30,9 +32,9 @@ public static class OperatorEndpoints
                 memory.Questions.Where(q => q.Answer is null).ToList()));
         });
 
-        app.MapPost("/api/answers", async (AnswersRequest request, IConfiguration configuration, CancellationToken cancellationToken) =>
+        app.MapPost("/api/answers", async (AnswersRequest request, BasesStore bases, CancellationToken cancellationToken) =>
         {
-            if (FindMemory(configuration, request.Base, request.Copy) is not { } found)
+            if (FindMemory(bases, request.Base, request.Copy) is not { } found)
                 return Results.NotFound();
 
             var rejection = await OperatorAnswers.WriteAsync(found.File, request.Answers, cancellationToken);
@@ -45,13 +47,11 @@ public static class OperatorEndpoints
         });
     }
 
-    // Пишется только память копии из work/ базы, которая есть в настройке Bases:
+    // Пишется только память копии из work/ базы, которая есть в списке баз панели:
     // путь к файлу панель не принимает, а собирает сама.
-    private static (string File, WorkMemory Memory)? FindMemory(IConfiguration configuration, string basePath, string copy)
+    private static (string File, WorkMemory Memory)? FindMemory(BasesStore bases, string basePath, string copy)
     {
-        var bases = configuration.GetSection("Bases").Get<string[]>() ?? [];
-        var configured = bases.FirstOrDefault(b =>
-            string.Equals(WorkspaceCollector.Normalize(b), WorkspaceCollector.Normalize(basePath), StringComparison.OrdinalIgnoreCase));
+        var configured = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, basePath));
         if (configured is null || !Directory.Exists(configured))
             return null;
 
