@@ -24,6 +24,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         var missingCopy = Path.Combine(_root, "gone");
         var basePath = CreateBase("app-knowledge", main, missingCopy);
+        File.WriteAllText(Path.Combine(basePath, "product.md"), "# Order Service — продукт\n");
         File.WriteAllText(Path.Combine(basePath, "work", "app.md"), $"""
             # Таблица рабочих копий
             рабочая копия: {main}
@@ -51,7 +52,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
         Assert.Equal(4, rows.Count);
 
         var mainRow = Assert.Single(rows, r => r.Path == main);
-        Assert.Equal("app-knowledge", mainRow.Project);
+        Assert.Equal("Order Service", mainRow.Project);
         Assert.Equal("dev", mainRow.Branch);
         Assert.Equal("Таблица рабочих копий", mainRow.Task);
         Assert.Equal("Ветка", mainRow.FlowStep);
@@ -67,10 +68,12 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         var missingCopyRow = Assert.Single(rows, r => r.Path == missingCopy);
         Assert.Equal("Копия не найдена на диске", missingCopyRow.Error);
+        Assert.Equal("Order Service", missingCopyRow.Project);
         Assert.Null(missingCopyRow.Status);
 
         var missingBaseRow = Assert.Single(rows, r => r.Path == missingBase);
         Assert.Equal("База не найдена на диске", missingBaseRow.Error);
+        Assert.Equal("no-base", missingBaseRow.Project);
     }
 
     [Fact]
@@ -99,6 +102,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
             """);
 
         var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal("solo-knowledge", row.Project);
         Assert.Equal(WorkspaceStatus.InWork, row.Status);
         Assert.Equal("Критерий", row.FlowStep);
         Assert.Equal(0, row.Progress);

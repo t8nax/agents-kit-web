@@ -8,7 +8,7 @@ import {
   type NotificationPermissionState,
 } from './notifications'
 import ReplyModal from './ReplyModal'
-import { statusChanges } from './statusChanges'
+import { rowKey, statusChanges } from './statusChanges'
 
 export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
 
@@ -97,7 +97,7 @@ function App() {
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
-        <h3>agents-kit-web</h3>
+        <h3>Agents Kit Web</h3>
         <NotificationsControl
           permission={notifications.permission}
           muted={notifications.muted}
@@ -198,7 +198,7 @@ function WorkspacesTable({ rows, onReply }: { rows: WorkspaceRow[]; onReply: (ro
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr key={`${row.project}|${row.path}`}>
+          <tr key={rowKey(row)}>
             <td>
               <div className="proj">{row.project}</div>
               <div className="mono text-sec sub">

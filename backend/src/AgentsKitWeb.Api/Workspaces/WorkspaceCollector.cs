@@ -35,7 +35,7 @@ public static class WorkspaceCollector
     private static async Task<IReadOnlyList<WorkspaceRow>> CollectBaseAsync(
         string basePath, CancellationToken cancellationToken)
     {
-        var project = new DirectoryInfo(basePath.TrimEnd('\\', '/')).Name;
+        var project = ProjectName.Of(basePath);
 
         if (!Directory.Exists(basePath))
             return [Unavailable(project, basePath, basePath, "База не найдена на диске")];

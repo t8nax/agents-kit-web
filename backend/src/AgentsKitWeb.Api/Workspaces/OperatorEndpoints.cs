@@ -26,7 +26,7 @@ public static class OperatorEndpoints
 
             var (_, memory) = found;
             return Results.Ok(new QuestionsResponse(
-                new DirectoryInfo(@base.TrimEnd('\\', '/')).Name,
+                ProjectName.Of(@base),
                 memory.Copy!,
                 memory.Task,
                 memory.Criteria,
