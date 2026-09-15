@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitForElementToBeRemoved, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import type { QuestionsResponse } from './ReplyModal'
@@ -101,7 +101,7 @@ test('пустой ответ не отправляется: окно откры
   expect(dialog.queryByText('Напишите свой ответ')).not.toBeInTheDocument()
 })
 
-test('все ответы уходят одной отправкой, после записи таблица перечитывается', async () => {
+test('все ответы уходят одной отправкой, после записи окно закрывается и таблица перечитывается', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
@@ -111,7 +111,7 @@ test('все ответы уходят одной отправкой, после
   fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
   fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
 
-  expect(await dialog.findByRole('heading', { name: 'Ответы записаны' })).toBeInTheDocument()
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
   const post = calls.filter((c) => c.url === '/api/answers')
   expect(post).toHaveLength(1)
   expect(JSON.parse(post[0].init!.body as string)).toEqual({
@@ -123,12 +123,7 @@ test('все ответы уходят одной отправкой, после
     ],
   })
   expect(calls.filter((c) => c.url === '/api/workspaces')).toHaveLength(2)
-  expect(dialog.queryByText(/Вопрос \d из/)).not.toBeInTheDocument()
-
-  // крестик в шапке и кнопка внизу окна
-  const [, footerClose] = dialog.getAllByRole('button', { name: 'Закрыть' })
-  fireEvent.click(footerClose)
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.queryByText('Ответы записаны')).not.toBeInTheDocument()
 })
 
 test('вопрос, на который уже ответили, останавливает запись и показывается с причиной', async () => {
@@ -151,4 +146,5 @@ test('вопрос, на который уже ответили, останав�
   expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
   expect(dialog.getByText(/уже ответили из другого места/)).toBeInTheDocument()
   expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+  expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
 })
