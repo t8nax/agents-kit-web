@@ -1,4 +1,4 @@
-# agent-kit-web
+# agents-kit-web
 
 Веб-панель оператора над базами знаний agents-kit.
 

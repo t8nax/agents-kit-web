@@ -17,7 +17,7 @@ function App() {
 
   return (
     <main>
-      <h1>agent-kit-web</h1>
+      <h1>agents-kit-web</h1>
       <p>
         API: <span data-testid="ping-status">{status}</span>
       </p>
