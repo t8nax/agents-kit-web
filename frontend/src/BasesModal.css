@@ -12,7 +12,7 @@
 }
 
 .bases-modal {
-  width: 560px;
+  width: 600px;
   max-width: 100%;
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
@@ -41,11 +41,24 @@
   padding: 4px;
   border-radius: 4px;
   cursor: pointer;
-  margin-left: auto;
   display: inline-flex;
 }
 
-.bases-icon-btn:hover {
+.bases-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.bases-close {
+  margin-left: auto;
+}
+
+.bases-title-suffix {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.bases-icon-btn:hover:not(:disabled) {
   color: var(--text-primary);
   background: var(--bg-surface-hover);
 }
@@ -145,7 +158,9 @@
 
 .bases-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 12px 20px;
   border-top: 1px solid var(--border-subtle);
 }
@@ -186,9 +201,12 @@
   opacity: 0.9;
 }
 
-.bases-btn-danger {
+.bases-btn-small {
   padding: 4px 10px;
   font-size: 12px;
+}
+
+.bases-btn-danger {
   background: var(--bg-surface-hover);
   border-color: var(--border-strong);
 }
@@ -209,4 +227,171 @@
 .bases-icon-btn:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
+}
+
+.bases-btn-add {
+  background: var(--accent-active-bg);
+  color: var(--accent-active-text);
+  border-color: rgba(52, 211, 153, 0.3);
+  font-weight: 500;
+}
+
+.bases-btn-add:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.18);
+  border-color: var(--accent-active-text);
+}
+
+.bases-toast {
+  color: var(--accent-active-text);
+  font-size: 12px;
+}
+
+/* Обзор папок */
+
+.bases-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bases-crumbs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.bases-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.bases-crumbs button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.bases-crumbs button:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.bases-crumbs button[aria-current='location'] {
+  color: var(--text-primary);
+}
+
+.bases-crumb-sep {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.bases-folders {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-base);
+}
+
+.bases-folders li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 6px;
+  border-radius: 4px;
+  min-height: 36px;
+}
+
+.bases-folders li:hover {
+  background: var(--bg-surface-hover);
+}
+
+.bases-folder-open {
+  font: inherit;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 4px;
+}
+
+.bases-folder-open svg {
+  color: var(--text-tertiary);
+}
+
+.bases-folders li.is-base .bases-folder-open > svg:first-child {
+  color: var(--accent-active-text);
+}
+
+.bases-folder-name {
+  overflow-wrap: anywhere;
+}
+
+.bases-folder-open .bases-chevron {
+  margin-left: auto;
+  width: 14px;
+  height: 14px;
+}
+
+.bases-folder-open:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.bases-kb-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-active-bg);
+  color: var(--accent-active-text);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.bases-in-list {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+  padding-right: 6px;
+}
+
+.bases-folders li.bases-folders-hint {
+  color: var(--text-tertiary);
+  padding: 12px;
+}
+
+.bases-folders li.bases-folders-hint:hover {
+  background: none;
+}
+
+.bases-legend {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
