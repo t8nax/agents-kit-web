@@ -52,6 +52,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         _base = Path.Combine(_root, "app-knowledge");
         Directory.CreateDirectory(Path.Combine(_base, "work"));
         File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{\"workspaces\":[]}");
+        File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
         _memoryPath = Path.Combine(_base, "work", "app.md");
         File.WriteAllText(_memoryPath, $"# Окно ответа\nрабочая копия: {_copy}\nветка: feat/x\n\n{Sections}\n\n## Агенту\n\n### Флоу\n- [ ] 1. Критерий\n");
 
@@ -73,7 +74,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         var response = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
 
         Assert.NotNull(response);
-        Assert.Equal("app-knowledge", response.Project);
+        Assert.Equal("App", response.Project);
         Assert.Equal("Окно ответа", response.Task);
         Assert.Equal([new ClosingCriterion("1. Окно есть", "Оператор отвечает из панели.")], response.Criteria);
         Assert.Equal("Health баз.", response.OutOfScope);
