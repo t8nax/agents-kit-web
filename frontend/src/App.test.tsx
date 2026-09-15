@@ -268,6 +268,21 @@ test('уведомляет, когда копия освободилась, кл
   focus.mockRestore()
 })
 
+test('с разрешёнными уведомлениями опрашивает и скрытую вкладку и уведомляет с неё', async () => {
+  fakeInterval()
+  const { shown } = stubNotification('granted')
+  const fetchMock = workspaceResponses([inWork], [rows[0]])
+
+  render(<App />)
+  await screen.findByText('В работе')
+
+  setVisibility('hidden')
+  await tick(3000)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  await vi.waitFor(() => expect(shown).toHaveLength(1))
+  expect(shown[0].title).toBe('app-knowledge: ждёт оператора')
+})
+
 test('без разрешения смены статуса уведомлений не шлют', async () => {
   fakeInterval()
   const { shown } = stubNotification('denied')

@@ -3,7 +3,7 @@ import { rowKey, type StatusChange } from './statusChanges'
 
 export type NotificationPermissionState = NotificationPermission | 'unsupported'
 
-function currentPermission(): NotificationPermissionState {
+export function currentPermission(): NotificationPermissionState {
   return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
 }
 

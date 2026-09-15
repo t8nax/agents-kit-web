@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import BasesModal from './BasesModal'
-import { notifyStatusChange, useNotificationPermission, type NotificationPermissionState } from './notifications'
+import {
+  currentPermission,
+  notifyStatusChange,
+  useNotificationPermission,
+  type NotificationPermissionState,
+} from './notifications'
 import ReplyModal from './ReplyModal'
 import { statusChanges } from './statusChanges'
 
@@ -65,7 +70,9 @@ function App() {
   useEffect(() => {
     loadRows()
     const timer = setInterval(() => {
-      if (document.visibilityState === 'hidden' || inFlight.current > 0) return
+      if (inFlight.current > 0) return
+      // Скрытая вкладка опрашивается только ради уведомлений
+      if (document.visibilityState === 'hidden' && currentPermission() !== 'granted') return
       loadRows()
     }, refreshIntervalMs)
     const onVisibility = () => {
