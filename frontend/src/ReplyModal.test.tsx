@@ -23,7 +23,11 @@ const questions: QuestionsResponse = {
   project: 'app-knowledge',
   copy: 'D:\\Projects\\app',
   task: 'Окно ответа',
-  criterion: ['1. Окно есть.', 'Не входит: health.'],
+  criteria: [
+    { title: '1. Окно есть', text: 'Оператор отвечает из панели.\n\nБез IDE.' },
+    { title: '2. Строка перестаёт ждать', text: null },
+  ],
+  outOfScope: 'Health баз.',
   questions: [
     { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
     {
@@ -40,12 +44,12 @@ const questions: QuestionsResponse = {
 
 type Route = (init?: RequestInit) => Response
 
-function stubApi(answers: Route) {
+function stubApi(answers: Route, data: QuestionsResponse = questions) {
   const calls: { url: string; init?: RequestInit }[] = []
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url, init })
     if (url === '/api/workspaces') return new Response(JSON.stringify([row]), { status: 200 })
-    if (url.startsWith('/api/questions?')) return new Response(JSON.stringify(questions), { status: 200 })
+    if (url.startsWith('/api/questions?')) return new Response(JSON.stringify(data), { status: 200 })
     if (url === '/api/answers') return answers(init)
     return new Response(null, { status: 404 })
   })
@@ -59,6 +63,30 @@ async function openReply() {
   return screen.findByRole('dialog', { name: 'Ответ оператора' })
 }
 
+test('окно показывает заголовок и текст каждого критерия и отдельно то, что не входит', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+
+  const dialog = within(await openReply())
+
+  const titles = await dialog.findAllByText(/^\d\. /, { selector: '.criterion-title' })
+  expect(titles.map((t) => t.textContent)).toEqual(['1. Окно есть', '2. Строка перестаёт ждать'])
+  const firstText = titles[0].parentElement!.querySelector('.criterion-text')
+  expect(firstText?.textContent).toBe('Оператор отвечает из панели.\n\nБез IDE.')
+  expect(titles[1].parentElement!.querySelector('.criterion-text')).toBeNull()
+  expect(dialog.getByText('Не входит')).toBeInTheDocument()
+  expect(dialog.getByText('Health баз.')).toBeInTheDocument()
+  expect(dialog.queryByText('Критерии не записаны')).not.toBeInTheDocument()
+})
+
+test('окно без критериев говорит, что они не записаны', async () => {
+  stubApi(() => new Response(null, { status: 204 }), { ...questions, criteria: [], outOfScope: null })
+
+  const dialog = within(await openReply())
+
+  expect(await dialog.findByText('Критерии не записаны')).toBeInTheDocument()
+  expect(dialog.queryByText('Не входит')).not.toBeInTheDocument()
+})
+
 test('окно показывает вопрос копии с контекстом, вариантами и критерием', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
 
@@ -68,7 +96,7 @@ test('окно показывает вопрос копии с контекст�
   expect(calls.some((c) => c.url === '/api/questions?base=D%3A%5CProjects%5Capp-knowledge&copy=D%3A%5CProjects%5Capp')).toBe(true)
   expect(dialog.getByText('Вопрос 1 из 2')).toBeInTheDocument()
   expect(dialog.getByText('За вами объём проверок')).toBeInTheDocument()
-  expect(dialog.getByText('1. Окно есть.')).toBeInTheDocument()
+  expect(dialog.getByText('1. Окно есть')).toBeInTheDocument()
   expect(dialog.getByText('app-knowledge · D:\\Projects\\app')).toBeInTheDocument()
 
   fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))

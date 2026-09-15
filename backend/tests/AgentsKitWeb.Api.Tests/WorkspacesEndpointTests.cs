@@ -36,7 +36,9 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
             ответ:
 
-            ## Флоу
+            ## Агенту
+
+            ### Флоу
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             - [ ] 3. Реализация
@@ -90,7 +92,9 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
             ответ: ответ
 
-            ## Флоу
+            ## Агенту
+
+            ### Флоу
             - [ ] 1. Критерий
             """);
 

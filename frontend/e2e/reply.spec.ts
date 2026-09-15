@@ -24,7 +24,8 @@ test('оператор отвечает на вопросы копии, и ст�
         project: 'app-knowledge',
         copy: 'D:\\Projects\\app',
         task: 'Окно ответа',
-        criterion: ['1. Окно есть.'],
+        criteria: [{ title: '1. Окно есть', text: 'Оператор отвечает из панели.' }],
+        outOfScope: 'Health баз.',
         questions: [
           { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
           {

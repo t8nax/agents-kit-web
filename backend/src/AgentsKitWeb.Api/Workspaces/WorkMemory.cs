@@ -12,6 +12,9 @@ public sealed record OperatorQuestion(
     IReadOnlyList<QuestionVariant> Variants,
     string? Answer);
 
+/// <summary>Критерий закрытия — подраздел «### N. признак» и текст оператору под ним.</summary>
+public sealed record ClosingCriterion(string Title, string? Text);
+
 /// <summary>Рабочая память задачи — файл work/*.md базы.</summary>
 public sealed record WorkMemory(
     string? Copy,
@@ -19,9 +22,12 @@ public sealed record WorkMemory(
     string? Task,
     string? FlowStep,
     int? Progress,
-    IReadOnlyList<string> Criterion,
+    IReadOnlyList<ClosingCriterion> Criteria,
+    string? OutOfScope,
     IReadOnlyList<OperatorQuestion> Questions)
 {
+    private const string OutOfScopeTitle = "Не входит";
+
     public bool WaitingForOperator => Questions.Any(q => q.Answer is null);
 
     private static readonly Regex FlowItem = new(@"^- \[(?<done>[ xX])\]\s*(?:\d+\.\s*)?(?<name>.*)$");
@@ -31,11 +37,12 @@ public sealed record WorkMemory(
         var lines = MemoryText.Lines(text);
 
         string? copy = null, branch = null, task = null;
-        var criterion = new List<string>();
+        // Подразделы критериев в порядке файла: заголовок и строки текста под ним.
+        var criteriaBlocks = new List<(string Title, List<string> Lines)>();
         var flowTotal = 0;
         var flowDone = 0;
         string? flowStep = null;
-        string? section = null;
+        string? section = null, subsection = null;
 
         foreach (var memoryLine in lines)
         {
@@ -44,6 +51,14 @@ public sealed record WorkMemory(
             if (line.StartsWith("## "))
             {
                 section = line[3..].Trim();
+                subsection = null;
+                continue;
+            }
+            if (line.StartsWith("### "))
+            {
+                subsection = line[4..].Trim();
+                if (section == "Критерии закрытия")
+                    criteriaBlocks.Add((subsection, []));
                 continue;
             }
 
@@ -58,13 +73,13 @@ public sealed record WorkMemory(
                 continue;
             }
 
-            if (section == "Критерии закрытия" && line.StartsWith("- ") && line[2..].Trim() is { Length: > 0 } item)
+            if (section == "Критерии закрытия" && subsection is not null)
             {
-                criterion.Add(item);
+                criteriaBlocks[^1].Lines.Add(line);
                 continue;
             }
 
-            if (section == "Флоу" && FlowItem.Match(line) is { Success: true } flowItem)
+            if (section == "Агенту" && subsection == "Флоу" && FlowItem.Match(line) is { Success: true } flowItem)
             {
                 flowTotal++;
                 if (flowItem.Groups["done"].Value != " ")
@@ -76,7 +91,27 @@ public sealed record WorkMemory(
 
         int? progress = flowTotal == 0 ? null : (int)Math.Round(flowDone * 100.0 / flowTotal);
         var questions = QuestionBlocks.Find(lines).Select(b => b.Question).ToList();
-        return new WorkMemory(copy, branch, task, flowStep, progress, criterion, questions);
+        var criteria = criteriaBlocks
+            .Where(b => b.Title != OutOfScopeTitle)
+            .Select(b => new ClosingCriterion(b.Title, Paragraphs(b.Lines)))
+            .ToList();
+        var outOfScope = criteriaBlocks.Where(b => b.Title == OutOfScopeTitle).Select(b => Paragraphs(b.Lines)).FirstOrDefault();
+        return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, questions);
+    }
+
+    // Строки абзаца — через «\n», абзацы — через пустую строку; пустые строки по краям и повторные не сохраняются.
+    private static string? Paragraphs(IEnumerable<string> lines)
+    {
+        var paragraphs = new List<List<string>> { new() };
+        foreach (var line in lines.Select(l => l.Trim()))
+        {
+            if (line.Length > 0)
+                paragraphs[^1].Add(line);
+            else if (paragraphs[^1].Count > 0)
+                paragraphs.Add([]);
+        }
+        var text = string.Join("\n\n", paragraphs.Where(p => p.Count > 0).Select(p => string.Join("\n", p)));
+        return text.Length == 0 ? null : text;
     }
 
     // «Реализация — выход: …» → «Реализация»

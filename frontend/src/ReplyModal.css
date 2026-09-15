@@ -184,14 +184,32 @@
   margin: 0 0 8px;
 }
 
-.criterion {
+.criteria {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 6px;
+  gap: 12px;
+}
+
+.criterion-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+/* строки и абзацы текста критерия — как в памяти */
+.criterion-text {
+  margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.out-of-scope-label {
+  margin-top: 16px;
 }
 
 .massive-title {
