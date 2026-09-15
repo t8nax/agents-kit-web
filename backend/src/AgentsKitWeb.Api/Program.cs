@@ -12,6 +12,7 @@ app.MapGet("/api/workspaces", (BasesStore bases, CancellationToken cancellationT
     WorkspaceCollector.CollectAsync(bases.List(), cancellationToken));
 
 app.MapBasesEndpoints();
+app.MapFoldersEndpoints();
 app.MapOperatorEndpoints();
 
 app.Run();

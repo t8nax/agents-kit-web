@@ -34,7 +34,7 @@ public static class BasesEndpoints
 
     private static BaseEntry Entry(string path) => new(path, CountCopies(path));
 
-    private static int? CountCopies(string basePath)
+    internal static int? CountCopies(string basePath)
     {
         try
         {
