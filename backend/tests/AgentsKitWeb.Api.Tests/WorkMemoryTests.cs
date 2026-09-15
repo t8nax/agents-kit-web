@@ -12,8 +12,18 @@ public class WorkMemoryTests
         Решения: нет
 
         ## Критерии закрытия
-        - таблица есть
-        - не входит: health
+
+        ### 1. Таблица есть
+        Оператор видит копии списком.
+        Без обновления страницы.
+
+        Второй абзац.
+
+        ### 2. Строка ждёт
+        Копия с вопросом отмечена.
+
+        ### Не входит
+        Health баз.
 
         ## Оператору
 
@@ -56,19 +66,44 @@ public class WorkMemoryTests
     }
 
     [Fact]
-    public void Parse_Criteria_ReadsLinesOfCriteriaSectionWithOutOfScope()
+    public void Parse_Criteria_ReadsTitleAndParagraphsOfEachSubsectionAndOutOfScopeApart()
     {
         var memory = WorkMemory.Parse(Memory);
 
-        Assert.Equal(["таблица есть", "не входит: health"], memory.Criterion);
+        Assert.Equal(
+            [
+                new ClosingCriterion("1. Таблица есть", "Оператор видит копии списком.\nБез обновления страницы.\n\nВторой абзац."),
+                new ClosingCriterion("2. Строка ждёт", "Копия с вопросом отмечена."),
+            ],
+            memory.Criteria);
+        Assert.Equal("Health баз.", memory.OutOfScope);
     }
 
     [Fact]
-    public void Parse_NoCriteriaSection_HasNoCriterion()
+    public void Parse_CriterionWithoutText_HasNullText()
     {
-        var memory = WorkMemory.Parse(Memory.Replace("## Критерии закрытия\n- таблица есть\n- не входит: health\n", ""));
+        var memory = WorkMemory.Parse(Memory.Replace("Копия с вопросом отмечена.\n", ""));
 
-        Assert.Empty(memory.Criterion);
+        Assert.Null(memory.Criteria[1].Text);
+    }
+
+    [Fact]
+    public void Parse_NoCriteriaSection_HasNoCriteria()
+    {
+        var memory = WorkMemory.Parse(Memory[..Memory.IndexOf("## Критерии закрытия", StringComparison.Ordinal)]
+            + Memory[Memory.IndexOf("## Оператору", StringComparison.Ordinal)..]);
+
+        Assert.Empty(memory.Criteria);
+        Assert.Null(memory.OutOfScope);
+    }
+
+    [Fact]
+    public void Parse_AgentCriteriaChecks_AreNotClosingCriteria()
+    {
+        var memory = WorkMemory.Parse(Memory);
+
+        Assert.DoesNotContain(memory.Criteria, c => c.Title == "Критерии");
+        Assert.Equal(2, memory.Criteria.Count);
     }
 
     [Fact]
@@ -217,15 +252,26 @@ public class WorkMemoryTests
     }
 
     [Fact]
-    public void Parse_OldFormInHeader_HasNoQuestionsOrCriterion()
+    public void Parse_OldFormInHeader_HasNoQuestionsOrCriteria()
     {
-        var memory = WorkMemory.Parse(Memory
-            .Replace("## Критерии закрытия\n- таблица есть\n- не входит: health\n", "")
-            .Replace("Решения: нет\n", "Решения: нет\n- Критерий закрытия: таблица есть\n- Оператору: подтвердите критерий\n  - контекст: к\n"));
+        var memory = WorkMemory.Parse(Memory[..Memory.IndexOf("## Критерии закрытия", StringComparison.Ordinal)]
+            .Replace("Решения: нет\n", "Решения: нет\n- Критерий закрытия: таблица есть\n- Оператору: подтвердите критерий\n  - контекст: к\n")
+            + Memory[Memory.IndexOf("## Оператору", StringComparison.Ordinal)..]);
 
         Assert.Empty(memory.Questions);
-        Assert.Empty(memory.Criterion);
+        Assert.Empty(memory.Criteria);
         Assert.False(memory.WaitingForOperator);
+    }
+
+    [Fact]
+    public void Parse_CriteriaAsListLines_AreNotRead()
+    {
+        var start = Memory.IndexOf("## Критерии закрытия", StringComparison.Ordinal);
+        var end = Memory.IndexOf("## Оператору", StringComparison.Ordinal);
+        var memory = WorkMemory.Parse(Memory[..start] + "## Критерии закрытия\n- таблица есть\n- не входит: health\n\n" + Memory[end..]);
+
+        Assert.Empty(memory.Criteria);
+        Assert.Null(memory.OutOfScope);
     }
 
     [Fact]
@@ -239,7 +285,8 @@ public class WorkMemoryTests
         Assert.Equal("Первый", question.Title);
         Assert.Equal("к", question.Context);
         Assert.Equal("да", question.Answer);
-        Assert.Equal(["таблица есть", "не входит: health"], memory.Criterion);
+        Assert.Equal(new ClosingCriterion("1. Таблица есть", "Оператор видит копии списком.\nБез обновления страницы.\n\nВторой абзац."), memory.Criteria[0]);
+        Assert.Equal("Health баз.", memory.OutOfScope);
         Assert.Equal("Реализация", memory.FlowStep);
     }
 

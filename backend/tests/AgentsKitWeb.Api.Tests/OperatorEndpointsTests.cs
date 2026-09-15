@@ -17,8 +17,12 @@ public sealed class OperatorEndpointsTests : IDisposable
 
     private const string Sections = """
         ## Критерии закрытия
-        - окно есть
-        - не входит: health
+
+        ### 1. Окно есть
+        Оператор отвечает из панели.
+
+        ### Не входит
+        Health баз.
 
         ## Оператору
 
@@ -64,14 +68,15 @@ public sealed class OperatorEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Questions_ReturnsUnansweredQuestionsWithTaskAndCriterion()
+    public async Task Questions_ReturnsUnansweredQuestionsWithTaskAndCriteria()
     {
         var response = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
 
         Assert.NotNull(response);
         Assert.Equal("app-knowledge", response.Project);
         Assert.Equal("Окно ответа", response.Task);
-        Assert.Equal(["окно есть", "не входит: health"], response.Criterion);
+        Assert.Equal([new ClosingCriterion("1. Окно есть", "Оператор отвечает из панели.")], response.Criteria);
+        Assert.Equal("Health баз.", response.OutOfScope);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
         Assert.Equal("За вами объём проверок.", response.Questions[0].Context);
         Assert.True(response.Questions[1].Variants[0].Recommended);
