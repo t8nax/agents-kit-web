@@ -9,6 +9,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
   visibility = 'visible'
+  localStorage.clear()
 })
 
 function setVisibility(value: DocumentVisibilityState) {
@@ -211,9 +212,50 @@ test('кнопка в шапке запрашивает разрешение н�
   render(<App />)
   fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
 
-  expect(await screen.findByText('Уведомления включены')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Выключить уведомления' })).toBeInTheDocument()
   expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1)
   expect(screen.queryByRole('button', { name: 'Включить уведомления' })).not.toBeInTheDocument()
+})
+
+test('выключенные из шапки уведомления не показываются и не держат опрос скрытой вкладки', async () => {
+  fakeInterval()
+  const { shown, FakeNotification } = stubNotification('granted')
+  const fetchMock = workspaceResponses([inWork], [rows[0]])
+
+  render(<App />)
+  await screen.findByText('В работе')
+  fireEvent.click(screen.getByRole('button', { name: 'Выключить уведомления' }))
+  expect(screen.getByRole('button', { name: 'Включить уведомления' })).toBeInTheDocument()
+
+  setVisibility('hidden')
+  await tick(30000)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+
+  await act(async () => setVisibility('visible'))
+  expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
+  expect(shown).toHaveLength(0)
+  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
+})
+
+test('уведомления включаются обратно без нового запроса разрешения, выбор помнится', async () => {
+  fakeInterval()
+  const { shown, FakeNotification } = stubNotification('granted')
+  workspaceResponses(rows)
+
+  const { unmount } = render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Выключить уведомления' }))
+  unmount()
+
+  workspaceResponses([inWork], [rows[0]])
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
+  expect(screen.getByRole('button', { name: 'Выключить уведомления' })).toBeInTheDocument()
+  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
+
+  await screen.findByText('В работе')
+  await tick(3000)
+  expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
 })
 
 test('при отказе в разрешении шапка это показывает, а таблица работает', async () => {

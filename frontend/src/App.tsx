@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import BasesModal from './BasesModal'
 import {
-  currentPermission,
+  notificationsActive,
   notifyStatusChange,
-  useNotificationPermission,
+  useNotifications,
   type NotificationPermissionState,
 } from './notifications'
 import ReplyModal from './ReplyModal'
@@ -43,7 +43,7 @@ function App() {
   const inFlight = useRef(0)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
-  const notifications = useNotificationPermission()
+  const notifications = useNotifications()
 
   const loadRows = useCallback(() => {
     const request = ++lastRequest.current
@@ -72,7 +72,7 @@ function App() {
     const timer = setInterval(() => {
       if (inFlight.current > 0) return
       // Скрытая вкладка опрашивается только ради уведомлений
-      if (document.visibilityState === 'hidden' && currentPermission() !== 'granted') return
+      if (document.visibilityState === 'hidden' && !notificationsActive()) return
       loadRows()
     }, refreshIntervalMs)
     const onVisibility = () => {
@@ -98,7 +98,12 @@ function App() {
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
         <h3>agents-kit-web</h3>
-        <NotificationsControl permission={notifications.permission} onRequest={notifications.request} />
+        <NotificationsControl
+          permission={notifications.permission}
+          muted={notifications.muted}
+          onRequest={notifications.request}
+          onToggle={notifications.setEnabled}
+        />
         <button type="button" className="bases-btn" onClick={() => setBasesOpen(true)}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <ellipse cx="12" cy="5" rx="9" ry="3" />
@@ -123,10 +128,14 @@ function App() {
 
 function NotificationsControl({
   permission,
+  muted,
   onRequest,
+  onToggle,
 }: {
   permission: NotificationPermissionState
+  muted: boolean
   onRequest: () => void
+  onToggle: (enabled: boolean) => void
 }) {
   if (permission === 'default') {
     return (
@@ -138,10 +147,10 @@ function NotificationsControl({
   }
   if (permission === 'granted') {
     return (
-      <span className="header-start header-note text-sec">
-        <BellIcon />
-        Уведомления включены
-      </span>
+      <button type="button" className="bases-btn header-start" onClick={() => onToggle(muted)}>
+        {muted ? <BellOffIcon /> : <BellIcon />}
+        {muted ? 'Включить уведомления' : 'Выключить уведомления'}
+      </button>
     )
   }
   if (permission === 'denied') {
@@ -155,6 +164,18 @@ function BellIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  )
+}
+
+function BellOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+      <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
+      <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
+      <path d="M18 8a6 6 0 0 0-9.33-5" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   )
 }
