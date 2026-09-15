@@ -16,6 +16,8 @@ public static class GitWorktrees
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
+            // Поставленная панель — WinExe без консоли: без этого Windows открывает окно на каждый запуск git.
+            CreateNoWindow = true,
         };
         foreach (var arg in new[] { "-C", copyPath, "worktree", "list", "--porcelain" })
             startInfo.ArgumentList.Add(arg);
