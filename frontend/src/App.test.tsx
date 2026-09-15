@@ -72,6 +72,7 @@ test('показывает рабочие копии из /api/workspaces', asyn
 
   const tableRows = await screen.findAllByRole('row')
   expect(fetchMock).toHaveBeenCalledWith('/api/workspaces')
+  expect(screen.getByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
   expect(tableRows).toHaveLength(4)
 
   const waiting = within(tableRows[1])
