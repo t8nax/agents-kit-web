@@ -7,6 +7,7 @@ import {
   useNotifications,
   type NotificationPermissionState,
 } from './notifications'
+import NewWorkspaceModal from './NewWorkspaceModal'
 import ReplyModal from './ReplyModal'
 import { rowKey, statusChanges } from './statusChanges'
 
@@ -39,6 +40,7 @@ function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [basesOpen, setBasesOpen] = useState(false)
+  const [newOpen, setNewOpen] = useState(false)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
@@ -86,6 +88,7 @@ function App() {
   }, [loadRows])
 
   const closeReply = useCallback(() => setReplyTo(null), [])
+  const closeNew = useCallback(() => setNewOpen(false), [])
   const closeBases = useCallback(() => {
     setBasesOpen(false)
     loadRows()
@@ -104,6 +107,13 @@ function App() {
           onRequest={notifications.request}
           onToggle={notifications.setEnabled}
         />
+        <button type="button" className="bases-btn" onClick={() => setNewOpen(true)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
+          Новая копия
+        </button>
         <button type="button" className="bases-btn" onClick={() => setBasesOpen(true)}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <ellipse cx="12" cy="5" rx="9" ry="3" />
@@ -122,6 +132,7 @@ function App() {
       </main>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {basesOpen && <BasesModal onClose={closeBases} />}
+      {newOpen && <NewWorkspaceModal onClose={closeNew} onCreated={loadRows} />}
     </>
   )
 }

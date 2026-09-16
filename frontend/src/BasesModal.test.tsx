@@ -22,7 +22,7 @@ function stubApi(handlers: Record<string, Handler>) {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 
-const existing: BaseEntry = { path: 'D:\\Projects\\app-knowledge', copies: 2 }
+const existing: BaseEntry = { path: 'D:\\Projects\\app-knowledge', copies: 2, project: 'App' }
 
 async function openBases() {
   render(<App />)
@@ -48,7 +48,7 @@ test('добавленная база появляется в списке, а �
     'GET /api/bases': () => json([]),
     'POST /api/bases': (init) => {
       posted = JSON.parse(String(init?.body))
-      return json({ path: 'D:\\Projects\\nota-knowledge', copies: 1 }, 201)
+      return json({ path: 'D:\\Projects\\nota-knowledge', copies: 1, project: 'Nota' }, 201)
     },
   })
 
@@ -140,12 +140,12 @@ test('«Обзор…» открывает диски, папки открыва
   }
   const fetchMock = stubApi({
     'GET /api/workspaces': () => json([]),
-    'GET /api/bases': () => json([{ path: 'D:\\Projects\\agents-kit-web-knowledge', copies: 2 }]),
+    'GET /api/bases': () => json([{ path: 'D:\\Projects\\agents-kit-web-knowledge', copies: 2, project: 'Agents Kit Web' }]),
     'GET /api/folders': () => {
       const url = String(fetchMock.mock.calls.at(-1)?.[0])
       return json(listings[new URLSearchParams(url.split('?')[1] ?? '').get('path') ?? ''])
     },
-    'POST /api/bases': () => json({ path: 'D:\\Projects\\nota-knowledge', copies: 1 }, 201),
+    'POST /api/bases': () => json({ path: 'D:\\Projects\\nota-knowledge', copies: 1, project: 'Nota' }, 201),
   })
 
   const dialog = await openBases()

@@ -4,6 +4,7 @@ import './BasesModal.css'
 export type BaseEntry = {
   path: string
   copies: number | null
+  project: string
 }
 
 export type FolderEntry = {
