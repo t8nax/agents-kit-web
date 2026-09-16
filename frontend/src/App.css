@@ -155,11 +155,24 @@ svg {
 }
 
 /* «Базы знаний» — настройка, а не раздел: стоит внизу, за чертой */
-.side-item.side-bottom {
+.side-bottom {
   margin-top: auto;
   border-top: 1px solid var(--border-subtle);
-  padding-top: 12px;
-  padding-bottom: 12px;
+  /* справа на пиксель меньше: его забирает черта сайдбара */
+  padding: 12px 7px 12px 8px;
+}
+
+/* Рамка отличает кнопку окна от строк разделов. В полосе 52px она — квадрат 36px,
+   а значок стоит на той же вертикали, что у разделов: 8 + 1 + 9 = 2 + 16. */
+.side-item.side-button {
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.side-item.side-button:focus-visible {
+  outline-offset: 2px;
 }
 
 .side-count {
