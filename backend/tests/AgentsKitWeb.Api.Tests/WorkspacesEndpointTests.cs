@@ -109,6 +109,56 @@ public sealed class WorkspacesEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task Workspaces_CopyIsRepositoryDirectory_RowPerWorktreeWithThatDirectory()
+    {
+        var main = Path.Combine(_root, "mono");
+        Directory.CreateDirectory(main);
+        Git(main, "init", "-b", "dev");
+        Git(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "init");
+
+        // Ветка без каталога под китом: заведена до того, как каталог появился.
+        var withoutDirectory = Path.Combine(_root, "mono-old");
+        Git(main, "worktree", "add", "-b", "feat/old", withoutDirectory);
+
+        Directory.CreateDirectory(Path.Combine(main, "packages", "foo"));
+        File.WriteAllText(Path.Combine(main, "packages", "foo", "readme.md"), "foo\n");
+        Git(main, "add", "packages/foo/readme.md");
+        Git(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "foo");
+
+        var withDirectory = Path.Combine(_root, "mono-wt");
+        Git(main, "worktree", "add", "-b", "feat/wt", withDirectory);
+
+        var copy = Path.Combine(main, "packages", "foo");
+        var basePath = CreateBase("mono-knowledge", copy);
+        File.WriteAllText(Path.Combine(basePath, "work", "mono-packages-foo.md"), $"""
+            # Разбор накладной
+            рабочая копия: {copy}
+
+            ## Агенту
+
+            ### Флоу
+            - [x] 1. Критерий — выход: да
+            - [ ] 2. Ветка
+            """);
+
+        var rows = await GetRows(basePath);
+
+        Assert.Equal(2, rows.Count);
+
+        var mainRow = Assert.Single(rows, r => r.Path == copy);
+        Assert.Equal("dev", mainRow.Branch);
+        Assert.Equal("Разбор накладной", mainRow.Task);
+        Assert.Equal(WorkspaceStatus.InWork, mainRow.Status);
+
+        var worktreeRow = Assert.Single(rows, r => r.Path == Path.Combine(withDirectory, "packages", "foo"));
+        Assert.Equal("feat/wt", worktreeRow.Branch);
+        Assert.Equal(WorkspaceStatus.Free, worktreeRow.Status);
+
+        Assert.DoesNotContain(rows, r => r.Path.StartsWith(withoutDirectory, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(rows, r => r.Path == main || r.Path == withDirectory);
+    }
+
+    [Fact]
     public async Task Workspaces_NoBasesConfigured_ReturnsEmptyList()
     {
         Assert.Empty(await GetRows());
