@@ -30,7 +30,8 @@ public sealed record WorkMemory(
 
     public bool WaitingForOperator => Questions.Any(q => q.Answer is null);
 
-    private static readonly Regex FlowItem = new(@"^- \[(?<done>[ xX])\]\s*(?:\d+\.\s*)?(?<name>.*)$");
+    // Строки «Флоу» и «Шагов» размечены одинаково; у шага флоу впереди ещё и его номер.
+    private static readonly Regex ChecklistItem = new(@"^- \[(?<done>[ xX])\]\s*(?:\d+\.\s*)?(?<name>.*)$");
 
     public static WorkMemory Parse(string text)
     {
@@ -41,6 +42,8 @@ public sealed record WorkMemory(
         var criteriaBlocks = new List<(string Title, List<string> Lines)>();
         var flowTotal = 0;
         var flowDone = 0;
+        var stepsTotal = 0;
+        var stepsDone = 0;
         string? flowStep = null;
         string? section = null, subsection = null;
 
@@ -79,17 +82,29 @@ public sealed record WorkMemory(
                 continue;
             }
 
-            if (section == "Агенту" && subsection == "Флоу" && FlowItem.Match(line) is { Success: true } flowItem)
+            if (section == "Агенту" && subsection == "Флоу" && ChecklistItem.Match(line) is { Success: true } flowItem)
             {
                 flowTotal++;
                 if (flowItem.Groups["done"].Value != " ")
                     flowDone++;
                 else
                     flowStep ??= StepName(flowItem.Groups["name"].Value);
+                continue;
+            }
+
+            if (section == "Агенту" && subsection == "Шаги" && ChecklistItem.Match(line) is { Success: true } stepItem)
+            {
+                stepsTotal++;
+                if (stepItem.Groups["done"].Value != " ")
+                    stepsDone++;
             }
         }
 
-        int? progress = flowTotal == 0 ? null : (int)Math.Round(flowDone * 100.0 / flowTotal);
+        // Закрытые шаги флоу плюс доля закрытых шагов работы внутри открытого шага флоу:
+        // внутри шага полоса растёт, а на переходе к следующему не отступает назад, потому
+        // что доля не больше единицы, а «Шаги» закрытого шага флоу уходят из памяти.
+        var openStepShare = flowDone < flowTotal && stepsTotal > 0 ? (double)stepsDone / stepsTotal : 0;
+        int? progress = flowTotal == 0 ? null : (int)Math.Round((flowDone + openStepShare) * 100.0 / flowTotal);
         var questions = QuestionBlocks.Find(lines).Select(b => b.Question).ToList();
         var criteria = criteriaBlocks
             .Where(b => b.Title != OutOfScopeTitle)
