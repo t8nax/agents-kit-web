@@ -189,22 +189,8 @@ public sealed class WorkspacesEndpointTests : IDisposable
         return await response.Content.ReadFromJsonAsync<List<WorkspaceRow>>() ?? [];
     }
 
-    private static void Git(string workingDirectory, params string[] args)
-    {
-        var startInfo = new ProcessStartInfo("git")
-        {
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        foreach (var arg in args)
-            startInfo.ArgumentList.Add(arg);
-        using var process = Process.Start(startInfo)!;
-        var stderr = process.StandardError.ReadToEnd();
-        process.StandardOutput.ReadToEnd();
-        process.WaitForExit();
-        Assert.True(process.ExitCode == 0, $"git {string.Join(' ', args)}: {stderr}");
-    }
+    private static void Git(string workingDirectory, params string[] args) =>
+        TestGit.Run(workingDirectory, args);
 
     public void Dispose()
     {
