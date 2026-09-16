@@ -194,9 +194,12 @@ function Sidebar({
         >
           <ListIcon />
         </SideItem>
-        <SideItem label="Базы знаний" expanded={expanded} className="side-bottom" onClick={onBases}>
-          <BaseIcon />
-        </SideItem>
+        {/* «Базы знаний» открывает окно, а не раздел — поэтому она кнопка в рамке, а не строка */}
+        <div className="side-bottom">
+          <SideItem label="Базы знаний" expanded={expanded} className="side-button" onClick={onBases}>
+            <BaseIcon />
+          </SideItem>
+        </div>
       </nav>
     </div>
   )
