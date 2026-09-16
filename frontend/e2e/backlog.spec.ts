@@ -1,6 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
-const entries = {
+type Entry = { number: string | null; title: string; text: string | null }
+
+const entries: Record<'akw' | 'nota', Entry[]> = {
   akw: [
     {
       number: 'B-1',
@@ -13,7 +15,7 @@ const entries = {
 }
 
 // /api подменяется: прогон работает с живыми базами оператора, и их бэклоги в тесте не при чём.
-async function mockApi(page: Page, akw = entries.akw) {
+async function mockApi(page: Page, akw: Entry[] = entries.akw) {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/backlog', (route) =>
     route.fulfill({
