@@ -1,0 +1,103 @@
+/* Фильтр по проектам — чипы над списком; при одной базе его не показывают. */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 24px 14px;
+}
+
+.chip {
+  font: inherit;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.chip.active {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
+}
+
+.backlog-list {
+  padding: 0 24px 32px;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.base-head {
+  padding: 18px 0 2px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 4px;
+}
+
+.base-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.backlog-note {
+  margin: 0;
+  padding: 4px 0;
+}
+
+.entry {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  padding: 14px 16px;
+}
+
+.entry:hover {
+  border-color: var(--border-strong);
+}
+
+.entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.entry-num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent-done-text);
+  background: var(--accent-done-bg);
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
+}
+
+.entry-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* Запись бэклога — связный текст, а не строка таблицы: крупнее и просторнее. */
+.entry-text {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+}

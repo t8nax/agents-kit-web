@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { InlineMarkdown, Markdown } from './Markdown'
 import './ReplyModal.css'
 
 export type QuestionVariant = {
@@ -26,6 +27,7 @@ export type QuestionsResponse = {
   criteria: ClosingCriterion[]
   outOfScope: string | null
   questions: OperatorQuestion[]
+  vsCodeSession: boolean
 }
 
 type Rejection = { question: string; problem: 'empty' | 'missing' | 'already-answered' }
@@ -53,6 +55,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [rejection, setRejection] = useState<Rejection | null>(null)
   const [footerError, setFooterError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  const [opening, setOpening] = useState(false)
+  const [openError, setOpenError] = useState<string | null>(null)
 
   useEffect(() => {
     const params = new URLSearchParams({ base, copy })
@@ -85,6 +89,33 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     setAnswers((prev) => prev.map((a, i) => (i === index ? value : a)))
     if (rejection?.problem === 'empty' && questions[index]?.title === rejection.question && value.trim()) {
       setRejection(null)
+    }
+  }
+
+  // Окно вопроса остаётся на месте вместе с набранным ответом: переход его не трогает.
+  async function openSession() {
+    setOpening(true)
+    setOpenError(null)
+    try {
+      const response = await fetch('/api/session/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base, copy }),
+      })
+      if (response.ok) return
+      if (response.status === 409) {
+        setOpenError('Сессия этой копии уже не открыта в VS Code')
+        return
+      }
+      setOpenError(
+        response.status === 404
+          ? 'VS Code не открыт: память копии не найдена'
+          : 'Не удалось открыть VS Code',
+      )
+    } catch {
+      setOpenError('Не удалось открыть VS Code: нет связи с API')
+    } finally {
+      setOpening(false)
     }
   }
 
@@ -185,6 +216,25 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                         {load.data.project} · {load.data.copy}
                       </span>
                     </span>
+                    <button
+                      type="button"
+                      className="btn-code"
+                      disabled={!load.data.vsCodeSession || opening}
+                      title={
+                        load.data.vsCodeSession
+                          ? 'Открыть окно VS Code этой копии'
+                          : 'Сессия этой копии не открыта в VS Code'
+                      }
+                      // Кнопка живёт в summary: без этого щелчок по ней складывал бы аккордеон.
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        void openSession()
+                      }}
+                    >
+                      <VsCodeIcon />
+                      {load.data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
+                    </button>
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <polyline points="6 9 12 15 18 9" />
                     </svg>
@@ -195,8 +245,10 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                       <ul className="criteria">
                         {load.data.criteria.map((criterion, i) => (
                           <li key={i}>
-                            <div className="criterion-title">{criterion.title}</div>
-                            {criterion.text && <div className="criterion-text">{criterion.text}</div>}
+                            <div className="criterion-title">
+                              <InlineMarkdown text={criterion.title} />
+                            </div>
+                            {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
                           </li>
                         ))}
                       </ul>
@@ -206,22 +258,24 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                     {load.data.outOfScope && (
                       <>
                         <p className="acc-label out-of-scope-label">Не входит</p>
-                        <div className="criterion-text">{load.data.outOfScope}</div>
+                        <Markdown className="criterion-text" text={load.data.outOfScope} />
                       </>
                     )}
                   </div>
                 </details>
 
+                {openError && (
+                  <p className="open-error error-text" role="alert">
+                    <WarningIcon />
+                    {openError}
+                  </p>
+                )}
+
                 <section>
-                  <h2 className="massive-title">{question.title}</h2>
-                  {question.context && (
-                    <div className="question-box">
-                      {/* строки контекста в памяти — отдельные строки, а не один абзац */}
-                      {question.context.split('\n').map((line, i) => (
-                        <div key={i}>{line}</div>
-                      ))}
-                    </div>
-                  )}
+                  <h2 className="massive-title">
+                    <InlineMarkdown text={question.title} />
+                  </h2>
+                  {question.context && <Markdown className="question-box" text={question.context} />}
                   {question.variants.length > 0 && (
                     <div className="options-grid">
                       {question.variants.map((v, i) => (
@@ -304,6 +358,14 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         </div>
       </div>
     </div>
+  )
+}
+
+function VsCodeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+      <path d="M23.15 2.587 18.21.21a1.494 1.494 0 0 0-1.705.29l-9.46 8.63-4.12-3.128a.999.999 0 0 0-1.276.057L.327 7.261A1 1 0 0 0 .326 8.74L3.899 12 .326 15.26a1 1 0 0 0 .001 1.479L1.65 17.94a.999.999 0 0 0 1.276.057l4.12-3.128 9.46 8.63a1.492 1.492 0 0 0 1.704.29l4.942-2.377A1.5 1.5 0 0 0 24 20.06V3.939a1.5 1.5 0 0 0-.85-1.352zm-5.146 14.861L10.826 12l7.178-5.448z" />
+    </svg>
   )
 }
 

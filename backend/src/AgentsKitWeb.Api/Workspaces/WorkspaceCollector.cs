@@ -65,12 +65,20 @@ public static class WorkspaceCollector
                 continue;
             }
 
+            var segment = ScopeSegment(Normalize(copy), worktrees);
+
             foreach (var worktree in worktrees)
             {
-                var key = Normalize(worktree.Path);
+                var path = segment.Length == 0
+                    ? Normalize(worktree.Path)
+                    : Path.Combine(Normalize(worktree.Path), segment);
+                // Каталог под китом есть не в каждом дереве: на ветке без него копии нет — строки тоже.
+                if (segment.Length > 0 && !Directory.Exists(path))
+                    continue;
+
+                var key = Normalize(path);
                 if (!claimed.Add(key))
                     continue;
-                var path = worktree.Path.Replace('/', '\\');
                 rows.Add(memories.TryGetValue(key, out var memory)
                     ? FromMemory(project, basePath, path, worktree.Branch, memory)
                     : new WorkspaceRow(project, basePath, path, worktree.Branch, null, null, null, WorkspaceStatus.Free, null));
@@ -85,6 +93,20 @@ public static class WorkspaceCollector
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Хвост пути копии относительно корня её рабочего дерева: под кит взят каталог
+    /// репозитория, а git отдаёт только корни деревьев — в каждом дереве копия живёт
+    /// по тому же хвосту. Копия — сам корень: хвоста нет.
+    /// </summary>
+    private static string ScopeSegment(string copy, IReadOnlyList<Worktree> worktrees)
+    {
+        var root = worktrees
+            .Select(w => Normalize(w.Path))
+            .Where(w => copy.StartsWith(w + '\\', StringComparison.OrdinalIgnoreCase))
+            .MaxBy(w => w.Length);
+        return root is null ? "" : copy[(root.Length + 1)..];
     }
 
     private static WorkspaceRow FromMemory(string project, string basePath, string path, string? branch, WorkMemory memory) =>

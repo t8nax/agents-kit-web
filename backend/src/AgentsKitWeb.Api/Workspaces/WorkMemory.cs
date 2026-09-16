@@ -93,25 +93,10 @@ public sealed record WorkMemory(
         var questions = QuestionBlocks.Find(lines).Select(b => b.Question).ToList();
         var criteria = criteriaBlocks
             .Where(b => b.Title != OutOfScopeTitle)
-            .Select(b => new ClosingCriterion(b.Title, Paragraphs(b.Lines)))
+            .Select(b => new ClosingCriterion(b.Title, MemoryText.Block(b.Lines)))
             .ToList();
-        var outOfScope = criteriaBlocks.Where(b => b.Title == OutOfScopeTitle).Select(b => Paragraphs(b.Lines)).FirstOrDefault();
+        var outOfScope = criteriaBlocks.Where(b => b.Title == OutOfScopeTitle).Select(b => MemoryText.Block(b.Lines)).FirstOrDefault();
         return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, questions);
-    }
-
-    // Строки абзаца — через «\n», абзацы — через пустую строку; пустые строки по краям и повторные не сохраняются.
-    private static string? Paragraphs(IEnumerable<string> lines)
-    {
-        var paragraphs = new List<List<string>> { new() };
-        foreach (var line in lines.Select(l => l.Trim()))
-        {
-            if (line.Length > 0)
-                paragraphs[^1].Add(line);
-            else if (paragraphs[^1].Count > 0)
-                paragraphs.Add([]);
-        }
-        var text = string.Join("\n\n", paragraphs.Where(p => p.Count > 0).Select(p => string.Join("\n", p)));
-        return text.Length == 0 ? null : text;
     }
 
     // «Реализация — выход: …» → «Реализация»
@@ -127,6 +112,19 @@ internal readonly record struct MemoryLine(string Text, int Start, int End, bool
 
 internal static class MemoryText
 {
+    /// <summary>
+    /// Текст блока памяти как markdown: строки идут как в файле — с отступами и пустыми строками между
+    /// абзацами, — пустые строки по краям убираются. Отступ несёт вложенность списка, пустая строка — абзац.
+    /// </summary>
+    public static string? Block(IEnumerable<string> lines)
+    {
+        var block = lines.Select(l => l.TrimEnd()).ToList();
+        var first = block.FindIndex(l => l.Length > 0);
+        if (first < 0)
+            return null;
+        return string.Join("\n", block[first..(block.FindLastIndex(l => l.Length > 0) + 1)]);
+    }
+
     public static IReadOnlyList<MemoryLine> Lines(string text)
     {
         var lines = new List<MemoryLine>();
@@ -184,9 +182,12 @@ internal static class QuestionBlocks
             while (i + 1 < lines.Count && !lines[i + 1].Text.StartsWith("## ") && !lines[i + 1].Text.StartsWith("### "))
             {
                 var current = lines[++i];
-                var text = current.Text.Trim();
-                if (text.Length == 0)
+                if (current.Text.Trim().Length == 0)
+                {
+                    // Пустая строка делит абзацы контекста; по краям блока её уберёт MemoryText.Block.
+                    context.Add("");
                     continue;
+                }
                 last = current;
 
                 if (AnswerLine.Match(current.Text) is { Success: true } answerMatch)
@@ -201,17 +202,19 @@ internal static class QuestionBlocks
                     {
                         case "вариант": variants.Add(value); break;
                         case "рекомендовано": recommended = value; break;
+                        // Прочие «- ключ: …» — обычные строки контекста, а не ключи вопроса.
+                        default: context.Add(current.Text); break;
                     }
                 }
                 else
                 {
-                    context.Add(text);
+                    context.Add(current.Text);
                 }
             }
 
             var question = new OperatorQuestion(
                 title,
-                context.Count == 0 ? null : string.Join("\n", context),
+                MemoryText.Block(context),
                 variants.Select(v => Variant(v, recommended)).ToList(),
                 answer);
             blocks.Add(new QuestionBlock(question, answerLine, last));

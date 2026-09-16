@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
+import { applyChosenTheme } from './theme'
 
 let visibility: DocumentVisibilityState = 'visible'
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility })
@@ -10,6 +11,7 @@ afterEach(() => {
   vi.useRealTimers()
   visibility = 'visible'
   localStorage.clear()
+  delete document.documentElement.dataset.theme
 })
 
 function setVisibility(value: DocumentVisibilityState) {
@@ -90,6 +92,33 @@ test('показывает рабочие копии из /api/workspaces', asyn
 
   expect(within(tableRows[3]).getByText('Копия не найдена на диске')).toBeInTheDocument()
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
+})
+
+test('сайдбар переключает разделы и открывает окно баз', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/backlog'
+      ? new Response(JSON.stringify([]), { status: 200 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+
+  // Копия с неотвеченным вопросом считается в сайдбаре
+  expect(await sidebar.findByText('1 ждёт')).toBeInTheDocument()
+  expect(await screen.findByRole('table')).toBeInTheDocument()
+
+  fireEvent.click(sidebar.getByRole('button', { name: /Бэклог/ }))
+  expect(await screen.findByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/api/backlog')
+
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  expect(await screen.findByRole('table')).toBeInTheDocument()
+
+  fireEvent.click(sidebar.getByRole('button', { name: 'Базы знаний' }))
+  expect(await screen.findByRole('dialog', { name: 'Базы знаний' })).toBeInTheDocument()
 })
 
 test('сообщает, что API недоступен', async () => {
@@ -336,6 +365,28 @@ test('без разрешения смены статуса уведомлени
   await tick(3000)
   expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
   expect(shown).toHaveLength(0)
+})
+
+test('переключатель ставит тему и браузер её помнит', async () => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 })))
+
+  const first = render(<App />)
+  // Без своего выбора тема тёмная по системе, атрибута на странице нет
+  expect(document.documentElement.dataset.theme).toBeUndefined()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Светлая тема' }))
+  expect(document.documentElement.dataset.theme).toBe('light')
+  expect(localStorage.getItem('agents-kit-web.theme')).toBe('light')
+  expect(screen.getByRole('button', { name: 'Тёмная тема' })).toBeInTheDocument()
+
+  // Выбранная тема переживает перезагрузку страницы
+  first.unmount()
+  delete document.documentElement.dataset.theme
+  applyChosenTheme()
+  render(<App />)
+  expect(document.documentElement.dataset.theme).toBe('light')
+  expect(await screen.findByRole('button', { name: 'Тёмная тема' })).toBeInTheDocument()
 })
 
 test('опрос не закрывает окно ответа и не сбрасывает введённое', async () => {

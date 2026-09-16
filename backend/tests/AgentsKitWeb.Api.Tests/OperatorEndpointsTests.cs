@@ -1,9 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AgentsKitWeb.Api.Tests;
 
@@ -13,6 +16,8 @@ public sealed class OperatorEndpointsTests : IDisposable
     private readonly string _base;
     private readonly string _copy;
     private readonly string _memoryPath;
+    private readonly string _sessionsDir;
+    private readonly FakeEditorWindows _windows = new();
     private readonly WebApplicationFactory<Program> _factory;
 
     private const string Sections = """
@@ -60,12 +65,26 @@ public sealed class OperatorEndpointsTests : IDisposable
         Directory.CreateDirectory(Path.Combine(outsider, "work"));
         File.WriteAllText(Path.Combine(outsider, "work", "app.md"), File.ReadAllText(_memoryPath));
 
+        _sessionsDir = Path.Combine(_root, "sessions");
+        Directory.CreateDirectory(_sessionsDir);
+
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, _base))]);
-            }));
+                config.AddInMemoryCollection([
+                    new("BasesFile", TestBases.File(_root, _base)),
+                    new("SessionsDir", _sessionsDir),
+                ]);
+            });
+            // Окно редактора в прогоне не поднимается: запуск подменяется, проверяется переданный путь.
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IEditorWindows>();
+                services.AddSingleton<IEditorWindows>(_windows);
+            });
+        });
     }
 
     [Fact]
@@ -147,8 +166,95 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Questions_LiveVsCodeSessionInCopy_IsReported()
+    {
+        WriteSession(_copy);
+
+        var response = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
+
+        Assert.True(response!.VsCodeSession);
+    }
+
+    [Fact]
+    public async Task Questions_SessionInTerminalOrOtherCopy_IsNotReported()
+    {
+        WriteSession(_copy, entrypoint: "cli");
+        WriteSession(Path.Combine(_root, "other-copy"));
+
+        var response = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
+
+        Assert.False(response!.VsCodeSession);
+    }
+
+    [Fact]
+    public async Task OpenSession_LiveVsCodeSession_RaisesWindowOfThatCopy()
+    {
+        WriteSession(_copy);
+
+        var response = await PostOpenSession(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([_copy], _windows.Raised);
+    }
+
+    [Fact]
+    public async Task OpenSession_NoVsCodeSession_IsConflictAndRaisesNothing()
+    {
+        var response = await PostOpenSession(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(new OpenSessionFailedResponse("no-session"), await response.Content.ReadFromJsonAsync<OpenSessionFailedResponse>());
+        Assert.Empty(_windows.Raised);
+    }
+
+    [Fact]
+    public async Task OpenSession_WindowNotRaised_IsBadGateway()
+    {
+        WriteSession(_copy);
+        _windows.Result = false;
+
+        var response = await PostOpenSession(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Equal(new OpenSessionFailedResponse("not-raised"), await response.Content.ReadFromJsonAsync<OpenSessionFailedResponse>());
+    }
+
+    [Fact]
+    public async Task OpenSession_BaseNotInConfiguration_IsNotFoundAndRaisesNothing()
+    {
+        WriteSession(_copy);
+
+        var response = await PostOpenSession(Path.Combine(_root, "other-knowledge"), _copy);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.Raised);
+    }
+
     private static string QuestionsUrl(string basePath, string copy) =>
         $"/api/questions?base={Uri.EscapeDataString(basePath)}&copy={Uri.EscapeDataString(copy)}";
+
+    private Task<HttpResponseMessage> PostOpenSession(string basePath, string copy) =>
+        _factory.CreateClient().PostAsJsonAsync("/api/session/open", new OpenSessionRequest(basePath, copy));
+
+    // Живой сессией считается та, чей процесс существует, поэтому в фикстуре стоит pid самого прогона.
+    private void WriteSession(string cwd, string entrypoint = "claude-vscode") =>
+        File.WriteAllText(
+            Path.Combine(_sessionsDir, $"{Guid.NewGuid():N}.json"),
+            $$"""{"pid":{{Environment.ProcessId}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"{{entrypoint}}"}""");
+
+    private sealed class FakeEditorWindows : IEditorWindows
+    {
+        public List<string> Raised { get; } = [];
+
+        public bool Result { get; set; } = true;
+
+        public Task<bool> RaiseAsync(string copyPath, CancellationToken cancellationToken)
+        {
+            Raised.Add(copyPath);
+            return Task.FromResult(Result);
+        }
+    }
 
     private Task<HttpResponseMessage> PostAnswers(string basePath, string copy, params (string Question, string Answer)[] answers) =>
         _factory.CreateClient().PostAsJsonAsync("/api/answers",

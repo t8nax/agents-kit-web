@@ -199,6 +199,54 @@ public class WorkMemoryTests
             });
     }
 
+    [Fact]
+    public void Parse_QuestionContext_KeepsBlankLinesIndentsAndOtherKeyLines()
+    {
+        var memory = WithQuestions("""
+            ### Куда переносить выгрузку?
+            Папку отключают.
+
+            Списком:
+            - где: сетевая папка
+            - вложенный пункт:
+              - его подпункт
+
+            - вариант: в хранилище — ссылки не откроются
+            - рекомендовано: в хранилище — ссылки не откроются
+
+            ответ:
+            """);
+
+        var question = Assert.Single(memory.Questions);
+        Assert.Equal(
+            """
+            Папку отключают.
+
+            Списком:
+            - где: сетевая папка
+            - вложенный пункт:
+              - его подпункт
+            """.ReplaceLineEndings("\n"),
+            question.Context);
+        Assert.Equal("в хранилище", Assert.Single(question.Variants).Choice);
+    }
+
+    [Fact]
+    public void Parse_CriterionText_KeepsIndentsOfNestedList()
+    {
+        var memory = WorkMemory.Parse(Memory.Replace(
+            "Копия с вопросом отмечена.\n",
+            "Копия с вопросом отмечена:\n- бейджем\n  - и подсказкой\n"));
+
+        Assert.Equal(
+            """
+            Копия с вопросом отмечена:
+            - бейджем
+              - и подсказкой
+            """.ReplaceLineEndings("\n"),
+            memory.Criteria[1].Text);
+    }
+
     [Theory]
     [InlineData("заменять переносы пробелами")]
     [InlineData("заменять пробелами — проще")]

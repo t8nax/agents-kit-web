@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agents Kit Web — сайдбар и бэклог</title>
+<style>
+    :root {
+        --bg-base: #09090b;
+        --bg-surface: #121214;
+        --bg-surface-hover: #18181b;
+
+        --border-subtle: #27272a;
+        --border-strong: #3f3f46;
+
+        --text-primary: #ededed;
+        --text-secondary: #a1a1aa;
+        --text-tertiary: #71717a;
+
+        --accent-waiting-bg: rgba(245, 158, 11, 0.15);
+        --accent-waiting-text: #fbbf24;
+        --accent-waiting-border: rgba(245, 158, 11, 0.3);
+
+        --accent-active-bg: rgba(16, 185, 129, 0.1);
+        --accent-active-text: #34d399;
+
+        --accent-free-bg: rgba(161, 161, 170, 0.1);
+        --accent-done-text: #60a5fa;
+        --accent-error-text: #f87171;
+
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+        background: var(--bg-base);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 13px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .mono { font-family: var(--font-mono); font-size: 12px; }
+    .text-sec { color: var(--text-secondary); }
+    .text-ter { color: var(--text-tertiary); }
+    h1, h2, h3 { font-weight: 500; }
+
+    svg {
+        width: 16px; height: 16px;
+        fill: none; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round;
+        flex-shrink: 0;
+    }
+
+    /* шапка — как сейчас в панели */
+    .app-header {
+        height: 56px;
+        border-bottom: 1px solid var(--border-subtle);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 24px;
+        flex-shrink: 0;
+    }
+    .app-header h3 { font-size: 14px; }
+    .header-start { margin-left: auto; }
+
+    .btn {
+        font: inherit;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        padding: 6px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .btn:hover { background: var(--bg-surface-hover); }
+
+    /* сайдбар слева */
+    .app-body { flex: 1; display: flex; min-height: 0; }
+
+    .sidebar {
+        width: 232px;
+        flex-shrink: 0;
+        border-right: 1px solid var(--border-subtle);
+        background: var(--bg-surface);
+        display: flex;
+        flex-direction: column;
+        overflow-y: auto;
+        padding: 12px 0;
+    }
+
+    .side-group {
+        padding: 10px 16px 4px;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-tertiary);
+    }
+
+    /* Сайдбар набран крупнее таблицы: по нему ходят глазами, а не читают плотные строки. */
+    .side-item {
+        font: inherit;
+        font-size: 14px;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 16px;
+        background: none;
+        border: none;
+        border-left: 2px solid transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+        text-align: left;
+    }
+    .side-item:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+    .side-item.active {
+        color: var(--text-primary);
+        background: var(--bg-surface-hover);
+        border-left-color: var(--text-primary);
+    }
+    .side-item .side-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .side-item.side-bottom {
+        margin-top: auto;
+        border-top: 1px solid var(--border-subtle);
+        padding-top: 12px;
+        padding-bottom: 12px;
+    }
+
+    .side-count {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--text-tertiary);
+        font-variant-numeric: tabular-nums;
+    }
+    .side-count.waiting {
+        color: var(--accent-waiting-text);
+        background: var(--accent-waiting-bg);
+        border: 1px solid var(--accent-waiting-border);
+        border-radius: 4px;
+        padding: 0 6px;
+    }
+
+    .content { flex: 1; overflow-y: auto; min-width: 0; }
+
+    .content-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        padding: 16px 24px 12px;
+    }
+    .content-head h2 { font-size: 16px; }
+    .content-head .sub { color: var(--text-tertiary); font-size: 13px; }
+    .content-head .head-end { margin-left: auto; align-self: center; }
+
+    /* фильтр по проектам — внутри экрана бэклога */
+    .filter-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 0 24px 14px;
+    }
+
+    .chip {
+        font: inherit;
+        font-size: 13px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-surface);
+        color: var(--text-secondary);
+        cursor: pointer;
+    }
+    .chip:hover { background: var(--bg-surface-hover); color: var(--text-primary); }
+    .chip.active {
+        color: var(--text-primary);
+        border-color: var(--border-strong);
+        background: var(--bg-surface-hover);
+    }
+    .chip .chip-count {
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--text-tertiary);
+        font-variant-numeric: tabular-nums;
+    }
+    .chip.active .chip-count { color: var(--text-secondary); }
+
+    /* ——— раздел «Рабочие копии»: нынешняя таблица ——— */
+    table { width: 100%; border-collapse: collapse; }
+    th {
+        text-align: left;
+        color: var(--text-secondary);
+        font-weight: 400;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border-subtle);
+        white-space: nowrap;
+    }
+    th:first-child, td:first-child { padding-left: 24px; }
+    td {
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border-subtle);
+        white-space: nowrap;
+    }
+    tbody tr:hover { background: var(--bg-surface); }
+    .proj { font-weight: 500; }
+    .sub2 { margin-top: 2px; }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        border: 1px solid transparent;
+    }
+    .status-badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; }
+    .status-in-work { background: var(--accent-active-bg); color: var(--accent-active-text); }
+    .status-in-work::before { background: var(--accent-active-text); }
+    .status-waiting {
+        background: var(--accent-waiting-bg);
+        color: var(--accent-waiting-text);
+        border-color: var(--accent-waiting-border);
+    }
+    .status-waiting::before { background: var(--accent-waiting-text); }
+    .status-free { background: var(--accent-free-bg); color: var(--text-secondary); }
+    .status-free::before { border: 1.5px solid var(--text-secondary); width: 4px; height: 4px; }
+
+    .action-btn-waiting {
+        font: inherit;
+        background: var(--accent-waiting-text);
+        color: #000;
+        border: none;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 12px;
+        cursor: pointer;
+    }
+
+    /* ——— раздел «Бэклог» ——— */
+    .backlog-list {
+        padding: 0 24px 32px;
+        max-width: 900px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .base-head {
+        padding: 18px 0 2px;
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        border-bottom: 1px solid var(--border-subtle);
+        margin-bottom: 4px;
+    }
+    .base-head h3 { font-size: 14px; }
+
+    .entry {
+        border: 1px solid var(--border-subtle);
+        border-radius: 6px;
+        background: var(--bg-surface);
+        padding: 14px 16px;
+    }
+    .entry:hover { border-color: var(--border-strong); }
+
+    .entry-head { display: flex; align-items: baseline; gap: 10px; }
+    .entry-num {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--accent-done-text);
+        background: rgba(37, 99, 235, 0.1);
+        border-radius: 4px;
+        padding: 1px 6px;
+        flex-shrink: 0;
+    }
+    .entry-title { font-size: 15px; font-weight: 500; }
+
+    /* Запись бэклога — связный текст, а не строка таблицы: крупнее и просторнее. */
+    .entry-text { margin-top: 8px; color: var(--text-secondary); font-size: 14px; line-height: 1.6; }
+    .entry-text p + p { margin-top: 8px; }
+    .entry-text ul { margin: 8px 0 0 18px; }
+    .entry-text code {
+        font-family: var(--font-mono);
+        font-size: 12px;
+        background: var(--bg-surface-hover);
+        border: 1px solid var(--border-subtle);
+        border-radius: 3px;
+        padding: 0 4px;
+    }
+
+    .hint { padding: 24px; color: var(--text-secondary); }
+
+    .view { display: none; }
+    .view.active { display: block; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+    </svg>
+    <h3>Agents Kit Web</h3>
+    <button class="btn header-start" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        Выключить уведомления
+    </button>
+</header>
+
+<div class="app-body">
+    <nav class="sidebar">
+        <div class="side-group">Панель</div>
+        <button class="side-item active" type="button" data-view="workspaces">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+                <line x1="9" y1="10" x2="9" y2="20" />
+            </svg>
+            <span class="side-label">Рабочие копии</span>
+            <span class="side-count waiting">2 ждут</span>
+        </button>
+
+        <button class="side-item" type="button" data-view="backlog">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <line x1="8" y1="6" x2="21" y2="6" />
+                <line x1="8" y1="12" x2="21" y2="12" />
+                <line x1="8" y1="18" x2="21" y2="18" />
+                <line x1="3" y1="6" x2="3.01" y2="6" />
+                <line x1="3" y1="12" x2="3.01" y2="12" />
+                <line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+            <span class="side-label">Бэклог</span>
+        </button>
+
+        <!-- «Базы знаний» ушла из шапки вниз сайдбара: это настройка, а не раздел -->
+        <button class="side-item side-bottom" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+            </svg>
+            <span class="side-label">Базы знаний</span>
+        </button>
+    </nav>
+
+    <main class="content">
+        <!-- Раздел «Рабочие копии»: нынешний экран панели, ужатый сайдбаром -->
+        <section class="view active" id="view-workspaces">
+            <div class="content-head">
+                <h2>Рабочие копии</h2>
+                <span class="sub">6 копий · 3 проекта</span>
+            </div>
+            <table>
+                <thead>
+                <tr>
+                    <th>Проект и копия</th>
+                    <th>Задача</th>
+                    <th>Шаг флоу</th>
+                    <th>Статус</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                    <td>
+                        <div class="proj">Agents Kit Web</div>
+                        <div class="mono text-sec sub2">dev · D:\Projects\agents-kit-web</div>
+                    </td>
+                    <td>B-8 Панель показывает бэклог базы</td>
+                    <td>Критерий</td>
+                    <td><span class="status-badge status-waiting">Ждёт оператора</span></td>
+                    <td><button class="action-btn-waiting" type="button">Ответить</button></td>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="proj">Nota</div>
+                        <div class="mono text-sec sub2">feat/import · D:\Projects\nota-import</div>
+                    </td>
+                    <td>B-4 Импорт заметок из файла</td>
+                    <td>Реализация</td>
+                    <td><span class="status-badge status-in-work">В работе</span></td>
+                    <td></td>
+                </tr>
+                <tr>
+                    <td>
+                        <div class="proj">Order Service</div>
+                        <div class="mono text-sec sub2">master · D:\Projects\orders</div>
+                    </td>
+                    <td class="text-ter">—</td>
+                    <td class="text-ter">—</td>
+                    <td><span class="status-badge status-free">Свободна</span></td>
+                    <td></td>
+                </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <!-- Раздел «Бэклог»: записи всех баз группами, фильтр по проектам внутри экрана -->
+        <section class="view" id="view-backlog">
+            <div class="content-head">
+                <h2>Бэклог</h2>
+                <button class="btn head-end" type="button" id="backlog-refresh">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+                        <polyline points="21 3 21 9 15 9" />
+                    </svg>
+                    Обновить
+                </button>
+            </div>
+            <div class="filter-bar" id="backlog-filter"></div>
+            <div class="backlog-list" id="backlog-list"></div>
+        </section>
+    </main>
+</div>
+
+<script>
+// Демо-данные: так же, как их отдал бы API — номер, заголовок и текст оператору.
+const bases = {
+    akw: {
+        name: 'Agents Kit Web',
+        entries: [
+            {
+                num: 'B-1',
+                title: 'Панель показывает проблемы баз знаний',
+                text: `<p>Сейчас панель не говорит, что с базой что-то не так: разорвана связь рабочей копии с базой или сверка базы нашла ошибки. Чтобы это узнать, приходится идти в IDE.</p>
+                       <p>Предлагается показывать проблемы прямо в панели: у каждой рабочей копии в таблице — отметку о проблемах её базы, а в шапке — общий счётчик предупреждений по всем базам.</p>`,
+            },
+            {
+                num: 'B-9',
+                title: 'Оператор добавляет запись в бэклог из панели',
+                text: `<p>Сейчас записать что-то в бэклог оператор может только словами агенту в сессии или руками в файле базы. Если мысль пришла, когда панель открыта, а сессии нет, её негде оставить.</p>
+                       <p>Предлагается добавлять записи из панели: написать заголовок и текст — и запись появится в бэклоге базы с очередным номером, такой же, как записанная агентом.</p>`,
+            },
+            {
+                num: 'B-11',
+                title: 'Панель группирует рабочие копии по проекту',
+                text: `<p>Сейчас копии идут в таблице одним плоским списком: копии одного проекта — просто соседние строки, и название проекта повторяется в каждой.</p>
+                       <p>Предлагается собрать копии в группы по проекту: у каждого проекта свой заголовок, под ним — его копии.</p>`,
+            },
+            {
+                num: 'B-12',
+                title: 'Набранный ответ не теряется при закрытии окна вопроса',
+                text: `<p>Оператор пишет ответ в окне вопроса, закрывает окно — случайно или чтобы что-то посмотреть, — и набранный текст пропадает.</p>
+                       <p>Предлагается сохранять набранный текст: открыл окно снова — ответ на месте, каким его оставили.</p>`,
+            },
+            {
+                num: 'B-13',
+                title: 'У панели есть светлая тема',
+                text: `<p>Панель сейчас только тёмная. Когда вокруг светло, работать в ней неудобно: глаза перестраиваются на каждом переключении окна.</p>`,
+            },
+            {
+                num: 'B-14',
+                title: 'Создание новой рабочей копии из панели',
+                text: `<p>Чтобы начать ещё одну задачу параллельно, нужна новая копия, и оператор заводит её сам вне панели — в терминале или IDE.</p>
+                       <p>Предлагается создавать новую рабочую копию прямо из панели: выбрать проект, указать имя — и она появится в таблице свободной.</p>`,
+            },
+            {
+                num: 'B-16',
+                title: 'Панель показывает, идёт ли в копии живая сессия агента',
+                text: `<p>Панель судит о рабочей копии по файлу памяти задачи: есть память — копия занята, нет — свободна. Живёт ли при этом сессия агента, панель не знает.</p>
+                       <p>Предлагается показывать в таблице, идёт ли в каталоге копии живая сессия и ждёт ли она ввода оператора.</p>`,
+            },
+        ],
+    },
+    nota: {
+        name: 'Nota',
+        entries: [
+            { num: 'B-2', title: 'Поиск по заметкам не учитывает регистр', text: `<p>Поиск находит «Отчёт», но не находит «отчёт»: оператор ищет дважды, прежде чем поверить, что заметки нет.</p>` },
+            { num: 'B-5', title: 'Экспорт заметок в markdown', text: `<p>Заметки живут только внутри приложения. Забрать их с собой — в репозиторий или в другой редактор — сейчас нечем.</p>` },
+            { num: 'B-6', title: 'Горячая клавиша на создание заметки', text: `<p>Новая заметка создаётся только мышью через меню, а мысль уходит быстрее, чем открывается меню.</p>` },
+            { num: 'B-7', title: 'Список заметок помнит прокрутку', text: `<p>Открыл заметку, вернулся — список снова наверху, и место, где читал, приходится искать заново.</p>` },
+            { num: 'B-10', title: 'Вложения в заметке', text: `<p>К заметке нечем приложить картинку: ссылку на файл оператор хранит отдельно и теряет.</p>` },
+        ],
+    },
+    orders: {
+        name: 'Order Service',
+        entries: [
+            { num: 'B-3', title: 'Повторная отправка письма о заказе', text: `<p>Письмо ушло в спам — отправить его заново можно только через базу данных руками.</p>` },
+            { num: 'B-4', title: 'Отчёт по отменённым заказам', text: `<p>Сколько заказов отменено и почему — сейчас считают выгрузкой в таблицу раз в месяц.</p>` },
+        ],
+    },
+};
+
+const list = document.getElementById('backlog-list');
+const filterBar = document.getElementById('backlog-filter');
+let filter = 'all';
+
+function entryHtml(entry) {
+    return `<article class="entry">
+        <div class="entry-head">
+            <span class="entry-num">${entry.num}</span>
+            <span class="entry-title">${entry.title}</span>
+        </div>
+        <div class="entry-text">${entry.text}</div>
+    </article>`;
+}
+
+// Фильтр по проектам: чипы над списком. «Все проекты» — состояние по умолчанию.
+function renderFilter() {
+    const chips = [['all', 'Все проекты']].concat(Object.entries(bases).map(([key, base]) => [key, base.name]));
+    filterBar.innerHTML = chips.map(([key, name]) => `
+        <button class="chip${key === filter ? ' active' : ''}" type="button" data-filter="${key}">${name}</button>`).join('');
+    filterBar.querySelectorAll('.chip').forEach((chip) => {
+        chip.addEventListener('click', () => {
+            filter = chip.dataset.filter;
+            renderBacklog();
+        });
+    });
+}
+
+function renderBacklog() {
+    renderFilter();
+    const shown = filter === 'all' ? Object.values(bases) : [bases[filter]];
+    // Группы по базам остаются и при фильтре: у записи всегда видно, чья она.
+    list.innerHTML = shown.map((base) => `
+        <div class="base-head"><h3>${base.name}</h3></div>
+        ${base.entries.map(entryHtml).join('')}
+    `).join('');
+}
+
+document.querySelectorAll('.side-item[data-view]').forEach((item) => {
+    item.addEventListener('click', () => {
+        document.querySelectorAll('.side-item').forEach((i) => i.classList.remove('active'));
+        item.classList.add('active');
+        const view = item.dataset.view;
+        document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+        document.getElementById(`view-${view}`).classList.add('active');
+        if (view === 'backlog') renderBacklog();
+    });
+});
+
+// Обновление по запросу: панель перечитывает бэклоги баз только этой кнопкой и при открытии раздела.
+document.getElementById('backlog-refresh').addEventListener('click', renderBacklog);
+
+renderBacklog();
+</script>
+</body>
+</html>

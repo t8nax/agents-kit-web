@@ -10,11 +10,24 @@
   --accent-waiting-bg: rgba(245, 158, 11, 0.15);
   --accent-waiting-text: #fbbf24;
   --accent-waiting-border: rgba(245, 158, 11, 0.3);
+  /* заливка кнопки и полосы прогресса и текст поверх неё: в светлой теме заливка ярче текста статуса */
+  --accent-waiting-fill: #fbbf24;
+  --accent-waiting-on: #000;
+  --accent-waiting-glow: rgba(245, 158, 11, 0.4);
   --accent-active-bg: rgba(16, 185, 129, 0.1);
+  --accent-active-bg-hover: rgba(16, 185, 129, 0.18);
   --accent-active-text: #34d399;
+  --accent-active-border: rgba(52, 211, 153, 0.3);
   --accent-free-bg: rgba(161, 161, 170, 0.1);
+  --accent-done-bg: rgba(37, 99, 235, 0.1);
   --accent-done-text: #60a5fa;
   --accent-error-text: #f87171;
+  --accent-error-bg: rgba(248, 113, 113, 0.08);
+  --accent-error-border: rgba(248, 113, 113, 0.35);
+  --overlay: rgba(9, 9, 11, 0.72);
+  --overlay-deep: rgba(0, 0, 0, 0.85);
+  --shadow-color: rgba(0, 0, 0, 0.5);
+  --footer-tint: rgba(0, 0, 0, 0.2);
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 
@@ -22,10 +35,81 @@
   font-family: var(--font-sans);
 }
 
+/* Светлая тема — те же токены с другими значениями. Пока оператор не выбрал тему,
+   панель идёт за системой; выбранная тема приходит атрибутом data-theme. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg-base: #f4f4f6;
+    --bg-surface: #ffffff;
+    --bg-surface-hover: #ebebef;
+    --border-subtle: #e2e2e7;
+    --border-strong: #c8c8d0;
+    --text-primary: #18181b;
+    --text-secondary: #52525b;
+    --text-tertiary: #78787f;
+    --accent-waiting-bg: rgba(245, 158, 11, 0.2);
+    --accent-waiting-text: #854d0e;
+    --accent-waiting-border: rgba(180, 83, 9, 0.4);
+    --accent-waiting-fill: #f59e0b;
+    --accent-waiting-on: #422006;
+    --accent-waiting-glow: rgba(245, 158, 11, 0.5);
+    --accent-active-bg: rgba(16, 185, 129, 0.12);
+    --accent-active-bg-hover: rgba(16, 185, 129, 0.2);
+    --accent-active-text: #047857;
+    --accent-active-border: rgba(4, 120, 87, 0.35);
+    --accent-free-bg: rgba(113, 113, 122, 0.1);
+    --accent-done-bg: rgba(29, 78, 216, 0.1);
+    --accent-done-text: #1d4ed8;
+    --accent-error-text: #b91c1c;
+    --accent-error-bg: rgba(185, 28, 28, 0.08);
+    --accent-error-border: rgba(185, 28, 28, 0.35);
+    --overlay: rgba(24, 24, 27, 0.38);
+    --overlay-deep: rgba(24, 24, 27, 0.45);
+    --shadow-color: rgba(24, 24, 27, 0.18);
+    --footer-tint: rgba(24, 24, 27, 0.03);
+
+    color-scheme: light;
+  }
+}
+
+:root[data-theme='light'] {
+  --bg-base: #f4f4f6;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #ebebef;
+  --border-subtle: #e2e2e7;
+  --border-strong: #c8c8d0;
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-tertiary: #78787f;
+  --accent-waiting-bg: rgba(245, 158, 11, 0.2);
+  --accent-waiting-text: #854d0e;
+  --accent-waiting-border: rgba(180, 83, 9, 0.4);
+  --accent-waiting-fill: #f59e0b;
+  --accent-waiting-on: #422006;
+  --accent-waiting-glow: rgba(245, 158, 11, 0.5);
+  --accent-active-bg: rgba(16, 185, 129, 0.12);
+  --accent-active-bg-hover: rgba(16, 185, 129, 0.2);
+  --accent-active-text: #047857;
+  --accent-active-border: rgba(4, 120, 87, 0.35);
+  --accent-free-bg: rgba(113, 113, 122, 0.1);
+  --accent-done-bg: rgba(29, 78, 216, 0.1);
+  --accent-done-text: #1d4ed8;
+  --accent-error-text: #b91c1c;
+  --accent-error-bg: rgba(185, 28, 28, 0.08);
+  --accent-error-border: rgba(185, 28, 28, 0.35);
+  --overlay: rgba(24, 24, 27, 0.38);
+  --overlay-deep: rgba(24, 24, 27, 0.45);
+  --shadow-color: rgba(24, 24, 27, 0.18);
+  --footer-tint: rgba(24, 24, 27, 0.03);
+
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }
 
+/* Сайдбар стоит на всю высоту окна, прокручивается содержимое раздела, а не страница. */
 body {
   margin: 0;
   background: var(--bg-base);
@@ -33,4 +117,15 @@ body {
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#root {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }

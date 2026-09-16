@@ -9,17 +9,22 @@ public sealed record QuestionsResponse(
     string? Task,
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
-    IReadOnlyList<OperatorQuestion> Questions);
+    IReadOnlyList<OperatorQuestion> Questions,
+    bool VsCodeSession);
 
 public sealed record AnswersRequest(string Base, string Copy, IReadOnlyList<OperatorAnswer> Answers);
 
 public sealed record AnswersRejectedResponse(string Question, string Problem);
 
+public sealed record OpenSessionRequest(string Base, string Copy);
+
+public sealed record OpenSessionFailedResponse(string Problem);
+
 public static class OperatorEndpoints
 {
     public static void MapOperatorEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/questions", (string @base, string copy, BasesStore bases) =>
+        app.MapGet("/api/questions", (string @base, string copy, BasesStore bases, AgentSessions sessions) =>
         {
             if (FindMemory(bases, @base, copy) is not { } found)
                 return Results.NotFound();
@@ -31,7 +36,28 @@ public static class OperatorEndpoints
                 memory.Task,
                 memory.Criteria,
                 memory.OutOfScope,
-                memory.Questions.Where(q => q.Answer is null).ToList()));
+                memory.Questions.Where(q => q.Answer is null).ToList(),
+                sessions.VsCodeIn(memory.Copy!) is not null));
+        });
+
+        // Панель не запускает сессию, а поднимает окно уже идущей: перехода нет, пока сессии нет.
+        app.MapPost("/api/session/open", async (
+            OpenSessionRequest request,
+            BasesStore bases,
+            AgentSessions sessions,
+            IEditorWindows windows,
+            CancellationToken cancellationToken) =>
+        {
+            if (FindMemory(bases, request.Base, request.Copy) is not { } found)
+                return Results.NotFound();
+
+            var copy = found.Memory.Copy!;
+            if (sessions.VsCodeIn(copy) is null)
+                return Results.Conflict(new OpenSessionFailedResponse("no-session"));
+
+            return await windows.RaiseAsync(copy, cancellationToken)
+                ? Results.NoContent()
+                : Results.Json(new OpenSessionFailedResponse("not-raised"), statusCode: StatusCodes.Status502BadGateway);
         });
 
         app.MapPost("/api/answers", async (AnswersRequest request, BasesStore bases, CancellationToken cancellationToken) =>
