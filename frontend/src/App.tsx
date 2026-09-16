@@ -9,6 +9,7 @@ import {
 } from './notifications'
 import ReplyModal from './ReplyModal'
 import { rowKey, statusChanges } from './statusChanges'
+import { useTheme } from './theme'
 
 export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
 
@@ -44,6 +45,7 @@ function App() {
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
   const notifications = useNotifications()
+  const theme = useTheme()
 
   const loadRows = useCallback(() => {
     const request = ++lastRequest.current
@@ -104,6 +106,10 @@ function App() {
           onRequest={notifications.request}
           onToggle={notifications.setEnabled}
         />
+        <button type="button" className="bases-btn" onClick={theme.toggle}>
+          {theme.theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+          {theme.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
+        </button>
         <button type="button" className="bases-btn" onClick={() => setBasesOpen(true)}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <ellipse cx="12" cy="5" rx="9" ry="3" />
@@ -164,6 +170,23 @@ function BellIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+    </svg>
+  )
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+    </svg>
+  )
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
     </svg>
   )
 }

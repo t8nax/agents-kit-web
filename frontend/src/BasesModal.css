@@ -3,7 +3,7 @@
 .bases-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(9, 9, 11, 0.72);
+  background: var(--overlay);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -17,7 +17,7 @@
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 24px 48px var(--shadow-color);
 }
 
 .bases-header {
@@ -147,7 +147,7 @@
 }
 
 .bases-add-row input[aria-invalid='true'] {
-  border-color: rgba(248, 113, 113, 0.35);
+  border-color: var(--accent-error-border);
 }
 
 .bases-error {
@@ -219,8 +219,8 @@
 
 .bases-btn-danger:hover:not(:disabled) {
   color: var(--accent-error-text);
-  background: rgba(248, 113, 113, 0.08);
-  border-color: rgba(248, 113, 113, 0.35);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
 }
 
 .bases-btn:focus-visible,
@@ -232,12 +232,12 @@
 .bases-btn-add {
   background: var(--accent-active-bg);
   color: var(--accent-active-text);
-  border-color: rgba(52, 211, 153, 0.3);
+  border-color: var(--accent-active-border);
   font-weight: 500;
 }
 
 .bases-btn-add:hover:not(:disabled) {
-  background: rgba(16, 185, 129, 0.18);
+  background: var(--accent-active-bg-hover);
   border-color: var(--accent-active-text);
 }
 
