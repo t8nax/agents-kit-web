@@ -41,27 +41,57 @@ svg {
   min-height: 0;
 }
 
-.sidebar {
-  width: 232px;
+/* Полоса держит своё место в потоке, а сайдбар разъезжается поверх содержимого:
+   мышь проходит у левого края часто, и таблица от этого не должна ездить. */
+.sidebar-rail {
+  position: relative;
+  width: 52px;
   flex-shrink: 0;
+}
+
+.sidebar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 52px;
+  z-index: 5;
   border-right: 1px solid var(--border-subtle);
   background: var(--bg-surface);
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   padding: 12px 0;
+  transition: width 160ms ease, box-shadow 160ms ease;
+}
+
+.sidebar.expanded {
+  width: 232px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px -8px var(--shadow-color);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
 }
 
 .side-group {
   padding: 10px 16px 4px;
+  white-space: nowrap;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-tertiary);
 }
 
+/* В свёрнутой полосе заголовку группы места нет, но высоту он держит: значки не прыгают */
+.sidebar:not(.expanded) .side-group {
+  visibility: hidden;
+}
+
 /* Сайдбар набран крупнее таблицы: по нему ходят глазами, а не читают плотные строки. */
 .side-item {
+  position: relative;
   font: inherit;
   font-size: 14px;
   width: 100%;
@@ -98,6 +128,30 @@ svg {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  animation: side-label-in 160ms ease both;
+}
+
+@keyframes side-label-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .side-label {
+    animation: none;
+  }
+}
+
+/* Свёрнутая полоса не теряет ждущих ответа копий: их число становится точкой у значка */
+.side-dot {
+  position: absolute;
+  top: 8px;
+  left: 26px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-waiting-fill);
 }
 
 /* «Базы знаний» — настройка, а не раздел: стоит внизу, за чертой */

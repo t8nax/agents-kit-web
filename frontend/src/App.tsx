@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import Backlog from './Backlog'
 import BasesModal from './BasesModal'
@@ -159,33 +159,80 @@ function Sidebar({
   onSection: (section: Section) => void
   onBases: () => void
 }) {
+  // Сайдбар стоит полосой значков и разъезжается под мышью — своей кнопки у него нет
+  const [expanded, setExpanded] = useState(false)
+  const waitingLabel = waiting > 0 ? `${waiting} ${waiting === 1 ? 'ждёт' : 'ждут'}` : null
+
   return (
-    <nav className="sidebar" aria-label="Разделы панели">
-      <div className="side-group">Панель</div>
-      <button
-        type="button"
-        className={`side-item ${section === 'workspaces' ? 'active' : ''}`}
-        aria-current={section === 'workspaces' ? 'page' : undefined}
-        onClick={() => onSection('workspaces')}
+    <div className="sidebar-rail">
+      <nav
+        className={`sidebar ${expanded ? 'expanded' : ''}`}
+        aria-label="Разделы панели"
+        onMouseEnter={() => setExpanded(true)}
+        onMouseLeave={() => setExpanded(false)}
+        // Клавиатура ходит по разделам так же, как мышь: фокус разворачивает сайдбар
+        onFocus={() => setExpanded(true)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setExpanded(false)
+        }}
       >
-        <TableIcon />
-        <span className="side-label">Рабочие копии</span>
-        {waiting > 0 && <span className="side-count">{waiting} {waiting === 1 ? 'ждёт' : 'ждут'}</span>}
-      </button>
-      <button
-        type="button"
-        className={`side-item ${section === 'backlog' ? 'active' : ''}`}
-        aria-current={section === 'backlog' ? 'page' : undefined}
-        onClick={() => onSection('backlog')}
-      >
-        <ListIcon />
-        <span className="side-label">Бэклог</span>
-      </button>
-      <button type="button" className="side-item side-bottom" onClick={onBases}>
-        <BaseIcon />
-        <span className="side-label">Базы знаний</span>
-      </button>
-    </nav>
+        <div className="side-group">Панель</div>
+        <SideItem
+          label="Рабочие копии"
+          note={waitingLabel}
+          expanded={expanded}
+          active={section === 'workspaces'}
+          onClick={() => onSection('workspaces')}
+        >
+          <TableIcon />
+        </SideItem>
+        <SideItem
+          label="Бэклог"
+          expanded={expanded}
+          active={section === 'backlog'}
+          onClick={() => onSection('backlog')}
+        >
+          <ListIcon />
+        </SideItem>
+        <SideItem label="Базы знаний" expanded={expanded} className="side-bottom" onClick={onBases}>
+          <BaseIcon />
+        </SideItem>
+      </nav>
+    </div>
+  )
+}
+
+function SideItem({
+  label,
+  note = null,
+  expanded,
+  active = false,
+  className = '',
+  onClick,
+  children,
+}: {
+  label: string
+  note?: string | null
+  expanded: boolean
+  active?: boolean
+  className?: string
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className={`side-item ${active ? 'active' : ''} ${className}`}
+      // Свёрнутая полоса оставляет от раздела один значок — название держится в имени кнопки
+      aria-label={note ? `${label}, ${note}` : label}
+      title={note ? `${label} — ${note}` : label}
+      aria-current={active ? 'page' : undefined}
+      onClick={onClick}
+    >
+      {children}
+      {expanded && <span className="side-label">{label}</span>}
+      {note && (expanded ? <span className="side-count">{note}</span> : <span className="side-dot" />)}
+    </button>
   )
 }
 
