@@ -199,13 +199,11 @@
   margin-bottom: 2px;
 }
 
-/* строки и абзацы текста критерия — как в памяти */
+/* текст критерия — размеченный markdown, структуру задаёт Markdown.css */
 .criterion-text {
-  margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.5;
-  white-space: pre-line;
 }
 
 .out-of-scope-label {

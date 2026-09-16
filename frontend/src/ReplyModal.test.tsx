@@ -32,7 +32,7 @@ const questions: QuestionsResponse = {
     { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
     {
       title: 'Как быть с переносами?',
-      context: 'Абзацы из поля теряются.\n1. Заменить пробелами.\n2. Не отправлять.',
+      context: 'Абзацы из поля теряются.\n\n- заменить пробелами\n  - и сказать об этом\n- не отправлять',
       variants: [
         { choice: 'Заменять пробелами', effect: 'Абзацы теряются', recommended: true },
         { choice: 'Не отправлять', effect: 'Оператор переписывает', recommended: false },
@@ -68,10 +68,16 @@ test('окно показывает заголовок и текст каждо�
 
   const dialog = within(await openReply())
 
-  const titles = await dialog.findAllByText(/^\d\. /, { selector: '.criterion-title' })
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  const titles = [...document.querySelectorAll('.criterion-title')]
+  // номер критерия остаётся в заголовке, а не съедается разметкой как список
   expect(titles.map((t) => t.textContent)).toEqual(['1. Окно есть', '2. Строка перестаёт ждать'])
   const firstText = titles[0].parentElement!.querySelector('.criterion-text')
-  expect(firstText?.textContent).toBe('Оператор отвечает из панели.\n\nБез IDE.')
+  // абзацы критерия — отдельные абзацы разметки, а не один кусок текста
+  expect([...firstText!.querySelectorAll('p')].map((p) => p.textContent)).toEqual([
+    'Оператор отвечает из панели.',
+    'Без IDE.',
+  ])
   expect(titles[1].parentElement!.querySelector('.criterion-text')).toBeNull()
   expect(dialog.getByText('Не входит')).toBeInTheDocument()
   expect(dialog.getByText('Health баз.')).toBeInTheDocument()
@@ -96,21 +102,55 @@ test('окно показывает вопрос копии с контекст�
   expect(calls.some((c) => c.url === '/api/questions?base=D%3A%5CProjects%5Capp-knowledge&copy=D%3A%5CProjects%5Capp')).toBe(true)
   expect(dialog.getByText('Вопрос 1 из 2')).toBeInTheDocument()
   expect(dialog.getByText('За вами объём проверок')).toBeInTheDocument()
-  expect(dialog.getByText('1. Окно есть')).toBeInTheDocument()
+  expect(document.querySelector('.criterion-title')!.textContent).toBe('1. Окно есть')
   expect(dialog.getByText('app-knowledge · D:\\Projects\\app')).toBeInTheDocument()
 
   fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
   expect(dialog.getByText('Вопрос 2 из 2')).toBeInTheDocument()
-  // каждая строка контекста — своя строка в окне, а не кусок общего абзаца
-  const contextLines = ['Абзацы из поля теряются.', '1. Заменить пробелами.', '2. Не отправлять.'].map((line) =>
-    dialog.getByText(line),
-  )
-  expect(new Set(contextLines).size).toBe(3)
+  // контекст размечен: абзац и список с вложенным пунктом, а не строки простым текстом
+  const context = document.querySelector('.question-box')!
+  expect(context.querySelector('p')!.textContent).toBe('Абзацы из поля теряются.')
+  expect([...context.querySelectorAll(':scope > ul > li')].map((li) => li.firstChild!.textContent)).toEqual([
+    'заменить пробелами',
+    'не отправлять',
+  ])
+  expect(context.querySelector('li > ul > li')!.textContent).toBe('и сказать об этом')
   expect(dialog.getByText('Рекомендовано')).toBeInTheDocument()
   expect(dialog.queryByRole('button', { name: 'Далее' })).not.toBeInTheDocument()
 
   fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
   expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами')
+})
+
+test('заголовок, контекст и критерий показываются размеченными, сырой HTML не рендерится', async () => {
+  stubApi(() => new Response(null, { status: 204 }), {
+    ...questions,
+    criteria: [{ title: '1. Окно `ReplyModal` есть', text: 'Текст с **выделением**.' }],
+    outOfScope: 'Разметка в *таблице копий*.',
+    questions: [
+      {
+        title: 'Что делать с `white-space`?',
+        context: 'Строка про **важное**, про `код` и [ссылку](https://example.com).\n\n<b>сырой HTML</b> не рендерится.',
+        variants: [],
+        answer: null,
+      },
+    ],
+  })
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Что делать с white-space?' })
+
+  const context = document.querySelector('.question-box')!
+  expect(context.querySelector('strong')!.textContent).toBe('важное')
+  expect(context.querySelector('code')!.textContent).toBe('код')
+  expect(context.querySelector('a')).toHaveAttribute('href', 'https://example.com')
+  expect(context.querySelector('b')).toBeNull()
+  expect(context.textContent).toContain('<b>сырой HTML</b> не рендерится.')
+
+  expect(document.querySelector('.massive-title code')!.textContent).toBe('white-space')
+  expect(document.querySelector('.criterion-title code')!.textContent).toBe('ReplyModal')
+  expect(document.querySelector('.criterion-text strong')!.textContent).toBe('выделением')
+  expect(dialog.getByText('таблице копий').tagName).toBe('EM')
 })
 
 test('пустой ответ не отправляется: окно открывает этот вопрос', async () => {

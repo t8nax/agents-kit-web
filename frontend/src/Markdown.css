@@ -1,0 +1,93 @@
+/* Разметка текстов агента: размер и цвет наследуются от места показа, задаётся только структура */
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown pre {
+  margin: 0 0 0.6em;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.4em;
+}
+
+.markdown li {
+  margin-bottom: 0.2em;
+}
+
+.markdown li > ul,
+.markdown li > ol {
+  margin: 0.2em 0 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-size: 1em;
+  margin: 0 0 0.4em;
+}
+
+.markdown blockquote {
+  padding-left: 0.8em;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.markdown code,
+.markdown-inline code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.markdown pre {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.markdown a,
+.markdown-inline a {
+  color: var(--accent-waiting-text);
+}
+
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 0.8em 0;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  margin: 0 0 0.6em;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border-subtle);
+  padding: 4px 8px;
+  text-align: left;
+}
