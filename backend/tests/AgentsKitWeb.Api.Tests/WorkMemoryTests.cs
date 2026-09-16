@@ -60,7 +60,8 @@ public class WorkMemoryTests
         Assert.Equal("feat/table", memory.Branch);
         Assert.Equal("Таблица рабочих копий", memory.Task);
         Assert.Equal("Реализация", memory.FlowStep);
-        Assert.Equal(50, memory.Progress);
+        // Два шага флоу из четырёх и половина шагов работы открытого третьего.
+        Assert.Equal(62, memory.Progress);
         Assert.Empty(memory.Questions);
         Assert.False(memory.WaitingForOperator);
     }
@@ -345,5 +346,34 @@ public class WorkMemoryTests
 
         Assert.Null(memory.FlowStep);
         Assert.Equal(100, memory.Progress);
+    }
+
+    [Fact]
+    public void Parse_ClosedWorkStep_RaisesProgressInsideOpenFlowStep()
+    {
+        var noneDone = WorkMemory.Parse(Memory.Replace("- [x] API — результат: abc123", "- [ ] API"));
+
+        Assert.Equal(50, noneDone.Progress);
+        Assert.Equal(62, WorkMemory.Parse(Memory).Progress);
+    }
+
+    [Fact]
+    public void Parse_NoWorkSteps_CountsFlowStepsAlone()
+    {
+        var memory = WorkMemory.Parse(Memory.Replace("- [x] API — результат: abc123\n- [ ] Фронт", ""));
+
+        Assert.Equal(50, memory.Progress);
+    }
+
+    [Fact]
+    public void Parse_NextFlowStepOpened_KeepsProgressOfFullyDoneOpenStep()
+    {
+        var allWorkStepsDone = WorkMemory.Parse(Memory.Replace("- [ ] Фронт", "- [x] Фронт"));
+        var nextFlowStep = WorkMemory.Parse(Memory
+            .Replace("- [ ] 3. Реализация", "- [x] 3. Реализация — выход: abc123")
+            .Replace("- [x] API — результат: abc123\n- [ ] Фронт", "- [ ] Позвать оператора"));
+
+        Assert.Equal(75, allWorkStepsDone.Progress);
+        Assert.Equal(75, nextFlowStep.Progress);
     }
 }
