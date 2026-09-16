@@ -169,6 +169,48 @@
   overflow-wrap: anywhere;
 }
 
+/* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе с иконкой. */
+.btn-code {
+  --code-blue: #0098ff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid rgba(0, 152, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(0, 152, 255, 0.12);
+  color: var(--code-blue);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-code:hover:not(:disabled) {
+  background: rgba(0, 152, 255, 0.22);
+}
+
+.btn-code:disabled {
+  border-color: var(--border-subtle);
+  background: none;
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.modal-overlay .btn-code svg {
+  width: 16px;
+  height: 16px;
+}
+
+.open-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -24px 0 24px;
+}
+
 .accordion-content {
   padding: 12px 16px 16px;
   border-top: 1px solid var(--border-subtle);
