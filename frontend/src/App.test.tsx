@@ -94,6 +94,33 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
 })
 
+test('сайдбар переключает разделы и открывает окно баз', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/backlog'
+      ? new Response(JSON.stringify([]), { status: 200 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+
+  // Копия с неотвеченным вопросом считается в сайдбаре
+  expect(await sidebar.findByText('1 ждёт')).toBeInTheDocument()
+  expect(await screen.findByRole('table')).toBeInTheDocument()
+
+  fireEvent.click(sidebar.getByRole('button', { name: /Бэклог/ }))
+  expect(await screen.findByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/api/backlog')
+
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  expect(await screen.findByRole('table')).toBeInTheDocument()
+
+  fireEvent.click(sidebar.getByRole('button', { name: 'Базы знаний' }))
+  expect(await screen.findByRole('dialog', { name: 'Базы знаний' })).toBeInTheDocument()
+})
+
 test('сообщает, что API недоступен', async () => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
 

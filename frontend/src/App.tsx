@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
+import Backlog from './Backlog'
 import BasesModal from './BasesModal'
 import {
   notificationsActive,
@@ -36,8 +37,11 @@ const refreshIntervalMs = 3000
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
+type Section = 'workspaces' | 'backlog'
+
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
+  const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [basesOpen, setBasesOpen] = useState(false)
   const lastRequest = useRef(0)
@@ -106,29 +110,115 @@ function App() {
           onRequest={notifications.request}
           onToggle={notifications.setEnabled}
         />
+        {/* «Базы знаний» ушла из шапки вниз сайдбара; переключатель темы остался здесь */}
         <button type="button" className="bases-btn" onClick={theme.toggle}>
           {theme.theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           {theme.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
         </button>
-        <button type="button" className="bases-btn" onClick={() => setBasesOpen(true)}>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <ellipse cx="12" cy="5" rx="9" ry="3" />
-            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
-          </svg>
-          Базы знаний
-        </button>
       </header>
-      <main className="main-content">
-        {state.failed && <p className="message warning-text">Нет связи с API</p>}
-        {state.rows && <WorkspacesTable rows={state.rows} onReply={setReplyTo} />}
-        {state.rows?.length === 0 && (
-          <p className="empty-message">Нет отслеживаемых баз или рабочих копий. Базы добавляются в окне «Базы знаний».</p>
-        )}
-      </main>
+      <div className="app-body">
+        <Sidebar
+          section={section}
+          waiting={state.rows?.filter((row) => row.status === 'waiting').length ?? 0}
+          onSection={setSection}
+          onBases={() => setBasesOpen(true)}
+        />
+        <main className="content">
+          {section === 'workspaces' ? (
+            <>
+              <div className="content-head">
+                <h2>Рабочие копии</h2>
+              </div>
+              {state.failed && <p className="message warning-text">Нет связи с API</p>}
+              {state.rows && <WorkspacesTable rows={state.rows} onReply={setReplyTo} />}
+              {state.rows?.length === 0 && (
+                <p className="empty-message">
+                  Нет отслеживаемых баз или рабочих копий. Базы добавляются в окне «Базы знаний».
+                </p>
+              )}
+            </>
+          ) : (
+            <Backlog />
+          )}
+        </main>
+      </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {basesOpen && <BasesModal onClose={closeBases} />}
     </>
+  )
+}
+
+function Sidebar({
+  section,
+  waiting,
+  onSection,
+  onBases,
+}: {
+  section: Section
+  waiting: number
+  onSection: (section: Section) => void
+  onBases: () => void
+}) {
+  return (
+    <nav className="sidebar" aria-label="Разделы панели">
+      <div className="side-group">Панель</div>
+      <button
+        type="button"
+        className={`side-item ${section === 'workspaces' ? 'active' : ''}`}
+        aria-current={section === 'workspaces' ? 'page' : undefined}
+        onClick={() => onSection('workspaces')}
+      >
+        <TableIcon />
+        <span className="side-label">Рабочие копии</span>
+        {waiting > 0 && <span className="side-count">{waiting} {waiting === 1 ? 'ждёт' : 'ждут'}</span>}
+      </button>
+      <button
+        type="button"
+        className={`side-item ${section === 'backlog' ? 'active' : ''}`}
+        aria-current={section === 'backlog' ? 'page' : undefined}
+        onClick={() => onSection('backlog')}
+      >
+        <ListIcon />
+        <span className="side-label">Бэклог</span>
+      </button>
+      <button type="button" className="side-item side-bottom" onClick={onBases}>
+        <BaseIcon />
+        <span className="side-label">Базы знаний</span>
+      </button>
+    </nav>
+  )
+}
+
+function TableIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="9" y1="10" x2="9" y2="20" />
+    </svg>
+  )
+}
+
+function ListIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="8" y1="6" x2="21" y2="6" />
+      <line x1="8" y1="12" x2="21" y2="12" />
+      <line x1="8" y1="18" x2="21" y2="18" />
+      <line x1="3" y1="6" x2="3.01" y2="6" />
+      <line x1="3" y1="12" x2="3.01" y2="12" />
+      <line x1="3" y1="18" x2="3.01" y2="18" />
+    </svg>
+  )
+}
+
+function BaseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+    </svg>
   )
 }
 

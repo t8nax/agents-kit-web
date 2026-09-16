@@ -18,6 +18,7 @@ app.MapGet("/api/ping", () => new PingResponse("pong"));
 app.MapGet("/api/workspaces", (BasesStore bases, CancellationToken cancellationToken) =>
     WorkspaceCollector.CollectAsync(bases.List(), cancellationToken));
 
+app.MapBacklogEndpoints();
 app.MapBasesEndpoints();
 app.MapFoldersEndpoints();
 app.MapOperatorEndpoints();
