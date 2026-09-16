@@ -1,9 +1,10 @@
 using System.Text.Json;
+using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Bases;
 
 /// <summary>База в списке панели. Copies — число копий из agents-kit.json, null — файл не прочитан.</summary>
-public sealed record BaseEntry(string Path, int? Copies);
+public sealed record BaseEntry(string Path, int? Copies, string Project);
 
 public sealed record AddBaseRequest(string? Path);
 
@@ -32,7 +33,7 @@ public static class BasesEndpoints
             store.Remove(path) ? Results.NoContent() : Results.NotFound());
     }
 
-    private static BaseEntry Entry(string path) => new(path, CountCopies(path));
+    private static BaseEntry Entry(string path) => new(path, CountCopies(path), ProjectName.Of(path));
 
     internal static int? CountCopies(string basePath)
     {

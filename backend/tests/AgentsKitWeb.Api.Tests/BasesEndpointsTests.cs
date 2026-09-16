@@ -39,8 +39,8 @@ public sealed class BasesEndpointsTests : IDisposable
         var response = await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest($" {basePath}\\ "));
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        Assert.Equal(new BaseEntry(basePath, 1), await response.Content.ReadFromJsonAsync<BaseEntry>());
-        Assert.Equal([new BaseEntry(basePath, 1)], await GetBases());
+        Assert.Equal(new BaseEntry(basePath, 1, "app-knowledge"), await response.Content.ReadFromJsonAsync<BaseEntry>());
+        Assert.Equal([new BaseEntry(basePath, 1, "app-knowledge")], await GetBases());
         Assert.True(File.Exists(_file));
 
         var rows = await Client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
@@ -70,6 +70,17 @@ public sealed class BasesEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(new AddBaseRejectedResponse("not-a-base"), await response.Content.ReadFromJsonAsync<AddBaseRejectedResponse>());
         Assert.Empty(await GetBases());
+    }
+
+    [Fact]
+    public async Task Add_BaseWithProductMd_IsNamedByItsHeading()
+    {
+        var basePath = CreateBase("app-knowledge");
+        File.WriteAllText(Path.Combine(basePath, "product.md"), "# App — продукт\n");
+
+        var response = await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(basePath));
+
+        Assert.Equal("App", (await response.Content.ReadFromJsonAsync<BaseEntry>())!.Project);
     }
 
     [Fact]

@@ -94,7 +94,8 @@ public static class WorkspaceCollector
     private static WorkspaceRow Unavailable(string project, string basePath, string path, string error) =>
         new(project, basePath, path, null, null, null, null, null, error);
 
-    private static List<string>? ReadCopies(string basePath)
+    /// <summary>Копии из agents-kit.json базы; null — файл не прочитан.</summary>
+    internal static List<string>? ReadCopies(string basePath)
     {
         try
         {
