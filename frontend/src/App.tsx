@@ -611,7 +611,7 @@ function WorkspacesTable({
                     task={row.task}
                     start={
                       row.status === 'free' ? (
-                        <button type="button" className="btn action-btn-start" onClick={() => onStart(row)}>
+                        <button type="button" className="action-btn-start" onClick={() => onStart(row)}>
                           <PlayIcon />
                           Взять задачу
                         </button>
