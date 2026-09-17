@@ -69,6 +69,19 @@ test('клик по записи открывает окно с номером, 
   ])
 })
 
+test('адрес в тексте записи — ссылка в новую вкладку', async () => {
+  stubFetch([
+    { ...backlogs[0], entries: [{ number: 'B-7', title: 'Со ссылкой', text: 'Подробности: https://example.com/t/7' }] },
+  ])
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-7 Со ссылкой/ }))
+
+  const link = within(screen.getByRole('dialog')).getByRole('link', { name: 'https://example.com/t/7' })
+  expect(link).toHaveAttribute('href', 'https://example.com/t/7')
+  expect(link).toHaveAttribute('target', '_blank')
+})
+
 test('запись без текста открывается окном «Описания нет»', async () => {
   stubFetch([{ ...backlogs[0], entries: [{ number: 'B-5', title: 'Дописана руками', text: null }] }])
 
