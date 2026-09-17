@@ -18,8 +18,8 @@ test('страница показывает таблицу рабочих коп
 
 const row = {
   project: 'agents-kit-web',
-  base: 'D:\Projects\agents-kit-web-knowledge',
-  path: 'D:\Projects\agents-kit-web',
+  base: 'D:\\Projects\\agents-kit-web-knowledge',
+  path: 'D:\\Projects\\agents-kit-web',
   branch: 'feat/task-number-column',
   task: 'B-24 Номер задачи и её заголовок — отдельные колонки таблицы',
   flowStep: 'Реализация',
@@ -29,8 +29,8 @@ const row = {
 }
 const rows = [
   row,
-  { ...row, path: 'D:\Projects\agents-kit-web-2', task: 'Задача не из бэклога' },
-  { ...row, path: 'D:\Projects\agents-kit-web-3', branch: 'dev', task: null, flowStep: null, progress: null, status: 'free' },
+  { ...row, path: 'D:\\Projects\\agents-kit-web-2', task: 'Задача не из бэклога' },
+  { ...row, path: 'D:\\Projects\\agents-kit-web-3', branch: 'dev', task: null, flowStep: null, progress: null, status: 'free' },
 ]
 
 for (const colorScheme of ['light', 'dark'] as const) {
