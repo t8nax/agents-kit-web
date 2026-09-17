@@ -94,6 +94,53 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
 })
 
+test('кнопка «Открыть в VS Code» стоит у прочитанных копий и открывает ту, чью строку нажали', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/workspace/open'
+      ? new Response(null, { status: 204 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await screen.findAllByRole('row')
+
+  // Строка с ошибкой открывать нечего — у неё кнопки нет
+  expect(within(tableRows[1]).getByRole('button', { name: 'Открыть D:\\Projects\\app в VS Code' })).toBeInTheDocument()
+  expect(within(tableRows[2]).getByRole('button', { name: /Открыть .* в VS Code/ })).toBeInTheDocument()
+  expect(within(tableRows[3]).queryByRole('button', { name: /в VS Code/ })).not.toBeInTheDocument()
+
+  await act(async () => {
+    fireEvent.click(within(tableRows[2]).getByRole('button', { name: /в VS Code/ }))
+  })
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspace/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' }),
+  })
+})
+
+test('копия не открылась — панель говорит об этом строкой', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/workspace/open'
+      ? new Response(JSON.stringify({ problem: 'not-opened' }), { status: 502 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await screen.findAllByRole('row')
+
+  await act(async () => {
+    fireEvent.click(within(tableRows[2]).getByRole('button', { name: /в VS Code/ }))
+  })
+
+  expect(
+    await screen.findByText('Не удалось открыть VS Code на D:\\Projects\\app-wt'),
+  ).toBeInTheDocument()
+})
+
 test('сайдбар переключает разделы и открывает окно баз', async () => {
   const fetchMock = vi.fn(async (url: string) =>
     url === '/api/backlog'
@@ -105,8 +152,8 @@ test('сайдбар переключает разделы и открывает
   render(<App />)
   const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
 
-  // Копия с неотвеченным вопросом считается в сайдбаре
-  expect(await sidebar.findByText('1 ждёт')).toBeInTheDocument()
+  // Копия с неотвеченным вопросом считается в сайдбаре — в свёрнутой полосе счёт в имени кнопки
+  expect(await sidebar.findByRole('button', { name: 'Рабочие копии, 1 ждёт' })).toBeInTheDocument()
   expect(await screen.findByRole('table')).toBeInTheDocument()
 
   fireEvent.click(sidebar.getByRole('button', { name: /Бэклог/ }))
@@ -119,6 +166,39 @@ test('сайдбар переключает разделы и открывает
 
   fireEvent.click(sidebar.getByRole('button', { name: 'Базы знаний' }))
   expect(await screen.findByRole('dialog', { name: 'Базы знаний' })).toBeInTheDocument()
+})
+
+test('сайдбар стоит полосой значков и разъезжается под мышью', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const nav = screen.getByRole('navigation', { name: 'Разделы панели' })
+  const sidebar = within(nav)
+
+  // Свёрнутая полоса: подписей нет, ждущая ответа копия отмечена точкой у значка
+  const workspaces = await sidebar.findByRole('button', { name: 'Рабочие копии, 1 ждёт' })
+  expect(sidebar.queryByText('Рабочие копии')).not.toBeInTheDocument()
+  expect(sidebar.queryByText('1 ждёт')).not.toBeInTheDocument()
+  expect(nav.querySelector('.side-dot')).toBeInTheDocument()
+
+  fireEvent.mouseEnter(nav)
+  expect(sidebar.getByText('Рабочие копии')).toBeInTheDocument()
+  expect(sidebar.getByText('Бэклог')).toBeInTheDocument()
+  expect(sidebar.getByText('Базы знаний')).toBeInTheDocument()
+  expect(sidebar.getByText('1 ждёт')).toBeInTheDocument()
+  // Раздел сам не сменился: на месте по-прежнему таблица копий
+  expect(screen.getByRole('table')).toBeInTheDocument()
+
+  fireEvent.mouseLeave(nav)
+  expect(sidebar.queryByText('Рабочие копии')).not.toBeInTheDocument()
+  expect(screen.getByRole('table')).toBeInTheDocument()
+
+  // Клавиатура разворачивает сайдбар так же, как мышь
+  fireEvent.focus(workspaces)
+  expect(sidebar.getByText('Бэклог')).toBeInTheDocument()
+  fireEvent.blur(workspaces)
+  expect(sidebar.queryByText('Бэклог')).not.toBeInTheDocument()
 })
 
 test('сообщает, что API недоступен', async () => {

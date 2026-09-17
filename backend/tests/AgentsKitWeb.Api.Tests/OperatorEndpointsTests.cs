@@ -231,11 +231,101 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Empty(_windows.Raised);
     }
 
+    [Fact]
+    public async Task OpenWorkspace_LiveVsCodeSession_RaisesItsWindowInsteadOfOpeningOne()
+    {
+        WriteSession(_copy);
+
+        var response = await PostOpenWorkspace(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([_copy], _windows.Raised);
+        Assert.Empty(_windows.Opened);
+    }
+
+    [Fact]
+    public async Task OpenWorkspace_CopyWithoutVsCodeSession_OpensWindowOnIt()
+    {
+        var response = await PostOpenWorkspace(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([_copy], _windows.Opened);
+        Assert.Empty(_windows.Raised);
+    }
+
+    [Fact]
+    public async Task OpenWorkspace_FreeCopy_OpensWindowOnIt()
+    {
+        var free = FreeCopy();
+
+        var response = await PostOpenWorkspace(_base, free);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([free], _windows.Opened);
+    }
+
+    // Сессия в терминале своего окна не имеет: поднимать нечего, копия открывается как любая другая.
+    [Fact]
+    public async Task OpenWorkspace_SessionInTerminal_OpensWindowOnIt()
+    {
+        WriteSession(_copy, entrypoint: "cli");
+
+        var response = await PostOpenWorkspace(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([_copy], _windows.Opened);
+        Assert.Empty(_windows.Raised);
+    }
+
+    [Fact]
+    public async Task OpenWorkspace_WindowNotOpened_IsBadGateway()
+    {
+        _windows.Result = false;
+
+        var response = await PostOpenWorkspace(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Equal(new OpenWorkspaceFailedResponse("not-opened"), await response.Content.ReadFromJsonAsync<OpenWorkspaceFailedResponse>());
+    }
+
+    [Fact]
+    public async Task OpenWorkspace_CopyOutsideBase_IsNotFoundAndOpensNothing()
+    {
+        var response = await PostOpenWorkspace(_base, Path.Combine(_root, "nope"));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.Opened);
+        Assert.Empty(_windows.Raised);
+    }
+
+    [Fact]
+    public async Task OpenWorkspace_BaseNotInConfiguration_IsNotFoundAndOpensNothing()
+    {
+        var response = await PostOpenWorkspace(Path.Combine(_root, "other-knowledge"), _copy);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.Opened);
+        Assert.Empty(_windows.Raised);
+    }
+
+    /// <summary>Копия без памяти: такой строкой таблицы её делает только git, поэтому нужен репозиторий.</summary>
+    private string FreeCopy()
+    {
+        var free = TestGit.Repository(Path.Combine(_root, "free"));
+        File.WriteAllText(
+            Path.Combine(_base, "agents-kit.json"),
+            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { free } }));
+        return free;
+    }
+
     private static string QuestionsUrl(string basePath, string copy) =>
         $"/api/questions?base={Uri.EscapeDataString(basePath)}&copy={Uri.EscapeDataString(copy)}";
 
     private Task<HttpResponseMessage> PostOpenSession(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/session/open", new OpenSessionRequest(basePath, copy));
+
+    private Task<HttpResponseMessage> PostOpenWorkspace(string basePath, string copy) =>
+        _factory.CreateClient().PostAsJsonAsync("/api/workspace/open", new OpenWorkspaceRequest(basePath, copy));
 
     // Живой сессией считается та, чей процесс существует, поэтому в фикстуре стоит pid самого прогона.
     private void WriteSession(string cwd, string entrypoint = "claude-vscode") =>
@@ -247,11 +337,19 @@ public sealed class OperatorEndpointsTests : IDisposable
     {
         public List<string> Raised { get; } = [];
 
+        public List<string> Opened { get; } = [];
+
         public bool Result { get; set; } = true;
 
         public Task<bool> RaiseAsync(string copyPath, CancellationToken cancellationToken)
         {
             Raised.Add(copyPath);
+            return Task.FromResult(Result);
+        }
+
+        public Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken)
+        {
+            Opened.Add(copyPath);
             return Task.FromResult(Result);
         }
     }
@@ -265,9 +363,12 @@ public sealed class OperatorEndpointsTests : IDisposable
         _factory.Dispose();
         try
         {
+            // Объекты git лежат только для чтения: без снятия атрибута каталог прогона не удалить.
+            foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
             Directory.Delete(_root, recursive: true);
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
         }
     }
