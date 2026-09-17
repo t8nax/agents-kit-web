@@ -55,6 +55,7 @@ async function mockApi(page: Page) {
     const path = new URL(route.request().url()).searchParams.get('path') ?? ''
     return route.fulfill({ json: listings[path] })
   })
+  await page.route('**/api/kit/found', (route) => route.fulfill({ json: [kitPath] }))
   await page.route('**/api/kit', (route) => {
     const request = route.request()
     if (request.method() === 'GET') return route.fulfill({ json: { path: kit, found: kit !== null } })
@@ -164,6 +165,26 @@ test('оператор задаёт путь к киту: чужой катал�
   await expect(kit.getByText('Кит найден: скрипты проверок на месте.')).toBeVisible()
 
   // Путь хранит API: раздел, открытый заново, показывает сохранённый
+  await page.reload()
+  await openSettings(page)
+  await expect(kit.getByLabel('Путь к каталогу кита')).toHaveValue(kitPath)
+})
+
+test('оператор находит кит кнопкой и сам сохраняет найденный путь', async ({ page }) => {
+  await mockApi(page)
+
+  await page.goto('/')
+  await openSettings(page)
+  const kit = page.getByRole('region', { name: /^Кит/ })
+
+  await kit.getByRole('button', { name: 'Найти автоматически' }).click()
+  await expect(kit.getByText('Кит найден, путь подставлен в поле — сохраните его.')).toBeVisible()
+  await expect(kit.getByLabel('Путь к каталогу кита')).toHaveValue(kitPath)
+  // Поиск ничего не сохранил: пока оператор не нажал «Сохранить», путь не задан
+  await expect(kit.getByText('Путь к киту не задан — проблемы баз не проверяются.')).toBeVisible()
+
+  await kit.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(kit.getByText('Кит найден: скрипты проверок на месте.')).toBeVisible()
   await page.reload()
   await openSettings(page)
   await expect(kit.getByLabel('Путь к каталогу кита')).toHaveValue(kitPath)
