@@ -9,6 +9,9 @@ public interface IEditorWindows
 
     /// <summary>Открывает окно на каталоге копии; сессию агента в нём заводит оператор.</summary>
     Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken);
+
+    /// <summary>Открывает файл в окне на его каталоге — том же, что поднимет или откроет OpenAsync.</summary>
+    Task<bool> OpenFileAsync(string folder, string file, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -27,6 +30,9 @@ public sealed class VsCodeWindows : IEditorWindows
     // не быть, поэтому -n: он и создаёт окно, и переиспользует уже открытое на этой папке.
     public Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken) =>
         RunAsync(cancellationToken, "-n", copyPath);
+
+    public Task<bool> OpenFileAsync(string folder, string file, CancellationToken cancellationToken) =>
+        RunAsync(cancellationToken, "-n", folder, file);
 
     private static async Task<bool> RunAsync(CancellationToken cancellationToken, params string[] args)
     {

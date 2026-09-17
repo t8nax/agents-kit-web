@@ -39,13 +39,52 @@ test('бэклог открывается из сайдбара и фильтр�
   const first = page.getByRole('region', { name: 'Agents Kit Web' })
   await expect(first.getByText('B-1', { exact: true })).toBeVisible()
   await expect(first.getByText('Панель показывает проблемы баз знаний')).toBeVisible()
-  // Текст оператору размечен markdown, а не показан построчно
-  await expect(first.getByRole('listitem')).toHaveText(['связь разорвана', 'сверка нашла ошибки'])
+  // В списке только номер и заголовок: текст оператору открывается окном
+  await expect(page.getByText('Сейчас панель не говорит, что с базой что-то не так.')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Nota' }).getByText('Экспорт заметок')).toBeVisible()
 
   await page.getByRole('button', { name: 'Nota', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Agents Kit Web' })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Nota' })).toBeVisible()
+})
+
+test('запись открывается окном с размеченным текстом и закрывается', async ({ page }) => {
+  await mockApi(page)
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+  const entry = page.getByRole('button', { name: 'B-1 Панель показывает проблемы баз знаний' })
+  await entry.click()
+
+  const dialog = page.getByRole('dialog', { name: 'Панель показывает проблемы баз знаний' })
+  await expect(dialog.getByText('B-1', { exact: true })).toBeVisible()
+  // Текст оператору размечен markdown, а не показан построчно
+  await expect(dialog.getByRole('listitem')).toHaveText(['связь разорвана', 'сверка нашла ошибки'])
+
+  // Клик мимо окна закрывает его
+  await page.mouse.click(10, 10)
+  await expect(dialog).toHaveCount(0)
+
+  // С клавиатуры: фокус на записи, Enter открывает, Esc закрывает и возвращает фокус записи
+  await entry.focus()
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(entry).toBeFocused()
+
+  await page.keyboard.press('Space')
+  await dialog.getByRole('button', { name: 'Закрыть' }).click()
+  await expect(dialog).toHaveCount(0)
+})
+
+test('запись без текста открывается окном «Описания нет»', async ({ page }) => {
+  await mockApi(page, [{ number: 'B-5', title: 'Дописана руками', text: null }])
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+  await page.getByRole('button', { name: 'B-5 Дописана руками' }).click()
+  await expect(page.getByRole('dialog', { name: 'Дописана руками' }).getByText('Описания нет')).toBeVisible()
 })
 
 test('«Обновить» показывает то, что в файле сейчас', async ({ page }) => {

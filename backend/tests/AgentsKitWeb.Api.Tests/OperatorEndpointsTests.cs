@@ -352,6 +352,9 @@ public sealed class OperatorEndpointsTests : IDisposable
             Opened.Add(copyPath);
             return Task.FromResult(Result);
         }
+
+        public Task<bool> OpenFileAsync(string folder, string file, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
     }
 
     private Task<HttpResponseMessage> PostAnswers(string basePath, string copy, params (string Question, string Answer)[] answers) =>

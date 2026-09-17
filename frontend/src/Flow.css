@@ -1,0 +1,372 @@
+/* Раздел «Флоу»: чипы, заголовок базы и кнопка VS Code — общие с бэклогом и окном ответа. */
+.flow-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+.flow-done {
+  color: var(--accent-active-text);
+}
+
+.flow-blocked {
+  color: var(--accent-error-text);
+  font-size: 13px;
+}
+
+.flow-list {
+  padding: 0 24px 32px;
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.flow-step {
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.flow-step-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.flow-step-title {
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.flow-executor {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.flow-executor-orchestrator {
+  color: var(--accent-active-text);
+  background: var(--accent-active-bg);
+}
+
+.flow-executor-operator {
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+}
+
+.flow-executor-agent {
+  color: var(--accent-done-text);
+  background: var(--accent-done-bg);
+}
+
+/* Ключи шага — связный текст, как записи бэклога: крупнее таблицы. */
+.flow-keys {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 4px;
+  font-size: 14px;
+}
+
+.flow-keys dt {
+  color: var(--text-tertiary);
+}
+
+.flow-keys dd {
+  margin: 0;
+}
+
+/* Форма шага */
+.flow-form.dragging {
+  opacity: 0.45;
+}
+
+.flow-form.drop-target {
+  border-color: var(--accent-done-text);
+}
+
+.flow-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 30px;
+  color: var(--text-tertiary);
+  border-radius: 4px;
+  cursor: grab;
+}
+
+.flow-grip:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.flow-grip svg,
+.flow-icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.flow-input {
+  font: inherit;
+  font-size: 14px;
+  min-width: 0;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.flow-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.flow-input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.flow-input[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+.flow-title-input {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.flow-icon-btn {
+  font: inherit;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.flow-icon-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.flow-icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.flow-icon-btn[aria-pressed='true'] {
+  opacity: 1;
+  color: var(--accent-done-text);
+  border-color: var(--accent-done-text);
+}
+
+.flow-icon-btn.danger:hover:not(:disabled) {
+  color: var(--accent-error-text);
+  border-color: var(--accent-error-border);
+}
+
+.flow-icon-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.flow-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.flow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.flow-field-wide {
+  grid-column: 1 / -1;
+}
+
+.flow-executor-field {
+  display: flex;
+  gap: 8px;
+}
+
+.flow-executor-field .flow-input {
+  flex: 1;
+}
+
+.flow-step-error {
+  margin: 0;
+  color: var(--accent-error-text);
+  font-size: 13px;
+}
+
+/* «Добавить шаг» и список пресетов под ним */
+.flow-add {
+  position: relative;
+  align-self: flex-start;
+}
+
+.flow-add > .bases-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.flow-presets {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  width: 520px;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 32px var(--shadow-color);
+}
+
+.flow-presets-label {
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
+
+.flow-presets-empty {
+  margin: 0;
+  padding: 4px 10px 8px;
+}
+
+.flow-preset-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.flow-preset-row .flow-icon-btn {
+  border-color: transparent;
+}
+
+.flow-preset {
+  font: inherit;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.flow-preset:hover,
+.flow-preset:focus-visible {
+  background: var(--bg-surface-hover);
+  outline: none;
+}
+
+.flow-preset-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-preset-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Окно подтверждения сохранения */
+.flow-confirm {
+  width: 480px;
+  max-width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 25px 50px -12px var(--shadow-color);
+}
+
+.flow-confirm h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.flow-confirm p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.flow-confirm-warning {
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border: 1px solid var(--accent-waiting-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.flow-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Окно описания шага: текст как в файле — моноширинный, с отступами пунктов */
+.flow-description {
+  width: 760px;
+}
+
+.flow-description-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.flow-description .flow-step-head h3 {
+  margin: 0;
+}
+
+.flow-description-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  white-space: pre;
+  overflow-x: auto;
+}

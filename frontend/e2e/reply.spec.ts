@@ -72,3 +72,57 @@ test('оператор отвечает на вопросы копии, и ст�
 
   await expect(tableRow.getByText('В работе')).toBeVisible()
 })
+
+// /api подменяется, как и выше: набранный ответ хранится в браузере, а отправки нет.
+test('набранный ответ возвращается после закрытия окна и перезагрузки страницы', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) =>
+    route.fulfill({
+      json: [
+        {
+          project: 'app-knowledge',
+          base: 'D:\Projects\app-knowledge',
+          path: 'D:\Projects\app',
+          branch: 'feat/reply',
+          task: 'Окно ответа',
+          flowStep: 'Критерий',
+          progress: 0,
+          status: 'waiting',
+          error: null,
+        },
+      ],
+    }),
+  )
+  await page.route('**/api/questions?**', (route) =>
+    route.fulfill({
+      json: {
+        project: 'app-knowledge',
+        copy: 'D:\Projects\app',
+        task: 'Окно ответа',
+        criteria: [],
+        outOfScope: null,
+        vsCodeSession: false,
+        questions: [{ title: 'Подтвердить критерий?', context: null, variants: [], answer: null }],
+      },
+    }),
+  )
+
+  const open = async () => {
+    await page.getByRole('row', { name: /Окно ответа/ }).getByRole('button', { name: 'Ответить' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
+    await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
+    return dialog
+  }
+
+  await page.goto('/')
+  let dialog = await open()
+  await dialog.getByLabel('Ответ').fill('принимаю, но без e2e')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+
+  dialog = await open()
+  await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю, но без e2e')
+
+  await page.reload()
+  dialog = await open()
+  await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю, но без e2e')
+})

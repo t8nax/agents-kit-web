@@ -5,6 +5,7 @@ import type { QuestionsResponse } from './ReplyModal'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  localStorage.clear()
 })
 
 const row: WorkspaceRow = {
@@ -279,4 +280,92 @@ test('сессия закрылась между опросами — перех
   fireEvent.click(dialog.getByRole('button', { name: 'Открыть в VS Code' }))
 
   expect(await dialog.findByText('Сессия этой копии уже не открыта в VS Code')).toBeInTheDocument()
+})
+
+const draftsKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app'
+
+test('закрытое окно возвращает набранные ответы, каким бы способом его ни закрыли', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  let dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
+  fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
+  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
+  dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами')
+
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'Заменять пробелами и сказать' } })
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
+  dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами и сказать')
+})
+
+test('после успешной отправки набранное забывается', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
+  expect(localStorage.getItem(draftsKey)).not.toBeNull()
+  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
+
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
+  expect(localStorage.getItem(draftsKey)).toBeNull()
+})
+
+test('отправка не прошла — набранное остаётся', async () => {
+  stubApi(
+    () =>
+      new Response(JSON.stringify({ question: 'Подтвердить критерий?', problem: 'already-answered' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+  )
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
+
+  expect(await dialog.findByText('Ответы не записаны')).toBeInTheDocument()
+  expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({
+    'Подтвердить критерий?': 'принимаю',
+    'Как быть с переносами?': 'заменять',
+  })
+})
+
+test('черновик вопроса, которого больше нет среди ждущих, не показывается и забывается', async () => {
+  const otherCopyKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app-2'
+  localStorage.setItem(
+    draftsKey,
+    JSON.stringify({ 'Подтвердить критерий?': 'принимаю', 'Старый вопрос?': 'устарело' }),
+  )
+  localStorage.setItem(otherCopyKey, JSON.stringify({ 'Как быть с переносами?': 'из другой копии' }))
+  stubApi(() => new Response(null, { status: 204 }))
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
+
+  expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({ 'Подтвердить критерий?': 'принимаю' })
+  expect(JSON.parse(localStorage.getItem(otherCopyKey)!)).toEqual({ 'Как быть с переносами?': 'из другой копии' })
 })

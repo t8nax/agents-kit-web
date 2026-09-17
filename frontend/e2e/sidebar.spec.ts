@@ -15,8 +15,14 @@ test('сайдбар стоит полосой значков и разъезж�
   // Содержимое начинается сразу за полосой: развёрнутый сайдбар ляжет поверх него
   expect((await page.getByRole('main').boundingBox())?.x).toBe(rail)
 
+  const settings = sidebar.getByRole('button', { name: 'Настройки' })
+  const collapsedBox = await settings.boundingBox()
+
   await sidebar.hover()
   await expect(sidebar.getByText('Бэклог')).toBeVisible()
+  // Пункты не съезжают при раскрытии: мышь, наведённая на значок, остаётся на своём разделе
+  expect((await settings.boundingBox())?.y).toBe(collapsedBox?.y)
+  expect((await settings.boundingBox())?.height).toBe(collapsedBox?.height)
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeGreaterThan(rail)
   // Содержимое осталось на месте, сайдбар накрыл его край
   expect((await page.getByRole('main').boundingBox())?.x).toBe(rail)
@@ -26,33 +32,32 @@ test('сайдбар стоит полосой значков и разъезж�
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(rail)
 })
 
-test('«Базы знаний» — кнопка в рамке, до которой доходят клавиатурой', async ({ page }) => {
+test('«Настройки» — раздел в ряду остальных, до него доходят клавиатурой', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/bases', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/kit', (route) => route.fulfill({ json: { path: null, found: false } }))
   await page.goto('/')
 
   const sidebar = page.getByRole('navigation', { name: 'Разделы панели' })
-  const bases = sidebar.getByRole('button', { name: 'Базы знаний' })
-  const backlog = sidebar.getByRole('button', { name: 'Бэклог' })
-  const borderWidth = (button: typeof bases) =>
-    button.evaluate((element) => getComputedStyle(element).borderTopWidth)
+  const problems = sidebar.getByRole('button', { name: 'Проблемы баз' })
+  const settings = sidebar.getByRole('button', { name: 'Настройки' })
 
-  // В свёрнутой полосе кнопка — обведённый квадрат, а разделы остаются строками без рамки
-  await expect(bases).toBeVisible()
-  expect(await borderWidth(bases)).toBe('1px')
-  expect(await borderWidth(backlog)).toBe('0px')
-  const collapsed = await bases.boundingBox()
-  expect(collapsed?.width).toBe(36)
-  expect(collapsed?.height).toBe(36)
+  // Кнопки «Базы знаний» внизу больше нет; «Настройки» стоит строкой сразу за «Проблемами баз»
+  await expect(sidebar.getByRole('button', { name: 'Базы знаний' })).toHaveCount(0)
+  await expect(settings).toBeVisible()
+  const problemsBox = await problems.boundingBox()
+  const settingsBox = await settings.boundingBox()
+  expect(settingsBox?.y).toBe((problemsBox?.y ?? 0) + (problemsBox?.height ?? 0))
+  expect(await settings.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe('0px')
 
-  // Tab доходит до кнопки: фокус разворачивает сайдбар, кнопка остаётся в рамке и с подписью
-  for (let presses = 0; presses < 10 && !(await bases.evaluate((element) => element === document.activeElement)); presses++) {
+  // Tab доходит до раздела: фокус разворачивает сайдбар, Enter открывает раздел
+  for (let presses = 0; presses < 10 && !(await settings.evaluate((element) => element === document.activeElement)); presses++) {
     await page.keyboard.press('Tab')
   }
-  await expect(bases).toBeFocused()
-  await expect(sidebar.getByText('Базы знаний')).toBeVisible()
-  expect(await borderWidth(bases)).toBe('1px')
-  expect(await bases.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('solid')
+  await expect(settings).toBeFocused()
+  await expect(sidebar.getByText('Настройки')).toBeVisible()
 
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('dialog', { name: 'Базы знаний' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Настройки' })).toBeVisible()
+  await expect(settings).toHaveAttribute('aria-current', 'page')
 })

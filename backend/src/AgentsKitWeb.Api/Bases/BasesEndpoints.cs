@@ -9,6 +9,11 @@ public sealed record AddBaseRequest(string? Path);
 
 public sealed record AddBaseRejectedResponse(string Problem);
 
+/// <summary>Путь к установленному киту; null — не задан. Found — скрипты кита по пути на месте.</summary>
+public sealed record KitResponse(string? Path, bool Found);
+
+public sealed record SetKitRequest(string? Path);
+
 public static class BasesEndpoints
 {
     public static void MapBasesEndpoints(this IEndpointRouteBuilder app)
@@ -30,6 +35,24 @@ public static class BasesEndpoints
 
         app.MapDelete("/api/bases", (string path, BasesStore store) =>
             store.Remove(path) ? Results.NoContent() : Results.NotFound());
+
+        app.MapGet("/api/kit", (BasesStore store) => store.Kit() is { } kit
+            ? new KitResponse(kit, BasesStore.IsKit(kit))
+            : new KitResponse(null, false));
+
+        app.MapGet("/api/kit/found", (KitLocator locator) => locator.Find());
+
+        app.MapPut("/api/kit", (SetKitRequest request, BasesStore store) =>
+            store.SetKit(request.Path, out var saved) switch
+            {
+                null => Results.Ok(new KitResponse(saved, true)),
+                var problem => Results.BadRequest(new AddBaseRejectedResponse(problem switch
+                {
+                    SetKitProblem.Empty => "empty",
+                    SetKitProblem.NotFullPath => "not-full-path",
+                    _ => "not-a-kit",
+                })),
+            });
     }
 
     private static BaseEntry Entry(string path) => new(path, CountCopies(path));

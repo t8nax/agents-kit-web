@@ -99,6 +99,8 @@ svg {
   align-items: center;
   gap: 10px;
   padding: 9px 16px;
+  /* Высота строки с подписью и без неё одна: иначе при раскрытии пункты съезжают из-под мыши */
+  min-height: calc(1.5em + 18px);
   background: none;
   border: none;
   border-left: 2px solid transparent;
@@ -152,27 +154,6 @@ svg {
   height: 6px;
   border-radius: 50%;
   background: var(--accent-waiting-fill);
-}
-
-/* «Базы знаний» — настройка, а не раздел: стоит внизу, за чертой */
-.side-bottom {
-  margin-top: auto;
-  border-top: 1px solid var(--border-subtle);
-  /* справа на пиксель меньше: его забирает черта сайдбара */
-  padding: 12px 7px 12px 8px;
-}
-
-/* Рамка отличает кнопку окна от строк разделов. В полосе 52px она — квадрат 36px,
-   а значок стоит на той же вертикали, что у разделов: 8 + 1 + 9 = 2 + 16. */
-.side-item.side-button {
-  height: 36px;
-  padding: 0 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-}
-
-.side-item.side-button:focus-visible {
-  outline-offset: 2px;
 }
 
 .side-count {
@@ -257,6 +238,25 @@ tbody tr:hover {
 td.task-col {
   width: 32%;
   white-space: normal;
+}
+
+/* Колонка номера ужимается по плашке и стоит вплотную к заголовку задачи */
+th.num-col,
+td.num-col {
+  width: 1%;
+  padding-right: 4px;
+}
+
+.num-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-hover);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .mono {
@@ -445,6 +445,37 @@ td.task-col {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* Число проблем в строке — кнопка в раздел «Проблемы баз» */
+.issues-btn {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--accent-error-border);
+  background: var(--accent-error-bg);
+  color: var(--accent-error-text);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.issues-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.issues-btn:hover {
+  border-color: var(--accent-error-text);
+}
+
+.issues-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 .warning-text {
