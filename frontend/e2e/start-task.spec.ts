@@ -84,8 +84,9 @@ test('сообщение о запущенной задаче гаснет са�
 
   const toast = page.getByRole('status')
   await expect(toast).toBeVisible()
-  // Висит те же восемь секунд, что и сообщение о заведённой копии, и убирается без клика
-  await expect(toast).toBeHidden({ timeout: 15000 })
+  // Висит пять секунд и убирается без клика — решение оператора на приёмке
+  await expect(toast).toBeVisible({ timeout: 3000 })
+  await expect(toast).toBeHidden({ timeout: 8000 })
 })
 
 test('копию успели занять: окно называет идущую задачу и остаётся открытым', async ({ page }) => {

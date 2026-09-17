@@ -47,6 +47,9 @@ type Fresh = { base: string; name: string | null }
 
 const freshMs = 8000
 
+/** Сколько висит сообщение о запущенной задаче — решение оператора на приёмке B-40. */
+const startedMs = 5000
+
 export type ProblemsState = 'checked' | 'pending' | 'kit-not-set' | 'kit-not-found' | 'failed'
 
 const problemsStateLabels: Record<Exclude<ProblemsState, 'checked'>, string> = {
@@ -139,7 +142,7 @@ function App() {
   // Сообщение о запущенной задаче гаснет само, как и сообщение о заведённой копии
   useEffect(() => {
     if (!started) return
-    const timer = setTimeout(() => setStarted(null), freshMs)
+    const timer = setTimeout(() => setStarted(null), startedMs)
     return () => clearTimeout(timer)
   }, [started])
 
