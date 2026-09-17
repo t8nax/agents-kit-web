@@ -70,7 +70,7 @@ test('флоу открывается из сайдбара: шаги без о�
   await expect(review.getByText('субагент reviewer')).toBeVisible()
   await expect(review.getByText('правка только в текстах')).toBeVisible()
   // Название проекта одно — на чипе, над шагами его не повторяют
-  await expect(page.getByText('Agents Kit Web', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('main').getByText('Agents Kit Web', { exact: true })).toHaveCount(1)
   await expect(page.getByText('Собрать дифф')).toHaveCount(0)
 
   const vsCode = page.getByRole('button', { name: 'Открыть в VS Code' })
