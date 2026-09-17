@@ -70,7 +70,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     await expect(dialog).toBeHidden()
     await expect(page.getByRole('status')).toContainText('Копия quiet-cedar заведена')
-    const fresh = page.getByRole('row', { name: /quiet-cedar · D:\\Projects\\quiet-cedar/ })
+    const fresh = page.getByRole('table').locator('tbody tr.row-fresh')
+    // Путь копии в строке не пишется — он в подсказке ячейки с её именем
+    await expect(fresh.getByRole('cell').first()).toHaveAttribute('title', 'D:\\Projects\\quiet-cedar')
     await expect(fresh).toContainText('новая')
     await expect(fresh).toContainText('Свободна')
     expect(posts).toEqual([{ base: row.base, name: 'quiet-cedar' }])
@@ -93,7 +95,7 @@ test('отказ кита виден в окне его словами, окно
   await expect(alert).toContainText('Кит не завёл копию')
   await expect(alert).toContainText('ветка «quiet-cedar» уже существует — назвать копию иначе')
   await expect(dialog.getByRole('button', { name: 'Попробовать снова' })).toBeEnabled()
-  await expect(page.getByRole('table').locator('tbody tr')).toHaveCount(2)
+  await expect(page.getByRole('table').locator('tbody tr:not(.group-row)')).toHaveCount(2)
 })
 
 test('без кита окно объясняет и ведёт в «Настройки»', async ({ page }) => {

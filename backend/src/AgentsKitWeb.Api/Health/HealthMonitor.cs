@@ -136,7 +136,7 @@ public sealed class HealthMonitor(BasesStore store, IKitChecks checks, IConfigur
 
     /// <summary>
     /// Число проблем в строки таблицы из готового снимка: таблица опрашивается часто и pwsh не ждёт.
-    /// Копия, которой в снимке ещё нет, получает проблемы своей базы — связь её проверит следующий круг.
+    /// Копия, которой в снимке ещё нет, получает проблемы своей базы без своих — связь её проверит следующий круг.
     /// </summary>
     public static IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, HealthSnapshot snapshot) =>
         rows.Select(row => row.Error is not null ? row : Annotate(row, snapshot)).ToList();
@@ -154,8 +154,8 @@ public sealed class HealthMonitor(BasesStore store, IKitChecks checks, IConfigur
             BaseHealthStatus.Checked => row with
             {
                 ProblemsState = RowProblemsState.Checked,
-                Problems = baseHealth.Problems.Count
-                    + (baseHealth.Copies.FirstOrDefault(c => BasesStore.SamePath(c.Path, row.Path))?.Problems.Count ?? 0),
+                BaseProblems = baseHealth.Problems.Count,
+                Problems = baseHealth.Copies.FirstOrDefault(c => BasesStore.SamePath(c.Path, row.Path))?.Problems.Count ?? 0,
             },
             BaseHealthStatus.Failed => row with { ProblemsState = RowProblemsState.Failed },
             BaseHealthStatus.Unavailable => row,

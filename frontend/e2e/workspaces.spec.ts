@@ -3,16 +3,17 @@ import { expect, test } from '@playwright/test'
 test('страница показывает таблицу рабочих копий из API', async ({ page }) => {
   const response = page.waitForResponse('**/api/workspaces')
   await page.goto('/')
-  const rows: unknown[] = await (await response).json()
+  const rows: { base: string }[] = await (await response).json()
 
   await expect(page).toHaveTitle('Agents Kit Web')
   await expect(page.getByRole('banner').getByRole('heading', { name: 'Agents Kit Web' })).toBeVisible()
 
   const table = page.getByRole('table')
-  for (const column of ['Проект и копия', '№', 'Задача', 'Шаг флоу', 'Прогресс', 'Статус', 'Проблемы']) {
+  for (const column of ['Копия', '№', 'Задача', 'Шаг флоу', 'Прогресс', 'Статус', 'Проблемы']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible()
   }
-  await expect(table.locator('tbody tr')).toHaveCount(rows.length)
+  await expect(table.locator('tbody tr:not(.group-row)')).toHaveCount(rows.length)
+  await expect(table.locator('tbody tr.group-row')).toHaveCount(new Set(rows.map((r) => r.base)).size)
   await expect(page.getByText('pong')).toHaveCount(0)
 })
 
@@ -39,7 +40,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.route('**/api/workspaces', (route) => route.fulfill({ json: rows }))
     await page.goto('/')
 
-    const bodyRows = page.getByRole('table').locator('tbody tr')
+    const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
     await expect(bodyRows).toHaveCount(3)
 
     const numbered = bodyRows.nth(0).getByRole('cell')
@@ -61,5 +62,67 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const free = bodyRows.nth(2).getByRole('cell')
     await expect(free.nth(1)).toHaveText('—')
     await expect(free.nth(2)).toHaveText('—')
+  })
+}
+
+const nota = {
+  ...row,
+  project: 'Nota',
+  base: 'D:\\Projects\\nota-knowledge',
+  path: 'D:\\Projects\\nota',
+  branch: 'main',
+  task: 'B-4 Экспорт заметок',
+  status: 'waiting',
+  problemsState: 'checked',
+  baseProblems: 2,
+  problems: 0,
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`копии двух проектов стоят под своими заголовками, свёрнутая группа переживает перезагрузку (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    const kitWeb = rows.map((copy) => ({ ...copy, project: 'Agents Kit Web' }))
+    await page.route('**/api/workspaces', (route) => route.fulfill({ json: [...kitWeb, nota] }))
+    await page.goto('/')
+
+    const table = page.getByRole('table')
+    const all = table.locator('tbody tr')
+    await expect(all).toHaveCount(6)
+    await expect(all.nth(0).getByRole('rowheader')).toHaveText('Agents Kit Web')
+    await expect(all.nth(1).getByRole('cell').first()).toHaveText('agents-kit-webfeat/task-number-column')
+    await expect(all.nth(3).getByRole('cell').first()).toHaveText('agents-kit-web-3dev')
+    await expect(all.nth(4).getByRole('rowheader')).toHaveText('Nota2')
+    await expect(all.nth(5).getByRole('cell').first()).toHaveText('notamain')
+    // Путь копии и название проекта в строках копий больше не повторяются
+    const copyRows = table.locator('tbody tr:not(.group-row)')
+    await expect(copyRows.filter({ hasText: 'D:\\Projects' })).toHaveCount(0)
+    await expect(copyRows.filter({ hasText: 'Agents Kit Web' })).toHaveCount(0)
+
+    // Заголовок группы отделён от копий линией, а не сливается с ними
+    const head = all.nth(4).getByRole('rowheader')
+    await expect(head).toHaveCSS('border-bottom-width', '1px')
+    await expect(head.locator('.group-name')).toHaveCSS('font-weight', '600')
+    // Проблемы базы — плашкой у правого края заголовка, в обеих темах с рамкой и заливкой
+    const baseProblems = head.getByRole('button', { name: '2 проблемы базы — открыть «Проблемы баз»' })
+    await expect(baseProblems).toHaveCSS('border-top-width', '1px')
+    await expect(baseProblems).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const [headBox, problemsBox] = await Promise.all([head.boundingBox(), baseProblems.boundingBox()])
+    expect(headBox!.x + headBox!.width - (problemsBox!.x + problemsBox!.width)).toBeLessThan(24)
+
+    // Сворачивает клик по пустому месту шапки, а не только стрелка
+    await expect(head).toHaveCSS('cursor', 'pointer')
+    await head.click({ position: { x: headBox!.width / 2, y: headBox!.height / 2 } })
+    await expect(page.getByText('Экспорт заметок')).toHaveCount(0)
+    const dot = all.nth(4).locator('.group-waiting-dot')
+    await expect(dot).toBeVisible()
+    await expect(dot).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+
+    await page.reload()
+    await expect(page.getByRole('button', { name: 'Развернуть Nota' })).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByText('Экспорт заметок')).toHaveCount(0)
+    await expect(table.getByText('Номер задачи и её заголовок — отдельные колонки таблицы')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Развернуть Nota' }).click()
+    await expect(page.getByText('Экспорт заметок')).toBeVisible()
   })
 }

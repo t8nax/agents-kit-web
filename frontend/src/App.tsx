@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
+import { useCollapsedGroups } from './collapsedGroups'
 import Flow, { FlowIcon } from './Flow'
 import NewWorkspaceModal, { PlusIcon } from './NewWorkspaceModal'
 import {
@@ -31,8 +32,10 @@ export type WorkspaceRow = {
   progress: number | null
   status: WorkspaceStatus | null
   error: string | null
-  /** Число проблем копии и её базы, когда problemsState — checked; иначе state говорит, почему числа нет. */
+  /** Проблемы связи самой копии с базой, когда problemsState — checked; иначе state говорит, почему чисел нет. */
   problems?: number | null
+  /** Находки сверки базы — общие для всех её копий, при том же problemsState. */
+  baseProblems?: number | null
   problemsState?: ProblemsState | null
   /** Стоит у копии, от которой кит заводит новые: каталог, куда он их кладёт. */
   copiesDir?: string | null
@@ -479,6 +482,7 @@ function WorkspacesTable({
 }) {
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
+  const groups = useCollapsedGroups()
 
   // Окно открывается не мгновенно, а таблица тем временем живёт своим опросом: кнопка ждёт ответа API.
   async function openInVsCode(row: WorkspaceRow) {
@@ -514,7 +518,7 @@ function WorkspacesTable({
       <table>
         <thead>
           <tr>
-            <th>Проект и копия</th>
+            <th>Копия</th>
             <th className="num-col">№</th>
             <th>Задача</th>
             <th>Шаг флоу</th>
@@ -526,17 +530,47 @@ function WorkspacesTable({
             </th>
           </tr>
         </thead>
-        <tbody>
-          {rows.map((row) => (
+        {groupByBase(rows).map((group) => {
+          const collapsed = groups.isCollapsed(group.base)
+          const waiting = group.rows.some((row) => row.status === 'waiting')
+          return (
+            <tbody key={group.base}>
+              <tr className="group-row">
+                {/* Сворачивает клик по всей шапке — замечание оператора; клавиатуре и диктору — кнопка-стрелка,
+                    её клик всплывает сюда же */}
+                <th scope="rowgroup" colSpan={columnCount} onClick={() => groups.toggle(group.base)}>
+                  <div className="group-head">
+                    <button
+                      type="button"
+                      className="group-toggle"
+                      aria-expanded={!collapsed}
+                      aria-label={`${collapsed ? 'Развернуть' : 'Свернуть'} ${group.project}`}
+                      title={collapsed ? 'Развернуть' : 'Свернуть'}
+                    >
+                      <ChevronIcon />
+                    </button>
+                    <span className="group-name">{group.project}</span>
+                    {/* Сводки в заголовке нет — замечание оператора; у свёрнутой группы ожидание держит точка */}
+                    {collapsed && waiting && (
+                      <span className="group-waiting-dot" title="Есть копии, ждущие оператора">
+                        <span className="visually-hidden">есть копии, ждущие оператора</span>
+                      </span>
+                    )}
+                    {/* Число проблем ведёт в свой раздел и группу не сворачивает */}
+                    <span className="group-problems" onClick={(event) => event.stopPropagation()}>
+                      <BaseProblems rows={group.rows} onProblems={onProblems} />
+                    </span>
+                  </div>
+                </th>
+              </tr>
+              {!collapsed && group.rows.map((row) => (
             <tr key={rowKey(row)} className={isFresh(row, fresh) ? 'row-fresh' : undefined}>
-              <td>
+              <td title={row.path}>
                 <div className="proj">
-                  {row.project}
+                  {copyName(row.path)}
                   {isFresh(row, fresh) && <span className="new-tag">новая</span>}
                 </div>
-                <div className="mono text-sec sub">
-                  {row.branch ? `${row.branch} · ${row.path}` : row.path}
-                </div>
+                {row.branch && <div className="mono text-sec sub">{row.branch}</div>}
               </td>
               {row.error ? (
                 <td className="task-col" colSpan={5}>
@@ -583,8 +617,10 @@ function WorkspacesTable({
                 </div>
               </td>
             </tr>
-          ))}
-        </tbody>
+              ))}
+            </tbody>
+          )
+        })}
       </table>
     </>
   )
@@ -592,6 +628,34 @@ function WorkspacesTable({
 
 function isFresh(row: WorkspaceRow, fresh: Fresh | null) {
   return fresh?.name != null && row.base === fresh.base && row.branch === fresh.name
+}
+
+const columnCount = 8
+
+type WorkspaceGroup = { base: string; project: string; rows: WorkspaceRow[] }
+
+// Группа — база копий; группы и копии в них идут в порядке, в каком их отдал API
+function groupByBase(rows: WorkspaceRow[]): WorkspaceGroup[] {
+  const groups = new Map<string, WorkspaceGroup>()
+  for (const row of rows) {
+    const group = groups.get(row.base)
+    if (group) group.rows.push(row)
+    else groups.set(row.base, { base: row.base, project: row.project, rows: [row] })
+  }
+  return [...groups.values()]
+}
+
+// Имя копии — последний каталог её пути
+function copyName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
 }
 
 function Progress({ value, waiting }: { value: number; waiting: boolean }) {
@@ -605,17 +669,38 @@ function Progress({ value, waiting }: { value: number; waiting: boolean }) {
   )
 }
 
-function ProblemsCell({ row, onProblems }: { row: WorkspaceRow; onProblems: () => void }) {
-  const state = row.problemsState ?? null
-  if (state === null || (state === 'checked' && !row.problems)) return <span className="text-sec">—</span>
+// Проблемы базы и почему их нет — один раз в заголовке группы: состояние проверки у копий базы общее
+function BaseProblems({ rows, onProblems }: { rows: WorkspaceRow[]; onProblems: () => void }) {
+  const row = rows.find((candidate) => !candidate.error && candidate.problemsState)
+  const state = row?.problemsState ?? null
+  if (state === null || (state === 'checked' && !row?.baseProblems)) return null
   if (state !== 'checked') return <span className="text-ter">{problemsStateLabels[state]}</span>
 
-  const count = row.problems ?? 0
+  const count = row?.baseProblems ?? 0
   return (
     <button
       type="button"
       className="issues-btn"
-      aria-label={`${plural(count, 'проблема', 'проблемы', 'проблем')} — открыть «Проблемы баз»`}
+      aria-label={`${plural(count, 'проблема', 'проблемы', 'проблем')} базы — открыть «Проблемы баз»`}
+      title="Открыть «Проблемы баз»"
+      onClick={onProblems}
+    >
+      <WarningIcon />
+      {count}
+    </button>
+  )
+}
+
+// В строке — только проблемы связи самой копии; у здоровой копии ячейка пустая
+function ProblemsCell({ row, onProblems }: { row: WorkspaceRow; onProblems: () => void }) {
+  if (row.problemsState !== 'checked' || !row.problems) return null
+
+  const count = row.problems
+  return (
+    <button
+      type="button"
+      className="issues-btn"
+      aria-label={`${plural(count, 'проблема', 'проблемы', 'проблем')} копии — открыть «Проблемы баз»`}
       title="Открыть «Проблемы баз»"
       onClick={onProblems}
     >

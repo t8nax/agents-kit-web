@@ -10,8 +10,9 @@ public static class WorkspaceStatus
 }
 
 /// <summary>
-/// Строка таблицы рабочих копий. Error задан — данных по строке нет. Problems — число проблем копии
-/// и её базы из последней проверки кита, когда ProblemsState — checked; иначе state называет, почему числа нет.
+/// Строка таблицы рабочих копий. Error задан — данных по строке нет. BaseProblems — число находок сверки базы,
+/// общее для её копий, Problems — число проблем связи самой копии; оба из последней проверки кита,
+/// когда ProblemsState — checked; иначе state называет, почему чисел нет.
 /// CopiesDir стоит у копии из agents-kit.json, от которой панель заводит новые: каталог, куда кит их кладёт.
 /// </summary>
 public sealed record WorkspaceRow(
@@ -26,7 +27,8 @@ public sealed record WorkspaceRow(
     string? Error,
     int? Problems = null,
     string? ProblemsState = null,
-    string? CopiesDir = null);
+    string? CopiesDir = null,
+    int? BaseProblems = null);
 
 public static class WorkspaceCollector
 {
