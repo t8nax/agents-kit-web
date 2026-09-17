@@ -53,7 +53,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const rows = page.getByRole('table').locator('tbody tr')
     // Занятая копия задачу не принимает: кнопка стоит только у свободной
     await expect(rows.filter({ hasText: 'B-22' }).getByRole('button', { name: 'Взять задачу' })).toBeHidden()
-    await rows.filter({ hasText: 'rustic-silver-sparrow' }).getByRole('button', { name: 'Взять задачу' }).click()
+    // Кнопка стоит на месте задачи — в третьей ячейке строки, а не в колонке действий
+    const taskCell = rows.filter({ hasText: 'rustic-silver-sparrow' }).getByRole('cell').nth(2)
+    await taskCell.getByRole('button', { name: 'Взять задачу' }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
     await expect(dialog).toContainText('D:\\Projects\\rustic-silver-sparrow · ветка dev')

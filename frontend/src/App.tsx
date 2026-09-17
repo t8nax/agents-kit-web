@@ -470,12 +470,13 @@ function BellOffIcon() {
 }
 
 // Номер записи бэклога стоит своей колонкой перед заголовком: в тексте задачи он терялся
-function TaskCells({ task }: { task: string | null }) {
+function TaskCells({ task, start }: { task: string | null; start?: ReactNode }) {
   if (task === null) {
     return (
       <>
         <td className="num-col text-ter">—</td>
-        <td className="task-col text-ter">—</td>
+        {/* У свободной копии на месте задачи стоит её запуск — решение оператора на приёмке */}
+        <td className={`task-col ${start ? '' : 'text-ter'}`}>{start ?? '—'}</td>
       </>
     )
   }
@@ -606,7 +607,17 @@ function WorkspacesTable({
                 </td>
               ) : (
                 <>
-                  <TaskCells task={row.task} />
+                  <TaskCells
+                    task={row.task}
+                    start={
+                      row.status === 'free' ? (
+                        <button type="button" className="action-btn-start" onClick={() => onStart(row)}>
+                          <PlayIcon />
+                          Взять задачу
+                        </button>
+                      ) : undefined
+                    }
+                  />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
                     {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
@@ -624,13 +635,6 @@ function WorkspacesTable({
                   {row.status === 'waiting' && (
                     <button type="button" className="action-btn-waiting" onClick={() => onReply(row)}>
                       Ответить
-                    </button>
-                  )}
-                  {/* Задача берётся только в свободную копию: одна копия ведёт одну задачу за раз. */}
-                  {!row.error && row.status === 'free' && (
-                    <button type="button" className="action-btn-start" onClick={() => onStart(row)}>
-                      <PlayIcon />
-                      Взять задачу
                     </button>
                   )}
                   {/* Строке с ошибкой открывать нечего: копии на диске нет или её не прочитали. */}
