@@ -174,7 +174,7 @@ function App() {
           waiting={state.rows?.filter((row) => row.status === 'waiting').length ?? 0}
           onSection={setSection}
         />
-        <main className="content">
+        <main className={`content ${section === 'flow' ? 'content-fixed' : ''}`}>
           {section === 'workspaces' ? (
             <>
               <div className="content-head">

@@ -14,6 +14,11 @@ builder.Services.AddSingleton(services =>
     return new PresetsStore(config["PresetsFile"] ?? PresetsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
 builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new FlowIconsStore(config["FlowIconsFile"] ?? FlowIconsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
+});
+builder.Services.AddSingleton(services =>
     new AgentSessions(services.GetRequiredService<IConfiguration>()["SessionsDir"] ?? AgentSessions.DefaultDirectory));
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton(services =>

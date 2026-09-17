@@ -1,0 +1,521 @@
+<html lang="ru" vid="0"><head vid="1">
+    <meta charset="UTF-8" vid="2">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" vid="3">
+    <title vid="4">Agents Kit Web - Flow</title>
+    <script src="https://cdn.tailwindcss.com/3.4.17" vid="5"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet" vid="6">
+    <script vid="7">
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: { zinc: { 750: '#2d2d33', 850: '#1f1f22', 950: '#09090b' } }
+                }
+            }
+        }
+    </script>
+    <style vid="8">
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+        
+        .bg-grid { background-size: 40px 40px; background-image: linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px); }
+        
+        .node-enter { animation: popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; opacity: 0; transform: scale(0.95); }
+        @keyframes popIn { to { opacity: 1; transform: scale(1); } }
+        
+        path.connector { stroke-dasharray: 1000; stroke-dashoffset: 1000; animation: drawLine 1s ease forwards; }
+        @keyframes drawLine { to { stroke-dashoffset: 0; } }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-300 font-sans h-screen w-screen overflow-hidden flex selection:bg-indigo-500/30" vid="9">
+
+    <svg width="0" height="0" class="absolute hidden" vid="10">
+        <defs vid="11">
+            <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto" vid="12">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#52525b" vid="13"></path>
+            </marker>
+            <marker id="arrowhead-active" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto" vid="14">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#a1a1aa" vid="15"></path>
+            </marker>
+        </defs>
+    </svg>
+
+    <aside class="w-64 bg-[#111113] border-r border-zinc-800/60 flex flex-col z-20" vid="16">
+        <div class="h-14 flex items-center px-5 border-b border-zinc-800/60" vid="17">
+            <div class="w-6 h-6 bg-white rounded-md flex items-center justify-center mr-3" vid="18">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" vid="19"><path d="M12 2L2 7l10 5 10-5-10-5z" vid="20"></path><path d="M2 17l10 5 10-5" vid="21"></path><path d="M2 12l10 5 10-5" vid="22"></path></svg>
+            </div>
+            <span class="text-zinc-100 font-medium tracking-tight" vid="23">Agents Kit Web</span>
+        </div>
+        <nav class="flex-1 py-4 px-3 space-y-1" vid="24">
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 rounded-md transition-colors" vid="25">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="26"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" vid="27"></rect><line x1="9" y1="3" x2="9" y2="21" vid="28"></line></svg>
+                Рабочие копии
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 rounded-md transition-colors" vid="29">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="30"><path d="M4 6h16M4 12h16M4 18h7" vid="31"></path></svg>
+                Бэклог
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm text-zinc-100 bg-zinc-800/60 rounded-md transition-colors" vid="32">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="33"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" vid="34"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96" vid="35"></polyline><line x1="12" y1="22.08" x2="12" y2="12" vid="36"></line></svg>
+                Флоу
+            </a>
+            <a href="#" class="flex items-center gap-3 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 rounded-md transition-colors" vid="37">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="38"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" vid="39"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" vid="40"></path></svg>
+                Базы знаний
+            </a>
+        </nav>
+        <div class="p-4 border-t border-zinc-800/60" vid="41">
+            <div class="flex items-center gap-3" vid="42">
+                <div class="w-8 h-8 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center text-sm font-medium border border-indigo-500/30" vid="43">D</div>
+                <div class="flex flex-col" vid="44">
+                    <span class="text-sm text-zinc-200" vid="45">Developer</span>
+                    <span class="text-xs text-zinc-500" vid="46">Free Plan</span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col relative w-full h-full bg-[#09090b]" vid="47">
+        <header class="h-14 border-b border-zinc-800/60 flex items-center justify-between px-6 bg-zinc-950/80 backdrop-blur z-20" vid="48">
+            <div class="flex items-center gap-4" vid="49">
+                <h1 class="text-sm font-medium text-zinc-100" vid="50">Deployment Pipeline v2</h1>
+                <span class="px-2 py-0.5 rounded-full bg-zinc-800 text-xs text-zinc-400" vid="51">Draft</span>
+            </div>
+            <div class="flex items-center gap-3" vid="52">
+                <button class="px-3 py-1.5 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-md transition-colors border border-transparent hover:border-zinc-700" vid="53">
+                    Обновить
+                </button>
+                <button class="px-3 py-1.5 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-md transition-colors border border-transparent hover:border-zinc-700 flex items-center gap-2" vid="54">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="55"><polyline points="16 18 22 12 16 6" vid="56"></polyline><polyline points="8 6 2 12 8 18" vid="57"></polyline></svg>
+                    VS Code
+                </button>
+                <button class="px-4 py-1.5 text-xs font-medium text-zinc-950 bg-zinc-100 hover:bg-white rounded-md transition-colors shadow-sm" vid="58">
+                    Править
+                </button>
+            </div>
+        </header>
+
+        <div class="flex items-center justify-center p-3 border-b border-zinc-800/40 bg-[#0e0e11] z-20 gap-2 shadow-sm" vid="59">
+            <span class="text-xs text-zinc-500 mr-2" vid="60">Варианты отображения:</span>
+            <div class="flex bg-zinc-900 rounded-lg p-1 border border-zinc-800" vid="61">
+                <button onclick="switchView('view-vertical')" class="view-btn px-3 py-1.5 text-xs font-medium rounded-md transition-all bg-zinc-700 text-white shadow-sm" data-target="view-vertical" vid="62">
+                    Вертикальный (Квадраты)
+                </button>
+                <button onclick="switchView('view-horizontal')" class="view-btn px-3 py-1.5 text-xs font-medium rounded-md text-zinc-400 hover:text-zinc-200 transition-all" data-target="view-horizontal" vid="63">
+                    Горизонтальный (Прямоугольники)
+                </button>
+                <button onclick="switchView('view-grid')" class="view-btn px-3 py-1.5 text-xs font-medium rounded-md text-zinc-400 hover:text-zinc-200 transition-all" data-target="view-grid" vid="64">
+                    Свободный (Компактный)
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 overflow-auto relative" vid="65">
+            <div id="view-vertical" class="absolute inset-0 w-full min-h-full py-16 flex flex-col items-center gap-12 bg-grid" vid="66">
+                
+                <div class="node cursor-pointer group relative w-36 h-36 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-2xl flex flex-col items-center justify-center p-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" style="animation-delay: 0.1s" onclick="openModal('n1')" vid="67">
+                    <div class="absolute top-2 left-3 text-[10px] font-mono text-zinc-600 font-bold" vid="68">1</div>
+                    <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-3 text-zinc-300 group-hover:text-white group-hover:scale-110 transition-all group-hover:bg-indigo-500/20 group-hover:text-indigo-400" vid="69">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="70"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" vid="71"></polygon></svg>
+                    </div>
+                    <div class="text-sm font-medium text-zinc-100" vid="72">Критерий</div>
+                    <div class="text-[9px] text-zinc-500 uppercase tracking-widest mt-1" vid="73">оркестратор</div>
+                </div>
+
+                <div class="relative w-full h-8 flex justify-center" vid="74">
+                    <svg width="2" height="32" class="absolute top-0 text-zinc-600 overflow-visible" vid="75">
+                        <path d="M 1 0 L 1 32" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)" class="connector" vid="76"></path>
+                    </svg>
+                </div>
+
+                <div class="node cursor-pointer group relative w-36 h-36 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-2xl flex flex-col items-center justify-center p-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" style="animation-delay: 0.2s" onclick="openModal('n2')" vid="77">
+                    <div class="absolute top-2 left-3 text-[10px] font-mono text-zinc-600 font-bold" vid="78">2</div>
+                    <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-3 text-zinc-300 group-hover:text-white group-hover:scale-110 transition-all group-hover:bg-sky-500/20 group-hover:text-sky-400" vid="79">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="80"><line x1="6" y1="3" x2="6" y2="15" vid="81"></line><circle cx="18" cy="6" r="3" vid="82"></circle><circle cx="6" cy="18" r="3" vid="83"></circle><path d="M18 9a9 9 0 0 1-9 9" vid="84"></path></svg>
+                    </div>
+                    <div class="text-sm font-medium text-zinc-100" vid="85">Ветка</div>
+                    <div class="text-[9px] text-zinc-500 uppercase tracking-widest mt-1" vid="86">оркестратор</div>
+                </div>
+
+                <div class="relative w-[240px] h-12" vid="87">
+                    <svg width="240" height="48" class="absolute top-0 left-0 text-zinc-600 overflow-visible" vid="88">
+                        <path d="M 120 0 L 120 24 L 0 24 L 0 46" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" class="connector" vid="89"></path>
+                        <path d="M 120 24 L 240 24 L 240 46" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" class="connector" vid="90"></path>
+                    </svg>
+                </div>
+
+                <div class="flex gap-[96px]" vid="91">
+                    <div class="node cursor-pointer group relative w-36 h-36 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-2xl flex flex-col items-center justify-center p-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" style="animation-delay: 0.3s" onclick="openModal('n3')" vid="92">
+                        <div class="absolute top-2 left-3 text-[10px] font-mono text-zinc-600 font-bold" vid="93">3</div>
+                        <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-3 text-zinc-300 group-hover:text-white group-hover:scale-110 transition-all group-hover:bg-emerald-500/20 group-hover:text-emerald-400" vid="94">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="95"><polyline points="16 18 22 12 16 6" vid="96"></polyline><polyline points="8 6 2 12 8 18" vid="97"></polyline></svg>
+                        </div>
+                        <div class="text-sm font-medium text-zinc-100" vid="98">Реализация</div>
+                        <div class="text-[9px] text-zinc-500 uppercase tracking-widest mt-1" vid="99">оркестратор</div>
+                    </div>
+                    
+                    <div class="node cursor-pointer group relative w-36 h-36 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-2xl flex flex-col items-center justify-center p-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" style="animation-delay: 0.4s" onclick="openModal('n3a')" vid="100">
+                        <div class="absolute top-2 left-3 text-[10px] font-mono text-zinc-600 font-bold" vid="101">3a</div>
+                        <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-3 text-zinc-300 group-hover:text-white group-hover:scale-110 transition-all group-hover:bg-amber-500/20 group-hover:text-amber-400" vid="102">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="103"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" vid="104"></path><line x1="12" y1="9" x2="12" y2="13" vid="105"></line><line x1="12" y1="17" x2="12.01" y2="17" vid="106"></line></svg>
+                        </div>
+                        <div class="text-sm font-medium text-zinc-100 text-center leading-tight" vid="107">Альтер. Реал.</div>
+                        <div class="text-[9px] text-zinc-500 uppercase tracking-widest mt-1" vid="108">оркестратор</div>
+                    </div>
+                </div>
+
+                <div class="relative w-[240px] h-12" vid="109">
+                    <svg width="240" height="48" class="absolute top-0 left-0 text-zinc-600 overflow-visible" vid="110">
+                        <path d="M 0 0 L 0 24 L 120 24 L 120 46" stroke="currentColor" stroke-width="2" fill="none" class="connector" marker-end="url(#arrowhead)" vid="111"></path>
+                        <path d="M 240 0 L 240 24 L 120 24" stroke="currentColor" stroke-width="2" fill="none" class="connector" vid="112"></path>
+                    </svg>
+                </div>
+
+                <div class="node cursor-pointer group relative w-36 h-36 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-2xl flex flex-col items-center justify-center p-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" style="animation-delay: 0.5s" onclick="openModal('n4')" vid="113">
+                    <div class="absolute top-2 left-3 text-[10px] font-mono text-zinc-600 font-bold" vid="114">4</div>
+                    <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-3 text-zinc-300 group-hover:text-white group-hover:scale-110 transition-all group-hover:bg-pink-500/20 group-hover:text-pink-400" vid="115">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="116"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" vid="117"></path><circle cx="8.5" cy="7" r="4" vid="118"></circle><polyline points="17 11 19 13 23 9" vid="119"></polyline></svg>
+                    </div>
+                    <div class="text-sm font-medium text-zinc-100" vid="120">Приёмка</div>
+                    <div class="text-[9px] text-zinc-500 uppercase tracking-widest mt-1" vid="121">оператор</div>
+                </div>
+
+                <div class="relative w-full h-8 flex justify-center" vid="122">
+                    <svg width="2" height="32" class="absolute top-0 text-zinc-600 overflow-visible" vid="123">
+                        <path d="M 1 0 L 1 32" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)" class="connector" vid="124"></path>
+                    </svg>
+                </div>
+
+                <div class="node cursor-pointer group relative w-36 h-36 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-2xl flex flex-col items-center justify-center p-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" style="animation-delay: 0.6s" onclick="openModal('n5')" vid="125">
+                    <div class="absolute top-2 left-3 text-[10px] font-mono text-zinc-600 font-bold" vid="126">5</div>
+                    <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-3 text-zinc-300 group-hover:text-white group-hover:scale-110 transition-all group-hover:bg-purple-500/20 group-hover:text-purple-400" vid="127">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="128"><circle cx="18" cy="18" r="3" vid="129"></circle><circle cx="6" cy="6" r="3" vid="130"></circle><path d="M6 21V9a9 9 0 0 0 9 9" vid="131"></path></svg>
+                    </div>
+                    <div class="text-sm font-medium text-zinc-100" vid="132">Мерж</div>
+                    <div class="text-[9px] text-zinc-500 uppercase tracking-widest mt-1" vid="133">оркестратор</div>
+                </div>
+
+                <div class="relative w-full h-8 flex justify-center" vid="134">
+                    <svg width="2" height="32" class="absolute top-0 text-zinc-600 overflow-visible" vid="135">
+                        <path d="M 1 0 L 1 32" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)" class="connector" vid="136"></path>
+                    </svg>
+                </div>
+
+                <div class="node cursor-pointer group relative w-36 h-36 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-2xl flex flex-col items-center justify-center p-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter mb-16" style="animation-delay: 0.7s" onclick="openModal('n6')" vid="137">
+                    <div class="absolute top-2 left-3 text-[10px] font-mono text-zinc-600 font-bold" vid="138">6</div>
+                    <div class="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center mb-3 text-zinc-300 group-hover:text-white group-hover:scale-110 transition-all group-hover:bg-teal-500/20 group-hover:text-teal-400" vid="139">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="140"><ellipse cx="12" cy="5" rx="9" ry="3" vid="141"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" vid="142"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" vid="143"></path></svg>
+                    </div>
+                    <div class="text-sm font-medium text-zinc-100 text-center leading-tight" vid="144">Фиксация<br vid="145">знания</div>
+                    <div class="text-[9px] text-zinc-500 uppercase tracking-widest mt-1" vid="146">оркестратор</div>
+                </div>
+            </div>
+
+            
+            <div id="view-horizontal" class="hidden absolute inset-0 w-full h-full p-16 flex items-center bg-grid overflow-x-auto" vid="147">
+                <div class="flex items-center min-w-max mx-auto px-12" vid="148">
+                    
+                    <div class="node cursor-pointer group relative w-56 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex items-center p-4 gap-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" onclick="openModal('n1')" vid="149">
+                        <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[10px] font-mono text-zinc-400 border border-zinc-700 group-hover:border-zinc-500" vid="150">1</div>
+                        <div class="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center text-indigo-400 border border-zinc-700/50 group-hover:bg-indigo-500/10" vid="151">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="152"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" vid="153"></polygon></svg>
+                        </div>
+                        <div class="flex-1" vid="154">
+                            <div class="text-sm font-medium text-zinc-100" vid="155">Критерий</div>
+                            <div class="text-[10px] text-zinc-500 mt-0.5" vid="156">оркестратор</div>
+                        </div>
+                    </div>
+
+                    <div class="w-12 h-px relative" vid="157">
+                        <svg width="48" height="2" class="absolute top-0 text-zinc-600 overflow-visible" style="transform: translateY(-50%)" vid="158">
+                            <path d="M 0 1 L 46 1" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)" vid="159"></path>
+                        </svg>
+                    </div>
+
+                    <div class="node cursor-pointer group relative w-56 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex items-center p-4 gap-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" onclick="openModal('n2')" vid="160">
+                        <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[10px] font-mono text-zinc-400 border border-zinc-700 group-hover:border-zinc-500" vid="161">2</div>
+                        <div class="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center text-sky-400 border border-zinc-700/50 group-hover:bg-sky-500/10" vid="162">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="163"><line x1="6" y1="3" x2="6" y2="15" vid="164"></line><circle cx="18" cy="6" r="3" vid="165"></circle><circle cx="6" cy="18" r="3" vid="166"></circle><path d="M18 9a9 9 0 0 1-9 9" vid="167"></path></svg>
+                        </div>
+                        <div class="flex-1" vid="168">
+                            <div class="text-sm font-medium text-zinc-100" vid="169">Ветка</div>
+                            <div class="text-[10px] text-zinc-500 mt-0.5" vid="170">оркестратор</div>
+                        </div>
+                    </div>
+
+                    <div class="w-16 h-32 relative" vid="171">
+                        <svg width="64" height="128" class="absolute top-1/2 -translate-y-1/2 text-zinc-600 overflow-visible" vid="172">
+                            <path d="M 0 64 L 20 64 L 20 12 L 62 12" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="173"></path>
+                            <path d="M 20 64 L 20 116 L 62 116" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="174"></path>
+                        </svg>
+                    </div>
+
+                    <div class="flex flex-col gap-7" vid="175">
+                        <div class="node cursor-pointer group relative w-56 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex items-center p-4 gap-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" onclick="openModal('n3')" vid="176">
+                            <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[10px] font-mono text-zinc-400 border border-zinc-700 group-hover:border-zinc-500" vid="177">3</div>
+                            <div class="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center text-emerald-400 border border-zinc-700/50 group-hover:bg-emerald-500/10" vid="178">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="179"><polyline points="16 18 22 12 16 6" vid="180"></polyline><polyline points="8 6 2 12 8 18" vid="181"></polyline></svg>
+                            </div>
+                            <div class="flex-1" vid="182">
+                                <div class="text-sm font-medium text-zinc-100" vid="183">Реализация</div>
+                                <div class="text-[10px] text-zinc-500 mt-0.5" vid="184">оркестратор</div>
+                            </div>
+                        </div>
+                        
+                        <div class="node cursor-pointer group relative w-56 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex items-center p-4 gap-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter border-amber-900/30" onclick="openModal('n3a')" vid="185">
+                            <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[10px] font-mono text-amber-500/70 border border-zinc-700 group-hover:border-zinc-500" vid="186">3a</div>
+                            <div class="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center text-amber-400 border border-zinc-700/50 group-hover:bg-amber-500/10" vid="187">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="188"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" vid="189"></path><line x1="12" y1="9" x2="12" y2="13" vid="190"></line><line x1="12" y1="17" x2="12.01" y2="17" vid="191"></line></svg>
+                            </div>
+                            <div class="flex-1" vid="192">
+                                <div class="text-sm font-medium text-zinc-100 leading-tight" vid="193">Альтернативная<br vid="194">Реализация</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="w-16 h-32 relative" vid="195">
+                        <svg width="64" height="128" class="absolute top-1/2 -translate-y-1/2 text-zinc-600 overflow-visible" vid="196">
+                            <path d="M 0 12 L 40 12 L 40 64 L 62 64" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="197"></path>
+                            <path d="M 0 116 L 40 116 L 40 64" stroke="currentColor" stroke-width="2" fill="none" vid="198"></path>
+                        </svg>
+                    </div>
+
+                    <div class="node cursor-pointer group relative w-56 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex items-center p-4 gap-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" onclick="openModal('n4')" vid="199">
+                        <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[10px] font-mono text-zinc-400 border border-zinc-700 group-hover:border-zinc-500" vid="200">4</div>
+                        <div class="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center text-pink-400 border border-zinc-700/50 group-hover:bg-pink-500/10" vid="201">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="202"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" vid="203"></path><circle cx="8.5" cy="7" r="4" vid="204"></circle><polyline points="17 11 19 13 23 9" vid="205"></polyline></svg>
+                        </div>
+                        <div class="flex-1" vid="206">
+                            <div class="text-sm font-medium text-zinc-100" vid="207">Приёмка</div>
+                            <div class="text-[10px] text-zinc-500 mt-0.5" vid="208">оператор</div>
+                        </div>
+                    </div>
+
+                    <div class="w-12 h-px relative" vid="209">
+                        <svg width="48" height="2" class="absolute top-0 text-zinc-600 overflow-visible" style="transform: translateY(-50%)" vid="210">
+                            <path d="M 0 1 L 46 1" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)" vid="211"></path>
+                        </svg>
+                    </div>
+
+                    <div class="node cursor-pointer group relative w-56 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex items-center p-4 gap-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" onclick="openModal('n5')" vid="212">
+                        <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[10px] font-mono text-zinc-400 border border-zinc-700 group-hover:border-zinc-500" vid="213">5</div>
+                        <div class="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center text-purple-400 border border-zinc-700/50 group-hover:bg-purple-500/10" vid="214">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="215"><circle cx="18" cy="18" r="3" vid="216"></circle><circle cx="6" cy="6" r="3" vid="217"></circle><path d="M6 21V9a9 9 0 0 0 9 9" vid="218"></path></svg>
+                        </div>
+                        <div class="flex-1" vid="219">
+                            <div class="text-sm font-medium text-zinc-100" vid="220">Мерж</div>
+                            <div class="text-[10px] text-zinc-500 mt-0.5" vid="221">оркестратор</div>
+                        </div>
+                    </div>
+
+                    <div class="w-12 h-px relative" vid="222">
+                        <svg width="48" height="2" class="absolute top-0 text-zinc-600 overflow-visible" style="transform: translateY(-50%)" vid="223">
+                            <path d="M 0 1 L 46 1" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)" vid="224"></path>
+                        </svg>
+                    </div>
+
+                    <div class="node cursor-pointer group relative w-56 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex items-center p-4 gap-4 transition-all hover:bg-zinc-800/80 shadow-lg shadow-black/40 node-enter" onclick="openModal('n6')" vid="225">
+                        <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[10px] font-mono text-zinc-400 border border-zinc-700 group-hover:border-zinc-500" vid="226">6</div>
+                        <div class="w-10 h-10 rounded-lg bg-zinc-800/50 flex items-center justify-center text-teal-400 border border-zinc-700/50 group-hover:bg-teal-500/10" vid="227">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="228"><ellipse cx="12" cy="5" rx="9" ry="3" vid="229"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" vid="230"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" vid="231"></path></svg>
+                        </div>
+                        <div class="flex-1" vid="232">
+                            <div class="text-sm font-medium text-zinc-100" vid="233">Фиксация знания</div>
+                            <div class="text-[10px] text-zinc-500 mt-0.5" vid="234">оркестратор</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            
+            <div id="view-grid" class="hidden absolute inset-0 w-full h-full bg-grid overflow-auto min-w-[900px] min-h-[600px]" vid="235">
+                
+                <svg class="absolute inset-0 w-full h-full pointer-events-none text-zinc-700" style="min-width: 1000px; min-height: 600px" vid="236">
+                    <path d="M 120 140 L 260 140" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="237"></path>
+                    <path d="M 340 140 C 420 140, 420 80, 500 80" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="238"></path>
+                    <path d="M 340 140 C 420 140, 420 220, 500 220" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="239"></path>
+                    <path d="M 580 80 C 660 80, 660 140, 720 140" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="240"></path>
+                    <path d="M 580 220 C 660 220, 660 140, 720 140" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="241"></path>
+                    <path d="M 800 140 L 920 140" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="242"></path>
+                    <path d="M 960 180 L 960 300" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrowhead)" vid="243"></path>
+                </svg>
+
+                <div class="node absolute top-[100px] left-[40px] cursor-pointer group w-20 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex flex-col items-center justify-center transition-all hover:bg-zinc-800/80 shadow-lg" onclick="openModal('n1')" vid="244">
+                    <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[9px] font-mono text-zinc-400 border border-zinc-700" vid="245">1</div>
+                    <div class="text-indigo-400 mb-1" vid="246"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="247"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" vid="248"></polygon></svg></div>
+                    <div class="text-[10px] font-medium text-zinc-300 w-full text-center px-1 truncate" vid="249">Критерий</div>
+                </div>
+
+                <div class="node absolute top-[100px] left-[260px] cursor-pointer group w-20 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex flex-col items-center justify-center transition-all hover:bg-zinc-800/80 shadow-lg" onclick="openModal('n2')" vid="250">
+                    <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[9px] font-mono text-zinc-400 border border-zinc-700" vid="251">2</div>
+                    <div class="text-sky-400 mb-1" vid="252"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="253"><line x1="6" y1="3" x2="6" y2="15" vid="254"></line><circle cx="18" cy="6" r="3" vid="255"></circle><circle cx="6" cy="18" r="3" vid="256"></circle><path d="M18 9a9 9 0 0 1-9 9" vid="257"></path></svg></div>
+                    <div class="text-[10px] font-medium text-zinc-300 w-full text-center px-1 truncate" vid="258">Ветка</div>
+                </div>
+
+                <div class="node absolute top-[40px] left-[500px] cursor-pointer group w-20 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex flex-col items-center justify-center transition-all hover:bg-zinc-800/80 shadow-lg" onclick="openModal('n3')" vid="259">
+                    <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[9px] font-mono text-zinc-400 border border-zinc-700" vid="260">3</div>
+                    <div class="text-emerald-400 mb-1" vid="261"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="262"><polyline points="16 18 22 12 16 6" vid="263"></polyline><polyline points="8 6 2 12 8 18" vid="264"></polyline></svg></div>
+                    <div class="text-[10px] font-medium text-zinc-300 w-full text-center px-1 truncate" vid="265">Реализация</div>
+                </div>
+
+                <div class="node absolute top-[180px] left-[500px] cursor-pointer group w-20 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex flex-col items-center justify-center transition-all hover:bg-zinc-800/80 shadow-lg border-amber-900/40" onclick="openModal('n3a')" vid="266">
+                    <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[9px] font-mono text-amber-500 border border-zinc-700" vid="267">3a</div>
+                    <div class="text-amber-400 mb-1" vid="268"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="269"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" vid="270"></path><line x1="12" y1="9" x2="12" y2="13" vid="271"></line><line x1="12" y1="17" x2="12.01" y2="17" vid="272"></line></svg></div>
+                    <div class="text-[10px] font-medium text-zinc-300 w-full text-center px-1 leading-tight" vid="273">Альтер.<br vid="274">Реал.</div>
+                </div>
+
+                <div class="node absolute top-[100px] left-[720px] cursor-pointer group w-20 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex flex-col items-center justify-center transition-all hover:bg-zinc-800/80 shadow-lg" onclick="openModal('n4')" vid="275">
+                    <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[9px] font-mono text-zinc-400 border border-zinc-700" vid="276">4</div>
+                    <div class="text-pink-400 mb-1" vid="277"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="278"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" vid="279"></path><circle cx="8.5" cy="7" r="4" vid="280"></circle><polyline points="17 11 19 13 23 9" vid="281"></polyline></svg></div>
+                    <div class="text-[10px] font-medium text-zinc-300 w-full text-center px-1 truncate" vid="282">Приёмка</div>
+                </div>
+
+                <div class="node absolute top-[100px] left-[920px] cursor-pointer group w-20 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex flex-col items-center justify-center transition-all hover:bg-zinc-800/80 shadow-lg" onclick="openModal('n5')" vid="283">
+                    <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[9px] font-mono text-zinc-400 border border-zinc-700" vid="284">5</div>
+                    <div class="text-purple-400 mb-1" vid="285"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="286"><circle cx="18" cy="18" r="3" vid="287"></circle><circle cx="6" cy="6" r="3" vid="288"></circle><path d="M6 21V9a9 9 0 0 0 9 9" vid="289"></path></svg></div>
+                    <div class="text-[10px] font-medium text-zinc-300 w-full text-center px-1 truncate" vid="290">Мерж</div>
+                </div>
+
+                <div class="node absolute top-[300px] left-[920px] cursor-pointer group w-20 h-20 bg-zinc-900 border border-zinc-700/60 hover:border-zinc-400 rounded-xl flex flex-col items-center justify-center transition-all hover:bg-zinc-800/80 shadow-lg" onclick="openModal('n6')" vid="291">
+                    <div class="absolute -top-2 -left-2 w-5 h-5 bg-zinc-800 rounded-full flex items-center justify-center text-[9px] font-mono text-zinc-400 border border-zinc-700" vid="292">6</div>
+                    <div class="text-teal-400 mb-1" vid="293"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="294"><ellipse cx="12" cy="5" rx="9" ry="3" vid="295"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" vid="296"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" vid="297"></path></svg></div>
+                    <div class="text-[10px] font-medium text-zinc-300 w-full text-center px-1 leading-tight" vid="298">Фиксация<br vid="299">знания</div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    
+    <div id="edit-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center opacity-0 transition-opacity duration-200" vid="300">
+        <div class="absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity" onclick="closeModal()" vid="301"></div>
+        <div class="relative bg-zinc-900 border border-zinc-800 rounded-xl w-full max-w-[500px] shadow-2xl transform scale-95 transition-transform duration-200 flex flex-col" id="modal-card" vid="302">
+            
+            <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800/60" vid="303">
+                <div class="flex items-center gap-3" vid="304">
+                    <div id="modal-icon" class="w-8 h-8 rounded bg-zinc-800 flex items-center justify-center text-zinc-300" vid="305"></div>
+                    <div vid="306">
+                        <h2 id="modal-title" class="text-base font-semibold text-zinc-100" vid="307">Настройка узла</h2>
+                        <div id="modal-role" class="text-[11px] text-zinc-500 uppercase tracking-widest mt-0.5" vid="308">роль</div>
+                    </div>
+                </div>
+                <button onclick="closeModal()" class="text-zinc-500 hover:text-zinc-300 transition-colors" vid="309">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="310"><line x1="18" y1="6" x2="6" y2="18" vid="311"></line><line x1="6" y1="6" x2="18" y2="18" vid="312"></line></svg>
+                </button>
+            </div>
+
+            <div class="p-6 space-y-5" vid="313">
+                <div class="space-y-2" vid="314">
+                    <label class="text-xs font-medium text-zinc-400 block flex items-center gap-2" vid="315">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="316"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" vid="317"></path><polyline points="14 2 14 8 20 8" vid="318"></polyline><line x1="16" y1="13" x2="8" y2="13" vid="319"></line><line x1="16" y1="17" x2="8" y2="17" vid="320"></line><polyline points="10 9 9 9 8 9" vid="321"></polyline></svg>
+                        Выход (Output)
+                    </label>
+                    <textarea id="modal-output" rows="3" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-all placeholder:text-zinc-600 resize-none" placeholder="Укажите ожидаемый результат работы узла..." vid="322"></textarea>
+                </div>
+                
+                <div class="space-y-2" vid="323">
+                    <label class="text-xs font-medium text-zinc-400 block flex items-center gap-2" vid="324">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="325"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" vid="326"></polygon></svg>
+                        Условие пропуска (Skip)
+                    </label>
+                    <textarea id="modal-skip" rows="2" class="w-full bg-zinc-950 border border-zinc-800 rounded-lg p-3 text-sm text-zinc-200 focus:outline-none focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500 transition-all placeholder:text-zinc-600 resize-none" placeholder="Условия, при которых этот шаг игнорируется..." vid="327"></textarea>
+                </div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-zinc-800/60 bg-zinc-950/50 flex justify-end gap-3 rounded-b-xl" vid="328">
+                <button onclick="closeModal()" class="px-4 py-2 text-sm font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 rounded-lg transition-colors border border-transparent hover:border-zinc-700" vid="329">
+                    Отмена
+                </button>
+                <button onclick="saveModal()" class="px-5 py-2 text-sm font-medium text-zinc-950 bg-zinc-100 hover:bg-white rounded-lg transition-colors shadow-sm flex items-center gap-2" vid="330">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" vid="331"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" vid="332"></path><polyline points="17 21 17 13 7 13 7 21" vid="333"></polyline><polyline points="7 3 7 8 15 8" vid="334"></polyline></svg>
+                    Сохранить
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script vid="335">
+        const nodesData = {
+            'n1': { title: 'Критерий', role: 'оркестратор', output: 'Сформированный JSON с критериями приемки фичи на основе тикета.', skip: 'Не требуется', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>' },
+            'n2': { title: 'Ветка', role: 'оркестратор', output: 'Создана новая ветка в репозитории (e.g., feature/TICKET-123).', skip: 'Ветка уже существует', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>' },
+            'n3': { title: 'Реализация', role: 'оркестратор', output: 'Сгенерированный код, проходящий базовые линтеры.', skip: 'Нет', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>' },
+            'n3a': { title: 'Альтернативная Реализация', role: 'оркестратор', output: 'Резервный вариант кода с использованием другой библиотеки.', skip: 'Основная реализация завершилась без ошибок', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' },
+            'n4': { title: 'Приёмка', role: 'оператор', output: 'Апрув от человека или список комментариев для доработки.', skip: 'Тестовое окружение недоступно', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>' },
+            'n5': { title: 'Мерж', role: 'оркестратор', output: 'Pull Request успешно влит в ветку main.', skip: 'Конфликты слияния', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg>' },
+            'n6': { title: 'Фиксация знания', role: 'оркестратор', output: 'Обновлена база знаний (документация/wiki) с учетом новых изменений.', skip: 'Изменения минорные (hotfix/typo)', icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>' }
+        };
+
+        let currentNodeId = null;
+
+        function switchView(viewId) {
+            document.getElementById('view-vertical').classList.add('hidden');
+            document.getElementById('view-horizontal').classList.add('hidden');
+            document.getElementById('view-grid').classList.add('hidden');
+            
+            document.getElementById(viewId).classList.remove('hidden');
+
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.classList.remove('bg-zinc-700', 'text-white', 'shadow-sm');
+                btn.classList.add('text-zinc-400');
+            });
+            const activeBtn = document.querySelector(`[data-target="${viewId}"]`);
+            activeBtn.classList.remove('text-zinc-400');
+            activeBtn.classList.add('bg-zinc-700', 'text-white', 'shadow-sm');
+        }
+
+        function openModal(nodeId) {
+            currentNodeId = nodeId;
+            const data = nodesData[nodeId];
+            
+            document.getElementById('modal-title').textContent = data.title;
+            document.getElementById('modal-role').textContent = data.role;
+            document.getElementById('modal-icon').innerHTML = data.icon;
+            document.getElementById('modal-output').value = data.output;
+            document.getElementById('modal-skip').value = data.skip;
+
+            const modal = document.getElementById('edit-modal');
+            const card = document.getElementById('modal-card');
+            
+            modal.classList.remove('hidden');
+            
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                card.classList.remove('scale-95');
+                card.classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('edit-modal');
+            const card = document.getElementById('modal-card');
+            
+            modal.classList.add('opacity-0');
+            card.classList.remove('scale-100');
+            card.classList.add('scale-95');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                currentNodeId = null;
+            }, 200);
+        }
+
+        function saveModal() {
+            if (currentNodeId) {
+                nodesData[currentNodeId].output = document.getElementById('modal-output').value;
+                nodesData[currentNodeId].skip = document.getElementById('modal-skip').value;
+                closeModal();
+                
+                
+                const btn = document.querySelector('#edit-modal button:last-child');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Сохранено';
+                setTimeout(() => { btn.innerHTML = originalText; }, 1000);
+            }
+        }
+    </script>
+
+</body></html>

@@ -204,6 +204,69 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_KeepsChosenIconsBesideBasesFileAndGivesThemBack()
+    {
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+
+        var response = await client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(
+            flow.Base,
+            flow.Version!,
+            flow.Steps,
+            new Dictionary<string, string> { ["Критерий"] = "target", ["Приёмка"] = "check" }));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(File.Exists(Path.Combine(_root, "panel", "flow-icons.json")));
+        var saved = Assert.Single(await GetFlows(Client(_base)));
+        Assert.Equal("target", saved.Icons["Критерий"]);
+        Assert.Equal("check", saved.Icons["Приёмка"]);
+    }
+
+    [Fact]
+    public async Task Save_UnknownIconAndIconOfGoneStep_AreNotKept()
+    {
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+        await client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(
+            flow.Base,
+            flow.Version!,
+            flow.Steps,
+            new Dictionary<string, string> { ["Критерий"] = "target", ["Приёмка"] = "check" }));
+
+        var written = Assert.Single(await GetFlows(client));
+        await client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(
+            written.Base,
+            written.Version!,
+            [written.Steps[0]],
+            new Dictionary<string, string> { ["Критерий"] = "лунная-дорожка" }));
+
+        var saved = Assert.Single(await GetFlows(Client(_base)));
+        Assert.Empty(saved.Icons);
+    }
+
+    [Fact]
+    public async Task Save_SameStepsButOtherIcon_KeepsNewIcon()
+    {
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+        await client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(
+            flow.Base,
+            flow.Version!,
+            flow.Steps,
+            new Dictionary<string, string> { ["Критерий"] = "target" }));
+
+        await client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(
+            flow.Base,
+            flow.Version!,
+            flow.Steps,
+            new Dictionary<string, string> { ["Критерий"] = "code" }));
+
+        var saved = Assert.Single(await GetFlows(Client(_base)));
+        Assert.Equal("code", saved.Icons["Критерий"]);
+        Assert.Equal("flow", Git("log", "-1", "--format=%s"));
+    }
+
+    [Fact]
     public async Task Open_OpensFlowFileInWindowOnBase()
     {
         var response = await Client(_base).PostAsJsonAsync("/api/flow/open", new OpenFlowRequest(_base));
