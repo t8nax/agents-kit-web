@@ -125,3 +125,24 @@ test('шаг сохраняется как пресет и добавляетс�
   expect(calls.presets).toEqual([{ ...steps[1], id: 'p1' }])
   expect((calls.flow[0] as { steps: Step[] }).steps[3]).toEqual(steps[1])
 })
+
+test('описание шага правится текстом в окне и уходит в запись', async ({ page }) => {
+  const calls = await mockApi(page)
+  const region = await openFlow(page)
+  await page.getByRole('button', { name: 'Править' }).click()
+
+  await region.getByRole('button', { name: 'Описание шага 1' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Описание шага «Критерий»' })
+  const text = dialog.getByRole('textbox', { name: 'Описание шага' })
+  await expect(text).toBeFocused()
+  await expect(text).toHaveValue('1.1. Написать критерий.')
+  await text.press('End')
+  await text.press('Enter')
+  await text.pressSequentially('1.2. Вынести на подтверждение.')
+  await dialog.getByRole('button', { name: 'Готово' }).click()
+  await expect(region.getByRole('button', { name: 'Описание шага 1' })).toHaveText('Описание · 2 п.')
+
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
+  await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
+  expect((calls.flow[0] as { steps: Step[] }).steps[0].description).toBe('1.1. Написать критерий.\n1.2. Вынести на подтверждение.')
+})

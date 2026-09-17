@@ -292,3 +292,34 @@ test('«Отмена» закрывает правку без записи', asy
   expect(region.getAllByRole('article')).toHaveLength(3)
   expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
 })
+
+test('описание шага правится текстом в окне, номер шага в пунктах — текущий', async () => {
+  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v3' }) }))
+  const region = await startEditing()
+
+  expect(region.getByRole('button', { name: 'Описание шага 3' })).toHaveTextContent(/^Описание$/)
+  fireEvent.click(region.getByRole('button', { name: 'Шаг 2 выше' }))
+  expect(region.getByRole('button', { name: 'Описание шага 1' })).toHaveTextContent('Описание · 1 п.')
+
+  // Ревью стал первым: в окне его пункты уже с номером 1
+  fireEvent.click(region.getByRole('button', { name: 'Описание шага 1' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Описание шага «Ревью»' }))
+  const text = dialog.getByRole('textbox', { name: 'Описание шага' })
+  expect(text).toHaveValue('1.1. Собрать дифф всей ветки.')
+  fireEvent.change(text, { target: { value: '1.1. Собрать дифф всей ветки.\n   1.1.1. Не последнего коммита.' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Готово' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  // «Отмена» правку описания выбрасывает
+  fireEvent.click(region.getByRole('button', { name: 'Описание шага 2' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Описание шага' }), { target: { value: '' } })
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Отмена' }))
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps.map((step: FlowStep) => step.description)).toEqual([
+    '1.1. Собрать дифф всей ветки.\n   1.1.1. Не последнего коммита.',
+    criterion.description,
+    null,
+  ])
+})

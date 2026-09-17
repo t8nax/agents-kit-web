@@ -27,10 +27,6 @@
   gap: 12px;
 }
 
-.flow-hint {
-  margin: 0;
-}
-
 .flow-step {
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
@@ -350,4 +346,27 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* Окно описания шага: текст как в файле — моноширинный, с отступами пунктов */
+.flow-description {
+  width: 760px;
+}
+
+.flow-description-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.flow-description .flow-step-head h3 {
+  margin: 0;
+}
+
+.flow-description-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  white-space: pre;
+  overflow-x: auto;
 }

@@ -79,6 +79,17 @@ function stepErrors(draft: DraftStep) {
   return errors
 }
 
+// Номер пункта описания «3.2.1.»: номер шага — первое число.
+const pointNumber = /^([ \t]*)\d+(?=(?:\.\d+)+\.)/gm
+
+/** Номер шага в пунктах описания — текущий: после перестановки файл запишет его так же. */
+function renumber(description: string, number: number) {
+  return description.replace(pointNumber, `$1${number}`)
+}
+
+const pointCount = (description: string | null) =>
+  description?.split('\n').filter((line) => /^\s*\d+(?:\.\d+)+\./.test(line)).length ?? 0
+
 const sameStep = (a: FlowStep, b: FlowStep) =>
   a.title === b.title &&
   a.executor === b.executor &&
@@ -414,6 +425,9 @@ function FlowForm({
 }) {
   const [dragged, setDragged] = useState<number | null>(null)
   const [over, setOver] = useState<number | null>(null)
+  // Описание какого шага открыто в окне: key шага, а не место — место меняется перестановкой.
+  const [describing, setDescribing] = useState<number | null>(null)
+  const described = draft.findIndex((step) => step.key === describing)
 
   const update = (index: number, patch: Partial<DraftStep>) =>
     onChange(draft.map((step, i) => (i === index ? { ...step, ...patch } : step)))
@@ -433,10 +447,6 @@ function FlowForm({
 
   return (
     <>
-      <p className="flow-hint text-ter">
-        Описания шагов здесь не показываются: при сохранении они остаются как были, у шага из пресета — берутся из
-        пресета. Прочитать и поправить описание — «Открыть в VS Code».
-      </p>
       {draft.map((step, index) => {
         const errors = stepErrors(step)
         const asStep = toStep(step)
@@ -485,6 +495,16 @@ function FlowForm({
                 value={step.title}
                 onChange={(event) => update(index, { title: event.target.value })}
               />
+              <button
+                type="button"
+                className="bases-btn bases-btn-small flow-description-btn"
+                aria-label={`Описание шага ${number}`}
+                title="Описание шага текстом"
+                onClick={() => setDescribing(step.key)}
+              >
+                <FileTextIcon />
+                {pointCount(step.description) > 0 ? `Описание · ${pointCount(step.description)} п.` : 'Описание'}
+              </button>
               <IconButton label={`Шаг ${number} выше`} disabled={index === 0} onClick={() => move(index, index - 1)}>
                 <ChevronUpIcon />
               </IconButton>
@@ -570,7 +590,79 @@ function FlowForm({
         onAdd={(step) => onChange([...draft, toDraft(step)])}
         onRemovePreset={onRemovePreset}
       />
+      {described >= 0 && (
+        <DescriptionEditor
+          number={described + 1}
+          title={draft[described].title}
+          description={draft[described].description}
+          onCancel={() => setDescribing(null)}
+          onDone={(description) => {
+            update(described, { description })
+            setDescribing(null)
+          }}
+        />
+      )}
     </>
+  )
+}
+
+function DescriptionEditor({
+  number,
+  title,
+  description,
+  onCancel,
+  onDone,
+}: {
+  number: number
+  title: string
+  description: string | null
+  onCancel: () => void
+  onDone: (description: string | null) => void
+}) {
+  const [text, setText] = useState(() => renumber(description ?? '', number))
+  const field = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => field.current?.focus(), [])
+
+  return (
+    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+      <div
+        className="flow-confirm flow-description"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="flow-description-title"
+        onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+      >
+        <div className="flow-step-head">
+          <span className="entry-num">{number}</span>
+          <h3 id="flow-description-title">Описание шага «{title.trim() || 'без названия'}»</h3>
+        </div>
+        <p className="text-ter">
+          Пункты — «{number}.1.», вложенные — с отступом «{number}.1.1.», пояснение — строкой с отступом под пунктом.
+          Когда шаг переставят, номер шага в пунктах панель поправит сама.
+        </p>
+        <textarea
+          ref={field}
+          className="flow-input flow-description-text"
+          aria-label="Описание шага"
+          rows={16}
+          spellCheck={false}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+        <div className="flow-confirm-actions">
+          <button type="button" className="bases-btn" onClick={onCancel}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="bases-btn bases-btn-primary"
+            onClick={() => onDone(text.replace(/\r\n/g, '\n').trim() ? text.replace(/\r\n/g, '\n') : null)}
+          >
+            Готово
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -770,6 +862,17 @@ function TrashIcon() {
       <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
       <path d="M10 11v6" />
       <path d="M14 11v6" />
+    </svg>
+  )
+}
+
+function FileTextIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="14" y2="17" />
     </svg>
   )
 }
