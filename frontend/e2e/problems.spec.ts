@@ -65,6 +65,32 @@ test('число проблем в строке копии ведёт в «Пр�
   )
 })
 
+test('оператор запускает проверку кнопкой и видит свежий результат', async ({ page }) => {
+  const fixed = {
+    ...health,
+    checkedAt: '2026-09-17T12:00:42+03:00',
+    bases: [{ ...health.bases[0], problems: [], copies: [] }],
+  }
+  let requested = false
+  await mockApi(page, [], health)
+  await page.route('**/api/health', (route) => route.fulfill({ json: requested ? fixed : health }))
+  await page.route('**/api/health/check', (route) => {
+    requested = true
+    return route.fulfill({ status: 202 })
+  })
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Проблемы баз' }).click()
+  const card = page.getByRole('region', { name: 'Agents Kit Web — D:\\Projects\\agents-kit-web-knowledge' })
+  await expect(card.getByText('2 ошибки')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Проверить сейчас' }).click()
+
+  await expect(card.getByText('проблем нет')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Проверить сейчас' })).toBeEnabled()
+  expect(requested).toBe(true)
+})
+
 test('без пути к киту таблица и раздел проблем ведут в «Настройки»', async ({ page }) => {
   await mockApi(page, [{ ...row, path: 'D:\\Projects\\agents-kit-web', problems: null, problemsState: 'kit-not-set' }], {
     pending: false,
