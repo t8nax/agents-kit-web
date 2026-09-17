@@ -177,7 +177,8 @@ test('ссылка из вопроса открывается в новой вк
   await dialog.getByLabel('Ответ').fill('в новую папку')
 
   const link = dialog.getByRole('link', { name: 'https://example.com/tickets/OPS-1' })
-  await expect(link.locator('svg')).toBeVisible()
+  await expect(link).toBeVisible()
+  await expect(link.locator('svg')).toHaveCount(0)
 
   // длинный адрес переносится внутри колонки и не раздвигает окно
   const box = (await dialog.locator('.question-box').boundingBox())!

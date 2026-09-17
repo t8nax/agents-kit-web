@@ -11,13 +11,12 @@ test('голый адрес становится ссылкой в новую в
   expect(link).toHaveAttribute('rel', 'noopener noreferrer')
 })
 
-test('ссылка разметкой тоже открывается в новой вкладке и несёт значок', () => {
+test('ссылка разметкой тоже открывается в новой вкладке, без значка', () => {
   const { container } = render(<Markdown text="См. [заявку](https://example.com/t/1)." />)
 
   const link = screen.getByRole('link', { name: 'заявку' })
   expect(link).toHaveAttribute('target', '_blank')
-  expect(link.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
-  expect(container.querySelectorAll('svg')).toHaveLength(1)
+  expect(container.querySelector('svg')).toBeNull()
 })
 
 test('в строке заголовка адрес тоже ссылка в новую вкладку', () => {

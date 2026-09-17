@@ -7,15 +7,7 @@ import './Markdown.css'
 const plugins = [remarkGfm]
 
 // Ссылка открывается в новой вкладке: панель с окном и набранным ответом остаётся на месте.
-const link: Components['a'] = ({ node: _node, children, ...props }) => (
-  <a {...props} target="_blank" rel="noopener noreferrer">
-    {children}
-    <svg className="external-link-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7 17 17 7" />
-      <path d="M8 7h9v9" />
-    </svg>
-  </a>
-)
+const link: Components['a'] = ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
 
 type Props = { text: string; className?: string }
 
