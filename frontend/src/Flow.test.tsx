@@ -97,7 +97,9 @@ test('показывает шаги флоу выбранной базы: ном
   expect(second.getByText('вердикт по sha')).toBeInTheDocument()
   expect(second.getByText('правка только в текстах')).toBeInTheDocument()
   expect(within(steps[0]).getByText('нет — шаг проходится всегда')).toBeInTheDocument()
-  expect(region.getByText('2 задачи в работе')).toBeInTheDocument()
+  // Над шагами нет ни повтора названия проекта, ни счёта шагов и задач
+  expect(region.queryByRole('heading')).not.toBeInTheDocument()
+  expect(region.queryByText(/шага|задачи в работе/)).not.toBeInTheDocument()
   // Описание шага в панели не показывается
   expect(screen.queryByText(/Написать критерий/)).not.toBeInTheDocument()
 })

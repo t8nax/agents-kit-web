@@ -292,13 +292,6 @@ export default function Flow() {
 
       {flow && (
         <section className="flow-list" aria-label={flow.project}>
-          <div className="base-head flow-base-head">
-            <h3>{flow.project}</h3>
-            {!flow.error && <span className="mono text-ter">{plural(flow.steps.length, 'шаг', 'шага', 'шагов')}</span>}
-            {!flow.error && flow.activeTasks > 0 && (
-              <span className="flow-tasks">{plural(flow.activeTasks, 'задача', 'задачи', 'задач')} в работе</span>
-            )}
-          </div>
 
           {flow.error && (
             <p className="backlog-note warning-text">
