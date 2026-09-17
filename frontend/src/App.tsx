@@ -12,6 +12,7 @@ import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
 import Settings from './Settings'
 import { rowKey, statusChanges } from './statusChanges'
+import { splitTask } from './taskTitle'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
@@ -369,6 +370,27 @@ function BellOffIcon() {
   )
 }
 
+// Номер записи бэклога стоит своей колонкой перед заголовком: в тексте задачи он терялся
+function TaskCells({ task }: { task: string | null }) {
+  if (task === null) {
+    return (
+      <>
+        <td className="num-col text-ter">—</td>
+        <td className="task-col text-ter">—</td>
+      </>
+    )
+  }
+  const { number, title } = splitTask(task)
+  return (
+    <>
+      <td className={`num-col ${number ? '' : 'text-ter'}`}>
+        {number ? <span className="num-chip">{number}</span> : '—'}
+      </td>
+      <td className="task-col">{title}</td>
+    </>
+  )
+}
+
 function WorkspacesTable({
   rows,
   onReply,
@@ -418,6 +440,7 @@ function WorkspacesTable({
         <thead>
           <tr>
             <th>Проект и копия</th>
+            <th className="num-col">№</th>
             <th>Задача</th>
             <th>Шаг флоу</th>
             <th>Прогресс</th>
@@ -438,7 +461,7 @@ function WorkspacesTable({
                 </div>
               </td>
               {row.error ? (
-                <td className="task-col" colSpan={4}>
+                <td className="task-col" colSpan={5}>
                   <span className="warning-text">
                     <WarningIcon />
                     {row.error}
@@ -446,7 +469,7 @@ function WorkspacesTable({
                 </td>
               ) : (
                 <>
-                  <td className={`task-col ${row.task ? '' : 'text-ter'}`}>{row.task ?? '—'}</td>
+                  <TaskCells task={row.task} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
                     {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
