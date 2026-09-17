@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace AgentsKitWeb.Api.Flow;
 
 /// <summary>
-/// Шаг флоу проекта. Description — описание шага как в файле, пунктами «N.1.»; панель его не показывает,
+/// Шаг флоу проекта. Description — описание шага как в файле: абзацы, списки и пункты «N.1.»; панель его не показывает,
 /// а переносит при записи, меняя в пунктах номер шага.
 /// </summary>
 public sealed record FlowStep(string Title, string Executor, string Output, string? Skip, string? Description);

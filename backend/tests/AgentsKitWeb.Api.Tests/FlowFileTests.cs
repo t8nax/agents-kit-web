@@ -81,6 +81,66 @@ public sealed class FlowFileTests
         Assert.DoesNotContain("## 3.", text);
     }
 
+    // Описание свободным текстом по форме кита: абзацы через пустую строку, списки «-», «1.» и пункты «N.M.».
+    private const string FreeTextFlow = """
+        # App — флоу
+
+        ## 1. Реализация
+
+        исполнитель: оркестратор
+        выход: sha коммитов ветки
+
+        Работа идёт шагами, каждый со своей проверкой.
+
+        Проверки выбираются по тому, что затронуто:
+        - код — тесты, линт и сборка;
+        - вёрстка — ещё и e2e-прогон.
+
+        Порядок:
+        1. Прогнать тесты.
+        2. Собрать фронт.
+
+        1.1. Проверки, которых нет, назвать оператору.
+
+        ## 2. Мерж
+
+        исполнитель: оркестратор
+        выход: sha в dev
+
+        """;
+
+    [Fact]
+    public void Parse_KeepsFreeTextDescriptionWithParagraphsAndLists()
+    {
+        var document = FlowFile.Parse(FreeTextFlow.ReplaceLineEndings("\n"));
+
+        Assert.Equal(
+            "Работа идёт шагами, каждый со своей проверкой.\n\n" +
+            "Проверки выбираются по тому, что затронуто:\n- код — тесты, линт и сборка;\n- вёрстка — ещё и e2e-прогон.\n\n" +
+            "Порядок:\n1. Прогнать тесты.\n2. Собрать фронт.\n\n" +
+            "1.1. Проверки, которых нет, назвать оператору.",
+            document.Steps[0].Description);
+    }
+
+    [Fact]
+    public void Serialize_OfParsedFreeTextFile_GivesSameText()
+    {
+        var text = FreeTextFlow.ReplaceLineEndings("\n");
+
+        Assert.Equal(text, FlowFile.Serialize(FlowFile.Parse(text)));
+    }
+
+    [Fact]
+    public void Serialize_AfterReorder_RenumbersOnlyPointsOfFreeTextDescription()
+    {
+        var document = FlowFile.Parse(FreeTextFlow.ReplaceLineEndings("\n"));
+        var reordered = document with { Steps = [document.Steps[1], document.Steps[0]] };
+
+        var moved = FlowFile.Parse(FlowFile.Serialize(reordered)).Steps[1].Description;
+
+        Assert.Equal(document.Steps[0].Description!.Replace("1.1. Проверки", "2.1. Проверки"), moved);
+    }
+
     [Fact]
     public void Serialize_NewStepWithoutDescriptionHasOnlyKeys()
     {
