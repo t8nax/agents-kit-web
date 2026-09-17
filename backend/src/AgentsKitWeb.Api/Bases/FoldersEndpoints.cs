@@ -1,7 +1,10 @@
 namespace AgentsKitWeb.Api.Bases;
 
-/// <summary>Папка в обзоре. IsBase — в ней есть agents-kit.json; Copies — число копий из него, null — не прочитан.</summary>
-public sealed record FolderEntry(string Name, string Path, bool IsBase, int? Copies);
+/// <summary>
+/// Папка в обзоре. IsBase — в ней есть agents-kit.json; Copies — число копий из него, null — не прочитан;
+/// IsKit — в ней скрипты кита, которыми панель проверяет базы.
+/// </summary>
+public sealed record FolderEntry(string Name, string Path, bool IsBase, int? Copies, bool IsKit = false);
 
 /// <summary>Содержимое папки. Path null — список дисков; Parent null — выше только список дисков.</summary>
 public sealed record FolderListing(string? Path, string? Parent, IReadOnlyList<FolderEntry> Folders);
@@ -9,7 +12,7 @@ public sealed record FolderListing(string? Path, string? Parent, IReadOnlyList<F
 public sealed record FolderRejectedResponse(string Problem);
 
 /// <summary>
-/// Обзор папок для выбора базы: браузер полного пути к папке странице не отдаёт,
+/// Обзор папок для выбора базы и кита: браузер полного пути к папке странице не отдаёт,
 /// а системный диалог потребовал бы запускать внешний процесс.
 /// </summary>
 public static class FoldersEndpoints
@@ -51,21 +54,22 @@ public static class FoldersEndpoints
             .EnumerateDirectories()
             .Where(d => (d.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0)
             .Select(d => Entry(d.Name, d.FullName))
-            .OrderByDescending(e => e.IsBase)
+            .OrderByDescending(e => e.IsBase || e.IsKit)
             .ThenBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     private static FolderEntry Entry(string name, string path)
     {
-        bool isBase;
+        bool isBase, isKit;
         try
         {
             isBase = File.Exists(System.IO.Path.Combine(path, "agents-kit.json"));
+            isKit = BasesStore.IsKit(path);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            isBase = false;
+            isBase = isKit = false;
         }
-        return new FolderEntry(name, path, isBase, isBase ? BasesEndpoints.CountCopies(path) : null);
+        return new FolderEntry(name, path, isBase, isBase ? BasesEndpoints.CountCopies(path) : null, isKit);
     }
 }

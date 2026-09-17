@@ -60,6 +60,24 @@ public sealed class FoldersEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Folders_MarksKitAndListsItWithBases()
+    {
+        var parent = Directory.CreateDirectory(Path.Combine(_root, "skills")).FullName;
+        Directory.CreateDirectory(Path.Combine(parent, "another"));
+        var kit = TestKit.Create(Path.Combine(parent, "agents-kit"));
+
+        var listing = await _factory.CreateClient().GetFromJsonAsync<FolderListing>(Url(parent));
+
+        Assert.NotNull(listing);
+        Assert.Equal(
+            [
+                new FolderEntry("agents-kit", kit, false, null, IsKit: true),
+                new FolderEntry("another", Path.Combine(parent, "another"), false, null),
+            ],
+            listing.Folders);
+    }
+
+    [Fact]
     public async Task Folders_RelativePath_IsBadRequest()
     {
         var response = await _factory.CreateClient().GetAsync(Url("projects"));
