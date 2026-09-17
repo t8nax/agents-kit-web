@@ -51,6 +51,7 @@ public sealed class HealthTests : IDisposable
         {
             Assert.Equal(RowProblemsState.KitNotSet, row.ProblemsState);
             Assert.Null(row.Problems);
+            Assert.Null(row.BaseProblems);
         });
     }
 
@@ -91,8 +92,10 @@ public sealed class HealthTests : IDisposable
 
         var rows = await GetRows();
         Assert.All(rows, row => Assert.Equal(RowProblemsState.Checked, row.ProblemsState));
-        Assert.Equal(3, Assert.Single(rows, r => r.Path == _main).Problems);
-        Assert.Equal(4, Assert.Single(rows, r => r.Path == _worktree).Problems);
+        // Находки сверки — числом базы у каждой копии, проблемы связи — числом самой копии
+        Assert.All(rows, row => Assert.Equal(3, row.BaseProblems));
+        Assert.Equal(0, Assert.Single(rows, r => r.Path == _main).Problems);
+        Assert.Equal(1, Assert.Single(rows, r => r.Path == _worktree).Problems);
     }
 
     [Fact]

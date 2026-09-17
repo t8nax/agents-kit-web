@@ -10,8 +10,9 @@ public static class WorkspaceStatus
 }
 
 /// <summary>
-/// Строка таблицы рабочих копий. Error задан — данных по строке нет. Problems — число проблем копии
-/// и её базы из последней проверки кита, когда ProblemsState — checked; иначе state называет, почему числа нет.
+/// Строка таблицы рабочих копий. Error задан — данных по строке нет. BaseProblems — число находок сверки базы,
+/// общее для её копий, Problems — число проблем связи самой копии; оба из последней проверки кита,
+/// когда ProblemsState — checked; иначе state называет, почему чисел нет.
 /// </summary>
 public sealed record WorkspaceRow(
     string Project,
@@ -24,7 +25,8 @@ public sealed record WorkspaceRow(
     string? Status,
     string? Error,
     int? Problems = null,
-    string? ProblemsState = null);
+    string? ProblemsState = null,
+    int? BaseProblems = null);
 
 public static class WorkspaceCollector
 {
