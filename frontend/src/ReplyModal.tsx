@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { VsCodeIcon } from './VsCodeIcon'
 import './ReplyModal.css'
@@ -68,7 +69,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         return response.json() as Promise<QuestionsResponse>
       })
       .then((data) => {
-        setAnswers(data.questions.map(() => ''))
+        setAnswers(takeDrafts(base, copy, data.questions.map((q) => q.title)))
         setLoad({ kind: 'loaded', data })
       })
       .catch((error: unknown) =>
@@ -88,6 +89,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
 
   function setAnswer(index: number, value: string) {
     setAnswers((prev) => prev.map((a, i) => (i === index ? value : a)))
+    if (questions[index]) saveDraft(base, copy, questions[index].title, value)
     if (rejection?.problem === 'empty' && questions[index]?.title === rejection.question && value.trim()) {
       setRejection(null)
     }
@@ -142,6 +144,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         }),
       })
       if (response.ok) {
+        forgetDrafts(base, copy, questions.map((q) => q.title))
         // ответы в памяти: окно больше не нужно, признак успеха — строка таблицы перестаёт ждать
         onAnswered()
         onClose()
