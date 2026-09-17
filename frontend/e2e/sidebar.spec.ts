@@ -32,6 +32,47 @@ test('сайдбар стоит полосой значков и разъезж�
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(rail)
 })
 
+const waitingRow = {
+  project: 'agents-kit-web',
+  base: 'D:\\Projects\\agents-kit-web-knowledge',
+  path: 'D:\\Projects\\agents-kit-web',
+  branch: 'fix/sidebar-items-jump',
+  task: 'B-42 Панель дёргается под мышью',
+  flowStep: 'Реализация',
+  progress: 45,
+  status: 'waiting',
+  error: null,
+}
+
+// Плашка со числом ждущих копий не помещалась в узкую полосу, её надпись ложилась
+// в две строки, и пункты съезжали вниз на всё время раскрытия.
+test('пункты полосы не меняют высоту, пока она разъезжается со плашкой ждущих', async ({ page }) => {
+  const rows = [waitingRow, { ...waitingRow, path: 'D:\\Projects\\agents-kit-web-2' }]
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: rows }))
+  await page.goto('/')
+
+  const sidebar = page.getByRole('navigation', { name: 'Разделы панели' })
+  await expect(sidebar.getByRole('button', { name: /Рабочие копии, 2 ждут/ })).toBeVisible()
+
+  // Высоты пунктов снимаются каждый кадр: съезд длился доли секунды, в начале раскрытия
+  await page.evaluate(() => {
+    const seen = new Set<string>()
+    const tick = () => {
+      seen.add(JSON.stringify([...document.querySelectorAll('.side-item')].map((item) => Math.round(item.getBoundingClientRect().height))))
+      requestAnimationFrame(tick)
+    }
+    tick()
+    Object.assign(window, { itemHeights: seen })
+  })
+
+  await sidebar.hover()
+  await expect(sidebar.getByText('2 ждут')).toBeVisible()
+  await expect.poll(async () => (await sidebar.boundingBox())?.width).toBe(232)
+
+  const heights = await page.evaluate(() => [...(window as unknown as { itemHeights: Set<string> }).itemHeights])
+  expect(heights).toHaveLength(1)
+})
+
 test('«Настройки» — раздел в ряду остальных, до него доходят клавиатурой', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/bases', (route) => route.fulfill({ json: [] }))
