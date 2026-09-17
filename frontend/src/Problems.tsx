@@ -26,6 +26,8 @@ export type HealthSnapshot = {
 }
 
 const refreshIntervalMs = 5000
+// Пока идёт проверка по кнопке, снимок перечитывается чаще: ответ оператор ждёт глазами
+const checkingIntervalMs = 1000
 
 /**
  * Раздел «Проблемы баз»: находки сверки кита и разорванные связи копий по каждой базе.
@@ -34,7 +36,11 @@ const refreshIntervalMs = 5000
 export default function Problems({ onSettings }: { onSettings: () => void }) {
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null)
   const [failed, setFailed] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [checkError, setCheckError] = useState<string | null>(null)
   const lastRequest = useRef(0)
+  // Время проверки на момент нажатия: новый снимок с другим временем — проверка по кнопке прошла
+  const checkedBefore = useRef<string | null | undefined>(undefined)
 
   const load = useCallback(() => {
     const request = ++lastRequest.current
@@ -48,6 +54,10 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
           if (request !== lastRequest.current) return
           setSnapshot(value)
           setFailed(false)
+          if (checkedBefore.current !== undefined && !value.pending && value.checkedAt !== checkedBefore.current) {
+            checkedBefore.current = undefined
+            setChecking(false)
+          }
         },
         () => {
           if (request === lastRequest.current) setFailed(true)
@@ -61,13 +71,44 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
     return () => clearInterval(timer)
   }, [load])
 
+  useEffect(() => {
+    if (!checking) return
+    const timer = setInterval(load, checkingIntervalMs)
+    return () => clearInterval(timer)
+  }, [checking, load])
+
+  async function check() {
+    checkedBefore.current = snapshot?.checkedAt ?? null
+    setChecking(true)
+    setCheckError(null)
+    try {
+      const response = await fetch('/api/health/check', { method: 'POST' })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    } catch (e) {
+      checkedBefore.current = undefined
+      setChecking(false)
+      setCheckError(
+        e instanceof TypeError ? 'Проверка не запущена: нет связи с API' : `Проверка не запущена: ${(e as Error).message}`,
+      )
+    }
+  }
+
   return (
     <div className="problems">
       <div className="content-head">
         <h2>Проблемы баз</h2>
-        <span className="sub">сверка кита, обновляется сама</span>
+        <span className="sub">
+          {snapshot?.checkedAt ? `проверено в ${formatTime(snapshot.checkedAt)}` : 'сверка кита, обновляется сама'}
+        </span>
+        <div className="head-end">
+          <button type="button" className="check-btn" disabled={checking} onClick={() => void check()}>
+            <RefreshIcon />
+            {checking ? 'Проверяется…' : 'Проверить сейчас'}
+          </button>
+        </div>
       </div>
       {failed && <p className="message warning-text">Нет связи с API</p>}
+      {checkError && <p className="message warning-text">{checkError}</p>}
       {snapshot === null && !failed && <p className="empty-message">Загрузка…</p>}
       {snapshot?.pending && <p className="empty-message">Идёт первая проверка баз…</p>}
       {snapshot && !snapshot.pending && (
@@ -83,6 +124,10 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
       )}
     </div>
   )
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export function KitNotice({ kit, onSettings }: { kit: 'not-set' | 'not-found'; onSettings: () => void }) {
@@ -161,6 +206,15 @@ function ProblemGroup({ title, problems }: { title: string; problems: HealthProb
         ))}
       </ul>
     </div>
+  )
+}
+
+function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
   )
 }
 

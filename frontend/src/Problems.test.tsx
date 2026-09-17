@@ -132,6 +132,52 @@ test('раздел перечитывает снимок сам: починен�
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
+test('«Проверить сейчас» запускает проверку и ждёт снимка с новым временем', async () => {
+  const fixed: HealthSnapshot = {
+    ...checked,
+    checkedAt: '2026-09-17T12:00:42+03:00',
+    bases: [{ ...checked.bases[0], problems: [], copies: [] }],
+  }
+  let requested = false
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/api/health/check' && init?.method === 'POST') {
+      requested = true
+      return new Response(null, { status: 202 })
+    }
+    return new Response(JSON.stringify(requested ? fixed : checked), { status: 200 })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<Problems onSettings={() => {}} />)
+  expect(await screen.findByText('2 ошибки · 1 предупреждение')).toBeInTheDocument()
+  expect(screen.getByText(`проверено в ${new Date(checked.checkedAt!).toLocaleTimeString('ru-RU')}`)).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Проверить сейчас' }))
+  expect(await screen.findByRole('button', { name: 'Проверяется…' })).toBeDisabled()
+  expect(fetchMock).toHaveBeenCalledWith('/api/health/check', { method: 'POST' })
+
+  expect(await screen.findByRole('button', { name: 'Проверить сейчас' }, { timeout: 3000 })).toBeEnabled()
+  expect(screen.queryByText('2 ошибки · 1 предупреждение')).not.toBeInTheDocument()
+  expect(screen.getByText(`проверено в ${new Date(fixed.checkedAt!).toLocaleTimeString('ru-RU')}`)).toBeInTheDocument()
+})
+
+test('проверка не запустилась — раздел говорит почему и кнопка снова доступна', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url === '/api/health/check'
+        ? new Response(null, { status: 500 })
+        : new Response(JSON.stringify(checked), { status: 200 }),
+    ),
+  )
+
+  render(<Problems onSettings={() => {}} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Проверить сейчас' }))
+
+  expect(await screen.findByText('Проверка не запущена: HTTP 500')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проверить сейчас' })).toBeEnabled()
+})
+
 test('падеж числа проблем', () => {
   expect(plural(1, 'ошибка', 'ошибки', 'ошибок')).toBe('1 ошибка')
   expect(plural(3, 'ошибка', 'ошибки', 'ошибок')).toBe('3 ошибки')
