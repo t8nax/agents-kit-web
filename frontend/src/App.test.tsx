@@ -94,6 +94,27 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
 })
 
+test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
+  const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой' }
+  const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога' }
+  const table = [numbered, unnumbered, rows[1], rows[2]]
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(table), { status: 200 })))
+
+  render(<App />)
+
+  const tableRows = await screen.findAllByRole('row')
+  const headers = within(tableRows[0]).getAllByRole('columnheader').map((header) => header.textContent)
+  expect(headers.slice(0, 3)).toEqual(['Проект и копия', '№', 'Задача'])
+
+  const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((cell) => cell.textContent)
+  expect(cells(tableRows[1]).slice(1, 3)).toEqual(['B-24', 'Номер задачи отдельной колонкой'])
+  expect(within(tableRows[1]).getByText('B-24')).toHaveClass('num-chip')
+  expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'Задача не из бэклога'])
+  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', '—'])
+  // Строка с ошибкой накрывает и колонку номера: ячеек в ней столько же, сколько колонок
+  expect(within(tableRows[4]).getAllByRole('cell')[1]).toHaveAttribute('colspan', '5')
+})
+
 test('кнопка «Открыть в VS Code» стоит у прочитанных копий и открывает ту, чью строку нажали', async () => {
   const fetchMock = vi.fn(async (url: string) =>
     url === '/api/workspace/open'
@@ -199,8 +220,8 @@ test('колонка «Проблемы» показывает число, пр�
   render(<App />)
   const [, withProblems, clean, failed, pending, broken] = await screen.findAllByRole('row')
 
-  // Колонка «Проблемы» — шестая в строке
-  expect(within(clean).getAllByRole('cell')[5]).toHaveTextContent(/^—$/)
+  // Колонка «Проблемы» — седьмая в строке
+  expect(within(clean).getAllByRole('cell')[6]).toHaveTextContent(/^—$/)
   expect(within(failed).getByText('сверка не выполнена')).toBeInTheDocument()
   expect(within(pending).getByText('проверяется')).toBeInTheDocument()
   // Строке с ошибкой проверять нечего: копии нет на диске, её называет сверка базы
