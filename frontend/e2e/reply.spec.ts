@@ -89,8 +89,8 @@ test('набранный ответ возвращается после закр
       json: [
         {
           project: 'app-knowledge',
-          base: 'D:\Projects\app-knowledge',
-          path: 'D:\Projects\app',
+          base: 'D:\\Projects\\app-knowledge',
+          path: 'D:\\Projects\\app',
           branch: 'feat/reply',
           task: 'Окно ответа',
           flowStep: 'Критерий',
@@ -105,7 +105,7 @@ test('набранный ответ возвращается после закр
     route.fulfill({
       json: {
         project: 'app-knowledge',
-        copy: 'D:\Projects\app',
+        copy: 'D:\\Projects\\app',
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
