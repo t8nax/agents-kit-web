@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
+import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
 import Flow, { FlowIcon } from './Flow'
 import {
@@ -60,6 +61,7 @@ function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
   const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
+  const [asking, setAsking] = useState(false)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
@@ -108,6 +110,7 @@ function App() {
   }, [loadRows])
 
   const closeReply = useCallback(() => setReplyTo(null), [])
+  const closeAsk = useCallback(() => setAsking(false), [])
 
   return (
     <>
@@ -122,6 +125,10 @@ function App() {
           onRequest={notifications.request}
           onToggle={notifications.setEnabled}
         />
+        <button type="button" className="bases-btn" onClick={() => setAsking(true)}>
+          <AskIcon />
+          Спросить базу
+        </button>
         <button type="button" className="bases-btn" onClick={theme.toggle}>
           {theme.theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           {theme.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
@@ -166,6 +173,7 @@ function App() {
         </main>
       </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
+      {asking && <AskModal onClose={closeAsk} />}
     </>
   )
 }
