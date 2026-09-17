@@ -41,6 +41,7 @@ app.MapPost("/api/health/check", (HealthMonitor health) =>
 
 app.MapAskEndpoints();
 app.MapBacklogEndpoints();
+app.MapBacklogWriteEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
 app.MapFoldersEndpoints();

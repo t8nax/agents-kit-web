@@ -192,3 +192,50 @@ test('сбой запроса показан строкой, а не пусты�
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Нет связи с API')
 })
+
+test('кнопка «Добавить с помощью «Чудо-юдо»» открывает окно записи, новые записи отмечены до «Обновить»', async () => {
+  const withNew: BaseBacklog[] = [
+    { ...backlogs[0], entries: [...backlogs[0].entries, { number: 'B-32', title: 'Добавлена агентом', text: null }] },
+    backlogs[1],
+  ]
+  const body = new TextEncoder().encode(
+    JSON.stringify({
+      type: 'written',
+      text: 'ok',
+      entries: [{ number: 'B-32', title: 'Добавлена агентом', text: null }],
+    }) + '\n',
+  )
+  const fetchMock = vi.fn((url: string) => {
+    if (url === '/api/backlog/write') return Promise.resolve(new Response(body))
+    const calls = fetchMock.mock.calls.filter(([u]) => u === '/api/backlog').length
+    return Promise.resolve(Response.json(calls === 1 ? backlogs : withNew))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<Backlog />)
+  await screen.findByText('B-1')
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' }))
+
+  const dialog = within(screen.getByRole('dialog', { name: 'Запись в бэклог' }))
+  fireEvent.change(dialog.getByLabelText('Что записать'), { target: { value: 'Мысль' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Добавить' }))
+  await dialog.findByText('Добавлено 1 запись')
+  fireEvent.click(dialog.getByRole('button', { name: 'К бэклогу' }))
+
+  const added = await screen.findByRole('button', { name: /B-32 Добавлена агентом/ })
+  expect(within(added).getByText('новая')).toBeInTheDocument()
+  expect(screen.getAllByText('новая')).toHaveLength(1)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Обновить' }))
+  await screen.findByRole('button', { name: /B-32 Добавлена агентом/ })
+  expect(screen.queryByText('новая')).not.toBeInTheDocument()
+})
+
+test('без баз добавлять некуда', async () => {
+  stubFetch([])
+
+  render(<Backlog />)
+  await screen.findByText(/Нет отслеживаемых баз/)
+
+  expect(screen.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' })).toBeDisabled()
+})

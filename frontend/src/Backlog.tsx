@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './Backlog.css'
+import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { InlineMarkdown, Markdown } from './Markdown'
 
 export type BacklogEntry = {
@@ -25,6 +26,9 @@ export default function Backlog() {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [filter, setFilter] = useState<string | null>(null)
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
+  const [writing, setWriting] = useState(false)
+  // Записи, добавленные из панели, ключом «база|номер»: отмечены новыми до следующего «Обновить».
+  const [fresh, setFresh] = useState<Set<string>>(() => new Set())
   // Закрытое окно возвращает фокус записи, с которой его открыли: клавиатура остаётся на месте в списке.
   const opener = useRef<HTMLButtonElement | null>(null)
 
@@ -58,8 +62,19 @@ export default function Backlog() {
 
   const refresh = useCallback(() => {
     setLoad({ kind: 'loading' })
+    setFresh(new Set())
     loadBacklogs()
   }, [loadBacklogs])
+
+  const markWritten = useCallback(
+    (base: string, numbers: string[]) => {
+      setFresh((prev) => new Set([...prev, ...numbers.map((n) => `${base}|${n}`)]))
+      loadBacklogs()
+    },
+    [loadBacklogs],
+  )
+
+  const closeWrite = useCallback(() => setWriting(false), [])
 
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
   const shown = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
@@ -68,7 +83,16 @@ export default function Backlog() {
     <>
       <div className="content-head">
         <h2>Бэклог</h2>
-        <button type="button" className="bases-btn head-end" onClick={refresh} disabled={load.kind === 'loading'}>
+        <button
+          type="button"
+          className="bases-btn bases-btn-add head-end"
+          onClick={() => setWriting(true)}
+          disabled={backlogs.length === 0}
+        >
+          <WriteIcon />
+          Добавить с помощью «{AGENT_NAME}»
+        </button>
+        <button type="button" className="bases-btn" onClick={refresh} disabled={load.kind === 'loading'}>
           <RefreshIcon />
           Обновить
         </button>
@@ -116,22 +140,26 @@ export default function Backlog() {
                 {!backlog.error && backlog.entries.length === 0 && (
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
-                {backlog.entries.map((entry, index) => (
-                  <button
-                    type="button"
-                    className="entry"
-                    key={entry.number ?? `${backlog.base}-${index}`}
-                    onClick={(e) => {
-                      opener.current = e.currentTarget
-                      setOpened(entry)
-                    }}
-                  >
-                    {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
-                    {entry.number && <span className="entry-num">{entry.number}</span>}{' '}
-                    <InlineMarkdown className="entry-title" text={entry.title} />
-                    <ChevronIcon />
-                  </button>
-                ))}
+                {backlog.entries.map((entry, index) => {
+                  const isFresh = entry.number !== null && fresh.has(`${backlog.base}|${entry.number}`)
+                  return (
+                    <button
+                      type="button"
+                      className={`entry ${isFresh ? 'entry-fresh' : ''}`}
+                      key={entry.number ?? `${backlog.base}-${index}`}
+                      onClick={(e) => {
+                        opener.current = e.currentTarget
+                        setOpened(entry)
+                      }}
+                    >
+                      {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
+                      {entry.number && <span className="entry-num">{entry.number}</span>}{' '}
+                      <InlineMarkdown className="entry-title" text={entry.title} />
+                      {isFresh && <span className="entry-fresh-badge">новая</span>}
+                      <ChevronIcon />
+                    </button>
+                  )
+                })}
               </section>
             ))}
           </div>
@@ -139,6 +167,14 @@ export default function Backlog() {
       )}
 
       {opened && <EntryModal entry={opened} onClose={closeEntry} />}
+      {writing && (
+        <BacklogWriteModal
+          bases={backlogs.map((b) => ({ base: b.base, project: b.project }))}
+          initialBase={filter}
+          onClose={closeWrite}
+          onEntries={markWritten}
+        />
+      )}
     </>
   )
 }

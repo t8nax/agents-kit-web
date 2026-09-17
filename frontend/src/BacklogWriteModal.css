@@ -1,0 +1,77 @@
+/* Окно записи в бэклог — на рамке и ходе окна вопроса (AskModal.css); здесь только итог записи */
+
+.write-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.write-done {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--accent-active-border);
+  background: var(--accent-active-bg);
+  color: var(--accent-active-text);
+  border-radius: 8px;
+}
+
+.write-done-text {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.write-done-meta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.write-entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.write-entry {
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.write-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.write-entry-title {
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.write-entry-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.write-entry-text > :first-child {
+  margin-top: 0;
+}
+
+.write-entry-text > :last-child {
+  margin-bottom: 0;
+}
