@@ -2,6 +2,7 @@ using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
+using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Workspaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,6 +20,7 @@ builder.Services.AddSingleton(services =>
     new KitLocator(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
 builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
+builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
 var app = builder.Build();
@@ -47,6 +49,7 @@ app.MapFlowEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
+app.MapTaskEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.
 app.MapFallback("/api/{**path}", () => Results.NotFound());
