@@ -15,6 +15,12 @@ export type KitEntry = {
 type AddProblem = 'empty' | 'not-full-path' | 'not-a-base' | 'duplicate'
 type KitProblem = 'empty' | 'not-full-path' | 'not-a-kit'
 
+type KitSearch =
+  | { kind: 'idle' }
+  | { kind: 'searching' }
+  | { kind: 'failed'; message: string }
+  | { kind: 'found'; paths: string[] }
+
 type Load<T> = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 'loaded'; value: T }
 
 const problemText: Record<AddProblem, string> = {
@@ -305,6 +311,7 @@ function KitSettings() {
   const [busy, setBusy] = useState(false)
   const [browsing, setBrowsing] = useState(false)
   const [lastFolder, setLastFolder] = useState<string | null>(null)
+  const [search, setSearch] = useState<KitSearch>({ kind: 'idle' })
 
   useEffect(() => {
     void loadJson<KitEntry>('/api/kit', 'Путь к киту').then((result) => {
@@ -347,6 +354,24 @@ function KitSettings() {
   async function save(event: FormEvent) {
     event.preventDefault()
     setError(await saveKit(path))
+  }
+
+  // Найденный путь только подставляется в поле: сохраняет его оператор — решение оператора на приёмке
+  async function find() {
+    setSearch({ kind: 'searching' })
+    setError(null)
+    try {
+      const response = await fetch('/api/kit/found')
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const paths = (await response.json()) as string[]
+      if (paths.length === 1) setPath(paths[0])
+      setSearch({ kind: 'found', paths })
+    } catch (e) {
+      setSearch({
+        kind: 'failed',
+        message: e instanceof TypeError ? 'Кит не искали: нет связи с API.' : `Кит не искали: ${(e as Error).message}.`,
+      })
+    }
   }
 
   async function pick(folder: FolderEntry) {
@@ -421,6 +446,10 @@ function KitSettings() {
                   <FolderIcon />
                   Обзор…
                 </button>
+                <button type="button" className="bases-btn" disabled={search.kind === 'searching'} onClick={() => void find()}>
+                  <SearchIcon />
+                  Найти автоматически
+                </button>
                 <button type="submit" className="bases-btn" disabled={busy}>
                   Сохранить
                 </button>
@@ -428,6 +457,39 @@ function KitSettings() {
               {error && (
                 <div className="bases-error" id="kit-error" role="alert">
                   {error}
+                </div>
+              )}
+              {search.kind === 'searching' && <p className="settings-note">Ищем кит…</p>}
+              {search.kind === 'failed' && <p className="settings-note bases-error">{search.message}</p>}
+              {search.kind === 'found' && search.paths.length === 0 && (
+                <p className="settings-note">
+                  Кит не найден среди навыков и плагинов Claude Code — укажите путь сами или выберите через «Обзор…».
+                </p>
+              )}
+              {search.kind === 'found' && search.paths.length === 1 && (
+                <p className="settings-note">Кит найден, путь подставлен в поле — сохраните его.</p>
+              )}
+              {search.kind === 'found' && search.paths.length > 1 && (
+                <div>
+                  <p className="settings-note">Найдено несколько китов — выберите, какой подставить:</p>
+                  <ul className="bases-list" aria-label="Найденные киты">
+                    {search.paths.map((found) => (
+                      <li key={found}>
+                        <span className="bases-path mono">{found}</span>
+                        <button
+                          type="button"
+                          className="bases-btn bases-btn-small"
+                          aria-label={`Подставить ${found}`}
+                          onClick={() => {
+                            setPath(found)
+                            setError(null)
+                          }}
+                        >
+                          Подставить
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               {saved}
@@ -467,6 +529,15 @@ function KitSettings() {
         </div>
       )}
     </section>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
   )
 }
 

@@ -241,6 +241,54 @@ test('путь к киту сохраняется, а каталог без ки
   expect(puts).toEqual([{ path: 'C:\\Users\\me\\.claude\\skills' }, { path: kitPath }])
 })
 
+test('«Найти автоматически» подставляет единственный найденный кит, а сохраняет оператор', async () => {
+  const fetchMock = stubApi(
+    api({
+      'GET /api/kit/found': () => json([kitPath]),
+      'PUT /api/kit': () => json({ path: kitPath, found: true }),
+    }),
+  )
+
+  const { kit } = await openSettings()
+  fireEvent.click(await within(kit()).findByRole('button', { name: 'Найти автоматически' }))
+
+  expect(await within(kit()).findByText('Кит найден, путь подставлен в поле — сохраните его.')).toBeInTheDocument()
+  expect(within(kit()).getByLabelText('Путь к каталогу кита')).toHaveValue(kitPath)
+  // Сам поиск ничего не сохраняет
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
+
+  fireEvent.click(within(kit()).getByRole('button', { name: 'Сохранить' }))
+  expect(await within(kit()).findByText('Кит найден: скрипты проверок на месте.')).toBeInTheDocument()
+})
+
+test('несколько найденных китов показываются списком, выбранный подставляется в поле', async () => {
+  const other = 'D:\\Tools\\agents-kit'
+  stubApi(api({ 'GET /api/kit/found': () => json([kitPath, other]) }))
+
+  const { kit } = await openSettings()
+  fireEvent.click(await within(kit()).findByRole('button', { name: 'Найти автоматически' }))
+
+  const list = await within(kit()).findByRole('list', { name: 'Найденные киты' })
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+  expect(within(kit()).getByLabelText('Путь к каталогу кита')).toHaveValue('')
+
+  fireEvent.click(within(list).getByRole('button', { name: `Подставить ${other}` }))
+  expect(within(kit()).getByLabelText('Путь к каталогу кита')).toHaveValue(other)
+})
+
+test('кит не найден — сказано, что делать дальше', async () => {
+  stubApi(api({ 'GET /api/kit/found': () => json([]) }))
+
+  const { kit } = await openSettings()
+  fireEvent.click(await within(kit()).findByRole('button', { name: 'Найти автоматически' }))
+
+  expect(
+    await within(kit()).findByText(
+      'Кит не найден среди навыков и плагинов Claude Code — укажите путь сами или выберите через «Обзор…».',
+    ),
+  ).toBeInTheDocument()
+})
+
 test('кит выбирается в обзоре: папка кита отмечена, «Выбрать» сохраняет путь', async () => {
   stubApi(
     api({
