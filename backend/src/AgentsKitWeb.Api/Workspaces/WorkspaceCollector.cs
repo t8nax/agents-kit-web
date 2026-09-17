@@ -12,6 +12,7 @@ public static class WorkspaceStatus
 /// <summary>
 /// Строка таблицы рабочих копий. Error задан — данных по строке нет. Problems — число проблем копии
 /// и её базы из последней проверки кита, когда ProblemsState — checked; иначе state называет, почему числа нет.
+/// CopiesDir стоит у копии из agents-kit.json, от которой панель заводит новые: каталог, куда кит их кладёт.
 /// </summary>
 public sealed record WorkspaceRow(
     string Project,
@@ -24,7 +25,8 @@ public sealed record WorkspaceRow(
     string? Status,
     string? Error,
     int? Problems = null,
-    string? ProblemsState = null);
+    string? ProblemsState = null,
+    string? CopiesDir = null);
 
 public static class WorkspaceCollector
 {
@@ -50,6 +52,7 @@ public static class WorkspaceCollector
             return [Unavailable(project, basePath, basePath, "Не прочитан agents-kit.json базы")];
 
         var memories = ReadMemories(basePath);
+        var source = NewCopySource(copies);
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var rows = new List<WorkspaceRow>();
 
@@ -84,9 +87,13 @@ public static class WorkspaceCollector
                 var key = Normalize(path);
                 if (!claimed.Add(key))
                     continue;
-                rows.Add(memories.TryGetValue(key, out var memory)
+                var row = memories.TryGetValue(key, out var memory)
                     ? FromMemory(project, basePath, path, worktree.Branch, memory)
-                    : new WorkspaceRow(project, basePath, path, worktree.Branch, null, null, null, WorkspaceStatus.Free, null));
+                    : new WorkspaceRow(project, basePath, path, worktree.Branch, null, null, null, WorkspaceStatus.Free, null);
+                // Кит кладёт новую копию рядом с корнем основного дерева, а git называет основное дерево первым.
+                if (source is not null && string.Equals(key, Normalize(source), StringComparison.OrdinalIgnoreCase))
+                    row = row with { CopiesDir = Path.GetDirectoryName(Normalize(worktrees[0].Path)) };
+                rows.Add(row);
             }
         }
 
@@ -121,7 +128,10 @@ public static class WorkspaceCollector
     private static WorkspaceRow Unavailable(string project, string basePath, string path, string error) =>
         new(project, basePath, path, null, null, null, null, null, error);
 
-    private static List<string>? ReadCopies(string basePath)
+    /// <summary>Копия, от которой заводятся новые: первая из agents-kit.json, что есть на диске.</summary>
+    internal static string? NewCopySource(IEnumerable<string> copies) => copies.FirstOrDefault(Directory.Exists);
+
+    internal static List<string>? ReadCopies(string basePath)
     {
         try
         {
