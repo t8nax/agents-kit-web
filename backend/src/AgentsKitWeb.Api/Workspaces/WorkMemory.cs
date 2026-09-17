@@ -24,9 +24,12 @@ public sealed record WorkMemory(
     int? Progress,
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
+    string? Design,
     IReadOnlyList<OperatorQuestion> Questions)
 {
     private const string OutOfScopeTitle = "Не входит";
+    // Ссылку на макет агент кладёт сюда — шаг 1.2.2 флоу проекта.
+    private const string DesignTitle = "Дизайн";
 
     public bool WaitingForOperator => Questions.Any(q => q.Answer is null);
 
@@ -107,12 +110,16 @@ public sealed record WorkMemory(
         int? progress = flowTotal == 0 ? null : (int)Math.Round((flowDone + openStepShare) * 100.0 / flowTotal);
         var questions = QuestionBlocks.Find(lines).Select(b => b.Question).ToList();
         var criteria = criteriaBlocks
-            .Where(b => b.Title != OutOfScopeTitle)
+            .Where(b => b.Title != OutOfScopeTitle && b.Title != DesignTitle)
             .Select(b => new ClosingCriterion(b.Title, MemoryText.Block(b.Lines)))
             .ToList();
-        var outOfScope = criteriaBlocks.Where(b => b.Title == OutOfScopeTitle).Select(b => MemoryText.Block(b.Lines)).FirstOrDefault();
-        return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, questions);
+        var outOfScope = Named(criteriaBlocks, OutOfScopeTitle);
+        var design = Named(criteriaBlocks, DesignTitle);
+        return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, design, questions);
     }
+
+    private static string? Named(List<(string Title, List<string> Lines)> blocks, string title) =>
+        blocks.Where(b => b.Title == title).Select(b => MemoryText.Block(b.Lines)).FirstOrDefault();
 
     // «Реализация — выход: …» → «Реализация»
     private static string StepName(string item)

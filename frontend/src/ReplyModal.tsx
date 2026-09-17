@@ -28,6 +28,7 @@ export type QuestionsResponse = {
   task: string | null
   criteria: ClosingCriterion[]
   outOfScope: string | null
+  design: string | null
   questions: OperatorQuestion[]
   vsCodeSession: boolean
 }
@@ -263,6 +264,12 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                       <>
                         <p className="acc-label out-of-scope-label">Не входит</p>
                         <Markdown className="criterion-text" text={load.data.outOfScope} />
+                      </>
+                    )}
+                    {load.data.design && (
+                      <>
+                        <p className="acc-label design-label">Дизайн</p>
+                        <Markdown className="criterion-text" text={load.data.design} />
                       </>
                     )}
                   </div>

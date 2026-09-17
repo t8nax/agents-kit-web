@@ -18,6 +18,7 @@ const questions = (vsCodeSession: boolean) => ({
   task: 'Окно ответа',
   criteria: [{ title: '1. Окно есть', text: 'Оператор отвечает из панели.' }],
   outOfScope: null,
+  design: null,
   vsCodeSession,
   questions: [{ title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null }],
 })

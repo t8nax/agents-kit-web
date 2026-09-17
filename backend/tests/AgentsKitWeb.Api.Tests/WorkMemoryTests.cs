@@ -25,6 +25,9 @@ public class WorkMemoryTests
         ### Не входит
         Health баз.
 
+        ### Дизайн
+        Макет таблицы: https://claude.ai/artifact/AbC123
+
         ## Оператору
 
         ## Агенту
@@ -78,6 +81,23 @@ public class WorkMemoryTests
             ],
             memory.Criteria);
         Assert.Equal("Health баз.", memory.OutOfScope);
+    }
+
+    [Fact]
+    public void Parse_Design_ReadsDesignSubsectionApartFromCriteria()
+    {
+        var memory = WorkMemory.Parse(Memory);
+
+        Assert.Equal("Макет таблицы: https://claude.ai/artifact/AbC123", memory.Design);
+        Assert.DoesNotContain(memory.Criteria, c => c.Title == "Дизайн");
+    }
+
+    [Fact]
+    public void Parse_WithoutDesignSubsection_HasNullDesign()
+    {
+        var memory = WorkMemory.Parse(Memory.Replace("### Дизайн\nМакет таблицы: https://claude.ai/artifact/AbC123\n\n", ""));
+
+        Assert.Null(memory.Design);
     }
 
     [Fact]

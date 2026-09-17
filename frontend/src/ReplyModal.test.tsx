@@ -29,6 +29,7 @@ const questions: QuestionsResponse = {
     { title: '2. Строка перестаёт ждать', text: null },
   ],
   outOfScope: 'Health баз.',
+  design: null,
   vsCodeSession: true,
   questions: [
     { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
@@ -85,6 +86,31 @@ test('окно показывает заголовок и текст каждо�
   expect(dialog.getByText('Не входит')).toBeInTheDocument()
   expect(dialog.getByText('Health баз.')).toBeInTheDocument()
   expect(dialog.queryByText('Критерии не записаны')).not.toBeInTheDocument()
+})
+
+test('макет задачи показывается блоком «Дизайн» со ссылкой', async () => {
+  stubApi(() => new Response(null, { status: 204 }), {
+    ...questions,
+    design: 'Макет окна ответа: https://claude.ai/artifact/AbC123',
+  })
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  expect(dialog.getByText('Дизайн')).toBeInTheDocument()
+  const link = document.querySelector('.design-label + .criterion-text a')!
+  expect(link).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123')
+  expect(link).toHaveAttribute('target', '_blank')
+})
+
+test('у задачи без макета блока «Дизайн» в окне нет', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  expect(dialog.queryByText('Дизайн')).not.toBeInTheDocument()
+  expect(document.querySelector('.design-label')).toBeNull()
 })
 
 test('окно без критериев говорит, что они не записаны', async () => {
