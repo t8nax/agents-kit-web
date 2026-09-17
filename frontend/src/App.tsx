@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import Backlog from './Backlog'
+import Flow, { FlowIcon } from './Flow'
 import {
   notificationsActive,
   notifyStatusChange,
@@ -53,7 +54,7 @@ const refreshIntervalMs = 3000
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
-type Section = 'workspaces' | 'backlog' | 'problems' | 'settings'
+type Section = 'workspaces' | 'backlog' | 'flow' | 'problems' | 'settings'
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
@@ -155,6 +156,8 @@ function App() {
             </>
           ) : section === 'backlog' ? (
             <Backlog />
+          ) : section === 'flow' ? (
+            <Flow />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
           ) : (
@@ -210,6 +213,9 @@ function Sidebar({
           onClick={() => onSection('backlog')}
         >
           <ListIcon />
+        </SideItem>
+        <SideItem label="Флоу" expanded={expanded} active={section === 'flow'} onClick={() => onSection('flow')}>
+          <FlowIcon />
         </SideItem>
         <SideItem
           label="Проблемы баз"
