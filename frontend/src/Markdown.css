@@ -72,6 +72,7 @@
 .markdown a,
 .markdown-inline a {
   color: var(--accent-waiting-text);
+  overflow-wrap: anywhere;
 }
 
 .markdown hr {

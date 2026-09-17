@@ -5,6 +5,7 @@ namespace AgentsKitWeb.Api.Flow;
 /// <summary>Коммит одного файла базы. Error — вывод git, когда коммит не прошёл.</summary>
 public sealed record CommitResult(bool Done, string? Error);
 
+/// <summary>Git в базе: коммит одного файла и чтение его состояния.</summary>
 public static class BaseGit
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
@@ -14,11 +15,31 @@ public static class BaseGit
     /// то, что соседняя сессия оставила в индексе, а при отказе хука не оставляет в индексе и сам файл.
     /// Файл должен уже быть в истории: flow.md заводит в базе кит.
     /// </summary>
-    public static Task<CommitResult> CommitFileAsync(
-        string basePath, string file, string message, CancellationToken cancellationToken) =>
-        RunAsync(basePath, cancellationToken, "commit", "-m", message, "--", file);
+    public static async Task<CommitResult> CommitFileAsync(
+        string basePath, string file, string message, CancellationToken cancellationToken)
+    {
+        var run = await RunAsync(basePath, cancellationToken, "commit", "-m", message, "--", file);
+        return run.ExitCode == 0 ? new CommitResult(true, null) : new CommitResult(false, run.Output);
+    }
 
-    private static async Task<CommitResult> RunAsync(string basePath, CancellationToken cancellationToken, params string[] args)
+    /// <summary>Файл базы изменён и не закоммичен. null — git не ответил.</summary>
+    public static async Task<bool?> IsDirtyAsync(string basePath, string file, CancellationToken cancellationToken)
+    {
+        var run = await RunAsync(basePath, cancellationToken, "status", "--porcelain", "--", file);
+        return run.ExitCode == 0 ? run.Output.Length > 0 : null;
+    }
+
+    /// <summary>Короткий sha последнего коммита, менявшего файл базы. null — git не ответил.</summary>
+    public static async Task<string?> LastCommitAsync(string basePath, string file, CancellationToken cancellationToken)
+    {
+        var run = await RunAsync(basePath, cancellationToken, "log", "-1", "--format=%h", "--", file);
+        return run.ExitCode == 0 && run.Output.Length > 0 ? run.Output : null;
+    }
+
+    /// <summary>ExitCode null — git не запустился или не ответил вовремя. Output — stderr и stdout без пустых краёв.</summary>
+    private sealed record GitRun(int? ExitCode, string Output);
+
+    private static async Task<GitRun> RunAsync(string basePath, CancellationToken cancellationToken, params string[] args)
     {
         var startInfo = new ProcessStartInfo("git")
         {
@@ -38,7 +59,7 @@ public static class BaseGit
 
         using var process = Process.Start(startInfo);
         if (process is null)
-            return new CommitResult(false, "git не запустился");
+            return new GitRun(null, "git не запустился");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         // Хук коммита базы может гонять сверку кита — ей нужно время.
@@ -48,14 +69,14 @@ public static class BaseGit
             var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
             var error = process.StandardError.ReadToEndAsync(timeout.Token);
             await process.WaitForExitAsync(timeout.Token);
-            return process.ExitCode == 0
-                ? new CommitResult(true, null)
-                : new CommitResult(false, string.Join("\n", new[] { await error, await output }.Select(t => t.Trim()).Where(t => t.Length > 0)));
+            return new GitRun(
+                process.ExitCode,
+                string.Join("\n", new[] { await error, await output }.Select(t => t.Trim()).Where(t => t.Length > 0)));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             process.Kill(entireProcessTree: true);
-            return new CommitResult(false, "git не ответил вовремя");
+            return new GitRun(null, "git не ответил вовремя");
         }
     }
 }

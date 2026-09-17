@@ -9,7 +9,7 @@ export type FlowStep = {
   executor: string
   output: string
   skip: string | null
-  /** Описание шага пунктами — как в файле. Панель его не показывает, а переносит при записи. */
+  /** Описание шага как в файле — абзацы, списки, пункты «N.1.». Панель его не показывает, а переносит при записи. */
   description: string | null
 }
 
@@ -87,8 +87,7 @@ function renumber(description: string, number: number) {
   return description.replace(pointNumber, `$1${number}`)
 }
 
-const pointCount = (description: string | null) =>
-  description?.split('\n').filter((line) => /^\s*\d+(?:\.\d+)+\./.test(line)).length ?? 0
+const hasDescription = (description: string | null) => Boolean(description?.trim())
 
 const sameStep = (a: FlowStep, b: FlowStep) =>
   a.title === b.title &&
@@ -497,13 +496,13 @@ function FlowForm({
               />
               <button
                 type="button"
-                className="bases-btn bases-btn-small flow-description-btn"
+                className={`bases-btn bases-btn-small flow-description-btn${hasDescription(step.description) ? '' : ' flow-description-empty'}`}
                 aria-label={`Описание шага ${number}`}
-                title="Описание шага текстом"
+                title={hasDescription(step.description) ? 'Описание шага текстом' : 'Описания нет — добавить'}
                 onClick={() => setDescribing(step.key)}
               >
                 <FileTextIcon />
-                {pointCount(step.description) > 0 ? `Описание · ${pointCount(step.description)} п.` : 'Описание'}
+                Описание
               </button>
               <IconButton label={`Шаг ${number} выше`} disabled={index === 0} onClick={() => move(index, index - 1)}>
                 <ChevronUpIcon />
@@ -636,10 +635,6 @@ function DescriptionEditor({
           <span className="entry-num">{number}</span>
           <h3 id="flow-description-title">Описание шага «{title.trim() || 'без названия'}»</h3>
         </div>
-        <p className="text-ter">
-          Пункты — «{number}.1.», вложенные — с отступом «{number}.1.1.», пояснение — строкой с отступом под пунктом.
-          Когда шаг переставят, номер шага в пунктах панель поправит сама.
-        </p>
         <textarea
           ref={field}
           className="flow-input flow-description-text"

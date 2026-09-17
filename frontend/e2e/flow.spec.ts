@@ -131,18 +131,42 @@ test('описание шага правится текстом в окне и �
   const region = await openFlow(page)
   await page.getByRole('button', { name: 'Править' }).click()
 
+  // Шаг без описания — та же надпись, кнопка приглушена пунктиром
+  const empty = region.getByRole('button', { name: 'Описание шага 3' })
+  await expect(empty).toHaveText('Описание')
+  await expect(empty).toHaveCSS('border-top-style', 'dashed')
+  await expect(region.getByRole('button', { name: 'Описание шага 1' })).toHaveCSS('border-top-style', 'solid')
+
   await region.getByRole('button', { name: 'Описание шага 1' }).click()
   const dialog = page.getByRole('dialog', { name: 'Описание шага «Критерий»' })
   const text = dialog.getByRole('textbox', { name: 'Описание шага' })
   await expect(text).toBeFocused()
   await expect(text).toHaveValue('1.1. Написать критерий.')
-  await text.press('End')
+  await expect(dialog.locator('p')).toHaveCount(0)
+  // Описание свободным текстом: абзац, пустая строка, списки «-» и «1.»
+  await text.press('ControlOrMeta+Home')
+  await text.pressSequentially('Критерий пишется до кода.')
   await text.press('Enter')
-  await text.pressSequentially('1.2. Вынести на подтверждение.')
+  await text.press('Enter')
+  await text.pressSequentially('- проверяемый;')
+  await text.press('Enter')
+  await text.pressSequentially('1. с макетом.')
+  await text.press('Enter')
+  await text.press('Enter')
   await dialog.getByRole('button', { name: 'Готово' }).click()
-  await expect(region.getByRole('button', { name: 'Описание шага 1' })).toHaveText('Описание · 2 п.')
+  await expect(region.getByRole('button', { name: 'Описание шага 1' })).toHaveText('Описание')
+
+  // Шаг переставлен: в окне меняется только номер пункта «N.M.»
+  await region.getByRole('button', { name: 'Шаг 1 ниже' }).click()
+  await region.getByRole('button', { name: 'Описание шага 2' }).click()
+  await expect(page.getByRole('textbox', { name: 'Описание шага' })).toHaveValue(
+    'Критерий пишется до кода.\n\n- проверяемый;\n1. с макетом.\n\n2.1. Написать критерий.',
+  )
+  await page.getByRole('dialog').getByRole('button', { name: 'Отмена' }).click()
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
-  expect((calls.flow[0] as { steps: Step[] }).steps[0].description).toBe('1.1. Написать критерий.\n1.2. Вынести на подтверждение.')
+  expect((calls.flow[0] as { steps: Step[] }).steps[1].description).toBe(
+    'Критерий пишется до кода.\n\n- проверяемый;\n1. с макетом.\n\n1.1. Написать критерий.',
+  )
 })

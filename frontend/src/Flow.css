@@ -358,6 +358,14 @@
   height: 14px;
 }
 
+/* Шаг без описания: надпись та же, кнопка приглушена пунктиром */
+.flow-description-btn.flow-description-empty {
+  background: transparent;
+  color: var(--text-tertiary);
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+
 .flow-description .flow-step-head h3 {
   margin: 0;
 }

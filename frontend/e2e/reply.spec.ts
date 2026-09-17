@@ -126,3 +126,72 @@ test('набранный ответ возвращается после закр
   dialog = await open()
   await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю, но без e2e')
 })
+
+// /api подменяется, как и выше; внешняя страница тоже подменена, чтобы прогон не ходил в сеть.
+test('ссылка из вопроса открывается в новой вкладке, окно ответа и набранное остаются', async ({ page, context }) => {
+  const longUrl = `https://example.com/${'verylongsegment'.repeat(20)}end`
+  await context.route('https://example.com/**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<title>Внешняя страница</title>' }),
+  )
+  await page.route('**/api/workspaces', (route) =>
+    route.fulfill({
+      json: [
+        {
+          project: 'app-knowledge',
+          base: 'D:\\Projects\\app-knowledge',
+          path: 'D:\\Projects\\app',
+          branch: 'feat/reply',
+          task: 'Окно ответа',
+          flowStep: 'Критерий',
+          progress: 0,
+          status: 'waiting',
+          error: null,
+        },
+      ],
+    }),
+  )
+  await page.route('**/api/questions?**', (route) =>
+    route.fulfill({
+      json: {
+        project: 'app-knowledge',
+        copy: 'D:\\Projects\\app',
+        task: 'Окно ответа',
+        criteria: [],
+        outOfScope: null,
+        vsCodeSession: false,
+        questions: [
+          {
+            title: 'Куда переносить выгрузку?',
+            context: `Объявление в заявке https://example.com/tickets/OPS-1\n\nПример адреса: ${longUrl}`,
+            variants: [],
+            answer: null,
+          },
+        ],
+      },
+    }),
+  )
+
+  await page.goto('/')
+  await page.getByRole('row', { name: /Окно ответа/ }).getByRole('button', { name: 'Ответить' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
+  await dialog.getByLabel('Ответ').fill('в новую папку')
+
+  const link = dialog.getByRole('link', { name: 'https://example.com/tickets/OPS-1' })
+  await expect(link).toBeVisible()
+  await expect(link.locator('svg')).toHaveCount(0)
+
+  // длинный адрес переносится внутри колонки и не раздвигает окно
+  const box = (await dialog.locator('.question-box').boundingBox())!
+  const column = (await dialog.locator('.central-column').boundingBox())!
+  expect(box.width).toBeLessThanOrEqual(column.width + 1)
+  const scroll = await dialog.locator('.modal-scroll-area').evaluate((el) => el.scrollWidth <= el.clientWidth)
+  expect(scroll).toBe(true)
+
+  const [tab] = await Promise.all([context.waitForEvent('page'), link.click()])
+  await tab.waitForLoadState()
+  expect(tab.url()).toBe('https://example.com/tickets/OPS-1')
+
+  expect(page.url()).not.toContain('example.com')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByLabel('Ответ')).toHaveValue('в новую папку')
+})

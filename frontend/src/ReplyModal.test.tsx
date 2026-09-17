@@ -156,6 +156,41 @@ test('заголовок, контекст и критерий показыва�
   expect(dialog.getByText('таблице копий').tagName).toBe('EM')
 })
 
+test('адреса в заголовке, контексте и критериях — ссылки в новую вкладку, в вариантах — текст', async () => {
+  stubApi(() => new Response(null, { status: 204 }), {
+    ...questions,
+    criteria: [{ title: '1. Смотреть https://example.com/c-title', text: 'Где: https://example.com/c-text' }],
+    outOfScope: 'Не трогаем https://example.com/out',
+    questions: [
+      {
+        title: 'Что с https://example.com/q-title?',
+        context: 'Объявление: https://example.com/q-context',
+        variants: [{ choice: 'Как в https://example.com/v', effect: 'См. https://example.com/e', recommended: false }],
+        answer: null,
+      },
+    ],
+  })
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: /Что с/ })
+
+  const hrefs = dialog.getAllByRole('link').map((link) => {
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    return link.getAttribute('href')
+  })
+  expect(hrefs.sort()).toEqual(
+    [
+      'https://example.com/c-text',
+      'https://example.com/c-title',
+      'https://example.com/out',
+      'https://example.com/q-context',
+      'https://example.com/q-title',
+    ].sort(),
+  )
+  expect(dialog.getByRole('button', { name: /Как в https:\/\/example\.com\/v/ })).toBeInTheDocument()
+})
+
 test('пустой ответ не отправляется: окно открывает этот вопрос', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())

@@ -5,9 +5,9 @@ const rows = [
   {
     project: 'agents-kit-web',
     base: 'D:\\Projects\\agents-kit-web-knowledge',
-    // Кириллица в пути — чтобы моноширинный шрифт рисовал и её
-    path: 'D:\\Проекты\\agents-kit-web',
-    branch: 'feat/panel-fonts',
+    path: 'D:\\Projects\\agents-kit-web',
+    // Кириллица в ветке — чтобы моноширинный шрифт рисовал и её: путь копии в таблице не показан
+    branch: 'feat/шрифты-панели',
     task: 'Шрифты панели',
     flowStep: 'Реализация',
     progress: 40,

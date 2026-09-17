@@ -114,6 +114,21 @@
   color: var(--text-tertiary);
 }
 
+/* Запись, которую только что добавил агент из панели, — до следующего «Обновить». */
+.entry-fresh {
+  border-color: var(--accent-active-border);
+}
+
+.entry-fresh-badge {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--accent-active-text);
+  background: var(--accent-active-bg);
+  border: 1px solid var(--accent-active-border);
+}
+
 .entry-overlay {
   position: fixed;
   inset: 0;

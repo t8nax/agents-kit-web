@@ -41,9 +41,11 @@ app.MapPost("/api/health/check", (HealthMonitor health) =>
 
 app.MapAskEndpoints();
 app.MapBacklogEndpoints();
+app.MapBacklogWriteEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
 app.MapFoldersEndpoints();
+app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.

@@ -17,8 +17,10 @@ public sealed record AskEvent(
 /// <summary>
 /// Разбор вывода `claude -p --output-format stream-json --verbose`: вызовы инструментов становятся строками
 /// хода, итог — ответом или ошибкой. Формат задаёт Claude Code; строки, которых разбор не знает, пропускаются.
+/// copyPath задан — агент работает в копии проекта: её файлы называются от копии, а файлы вне базы и копии
+/// (правила кита в профиле) — одним именем.
 /// </summary>
-public sealed class ClaudeStream(string basePath)
+public sealed class ClaudeStream(string basePath, string? copyPath = null)
 {
     private readonly List<string> _files = [];
     private readonly List<string> _unparsed = [];
@@ -93,6 +95,10 @@ public sealed class ClaudeStream(string basePath)
                 return where is null ? $"ищет «{pattern}»" : $"ищет «{pattern}» в {where}";
             case "Glob" when Text(input, "pattern") is { } glob:
                 return $"ищет файлы {glob}";
+            case "Edit" when Text(input, "file_path") is { } edited:
+                return $"правит {Relative(edited)}";
+            case "PowerShell" when Text(input, "command") is { } command:
+                return command.Contains(" commit ", StringComparison.Ordinal) ? "коммитит бэклог" : "запускает команду";
             default:
                 return null;
         }
@@ -100,9 +106,15 @@ public sealed class ClaudeStream(string basePath)
 
     private string Relative(string path)
     {
-        var relative = Path.IsPathFullyQualified(path) ? Path.GetRelativePath(basePath, path) : path;
-        return relative.Replace('\\', '/');
+        if (!Path.IsPathFullyQualified(path))
+            return path.Replace('\\', '/');
+        if (copyPath is not null && !Inside(basePath, path))
+            return Inside(copyPath, path) ? Path.GetRelativePath(copyPath, path).Replace('\\', '/') : Path.GetFileName(path);
+        return Path.GetRelativePath(basePath, path).Replace('\\', '/');
     }
+
+    private static bool Inside(string root, string path) =>
+        path.StartsWith(root.TrimEnd('\\', '/') + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     private static string? Text(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
