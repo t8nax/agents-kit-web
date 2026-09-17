@@ -20,6 +20,10 @@ public sealed record OpenSessionRequest(string Base, string Copy);
 
 public sealed record OpenSessionFailedResponse(string Problem);
 
+public sealed record OpenWorkspaceRequest(string Base, string Copy);
+
+public sealed record OpenWorkspaceFailedResponse(string Problem);
+
 public static class OperatorEndpoints
 {
     public static void MapOperatorEndpoints(this IEndpointRouteBuilder app)
@@ -60,6 +64,24 @@ public static class OperatorEndpoints
                 : Results.Json(new OpenSessionFailedResponse("not-raised"), statusCode: StatusCodes.Status502BadGateway);
         });
 
+        // Кнопка строки таблицы: копия открывается в VS Code — свободная и занятая одинаково.
+        app.MapPost("/api/workspace/open", async (
+            OpenWorkspaceRequest request,
+            BasesStore bases,
+            AgentSessions sessions,
+            IEditorWindows windows,
+            CancellationToken cancellationToken) =>
+        {
+            if (await FindCopy(bases, request.Base, request.Copy, cancellationToken) is not { } copy)
+                return Results.NotFound();
+
+            // Сессия копии идёт в VS Code — её окно поднимается; иначе открывается окно на папке,
+            // а сессию в нём заводит оператор.
+            return Opened(sessions.VsCodeIn(copy) is not null
+                ? await windows.RaiseAsync(copy, cancellationToken)
+                : await windows.OpenAsync(copy, cancellationToken));
+        });
+
         app.MapPost("/api/answers", async (AnswersRequest request, BasesStore bases, CancellationToken cancellationToken) =>
         {
             if (FindMemory(bases, request.Base, request.Copy) is not { } found)
@@ -87,6 +109,25 @@ public static class OperatorEndpoints
             ? found
             : null;
     }
+
+    // Копия берётся из тех же строк, что и таблица: путь из запроса сам по себе прав не даёт,
+    // а открывать нечего там, где строка пришла с ошибкой.
+    private static async Task<string?> FindCopy(
+        BasesStore bases, string basePath, string copy, CancellationToken cancellationToken)
+    {
+        var configured = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, basePath));
+        if (configured is null)
+            return null;
+
+        var rows = await WorkspaceCollector.CollectAsync([configured], cancellationToken);
+        var wanted = WorkspaceCollector.Normalize(copy);
+        return rows.FirstOrDefault(row => row.Error is null
+            && WorkspaceCollector.Normalize(row.Path).Equals(wanted, StringComparison.OrdinalIgnoreCase))?.Path;
+    }
+
+    private static IResult Opened(bool done) => done
+        ? Results.NoContent()
+        : Results.Json(new OpenWorkspaceFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
 
     private static AnswersRejectedResponse Rejected(AnswerRejection rejection) => new(
         rejection.Question,

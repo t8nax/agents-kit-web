@@ -94,6 +94,53 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
 })
 
+test('кнопка «Открыть в VS Code» стоит у прочитанных копий и открывает ту, чью строку нажали', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/workspace/open'
+      ? new Response(null, { status: 204 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await screen.findAllByRole('row')
+
+  // Строка с ошибкой открывать нечего — у неё кнопки нет
+  expect(within(tableRows[1]).getByRole('button', { name: 'Открыть D:\\Projects\\app в VS Code' })).toBeInTheDocument()
+  expect(within(tableRows[2]).getByRole('button', { name: /Открыть .* в VS Code/ })).toBeInTheDocument()
+  expect(within(tableRows[3]).queryByRole('button', { name: /в VS Code/ })).not.toBeInTheDocument()
+
+  await act(async () => {
+    fireEvent.click(within(tableRows[2]).getByRole('button', { name: /в VS Code/ }))
+  })
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspace/open', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' }),
+  })
+})
+
+test('копия не открылась — панель говорит об этом строкой', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/workspace/open'
+      ? new Response(JSON.stringify({ problem: 'not-opened' }), { status: 502 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await screen.findAllByRole('row')
+
+  await act(async () => {
+    fireEvent.click(within(tableRows[2]).getByRole('button', { name: /в VS Code/ }))
+  })
+
+  expect(
+    await screen.findByText('Не удалось открыть VS Code на D:\\Projects\\app-wt'),
+  ).toBeInTheDocument()
+})
+
 test('сайдбар переключает разделы и открывает окно баз', async () => {
   const fetchMock = vi.fn(async (url: string) =>
     url === '/api/backlog'

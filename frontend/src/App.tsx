@@ -10,6 +10,7 @@ import {
 } from './notifications'
 import ReplyModal from './ReplyModal'
 import { rowKey, statusChanges } from './statusChanges'
+import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
 export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
@@ -344,63 +345,107 @@ function BellOffIcon() {
 }
 
 function WorkspacesTable({ rows, onReply }: { rows: WorkspaceRow[]; onReply: (row: WorkspaceRow) => void }) {
+  const [opening, setOpening] = useState<string | null>(null)
+  const [openError, setOpenError] = useState<string | null>(null)
+
+  // Окно открывается не мгновенно, а таблица тем временем живёт своим опросом: кнопка ждёт ответа API.
+  async function openInVsCode(row: WorkspaceRow) {
+    setOpening(row.path)
+    setOpenError(null)
+    try {
+      const response = await fetch('/api/workspace/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base: row.base, copy: row.path }),
+      })
+      if (response.ok) return
+      setOpenError(
+        response.status === 404
+          ? `Копия ${row.path} больше не числится за базой`
+          : `Не удалось открыть VS Code на ${row.path}`,
+      )
+    } catch {
+      setOpenError(`Не удалось открыть VS Code на ${row.path}: нет связи с API`)
+    } finally {
+      setOpening(null)
+    }
+  }
+
   return (
-    <table>
-      <thead>
-        <tr>
-          <th>Проект и копия</th>
-          <th>Задача</th>
-          <th>Шаг флоу</th>
-          <th>Прогресс</th>
-          <th>Статус</th>
-          <th>Проблемы</th>
-          <th>
-            <span className="visually-hidden">Действия</span>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={rowKey(row)}>
-            <td>
-              <div className="proj">{row.project}</div>
-              <div className="mono text-sec sub">
-                {row.branch ? `${row.branch} · ${row.path}` : row.path}
-              </div>
-            </td>
-            {row.error ? (
-              <td className="task-col" colSpan={4}>
-                <span className="warning-text">
-                  <WarningIcon />
-                  {row.error}
-                </span>
-              </td>
-            ) : (
-              <>
-                <td className={`task-col ${row.task ? '' : 'text-ter'}`}>{row.task ?? '—'}</td>
-                <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
-                <td className={row.progress === null ? 'text-ter' : ''}>
-                  {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
-                </td>
-                <td>
-                  {row.status && (
-                    <span className={`status-badge status-${row.status}`}>{statusLabels[row.status]}</span>
-                  )}
-                </td>
-              </>
-            )}
-            <td className="text-sec">-</td>
-            <td>
-              {row.status === 'waiting' && (
-                <button type="button" className="action-btn-waiting" onClick={() => onReply(row)}>
-                  Ответить
-                </button>
-              )}
-            </td>
+    <>
+      {openError && <p className="message warning-text">{openError}</p>}
+      <table>
+        <thead>
+          <tr>
+            <th>Проект и копия</th>
+            <th>Задача</th>
+            <th>Шаг флоу</th>
+            <th>Прогресс</th>
+            <th>Статус</th>
+            <th>Проблемы</th>
+            <th>
+              <span className="visually-hidden">Действия</span>
+            </th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={rowKey(row)}>
+              <td>
+                <div className="proj">{row.project}</div>
+                <div className="mono text-sec sub">
+                  {row.branch ? `${row.branch} · ${row.path}` : row.path}
+                </div>
+              </td>
+              {row.error ? (
+                <td className="task-col" colSpan={4}>
+                  <span className="warning-text">
+                    <WarningIcon />
+                    {row.error}
+                  </span>
+                </td>
+              ) : (
+                <>
+                  <td className={`task-col ${row.task ? '' : 'text-ter'}`}>{row.task ?? '—'}</td>
+                  <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
+                  <td className={row.progress === null ? 'text-ter' : ''}>
+                    {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
+                  </td>
+                  <td>
+                    {row.status && (
+                      <span className={`status-badge status-${row.status}`}>{statusLabels[row.status]}</span>
+                    )}
+                  </td>
+                </>
+              )}
+              <td className="text-sec">-</td>
+              <td>
+                <div className="row-actions">
+                  {row.status === 'waiting' && (
+                    <button type="button" className="action-btn-waiting" onClick={() => onReply(row)}>
+                      Ответить
+                    </button>
+                  )}
+                  {/* Строке с ошибкой открывать нечего: копии на диске нет или её не прочитали. */}
+                  {!row.error && (
+                    <button
+                      type="button"
+                      className="action-btn-code"
+                      disabled={opening === row.path}
+                      aria-label={`Открыть ${row.path} в VS Code`}
+                      title={`Открыть ${row.path} в VS Code`}
+                      onClick={() => void openInVsCode(row)}
+                    >
+                      <VsCodeIcon />
+                    </button>
+                  )}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   )
 }
 

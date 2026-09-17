@@ -400,6 +400,44 @@ td.task-col {
   outline-offset: 2px;
 }
 
+.row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе со значком. */
+.action-btn-code {
+  display: inline-flex;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: #0098ff;
+  cursor: pointer;
+}
+
+.action-btn-code svg {
+  width: 16px;
+  height: 16px;
+}
+
+.action-btn-code:hover:not(:disabled) {
+  border-color: rgba(0, 152, 255, 0.35);
+  background: rgba(0, 152, 255, 0.12);
+}
+
+.action-btn-code:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.action-btn-code:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
