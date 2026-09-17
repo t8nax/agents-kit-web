@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import Backlog from './Backlog'
+import { useCollapsedGroups } from './collapsedGroups'
 import Flow, { FlowIcon } from './Flow'
 import {
   notificationsActive,
@@ -410,6 +411,7 @@ function WorkspacesTable({
 }) {
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
+  const groups = useCollapsedGroups()
 
   // Окно открывается не мгновенно, а таблица тем временем живёт своим опросом: кнопка ждёт ответа API.
   async function openInVsCode(row: WorkspaceRow) {
@@ -445,7 +447,7 @@ function WorkspacesTable({
       <table>
         <thead>
           <tr>
-            <th>Проект и копия</th>
+            <th>Копия</th>
             <th className="num-col">№</th>
             <th>Задача</th>
             <th>Шаг флоу</th>
@@ -457,14 +459,38 @@ function WorkspacesTable({
             </th>
           </tr>
         </thead>
-        <tbody>
-          {rows.map((row) => (
+        {groupByBase(rows).map((group) => {
+          const collapsed = groups.isCollapsed(group.base)
+          const waiting = group.rows.filter((row) => row.status === 'waiting').length
+          return (
+            <tbody key={group.base}>
+              <tr className="group-row">
+                <th scope="rowgroup" colSpan={columnCount}>
+                  <div className="group-head">
+                    <button
+                      type="button"
+                      className="group-toggle"
+                      aria-expanded={!collapsed}
+                      aria-label={`${collapsed ? 'Развернуть' : 'Свернуть'} ${group.project}`}
+                      title={collapsed ? 'Развернуть' : 'Свернуть'}
+                      onClick={() => groups.toggle(group.base)}
+                    >
+                      <ChevronIcon />
+                    </button>
+                    <span className="group-name">{group.project}</span>
+                    {collapsed && waiting > 0 && <span className="group-waiting-dot" aria-hidden="true" />}
+                    <span className="group-meta">
+                      {plural(group.rows.length, 'копия', 'копии', 'копий')}
+                      {waiting > 0 && ` · ${waiting} ${waiting === 1 ? 'ждёт' : 'ждут'} оператора`}
+                    </span>
+                  </div>
+                </th>
+              </tr>
+              {!collapsed && group.rows.map((row) => (
             <tr key={rowKey(row)}>
-              <td>
-                <div className="proj">{row.project}</div>
-                <div className="mono text-sec sub">
-                  {row.branch ? `${row.branch} · ${row.path}` : row.path}
-                </div>
+              <td title={row.path}>
+                <div className="proj">{copyName(row.path)}</div>
+                {row.branch && <div className="mono text-sec sub">{row.branch}</div>}
               </td>
               {row.error ? (
                 <td className="task-col" colSpan={5}>
@@ -511,10 +537,40 @@ function WorkspacesTable({
                 </div>
               </td>
             </tr>
-          ))}
-        </tbody>
+              ))}
+            </tbody>
+          )
+        })}
       </table>
     </>
+  )
+}
+
+const columnCount = 8
+
+type WorkspaceGroup = { base: string; project: string; rows: WorkspaceRow[] }
+
+// Группа — база копий; группы и копии в них идут в порядке, в каком их отдал API
+function groupByBase(rows: WorkspaceRow[]): WorkspaceGroup[] {
+  const groups = new Map<string, WorkspaceGroup>()
+  for (const row of rows) {
+    const group = groups.get(row.base)
+    if (group) group.rows.push(row)
+    else groups.set(row.base, { base: row.base, project: row.project, rows: [row] })
+  }
+  return [...groups.values()]
+}
+
+// Имя копии — последний каталог её пути
+function copyName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
+}
+
+function ChevronIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
   )
 }
 

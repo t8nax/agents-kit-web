@@ -30,6 +30,12 @@ function fakeInterval() {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
 }
 
+// Строки таблицы без заголовков групп: шапка колонок и строки копий
+async function findTableRows() {
+  const all = await screen.findAllByRole('row')
+  return all.filter((row) => within(row).queryByRole('rowheader') === null)
+}
+
 const rows: WorkspaceRow[] = [
   {
     project: 'app-knowledge',
@@ -72,13 +78,16 @@ test('показывает рабочие копии из /api/workspaces', asyn
 
   render(<App />)
 
-  const tableRows = await screen.findAllByRole('row')
+  const tableRows = await findTableRows()
   expect(fetchMock).toHaveBeenCalledWith('/api/workspaces')
   expect(screen.getByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
   expect(tableRows).toHaveLength(4)
 
   const waiting = within(tableRows[1])
-  expect(waiting.getByText('feat/table · D:\\Projects\\app')).toBeInTheDocument()
+  // Проект назван в заголовке группы, в строке — имя копии и ветка
+  expect(waiting.getByText('app')).toBeInTheDocument()
+  expect(waiting.getByText('feat/table')).toBeInTheDocument()
+  expect(waiting.queryByText('app-knowledge')).not.toBeInTheDocument()
   expect(waiting.getByText('Таблица рабочих копий')).toBeInTheDocument()
   expect(waiting.getByText('Реализация')).toBeInTheDocument()
   expect(waiting.getByText('33%')).toBeInTheDocument()
@@ -94,6 +103,63 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
 })
 
+const otherBase: WorkspaceRow = {
+  ...rows[1],
+  project: 'Nota',
+  base: 'D:\\Projects\\nota-knowledge',
+  path: 'D:\\Projects\\nota',
+  branch: 'main',
+  status: 'waiting',
+}
+
+test('копии собраны под заголовками своих проектов в порядке API', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, otherBase]), { status: 200 })))
+
+  render(<App />)
+  const all = await screen.findAllByRole('row')
+
+  // Шапка колонок, группа app-knowledge с тремя копиями, группа Nota с одной
+  const heads = all.map((row) => within(row).queryByRole('rowheader')?.textContent ?? null)
+  expect(heads).toEqual([
+    null,
+    'app-knowledge3 копии · 1 ждёт оператора',
+    null,
+    null,
+    null,
+    'Nota1 копия · 1 ждёт оператора',
+    null,
+  ])
+  expect(within(all[5]).getByRole('rowheader')).toHaveAttribute('colspan', '8')
+  expect(within(all[6]).getByText('nota')).toBeInTheDocument()
+})
+
+test('группа сворачивается, свёрнутая помнится браузером и показывает, что в ней ждут', async () => {
+  // Таблица рендерится дважды, а тело ответа читается один раз — на каждый запрос свой ответ
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([...rows, otherBase]), { status: 200 })))
+
+  const { unmount } = render(<App />)
+  const toggle = await screen.findByRole('button', { name: 'Свернуть app-knowledge' })
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  expect(document.querySelector('.group-waiting-dot')).toBeNull()
+
+  fireEvent.click(toggle)
+
+  expect(screen.getByRole('button', { name: 'Развернуть app-knowledge' })).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByText('Таблица рабочих копий')).not.toBeInTheDocument()
+  expect(screen.getByText('nota')).toBeInTheDocument()
+  expect(document.querySelectorAll('.group-waiting-dot')).toHaveLength(1)
+  expect(localStorage.getItem('agents-kit-web.collapsed-groups')).toBe(JSON.stringify(['D:\\Projects\\app-knowledge']))
+
+  unmount()
+  render(<App />)
+  expect(await screen.findByRole('button', { name: 'Развернуть app-knowledge' })).toBeInTheDocument()
+  expect(screen.queryByText('Таблица рабочих копий')).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Развернуть app-knowledge' }))
+  expect(screen.getByText('Таблица рабочих копий')).toBeInTheDocument()
+  expect(localStorage.getItem('agents-kit-web.collapsed-groups')).toBe('[]')
+})
+
 test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
   const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой' }
   const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога' }
@@ -102,9 +168,9 @@ test('номер задачи из бэклога стоит своей коло
 
   render(<App />)
 
-  const tableRows = await screen.findAllByRole('row')
+  const tableRows = await findTableRows()
   const headers = within(tableRows[0]).getAllByRole('columnheader').map((header) => header.textContent)
-  expect(headers.slice(0, 3)).toEqual(['Проект и копия', '№', 'Задача'])
+  expect(headers.slice(0, 3)).toEqual(['Копия', '№', 'Задача'])
 
   const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((cell) => cell.textContent)
   expect(cells(tableRows[1]).slice(1, 3)).toEqual(['B-24', 'Номер задачи отдельной колонкой'])
@@ -124,7 +190,7 @@ test('кнопка «Открыть в VS Code» стоит у прочитан�
   vi.stubGlobal('fetch', fetchMock)
 
   render(<App />)
-  const tableRows = await screen.findAllByRole('row')
+  const tableRows = await findTableRows()
 
   // Строка с ошибкой открывать нечего — у неё кнопки нет
   expect(within(tableRows[1]).getByRole('button', { name: 'Открыть D:\\Projects\\app в VS Code' })).toBeInTheDocument()
@@ -151,7 +217,7 @@ test('копия не открылась — панель говорит об э
   vi.stubGlobal('fetch', fetchMock)
 
   render(<App />)
-  const tableRows = await screen.findAllByRole('row')
+  const tableRows = await findTableRows()
 
   await act(async () => {
     fireEvent.click(within(tableRows[2]).getByRole('button', { name: /в VS Code/ }))
@@ -218,7 +284,7 @@ test('колонка «Проблемы» показывает число, пр�
   )
 
   render(<App />)
-  const [, withProblems, clean, failed, pending, broken] = await screen.findAllByRole('row')
+  const [, withProblems, clean, failed, pending, broken] = await findTableRows()
 
   // Колонка «Проблемы» — седьмая в строке
   expect(within(clean).getAllByRole('cell')[6]).toHaveTextContent(/^—$/)
@@ -244,7 +310,7 @@ test('без пути к киту таблица говорит об этом в
   )
 
   render(<App />)
-  const [, row] = await screen.findAllByRole('row')
+  const [, row] = await findTableRows()
 
   expect(within(row).getByText('кит не задан')).toBeInTheDocument()
   expect(screen.getByText('Проблемы баз не проверяются: не задан путь к киту.')).toBeInTheDocument()
@@ -322,7 +388,7 @@ test('не опрашивает API на скрытой вкладке и пер
   vi.stubGlobal('fetch', fetchMock)
 
   render(<App />)
-  await screen.findAllByRole('row')
+  await findTableRows()
   expect(fetchMock).toHaveBeenCalledTimes(1)
 
   setVisibility('hidden')
@@ -346,7 +412,7 @@ test('при сбое опроса оставляет таблицу и прод
   vi.stubGlobal('fetch', fetchMock)
 
   render(<App />)
-  await screen.findAllByRole('row')
+  await findTableRows()
 
   await tick(3000)
   expect(await screen.findByText('Нет связи с API')).toBeInTheDocument()
@@ -396,7 +462,7 @@ test('без поддержки уведомлений браузером шап
 
   render(<App />)
 
-  await screen.findAllByRole('row')
+  await findTableRows()
   expect(screen.queryByRole('button', { name: 'Включить уведомления' })).not.toBeInTheDocument()
   expect(screen.queryByText(/Уведомления/)).not.toBeInTheDocument()
 })
@@ -462,7 +528,7 @@ test('при отказе в разрешении шапка это показы
   fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
 
   expect(await screen.findByText('Уведомления запрещены в браузере')).toBeInTheDocument()
-  expect(screen.getAllByRole('row')).toHaveLength(4)
+  expect(await findTableRows()).toHaveLength(4)
 })
 
 test('уведомляет, когда копия начала ждать оператора, и не шлёт на первом опросе', async () => {

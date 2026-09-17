@@ -235,6 +235,82 @@ tbody tr:hover {
   background: var(--bg-surface);
 }
 
+/* Заголовок группы копий одного проекта: строка на всю ширину таблицы */
+tbody tr.group-row:hover {
+  background: none;
+}
+
+.group-row th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-toggle {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.group-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  transition: transform 0.15s ease;
+}
+
+.group-toggle[aria-expanded='false'] svg {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group-toggle svg {
+    transition: none;
+  }
+}
+
+.group-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.group-toggle:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.group-name {
+  font-weight: 600;
+}
+
+.group-waiting-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-waiting-fill);
+}
+
+.group-meta {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 td.task-col {
   width: 32%;
   white-space: normal;
