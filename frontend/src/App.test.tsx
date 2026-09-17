@@ -713,6 +713,7 @@ test('опрос не закрывает окно ответа и не сбра�
     task: 'Таблица рабочих копий',
     criteria: [],
     outOfScope: null,
+    design: null,
     questions: [{ title: 'Какой интервал?', context: null, variants: [], answer: null }],
   }
   const fetchMock = vi.fn(async (url: string) =>
