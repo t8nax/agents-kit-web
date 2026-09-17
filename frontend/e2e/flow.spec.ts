@@ -170,6 +170,8 @@ test('шаг сохраняется как пресет из сайдбара и
   await page.getByRole('button', { name: 'Добавить шаг' }).click()
   const adding = page.getByRole('dialog', { name: 'Добавить шаг' })
   await expect(adding.getByText(/Пресетов пока нет/)).toBeVisible()
+  // Шаги в окне выделены карточками, а не идут сплошным списком
+  await expect(adding.getByRole('button', { name: /^Пустой шаг/ })).toHaveCSS('border-top-style', 'solid')
   await adding.getByRole('button', { name: 'Отмена' }).click()
   await expect(adding).toHaveCount(0)
 

@@ -516,12 +516,13 @@ textarea.flow-input {
   background: var(--accent-done-bg);
 }
 
-/* Список шагов в окне «Добавить шаг» */
+/* Список шагов в окне «Добавить шаг»: каждый шаг — своя карточка, иначе они сливаются. */
 .flow-presets {
   max-height: 50vh;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  gap: 6px;
 }
 
 /* Шаг без описания: надпись та же, кнопка приглушена пунктиром */
@@ -543,7 +544,7 @@ textarea.flow-input {
 }
 
 .flow-presets-label {
-  padding: 8px 10px 4px;
+  padding: 8px 2px 0;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -552,7 +553,7 @@ textarea.flow-input {
 
 .flow-presets-empty {
   margin: 0;
-  padding: 4px 10px 8px;
+  padding: 0 2px 4px;
 }
 
 .flow-preset-row {
@@ -573,18 +574,22 @@ textarea.flow-input {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
-  background: none;
-  border: none;
-  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
   color: var(--text-primary);
   cursor: pointer;
 }
 
-.flow-preset:hover,
-.flow-preset:focus-visible {
+.flow-preset:hover {
   background: var(--bg-surface-hover);
-  outline: none;
+  border-color: var(--border-strong);
+}
+
+.flow-preset:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 .flow-preset-head {
