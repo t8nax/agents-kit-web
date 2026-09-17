@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Unicode;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
 
@@ -29,6 +31,8 @@ public static class AskEndpoints
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        // Ответ агента почти весь по-русски: без этого каждая буква уходит в поток escape-последовательностью.
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
     };
 
     public static void MapAskEndpoints(this IEndpointRouteBuilder app)
