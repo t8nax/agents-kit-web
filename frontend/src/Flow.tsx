@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import './Backlog.css'
 import './Flow.css'
 import { plural } from './plural'
@@ -9,7 +9,7 @@ export type FlowStep = {
   executor: string
   output: string
   skip: string | null
-  /** Описание шага как в файле — абзацы, списки, пункты «N.1.». Панель его не показывает, а переносит при записи. */
+  /** Описание шага пунктами — как в файле. Панель его не показывает, а переносит при записи. */
   description: string | null
 }
 
@@ -20,6 +20,8 @@ export type BaseFlow = {
   activeTasks: number
   version: string | null
   error: string | null
+  /** Значки шагов, выбранные оператором: название шага — значок. Их помнит панель, а не файл флоу. */
+  icons: Record<string, string>
 }
 
 export type StepPreset = FlowStep & { id: string }
@@ -29,7 +31,7 @@ type Load =
   | { kind: 'failed'; message: string }
   | { kind: 'loaded'; flows: BaseFlow[] }
 
-// Шаг в форме: key держит строку формы на месте при перестановке, исполнитель разложен на выбор и имя субагента.
+// Шаг в форме: key держит шаг на месте при перестановке, исполнитель разложен на выбор и имя субагента.
 type DraftStep = {
   key: number
   title: string
@@ -38,6 +40,7 @@ type DraftStep = {
   output: string
   skip: string
   description: string | null
+  icon: string
 }
 
 type Notice = { kind: 'done' | 'error'; text: string } | null
@@ -46,7 +49,7 @@ const kinds: DraftStep['kind'][] = ['оркестратор', 'оператор'
 
 let nextKey = 1
 
-function toDraft(step: FlowStep): DraftStep {
+function toDraft(step: FlowStep, icon = ''): DraftStep {
   const executor = step.executor.trim()
   const known = executor === 'оркестратор' || executor === 'оператор'
   return {
@@ -57,6 +60,7 @@ function toDraft(step: FlowStep): DraftStep {
     output: step.output,
     skip: step.skip ?? '',
     description: step.description,
+    icon,
   }
 }
 
@@ -68,6 +72,16 @@ function toStep(draft: DraftStep): FlowStep {
     skip: draft.skip.trim() || null,
     description: draft.description,
   }
+}
+
+/** Значки шагов для записи: название шага — значок. Шаг без своего значка в запись не идёт. */
+function toIcons(draft: DraftStep[]): Record<string, string> {
+  const icons: Record<string, string> = {}
+  for (const step of draft) {
+    const title = step.title.trim()
+    if (title && step.icon) icons[title] = step.icon
+  }
+  return icons
 }
 
 /** Что мешает записать шаг в форме кита; пустой список — шаг годится. */
@@ -87,7 +101,13 @@ function renumber(description: string, number: number) {
   return description.replace(pointNumber, `$1${number}`)
 }
 
-const hasDescription = (description: string | null) => Boolean(description?.trim())
+/** Перестановка, добавление и удаление сдвигают номера шагов — пункты их описаний идут следом. */
+function renumbered(draft: DraftStep[]): DraftStep[] {
+  return draft.map((step, index) => {
+    const description = step.description === null ? null : renumber(step.description, index + 1)
+    return description === step.description ? step : { ...step, description }
+  })
+}
 
 const sameStep = (a: FlowStep, b: FlowStep) =>
   a.title === b.title &&
@@ -95,6 +115,21 @@ const sameStep = (a: FlowStep, b: FlowStep) =>
   a.output === b.output &&
   (a.skip ?? null) === (b.skip ?? null) &&
   (a.description ?? null) === (b.description ?? null)
+
+const sameIcons = (a: Record<string, string>, b: Record<string, string>) => {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
+}
+
+/** Правки, которых нет в файле базы: по ним видно, что флоу стоит сохранить. */
+const changed = (flow: BaseFlow, draft: DraftStep[]) => {
+  const steps = draft.map(toStep)
+  return (
+    steps.length !== flow.steps.length ||
+    steps.some((step, index) => !sameStep(step, flow.steps[index])) ||
+    !sameIcons(toIcons(draft), flow.icons ?? {})
+  )
+}
 
 const invalidLabels: Record<string, string> = {
   'empty-title': 'нет названия',
@@ -107,7 +142,11 @@ export default function Flow() {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [selected, setSelected] = useState<string | null>(null)
   const [presets, setPresets] = useState<StepPreset[]>([])
-  const [draft, setDraft] = useState<DraftStep[] | null>(null)
+  // Правки поверх прочитанного файла: ключ — база и её отпечаток, поэтому правки чужого
+  // или перечитанного флоу не всплывают.
+  const [edits, setEdits] = useState<{ key: string; steps: DraftStep[] } | null>(null)
+  // Какой шаг открыт в сайдбаре: key шага, а не место — место меняется перетаскиванием.
+  const [opened, setOpened] = useState<number | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -141,14 +180,25 @@ export default function Flow() {
       .then(setPresets, () => setPresets([]))
   }, [])
 
+  const flows = load.kind === 'loaded' ? load.flows : []
+  const flow = flows.find((f) => f.base === selected) ?? null
+
+  // Шаги базы кладутся в форму: править их можно сразу, отдельного режима правки нет.
+  const flowKey = flow ? `${flow.base}@${flow.version ?? ''}` : ''
+  const saved = useMemo(
+    () => (flow ? flow.steps.map((step) => toDraft(step, flow.icons?.[step.title] ?? '')) : []),
+    [flowKey], // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  const draft = edits?.key === flowKey ? edits.steps : saved
+  const setDraft = (steps: DraftStep[]) => setEdits({ key: flowKey, steps })
+
+  const dirty = flow !== null && changed(flow, draft)
+
   const refresh = useCallback(() => {
     setNotice(null)
     setLoad({ kind: 'loading' })
     loadFlows()
   }, [loadFlows])
-
-  const flows = load.kind === 'loaded' ? load.flows : []
-  const flow = flows.find((f) => f.base === selected) ?? null
 
   async function openInVsCode(base: string) {
     setNotice(null)
@@ -172,10 +222,14 @@ export default function Flow() {
       const response = await fetch('/api/flow', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: target.base, version: target.version, steps: steps.map(toStep) }),
+        body: JSON.stringify({
+          base: target.base,
+          version: target.version,
+          steps: steps.map(toStep),
+          icons: toIcons(steps),
+        }),
       })
       if (response.ok) {
-        setDraft(null)
         setNotice({ kind: 'done', text: 'Флоу сохранён и закоммичен в базу' })
         loadFlows()
         return
@@ -218,49 +272,71 @@ export default function Flow() {
     }
   }
 
-  const editing = draft !== null
+  const update = (index: number, patch: Partial<DraftStep>) =>
+    setDraft(draft.map((step, i) => (i === index ? { ...step, ...patch } : step)))
+
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= draft.length) return
+    const next = [...draft]
+    const [step] = next.splice(from, 1)
+    next.splice(to, 0, step)
+    setDraft(renumbered(next))
+  }
+
+  const openedIndex = draft.findIndex((step) => step.key === opened)
+  const firstBad = draft.findIndex((step) => stepErrors(step).length > 0)
+  const editable = flow !== null && !flow.error
 
   return (
     <>
       <div className="content-head">
-        <h2>{editing ? 'Правка флоу' : 'Флоу'}</h2>
-        {editing && flow && <span className="sub">{flow.project}</span>}
+        {/* Название проекта стоит на чипе: над схемой его не повторяют — замечание оператора. */}
+        <h2>Флоу</h2>
         <div className="head-end flow-actions">
-          {editing && flow ? (
-            <EditActions
-              draft={draft}
-              saving={saving}
-              onCancel={() => {
-                setDraft(null)
-                setNotice(null)
-              }}
-              onSave={() => (flow.activeTasks > 0 ? setConfirming(true) : void save(flow, draft))}
-            />
-          ) : (
+          {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
+          {firstBad >= 0 && (
+            <span className="flow-blocked">
+              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad]).join(', ')}
+            </span>
+          )}
+          <button
+            type="button"
+            className="bases-btn"
+            onClick={refresh}
+            // Обновление перечитает файл базы: незаписанные правки оно бы стёрло молча.
+            disabled={load.kind === 'loading' || dirty}
+          >
+            <RefreshIcon />
+            Обновить
+          </button>
+          {editable && (
             <>
-              <button type="button" className="bases-btn" onClick={refresh} disabled={load.kind === 'loading'}>
-                <RefreshIcon />
-                Обновить
+              <button type="button" className="btn-code" onClick={() => void openInVsCode(flow.base)}>
+                <VsCodeIcon />
+                Открыть в VS Code
               </button>
-              {flow && !flow.error && (
-                <>
-                  <button type="button" className="btn-code" onClick={() => void openInVsCode(flow.base)}>
-                    <VsCodeIcon />
-                    Открыть в VS Code
-                  </button>
-                  <button
-                    type="button"
-                    className="bases-btn"
-                    onClick={() => {
-                      setNotice(null)
-                      setDraft(flow.steps.map(toDraft))
-                    }}
-                  >
-                    <PencilIcon />
-                    Править
-                  </button>
-                </>
+              {dirty && (
+                <button
+                  type="button"
+                  className="bases-btn"
+                  disabled={saving}
+                  onClick={() => {
+                    setNotice(null)
+                    setEdits(null)
+                    setOpened(null)
+                  }}
+                >
+                  Отменить правки
+                </button>
               )}
+              <button
+                type="button"
+                className="bases-btn bases-btn-primary"
+                disabled={saving || !dirty || firstBad >= 0}
+                onClick={() => (flow.activeTasks > 0 ? setConfirming(true) : void save(flow, draft))}
+              >
+                {saving ? 'Сохранение…' : 'Сохранить'}
+              </button>
             </>
           )}
         </div>
@@ -290,8 +366,8 @@ export default function Flow() {
               type="button"
               className={`chip ${f.base === selected ? 'active' : ''}`}
               aria-pressed={f.base === selected}
-              // Правка идёт по флоу одной базы: пока она открыта, проект не переключается.
-              disabled={editing}
+              // Правка идёт по флоу одной базы: пока она не записана, проект не переключается.
+              disabled={dirty}
               onClick={() => setSelected(f.base)}
             >
               {f.project}
@@ -301,8 +377,7 @@ export default function Flow() {
       )}
 
       {flow && (
-        <section className="flow-list" aria-label={flow.project}>
-
+        <section className={`flow-canvas ${openedIndex >= 0 ? 'with-drawer' : ''}`} aria-label={flow.project}>
           {flow.error && (
             <p className="backlog-note warning-text">
               {flow.error === 'В базе нет flow.md'
@@ -311,32 +386,59 @@ export default function Flow() {
             </p>
           )}
 
-          {!flow.error && !editing && flow.steps.length === 0 && (
-            <p className="backlog-note text-sec">
-              Во флоу пока нет шагов. Агент не начнёт задачу на этом проекте, пока шаги не записаны.
-            </p>
-          )}
+          {editable && (
+            <>
+              <div className="flow-chain">
+                {draft.length === 0 && (
+                  <p className="backlog-note text-sec">
+                    Во флоу пока нет шагов. Агент не начнёт задачу на этом проекте, пока шаги не записаны.
+                  </p>
+                )}
+                {draft.map((step, index) => (
+                  <StepNode
+                    key={step.key}
+                    step={step}
+                    number={index + 1}
+                    opened={step.key === opened}
+                    onOpen={() => setOpened(step.key)}
+                    onMove={move}
+                    index={index}
+                    last={index === draft.length - 1}
+                  />
+                ))}
+                {draft.length > 0 && <FlowArrow />}
+                <AddStep
+                  presets={presets}
+                  onAdd={(step) => {
+                    const added = toDraft(step)
+                    setDraft(renumbered([...draft, added]))
+                    setOpened(added.key)
+                  }}
+                  onRemovePreset={(preset) => void removePreset(preset)}
+                />
+              </div>
 
-          {!flow.error && !editing && flow.steps.map((step, index) => <StepCard key={index} step={step} number={index + 1} />)}
-
-          {editing && (
-            <FlowForm
-              draft={draft}
-              presets={presets}
-              onChange={setDraft}
-              onSaveAsPreset={(step) => void saveAsPreset(step)}
-              onRemovePreset={(preset) => void removePreset(preset)}
-            />
+              {openedIndex >= 0 && (
+                <StepDrawer
+                  step={draft[openedIndex]}
+                  number={openedIndex + 1}
+                  isPreset={presets.some((preset) => sameStep(preset, toStep(draft[openedIndex])))}
+                  onChange={(patch) => update(openedIndex, patch)}
+                  onClose={() => setOpened(null)}
+                  onSaveAsPreset={() => void saveAsPreset(toStep(draft[openedIndex]))}
+                  onDelete={() => {
+                    setDraft(renumbered(draft.filter((_, i) => i !== openedIndex)))
+                    setOpened(null)
+                  }}
+                />
+              )}
+            </>
           )}
         </section>
       )}
 
-      {confirming && flow && draft && (
-        <ConfirmSave
-          flow={flow}
-          onCancel={() => setConfirming(false)}
-          onConfirm={() => void save(flow, draft)}
-        />
+      {confirming && flow && (
+        <ConfirmSave flow={flow} onCancel={() => setConfirming(false)} onConfirm={() => void save(flow, draft)} />
       )}
     </>
   )
@@ -344,7 +446,7 @@ export default function Flow() {
 
 function saveError(status: number, body: { problem?: string; step?: number; detail?: string } | null) {
   if (status === 409)
-    return 'Флоу не сохранён: файл флоу изменился в базе, пока вы его правили. Отмените правку и обновите флоу.'
+    return 'Флоу не сохранён: файл флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
   if (status === 400 && body?.step)
     return `Флоу не сохранён: шаг ${body.step} — ${invalidLabels[body.detail ?? ''] ?? 'не в форме кита'}`
   if (status === 502 && body?.problem === 'not-committed')
@@ -353,316 +455,339 @@ function saveError(status: number, body: { problem?: string; step?: number; deta
   return 'Флоу не сохранён'
 }
 
-function EditActions({
-  draft,
-  saving,
-  onCancel,
-  onSave,
+const executorOf = (step: DraftStep) => (step.kind === 'субагент' ? `субагент ${step.agent}`.trim() : step.kind)
+
+const executorKind = (step: DraftStep) =>
+  step.kind === 'оркестратор' ? 'orchestrator' : step.kind === 'оператор' ? 'operator' : 'agent'
+
+/** Блок шага на схеме: без номера — по решению оператора, — со значком, названием и исполнителем. */
+function StepNode({
+  step,
+  number,
+  index,
+  last,
+  opened,
+  onOpen,
+  onMove,
 }: {
-  draft: DraftStep[]
-  saving: boolean
-  onCancel: () => void
-  onSave: () => void
+  step: DraftStep
+  number: number
+  index: number
+  last: boolean
+  opened: boolean
+  onOpen: () => void
+  onMove: (from: number, to: number) => void
 }) {
-  const firstBad = draft.findIndex((step) => stepErrors(step).length > 0)
+  const [dragging, setDragging] = useState(false)
+  const [over, setOver] = useState(false)
+  const errors = stepErrors(step)
+
   return (
     <>
-      {firstBad >= 0 && (
-        <span className="flow-blocked">
-          Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad]).join(', ')}
+      {number > 1 && <FlowArrow />}
+      <div className="flow-node-row">
+      <button
+        type="button"
+        className={`flow-node ${opened ? 'opened' : ''} ${dragging ? 'dragging' : ''} ${over ? 'drop-target' : ''} ${
+          errors.length > 0 ? 'invalid' : ''
+        }`}
+        aria-label={`Шаг ${number}: ${step.title.trim() || 'без названия'}`}
+        aria-current={opened}
+        draggable
+        onClick={onOpen}
+        onDragStart={(event: DragEvent) => {
+          event.dataTransfer.effectAllowed = 'move'
+          event.dataTransfer.setData('text/plain', String(index))
+          setDragging(true)
+        }}
+        onDragEnd={() => {
+          setDragging(false)
+          setOver(false)
+        }}
+        onDragOver={(event: DragEvent) => {
+          event.preventDefault()
+          setOver(true)
+        }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(event: DragEvent) => {
+          event.preventDefault()
+          setOver(false)
+          const from = Number(event.dataTransfer.getData('text/plain'))
+          if (Number.isInteger(from)) onMove(from, index)
+        }}
+      >
+        <span className="flow-grip" aria-hidden="true">
+          <GripIcon />
         </span>
-      )}
-      <button type="button" className="bases-btn" onClick={onCancel} disabled={saving}>
-        Отмена
+        {step.skip.trim() && (
+          <span className="flow-node-skip" title="есть условие пропуска" aria-hidden="true">
+            <SkipIcon />
+          </span>
+        )}
+        <span className={`flow-node-mark flow-mark-${executorKind(step)}`} aria-hidden="true">
+          <StepIcon icon={step.icon} kind={executorKind(step)} />
+        </span>
+        <span className="flow-node-title">{step.title.trim() || 'без названия'}</span>
+        <span className="flow-node-executor">{executorOf(step) || 'субагент'}</span>
       </button>
-      <button type="button" className="bases-btn bases-btn-primary" onClick={onSave} disabled={saving || firstBad >= 0}>
-        {saving ? 'Сохранение…' : 'Сохранить'}
-      </button>
+      {/* Клавиатурой шаг двигается кнопками: перетаскивание ей недоступно. */}
+      <span className="flow-node-keys">
+        <IconButton label={`Шаг ${number} выше`} disabled={number === 1} onClick={() => onMove(index, index - 1)}>
+          <ChevronUpIcon />
+        </IconButton>
+        <IconButton label={`Шаг ${number} ниже`} disabled={last} onClick={() => onMove(index, index + 1)}>
+          <ChevronDownIcon />
+        </IconButton>
+      </span>
+      </div>
     </>
   )
 }
 
-function StepCard({ step, number }: { step: FlowStep; number: number }) {
+function FlowArrow() {
   return (
-    <article className="flow-step" aria-label={`Шаг ${number}: ${step.title}`}>
-      <div className="flow-step-head">
-        <span className="entry-num">{number}</span>
-        <span className="flow-step-title">{step.title}</span>
-        <ExecutorBadge executor={step.executor} />
-      </div>
-      <dl className="flow-keys">
-        <dt>выход</dt>
-        <dd>{step.output}</dd>
-        <dt>пропуск</dt>
-        <dd className={step.skip ? '' : 'text-ter'}>{step.skip ?? 'нет — шаг проходится всегда'}</dd>
-      </dl>
-    </article>
-  )
-}
-
-function ExecutorBadge({ executor }: { executor: string }) {
-  const kind = executor === 'оркестратор' ? 'orchestrator' : executor === 'оператор' ? 'operator' : 'agent'
-  return (
-    <span className={`flow-executor flow-executor-${kind}`}>
-      {kind === 'agent' ? `субагент ${executor}` : executor}
+    <span className="flow-arrow" aria-hidden="true">
+      <svg viewBox="0 0 12 32" fill="none">
+        <path d="M6 0 V23" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M6 31 L2.5 23 h7 z" fill="currentColor" stroke="none" />
+      </svg>
     </span>
   )
 }
 
-function FlowForm({
-  draft,
-  presets,
+/** Сайдбар шага: поля правятся сразу, а файл флоу записывается кнопкой «Сохранить» в шапке. */
+function StepDrawer({
+  step,
+  number,
+  isPreset,
   onChange,
+  onClose,
   onSaveAsPreset,
-  onRemovePreset,
+  onDelete,
 }: {
-  draft: DraftStep[]
-  presets: StepPreset[]
-  onChange: (steps: DraftStep[]) => void
-  onSaveAsPreset: (step: FlowStep) => void
-  onRemovePreset: (preset: StepPreset) => void
+  step: DraftStep
+  number: number
+  isPreset: boolean
+  onChange: (patch: Partial<DraftStep>) => void
+  onClose: () => void
+  onSaveAsPreset: () => void
+  onDelete: () => void
 }) {
-  const [dragged, setDragged] = useState<number | null>(null)
-  const [over, setOver] = useState<number | null>(null)
-  // Описание какого шага открыто в окне: key шага, а не место — место меняется перестановкой.
-  const [describing, setDescribing] = useState<number | null>(null)
-  const described = draft.findIndex((step) => step.key === describing)
-
-  const update = (index: number, patch: Partial<DraftStep>) =>
-    onChange(draft.map((step, i) => (i === index ? { ...step, ...patch } : step)))
-
-  const move = (from: number, to: number) => {
-    if (from === to || to < 0 || to >= draft.length) return
-    const next = [...draft]
-    const [step] = next.splice(from, 1)
-    next.splice(to, 0, step)
-    onChange(next)
-  }
-
-  const endDrag = () => {
-    setDragged(null)
-    setOver(null)
-  }
+  const errors = stepErrors(step)
+  const title = step.title.trim() || 'без названия'
 
   return (
-    <>
-      {draft.map((step, index) => {
-        const errors = stepErrors(step)
-        const asStep = toStep(step)
-        const isPreset = presets.some((preset) => sameStep(preset, asStep))
-        const number = index + 1
-        return (
-          <article
-            key={step.key}
-            className={`flow-step flow-form ${over === index && dragged !== index ? 'drop-target' : ''} ${
-              dragged === index ? 'dragging' : ''
-            }`}
-            aria-label={`Шаг ${number}`}
-            onDragOver={(event: DragEvent) => {
-              if (dragged === null) return
-              event.preventDefault()
-              if (over !== index) setOver(index)
-            }}
-            onDrop={(event: DragEvent) => {
-              if (dragged === null) return
-              event.preventDefault()
-              move(dragged, index)
-              endDrag()
-            }}
+    <aside
+      className="flow-drawer"
+      aria-label={`Шаг ${number}: ${title}`}
+      onKeyDown={(event) => event.key === 'Escape' && onClose()}
+    >
+      <div className="flow-drawer-head">
+        <span className={`flow-node-mark flow-mark-${executorKind(step)}`} aria-hidden="true">
+          <StepIcon icon={step.icon} kind={executorKind(step)} />
+        </span>
+        <div className="flow-drawer-name">
+          <h3>{title}</h3>
+          <span className="flow-node-executor">{executorOf(step) || 'субагент'}</span>
+        </div>
+        <IconButton label="Закрыть сайдбар" onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </div>
+
+      <div className="flow-drawer-body">
+        <label className="flow-field">
+          <span>название</span>
+          <input
+            className="flow-input"
+            aria-label="Название шага"
+            placeholder="Название шага"
+            aria-invalid={!step.title.trim()}
+            value={step.title}
+            onChange={(event) => onChange({ title: event.target.value })}
+          />
+        </label>
+
+        <div className="flow-field">
+          <span>значок</span>
+          <IconPicker step={step} onPick={(icon) => onChange({ icon })} />
+        </div>
+
+        <label className="flow-field">
+          <span>исполнитель</span>
+          <select
+            className="flow-input"
+            aria-label="Исполнитель шага"
+            value={step.kind}
+            onChange={(event) => onChange({ kind: event.target.value as DraftStep['kind'] })}
           >
-            <div className="flow-step-head">
-              <span
-                className="flow-grip"
-                draggable
-                title="Перетащить шаг"
-                aria-hidden="true"
-                onDragStart={(event: DragEvent) => {
-                  event.dataTransfer.effectAllowed = 'move'
-                  event.dataTransfer.setData('text/plain', String(index))
-                  setDragged(index)
-                }}
-                onDragEnd={endDrag}
-              >
-                <GripIcon />
-              </span>
-              <span className="entry-num">{number}</span>
-              <input
-                className="flow-input flow-title-input"
-                aria-label={`Название шага ${number}`}
-                placeholder="Название шага"
-                aria-invalid={!step.title.trim()}
-                value={step.title}
-                onChange={(event) => update(index, { title: event.target.value })}
-              />
-              <button
-                type="button"
-                className={`bases-btn bases-btn-small flow-description-btn${hasDescription(step.description) ? '' : ' flow-description-empty'}`}
-                aria-label={`Описание шага ${number}`}
-                title={hasDescription(step.description) ? 'Описание шага текстом' : 'Описания нет — добавить'}
-                onClick={() => setDescribing(step.key)}
-              >
-                <FileTextIcon />
-                Описание
-              </button>
-              <IconButton label={`Шаг ${number} выше`} disabled={index === 0} onClick={() => move(index, index - 1)}>
-                <ChevronUpIcon />
-              </IconButton>
-              <IconButton
-                label={`Шаг ${number} ниже`}
-                disabled={index === draft.length - 1}
-                onClick={() => move(index, index + 1)}
-              >
-                <ChevronDownIcon />
-              </IconButton>
-              <IconButton
-                label={`Сохранить шаг ${number} как пресет`}
-                pressed={isPreset}
-                disabled={errors.length > 0 || isPreset}
-                onClick={() => onSaveAsPreset(asStep)}
-              >
-                <BookmarkIcon />
-              </IconButton>
-              <IconButton
-                label={`Удалить шаг ${number}`}
-                danger
-                onClick={() => onChange(draft.filter((_, i) => i !== index))}
-              >
-                <TrashIcon />
-              </IconButton>
-            </div>
-            <div className="flow-fields">
-              <label className="flow-field">
-                <span>исполнитель</span>
-                <span className="flow-executor-field">
-                  <select
-                    className="flow-input"
-                    aria-label={`Исполнитель шага ${number}`}
-                    value={step.kind}
-                    onChange={(event) => update(index, { kind: event.target.value as DraftStep['kind'] })}
-                  >
-                    {kinds.map((kind) => (
-                      <option key={kind} value={kind}>
-                        {kind}
-                      </option>
-                    ))}
-                  </select>
-                  {step.kind === 'субагент' && (
-                    <input
-                      className="flow-input mono"
-                      aria-label={`Имя субагента шага ${number}`}
-                      placeholder="имя субагента"
-                      aria-invalid={!step.agent.trim()}
-                      value={step.agent}
-                      onChange={(event) => update(index, { agent: event.target.value })}
-                    />
-                  )}
-                </span>
-              </label>
-              <label className="flow-field">
-                <span>пропуск</span>
-                <input
-                  className="flow-input"
-                  aria-label={`Пропуск шага ${number}`}
-                  placeholder="нет — шаг проходится всегда"
-                  value={step.skip}
-                  onChange={(event) => update(index, { skip: event.target.value })}
-                />
-              </label>
-              <label className="flow-field flow-field-wide">
-                <span>выход</span>
-                <input
-                  className="flow-input"
-                  aria-label={`Выход шага ${number}`}
-                  placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
-                  aria-invalid={!step.output.trim()}
-                  value={step.output}
-                  onChange={(event) => update(index, { output: event.target.value })}
-                />
-              </label>
-            </div>
-            {errors.length > 0 && <p className="flow-step-error">Шаг не сохранить: {errors.join(', ')}.</p>}
-          </article>
-        )
-      })}
-      <AddStep
-        presets={presets}
-        onAdd={(step) => onChange([...draft, toDraft(step)])}
-        onRemovePreset={onRemovePreset}
-      />
-      {described >= 0 && (
-        <DescriptionEditor
-          number={described + 1}
-          title={draft[described].title}
-          description={draft[described].description}
-          onCancel={() => setDescribing(null)}
-          onDone={(description) => {
-            update(described, { description })
-            setDescribing(null)
-          }}
-        />
-      )}
-    </>
+            {kinds.map((kind) => (
+              <option key={kind} value={kind}>
+                {kind}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {step.kind === 'субагент' && (
+          <label className="flow-field">
+            <span>имя субагента</span>
+            <input
+              className="flow-input mono"
+              aria-label="Имя субагента"
+              placeholder="имя субагента"
+              aria-invalid={!step.agent.trim()}
+              value={step.agent}
+              onChange={(event) => onChange({ agent: event.target.value })}
+            />
+          </label>
+        )}
+
+        <label className="flow-field">
+          <span>выход</span>
+          <textarea
+            className="flow-input"
+            aria-label="Выход шага"
+            placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
+            aria-invalid={!step.output.trim()}
+            rows={3}
+            value={step.output}
+            onChange={(event) => onChange({ output: event.target.value })}
+          />
+        </label>
+
+        <label className="flow-field">
+          <span>пропуск</span>
+          <input
+            className="flow-input"
+            aria-label="Пропуск шага"
+            placeholder="нет — шаг проходится всегда"
+            value={step.skip}
+            onChange={(event) => onChange({ skip: event.target.value })}
+          />
+        </label>
+
+        <label className="flow-field">
+          <span>описание</span>
+          <textarea
+            className="flow-input flow-description-text"
+            aria-label="Описание шага"
+            placeholder={`пункты — «${number}.1.», вложенные — с отступом «${number}.1.1.»`}
+            rows={8}
+            spellCheck={false}
+            value={step.description ?? ''}
+            onChange={(event) => {
+              const text = event.target.value.replace(/\r\n/g, '\n')
+              onChange({ description: text.trim() ? text : null })
+            }}
+          />
+        </label>
+
+        {errors.length > 0 && <p className="flow-step-error">Шаг не сохранить: {errors.join(', ')}.</p>}
+      </div>
+
+      <div className="flow-drawer-foot">
+        <button
+          type="button"
+          className="bases-btn"
+          disabled={errors.length > 0 || isPreset}
+          aria-pressed={isPreset}
+          onClick={onSaveAsPreset}
+        >
+          <BookmarkIcon />
+          {isPreset ? 'Шаг в пресетах' : 'В пресеты'}
+        </button>
+        <button type="button" className="bases-btn bases-btn-danger flow-drawer-delete" onClick={onDelete}>
+          <TrashIcon />
+          Удалить шаг
+        </button>
+      </div>
+    </aside>
   )
 }
 
-function DescriptionEditor({
-  number,
-  title,
-  description,
-  onCancel,
-  onDone,
-}: {
-  number: number
-  title: string
-  description: string | null
-  onCancel: () => void
-  onDone: (description: string | null) => void
-}) {
-  const [text, setText] = useState(() => renumber(description ?? '', number))
-  const field = useRef<HTMLTextAreaElement>(null)
-  useEffect(() => field.current?.focus(), [])
+/** Значки на выбор; те же имена знает API, и чужого значка он не запомнит. */
+const stepIcons: { id: string; label: string; icon: ReactNode }[] = [
+  { id: 'target', label: 'цель', icon: <TargetIcon /> },
+  { id: 'branch', label: 'ветка', icon: <BranchIcon /> },
+  { id: 'code', label: 'код', icon: <CodeIcon /> },
+  { id: 'check', label: 'проверка', icon: <CheckIcon /> },
+  { id: 'base', label: 'база', icon: <DatabaseIcon /> },
+]
+
+function StepIcon({ icon, kind }: { icon: string; kind: string }) {
+  const chosen = stepIcons.find((one) => one.id === icon)
+  if (chosen) return chosen.icon
+  return kind === 'operator' ? <OperatorIcon /> : kind === 'agent' ? <AgentIcon /> : <OrchestratorIcon />
+}
+
+/** Список значков: в нём сами значки, а не их названия — решение оператора. */
+function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [open])
+
+  const pick = (icon: string) => {
+    onPick(icon)
+    setOpen(false)
+  }
 
   return (
-    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
-      <div
-        className="flow-confirm flow-description"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="flow-description-title"
-        onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+    <div className="flow-icons" ref={box} onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}>
+      <button
+        type="button"
+        className="flow-icon-toggle"
+        aria-label="Значок шага"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
       >
-        <div className="flow-step-head">
-          <span className="entry-num">{number}</span>
-          <h3 id="flow-description-title">Описание шага «{title.trim() || 'без названия'}»</h3>
-        </div>
-        <textarea
-          ref={field}
-          className="flow-input flow-description-text"
-          aria-label="Описание шага"
-          rows={16}
-          spellCheck={false}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <div className="flow-confirm-actions">
-          <button type="button" className="bases-btn" onClick={onCancel}>
-            Отмена
-          </button>
+        <span className={`flow-node-mark flow-mark-${executorKind(step)}`} aria-hidden="true">
+          <StepIcon icon={step.icon} kind={executorKind(step)} />
+        </span>
+        <ChevronDownIcon />
+      </button>
+      {open && (
+        <div className="flow-icon-menu" role="group" aria-label="Значки шага">
           <button
             type="button"
-            className="bases-btn bases-btn-primary"
-            onClick={() => onDone(text.replace(/\r\n/g, '\n').trim() ? text.replace(/\r\n/g, '\n') : null)}
+            className="flow-icon-btn"
+            aria-label="Значок по исполнителю"
+            title="по исполнителю"
+            aria-pressed={!step.icon}
+            onClick={() => pick('')}
           >
-            Готово
+            <StepIcon icon="" kind={executorKind(step)} />
           </button>
+          {stepIcons.map((one) => (
+            <button
+              key={one.id}
+              type="button"
+              className="flow-icon-btn"
+              aria-label={`Значок «${one.label}»`}
+              title={one.label}
+              aria-pressed={step.icon === one.id}
+              onClick={() => pick(one.id)}
+            >
+              {one.icon}
+            </button>
+          ))}
         </div>
-      </div>
+      )}
     </div>
   )
 }
 
 const emptyStep: FlowStep = { title: '', executor: 'оркестратор', output: '', skip: null, description: null }
 
+/** Последний блок схемы: пустой шаг или шаг из пресетов оператора. */
 function AddStep({
   presets,
   onAdd,
@@ -691,9 +816,9 @@ function AddStep({
 
   return (
     <div className="flow-add" ref={box} onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}>
-      <button type="button" className="bases-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button type="button" className="flow-node flow-node-add" aria-expanded={open} onClick={() => setOpen(!open)}>
         <PlusIcon />
-        Добавить шаг
+        <span className="flow-node-title">Добавить шаг</span>
       </button>
       {open && (
         <div className="flow-presets" role="group" aria-label="Пресеты шагов">
@@ -704,7 +829,7 @@ function AddStep({
           <div className="flow-presets-label">Пресеты</div>
           {presets.length === 0 && (
             <p className="flow-presets-empty text-ter">
-              Пресетов пока нет. Шаг сохраняется в пресеты кнопкой-закладкой у шага.
+              Пресетов пока нет. Шаг сохраняется в пресеты кнопкой в сайдбаре шага.
             </p>
           )}
           {presets.map((preset) => (
@@ -727,6 +852,15 @@ function AddStep({
         </div>
       )}
     </div>
+  )
+}
+
+function ExecutorBadge({ executor }: { executor: string }) {
+  const kind = executor === 'оркестратор' ? 'orchestrator' : executor === 'оператор' ? 'operator' : 'agent'
+  return (
+    <span className={`flow-executor flow-executor-${kind}`}>
+      {kind === 'agent' ? `субагент ${executor}` : executor}
+    </span>
   )
 }
 
@@ -804,15 +938,6 @@ function RefreshIcon() {
   )
 }
 
-function PencilIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  )
-}
-
 function GripIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -861,13 +986,10 @@ function TrashIcon() {
   )
 }
 
-function FileTextIcon() {
+function SkipIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="8" y1="13" x2="16" y2="13" />
-      <line x1="8" y1="17" x2="14" y2="17" />
+      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
     </svg>
   )
 }
@@ -886,6 +1008,87 @@ function CloseIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
+function OrchestratorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="8" width="16" height="12" rx="2" />
+      <path d="M12 8V5" />
+      <circle cx="12" cy="3.6" r="1.2" />
+      <path d="M9 13h.01" />
+      <path d="M15 13h.01" />
+      <path d="M9 17h6" />
+    </svg>
+  )
+}
+
+function OperatorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <polyline points="17 11 19 13 23 9" />
+    </svg>
+  )
+}
+
+function AgentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4z" />
+      <path d="M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z" />
+    </svg>
+  )
+}
+
+function TargetIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1.4" />
+    </svg>
+  )
+}
+
+function BranchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="6" y1="3" x2="6" y2="15" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  )
+}
+
+function CodeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M9 11l3 3L22 4" />
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+    </svg>
+  )
+}
+
+function DatabaseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
     </svg>
   )
 }
