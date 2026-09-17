@@ -72,6 +72,22 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+test('сообщение о запущенной задаче гаснет само', async ({ page }) => {
+  await routeApi(page, { status: 200, json: { session: '7339dced' } })
+  await page.goto('/')
+
+  await page.getByRole('table').locator('tbody tr').filter({ hasText: 'rustic-silver-sparrow' })
+    .getByRole('button', { name: 'Взять задачу' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
+  await dialog.locator('label').filter({ hasText: 'B-7' }).click()
+  await dialog.getByRole('button', { name: 'Взять в работу' }).click()
+
+  const toast = page.getByRole('status')
+  await expect(toast).toBeVisible()
+  // Висит те же восемь секунд, что и сообщение о заведённой копии, и убирается без клика
+  await expect(toast).toBeHidden({ timeout: 15000 })
+})
+
 test('копию успели занять: окно называет идущую задачу и остаётся открытым', async ({ page }) => {
   await routeApi(page, { status: 400, json: { problem: 'copy-busy', message: 'B-5 Прошлая задача' } })
   await page.goto('/')

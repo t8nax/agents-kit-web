@@ -136,6 +136,13 @@ function App() {
     return () => clearTimeout(timer)
   }, [fresh])
 
+  // Сообщение о запущенной задаче гаснет само, как и сообщение о заведённой копии
+  useEffect(() => {
+    if (!started) return
+    const timer = setTimeout(() => setStarted(null), freshMs)
+    return () => clearTimeout(timer)
+  }, [started])
+
   return (
     <>
       <header className="app-header">
