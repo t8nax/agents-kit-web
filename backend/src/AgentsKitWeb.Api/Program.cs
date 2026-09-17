@@ -23,6 +23,11 @@ app.MapGet("/api/workspaces", async (BasesStore bases, HealthMonitor health, Can
     HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot));
 
 app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
+app.MapPost("/api/health/check", (HealthMonitor health) =>
+{
+    health.RequestCheck();
+    return Results.Accepted();
+});
 
 app.MapBacklogEndpoints();
 app.MapBasesEndpoints();

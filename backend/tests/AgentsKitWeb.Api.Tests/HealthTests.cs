@@ -131,6 +131,36 @@ public sealed class HealthTests : IDisposable
         Assert.All(snapshot.Bases, b => Assert.Equal(BaseHealthStatus.Unchecked, b.Status));
     }
 
+    [Fact]
+    public async Task Check_RequestedByOperator_RechecksWithoutWaitingForInterval()
+    {
+        // Заглушка сверки видит файл-метку в базе: так тест меняет состояние базы между проверками.
+        var kit = TestKit.Create(Path.Combine(_root, "agents-kit"),
+            baseCheck: """
+                function Get-KitBaseFindings([string]$Base, [string]$Worktree) {
+                    if (Test-Path (Join-Path $Base 'broken')) {
+                        [pscustomobject]@{ severity = 'FAIL'; file = 'broken'; message = 'сломано'; kind = '' }
+                    }
+                }
+                """,
+            linkState: $$"""
+                function Get-KitLinkState([string]$Dir) { [pscustomobject]@{ status = 'Linked'; base = '{{_base}}' } }
+                """);
+        await WaitFor(s => !s.Pending);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+        var before = await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status == BaseHealthStatus.Checked));
+        Assert.Empty(Assert.Single(before.Bases).Problems);
+
+        File.WriteAllText(Path.Combine(_base, "broken"), "");
+        var response = await Client.PostAsync("/api/health/check", null);
+
+        Assert.Equal(System.Net.HttpStatusCode.Accepted, response.StatusCode);
+        // Интервал монитора в тесте — час: снимок сменится только от запроса оператора
+        var after = await WaitFor(s => s.Bases.Any(b => b.Problems.Count > 0));
+        Assert.Equal([new HealthProblem("error", "broken", "сломано")], Assert.Single(after.Bases).Problems);
+        Assert.True(after.CheckedAt > before.CheckedAt);
+    }
+
     [Theory]
     [InlineData("Linked", "SAME", null)]
     [InlineData("Linked", "D:\\other-knowledge", "копия связана с другой базой «D:\\other-knowledge»")]

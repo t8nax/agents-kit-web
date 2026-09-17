@@ -95,6 +95,9 @@ public sealed class HealthMonitor(BasesStore store, IKitChecks checks, IConfigur
 
     private void Wake() => _wake.Release();
 
+    /// <summary>Проверка по просьбе оператора: следующий круг начинается сразу, а не через интервал.</summary>
+    public void RequestCheck() => Wake();
+
     private async Task<HealthSnapshot> CheckAsync(CancellationToken cancellationToken)
     {
         var kit = store.Kit();
