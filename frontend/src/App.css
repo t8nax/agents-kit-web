@@ -173,6 +173,13 @@ svg {
   min-width: 0;
 }
 
+/* Раздел со своей прокруткой внутри: шапка и чипы стоят на месте, экран не уезжает. */
+.content-fixed {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .content-head {
   display: flex;
   align-items: baseline;

@@ -379,7 +379,7 @@ export default function Flow() {
       )}
 
       {flow && (
-        <section className={`flow-canvas ${openedIndex >= 0 ? 'with-drawer' : ''}`} aria-label={flow.project}>
+        <section className="flow-canvas" aria-label={flow.project}>
           {flow.error && (
             <p className="backlog-note warning-text">
               {flow.error === 'В базе нет flow.md'
@@ -390,6 +390,7 @@ export default function Flow() {
 
           {editable && (
             <>
+              <div className="flow-scroll">
               <div className="flow-chain">
                 {draft.length === 0 && (
                   <p className="backlog-note text-sec">
@@ -417,6 +418,7 @@ export default function Flow() {
                   <PlusIcon />
                   <span className="flow-node-title">Добавить шаг</span>
                 </button>
+              </div>
               </div>
 
               {openedIndex >= 0 && (

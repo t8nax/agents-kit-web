@@ -25,10 +25,18 @@
   font-size: 13px;
 }
 
-/* Холст со схемой: сайдбар шага выезжает поверх него справа. */
+/* Раздел занимает экран: прокручивается холст со схемой, сайдбар шага стоит рядом целиком. */
 .flow-canvas {
-  position: relative;
-  min-height: 420px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.flow-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
   padding: 8px 0 40px;
   background-image:
     linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
@@ -41,17 +49,6 @@
   flex-direction: column;
   align-items: center;
   padding: 16px;
-}
-
-/* Открытый сайдбар забирает правый край холста: схема сдвигается, чтобы он её не накрывал. */
-.flow-canvas.with-drawer .flow-chain {
-  padding-right: 376px;
-}
-
-@media (max-width: 900px) {
-  .flow-canvas.with-drawer .flow-chain {
-    padding-right: 16px;
-  }
 }
 
 .flow-chain > .backlog-note {
@@ -256,12 +253,9 @@
 
 .flow-drawer {
   animation: flow-drawer-in 0.18s ease;
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
   width: 360px;
   max-width: 100%;
+  flex: none;
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);

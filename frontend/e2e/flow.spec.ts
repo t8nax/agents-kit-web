@@ -163,6 +163,23 @@ test('блок перетаскивается мышью, при задачах 
   expect(sent.steps[1].description).toBe('2.1. Написать критерий.')
 })
 
+test('раздел держится в экране: прокручивается схема, шапка и сайдбар стоят на месте', async ({ page }) => {
+  await mockApi(page)
+  await page.setViewportSize({ width: 1100, height: 600 })
+  const region = await openFlow(page)
+  await region.getByRole('button', { name: 'Шаг 1: Критерий' }).click()
+
+  const scroll = region.locator('.flow-scroll')
+  await expect.poll(async () => scroll.evaluate((box) => box.scrollHeight > box.clientHeight)).toBe(true)
+  await scroll.evaluate((box) => box.scrollTo(0, box.scrollHeight))
+
+  // Прокрутилась только схема: шапка раздела и сайдбар шага целиком в окне
+  await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Открыть в VS Code' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('complementary')).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Удалить шаг' })).toBeInViewport({ ratio: 1 })
+})
+
 test('шаг сохраняется как пресет из сайдбара и добавляется блоком «Добавить шаг»', async ({ page }) => {
   const calls = await mockApi(page)
   const region = await openFlow(page)
