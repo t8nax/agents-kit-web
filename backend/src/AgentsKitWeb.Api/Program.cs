@@ -1,3 +1,4 @@
+using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
@@ -17,6 +18,7 @@ builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton(services =>
     new KitLocator(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
+builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
 var app = builder.Build();
@@ -37,6 +39,7 @@ app.MapPost("/api/health/check", (HealthMonitor health) =>
     return Results.Accepted();
 });
 
+app.MapAskEndpoints();
 app.MapBacklogEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
