@@ -467,7 +467,9 @@ function WorkspacesTable({
           return (
             <tbody key={group.base}>
               <tr className="group-row">
-                <th scope="rowgroup" colSpan={columnCount}>
+                {/* Сворачивает клик по всей шапке — замечание оператора; клавиатуре и диктору — кнопка-стрелка,
+                    её клик всплывает сюда же */}
+                <th scope="rowgroup" colSpan={columnCount} onClick={() => groups.toggle(group.base)}>
                   <div className="group-head">
                     <button
                       type="button"
@@ -475,7 +477,6 @@ function WorkspacesTable({
                       aria-expanded={!collapsed}
                       aria-label={`${collapsed ? 'Развернуть' : 'Свернуть'} ${group.project}`}
                       title={collapsed ? 'Развернуть' : 'Свернуть'}
-                      onClick={() => groups.toggle(group.base)}
                     >
                       <ChevronIcon />
                     </button>
@@ -486,7 +487,8 @@ function WorkspacesTable({
                         <span className="visually-hidden">есть копии, ждущие оператора</span>
                       </span>
                     )}
-                    <span className="group-problems">
+                    {/* Число проблем ведёт в свой раздел и группу не сворачивает */}
+                    <span className="group-problems" onClick={(event) => event.stopPropagation()}>
                       <BaseProblems rows={group.rows} onProblems={onProblems} />
                     </span>
                   </div>

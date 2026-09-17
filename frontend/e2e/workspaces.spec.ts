@@ -109,7 +109,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const [headBox, problemsBox] = await Promise.all([head.boundingBox(), baseProblems.boundingBox()])
     expect(headBox!.x + headBox!.width - (problemsBox!.x + problemsBox!.width)).toBeLessThan(24)
 
-    await page.getByRole('button', { name: 'Свернуть Nota' }).click()
+    // Сворачивает клик по пустому месту шапки, а не только стрелка
+    await expect(head).toHaveCSS('cursor', 'pointer')
+    await head.click({ position: { x: headBox!.width / 2, y: headBox!.height / 2 } })
     await expect(page.getByText('Экспорт заметок')).toHaveCount(0)
     const dot = all.nth(4).locator('.group-waiting-dot')
     await expect(dot).toBeVisible()

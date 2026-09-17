@@ -153,6 +153,37 @@ test('группа сворачивается, свёрнутая помнитс
   expect(localStorage.getItem('agents-kit-web.collapsed-groups')).toBe('[]')
 })
 
+test('группа сворачивается кликом по любому месту шапки, а число проблем базы её не сворачивает', async () => {
+  const withProblems: WorkspaceRow[] = rows.map((row) => ({ ...row, problemsState: 'checked', baseProblems: 2, problems: 0 }))
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url === '/api/health'
+        ? new Response(JSON.stringify({ pending: false, kit: 'ok', bases: [], checkedAt: null }), { status: 200 })
+        : new Response(JSON.stringify(withProblems), { status: 200 }),
+    ),
+  )
+
+  render(<App />)
+  const header = await screen.findByRole('rowheader')
+
+  fireEvent.click(within(header).getByText('app-knowledge'))
+  expect(screen.queryByText('Таблица рабочих копий')).not.toBeInTheDocument()
+  expect(within(header).getByRole('button', { name: 'Развернуть app-knowledge' })).toHaveAttribute('aria-expanded', 'false')
+
+  fireEvent.click(header)
+  expect(screen.getByText('Таблица рабочих копий')).toBeInTheDocument()
+
+  // Кнопка-стрелка сворачивает ровно один раз: её клик не складывается с кликом шапки
+  fireEvent.click(within(header).getByRole('button', { name: 'Свернуть app-knowledge' }))
+  expect(screen.queryByText('Таблица рабочих копий')).not.toBeInTheDocument()
+  fireEvent.click(within(header).getByRole('button', { name: 'Развернуть app-knowledge' }))
+
+  fireEvent.click(within(header).getByRole('button', { name: '2 проблемы базы — открыть «Проблемы баз»' }))
+  expect(await screen.findByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
+  expect(localStorage.getItem('agents-kit-web.collapsed-groups')).toBe('[]')
+})
+
 test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
   const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой' }
   const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога' }

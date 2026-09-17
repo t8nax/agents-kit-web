@@ -240,6 +240,20 @@ tbody tr.group-row:hover {
   background: none;
 }
 
+/* Вся шапка группы — место клика, которое её сворачивает */
+.group-row th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.group-row th:hover {
+  background: var(--bg-surface);
+}
+
+.group-row th:hover .group-toggle {
+  color: var(--text-primary);
+}
+
 .group-row th {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-strong);
