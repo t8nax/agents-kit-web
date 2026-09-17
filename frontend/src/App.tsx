@@ -3,6 +3,7 @@ import './App.css'
 import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
 import Flow, { FlowIcon } from './Flow'
+import NewWorkspaceModal, { PlusIcon } from './NewWorkspaceModal'
 import {
   notificationsActive,
   notifyStatusChange,
@@ -33,7 +34,14 @@ export type WorkspaceRow = {
   /** Число проблем копии и её базы, когда problemsState — checked; иначе state говорит, почему числа нет. */
   problems?: number | null
   problemsState?: ProblemsState | null
+  /** Стоит у копии, от которой кит заводит новые: каталог, куда он их кладёт. */
+  copiesDir?: string | null
 }
+
+/** Только что заведённая копия: её строка отмечена, пока висит уведомление. */
+type Fresh = { base: string; name: string | null }
+
+const freshMs = 8000
 
 export type ProblemsState = 'checked' | 'pending' | 'kit-not-set' | 'kit-not-found' | 'failed'
 
@@ -62,6 +70,8 @@ function App() {
   const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [asking, setAsking] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
@@ -111,6 +121,13 @@ function App() {
 
   const closeReply = useCallback(() => setReplyTo(null), [])
   const closeAsk = useCallback(() => setAsking(false), [])
+  const closeCreate = useCallback(() => setCreating(false), [])
+
+  useEffect(() => {
+    if (!fresh) return
+    const timer = setTimeout(() => setFresh(null), freshMs)
+    return () => clearTimeout(timer)
+  }, [fresh])
 
   return (
     <>
@@ -145,11 +162,21 @@ function App() {
             <>
               <div className="content-head">
                 <h2>Рабочие копии</h2>
+                <button
+                  type="button"
+                  className="bases-btn bases-btn-add head-end"
+                  disabled={!state.rows}
+                  onClick={() => setCreating(true)}
+                >
+                  <PlusIcon />
+                  Новая копия
+                </button>
               </div>
               {state.failed && <p className="message warning-text">Нет связи с API</p>}
               {state.rows && (
                 <WorkspacesTable
                   rows={state.rows}
+                  fresh={fresh}
                   onReply={setReplyTo}
                   onProblems={() => setSection('problems')}
                   onSettings={() => setSection('settings')}
@@ -174,6 +201,38 @@ function App() {
       </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {asking && <AskModal onClose={closeAsk} />}
+      {creating && state.rows && (
+        <NewWorkspaceModal
+          rows={state.rows}
+          onClose={closeCreate}
+          onCreated={(base, name) => {
+            setCreating(false)
+            setFresh({ base, name })
+            // Копию заводит git worktree — ближайший опрос и так её покажет, но ждать его незачем
+            loadRows()
+          }}
+          onSettings={() => {
+            setCreating(false)
+            setSection('settings')
+          }}
+        />
+      )}
+      {fresh && (
+        <div className="nw-toast" role="status">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span>
+            {fresh.name ? (
+              <>
+                Копия <span className="mono">{fresh.name}</span> заведена
+              </>
+            ) : (
+              'Копия заведена'
+            )}
+          </span>
+        </div>
+      )}
     </>
   )
 }
@@ -407,11 +466,13 @@ function TaskCells({ task }: { task: string | null }) {
 
 function WorkspacesTable({
   rows,
+  fresh,
   onReply,
   onProblems,
   onSettings,
 }: {
   rows: WorkspaceRow[]
+  fresh: Fresh | null
   onReply: (row: WorkspaceRow) => void
   onProblems: () => void
   onSettings: () => void
@@ -467,9 +528,12 @@ function WorkspacesTable({
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr key={rowKey(row)}>
+            <tr key={rowKey(row)} className={isFresh(row, fresh) ? 'row-fresh' : undefined}>
               <td>
-                <div className="proj">{row.project}</div>
+                <div className="proj">
+                  {row.project}
+                  {isFresh(row, fresh) && <span className="new-tag">новая</span>}
+                </div>
                 <div className="mono text-sec sub">
                   {row.branch ? `${row.branch} · ${row.path}` : row.path}
                 </div>
@@ -524,6 +588,10 @@ function WorkspacesTable({
       </table>
     </>
   )
+}
+
+function isFresh(row: WorkspaceRow, fresh: Fresh | null) {
+  return fresh?.name != null && row.base === fresh.base && row.branch === fresh.name
 }
 
 function Progress({ value, waiting }: { value: number; waiting: boolean }) {

@@ -142,6 +142,35 @@ test('кнопка «Открыть в VS Code» стоит у прочитан�
   })
 })
 
+test('«Новая копия» открывает окно, заведённая копия отмечена в таблице и уведомлением', async () => {
+  const source: WorkspaceRow = { ...rows[1], copiesDir: 'D:\\Projects' }
+  const created: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\quiet-cedar', branch: 'quiet-cedar' }
+  let copyCreated = false
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/api/workspaces' && init?.method === 'POST') {
+      copyCreated = true
+      return Response.json({ name: 'quiet-cedar' })
+    }
+    return Response.json(copyCreated ? [rows[0], source, created] : [rows[0], source])
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  await screen.findAllByRole('row')
+  fireEvent.click(screen.getByRole('button', { name: 'Новая копия' }))
+
+  const dialog = screen.getByRole('dialog', { name: 'Новая рабочая копия' })
+  fireEvent.change(within(dialog).getByLabelText(/Имя копии/), { target: { value: 'quiet-cedar' } })
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Завести копию' }))
+
+  expect(await screen.findByRole('status')).toHaveTextContent('Копия quiet-cedar заведена')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  const fresh = (await screen.findByText('новая')).closest('tr')!
+  expect(fresh).toHaveClass('row-fresh')
+  expect(within(fresh).getByText('quiet-cedar · D:\\Projects\\quiet-cedar')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspaces', expect.objectContaining({ method: 'POST' }))
+})
+
 test('копия не открылась — панель говорит об этом строкой', async () => {
   const fetchMock = vi.fn(async (url: string) =>
     url === '/api/workspace/open'
