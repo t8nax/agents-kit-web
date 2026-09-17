@@ -232,7 +232,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task OpenWorkspace_LiveVsCodeSession_RaisesWindowAndStartsNoSession()
+    public async Task OpenWorkspace_LiveVsCodeSession_RaisesItsWindowInsteadOfOpeningOne()
     {
         WriteSession(_copy);
 
@@ -244,35 +244,37 @@ public sealed class OperatorEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task OpenWorkspace_CopyWithoutSession_OpensWindowWithSession()
+    public async Task OpenWorkspace_CopyWithoutVsCodeSession_OpensWindowOnIt()
     {
         var response = await PostOpenWorkspace(_base, _copy);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.Equal([(_copy, true)], _windows.Opened);
+        Assert.Equal([_copy], _windows.Opened);
         Assert.Empty(_windows.Raised);
     }
 
     [Fact]
-    public async Task OpenWorkspace_FreeCopy_OpensWindowWithSession()
+    public async Task OpenWorkspace_FreeCopy_OpensWindowOnIt()
     {
         var free = FreeCopy();
 
         var response = await PostOpenWorkspace(_base, free);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.Equal([(free, true)], _windows.Opened);
+        Assert.Equal([free], _windows.Opened);
     }
 
+    // Сессия в терминале своего окна не имеет: поднимать нечего, копия открывается как любая другая.
     [Fact]
-    public async Task OpenWorkspace_SessionInTerminal_OpensWindowWithoutSession()
+    public async Task OpenWorkspace_SessionInTerminal_OpensWindowOnIt()
     {
         WriteSession(_copy, entrypoint: "cli");
 
         var response = await PostOpenWorkspace(_base, _copy);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.Equal([(_copy, false)], _windows.Opened);
+        Assert.Equal([_copy], _windows.Opened);
+        Assert.Empty(_windows.Raised);
     }
 
     [Fact]
@@ -335,7 +337,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     {
         public List<string> Raised { get; } = [];
 
-        public List<(string Copy, bool WithSession)> Opened { get; } = [];
+        public List<string> Opened { get; } = [];
 
         public bool Result { get; set; } = true;
 
@@ -345,9 +347,9 @@ public sealed class OperatorEndpointsTests : IDisposable
             return Task.FromResult(Result);
         }
 
-        public Task<bool> OpenAsync(string copyPath, bool withSession, CancellationToken cancellationToken)
+        public Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken)
         {
-            Opened.Add((copyPath, withSession));
+            Opened.Add(copyPath);
             return Task.FromResult(Result);
         }
     }

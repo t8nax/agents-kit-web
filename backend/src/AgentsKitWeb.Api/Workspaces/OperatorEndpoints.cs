@@ -75,13 +75,11 @@ public static class OperatorEndpoints
             if (await FindCopy(bases, request.Base, request.Copy, cancellationToken) is not { } copy)
                 return Results.NotFound();
 
-            // Сессия копии уже идёт в VS Code — её окно поднимается, второй сессии не появляется.
-            if (sessions.VsCodeIn(copy) is not null)
-                return Opened(await windows.RaiseAsync(copy, cancellationToken));
-
-            // Сессии в терминале своего окна нет, и поднять её нечем: окно открывается без второй сессии.
-            var withSession = sessions.AnyIn(copy) is null;
-            return Opened(await windows.OpenAsync(copy, withSession, cancellationToken));
+            // Сессия копии идёт в VS Code — её окно поднимается; иначе открывается окно на папке,
+            // а сессию в нём заводит оператор.
+            return Opened(sessions.VsCodeIn(copy) is not null
+                ? await windows.RaiseAsync(copy, cancellationToken)
+                : await windows.OpenAsync(copy, cancellationToken));
         });
 
         app.MapPost("/api/answers", async (AnswersRequest request, BasesStore bases, CancellationToken cancellationToken) =>

@@ -7,46 +7,26 @@ public interface IEditorWindows
 {
     Task<bool> RaiseAsync(string copyPath, CancellationToken cancellationToken);
 
-    /// <summary>Открывает окно на каталоге копии; withSession — вместе с новой сессией агента в нём.</summary>
-    Task<bool> OpenAsync(string copyPath, bool withSession, CancellationToken cancellationToken);
+    /// <summary>Открывает окно на каталоге копии; сессию агента в нём заводит оператор.</summary>
+    Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken);
 }
 
 /// <summary>
-/// Окна VS Code через его же CLI. `code -r &lt;каталог&gt;` переиспользует окно, уже открытое
-/// на этой папке, и выводит его вперёд; новой сессии агента это не запускает — окно поднимается
-/// вместе с той, что в нём идёт.
+/// Окна VS Code через его же CLI. Сессий агента панель не запускает: сессию заводит ссылка
+/// `vscode://`, а окно-получателя таких ссылок VS Code выбирает сам — нужное назвать нечем.
 /// </summary>
 public sealed class VsCodeWindows : IEditorWindows
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
-    /// <summary>
-    /// Пауза между запуском окна и ссылкой: ссылку получает активное окно, и окно копии
-    /// становится им не мгновенно. Меньше — ссылка уйдёт в прежнее активное окно.
-    /// </summary>
-    private static readonly TimeSpan WindowSettles = TimeSpan.FromSeconds(4);
-
-    /// <summary>
-    /// Расширение Claude Code открывает новую сессию во вкладке окна, получившего эту ссылку.
-    /// Каталог в ссылке не передаётся — сессия стартует в папке окна, поэтому окно открывается первым.
-    /// </summary>
-    private const string NewSessionUrl = "vscode://anthropic.claude-code/open";
-
     public Task<bool> RaiseAsync(string copyPath, CancellationToken cancellationToken) =>
         RunAsync(cancellationToken, "-r", copyPath);
 
-    public async Task<bool> OpenAsync(string copyPath, bool withSession, CancellationToken cancellationToken)
-    {
-        // Окно открытой папки поднимает только -r, а без такого окна он переоткрывает на неё
-        // активное — то есть уводит из-под оператора чужое. Здесь окна копии нет: нужно своё.
-        if (!await RunAsync(cancellationToken, "-n", copyPath))
-            return false;
-        if (!withSession)
-            return true;
-
-        await Task.Delay(WindowSettles, cancellationToken);
-        return await RunAsync(cancellationToken, "--open-url", NewSessionUrl);
-    }
+    // Окно открытой папки поднимает только -r, а без такого окна он переоткрывает на неё активное —
+    // то есть уводит из-под оператора чужое вместе с идущей в нём сессией. Здесь окна копии может
+    // не быть, поэтому -n: он и создаёт окно, и переиспользует уже открытое на этой папке.
+    public Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken) =>
+        RunAsync(cancellationToken, "-n", copyPath);
 
     private static async Task<bool> RunAsync(CancellationToken cancellationToken, params string[] args)
     {

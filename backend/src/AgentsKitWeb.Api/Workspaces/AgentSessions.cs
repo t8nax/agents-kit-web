@@ -21,16 +21,11 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "sessions");
 
     /// <summary>Живая сессия VS Code в каталоге копии; null — такой сессии нет.</summary>
-    public AgentSession? VsCodeIn(string copyPath) => In(copyPath).FirstOrDefault(session => session.InVsCode);
-
-    /// <summary>Любая живая сессия в каталоге копии, хоть в терминале; null — сессий нет.</summary>
-    public AgentSession? AnyIn(string copyPath) => In(copyPath).FirstOrDefault();
-
-    private IEnumerable<AgentSession> In(string copyPath)
+    public AgentSession? VsCodeIn(string copyPath)
     {
         var copy = WorkspaceCollector.Normalize(copyPath);
-        return All().Where(session =>
-            WorkspaceCollector.Normalize(session.Cwd).Equals(copy, StringComparison.OrdinalIgnoreCase));
+        return All().FirstOrDefault(session =>
+            session.InVsCode && WorkspaceCollector.Normalize(session.Cwd).Equals(copy, StringComparison.OrdinalIgnoreCase));
     }
 
     private IEnumerable<AgentSession> All()
