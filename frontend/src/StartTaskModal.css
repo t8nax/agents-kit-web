@@ -136,6 +136,12 @@
   border: 4px solid var(--text-primary);
 }
 
+/* Номер не ужимается: во flex плашка иначе рвётся на две строки */
+.st-record .num-chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .st-record-title {
   font-size: 14px;
   line-height: 1.4;
@@ -157,8 +163,9 @@
   background: var(--footer-tint);
 }
 
-.st-note {
-  font-size: 12px;
+/* Надпись на кнопке не переносится */
+.st-footer .btn {
+  white-space: nowrap;
 }
 
 .st-footer-end {

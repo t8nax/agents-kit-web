@@ -169,11 +169,13 @@ export default function StartTaskModal({ row, onClose, onStarted }: Props) {
             )}
           </fieldset>
 
-          <p className="st-hint">Запись уйдёт из бэклога, и агент заведёт память задачи сам — панель бэклог не правит.</p>
+          <p className="st-hint">
+            Запись уйдёт из бэклога, и агент заведёт память задачи сам — панель бэклог не правит. Работает он в фоне,
+            а вопросы задаёт в панели.
+          </p>
         </div>
 
         <div className="st-footer">
-          <span className="text-ter st-note">Агент возьмёт задачу в фоне — вопросы придут в панель</span>
           <div className="st-footer-end">
             <button type="button" className="btn" disabled={busy} onClick={onClose}>
               Отмена
