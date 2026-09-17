@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Health;
+using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -46,6 +47,11 @@ public sealed class HealthTests : IDisposable
         var baseHealth = Assert.Single(snapshot.Bases);
         Assert.Equal(BaseHealthStatus.Unchecked, baseHealth.Status);
         Assert.Equal("Order Service", baseHealth.Project);
+        Assert.All(await GetRows(), row =>
+        {
+            Assert.Equal(RowProblemsState.KitNotSet, row.ProblemsState);
+            Assert.Null(row.Problems);
+        });
     }
 
     [Fact]
@@ -82,6 +88,11 @@ public sealed class HealthTests : IDisposable
         Assert.Equal(
             [new HealthProblem("error", null, "база не числит эту копию своей")],
             Assert.Single(baseHealth.Copies, c => c.Path == _worktree).Problems);
+
+        var rows = await GetRows();
+        Assert.All(rows, row => Assert.Equal(RowProblemsState.Checked, row.ProblemsState));
+        Assert.Equal(3, Assert.Single(rows, r => r.Path == _main).Problems);
+        Assert.Equal(4, Assert.Single(rows, r => r.Path == _worktree).Problems);
     }
 
     [Fact]
@@ -98,6 +109,7 @@ public sealed class HealthTests : IDisposable
         Assert.Equal(BaseHealthStatus.Failed, baseHealth.Status);
         Assert.Contains("сверка сломалась", baseHealth.Error);
         Assert.Empty(baseHealth.Problems);
+        Assert.All(await GetRows(), row => Assert.Equal(RowProblemsState.Failed, row.ProblemsState));
     }
 
     [Fact]
@@ -138,6 +150,23 @@ public sealed class HealthTests : IDisposable
         else
             Assert.Equal([new HealthProblem("error", null, message)], problems);
     }
+
+    [Fact]
+    public void Annotate_BeforeFirstCheckOrForNewBase_IsPending()
+    {
+        var row = new WorkspaceRow("app", "D:\\app-knowledge", "D:\\app", "dev", null, null, null, "free", null);
+        var missingCopy = row with { Path = "D:\\gone", Status = null, Error = "Копия не найдена на диске" };
+
+        var pending = HealthMonitor.Annotate([row, missingCopy], new HealthSnapshot(true, KitStatus.NotSet, [], null));
+        var newBase = HealthMonitor.Annotate([row], new HealthSnapshot(false, KitStatus.Ok, [], DateTimeOffset.Now));
+
+        Assert.Equal(RowProblemsState.Pending, pending[0].ProblemsState);
+        Assert.Null(pending[1].ProblemsState);
+        Assert.Equal(RowProblemsState.Pending, Assert.Single(newBase).ProblemsState);
+    }
+
+    private async Task<List<WorkspaceRow>> GetRows() =>
+        (await Client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces"))!;
 
     private async Task<HealthSnapshot> WaitFor(Func<HealthSnapshot, bool> condition)
     {

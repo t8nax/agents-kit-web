@@ -19,8 +19,8 @@ app.UseStaticFiles();
 
 app.MapGet("/api/ping", () => new PingResponse("pong"));
 
-app.MapGet("/api/workspaces", (BasesStore bases, CancellationToken cancellationToken) =>
-    WorkspaceCollector.CollectAsync(bases.List(), cancellationToken));
+app.MapGet("/api/workspaces", async (BasesStore bases, HealthMonitor health, CancellationToken cancellationToken) =>
+    HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot));
 
 app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
 

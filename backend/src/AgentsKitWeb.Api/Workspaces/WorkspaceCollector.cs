@@ -9,7 +9,10 @@ public static class WorkspaceStatus
     public const string Waiting = "waiting";
 }
 
-/// <summary>Строка таблицы рабочих копий. Error задан — данных по строке нет.</summary>
+/// <summary>
+/// Строка таблицы рабочих копий. Error задан — данных по строке нет. Problems — число проблем копии
+/// и её базы из последней проверки кита, когда ProblemsState — checked; иначе state называет, почему числа нет.
+/// </summary>
 public sealed record WorkspaceRow(
     string Project,
     string Base,
@@ -19,7 +22,9 @@ public sealed record WorkspaceRow(
     string? FlowStep,
     int? Progress,
     string? Status,
-    string? Error);
+    string? Error,
+    int? Problems = null,
+    string? ProblemsState = null);
 
 public static class WorkspaceCollector
 {
