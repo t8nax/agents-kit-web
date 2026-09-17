@@ -40,6 +40,8 @@ public static class BasesEndpoints
             ? new KitResponse(kit, BasesStore.IsKit(kit))
             : new KitResponse(null, false));
 
+        app.MapGet("/api/kit/found", (KitLocator locator) => locator.Find());
+
         app.MapPut("/api/kit", (SetKitRequest request, BasesStore store) =>
             store.SetKit(request.Path, out var saved) switch
             {

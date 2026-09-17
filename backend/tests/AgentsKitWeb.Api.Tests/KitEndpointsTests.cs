@@ -101,6 +101,46 @@ public sealed class KitEndpointsTests : IDisposable
         Assert.Equal(new KitResponse(kit, false), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
     }
 
+    [Fact]
+    public async Task FoundKits_LooksInSkillsAndInstalledPluginsAndKeepsOnlyKits()
+    {
+        var claude = Path.Combine(_root, "profile", ".claude");
+        var skillKit = TestKit.Create(Path.Combine(claude, "skills", "agents-kit"));
+        Directory.CreateDirectory(Path.Combine(claude, "skills", "other-skill"));
+        var pluginKit = TestKit.Create(Path.Combine(claude, "plugins", "cache", "kits", "agents-kit", "0.2.0"));
+        var brokenPlugin = Directory.CreateDirectory(Path.Combine(claude, "plugins", "cache", "kits", "agents-kit", "0.1.0")).FullName;
+        File.WriteAllText(Path.Combine(claude, "plugins", "installed_plugins.json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            version = 2,
+            plugins = new Dictionary<string, object[]>
+            {
+                ["agents-kit@kits"] = [new { installPath = pluginKit }, new { installPath = brokenPlugin }],
+                ["duplicate@kits"] = [new { installPath = skillKit + "\\" }],
+            },
+        }));
+
+        using var factory = FactoryWithClaudeDir(claude);
+        var found = await factory.CreateClient().GetFromJsonAsync<List<string>>("/api/kit/found");
+
+        Assert.Equal([skillKit, pluginKit], found);
+    }
+
+    [Fact]
+    public async Task FoundKits_NoProfile_IsEmpty()
+    {
+        using var factory = FactoryWithClaudeDir(Path.Combine(_root, "nobody", ".claude"));
+
+        Assert.Empty((await factory.CreateClient().GetFromJsonAsync<List<string>>("/api/kit/found"))!);
+    }
+
+    private WebApplicationFactory<Program> FactoryWithClaudeDir(string claudeDir) =>
+        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.Sources.Clear();
+                config.AddInMemoryCollection([new("BasesFile", _file), new("ClaudeDir", claudeDir)]);
+            }));
+
     public void Dispose()
     {
         _factory.Dispose();

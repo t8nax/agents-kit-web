@@ -8,6 +8,8 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddSingleton(services =>
     new AgentSessions(services.GetRequiredService<IConfiguration>()["SessionsDir"] ?? AgentSessions.DefaultDirectory));
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
+builder.Services.AddSingleton(services =>
+    new KitLocator(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
