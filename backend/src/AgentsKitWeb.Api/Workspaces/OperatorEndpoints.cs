@@ -9,6 +9,7 @@ public sealed record QuestionsResponse(
     string? Task,
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
+    string? Design,
     IReadOnlyList<OperatorQuestion> Questions,
     bool VsCodeSession);
 
@@ -40,6 +41,7 @@ public static class OperatorEndpoints
                 memory.Task,
                 memory.Criteria,
                 memory.OutOfScope,
+                memory.Design,
                 memory.Questions.Where(q => q.Answer is null).ToList(),
                 sessions.VsCodeIn(memory.Copy!) is not null));
         });

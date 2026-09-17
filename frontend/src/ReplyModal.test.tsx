@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitForElementToBeRemoved, within } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitForElementToBeRemoved, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import type { QuestionsResponse } from './ReplyModal'
@@ -29,6 +29,7 @@ const questions: QuestionsResponse = {
     { title: '2. Строка перестаёт ждать', text: null },
   ],
   outOfScope: 'Health баз.',
+  design: null,
   vsCodeSession: true,
   questions: [
     { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
@@ -44,7 +45,7 @@ const questions: QuestionsResponse = {
   ],
 }
 
-type Route = (init?: RequestInit) => Response
+type Route = (init?: RequestInit) => Response | Promise<Response>
 
 function stubApi(answers: Route, data: QuestionsResponse = questions, openSession: Route = () => new Response(null, { status: 204 })) {
   const calls: { url: string; init?: RequestInit }[] = []
@@ -85,6 +86,31 @@ test('окно показывает заголовок и текст каждо�
   expect(dialog.getByText('Не входит')).toBeInTheDocument()
   expect(dialog.getByText('Health баз.')).toBeInTheDocument()
   expect(dialog.queryByText('Критерии не записаны')).not.toBeInTheDocument()
+})
+
+test('макет задачи показывается блоком «Дизайн» со ссылкой', async () => {
+  stubApi(() => new Response(null, { status: 204 }), {
+    ...questions,
+    design: 'Макет окна ответа: https://claude.ai/artifact/AbC123',
+  })
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  expect(dialog.getByText('Дизайн')).toBeInTheDocument()
+  const link = document.querySelector('.design-label + .criterion-text a')!
+  expect(link).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123')
+  expect(link).toHaveAttribute('target', '_blank')
+})
+
+test('у задачи без макета блока «Дизайн» в окне нет', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  expect(dialog.queryByText('Дизайн')).not.toBeInTheDocument()
+  expect(document.querySelector('.design-label')).toBeNull()
 })
 
 test('окно без критериев говорит, что они не записаны', async () => {
@@ -403,4 +429,81 @@ test('черновик вопроса, которого больше нет ср
 
   expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({ 'Подтвердить критерий?': 'принимаю' })
   expect(JSON.parse(localStorage.getItem(otherCopyKey)!)).toEqual({ 'Как быть с переносами?': 'из другой копии' })
+})
+
+test('Enter в поле ответа открывает следующий вопрос, а Shift+Enter и набор через IME его не трогают', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const field = dialog.getByLabelText('Ответ')
+  fireEvent.change(field, { target: { value: 'принимаю' } })
+
+  const withShift = createEvent.keyDown(field, { key: 'Enter', shiftKey: true })
+  fireEvent(field, withShift)
+  // перенос строки Shift+Enter поле оставляет себе
+  expect(withShift.defaultPrevented).toBe(false)
+  fireEvent.keyDown(field, { key: 'Enter', isComposing: true })
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+
+  const plain = createEvent.keyDown(field, { key: 'Enter' })
+  fireEvent(field, plain)
+  // переноса строки в поле не будет: Enter повторяет «Далее»
+  expect(plain.defaultPrevented).toBe(true)
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
+  expect(dialog.getByText('Вопрос 2 из 2')).toBeInTheDocument()
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
+})
+
+test('Enter на последнем вопросе отправляет все ответы и закрывает окно', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
+
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
+  const post = calls.filter((c) => c.url === '/api/answers')
+  expect(post).toHaveLength(1)
+  expect(JSON.parse(post[0].init!.body as string).answers).toEqual([
+    { question: 'Подтвердить критерий?', answer: 'принимаю' },
+    { question: 'Как быть с переносами?', answer: 'заменять' },
+  ])
+})
+
+test('Enter на последнем вопросе с пустым ответом возвращает к нему и ничего не отправляет', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
+
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+  expect(dialog.getByText('Напишите свой ответ')).toBeInTheDocument()
+  expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
+})
+
+test('Enter, нажатый второй раз, пока отправка идёт, второй отправки не начинает', async () => {
+  let finish = () => {}
+  const calls = stubApi(
+    () => new Promise<Response>((resolve) => (finish = () => resolve(new Response(null, { status: 204 })))),
+  )
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
+
+  expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
+
+  finish()
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
 })

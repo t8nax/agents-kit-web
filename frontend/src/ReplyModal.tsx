@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { VsCodeIcon } from './VsCodeIcon'
@@ -28,6 +28,7 @@ export type QuestionsResponse = {
   task: string | null
   criteria: ClosingCriterion[]
   outOfScope: string | null
+  design: string | null
   questions: OperatorQuestion[]
   vsCodeSession: boolean
 }
@@ -166,6 +167,18 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     }
   }
 
+  // Enter в поле повторяет «Далее», а на последнем вопросе — «Отправить»: ответ всё равно
+  // пишется одной строкой, так что перевод строки в поле не нужен. Shift и другие модификаторы
+  // оставляют полю его обычное поведение, а набор через IME заканчивается тем же Enter — его
+  // событие пропускается, иначе вопрос сменился бы посреди набора.
+  function onAnswerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return
+    if (event.nativeEvent.isComposing) return
+    event.preventDefault()
+    if (current < questions.length - 1) setCurrent(current + 1)
+    else if (!sending) void send()
+  }
+
   const question = questions[current]
 
   return (
@@ -265,6 +278,12 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                         <Markdown className="criterion-text" text={load.data.outOfScope} />
                       </>
                     )}
+                    {load.data.design && (
+                      <>
+                        <p className="acc-label design-label">Дизайн</p>
+                        <Markdown className="criterion-text" text={load.data.design} />
+                      </>
+                    )}
                   </div>
                 </details>
 
@@ -307,6 +326,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                       value={answers[current]}
                       placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
                       onChange={(e) => setAnswer(current, e.target.value)}
+                      onKeyDown={onAnswerKeyDown}
                     />
                     {rejection?.question === question.title ? (
                       <div className="field-status error-text" role="alert">

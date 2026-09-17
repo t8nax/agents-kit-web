@@ -26,6 +26,7 @@ test('оператор отвечает на вопросы копии, и ст�
         task: 'Окно ответа',
         criteria: [{ title: '1. Окно есть', text: 'Оператор отвечает из панели.' }],
         outOfScope: 'Health баз.',
+        design: 'Макет окна ответа: https://claude.ai/artifact/AbC123',
         questions: [
           { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
           {
@@ -54,6 +55,14 @@ test('оператор отвечает на вопросы копии, и ст�
 
   const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
+
+  // макет задачи — свой блок в «Контексте задачи», ссылкой в новую вкладку
+  await dialog.getByText('Контекст задачи').click()
+  await expect(dialog.getByText('Дизайн')).toBeVisible()
+  const design = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
+  await expect(design).toHaveAttribute('target', '_blank')
+  await dialog.getByText('Контекст задачи').click()
+
   await dialog.getByLabel('Ответ').fill('принимаю')
   await dialog.getByRole('button', { name: 'Далее' }).click()
   await dialog.getByRole('button', { name: /Заменять пробелами/ }).click()
@@ -80,8 +89,8 @@ test('набранный ответ возвращается после закр
       json: [
         {
           project: 'app-knowledge',
-          base: 'D:\Projects\app-knowledge',
-          path: 'D:\Projects\app',
+          base: 'D:\\Projects\\app-knowledge',
+          path: 'D:\\Projects\\app',
           branch: 'feat/reply',
           task: 'Окно ответа',
           flowStep: 'Критерий',
@@ -96,10 +105,11 @@ test('набранный ответ возвращается после закр
     route.fulfill({
       json: {
         project: 'app-knowledge',
-        copy: 'D:\Projects\app',
+        copy: 'D:\\Projects\\app',
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
+        design: null,
         vsCodeSession: false,
         questions: [{ title: 'Подтвердить критерий?', context: null, variants: [], answer: null }],
       },
@@ -158,6 +168,7 @@ test('ссылка из вопроса открывается в новой вк
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
+        design: null,
         vsCodeSession: false,
         questions: [
           {
@@ -194,4 +205,74 @@ test('ссылка из вопроса открывается в новой вк
   expect(page.url()).not.toContain('example.com')
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel('Ответ')).toHaveValue('в новую папку')
+})
+
+// /api подменяется, как и выше: мастер проходится одной клавиатурой, ответы никуда не пишутся.
+test('Enter в поле ответа ведёт по вопросам и на последнем отправляет ответы', async ({ page }) => {
+  let posted: unknown = null
+
+  await page.route('**/api/workspaces', (route) =>
+    route.fulfill({
+      json: [
+        {
+          project: 'app-knowledge',
+          base: 'D:\\Projects\\app-knowledge',
+          path: 'D:\\Projects\\app',
+          branch: 'feat/reply',
+          task: 'Окно ответа',
+          flowStep: 'Критерий',
+          progress: 0,
+          status: 'waiting',
+          error: null,
+        },
+      ],
+    }),
+  )
+  await page.route('**/api/questions?**', (route) =>
+    route.fulfill({
+      json: {
+        project: 'app-knowledge',
+        copy: 'D:\\Projects\\app',
+        task: 'Окно ответа',
+        criteria: [],
+        outOfScope: null,
+        vsCodeSession: false,
+        questions: [
+          { title: 'Подтвердить критерий?', context: null, variants: [], answer: null },
+          { title: 'Как быть с переносами?', context: null, variants: [], answer: null },
+        ],
+      },
+    }),
+  )
+  await page.route('**/api/answers', async (route) => {
+    posted = route.request().postDataJSON()
+    await route.fulfill({ status: 204 })
+  })
+
+  await page.goto('/')
+  await page.getByRole('row', { name: /Окно ответа/ }).getByRole('button', { name: 'Ответить' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
+  const answer = dialog.getByLabel('Ответ')
+
+  await answer.fill('принимаю')
+  await answer.press('Enter')
+  await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
+
+  // ответ первого вопроса остался одной строкой: Enter перенос строки в поле не оставил
+  await dialog.getByRole('button', { name: 'Назад' }).click()
+  await expect(answer).toHaveValue('принимаю')
+  await answer.press('Enter')
+
+  await answer.fill('заменять')
+  await answer.press('Enter')
+
+  await expect(dialog).toBeHidden()
+  expect(posted).toEqual({
+    base: 'D:\\Projects\\app-knowledge',
+    copy: 'D:\\Projects\\app',
+    answers: [
+      { question: 'Подтвердить критерий?', answer: 'принимаю' },
+      { question: 'Как быть с переносами?', answer: 'заменять' },
+    ],
+  })
 })

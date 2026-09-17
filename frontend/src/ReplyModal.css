@@ -248,7 +248,8 @@
   line-height: 1.5;
 }
 
-.out-of-scope-label {
+.out-of-scope-label,
+.design-label {
   margin-top: 16px;
 }
 

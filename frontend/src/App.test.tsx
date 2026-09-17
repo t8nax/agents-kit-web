@@ -200,7 +200,8 @@ test('номер задачи из бэклога стоит своей коло
   expect(cells(tableRows[1]).slice(1, 3)).toEqual(['B-24', 'Номер задачи отдельной колонкой'])
   expect(within(tableRows[1]).getByText('B-24')).toHaveClass('num-chip')
   expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'Задача не из бэклога'])
-  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', '—'])
+  // У свободной копии задачи нет, и на её месте стоит запуск
+  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', 'Взять задачу'])
   // Строка с ошибкой накрывает и колонку номера: ячеек в ней столько же, сколько колонок
   expect(within(tableRows[4]).getAllByRole('cell')[1]).toHaveAttribute('colspan', '5')
 })
@@ -229,6 +230,47 @@ test('кнопка «Открыть в VS Code» стоит у прочитан�
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' }),
+  })
+})
+
+test('«Взять задачу» стоит только у свободных копий и запускает выбранную запись', async () => {
+  const backlog = [
+    {
+      base: 'D:\\Projects\\app-knowledge',
+      project: 'app-knowledge',
+      entries: [{ number: 'B-7', title: 'Панель показывает задачу сразу', text: null }],
+      error: null,
+    },
+  ]
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/tasks') return Response.json({ session: '7339dced' })
+    if (url === '/api/backlog') return Response.json(backlog)
+    return Response.json(rows)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  // Ждущая ответа и нечитаемая копии задачу не принимают
+  expect(within(tableRows[1]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
+  expect(within(tableRows[3]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
+  // Кнопка стоит на месте задачи, а не в колонке действий — решение оператора на приёмке
+  const taskCell = within(tableRows[2]).getAllByRole('cell')[2]
+  fireEvent.click(within(taskCell).getByRole('button', { name: 'Взять задачу' }))
+
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /B-7/ }))
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+  })
+
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(await screen.findByRole('status')).toHaveTextContent('Задача запущена в app-wt')
+  expect(fetchMock).toHaveBeenCalledWith('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt', number: 'B-7' }),
   })
 })
 
@@ -713,6 +755,7 @@ test('опрос не закрывает окно ответа и не сбра�
     task: 'Таблица рабочих копий',
     criteria: [],
     outOfScope: null,
+    design: null,
     questions: [{ title: 'Какой интервал?', context: null, variants: [], answer: null }],
   }
   const fetchMock = vi.fn(async (url: string) =>
