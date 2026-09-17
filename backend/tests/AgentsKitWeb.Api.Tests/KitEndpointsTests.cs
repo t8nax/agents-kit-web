@@ -29,7 +29,7 @@ public sealed class KitEndpointsTests : IDisposable
     [Fact]
     public async Task Kit_NoFile_IsNotSet()
     {
-        Assert.Equal(new KitResponse(null), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+        Assert.Equal(new KitResponse(null, false), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
     }
 
     [Fact]
@@ -43,8 +43,8 @@ public sealed class KitEndpointsTests : IDisposable
         var response = await Client.PutAsJsonAsync("/api/kit", new SetKitRequest($" {kit}\\ "));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(new KitResponse(kit), await response.Content.ReadFromJsonAsync<KitResponse>());
-        Assert.Equal(new KitResponse(kit), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+        Assert.Equal(new KitResponse(kit, true), await response.Content.ReadFromJsonAsync<KitResponse>());
+        Assert.Equal(new KitResponse(kit, true), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
         Assert.Equal([new BaseEntry(basePath, 0)], await Client.GetFromJsonAsync<List<BaseEntry>>("/api/bases"));
     }
 
@@ -59,7 +59,7 @@ public sealed class KitEndpointsTests : IDisposable
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(basePath));
         await Client.DeleteAsync($"/api/bases?path={Uri.EscapeDataString(basePath)}");
 
-        Assert.Equal(new KitResponse(kit), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+        Assert.Equal(new KitResponse(kit, true), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
     }
 
     [Theory]
@@ -87,7 +87,18 @@ public sealed class KitEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(new AddBaseRejectedResponse("not-a-kit"), await response.Content.ReadFromJsonAsync<AddBaseRejectedResponse>());
-        Assert.Equal(new KitResponse(kit), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+        Assert.Equal(new KitResponse(kit, true), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    [Fact]
+    public async Task Kit_RemovedAfterSet_IsNotFound()
+    {
+        var kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+
+        Directory.Delete(kit, recursive: true);
+
+        Assert.Equal(new KitResponse(kit, false), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
     }
 
     public void Dispose()
