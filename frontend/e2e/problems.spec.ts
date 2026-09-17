@@ -41,19 +41,30 @@ async function mockApi(page: Page, rows: object[], snapshot: object) {
   await page.route('**/api/kit', (route) => route.fulfill({ json: { path: null, found: false } }))
 }
 
-test('число проблем в строке копии ведёт в «Проблемы баз», где видно, что не так', async ({ page }) => {
+test('проблемы базы в заголовке группы и проблема связи в строке копии ведут в «Проблемы баз»', async ({ page }) => {
   await mockApi(
     page,
     [
-      { ...row, path: 'D:\\Projects\\agents-kit-web', problems: 1, problemsState: 'checked' },
-      { ...row, path: 'D:\\Projects\\noble-keen-walrus', problems: 2, problemsState: 'checked' },
+      { ...row, path: 'D:\\Projects\\agents-kit-web', baseProblems: 1, problems: 0, problemsState: 'checked' },
+      { ...row, path: 'D:\\Projects\\noble-keen-walrus', baseProblems: 1, problems: 1, problemsState: 'checked' },
     ],
     health,
   )
 
   await page.goto('/')
+  const group = page.getByRole('rowheader').filter({ has: page.locator('.group-name', { hasText: 'Agents Kit Web' }) })
+  await expect(group.getByRole('button', { name: '1 проблема базы — открыть «Проблемы баз»' })).toBeVisible()
+  // У здоровой копии в строке пусто: проблемы её базы уже названы в заголовке
+  const mainCopy = page.getByRole('table').locator('tbody tr:not(.group-row)').first()
+  await expect(mainCopy).toContainText('agents-kit-web')
+  await expect(mainCopy.getByRole('button', { name: /открыть «Проблемы баз»/ })).toHaveCount(0)
+
   const worktree = page.getByRole('row', { name: /noble-keen-walrus/ })
-  await worktree.getByRole('button', { name: '2 проблемы — открыть «Проблемы баз»' }).click()
+  await worktree.getByRole('button', { name: '1 проблема копии — открыть «Проблемы баз»' }).click()
+  await expect(page.getByRole('heading', { name: 'Проблемы баз' })).toBeVisible()
+
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: /Рабочие копии/ }).click()
+  await group.getByRole('button', { name: '1 проблема базы — открыть «Проблемы баз»' }).click()
 
   await expect(page.getByRole('heading', { name: 'Проблемы баз' })).toBeVisible()
   const card = page.getByRole('region', { name: 'Agents Kit Web — D:\\Projects\\agents-kit-web-knowledge' })
@@ -100,7 +111,7 @@ test('без пути к киту таблица и раздел проблем 
   })
 
   await page.goto('/')
-  await expect(page.getByRole('row', { name: /agents-kit-web/ }).getByText('кит не задан')).toBeVisible()
+  await expect(page.locator('tr.group-row').getByText('кит не задан')).toBeVisible()
   await expect(page.getByText('Проблемы баз не проверяются: не задан путь к киту.')).toBeVisible()
 
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Проблемы баз' }).click()

@@ -311,6 +311,11 @@ tbody tr.group-row:hover {
   font-size: 12px;
 }
 
+.group-problems {
+  margin-left: auto;
+  font-size: 12px;
+}
+
 td.task-col {
   width: 32%;
   white-space: normal;

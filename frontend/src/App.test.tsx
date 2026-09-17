@@ -264,15 +264,35 @@ test('сайдбар переключает разделы, среди них «
   expect(sidebar.queryByRole('button', { name: 'Базы знаний' })).not.toBeInTheDocument()
 })
 
-const checked = (problems: number): Partial<WorkspaceRow> => ({ problemsState: 'checked', problems })
+const checked = (baseProblems: number, problems: number): Partial<WorkspaceRow> => ({
+  problemsState: 'checked',
+  baseProblems,
+  problems,
+})
 
-test('колонка «Проблемы» показывает число, прочерк или причину, а число ведёт в «Проблемы баз»', async () => {
+// Заголовок группы по названию проекта
+function groupHeader(project: string) {
+  const header = screen
+    .getAllByRole('rowheader')
+    .find((candidate) => candidate.querySelector('.group-name')?.textContent === project)
+  if (!header) throw new Error(`нет группы ${project}`)
+  return header
+}
+
+const otherProject = (project: string): Partial<WorkspaceRow> => ({
+  project,
+  base: `D:\\Projects\\${project}-knowledge`,
+  path: `D:\\Projects\\${project}`,
+})
+
+test('проблемы базы стоят в заголовке группы, у копии — только её проблемы связи, числа ведут в «Проблемы баз»', async () => {
   const tableRows: WorkspaceRow[] = [
-    { ...rows[0], ...checked(3) },
-    { ...rows[1], ...checked(0) },
-    { ...rows[1], path: 'D:\\Projects\\failed', problemsState: 'failed', problems: null },
-    { ...rows[1], path: 'D:\\Projects\\pending', problemsState: 'pending', problems: null },
+    { ...rows[0], ...checked(2, 1) },
+    { ...rows[1], ...checked(2, 0) },
     rows[2],
+    { ...rows[1], ...otherProject('clean'), ...checked(0, 0) },
+    { ...rows[1], ...otherProject('failed'), problemsState: 'failed', problems: null },
+    { ...rows[1], ...otherProject('pending'), problemsState: 'pending', problems: null },
   ]
   vi.stubGlobal(
     'fetch',
@@ -284,21 +304,31 @@ test('колонка «Проблемы» показывает число, пр�
   )
 
   render(<App />)
-  const [, withProblems, clean, failed, pending, broken] = await findTableRows()
+  const [, brokenLink, healthy, missing, clean, failed, pending] = await findTableRows()
 
-  // Колонка «Проблемы» — седьмая в строке
-  expect(within(clean).getAllByRole('cell')[6]).toHaveTextContent(/^—$/)
-  expect(within(failed).getByText('сверка не выполнена')).toBeInTheDocument()
-  expect(within(pending).getByText('проверяется')).toBeInTheDocument()
+  // Проблемы базы — одним числом в заголовке группы, а не в каждой строке её копий
+  expect(
+    within(groupHeader('app-knowledge')).getByRole('button', { name: '2 проблемы базы — открыть «Проблемы баз»' }),
+  ).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: /базы — открыть «Проблемы баз»/ })).toHaveLength(1)
+  expect(within(groupHeader('clean')).getAllByRole('button')).toHaveLength(1)
+
+  // Колонка «Проблемы» — седьмая в строке: у копии только её проблемы связи, у здоровой пусто
+  expect(within(brokenLink).getAllByRole('cell')[6]).toHaveTextContent(/^1$/)
+  for (const row of [healthy, clean, failed, pending]) expect(within(row).getAllByRole('cell')[6]).toBeEmptyDOMElement()
   // Строке с ошибкой проверять нечего: копии нет на диске, её называет сверка базы
-  expect(within(broken).queryByRole('button', { name: /открыть «Проблемы баз»/ })).not.toBeInTheDocument()
+  expect(within(missing).queryByRole('button', { name: /открыть «Проблемы баз»/ })).not.toBeInTheDocument()
+
+  // Почему чисел нет — словами в заголовке группы
+  expect(within(groupHeader('failed')).getByText('сверка не выполнена')).toBeInTheDocument()
+  expect(within(groupHeader('pending')).getByText('проверяется')).toBeInTheDocument()
   expect(screen.queryByText(/Проблемы баз не проверяются/)).not.toBeInTheDocument()
 
-  fireEvent.click(within(withProblems).getByRole('button', { name: '3 проблемы — открыть «Проблемы баз»' }))
+  fireEvent.click(within(brokenLink).getByRole('button', { name: '1 проблема копии — открыть «Проблемы баз»' }))
   expect(await screen.findByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
 })
 
-test('без пути к киту таблица говорит об этом в строках и плашкой, плашка ведёт в «Настройки»', async () => {
+test('без пути к киту таблица говорит об этом в заголовке группы и плашкой, плашка ведёт в «Настройки»', async () => {
   const tableRows: WorkspaceRow[] = [{ ...rows[0], problemsState: 'kit-not-set', problems: null }]
   vi.stubGlobal(
     'fetch',
@@ -310,9 +340,9 @@ test('без пути к киту таблица говорит об этом в
   )
 
   render(<App />)
-  const [, row] = await findTableRows()
+  await findTableRows()
 
-  expect(within(row).getByText('кит не задан')).toBeInTheDocument()
+  expect(within(groupHeader('app-knowledge')).getByText('кит не задан')).toBeInTheDocument()
   expect(screen.getByText('Проблемы баз не проверяются: не задан путь к киту.')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Открыть настройки' }))

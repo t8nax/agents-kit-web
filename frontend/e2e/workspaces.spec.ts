@@ -73,6 +73,9 @@ const nota = {
   branch: 'main',
   task: 'B-4 Экспорт заметок',
   status: 'waiting',
+  problemsState: 'checked',
+  baseProblems: 2,
+  problems: 0,
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
@@ -88,7 +91,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(all.nth(0).getByRole('rowheader')).toHaveText('Agents Kit Web3 копии')
     await expect(all.nth(1).getByRole('cell').first()).toHaveText('agents-kit-webfeat/task-number-column')
     await expect(all.nth(3).getByRole('cell').first()).toHaveText('agents-kit-web-3dev')
-    await expect(all.nth(4).getByRole('rowheader')).toHaveText('Nota1 копия · 1 ждёт оператора')
+    await expect(all.nth(4).getByRole('rowheader')).toHaveText('Nota1 копия · 1 ждёт оператора2')
     await expect(all.nth(5).getByRole('cell').first()).toHaveText('notamain')
     // Путь копии и название проекта в строках копий больше не повторяются
     const copyRows = table.locator('tbody tr:not(.group-row)')
@@ -99,6 +102,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const head = all.nth(4).getByRole('rowheader')
     await expect(head).toHaveCSS('border-bottom-width', '1px')
     await expect(head.locator('.group-name')).toHaveCSS('font-weight', '600')
+    // Проблемы базы — плашкой у правого края заголовка, в обеих темах с рамкой и заливкой
+    const baseProblems = head.getByRole('button', { name: '2 проблемы базы — открыть «Проблемы баз»' })
+    await expect(baseProblems).toHaveCSS('border-top-width', '1px')
+    await expect(baseProblems).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const [headBox, problemsBox] = await Promise.all([head.boundingBox(), baseProblems.boundingBox()])
+    expect(headBox!.x + headBox!.width - (problemsBox!.x + problemsBox!.width)).toBeLessThan(24)
 
     await page.getByRole('button', { name: 'Свернуть Nota' }).click()
     await expect(page.getByText('Экспорт заметок')).toHaveCount(0)

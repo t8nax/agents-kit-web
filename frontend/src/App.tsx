@@ -30,8 +30,10 @@ export type WorkspaceRow = {
   progress: number | null
   status: WorkspaceStatus | null
   error: string | null
-  /** Число проблем копии и её базы, когда problemsState — checked; иначе state говорит, почему числа нет. */
+  /** Проблемы связи самой копии с базой, когда problemsState — checked; иначе state говорит, почему чисел нет. */
   problems?: number | null
+  /** Находки сверки базы — общие для всех её копий, при том же problemsState. */
+  baseProblems?: number | null
   problemsState?: ProblemsState | null
 }
 
@@ -483,6 +485,9 @@ function WorkspacesTable({
                       {plural(group.rows.length, 'копия', 'копии', 'копий')}
                       {waiting > 0 && ` · ${waiting} ${waiting === 1 ? 'ждёт' : 'ждут'} оператора`}
                     </span>
+                    <span className="group-problems">
+                      <BaseProblems rows={group.rows} onProblems={onProblems} />
+                    </span>
                   </div>
                 </th>
               </tr>
@@ -585,17 +590,38 @@ function Progress({ value, waiting }: { value: number; waiting: boolean }) {
   )
 }
 
-function ProblemsCell({ row, onProblems }: { row: WorkspaceRow; onProblems: () => void }) {
-  const state = row.problemsState ?? null
-  if (state === null || (state === 'checked' && !row.problems)) return <span className="text-sec">—</span>
+// Проблемы базы и почему их нет — один раз в заголовке группы: состояние проверки у копий базы общее
+function BaseProblems({ rows, onProblems }: { rows: WorkspaceRow[]; onProblems: () => void }) {
+  const row = rows.find((candidate) => !candidate.error && candidate.problemsState)
+  const state = row?.problemsState ?? null
+  if (state === null || (state === 'checked' && !row?.baseProblems)) return null
   if (state !== 'checked') return <span className="text-ter">{problemsStateLabels[state]}</span>
 
-  const count = row.problems ?? 0
+  const count = row?.baseProblems ?? 0
   return (
     <button
       type="button"
       className="issues-btn"
-      aria-label={`${plural(count, 'проблема', 'проблемы', 'проблем')} — открыть «Проблемы баз»`}
+      aria-label={`${plural(count, 'проблема', 'проблемы', 'проблем')} базы — открыть «Проблемы баз»`}
+      title="Открыть «Проблемы баз»"
+      onClick={onProblems}
+    >
+      <WarningIcon />
+      {count}
+    </button>
+  )
+}
+
+// В строке — только проблемы связи самой копии; у здоровой копии ячейка пустая
+function ProblemsCell({ row, onProblems }: { row: WorkspaceRow; onProblems: () => void }) {
+  if (row.problemsState !== 'checked' || !row.problems) return null
+
+  const count = row.problems
+  return (
+    <button
+      type="button"
+      className="issues-btn"
+      aria-label={`${plural(count, 'проблема', 'проблемы', 'проблем')} копии — открыть «Проблемы баз»`}
       title="Открыть «Проблемы баз»"
       onClick={onProblems}
     >
