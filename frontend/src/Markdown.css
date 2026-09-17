@@ -72,6 +72,19 @@
 .markdown a,
 .markdown-inline a {
   color: var(--accent-waiting-text);
+  overflow-wrap: anywhere;
+}
+
+.external-link-icon {
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 2px;
+  vertical-align: -1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .markdown hr {
