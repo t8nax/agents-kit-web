@@ -232,6 +232,45 @@ test('кнопка «Открыть в VS Code» стоит у прочитан�
   })
 })
 
+test('«Взять задачу» стоит только у свободных копий и запускает выбранную запись', async () => {
+  const backlog = [
+    {
+      base: 'D:\\Projects\\app-knowledge',
+      project: 'app-knowledge',
+      entries: [{ number: 'B-7', title: 'Панель показывает задачу сразу', text: null }],
+      error: null,
+    },
+  ]
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/tasks') return Response.json({ session: '7339dced' })
+    if (url === '/api/backlog') return Response.json(backlog)
+    return Response.json(rows)
+  })
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  // Ждущая ответа и нечитаемая копии задачу не принимают
+  expect(within(tableRows[1]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
+  expect(within(tableRows[3]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
+  fireEvent.click(within(tableRows[2]).getByRole('button', { name: 'Взять задачу' }))
+
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /B-7/ }))
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+  })
+
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(await screen.findByRole('status')).toHaveTextContent('Задача запущена в app-wt')
+  expect(fetchMock).toHaveBeenCalledWith('/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt', number: 'B-7' }),
+  })
+})
+
 test('«Новая копия» открывает окно, заведённая копия отмечена в таблице и уведомлением', async () => {
   const source: WorkspaceRow = { ...rows[1], copiesDir: 'D:\\Projects' }
   const created: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\quiet-cedar', branch: 'quiet-cedar' }

@@ -15,6 +15,7 @@ import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
 import Settings from './Settings'
+import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
 import { VsCodeIcon } from './VsCodeIcon'
@@ -74,6 +75,9 @@ function App() {
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [asking, setAsking] = useState(false)
   const [creating, setCreating] = useState(false)
+  // Копия, в которой оператор запускает задачу, и сообщение о запущенной
+  const [starting, setStarting] = useState<WorkspaceRow | null>(null)
+  const [started, setStarted] = useState<string | null>(null)
   const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
@@ -181,6 +185,7 @@ function App() {
                   rows={state.rows}
                   fresh={fresh}
                   onReply={setReplyTo}
+                  onStart={setStarting}
                   onProblems={() => setSection('problems')}
                   onSettings={() => setSection('settings')}
                 />
@@ -204,6 +209,24 @@ function App() {
       </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {asking && <AskModal onClose={closeAsk} />}
+      {starting && (
+        <StartTaskModal
+          row={starting}
+          onClose={() => setStarting(null)}
+          onStarted={() => {
+            setStarted(copyName(starting.path))
+            setStarting(null)
+            // Копия станет занятой, когда агент заведёт память задачи; опрос покажет это сам
+            loadRows()
+          }}
+        />
+      )}
+      {started && (
+        <div className="nw-toast" role="status">
+          <PlayIcon />
+          <span>Задача запущена в {started}</span>
+        </div>
+      )}
       {creating && state.rows && (
         <NewWorkspaceModal
           rows={state.rows}
@@ -471,12 +494,14 @@ function WorkspacesTable({
   rows,
   fresh,
   onReply,
+  onStart,
   onProblems,
   onSettings,
 }: {
   rows: WorkspaceRow[]
   fresh: Fresh | null
   onReply: (row: WorkspaceRow) => void
+  onStart: (row: WorkspaceRow) => void
   onProblems: () => void
   onSettings: () => void
 }) {
@@ -599,6 +624,13 @@ function WorkspacesTable({
                   {row.status === 'waiting' && (
                     <button type="button" className="action-btn-waiting" onClick={() => onReply(row)}>
                       Ответить
+                    </button>
+                  )}
+                  {/* Задача берётся только в свободную копию: одна копия ведёт одну задачу за раз. */}
+                  {!row.error && row.status === 'free' && (
+                    <button type="button" className="action-btn-start" onClick={() => onStart(row)}>
+                      <PlayIcon />
+                      Взять задачу
                     </button>
                   )}
                   {/* Строке с ошибкой открывать нечего: копии на диске нет или её не прочитали. */}
