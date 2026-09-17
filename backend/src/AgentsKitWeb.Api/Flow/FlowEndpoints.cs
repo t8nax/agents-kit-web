@@ -73,6 +73,17 @@ public static class FlowEndpoints
             return Results.Ok(new FlowSavedResponse(Fingerprint(output)));
         });
 
+        app.MapGet("/api/presets", (PresetsStore presets) => presets.List());
+
+        // Пресет — шаг в форме кита: иначе выбранный из списка он не сохранится во флоу.
+        app.MapPost("/api/presets", (FlowStep step, PresetsStore presets) =>
+            FlowFile.Validate([step]) is { } rejection
+                ? Results.BadRequest(new FlowRejectedResponse("invalid", Detail: Problem(rejection.Problem)))
+                : Results.Ok(presets.Add(step)));
+
+        app.MapDelete("/api/presets/{id}", (string id, PresetsStore presets) =>
+            presets.Remove(id) ? Results.NoContent() : Results.NotFound());
+
         // Описания шагов панель не показывает: их читают в VS Code, в окне на каталоге базы.
         app.MapPost("/api/flow/open", async (
             OpenFlowRequest request,
