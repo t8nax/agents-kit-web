@@ -42,7 +42,7 @@
   max-width: 900px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 6px;
 }
 
 .base-head {
@@ -62,21 +62,30 @@
   padding: 4px 0;
 }
 
+/* Запись в списке — только номер и заголовок; текст открывается окном по клику. */
 .entry {
+  font: inherit;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   background: var(--bg-surface);
-  padding: 14px 16px;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
 }
 
 .entry:hover {
   border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
 }
 
-.entry-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+.entry:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 .entry-num {
@@ -90,14 +99,110 @@
 }
 
 .entry-title {
+  flex: 1;
+  min-width: 0;
   font-size: 15px;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entry-chevron {
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary);
+}
+
+.entry-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--overlay-deep);
+  backdrop-filter: blur(8px);
+}
+
+.entry-modal {
+  width: 720px;
+  max-width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px var(--shadow-color);
+  overflow: hidden;
+}
+
+.entry-modal-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 20px 16px 28px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.entry-modal-head .entry-num {
+  margin-top: 3px;
+}
+
+.entry-modal-head h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.entry-close {
+  font: inherit;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.entry-close:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.entry-close:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.entry-close svg {
+  width: 18px;
+  height: 18px;
+}
+
+.entry-modal-body {
+  padding: 20px 28px 28px;
+  overflow-y: auto;
 }
 
 /* Запись бэклога — связный текст, а не строка таблицы: крупнее и просторнее. */
-.entry-text {
-  margin-top: 8px;
+.entry-text,
+.entry-no-text {
+  margin: 0;
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.entry-no-text {
+  color: var(--text-tertiary);
 }

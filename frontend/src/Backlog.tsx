@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import './Backlog.css'
 import { InlineMarkdown, Markdown } from './Markdown'
 
@@ -24,6 +24,14 @@ type Load =
 export default function Backlog() {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [filter, setFilter] = useState<string | null>(null)
+  const [opened, setOpened] = useState<BacklogEntry | null>(null)
+  // Закрытое окно возвращает фокус записи, с которой его открыли: клавиатура остаётся на месте в списке.
+  const opener = useRef<HTMLButtonElement | null>(null)
+
+  const closeEntry = useCallback(() => {
+    setOpened(null)
+    opener.current?.focus()
+  }, [])
 
   const loadBacklogs = useCallback(() => {
     fetch('/api/backlog')
@@ -109,20 +117,77 @@ export default function Backlog() {
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
                 {backlog.entries.map((entry, index) => (
-                  <article className="entry" key={entry.number ?? `${backlog.base}-${index}`}>
-                    <div className="entry-head">
-                      {entry.number && <span className="entry-num">{entry.number}</span>}
-                      <InlineMarkdown className="entry-title" text={entry.title} />
-                    </div>
-                    {entry.text && <Markdown className="entry-text" text={entry.text} />}
-                  </article>
+                  <button
+                    type="button"
+                    className="entry"
+                    key={entry.number ?? `${backlog.base}-${index}`}
+                    onClick={(e) => {
+                      opener.current = e.currentTarget
+                      setOpened(entry)
+                    }}
+                  >
+                    {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
+                    {entry.number && <span className="entry-num">{entry.number}</span>}{' '}
+                    <InlineMarkdown className="entry-title" text={entry.title} />
+                    <ChevronIcon />
+                  </button>
                 ))}
               </section>
             ))}
           </div>
         </>
       )}
+
+      {opened && <EntryModal entry={opened} onClose={closeEntry} />}
     </>
+  )
+}
+
+// Окно записи: текст оператору читают здесь, а список держит одни заголовки.
+function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    closeRef.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="entry-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-modal-title">
+        <div className="entry-modal-head">
+          {entry.number && <span className="entry-num">{entry.number}</span>}
+          <h3 id="entry-modal-title">
+            <InlineMarkdown text={entry.title} />
+          </h3>
+          <button ref={closeRef} type="button" className="entry-close" aria-label="Закрыть" onClick={onClose}>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="entry-modal-body">
+          {entry.text ? (
+            <Markdown className="entry-text" text={entry.text} />
+          ) : (
+            <p className="entry-no-text">Описания нет</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChevronIcon() {
+  return (
+    <svg className="entry-chevron" viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="9 6 15 12 9 18" />
+    </svg>
   )
 }
 
