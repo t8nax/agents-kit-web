@@ -15,8 +15,14 @@ test('сайдбар стоит полосой значков и разъезж�
   // Содержимое начинается сразу за полосой: развёрнутый сайдбар ляжет поверх него
   expect((await page.getByRole('main').boundingBox())?.x).toBe(rail)
 
+  const settings = sidebar.getByRole('button', { name: 'Настройки' })
+  const collapsedBox = await settings.boundingBox()
+
   await sidebar.hover()
   await expect(sidebar.getByText('Бэклог')).toBeVisible()
+  // Пункты не съезжают при раскрытии: мышь, наведённая на значок, остаётся на своём разделе
+  expect((await settings.boundingBox())?.y).toBe(collapsedBox?.y)
+  expect((await settings.boundingBox())?.height).toBe(collapsedBox?.height)
   await expect.poll(async () => (await sidebar.boundingBox())?.width).toBeGreaterThan(rail)
   // Содержимое осталось на месте, сайдбар накрыл его край
   expect((await page.getByRole('main').boundingBox())?.x).toBe(rail)

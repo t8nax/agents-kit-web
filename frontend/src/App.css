@@ -99,6 +99,8 @@ svg {
   align-items: center;
   gap: 10px;
   padding: 9px 16px;
+  /* Высота строки с подписью и без неё одна: иначе при раскрытии пункты съезжают из-под мыши */
+  min-height: calc(1.5em + 18px);
   background: none;
   border: none;
   border-left: 2px solid transparent;
