@@ -34,7 +34,7 @@ function stubFetch(...responses: BaseBacklog[][]) {
   return fetchMock
 }
 
-test('показывает записи бэклога группами по проектам', async () => {
+test('показывает записи бэклога группами по проектам, без текста', async () => {
   const fetchMock = stubFetch(backlogs)
 
   render(<Backlog />)
@@ -43,18 +43,63 @@ test('показывает записи бэклога группами по п�
   expect(fetchMock).toHaveBeenCalledWith('/api/backlog')
 
   const first = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
-  expect(first.getByText('B-1')).toBeInTheDocument()
-  expect(first.getByText('Панель показывает проблемы баз знаний')).toBeInTheDocument()
-  expect(first.getByText('Сейчас панель не говорит, что с базой что-то не так.')).toBeInTheDocument()
-  // Текст оператору размечен markdown: список остаётся списком
-  expect(first.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
-    'связь разорвана',
-    'сверка нашла ошибки',
-  ])
-  expect(first.getByText('B-13')).toBeInTheDocument()
+  expect(first.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+  expect(first.getByRole('button', { name: /B-13 У панели есть светлая тема/ })).toBeInTheDocument()
+  // Текст оператору в списке не показывается — только в окне записи
+  expect(screen.queryByText('Сейчас панель не говорит, что с базой что-то не так.')).not.toBeInTheDocument()
+  expect(screen.queryByText('Панель сейчас только тёмная.')).not.toBeInTheDocument()
 
   const second = within(screen.getByRole('region', { name: 'Nota' }))
   expect(second.getByText('Экспорт заметок')).toBeInTheDocument()
+})
+
+test('клик по записи открывает окно с номером, заголовком и размеченным текстом', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }))
+
+  const dialog = within(screen.getByRole('dialog', { name: 'Панель показывает проблемы баз знаний' }))
+  expect(dialog.getByText('B-1')).toBeInTheDocument()
+  expect(dialog.getByText('Сейчас панель не говорит, что с базой что-то не так.')).toBeInTheDocument()
+  // Текст оператору размечен markdown: список остаётся списком
+  expect(dialog.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+    'связь разорвана',
+    'сверка нашла ошибки',
+  ])
+})
+
+test('запись без текста открывается окном «Описания нет»', async () => {
+  stubFetch([{ ...backlogs[0], entries: [{ number: 'B-5', title: 'Дописана руками', text: null }] }])
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-5 Дописана руками/ }))
+
+  expect(within(screen.getByRole('dialog')).getByText('Описания нет')).toBeInTheDocument()
+})
+
+test('окно закрывается кнопкой, Esc и кликом мимо окна и возвращает фокус записи', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  const entry = await screen.findByRole('button', { name: /B-13 У панели есть светлая тема/ })
+
+  fireEvent.click(entry)
+  expect(screen.getByRole('button', { name: 'Закрыть' })).toHaveFocus()
+  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(entry).toHaveFocus()
+
+  fireEvent.click(entry)
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  fireEvent.click(entry)
+  // Клик внутри окна его не закрывает
+  fireEvent.mouseDown(screen.getByText('Панель сейчас только тёмная.'))
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  fireEvent.mouseDown(screen.getByRole('dialog').parentElement!)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 })
 
 test('фильтр по проектам оставляет записи одного проекта', async () => {
