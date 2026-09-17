@@ -1,38 +1,5 @@
-/* Окно баз знаний — по согласованному наброску design/bases.html */
-
-.bases-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--overlay);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 72px 16px 16px;
-  z-index: 1000;
-}
-
-.bases-modal {
-  width: 600px;
-  max-width: 100%;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 24px 48px var(--shadow-color);
-}
-
-.bases-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.bases-header h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-}
+/* Раздел «Настройки» — по наброску задачи B-1; части списка баз и обзора папок пришли из окна баз,
+   сделанного по design/bases.html */
 
 .bases-icon-btn {
   background: none;
@@ -49,10 +16,6 @@
   cursor: not-allowed;
 }
 
-.bases-close {
-  margin-left: auto;
-}
-
 .bases-title-suffix {
   color: var(--text-tertiary);
   font-weight: 400;
@@ -63,15 +26,56 @@
   background: var(--bg-surface-hover);
 }
 
-.bases-body {
-  padding: 16px 20px 20px;
-  display: grid;
-  gap: 16px;
+.settings {
+  padding-bottom: 24px;
 }
 
-.bases-lead {
+.settings-card {
+  margin: 0 24px 16px;
+  max-width: 880px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.settings-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.settings-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.settings-card-head .bases-toast {
+  margin-left: auto;
+  align-self: center;
+}
+
+.settings-lead {
   margin: 0;
   color: var(--text-secondary);
+}
+
+.settings-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.settings-note.settings-ok {
+  color: var(--accent-active-text);
+}
+
+.bases-body {
+  padding: 16px;
+  display: grid;
+  gap: 16px;
 }
 
 .bases-list {
@@ -154,15 +158,6 @@
   margin: 0;
   color: var(--accent-error-text);
   font-size: 12px;
-}
-
-.bases-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-subtle);
 }
 
 .bases-btn {

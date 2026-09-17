@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import Backlog from './Backlog'
-import BasesModal from './BasesModal'
 import {
   notificationsActive,
   notifyStatusChange,
   useNotifications,
   type NotificationPermissionState,
 } from './notifications'
+import { plural } from './plural'
+import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
+import Settings from './Settings'
 import { rowKey, statusChanges } from './statusChanges'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
@@ -25,6 +27,18 @@ export type WorkspaceRow = {
   progress: number | null
   status: WorkspaceStatus | null
   error: string | null
+  /** Число проблем копии и её базы, когда problemsState — checked; иначе state говорит, почему числа нет. */
+  problems?: number | null
+  problemsState?: ProblemsState | null
+}
+
+export type ProblemsState = 'checked' | 'pending' | 'kit-not-set' | 'kit-not-found' | 'failed'
+
+const problemsStateLabels: Record<Exclude<ProblemsState, 'checked'>, string> = {
+  pending: 'проверяется',
+  'kit-not-set': 'кит не задан',
+  'kit-not-found': 'кит не найден',
+  failed: 'сверка не выполнена',
 }
 
 const statusLabels: Record<WorkspaceStatus, string> = {
@@ -38,13 +52,12 @@ const refreshIntervalMs = 3000
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
-type Section = 'workspaces' | 'backlog'
+type Section = 'workspaces' | 'backlog' | 'problems' | 'settings'
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
   const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
-  const [basesOpen, setBasesOpen] = useState(false)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
@@ -93,10 +106,6 @@ function App() {
   }, [loadRows])
 
   const closeReply = useCallback(() => setReplyTo(null), [])
-  const closeBases = useCallback(() => {
-    setBasesOpen(false)
-    loadRows()
-  }, [loadRows])
 
   return (
     <>
@@ -111,7 +120,6 @@ function App() {
           onRequest={notifications.request}
           onToggle={notifications.setEnabled}
         />
-        {/* «Базы знаний» ушла из шапки вниз сайдбара; переключатель темы остался здесь */}
         <button type="button" className="bases-btn" onClick={theme.toggle}>
           {theme.theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           {theme.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
@@ -122,7 +130,6 @@ function App() {
           section={section}
           waiting={state.rows?.filter((row) => row.status === 'waiting').length ?? 0}
           onSection={setSection}
-          onBases={() => setBasesOpen(true)}
         />
         <main className="content">
           {section === 'workspaces' ? (
@@ -131,20 +138,30 @@ function App() {
                 <h2>Рабочие копии</h2>
               </div>
               {state.failed && <p className="message warning-text">Нет связи с API</p>}
-              {state.rows && <WorkspacesTable rows={state.rows} onReply={setReplyTo} />}
+              {state.rows && (
+                <WorkspacesTable
+                  rows={state.rows}
+                  onReply={setReplyTo}
+                  onProblems={() => setSection('problems')}
+                  onSettings={() => setSection('settings')}
+                />
+              )}
               {state.rows?.length === 0 && (
                 <p className="empty-message">
-                  Нет отслеживаемых баз или рабочих копий. Базы добавляются в окне «Базы знаний».
+                  Нет отслеживаемых баз или рабочих копий. Базы добавляются в разделе «Настройки».
                 </p>
               )}
             </>
-          ) : (
+          ) : section === 'backlog' ? (
             <Backlog />
+          ) : section === 'problems' ? (
+            <Problems onSettings={() => setSection('settings')} />
+          ) : (
+            <Settings />
           )}
         </main>
       </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
-      {basesOpen && <BasesModal onClose={closeBases} />}
     </>
   )
 }
@@ -153,12 +170,10 @@ function Sidebar({
   section,
   waiting,
   onSection,
-  onBases,
 }: {
   section: Section
   waiting: number
   onSection: (section: Section) => void
-  onBases: () => void
 }) {
   // Сайдбар стоит полосой значков и разъезжается под мышью — своей кнопки у него нет
   const [expanded, setExpanded] = useState(false)
@@ -195,12 +210,23 @@ function Sidebar({
         >
           <ListIcon />
         </SideItem>
-        {/* «Базы знаний» открывает окно, а не раздел — поэтому она кнопка в рамке, а не строка */}
-        <div className="side-bottom">
-          <SideItem label="Базы знаний" expanded={expanded} className="side-button" onClick={onBases}>
-            <BaseIcon />
-          </SideItem>
-        </div>
+        <SideItem
+          label="Проблемы баз"
+          expanded={expanded}
+          active={section === 'problems'}
+          onClick={() => onSection('problems')}
+        >
+          <WarningIcon />
+        </SideItem>
+        {/* Настройки — такой же раздел, как остальные: базы знаний и путь к киту живут на его странице */}
+        <SideItem
+          label="Настройки"
+          expanded={expanded}
+          active={section === 'settings'}
+          onClick={() => onSection('settings')}
+        >
+          <GearIcon />
+        </SideItem>
       </nav>
     </div>
   )
@@ -263,12 +289,11 @@ function ListIcon() {
   )
 }
 
-function BaseIcon() {
+function GearIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <ellipse cx="12" cy="5" rx="9" ry="3" />
-      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   )
 }
@@ -344,7 +369,17 @@ function BellOffIcon() {
   )
 }
 
-function WorkspacesTable({ rows, onReply }: { rows: WorkspaceRow[]; onReply: (row: WorkspaceRow) => void }) {
+function WorkspacesTable({
+  rows,
+  onReply,
+  onProblems,
+  onSettings,
+}: {
+  rows: WorkspaceRow[]
+  onReply: (row: WorkspaceRow) => void
+  onProblems: () => void
+  onSettings: () => void
+}) {
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
 
@@ -371,8 +406,13 @@ function WorkspacesTable({ rows, onReply }: { rows: WorkspaceRow[]; onReply: (ro
     }
   }
 
+  // Без кита числа нет ни у одной строки: причина и дорога в настройки — одной плашкой над таблицей
+  const kitState = rows.find((row) => row.problemsState === 'kit-not-set' || row.problemsState === 'kit-not-found')
+    ?.problemsState
+
   return (
     <>
+      {kitState && <KitNotice kit={kitState === 'kit-not-set' ? 'not-set' : 'not-found'} onSettings={onSettings} />}
       {openError && <p className="message warning-text">{openError}</p>}
       <table>
         <thead>
@@ -418,7 +458,7 @@ function WorkspacesTable({ rows, onReply }: { rows: WorkspaceRow[]; onReply: (ro
                   </td>
                 </>
               )}
-              <td className="text-sec">-</td>
+              <td>{!row.error && <ProblemsCell row={row} onProblems={onProblems} />}</td>
               <td>
                 <div className="row-actions">
                   {row.status === 'waiting' && (
@@ -460,13 +500,23 @@ function Progress({ value, waiting }: { value: number; waiting: boolean }) {
   )
 }
 
-function WarningIcon() {
+function ProblemsCell({ row, onProblems }: { row: WorkspaceRow; onProblems: () => void }) {
+  const state = row.problemsState ?? null
+  if (state === null || (state === 'checked' && !row.problems)) return <span className="text-sec">—</span>
+  if (state !== 'checked') return <span className="text-ter">{problemsStateLabels[state]}</span>
+
+  const count = row.problems ?? 0
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
-    </svg>
+    <button
+      type="button"
+      className="issues-btn"
+      aria-label={`${plural(count, 'проблема', 'проблемы', 'проблем')} — открыть «Проблемы баз»`}
+      title="Открыть «Проблемы баз»"
+      onClick={onProblems}
+    >
+      <WarningIcon />
+      {count}
+    </button>
   )
 }
 

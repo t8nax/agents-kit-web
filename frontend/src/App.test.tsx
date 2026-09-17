@@ -141,12 +141,14 @@ test('копия не открылась — панель говорит об э
   ).toBeInTheDocument()
 })
 
-test('сайдбар переключает разделы и открывает окно баз', async () => {
-  const fetchMock = vi.fn(async (url: string) =>
-    url === '/api/backlog'
-      ? new Response(JSON.stringify([]), { status: 200 })
-      : new Response(JSON.stringify(rows), { status: 200 }),
-  )
+test('сайдбар переключает разделы, среди них «Проблемы баз» и «Настройки»', async () => {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/backlog' || url === '/api/bases') return new Response(JSON.stringify([]), { status: 200 })
+    if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
+    if (url === '/api/health')
+      return new Response(JSON.stringify({ pending: false, kit: 'ok', bases: [], checkedAt: null }), { status: 200 })
+    return new Response(JSON.stringify(rows), { status: 200 })
+  })
   vi.stubGlobal('fetch', fetchMock)
 
   render(<App />)
@@ -164,8 +166,70 @@ test('сайдбар переключает разделы и открывает
   fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
   expect(await screen.findByRole('table')).toBeInTheDocument()
 
-  fireEvent.click(sidebar.getByRole('button', { name: 'Базы знаний' }))
-  expect(await screen.findByRole('dialog', { name: 'Базы знаний' })).toBeInTheDocument()
+  fireEvent.click(sidebar.getByRole('button', { name: 'Проблемы баз' }))
+  expect(await screen.findByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith('/api/health')
+
+  fireEvent.click(sidebar.getByRole('button', { name: 'Настройки' }))
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  expect(sidebar.getByRole('button', { name: 'Настройки' })).toHaveAttribute('aria-current', 'page')
+  // Кнопки «Базы знаний» больше нет: базы живут в разделе «Настройки»
+  expect(sidebar.queryByRole('button', { name: 'Базы знаний' })).not.toBeInTheDocument()
+})
+
+const checked = (problems: number): Partial<WorkspaceRow> => ({ problemsState: 'checked', problems })
+
+test('колонка «Проблемы» показывает число, прочерк или причину, а число ведёт в «Проблемы баз»', async () => {
+  const tableRows: WorkspaceRow[] = [
+    { ...rows[0], ...checked(3) },
+    { ...rows[1], ...checked(0) },
+    { ...rows[1], path: 'D:\\Projects\\failed', problemsState: 'failed', problems: null },
+    { ...rows[1], path: 'D:\\Projects\\pending', problemsState: 'pending', problems: null },
+    rows[2],
+  ]
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url === '/api/health'
+        ? new Response(JSON.stringify({ pending: false, kit: 'ok', bases: [], checkedAt: null }), { status: 200 })
+        : new Response(JSON.stringify(tableRows), { status: 200 }),
+    ),
+  )
+
+  render(<App />)
+  const [, withProblems, clean, failed, pending, broken] = await screen.findAllByRole('row')
+
+  // Колонка «Проблемы» — шестая в строке
+  expect(within(clean).getAllByRole('cell')[5]).toHaveTextContent(/^—$/)
+  expect(within(failed).getByText('сверка не выполнена')).toBeInTheDocument()
+  expect(within(pending).getByText('проверяется')).toBeInTheDocument()
+  // Строке с ошибкой проверять нечего: копии нет на диске, её называет сверка базы
+  expect(within(broken).queryByRole('button', { name: /открыть «Проблемы баз»/ })).not.toBeInTheDocument()
+  expect(screen.queryByText(/Проблемы баз не проверяются/)).not.toBeInTheDocument()
+
+  fireEvent.click(within(withProblems).getByRole('button', { name: '3 проблемы — открыть «Проблемы баз»' }))
+  expect(await screen.findByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
+})
+
+test('без пути к киту таблица говорит об этом в строках и плашкой, плашка ведёт в «Настройки»', async () => {
+  const tableRows: WorkspaceRow[] = [{ ...rows[0], problemsState: 'kit-not-set', problems: null }]
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url === '/api/bases') return new Response(JSON.stringify([]), { status: 200 })
+      if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
+      return new Response(JSON.stringify(tableRows), { status: 200 })
+    }),
+  )
+
+  render(<App />)
+  const [, row] = await screen.findAllByRole('row')
+
+  expect(within(row).getByText('кит не задан')).toBeInTheDocument()
+  expect(screen.getByText('Проблемы баз не проверяются: не задан путь к киту.')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Открыть настройки' }))
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
 })
 
 test('сайдбар стоит полосой значков и разъезжается под мышью', async () => {
@@ -185,7 +249,8 @@ test('сайдбар стоит полосой значков и разъезж�
   fireEvent.mouseEnter(nav)
   expect(sidebar.getByText('Рабочие копии')).toBeInTheDocument()
   expect(sidebar.getByText('Бэклог')).toBeInTheDocument()
-  expect(sidebar.getByText('Базы знаний')).toBeInTheDocument()
+  expect(sidebar.getByText('Проблемы баз')).toBeInTheDocument()
+  expect(sidebar.getByText('Настройки')).toBeInTheDocument()
   expect(sidebar.getByText('1 ждёт')).toBeInTheDocument()
   // Раздел сам не сменился: на месте по-прежнему таблица копий
   expect(screen.getByRole('table')).toBeInTheDocument()

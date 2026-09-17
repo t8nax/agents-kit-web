@@ -1,4 +1,5 @@
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Workspaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -7,6 +8,11 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddSingleton(services =>
     new AgentSessions(services.GetRequiredService<IConfiguration>()["SessionsDir"] ?? AgentSessions.DefaultDirectory));
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
+builder.Services.AddSingleton(services =>
+    new KitLocator(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
+builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
+builder.Services.AddSingleton<HealthMonitor>();
+builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
 var app = builder.Build();
 
 // Собранный фронт лежит в wwwroot поставленной панели; в разработке его отдаёт Vite, а wwwroot пуст.
@@ -15,8 +21,15 @@ app.UseStaticFiles();
 
 app.MapGet("/api/ping", () => new PingResponse("pong"));
 
-app.MapGet("/api/workspaces", (BasesStore bases, CancellationToken cancellationToken) =>
-    WorkspaceCollector.CollectAsync(bases.List(), cancellationToken));
+app.MapGet("/api/workspaces", async (BasesStore bases, HealthMonitor health, CancellationToken cancellationToken) =>
+    HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot));
+
+app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
+app.MapPost("/api/health/check", (HealthMonitor health) =>
+{
+    health.RequestCheck();
+    return Results.Accepted();
+});
 
 app.MapBacklogEndpoints();
 app.MapBasesEndpoints();
