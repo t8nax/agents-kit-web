@@ -1,4 +1,5 @@
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Workspaces;
 
@@ -33,6 +34,7 @@ app.MapPost("/api/health/check", (HealthMonitor health) =>
 
 app.MapBacklogEndpoints();
 app.MapBasesEndpoints();
+app.MapFlowEndpoints();
 app.MapFoldersEndpoints();
 app.MapOperatorEndpoints();
 
