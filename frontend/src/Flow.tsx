@@ -147,6 +147,8 @@ export default function Flow() {
   const [edits, setEdits] = useState<{ key: string; steps: DraftStep[] } | null>(null)
   // Какой шаг открыт в сайдбаре: key шага, а не место — место меняется перетаскиванием.
   const [opened, setOpened] = useState<number | null>(null)
+  // Какое окно открыто поверх схемы: описание шага или выбор нового шага.
+  const [modal, setModal] = useState<'description' | 'add' | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -407,15 +409,14 @@ export default function Flow() {
                   />
                 ))}
                 {draft.length > 0 && <FlowArrow />}
-                <AddStep
-                  presets={presets}
-                  onAdd={(step) => {
-                    const added = toDraft(step)
-                    setDraft(renumbered([...draft, added]))
-                    setOpened(added.key)
-                  }}
-                  onRemovePreset={(preset) => void removePreset(preset)}
-                />
+                <button
+                  type="button"
+                  className="flow-node flow-node-add"
+                  onClick={() => setModal('add')}
+                >
+                  <PlusIcon />
+                  <span className="flow-node-title">Добавить шаг</span>
+                </button>
               </div>
 
               {openedIndex >= 0 && (
@@ -426,10 +427,37 @@ export default function Flow() {
                   onChange={(patch) => update(openedIndex, patch)}
                   onClose={() => setOpened(null)}
                   onSaveAsPreset={() => void saveAsPreset(toStep(draft[openedIndex]))}
+                  onEditDescription={() => setModal('description')}
                   onDelete={() => {
                     setDraft(renumbered(draft.filter((_, i) => i !== openedIndex)))
                     setOpened(null)
                   }}
+                />
+              )}
+
+              {modal === 'description' && openedIndex >= 0 && (
+                <DescriptionEditor
+                  title={draft[openedIndex].title}
+                  description={draft[openedIndex].description}
+                  onCancel={() => setModal(null)}
+                  onDone={(description) => {
+                    update(openedIndex, { description })
+                    setModal(null)
+                  }}
+                />
+              )}
+
+              {modal === 'add' && (
+                <AddStep
+                  presets={presets}
+                  onCancel={() => setModal(null)}
+                  onAdd={(step) => {
+                    const added = toDraft(step)
+                    setDraft(renumbered([...draft, added]))
+                    setOpened(added.key)
+                    setModal(null)
+                  }}
+                  onRemovePreset={(preset) => void removePreset(preset)}
                 />
               )}
             </>
@@ -563,6 +591,7 @@ function StepDrawer({
   onChange,
   onClose,
   onSaveAsPreset,
+  onEditDescription,
   onDelete,
 }: {
   step: DraftStep
@@ -571,6 +600,7 @@ function StepDrawer({
   onChange: (patch: Partial<DraftStep>) => void
   onClose: () => void
   onSaveAsPreset: () => void
+  onEditDescription: () => void
   onDelete: () => void
 }) {
   const errors = stepErrors(step)
@@ -667,21 +697,19 @@ function StepDrawer({
           />
         </label>
 
-        <label className="flow-field">
+        <div className="flow-field">
           <span>описание</span>
-          <textarea
-            className="flow-input flow-description-text"
-            aria-label="Описание шага"
-            placeholder={`пункты — «${number}.1.», вложенные — с отступом «${number}.1.1.»`}
-            rows={8}
-            spellCheck={false}
-            value={step.description ?? ''}
-            onChange={(event) => {
-              const text = event.target.value.replace(/\r\n/g, '\n')
-              onChange({ description: text.trim() ? text : null })
-            }}
-          />
-        </label>
+          {/* Кнопка показывает лишь наличие описания: без него та же надпись, но пунктиром. */}
+          <button
+            type="button"
+            className={`bases-btn flow-description-btn ${step.description ? '' : 'flow-description-empty'}`}
+            title={step.description ? 'Описание есть — править' : 'Описания нет — добавить'}
+            onClick={onEditDescription}
+          >
+            <FileTextIcon />
+            Редактировать описание
+          </button>
+        </div>
 
         {errors.length > 0 && <p className="flow-step-error">Шаг не сохранить: {errors.join(', ')}.</p>}
       </div>
@@ -703,6 +731,58 @@ function StepDrawer({
         </button>
       </div>
     </aside>
+  )
+}
+
+/** Описание шага правится текстом в окне, а не полем сайдбара — решение оператора. */
+function DescriptionEditor({
+  title,
+  description,
+  onCancel,
+  onDone,
+}: {
+  title: string
+  description: string | null
+  onCancel: () => void
+  onDone: (description: string | null) => void
+}) {
+  const [text, setText] = useState(description ?? '')
+  const field = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => field.current?.focus(), [])
+
+  return (
+    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+      <div
+        className="flow-confirm flow-description"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="flow-description-title"
+        onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+      >
+        <h3 id="flow-description-title">Описание шага «{title.trim() || 'без названия'}»</h3>
+        <textarea
+          ref={field}
+          className="flow-input flow-description-text"
+          aria-label="Описание шага"
+          rows={16}
+          spellCheck={false}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+        />
+        <div className="flow-confirm-actions">
+          <button type="button" className="bases-btn" onClick={onCancel}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="bases-btn bases-btn-primary"
+            onClick={() => onDone(text.replace(/\r\n/g, '\n').trim() ? text.replace(/\r\n/g, '\n') : null)}
+          >
+            Готово
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -787,42 +867,30 @@ function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) 
 
 const emptyStep: FlowStep = { title: '', executor: 'оркестратор', output: '', skip: null, description: null }
 
-/** Последний блок схемы: пустой шаг или шаг из пресетов оператора. */
+/** Новый шаг выбирается своим окном: пустой шаг или шаг из пресетов оператора. */
 function AddStep({
   presets,
   onAdd,
+  onCancel,
   onRemovePreset,
 }: {
   presets: StepPreset[]
   onAdd: (step: FlowStep) => void
+  onCancel: () => void
   onRemovePreset: (preset: StepPreset) => void
 }) {
-  const [open, setOpen] = useState(false)
-  const box = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onMouseDown = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onMouseDown)
-    return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [open])
-
-  const add = (step: FlowStep) => {
-    onAdd(step)
-    setOpen(false)
-  }
-
   return (
-    <div className="flow-add" ref={box} onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}>
-      <button type="button" className="flow-node flow-node-add" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <PlusIcon />
-        <span className="flow-node-title">Добавить шаг</span>
-      </button>
-      {open && (
+    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+      <div
+        className="flow-confirm flow-add"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="flow-add-title"
+        onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+      >
+        <h3 id="flow-add-title">Добавить шаг</h3>
         <div className="flow-presets" role="group" aria-label="Пресеты шагов">
-          <button type="button" className="flow-preset" onClick={() => add(emptyStep)}>
+          <button type="button" className="flow-preset" onClick={() => onAdd(emptyStep)}>
             <span className="flow-preset-title">Пустой шаг</span>
             <span className="text-sec">всё заполнить самому</span>
           </button>
@@ -834,7 +902,7 @@ function AddStep({
           )}
           {presets.map((preset) => (
             <div className="flow-preset-row" key={preset.id}>
-              <button type="button" className="flow-preset" onClick={() => add(preset)}>
+              <button type="button" className="flow-preset" onClick={() => onAdd(preset)}>
                 <span className="flow-preset-head">
                   <span className="flow-preset-title">{preset.title}</span>
                   <ExecutorBadge executor={preset.executor} />
@@ -850,7 +918,12 @@ function AddStep({
             </div>
           ))}
         </div>
-      )}
+        <div className="flow-confirm-actions">
+          <button type="button" className="bases-btn" onClick={onCancel}>
+            Отмена
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -990,6 +1063,17 @@ function SkipIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </svg>
+  )
+}
+
+function FileTextIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="14" y2="17" />
     </svg>
   )
 }

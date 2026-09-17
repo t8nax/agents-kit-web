@@ -127,10 +127,38 @@ test('клик по блоку открывает сайдбар с выходо
   expect(drawer.getByRole('textbox', { name: 'Имя субагента' })).toHaveValue('reviewer')
   expect(drawer.getByRole('textbox', { name: 'Выход шага' })).toHaveValue('вердикт по sha')
   expect(drawer.getByRole('textbox', { name: 'Пропуск шага' })).toHaveValue('правка только в текстах')
-  expect(drawer.getByRole('textbox', { name: 'Описание шага' })).toHaveValue('2.1. Собрать дифф всей ветки.')
+  // Описание правится своим окном, а не полем сайдбара
+  expect(drawer.queryByRole('textbox', { name: 'Описание шага' })).not.toBeInTheDocument()
 
   fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+})
+
+test('описание шага правится в окне по кнопке, у шага без описания кнопка приглушена', async () => {
+  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v3' }) }))
+  const region = await renderFlow()
+
+  const empty = (await openStep(region, 'Шаг 3: Приёмка')).getByRole('button', { name: /Редактировать описание/ })
+  expect(empty).toHaveClass('flow-description-empty')
+  expect(empty).toHaveAttribute('title', 'Описания нет — добавить')
+
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  const button = drawer.getByRole('button', { name: /Редактировать описание/ })
+  expect(button).not.toHaveClass('flow-description-empty')
+  fireEvent.click(button)
+
+  const dialog = within(screen.getByRole('dialog', { name: 'Описание шага «Ревью»' }))
+  const text = dialog.getByRole('textbox', { name: 'Описание шага' })
+  expect(text).toHaveValue('2.1. Собрать дифф всей ветки.')
+  fireEvent.change(text, { target: { value: 'Ревью по диффу.\n\n2.1. Собрать дифф всей ветки.' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Готово' }))
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps[1].description).toBe(
+    'Ревью по диффу.\n\n2.1. Собрать дифф всей ветки.',
+  )
 })
 
 test('проект выбирается чипами, база без шагов названа словами', async () => {
@@ -340,8 +368,11 @@ test('пресеты: список начинается пустым, шаг с�
   const region = await renderFlow()
 
   fireEvent.click(screen.getByRole('button', { name: 'Добавить шаг' }))
-  expect(within(screen.getByRole('group', { name: 'Пресеты шагов' })).getByText(/Пресетов пока нет/)).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить шаг' }))
+  // Шаг выбирается своим окном, а не списком под блоком
+  const adding = within(screen.getByRole('dialog', { name: 'Добавить шаг' }))
+  expect(adding.getByText(/Пресетов пока нет/)).toBeInTheDocument()
+  fireEvent.click(adding.getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
   const drawer = await openStep(region, 'Шаг 2: Ревью')
   fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))

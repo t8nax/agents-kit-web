@@ -58,10 +58,11 @@
   padding: 0 0 12px;
 }
 
+/* Кнопки перестановки стоят за краем блока: иначе ряд шире блока, и стрелки уходят из центра. */
 .flow-node-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
 }
 
 /* Блок шага: значок, название и исполнитель; номера шага на блоке нет — решение оператора. */
@@ -180,6 +181,11 @@
 }
 
 .flow-node-keys {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -217,9 +223,9 @@
   height: 32px;
 }
 
-/* Последний блок схемы */
+/* Окно выбора нового шага */
 .flow-add {
-  position: relative;
+  width: 560px;
 }
 
 .flow-node-add {
@@ -241,7 +247,15 @@
 }
 
 /* Сайдбар шага */
+/* Сайдбар выезжает справа плавно — замечание оператора на приёмке. */
+@keyframes flow-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
 .flow-drawer {
+  animation: flow-drawer-in 0.18s ease;
   position: absolute;
   top: 0;
   right: 0;
@@ -502,23 +516,30 @@ textarea.flow-input {
   background: var(--accent-done-bg);
 }
 
-/* Список пресетов под блоком «Добавить шаг» */
+/* Список шагов в окне «Добавить шаг» */
 .flow-presets {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 10;
-  width: 520px;
-  max-width: 90vw;
-  max-height: 420px;
+  max-height: 50vh;
   overflow-y: auto;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 6px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 12px 32px var(--shadow-color);
+}
+
+/* Шаг без описания: надпись та же, кнопка приглушена пунктиром */
+.flow-description-btn.flow-description-empty {
+  background: transparent;
+  color: var(--text-tertiary);
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+
+.flow-description-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Окно описания: текст как в файле */
+.flow-description {
+  width: 760px;
 }
 
 .flow-presets-label {
@@ -614,4 +635,11 @@ textarea.flow-input {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* Кому движение мешает — сайдбар просто появляется. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-drawer {
+    animation: none;
+  }
 }
