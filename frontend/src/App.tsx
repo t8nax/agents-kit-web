@@ -463,7 +463,7 @@ function WorkspacesTable({
         </thead>
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
-          const waiting = group.rows.filter((row) => row.status === 'waiting').length
+          const waiting = group.rows.some((row) => row.status === 'waiting')
           return (
             <tbody key={group.base}>
               <tr className="group-row">
@@ -480,11 +480,12 @@ function WorkspacesTable({
                       <ChevronIcon />
                     </button>
                     <span className="group-name">{group.project}</span>
-                    {collapsed && waiting > 0 && <span className="group-waiting-dot" aria-hidden="true" />}
-                    <span className="group-meta">
-                      {plural(group.rows.length, 'копия', 'копии', 'копий')}
-                      {waiting > 0 && ` · ${waiting} ${waiting === 1 ? 'ждёт' : 'ждут'} оператора`}
-                    </span>
+                    {/* Сводки в заголовке нет — замечание оператора; у свёрнутой группы ожидание держит точка */}
+                    {collapsed && waiting && (
+                      <span className="group-waiting-dot" title="Есть копии, ждущие оператора">
+                        <span className="visually-hidden">есть копии, ждущие оператора</span>
+                      </span>
+                    )}
                     <span className="group-problems">
                       <BaseProblems rows={group.rows} onProblems={onProblems} />
                     </span>

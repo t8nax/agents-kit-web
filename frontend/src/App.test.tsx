@@ -118,17 +118,10 @@ test('копии собраны под заголовками своих про�
   render(<App />)
   const all = await screen.findAllByRole('row')
 
-  // Шапка колонок, группа app-knowledge с тремя копиями, группа Nota с одной
+  // Шапка колонок, группа app-knowledge с тремя копиями, группа Nota с одной; в заголовке только название —
+  // сводку «3 копии · 1 ждёт оператора» оператор убрал на приёмке
   const heads = all.map((row) => within(row).queryByRole('rowheader')?.textContent ?? null)
-  expect(heads).toEqual([
-    null,
-    'app-knowledge3 копии · 1 ждёт оператора',
-    null,
-    null,
-    null,
-    'Nota1 копия · 1 ждёт оператора',
-    null,
-  ])
+  expect(heads).toEqual([null, 'app-knowledge', null, null, null, 'Nota', null])
   expect(within(all[5]).getByRole('rowheader')).toHaveAttribute('colspan', '8')
   expect(within(all[6]).getByText('nota')).toBeInTheDocument()
 })

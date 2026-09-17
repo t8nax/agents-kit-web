@@ -88,10 +88,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const table = page.getByRole('table')
     const all = table.locator('tbody tr')
     await expect(all).toHaveCount(6)
-    await expect(all.nth(0).getByRole('rowheader')).toHaveText('Agents Kit Web3 копии')
+    await expect(all.nth(0).getByRole('rowheader')).toHaveText('Agents Kit Web')
     await expect(all.nth(1).getByRole('cell').first()).toHaveText('agents-kit-webfeat/task-number-column')
     await expect(all.nth(3).getByRole('cell').first()).toHaveText('agents-kit-web-3dev')
-    await expect(all.nth(4).getByRole('rowheader')).toHaveText('Nota1 копия · 1 ждёт оператора2')
+    await expect(all.nth(4).getByRole('rowheader')).toHaveText('Nota2')
     await expect(all.nth(5).getByRole('cell').first()).toHaveText('notamain')
     // Путь копии и название проекта в строках копий больше не повторяются
     const copyRows = table.locator('tbody tr:not(.group-row)')

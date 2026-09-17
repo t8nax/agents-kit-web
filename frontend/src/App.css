@@ -306,11 +306,6 @@ tbody tr.group-row:hover {
   background: var(--accent-waiting-fill);
 }
 
-.group-meta {
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-
 .group-problems {
   margin-left: auto;
   font-size: 12px;
