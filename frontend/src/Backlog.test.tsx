@@ -206,7 +206,14 @@ test('кнопка «Добавить с помощью «Чудо-юдо»» о
     }) + '\n',
   )
   const fetchMock = vi.fn((url: string) => {
-    if (url === '/api/backlog/write') return Promise.resolve(new Response(body))
+    // Окно записи спрашивает панель, не идёт ли уже такая просьба.
+    if (url === '/api/agent/requests') return Promise.resolve(Response.json([]))
+    if (url === '/api/backlog/write') {
+      return Promise.resolve(
+        Response.json({ kind: 'backlog', id: 'r1', base: backlogs[0].base, project: backlogs[0].project, text: 'Мысль', elapsedMs: 0, state: 'running' }),
+      )
+    }
+    if (url.startsWith('/api/agent/backlog/stream')) return Promise.resolve(new Response(body))
     const calls = fetchMock.mock.calls.filter(([u]) => u === '/api/backlog').length
     return Promise.resolve(Response.json(calls === 1 ? backlogs : withNew))
   })
@@ -217,7 +224,7 @@ test('кнопка «Добавить с помощью «Чудо-юдо»» о
   fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' }))
 
   const dialog = within(screen.getByRole('dialog', { name: 'Запись в бэклог' }))
-  fireEvent.change(dialog.getByLabelText('Что записать'), { target: { value: 'Мысль' } })
+  fireEvent.change(await dialog.findByLabelText('Что записать'), { target: { value: 'Мысль' } })
   fireEvent.click(dialog.getByRole('button', { name: 'Добавить' }))
   await dialog.findByText('Добавлено 1 запись')
   fireEvent.click(dialog.getByRole('button', { name: 'К бэклогу' }))

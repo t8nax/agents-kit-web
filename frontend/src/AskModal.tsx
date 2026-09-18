@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Markdown } from './Markdown'
+import { useAgentRequest } from './agentRequest'
 import './AskModal.css'
 
 export type AskBase = { base: string; project: string }
@@ -8,14 +9,6 @@ export type AskEvent =
   | { type: 'step'; text: string }
   | { type: 'answer'; text: string; files?: string[]; durationMs?: number }
   | { type: 'error'; text: string; output?: string }
-
-type Answer = { text: string; files: string[]; durationMs: number | null }
-
-type Phase =
-  | { kind: 'idle' }
-  | { kind: 'running'; startedAt: number }
-  | { kind: 'answered'; answer: Answer }
-  | { kind: 'failed'; text: string; output: string | null }
 
 type Bases = { kind: 'loading' } | { kind: 'failed' } | { kind: 'loaded'; bases: AskBase[] }
 
@@ -29,11 +22,11 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
   const [bases, setBases] = useState<Bases>({ kind: 'loading' })
   const [base, setBase] = useState<string | null>(null)
   const [question, setQuestion] = useState('')
-  // Вопрос, на который идёт или пришёл ответ: поле могут править, пока агент думает над прежним текстом
-  const [asked, setAsked] = useState('')
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
-  const [steps, setSteps] = useState<string[]>([])
-  const running = useRef<AbortController | null>(null)
+  // Вопрос живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
+  const request = useAgentRequest<AskEvent>('ask')
+  const { asked, steps, outcome, running, startedAt, failure, restoring, start, forget, setFailure } = request
+  // Подхваченная просьба показывает свою базу: спрашивали её, а не ту, что стояла первой в списке.
+  const active = request.base ?? base
 
   useEffect(() => {
     fetch('/api/ask/bases')
@@ -44,14 +37,11 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
       .then(
         (list) => {
           setBases({ kind: 'loaded', bases: list })
-          setBase(list[0]?.base ?? null)
+          setBase((current) => current ?? list[0]?.base ?? null)
         },
         () => setBases({ kind: 'failed' }),
       )
   }, [])
-
-  // Закрытое окно не ждёт ответа: запрос обрывается, и API останавливает агента
-  useEffect(() => () => running.current?.abort(), [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -63,90 +53,41 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
 
   const ask = useCallback(
     async (text: string) => {
-      if (!base || !text.trim()) return
-      running.current?.abort()
-      const controller = new AbortController()
-      running.current = controller
-      setAsked(text.trim())
-      setSteps([])
-      setPhase({ kind: 'running', startedAt: Date.now() })
-
-      const finish = (next: Phase) => {
-        if (running.current === controller) {
-          running.current = null
-          setPhase(next)
-        }
-      }
-
-      try {
-        const response = await fetch('/api/ask', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base, question: text.trim() }),
-          signal: controller.signal,
-        })
-        if (!response.ok || !response.body) {
-          finish({
-            kind: 'failed',
-            text: response.status === 404 ? 'Базы нет в списке панели или на диске' : 'Панель не приняла вопрос',
-            output: null,
-          })
-          return
-        }
-
-        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-        let buffer = ''
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += value
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-          for (const line of lines) {
-            if (!line.trim()) continue
-            const event = JSON.parse(line) as AskEvent
-            if (event.type === 'step') {
-              setSteps((prev) => [...prev, event.text])
-            } else if (event.type === 'answer') {
-              finish({
-                kind: 'answered',
-                answer: { text: event.text, files: event.files ?? [], durationMs: event.durationMs ?? null },
-              })
-              return
-            } else {
-              finish({ kind: 'failed', text: event.text, output: event.output ?? null })
-              return
-            }
-          }
-        }
-        finish({ kind: 'failed', text: 'Ответ оборвался: API закрыл соединение без ответа агента', output: null })
-      } catch (error) {
-        if (controller.signal.aborted) return
-        finish({
-          kind: 'failed',
-          text: error instanceof SyntaxError ? 'API прислал непонятный ответ' : 'Нет связи с API',
-          output: null,
-        })
-      }
+      if (!active || !text.trim()) return
+      const started = await start('/api/ask', { base: active, question: text.trim() })
+      if (started.ok) return
+      setFailure(
+        started.status === 404
+          ? 'Базы нет в списке панели или на диске'
+          : started.status === null
+            ? 'Нет связи с API'
+            : 'Панель не приняла вопрос',
+      )
     },
-    [base],
+    [active, start, setFailure],
   )
 
-  function cancel() {
-    running.current?.abort()
-    running.current = null
-    setPhase({ kind: 'idle' })
-  }
+  const answer = outcome?.type === 'answer' ? outcome : null
+  const error = failure ?? (outcome?.type === 'error' ? outcome.text : null)
+  const output = outcome?.type === 'error' ? (outcome.output ?? null) : null
+  const phase: 'restoring' | 'idle' | 'running' | 'answered' | 'failed' = restoring
+    ? 'restoring'
+    : running
+      ? 'running'
+      : error
+        ? 'failed'
+        : answer
+          ? 'answered'
+          : 'idle'
+  const shown = asked || question
 
-  function newQuestion() {
+  async function newQuestion() {
     setQuestion('')
-    setAsked('')
-    setSteps([])
-    setPhase({ kind: 'idle' })
+    await forget()
   }
 
   const project =
-    bases.kind === 'loaded' ? (bases.bases.find((b) => b.base === base)?.project ?? '') : ''
+    bases.kind === 'loaded' ? (bases.bases.find((b) => b.base === active)?.project ?? '') : ''
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -168,10 +109,10 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
                 <button
                   key={b.base}
                   type="button"
-                  className={`chip ${b.base === base ? 'active' : ''}`}
-                  aria-pressed={b.base === base}
+                  className={`chip ${b.base === active ? 'active' : ''}`}
+                  aria-pressed={b.base === active}
                   title={b.base}
-                  disabled={phase.kind === 'running'}
+                  disabled={phase === 'running'}
                   onClick={() => setBase(b.base)}
                 >
                   {b.project}
@@ -182,13 +123,13 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="ask-body">
-          {bases.kind === 'loading' && <p className="modal-message">Загрузка баз…</p>}
+          {(bases.kind === 'loading' || phase === 'restoring') && <p className="modal-message">Загрузка…</p>}
           {bases.kind === 'failed' && <p className="modal-message error-text">Нет связи с API</p>}
           {bases.kind === 'loaded' && bases.bases.length === 0 && (
             <p className="modal-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>
           )}
 
-          {bases.kind === 'loaded' && bases.bases.length > 0 && phase.kind === 'idle' && (
+          {bases.kind === 'loaded' && bases.bases.length > 0 && phase === 'idle' && (
             <>
               <label htmlFor="ask-question" className="visually-hidden">
                 Вопрос
@@ -217,19 +158,19 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          {phase.kind !== 'idle' && (
+          {shown && phase !== 'idle' && phase !== 'restoring' && (
             <div className="ask-asked">
               <span className="ask-asked-label">Вопрос</span>
-              <span className="ask-asked-text">{asked}</span>
+              <span className="ask-asked-text">{shown}</span>
             </div>
           )}
 
-          {phase.kind === 'running' && (
+          {phase === 'running' && (
             <>
               <div className="ask-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
                 <span className="ask-waiting-text">Агент читает базу {project}…</span>
-                <Elapsed since={phase.startedAt} />
+                {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
               {steps.length > 0 && (
                 <ol className="ask-steps" aria-label="Ход работы агента">
@@ -241,14 +182,14 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          {phase.kind === 'answered' && (
+          {answer && phase === 'answered' && (
             <div className="ask-answer">
-              <Markdown className="ask-answer-text" text={phase.answer.text} />
+              <Markdown className="ask-answer-text" text={answer.text} />
               <div className="ask-answer-meta">
-                {phase.answer.files.length > 0 ? (
+                {(answer.files ?? []).length > 0 ? (
                   <>
                     <span>Прочитано:</span>
-                    {phase.answer.files.map((file) => (
+                    {(answer.files ?? []).map((file) => (
                       <span key={file} className="ask-file">
                         {file}
                       </span>
@@ -257,18 +198,18 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
                 ) : (
                   <span>Файлы базы не открывались</span>
                 )}
-                {phase.answer.durationMs !== null && (
-                  <span className="ask-duration">{formatDuration(phase.answer.durationMs)}</span>
+                {answer.durationMs !== undefined && (
+                  <span className="ask-duration">{formatDuration(answer.durationMs)}</span>
                 )}
               </div>
             </div>
           )}
 
-          {phase.kind === 'failed' && (
+          {phase === 'failed' && (
             <div className="ask-error" role="alert">
               <strong>Агент не ответил</strong>
-              <span>{phase.text}. База не менялась.</span>
-              {phase.output && <pre>{phase.output}</pre>}
+              <span>{error}. База не менялась.</span>
+              {output && <pre>{output}</pre>}
             </div>
           )}
         </div>
@@ -279,44 +220,44 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
             Агент только читает базу и ничего в ней не меняет
           </span>
           <div className="footer-right">
-            {phase.kind === 'idle' && (
+            {phase === 'idle' && (
               <button
                 type="button"
                 className="btn btn-primary"
-                disabled={!base || !question.trim()}
+                disabled={!active || !question.trim()}
                 onClick={() => void ask(question)}
               >
                 Спросить
               </button>
             )}
-            {phase.kind === 'running' && (
-              <button type="button" className="btn" onClick={cancel}>
+            {phase === 'running' && (
+              <button type="button" className="btn" onClick={() => void forget()}>
                 Отменить
               </button>
             )}
-            {phase.kind === 'answered' && (
+            {phase === 'answered' && (
               <>
-                <button type="button" className="btn" onClick={() => void ask(asked)}>
+                <button type="button" className="btn" onClick={() => void ask(shown)}>
                   Спросить ещё раз
                 </button>
-                <button type="button" className="btn btn-primary" onClick={newQuestion}>
+                <button type="button" className="btn btn-primary" onClick={() => void newQuestion()}>
                   Новый вопрос
                 </button>
               </>
             )}
-            {phase.kind === 'failed' && (
+            {phase === 'failed' && (
               <>
                 <button
                   type="button"
                   className="btn"
                   onClick={() => {
-                    setQuestion(asked)
-                    setPhase({ kind: 'idle' })
+                    setQuestion(shown)
+                    void forget()
                   }}
                 >
                   Изменить вопрос
                 </button>
-                <button type="button" className="btn btn-primary" onClick={() => void ask(asked)}>
+                <button type="button" className="btn btn-primary" onClick={() => void ask(shown)}>
                   Спросить ещё раз
                 </button>
               </>

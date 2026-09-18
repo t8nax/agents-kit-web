@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
+import { useAgentRequest } from './agentRequest'
 import type { FlowStep } from './Flow'
 import { flowChanges, type FlowChange, type FlowFieldName } from './flowChanges'
 import './AskModal.css'
@@ -9,12 +10,6 @@ export type RewriteEvent =
   | { type: 'step'; text: string }
   | { type: 'rewritten'; text: string; steps: FlowStep[]; version?: string; durationMs?: number }
   | { type: 'error'; text: string; output?: string; problem?: string; step?: number }
-
-type Phase =
-  | { kind: 'idle' }
-  | { kind: 'running'; startedAt: number }
-  | { kind: 'rewritten'; steps: FlowStep[]; changes: FlowChange[]; durationMs: number | null }
-  | { kind: 'failed'; text: string; output: string | null }
 
 type Props = {
   base: string
@@ -50,15 +45,11 @@ const kindLabels: Record<FlowChange['kind'], string> = {
 
 export default function FlowRewriteModal({ base, project, steps, version, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
-  const [asked, setAsked] = useState('')
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
-  const [agentSteps, setAgentSteps] = useState<string[]>([])
   // Описание шага читается своим окном поверх разбора: в строке шага стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
-  const running = useRef<AbortController | null>(null)
-
-  // Закрытое окно не ждёт агента: запрос обрывается, и API останавливает процесс.
-  useEffect(() => () => running.current?.abort(), [])
+  // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
+  const { asked, steps: agentSteps, outcome, running, startedAt, failure, restoring, start, forget, setFailure } =
+    useAgentRequest<RewriteEvent>('flow')
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -73,88 +64,54 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
   const rewrite = useCallback(
     async (text: string) => {
       if (!text.trim()) return
-      running.current?.abort()
-      const controller = new AbortController()
-      running.current = controller
-      setAsked(text.trim())
-      setAgentSteps([])
-      setPhase({ kind: 'running', startedAt: Date.now() })
-
-      const finish = (next: Phase) => {
-        if (running.current !== controller) return
-        running.current = null
-        setPhase(next)
-      }
-
-      try {
-        const response = await fetch('/api/flow/rewrite', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base, wish: text.trim() }),
-          signal: controller.signal,
-        })
-        if (!response.ok || !response.body) {
-          finish({
-            kind: 'failed',
-            text: response.status === 404 ? 'Базы нет в списке панели или на диске' : 'Панель не приняла просьбу',
-            output: null,
-          })
-          return
-        }
-
-        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-        let buffer = ''
-        for (;;) {
-          const { done, value } = await reader.read()
-          if (done) break
-          buffer += value
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-          for (const line of lines) {
-            if (!line.trim()) continue
-            const event = JSON.parse(line) as RewriteEvent
-            if (event.type === 'step') {
-              setAgentSteps((prev) => [...prev, event.text])
-            } else if (event.type === 'rewritten') {
-              // Раздел мог перечитать флоу, пока агент работал: правки поверх него стёрли бы чужие молча.
-              finish(
-                version !== null && event.version !== undefined && event.version !== version
-                  ? { kind: 'failed', text: `Флоу базы изменился, пока ${AGENT_NAME} его переписывал`, output: null }
-                  : {
-                      kind: 'rewritten',
-                      steps: event.steps,
-                      changes: flowChanges(steps, event.steps),
-                      durationMs: event.durationMs ?? null,
-                    },
-              )
-              return
-            } else {
-              finish({ kind: 'failed', text: event.text, output: event.output ?? null })
-              return
-            }
-          }
-        }
-        finish({ kind: 'failed', text: 'Ответ оборвался: API закрыл соединение без итога', output: null })
-      } catch (error) {
-        if (controller.signal.aborted) return
-        finish({
-          kind: 'failed',
-          text: error instanceof SyntaxError ? 'API прислал непонятный ответ' : 'Нет связи с API',
-          output: null,
-        })
-      }
+      const started = await start('/api/flow/rewrite', { base, wish: text.trim() })
+      if (started.ok) return
+      setFailure(
+        started.status === 404
+          ? 'Базы нет в списке панели или на диске'
+          : started.status === null
+            ? 'Нет связи с API'
+            : 'Панель не приняла просьбу',
+      )
     },
-    [base, steps, version],
+    [base, start, setFailure],
   )
 
-  function cancel() {
-    running.current?.abort()
-    running.current = null
-    setPhase({ kind: 'idle' })
+  const rewritten = outcome?.type === 'rewritten' ? outcome : null
+  // Раздел мог перечитать флоу, пока агент работал: правки поверх него стёрли бы чужие молча.
+  const stale =
+    rewritten !== null && version !== null && rewritten.version !== undefined && rewritten.version !== version
+  const error =
+    failure ??
+    (stale
+      ? `Флоу базы изменился, пока ${AGENT_NAME} его переписывал`
+      : outcome?.type === 'error'
+        ? outcome.text
+        : null)
+  const output = outcome?.type === 'error' ? (outcome.output ?? null) : null
+  const phase: 'restoring' | 'idle' | 'running' | 'rewritten' | 'failed' = restoring
+    ? 'restoring'
+    : running
+      ? 'running'
+      : error
+        ? 'failed'
+        : rewritten
+          ? 'rewritten'
+          : 'idle'
+  const shown = asked || wish.trim()
+  const changes = rewritten && !stale ? flowChanges(steps, rewritten.steps) : []
+  const changed = changes.filter((change) => change.kind !== 'same')
+  const untouched = changes.filter((change) => change.kind === 'same')
+
+  async function apply(next: FlowStep[]) {
+    await forget()
+    onApply(next)
   }
 
-  const changed = phase.kind === 'rewritten' ? phase.changes.filter((change) => change.kind !== 'same') : []
-  const untouched = phase.kind === 'rewritten' ? phase.changes.filter((change) => change.kind === 'same') : []
+  async function close() {
+    if (phase === 'rewritten' || phase === 'failed') await forget()
+    onClose()
+  }
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -177,7 +134,8 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
         </div>
 
         <div className="ask-body">
-          {phase.kind === 'idle' && (
+          {phase === 'restoring' && <p className="modal-message">Загрузка…</p>}
+          {phase === 'idle' && (
             <>
               <label htmlFor="flow-wish" className="visually-hidden">
                 Что поменять во флоу
@@ -210,21 +168,21 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
             </>
           )}
 
-          {phase.kind !== 'idle' && (
+          {shown && phase !== 'idle' && phase !== 'restoring' && (
             <div className="ask-asked">
               <span className="ask-asked-label">Просьба</span>
-              <span className="ask-asked-text">{asked}</span>
+              <span className="ask-asked-text">{shown}</span>
             </div>
           )}
 
-          {phase.kind === 'running' && (
+          {phase === 'running' && (
             <>
               <div className="ask-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
                 <span className="ask-waiting-text">
                   {AGENT_NAME} переписывает флоу {project}…
                 </span>
-                <Elapsed since={phase.startedAt} />
+                {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
               {agentSteps.length > 0 && (
                 <ol className="ask-steps" aria-label="Ход работы агента">
@@ -236,7 +194,7 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
             </>
           )}
 
-          {phase.kind === 'rewritten' && (
+          {rewritten && phase === 'rewritten' && (
             <div className="rewrite-changes" aria-label="Что изменилось во флоу">
               {changed.length === 0 && <p className="modal-message">Флоу не изменился: переписанный совпал с прежним.</p>}
               {changed.map((change) => (
@@ -248,19 +206,19 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
                   <span className="rewrite-untouched-titles">{untouched.map((c) => c.title).join(' · ')}</span>
                 </div>
               )}
-              {phase.durationMs !== null && (
+              {rewritten.durationMs !== undefined && (
                 <div className="rewrite-meta">
-                  <span className="ask-duration">{formatDuration(phase.durationMs)}</span>
+                  <span className="ask-duration">{formatDuration(rewritten.durationMs)}</span>
                 </div>
               )}
             </div>
           )}
 
-          {phase.kind === 'failed' && (
+          {phase === 'failed' && (
             <div className="ask-error" role="alert">
               <strong>{AGENT_NAME} не переписал флоу</strong>
-              <span>{phase.text}. Флоу базы не менялся.</span>
-              {phase.output && <pre>{phase.output}</pre>}
+              <span>{error}. Флоу базы не менялся.</span>
+              {output && <pre>{output}</pre>}
             </div>
           )}
         </div>
@@ -268,49 +226,49 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
         <div className="modal-footer ask-footer">
           <span className="ask-hint">
             <LockIcon />
-            {phase.kind === 'rewritten'
+            {phase === 'rewritten'
               ? 'Флоу базы не записан: правки лягут в схему, сохранит их кнопка «Сохранить»'
               : `${AGENT_NAME} только читает базу: флоу запишет панель и только с вашего согласия`}
           </span>
           <div className="footer-right">
-            {phase.kind === 'idle' && (
+            {phase === 'idle' && (
               <button type="button" className="btn btn-primary" disabled={!wish.trim()} onClick={() => void rewrite(wish)}>
                 Переписать
               </button>
             )}
-            {phase.kind === 'running' && (
-              <button type="button" className="btn" onClick={cancel}>
+            {phase === 'running' && (
+              <button type="button" className="btn" onClick={() => void forget()}>
                 Отменить
               </button>
             )}
-            {phase.kind === 'rewritten' && (
+            {rewritten && phase === 'rewritten' && (
               <>
-                <button type="button" className="btn" onClick={onClose}>
+                <button type="button" className="btn" onClick={() => void close()}>
                   Отказаться
                 </button>
                 <button
                   type="button"
                   className="btn btn-primary"
                   disabled={changed.length === 0}
-                  onClick={() => onApply(phase.steps)}
+                  onClick={() => void apply(rewritten.steps)}
                 >
                   Взять правки в схему
                 </button>
               </>
             )}
-            {phase.kind === 'failed' && (
+            {phase === 'failed' && (
               <>
                 <button
                   type="button"
                   className="btn"
                   onClick={() => {
-                    setWish(asked)
-                    setPhase({ kind: 'idle' })
+                    setWish(shown)
+                    void forget()
                   }}
                 >
                   Изменить просьбу
                 </button>
-                <button type="button" className="btn btn-primary" onClick={() => void rewrite(asked)}>
+                <button type="button" className="btn btn-primary" onClick={() => void rewrite(shown)}>
                   Попросить снова
                 </button>
               </>
