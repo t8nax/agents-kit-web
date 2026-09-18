@@ -642,3 +642,43 @@ textarea.flow-input {
     animation: none;
   }
 }
+
+/* Шаг зовёт исполнителя, которого на диске нет: янтарь на схеме и объяснение в сайдбаре. */
+.flow-node-missing {
+  display: inline-flex;
+  color: var(--accent-waiting-text);
+}
+
+.flow-node-missing svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flow-missing {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-waiting-border);
+  border-radius: 6px;
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.flow-link {
+  font: inherit;
+  font-size: 12px;
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

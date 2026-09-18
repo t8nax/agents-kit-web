@@ -282,6 +282,7 @@ function App() {
             <Flow
               key={openRequest?.kind === 'flow' ? openRequest.at : 'flow'}
               rewriteFor={openRequest?.kind === 'flow' ? openRequest.base : null}
+              onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (
             <Performers />

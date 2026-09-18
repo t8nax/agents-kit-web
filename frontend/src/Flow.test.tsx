@@ -63,6 +63,8 @@ function stubApi(handlers: Record<string, Handler>) {
 const api = (flows: BaseFlow[], presets: StepPreset[] = [], extra: Record<string, Handler> = {}) => ({
   'GET /api/flow': () => json(flows),
   'GET /api/presets': () => json(presets),
+  // Раздел спрашивает заведённых исполнителей: из них шагу выбирают субагента.
+  'GET /api/performers': () => json([]),
   // Окно переписывания спрашивает панель, не идёт ли уже такая просьба.
   'GET /api/agent/requests': () => json([]),
   ...extra,
@@ -73,8 +75,8 @@ const body = (fetchMock: ReturnType<typeof stubApi>, key: string) => {
   return call ? JSON.parse(String(call[1]?.body)) : undefined
 }
 
-async function renderFlow(withSteps = true) {
-  render(<Flow />)
+async function renderFlow(withSteps = true, props: { onPerformers?: () => void } = {}) {
+  render(<Flow {...props} />)
   const region = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   // Шаги базы кладутся в форму после отрисовки раздела: без них блоков на схеме ещё нет.
   if (withSteps) await screen.findByRole('button', { name: /^Шаг 1: / })
@@ -463,4 +465,69 @@ test('со своими несохранёнными правками переп
   fireEvent.change(drawer.getByLabelText('выход'), { target: { value: 'критерий и ответ оператора' } })
 
   expect(screen.getByRole('button', { name: 'Переписать с Чудо-юдо' })).toBeDisabled()
+})
+
+/** Заведённые исполнители проекта: из них шагу выбирают субагента. */
+const performers = (names: string[]) => [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'Agents Kit Web',
+    copies: [],
+    performers: names.map((name) => ({
+      name,
+      description: null,
+      model: null,
+      tools: null,
+      prompt: '',
+      path: `D:\\Projects\\agents-kit-web\\.claude\\agents\\${name}.md`,
+      source: 'copy' as const,
+      copy: 'D:\\Projects\\agents-kit-web',
+    })),
+    error: null,
+  },
+]
+
+test('исполнитель шага выбирается из заведённых', async () => {
+  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['reviewer', 'e2e-runner'])) }))
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+
+  const picker = await drawer.findByRole('combobox', { name: 'Имя субагента' })
+  expect(picker).toHaveValue('reviewer')
+  expect(drawer.queryByRole('textbox', { name: 'Имя субагента' })).not.toBeInTheDocument()
+
+  fireEvent.change(picker, { target: { value: 'e2e-runner' } })
+
+  expect(within(nodes(region)[1]).getByText('субагент e2e-runner')).toBeInTheDocument()
+})
+
+test('шаг, чьего исполнителя нет на диске, отмечен на схеме и объяснён в сайдбаре', async () => {
+  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
+  const onPerformers = vi.fn()
+  const region = await renderFlow(true, { onPerformers })
+
+  // Ненайденного видно на схеме, не открывая шаг
+  const node = await within(nodes(region)[1]).findByLabelText('Исполнителя reviewer нет на диске')
+  expect(node).toBeInTheDocument()
+
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  expect(drawer.getByRole('status')).toHaveTextContent('Сессия дойдёт до шага и спросит вас')
+  // Имя остаётся в списке, чтобы шаг не потерял исполнителя молча
+  expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveValue('reviewer')
+  fireEvent.click(drawer.getByRole('button', { name: 'Завести исполнителя' }))
+  expect(onPerformers).toHaveBeenCalled()
+})
+
+test('«вписать имя…» возвращает поле для чужого имени', async () => {
+  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+
+  fireEvent.change(await drawer.findByRole('combobox', { name: 'Имя субагента' }), {
+    target: { value: '__custom__' },
+  })
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Имя субагента' }), { target: { value: 'doc-writer' } })
+
+  expect(within(nodes(region)[1]).getByText('субагент doc-writer')).toBeInTheDocument()
+  expect(drawer.getByRole('status')).toHaveTextContent('нет на диске')
 })
