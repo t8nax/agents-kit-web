@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace AgentsKitWeb.Api.Tests;
 
 /// <summary>
-/// «Чудо-юдо» придумывает исполнителя: панель зовёт агента в копии проекта, разбирает его ответ в поля
+/// Чудо-Юдо придумывает исполнителя: панель зовёт агента в копии проекта, разбирает его ответ в поля
 /// окна и ничего не пишет на диск. Настоящий claude в прогоне не запускается.
 /// </summary>
 public sealed class PerformerDraftEndpointsTests : IDisposable
@@ -153,7 +153,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
 
         var error = Assert.Single(events);
         Assert.Equal("error", error.Type);
-        Assert.Equal("Чудо-юдо вернул исполнителя без имени", error.Text);
+        Assert.Equal("Чудо-Юдо вернул исполнителя без имени", error.Text);
         Assert.Equal("Готово, я придумал ревьюера.", error.Output);
     }
 
@@ -177,7 +177,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         var events = await Draft(await Client(), "Ревьюер ветки");
 
         var error = Assert.Single(events);
-        Assert.Equal("Чудо-юдо вернул не исполнителя: задания в его ответе нет", error.Text);
+        Assert.Equal("Чудо-Юдо вернул не исполнителя: задания в его ответе нет", error.Text);
     }
 
     [Fact]

@@ -193,7 +193,7 @@ test('сбой запроса показан строкой, а не пусты�
   expect(await screen.findByRole('alert')).toHaveTextContent('Нет связи с API')
 })
 
-test('кнопка «Добавить с помощью «Чудо-юдо»» открывает окно записи, новые записи отмечены до «Обновить»', async () => {
+test('кнопка «Добавить с помощью Чудо-Юдо» открывает окно записи, новые записи отмечены до «Обновить»', async () => {
   const withNew: BaseBacklog[] = [
     { ...backlogs[0], entries: [...backlogs[0].entries, { number: 'B-32', title: 'Добавлена агентом', text: null }] },
     backlogs[1],
@@ -221,7 +221,7 @@ test('кнопка «Добавить с помощью «Чудо-юдо»» о
 
   render(<Backlog />)
   await screen.findByText('B-1')
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' }))
 
   const dialog = within(screen.getByRole('dialog', { name: 'Запись в бэклог' }))
   fireEvent.change(await dialog.findByLabelText('Что записать'), { target: { value: 'Мысль' } })
@@ -244,5 +244,5 @@ test('без баз добавлять некуда', async () => {
   render(<Backlog />)
   await screen.findByText(/Нет отслеживаемых баз/)
 
-  expect(screen.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' })).toBeDisabled()
 })

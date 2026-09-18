@@ -46,7 +46,7 @@ test('идущая просьба названа в шапке вместе со
   const opened: AgentRequestSummary[] = []
   render(<AgentBar onOpen={(request) => opened.push(request)} />)
 
-  const chip = await screen.findByRole('button', { name: /Чудо-юдо читает базу Agents Kit Web/ })
+  const chip = await screen.findByRole('button', { name: /Чудо-Юдо читает базу Agents Kit Web/ })
   expect(within(chip).getByLabelText('Просьба идёт')).toHaveTextContent('1:12')
 
   fireEvent.click(chip)
@@ -58,7 +58,7 @@ test('дождавшийся итог показан своими словами
   stubRequests([rewriting])
   render(<AgentBar onOpen={() => {}} />)
 
-  expect(await screen.findByRole('button', { name: /Чудо-юдо переписал флоу Nota/ })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /Чудо-Юдо переписал флоу Nota/ })).toBeInTheDocument()
 })
 
 test('несколько просьб разворачиваются списком, строка открывает свою', async () => {
@@ -66,14 +66,14 @@ test('несколько просьб разворачиваются списк�
   const opened: AgentRequestSummary[] = []
   render(<AgentBar onOpen={(request) => opened.push(request)} />)
 
-  fireEvent.click(await screen.findByRole('button', { name: /Чудо-юдо занят/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Чудо-Юдо занят/ }))
 
   const list = await screen.findByRole('list', { name: 'Просьбы' })
-  expect(within(list).getByText('Чудо-юдо читает базу Agents Kit Web')).toBeInTheDocument()
+  expect(within(list).getByText('Чудо-Юдо читает базу Agents Kit Web')).toBeInTheDocument()
   expect(within(list).getByText('Добавь ревью перед мержем')).toBeInTheDocument()
   expect(within(list).getByText('готов')).toBeInTheDocument()
 
-  fireEvent.click(within(list).getByText('Чудо-юдо переписал флоу Nota'))
+  fireEvent.click(within(list).getByText('Чудо-Юдо переписал флоу Nota'))
 
   expect(opened).toEqual([rewriting])
   expect(screen.queryByRole('list', { name: 'Просьбы' })).not.toBeInTheDocument()
@@ -94,6 +94,6 @@ test('просьба об исполнителе названа в шапке с
   render(<AgentBar onOpen={() => {}} />)
 
   expect(
-    await screen.findByRole('button', { name: /Чудо-юдо заводит исполнителя Agents Kit Web/ }),
+    await screen.findByRole('button', { name: /Чудо-Юдо заводит исполнителя Agents Kit Web/ }),
   ).toBeInTheDocument()
 })

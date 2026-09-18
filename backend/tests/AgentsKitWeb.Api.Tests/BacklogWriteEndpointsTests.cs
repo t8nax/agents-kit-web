@@ -127,7 +127,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
         var error = Assert.Single(events);
         Assert.Equal("error", error.Type);
-        Assert.Equal("Чудо-юдо закончил, но новых записей в бэклоге нет", error.Text);
+        Assert.Equal("Чудо-Юдо закончил, но новых записей в бэклоге нет", error.Text);
         Assert.Equal("Правка запрещена, ничего не записал.", error.Output);
     }
 

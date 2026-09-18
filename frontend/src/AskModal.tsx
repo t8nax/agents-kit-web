@@ -92,11 +92,11 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-wizard ask-modal" role="dialog" aria-modal="true" aria-label="Вопрос по базе">
+      <div className="modal-wizard ask-modal" role="dialog" aria-modal="true" aria-label={`Вопрос ${AGENT_NAME}`}>
         <div className="ask-head">
           <div className="ask-title">
             <AskIcon />
-            <h2>Вопрос по базе</h2>
+            <h2>Вопрос {AGENT_NAME}</h2>
             <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onClose}>
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <line x1="18" y1="6" x2="6" y2="18" />

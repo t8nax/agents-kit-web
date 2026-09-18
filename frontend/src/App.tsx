@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
+import { AGENT_NAME } from './BacklogWriteModal'
 import { useCollapsedGroups } from './collapsedGroups'
 import AgentBar from './AgentBar'
 import type { AgentKind } from './agentRequest'
@@ -238,7 +239,7 @@ function App() {
         />
         <button type="button" className="bases-btn" onClick={() => setAsking(true)}>
           <AskIcon />
-          Спросить базу
+          Спросить {AGENT_NAME}
         </button>
         <button type="button" className="bases-btn" onClick={theme.toggle}>
           {theme.theme === 'dark' ? <SunIcon /> : <MoonIcon />}

@@ -53,12 +53,12 @@ test('просьба уходит в базу раздела, ход агент�
 
   await ask('  Добавь ревью перед мержем  ')
 
-  expect(await screen.findByText('Чудо-юдо переписывает флоу Agents Kit Web…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо переписывает флоу Agents Kit Web…')).toBeInTheDocument()
   expect(posts[0].url).toBe('/api/flow/rewrite')
   expect(posts[0].body).toEqual({ base, wish: 'Добавь ревью перед мержем' })
 
   stream.send({ type: 'step', text: 'читает flow.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-Юдо' })
   expect(within(steps).getByText('читает flow.md')).toBeInTheDocument()
 
   const rewritten = [
@@ -117,7 +117,7 @@ test('флоу, разошедшийся с разделом, в схему не
   await ask('Добавь ревью')
   stream.send({ type: 'rewritten', text: '', steps: [step('Ревью')], version: 'другой-отпечаток' })
 
-  expect(await screen.findByText(/Флоу базы изменился, пока Чудо-юдо его переписывал/)).toBeInTheDocument()
+  expect(await screen.findByText(/Флоу базы изменился, пока Чудо-Юдо его переписывал/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Взять правки в схему' })).not.toBeInTheDocument()
   expect(onApply).not.toHaveBeenCalled()
 })

@@ -35,10 +35,10 @@ test('вопрос уходит в выбранную базу, ход рабо�
   await askQuestion('Почему опрос?')
 
   expect(posts[0].body).toEqual({ base: 'D:\\Projects\\nota-knowledge', question: 'Почему опрос?' })
-  expect(await screen.findByText('Чудо-юдо читает базу Nota…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-Юдо' })
   expect(within(steps).getByText('читает decisions/ui.md')).toBeInTheDocument()
 
   stream.send({ type: 'answer', text: 'Так решил **оператор**.\n\n- проще всего', files: ['decisions/ui.md'], durationMs: 31000 })
@@ -108,11 +108,11 @@ test('открытое заново окно показывает работу, 
   render(<AskModal onClose={() => {}} />)
 
   expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
-  expect(await screen.findByText('Чудо-юдо читает базу Nota…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
   expect(screen.getByLabelText('Прошло времени')).toHaveTextContent('0:42')
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-Юдо' })
   expect(within(steps).getByText('читает decisions/ui.md')).toBeInTheDocument()
 
   stream.send({ type: 'answer', text: 'Так решил оператор.', files: [], durationMs: 60000 })

@@ -15,8 +15,8 @@ async function mockApi(page: Page, project = 'Agents Kit Web') {
 
 async function openAsk(page: Page) {
   await page.goto('/')
-  await page.getByRole('banner').getByRole('button', { name: 'Спросить базу' }).click()
-  return page.getByRole('dialog', { name: 'Вопрос по базе' })
+  await page.getByRole('banner').getByRole('button', { name: 'Спросить Чудо-Юдо' }).click()
+  return page.getByRole('dialog', { name: 'Вопрос Чудо-Юдо' })
 }
 
 test('оператор спрашивает базу из шапки и читает ответ с прочитанными файлами', async ({ page }) => {
@@ -61,24 +61,24 @@ test('закрытое окно не останавливает агента: о
   const dialog = await openAsk(page)
   await dialog.getByLabel('Вопрос').fill('Почему опрос?')
   await dialog.getByRole('button', { name: 'Спросить' }).click()
-  await expect(dialog.getByRole('status')).toContainText('Чудо-юдо читает базу Agents Kit Web…')
+  await expect(dialog.getByRole('status')).toContainText('Чудо-Юдо читает базу Agents Kit Web…')
 
   // Оператор закрыл окно и занялся другим: агент работает дальше.
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   expect(panel.deletes).toBe(0)
 
-  const chip = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо читает базу/ })
+  const chip = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо читает базу/ })
   await expect(chip).toBeVisible()
 
   // Агент закончил, пока окно было закрыто.
   panel.reply(ndjson({ type: 'answer', text: 'Так решил оператор.', files: ['decisions/ui.md'], durationMs: 12000 }))
-  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо ответил по базе Agents Kit Web/ })
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо ответил по базе Agents Kit Web/ })
   await expect(done).toBeVisible()
 
   await done.click()
 
-  const reopened = page.getByRole('dialog', { name: 'Вопрос по базе' })
+  const reopened = page.getByRole('dialog', { name: 'Вопрос Чудо-Юдо' })
   await expect(reopened.getByText('Почему опрос?')).toBeVisible()
   await expect(reopened.getByText('Так решил оператор.')).toBeVisible()
   await expect(reopened.getByText('decisions/ui.md')).toBeVisible()
@@ -87,7 +87,8 @@ test('закрытое окно не останавливает агента: о
   // Прочитанный ответ уходит вместе с окном: отметка в шапке о нём больше не говорит.
   await page.keyboard.press('Escape')
   await expect(reopened).toHaveCount(0)
-  await expect(page.getByRole('banner').getByRole('button', { name: /Чудо-юдо/ })).toHaveCount(0)
+  // Имя агента теперь стоит и на кнопке вопроса, поэтому отметка ищется своим классом.
+  await expect(page.getByRole('banner').locator('.agent-chip')).toHaveCount(0)
 })
 
 test('пока агент думает, идёт счётчик, а «Отменить» возвращает вопрос в поле', async ({ page }) => {
@@ -98,14 +99,14 @@ test('пока агент думает, идёт счётчик, а «Отмен
   await dialog.getByRole('button', { name: 'Спросить' }).click()
 
   const waiting = dialog.getByRole('status')
-  await expect(waiting).toContainText('Чудо-юдо читает базу Agents Kit Web…')
+  await expect(waiting).toContainText('Чудо-Юдо читает базу Agents Kit Web…')
   await expect(waiting.getByLabel('Прошло времени')).toHaveText('0:01', { timeout: 5000 })
   await expect(dialog.getByRole('button', { name: 'Nota', exact: true })).toBeDisabled()
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()
   await expect(dialog.getByLabel('Вопрос')).toHaveValue('Долгий вопрос')
   expect(panel.deletes).toBe(1)
-  await expect(page.getByRole('banner').getByRole('button', { name: /Чудо-юдо читает базу/ })).toHaveCount(0)
+  await expect(page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо читает базу/ })).toHaveCount(0)
 })
 
 test('сбой агента виден с его выводом, вопрос можно повторить', async ({ page }) => {
@@ -117,7 +118,7 @@ test('сбой агента виден с его выводом, вопрос м
   await dialog.getByRole('button', { name: 'Спросить' }).click()
 
   const alert = dialog.getByRole('alert')
-  await expect(alert).toContainText('Чудо-юдо не ответил')
+  await expect(alert).toContainText('Чудо-Юдо не ответил')
   await expect(alert).toContainText('Invalid API key · Please run /login')
 
   panel.reply(ndjson({ type: 'answer', text: 'Теперь ответил', files: [], durationMs: 2000 }))
@@ -156,7 +157,7 @@ for (const theme of ['dark', 'light'] as const) {
     await dialog.getByRole('button', { name: 'Спросить' }).click()
     await page.keyboard.press('Escape')
 
-    const chip = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо читает базу/ })
+    const chip = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо читает базу/ })
     await expect(chip).toBeVisible()
     const [color, background] = await Promise.all([
       chip.evaluate((el) => getComputedStyle(el).color),

@@ -50,7 +50,7 @@ async function openNew(page: Page) {
   return page.getByRole('dialog')
 }
 
-test('оператор описывает исполнителя словами, а поля заполняет «Чудо-юдо»', async ({ page }) => {
+test('оператор описывает исполнителя словами, а поля заполняет Чудо-Юдо', async ({ page }) => {
   const { panel, saved } = await mockApi(page)
   panel.reply(
     ndjson(
@@ -60,14 +60,14 @@ test('оператор описывает исполнителя словами,
   )
 
   const modal = await openNew(page)
-  await modal.getByLabel(/Просьба к «Чудо-юдо»/).fill('Читает дифф ветки и возвращает вердикт')
-  await modal.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }).click()
+  await modal.getByLabel(/Просьба к Чудо-Юдо/).fill('Читает дифф ветки и возвращает вердикт')
+  await modal.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }).click()
 
   await expect(modal.getByLabel('Имя')).toHaveValue('reviewer')
   await expect(modal.getByLabel('Модель')).toHaveValue('opus')
   await expect(modal.getByLabel('Инструменты')).toHaveValue('Read, Glob, Grep')
   await expect(modal.getByLabel('Задание')).toHaveValue('Ты читаешь дифф ветки целиком и возвращаешь вердикт.')
-  await expect(modal.getByText('Поля ниже заполнил «Чудо-юдо»')).toBeVisible()
+  await expect(modal.getByText('Поля ниже заполнил Чудо-Юдо')).toBeVisible()
   expect(panel.posts).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
@@ -98,8 +98,8 @@ test('закрытое окно не останавливает агента: п
   const { panel } = await mockApi(page)
 
   const modal = await openNew(page)
-  await modal.getByLabel(/Просьба к «Чудо-юдо»/).fill('Ревьюер ветки')
-  await modal.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }).click()
+  await modal.getByLabel(/Просьба к Чудо-Юдо/).fill('Ревьюер ветки')
+  await modal.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }).click()
   await expect(modal.getByRole('status')).toContainText('заводит исполнителя')
 
   // Оператор закрыл окно и занялся другим: агент работает дальше.
@@ -108,7 +108,7 @@ test('закрытое окно не останавливает агента: п
   expect(panel.deletes).toBe(0)
 
   panel.reply(ndjson({ type: 'drafted', text: '---', fields: drafted, durationMs: 12000 }))
-  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо завёл исполнителя Agents Kit Web/ })
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо завёл исполнителя Agents Kit Web/ })
   await expect(done).toBeVisible()
 
   await done.click()
@@ -122,18 +122,18 @@ test('закрытое окно не останавливает агента: п
 test('неудача агента сказана словами, просьба остаётся, поля не тронуты', async ({ page }) => {
   const { panel } = await mockApi(page)
   panel.reply(
-    ndjson({ type: 'error', text: 'Чудо-юдо вернул исполнителя без имени', output: 'Готово, я придумал ревьюера.' }),
+    ndjson({ type: 'error', text: 'Чудо-Юдо вернул исполнителя без имени', output: 'Готово, я придумал ревьюера.' }),
   )
 
   const modal = await openNew(page)
-  await modal.getByLabel(/Просьба к «Чудо-юдо»/).fill('Ревьюер ветки')
-  await modal.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }).click()
+  await modal.getByLabel(/Просьба к Чудо-Юдо/).fill('Ревьюер ветки')
+  await modal.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }).click()
 
   const alert = modal.getByRole('alert')
   await expect(alert).toContainText('не заполнил поля')
   await expect(alert).toContainText('Готово, я придумал ревьюера.')
   await expect(modal.getByLabel('Имя')).toHaveValue('')
-  await expect(modal.getByLabel(/Просьба к «Чудо-юдо»/)).toHaveValue('Ревьюер ветки')
+  await expect(modal.getByLabel(/Просьба к Чудо-Юдо/)).toHaveValue('Ревьюер ветки')
 
   panel.reply(ndjson({ type: 'drafted', text: '---', fields: drafted, durationMs: 4000 }))
   await modal.getByRole('button', { name: 'Попросить снова' }).click()
