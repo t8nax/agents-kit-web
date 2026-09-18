@@ -28,6 +28,9 @@ public static class BacklogWriteEndpoints
 {
     public const string BacklogFile = "backlog.md";
 
+    /// <summary>Сообщение коммита у всех записей из панели одно: оно стоит в правиле разрешения.</summary>
+    public const string CommitMessage = "Записать в бэклог из панели";
+
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(5);
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -147,11 +150,14 @@ public static class BacklogWriteEndpoints
     public static ProcessStartInfo StartInfo(string basePath, string copyPath)
     {
         var backlog = Path.Combine(basePath, BacklogFile);
-        var commit = $"git -C \"{basePath}\" commit -m \"<сообщение>\" -- {BacklogFile}";
+        // Команда коммита — одна строка и для правила, и для промпта: правило PowerShell со звёздочкой
+        // не совпадает с командой git ни в каком виде, совпадает только записанная целиком. Поэтому
+        // сообщение коммита пишет панель, а не агент: его текст — часть разрешённой команды.
+        var commit = $"git -C \"{basePath}\" commit -m \"{CommitMessage}\" -- {BacklogFile}";
         var systemPrompt = $"""
             Ты записываешь в бэклог базы знаний то, что оператор сказал в веб-панели; спросить оператора нельзя.
-            Менять можно только файл {backlog}. Коммит — ровно одной командой PowerShell: {commit}
-            Другие команды запрещены и не нужны.
+            Менять можно только файл {backlog}. Коммит — ровно одной командой PowerShell, слово в слово: {commit}
+            Сообщение коммита не менять: разрешена ровно эта команда. Другие команды запрещены и не нужны.
             """;
 
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, copyPath);
@@ -165,7 +171,7 @@ public static class BacklogWriteEndpoints
                      "--permission-mode", "dontAsk",
                      "--allowedTools", "Read", "Grep", "Glob", "Skill",
                      $"Edit({backlog})",
-                     $"PowerShell(git -C \"{basePath}\" commit -m * -- {BacklogFile})",
+                     $"PowerShell({commit})",
                      "--no-session-persistence",
                      "--strict-mcp-config",
                      "--append-system-prompt", systemPrompt,

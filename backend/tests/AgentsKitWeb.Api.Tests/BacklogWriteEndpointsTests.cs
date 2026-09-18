@@ -31,6 +31,9 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     private readonly string _copy;
     private readonly FakeAgent _agent = new();
 
+    /// <summary>Команда коммита, которую панель диктует агенту и кладёт в правило разрешения.</summary>
+    private string Commit => $"git -C \"{_base}\" commit -m \"{BacklogWriteEndpoints.CommitMessage}\" -- backlog.md";
+
     public BacklogWriteEndpointsTests()
     {
         _copy = Path.Combine(_root, "app");
@@ -53,7 +56,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
             Tool("Read", new { file_path = @"C:\Users\op\.claude\skills\agents-kit\reference\backlog-record.md" }),
             Tool("Grep", new { pattern = "Waiting", path = Path.Combine(_copy, "frontend", "src") }),
             Tool("Edit", new { file_path = Path.Combine(_base, "backlog.md") }),
-            Tool("PowerShell", new { command = $"git -C \"{_base}\" commit -m \"Бэклог: B-2, B-3\" -- backlog.md" }),
+            Tool("PowerShell", new { command = Commit }),
             """{"type":"result","subtype":"success","is_error":false,"duration_ms":41000,"result":"Записал B-2 и B-3."}""",
         ];
         _agent.BeforeLine = index =>
@@ -61,7 +64,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
             if (index == 4)
             {
                 AppendEntries(next: "B-4", "## B-2 Таблица показывает ожидание\n\nСколько копия ждёт.\n\n### Агенту\n- где: App.tsx", "## B-3 Сортировка по номеру");
-                TestGit.Run(_base, "commit", "-m", "Бэклог: B-2, B-3", "--", "backlog.md");
+                TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
             }
             return Task.CompletedTask;
         };
@@ -106,8 +109,10 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal(_base, args[args.IndexOf("--add-dir") + 1]);
         var allowed = args.Skip(args.IndexOf("--allowedTools") + 1).TakeWhile(a => !a.StartsWith("--")).ToList();
         Assert.Equal(
-            ["Read", "Grep", "Glob", "Skill", $"Edit({Path.Combine(_base, "backlog.md")})", $"PowerShell(git -C \"{_base}\" commit -m * -- backlog.md)"],
+            ["Read", "Grep", "Glob", "Skill", $"Edit({Path.Combine(_base, "backlog.md")})", $"PowerShell({Commit})"],
             allowed);
+        // Правило пускает команду, только когда она записана целиком, поэтому промпт диктует её слово в слово.
+        Assert.Contains(Commit, args[args.IndexOf("--append-system-prompt") + 1]);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(args, a => a.Contains("bypassPermissions", StringComparison.OrdinalIgnoreCase));
