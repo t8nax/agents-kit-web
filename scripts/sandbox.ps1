@@ -241,6 +241,36 @@ $target = Join-Path (Split-Path $Path -Parent) $branch
 git -C $Path worktree add -b $branch $target --quiet 2>&1 | Out-Null
 "Копия заведена: $target, ветка $branch"
 '@
+
+    Write-Utf8 (Join-Path $scripts 'worktree-remove.ps1') @'
+# Заглушка кита: копию убирает настоящим git worktree, но отказы проверяет свои и попроще —
+# проверяется, как панель зовёт кит и показывает его отказ. Ветку заглушка, как и кит, оставляет.
+param([Parameter(Mandatory)][string]$Path)
+
+$ErrorActionPreference = 'Stop'
+if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "каталога «$Path» не существует — удалять нечего" }
+
+$tree = (git -C $Path rev-parse --show-toplevel 2>$null)
+if (-not $tree) { throw "«$Path» не под git — это не рабочая копия проекта под китом" }
+$tree = $tree.Replace('/', '\')
+$main = (git -C $Path rev-parse --path-format=absolute --git-common-dir).Trim().Replace('/', '\')
+if ($tree -ieq (Split-Path $main -Parent)) {
+    throw "«$tree» — основная копия проекта, а не заведённая рядом: убирать её киту нечем"
+}
+
+$dirty = @(git -C $tree status --porcelain --untracked-files=all 2>$null | Where-Object { $_ })
+if ($dirty.Count) {
+    $named = (@($dirty | Select-Object -First 3) | ForEach-Object { $_.Substring(3) }) -join ', '
+    if ($dirty.Count -gt 3) { $named += " и ещё $($dirty.Count - 3)" }
+    throw "в копии «$tree» незакоммиченное: $named — сначала закоммитить"
+}
+
+$branch = (git -C $tree rev-parse --abbrev-ref HEAD 2>$null)
+$out = git -C (Split-Path $main -Parent) worktree remove $tree 2>&1
+if ($LASTEXITCODE -ne 0) { throw "git не убрал копию «$tree»: $(($out | Out-String).Trim())" }
+"Рабочая копия удалена: $tree"
+if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $branch" }
+'@
 }
 
 # --- подставной агент --------------------------------------------------------------------

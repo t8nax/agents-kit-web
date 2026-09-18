@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Text;
 using AgentsKitWeb.Api.Bases;
 
 namespace AgentsKitWeb.Api.Workspaces;
@@ -83,55 +81,20 @@ public static class KitWorktreeAdd
     public static async Task<(bool Created, string? Message)> RunAsync(
         string script, string copy, string? name, CancellationToken cancellationToken)
     {
-        var startInfo = new ProcessStartInfo("pwsh")
+        var environment = new Dictionary<string, string>
         {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            // Поставленная панель — WinExe без консоли: без этого Windows открывает окно на каждый запуск.
-            CreateNoWindow = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
+            ["AKW_SCRIPT"] = script,
+            ["AKW_COPY"] = copy,
+            ["AKW_NAME"] = name ?? "",
         };
-        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", Encode(Command) })
-            startInfo.ArgumentList.Add(arg);
-        startInfo.Environment["AKW_SCRIPT"] = script;
-        startInfo.Environment["AKW_COPY"] = copy;
-        startInfo.Environment["AKW_NAME"] = name ?? "";
-
-        Process? process;
-        try
+        var run = await KitScriptRunner.RunAsync(Command, environment, Timeout, cancellationToken);
+        return run.Outcome switch
         {
-            process = Process.Start(startInfo);
-        }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            return (false, "PowerShell (pwsh) не запустился — без него копию не завести");
-        }
-        if (process is null)
-            return (false, "PowerShell (pwsh) не запустился — без него копию не завести");
-
-        using (process)
-        using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
-        {
-            timeout.CancelAfter(Timeout);
-            try
-            {
-                var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
-                var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
-                await process.WaitForExitAsync(timeout.Token);
-                if (process.ExitCode == 0)
-                    return (true, BranchName(await stdout));
-
-                var error = (await stderr).Trim();
-                return (false, error.Length > 0 ? error : $"скрипт кита завершился с кодом {process.ExitCode}");
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                process.Kill(entireProcessTree: true);
-                return (false, "скрипт кита не ответил за две минуты — проверьте, не осталась ли копия недоделанной");
-            }
-        }
+            KitRunOutcome.Ok => (true, BranchName(run.Output)),
+            KitRunOutcome.NotStarted => (false, "PowerShell (pwsh) не запустился — без него копию не завести"),
+            KitRunOutcome.TimedOut => (false, "скрипт кита не ответил за две минуты — проверьте, не осталась ли копия недоделанной"),
+            _ => (false, run.Error),
+        };
     }
 
     /// <summary>Имя ветки из строки кита «Ветка: имя»; строки нет — null.</summary>
@@ -140,6 +103,4 @@ public static class KitWorktreeAdd
             .Where(line => line.StartsWith("Ветка:", StringComparison.Ordinal))
             .Select(line => line["Ветка:".Length..].Trim())
             .FirstOrDefault(value => value.Length > 0);
-
-    private static string Encode(string script) => Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
 }

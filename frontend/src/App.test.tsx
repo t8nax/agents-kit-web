@@ -335,6 +335,63 @@ test('терминал не открылся — панель говорит о�
   expect(await screen.findByText('Сессия в app уже не идёт в фоне')).toBeInTheDocument()
 })
 
+test('«Удалить копию» стоит у свободной копии, приглушён у занятой и не стоит у основной', async () => {
+  // Основная копия проекта — та, от которой кит заводит новые: её строку выдаёт copiesDir
+  const main: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\app-main', status: 'free', copiesDir: 'D:\\Projects' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, main]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  const free = await openRowMenu(tableRows[2])
+  expect(within(free).getByRole('menuitem', { name: 'Удалить копию' })).toBeEnabled()
+
+  // В копии идёт задача: её память живёт в базе, и панель копию не убирает
+  const busy = await openRowMenu(tableRows[1])
+  expect(within(busy).getByRole('menuitem', { name: 'Удалить копию' })).toBeDisabled()
+
+  const mainMenu = await openRowMenu(tableRows[4])
+  expect(within(mainMenu).queryByRole('menuitem', { name: 'Удалить копию' })).not.toBeInTheDocument()
+})
+
+test('удаление копии открывает окно, а после удачи таблица перечитывается и гаснет сообщение', async () => {
+  fakeInterval()
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/workspace/remove'
+      ? new Response(null, { status: 204 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  const menu = await openRowMenu(tableRows[2])
+  await act(async () => {
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Удалить копию' }))
+  })
+
+  const dialog = await screen.findByRole('dialog', { name: 'Удалить рабочую копию' })
+  expect(dialog).toHaveTextContent('D:\\Projects\\app-wt')
+  const polls = fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces').length
+
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Удалить копию' }))
+  })
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspace/remove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' }),
+  })
+  expect(screen.queryByRole('dialog', { name: 'Удалить рабочую копию' })).not.toBeInTheDocument()
+  // Опрос не ждут: таблица перечитывается сразу
+  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces').length).toBeGreaterThan(polls)
+
+  // Сообщение гаснет своим таймером — тем же, что у сообщения о запущенной задаче
+  expect(await screen.findByRole('status')).toHaveTextContent('Копия app-wt удалена')
+})
+
 test('задачу из таблицы копий не берут: запуск живёт в разделе «Бэклог»', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(rows)))
 
