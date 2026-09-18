@@ -18,6 +18,7 @@ import Settings from './Settings'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
+import { TerminalIcon } from './TerminalIcon'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
@@ -786,16 +787,6 @@ function DotsIcon() {
       <circle cx="5" cy="12" r="1.8" />
       <circle cx="12" cy="12" r="1.8" />
       <circle cx="19" cy="12" r="1.8" />
-    </svg>
-  )
-}
-
-export function TerminalIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="2" y="4" width="20" height="16" rx="2" />
-      <polyline points="6 9 9 12 6 15" />
-      <line x1="12" y1="15" x2="17" y2="15" />
     </svg>
   )
 }

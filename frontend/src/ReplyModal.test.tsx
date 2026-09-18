@@ -31,6 +31,7 @@ const questions: QuestionsResponse = {
   outOfScope: 'Health баз.',
   design: null,
   vsCodeSession: true,
+  backgroundSession: true,
   questions: [
     { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
     {
@@ -47,7 +48,12 @@ const questions: QuestionsResponse = {
 
 type Route = (init?: RequestInit) => Response | Promise<Response>
 
-function stubApi(answers: Route, data: QuestionsResponse = questions, openSession: Route = () => new Response(null, { status: 204 })) {
+function stubApi(
+  answers: Route,
+  data: QuestionsResponse = questions,
+  openSession: Route = () => new Response(null, { status: 204 }),
+  openTerminal: Route = () => new Response(null, { status: 204 }),
+) {
   const calls: { url: string; init?: RequestInit }[] = []
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     calls.push({ url, init })
@@ -55,6 +61,7 @@ function stubApi(answers: Route, data: QuestionsResponse = questions, openSessio
     if (url.startsWith('/api/questions?')) return new Response(JSON.stringify(data), { status: 200 })
     if (url === '/api/answers') return answers(init)
     if (url === '/api/session/open') return openSession(init)
+    if (url === '/api/session/terminal') return openTerminal(init)
     return new Response(null, { status: 404 })
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -278,6 +285,50 @@ test('вопрос, на который уже ответили, останав�
   expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
   expect(dialog.getByText(/уже ответили из другого места/)).toBeInTheDocument()
   expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+  expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
+})
+
+test('кнопка перехода открывает терминал с фоновой сессией той копии, чей вопрос читают', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const open = dialog.getByRole('button', { name: 'Открыть в терминале' })
+  expect(open).toBeEnabled()
+  fireEvent.click(open)
+
+  const post = calls.filter((c) => c.url === '/api/session/terminal')
+  expect(post).toHaveLength(1)
+  expect(JSON.parse(post[0].init!.body as string)).toEqual({
+    base: 'D:\\Projects\\app-knowledge',
+    copy: 'D:\\Projects\\app',
+  })
+  // аккордеон не раскрывается щелчком по кнопке внутри его шапки
+  expect(document.querySelector('.context-accordion')).not.toHaveAttribute('open')
+})
+
+test('фоновой сессии нет — кнопка терминала не нажимается и говорит об этом', async () => {
+  stubApi(() => new Response(null, { status: 204 }), { ...questions, backgroundSession: false })
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const open = dialog.getByRole('button', { name: 'Нет сессии в фоне' })
+  expect(open).toBeDisabled()
+})
+
+test('терминал не открылся — окно ответа говорит об этом и остаётся на месте', async () => {
+  stubApi(
+    () => new Response(null, { status: 204 }),
+    questions,
+    () => new Response(null, { status: 204 }),
+    () => new Response(JSON.stringify({ problem: 'no-session' }), { status: 409 }),
+  )
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Открыть в терминале' }))
+
+  expect(await dialog.findByText('Сессия этой копии уже не идёт в фоне')).toBeInTheDocument()
   expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
 })
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { TerminalIcon } from './TerminalIcon'
 import { VsCodeIcon } from './VsCodeIcon'
 import './ReplyModal.css'
 
@@ -31,6 +32,7 @@ export type QuestionsResponse = {
   design: string | null
   questions: OperatorQuestion[]
   vsCodeSession: boolean
+  backgroundSession: boolean
 }
 
 type Rejection = { question: string; problem: 'empty' | 'missing' | 'already-answered' }
@@ -118,6 +120,29 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       )
     } catch {
       setOpenError('Не удалось открыть VS Code: нет связи с API')
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  // Переход в фоновую сессию: своего окна у неё нет, и панель открывает терминал, подключённый к ней.
+  async function openTerminal() {
+    setOpening(true)
+    setOpenError(null)
+    try {
+      const response = await fetch('/api/session/terminal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base, copy }),
+      })
+      if (response.ok) return
+      setOpenError(
+        response.status === 409
+          ? 'Сессия этой копии уже не идёт в фоне'
+          : 'Не удалось открыть терминал',
+      )
+    } catch {
+      setOpenError('Не удалось открыть терминал: нет связи с API')
     } finally {
       setOpening(false)
     }
@@ -233,6 +258,25 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                         {load.data.project} · {load.data.copy}
                       </span>
                     </span>
+                    <button
+                      type="button"
+                      className="btn-code"
+                      disabled={!load.data.backgroundSession || opening}
+                      title={
+                        load.data.backgroundSession
+                          ? 'Открыть терминал с сессией этой копии'
+                          : 'В этой копии не идёт фоновая сессия'
+                      }
+                      // Кнопка живёт в summary: без этого щелчок по ней складывал бы аккордеон.
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        void openTerminal()
+                      }}
+                    >
+                      <TerminalIcon />
+                      {load.data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
+                    </button>
                     <button
                       type="button"
                       className="btn-code"
