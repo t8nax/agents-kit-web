@@ -156,7 +156,11 @@ svg {
   background: var(--accent-waiting-fill);
 }
 
+/* Плашка не переносится и не жмётся: пока полоса разъезжается, места ей мало,
+   а от переноса надписи пункт становится выше и пункты под ним съезжают. */
 .side-count {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--accent-waiting-text);
@@ -171,6 +175,13 @@ svg {
   flex: 1;
   overflow: auto;
   min-width: 0;
+}
+
+/* Раздел со своей прокруткой внутри: шапка и чипы стоят на месте, экран не уезжает. */
+.content-fixed {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .content-head {

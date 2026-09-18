@@ -19,106 +19,307 @@
   font-size: 13px;
 }
 
-.flow-list {
-  padding: 0 24px 32px;
-  max-width: 900px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* Несохранённые правки: пока их видно, флоу в базе прежний. */
+.flow-dirty {
+  color: var(--accent-waiting-text);
+  font-size: 13px;
 }
 
-.flow-step {
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--bg-surface);
-  padding: 14px 16px;
+/* Раздел занимает экран: прокручивается холст со схемой, сайдбар шага стоит рядом целиком. */
+.flow-canvas {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: stretch;
 }
 
-.flow-step-head {
+.flow-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 8px 0 40px;
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.flow-chain {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+}
+
+.flow-chain > .backlog-note {
+  padding: 0 0 12px;
+}
+
+/* Кнопки перестановки стоят за краем блока: иначе ряд шире блока, и стрелки уходят из центра. */
+.flow-node-row {
+  position: relative;
   display: flex;
   align-items: center;
+}
+
+/* Блок шага: значок, название и исполнитель; номера шага на блоке нет — решение оператора. */
+.flow-node {
+  font: inherit;
+  position: relative;
+  width: 184px;
+  height: 148px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 10px;
+  padding: 16px 14px;
+  text-align: center;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  cursor: pointer;
 }
 
-.flow-step-title {
-  font-size: 15px;
-  font-weight: 500;
+.flow-node:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
 }
 
-.flow-executor {
-  margin-left: auto;
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 4px;
-  padding: 2px 8px;
-  white-space: nowrap;
+.flow-node:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
-.flow-executor-orchestrator {
+.flow-node.opened {
+  border-color: var(--accent-done-text);
+  background: var(--bg-surface-hover);
+}
+
+.flow-node.invalid {
+  border-color: var(--accent-error-border);
+}
+
+.flow-node.dragging {
+  opacity: 0.45;
+}
+
+.flow-node.drop-target {
+  border-color: var(--accent-done-text);
+  border-style: dashed;
+}
+
+.flow-node-mark {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+}
+
+.flow-node-mark svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flow-mark-orchestrator {
   color: var(--accent-active-text);
   background: var(--accent-active-bg);
 }
 
-.flow-executor-operator {
+.flow-mark-operator {
   color: var(--accent-waiting-text);
   background: var(--accent-waiting-bg);
 }
 
-.flow-executor-agent {
+.flow-mark-agent {
   color: var(--accent-done-text);
   background: var(--accent-done-bg);
 }
 
-/* Ключи шага — связный текст, как записи бэклога: крупнее таблицы. */
-.flow-keys {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 88px minmax(0, 1fr);
-  column-gap: 12px;
-  row-gap: 4px;
+.flow-node-title {
   font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
-.flow-keys dt {
+.flow-node-executor {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-tertiary);
 }
 
-.flow-keys dd {
-  margin: 0;
+/* Флажок в углу — у шага с условием пропуска: такой шаг проходится не всегда. */
+.flow-node-skip {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  color: var(--text-tertiary);
 }
 
-/* Форма шага */
-.flow-form.dragging {
-  opacity: 0.45;
+.flow-node-skip svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linejoin: round;
 }
 
-.flow-form.drop-target {
-  border-color: var(--accent-done-text);
+.flow-node-keys {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+}
+
+/* Кнопки перестановки — для клавиатуры: мышью блок перетаскивают. */
+.flow-node-row:hover .flow-node-keys,
+.flow-node-keys:focus-within {
+  opacity: 1;
 }
 
 .flow-grip {
+  position: absolute;
+  top: 8px;
+  left: 8px;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 30px;
   color: var(--text-tertiary);
-  border-radius: 4px;
   cursor: grab;
-}
-
-.flow-grip:hover {
-  color: var(--text-primary);
-  background: var(--bg-surface-hover);
 }
 
 .flow-grip svg,
 .flow-icon-btn svg {
   width: 16px;
   height: 16px;
+}
+
+.flow-arrow {
+  display: block;
+  color: var(--border-strong);
+}
+
+.flow-arrow svg {
+  width: 12px;
+  height: 32px;
+}
+
+/* Окно выбора нового шага */
+.flow-add {
+  width: 560px;
+}
+
+.flow-node-add {
+  height: 92px;
+  gap: 6px;
+  color: var(--text-secondary);
+  background: none;
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+
+.flow-node-add svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/* Сайдбар шага */
+/* Сайдбар выезжает справа плавно — замечание оператора на приёмке. */
+@keyframes flow-drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+.flow-drawer {
+  animation: flow-drawer-in 0.18s ease;
+  width: 360px;
+  max-width: 100%;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-subtle);
+  box-shadow: -18px 0 36px -28px var(--shadow-color);
+}
+
+.flow-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.flow-drawer-name {
+  min-width: 0;
+}
+
+.flow-drawer-name h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.flow-drawer-head .flow-icon-btn {
+  margin-left: auto;
+  border-color: transparent;
+}
+
+.flow-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.flow-drawer-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.flow-drawer-delete {
+  margin-left: auto;
+}
+
+.flow-drawer-foot .bases-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.flow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .flow-input {
@@ -145,10 +346,97 @@
   border-color: var(--accent-error-border);
 }
 
-.flow-title-input {
-  flex: 1;
-  font-size: 15px;
-  font-weight: 500;
+textarea.flow-input {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+/* Описание шага — текст как в файле: моноширинный, с отступами пунктов */
+.flow-description-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+/* Список значков: в нём сами значки, а не их названия */
+.flow-icons {
+  position: relative;
+  align-self: flex-start;
+}
+
+.flow-icon-toggle {
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  color: var(--text-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.flow-icon-toggle:hover {
+  border-color: var(--border-strong);
+}
+
+.flow-icon-toggle:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.flow-icon-toggle .flow-node-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+}
+
+.flow-icon-toggle .flow-node-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.flow-icon-toggle > svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flow-icon-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px var(--shadow-color);
+}
+
+.flow-icon-menu .flow-icon-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+
+.flow-icon-menu .flow-icon-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .flow-icon-btn {
@@ -192,69 +480,65 @@
   outline-offset: 2px;
 }
 
-.flow-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.flow-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.flow-field-wide {
-  grid-column: 1 / -1;
-}
-
-.flow-executor-field {
-  display: flex;
-  gap: 8px;
-}
-
-.flow-executor-field .flow-input {
-  flex: 1;
-}
-
 .flow-step-error {
   margin: 0;
   color: var(--accent-error-text);
   font-size: 13px;
 }
 
-/* «Добавить шаг» и список пресетов под ним */
-.flow-add {
-  position: relative;
-  align-self: flex-start;
+/* Бейдж исполнителя в списке пресетов */
+.flow-executor {
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 2px 8px;
+  white-space: nowrap;
 }
 
-.flow-add > .bases-btn svg {
-  width: 16px;
-  height: 16px;
+.flow-executor-orchestrator {
+  color: var(--accent-active-text);
+  background: var(--accent-active-bg);
 }
 
+.flow-executor-operator {
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+}
+
+.flow-executor-agent {
+  color: var(--accent-done-text);
+  background: var(--accent-done-bg);
+}
+
+/* Список шагов в окне «Добавить шаг»: каждый шаг — своя карточка, иначе они сливаются. */
 .flow-presets {
-  position: absolute;
-  left: 0;
-  top: calc(100% + 6px);
-  z-index: 10;
-  width: 520px;
-  max-height: 420px;
+  max-height: 50vh;
   overflow-y: auto;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  padding: 6px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 12px 32px var(--shadow-color);
+  gap: 6px;
+}
+
+/* Шаг без описания: надпись та же, кнопка приглушена пунктиром */
+.flow-description-btn.flow-description-empty {
+  background: transparent;
+  color: var(--text-tertiary);
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+
+.flow-description-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Окно описания: текст как в файле */
+.flow-description {
+  width: 760px;
 }
 
 .flow-presets-label {
-  padding: 8px 10px 4px;
+  padding: 8px 2px 0;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -263,7 +547,7 @@
 
 .flow-presets-empty {
   margin: 0;
-  padding: 4px 10px 8px;
+  padding: 0 2px 4px;
 }
 
 .flow-preset-row {
@@ -284,18 +568,22 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
-  background: none;
-  border: none;
-  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
   color: var(--text-primary);
   cursor: pointer;
 }
 
-.flow-preset:hover,
-.flow-preset:focus-visible {
+.flow-preset:hover {
   background: var(--bg-surface-hover);
-  outline: none;
+  border-color: var(--border-strong);
+}
+
+.flow-preset:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
 
 .flow-preset-head {
@@ -348,33 +636,9 @@
   gap: 8px;
 }
 
-/* Окно описания шага: текст как в файле — моноширинный, с отступами пунктов */
-.flow-description {
-  width: 760px;
-}
-
-.flow-description-btn svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* Шаг без описания: надпись та же, кнопка приглушена пунктиром */
-.flow-description-btn.flow-description-empty {
-  background: transparent;
-  color: var(--text-tertiary);
-  border-style: dashed;
-  border-color: var(--border-strong);
-}
-
-.flow-description .flow-step-head h3 {
-  margin: 0;
-}
-
-.flow-description-text {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  resize: vertical;
-  white-space: pre;
-  overflow-x: auto;
+/* Кому движение мешает — сайдбар просто появляется. */
+@media (prefers-reduced-motion: reduce) {
+  .flow-drawer {
+    animation: none;
+  }
 }
