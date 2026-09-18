@@ -195,9 +195,9 @@ public sealed class WorkspacesEndpointTests : IDisposable
         Assert.False(Assert.Single(rows, r => r.Path == withoutSession).BackgroundSession);
     }
 
-    /// <summary>Строка копии несёт состояние её сессии, а копия без сессии — ничего.</summary>
+    /// <summary>Строка копии несёт состояние сессии её задачи, а копия без такой сессии — ничего.</summary>
     [Fact]
-    public async Task Workspaces_CopyWithSession_CarriesItsState()
+    public async Task Workspaces_CopyWithTaskSession_CarriesItsState()
     {
         var withSession = Path.Combine(_root, "asking");
         var withoutSession = Path.Combine(_root, "empty");
@@ -209,6 +209,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         var basePath = CreateBase("state-knowledge", withSession, withoutSession);
         var sessionsDir = SessionsDirWith(withSession, "waiting", ProcessStart);
+        TestBases.TaskSession(_root, withSession, "7339dced");
 
         var rows = await GetRows(sessionsDir, [basePath]);
 
@@ -229,6 +230,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         var basePath = CreateBase("abandoned-knowledge", copy);
         var sessionsDir = SessionsDirWith(copy, "busy", ProcessStart + 1);
+        TestBases.TaskSession(_root, copy, "7339dced");
 
         var rows = await GetRows(sessionsDir, [basePath]);
 
@@ -247,7 +249,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
         File.WriteAllText(
             Path.Combine(dir, $"{Environment.ProcessId}.json"),
             $$"""
-            {"pid":{{Environment.ProcessId}},"cwd":{{System.Text.Json.JsonSerializer.Serialize(copy)}},"entrypoint":"cli","status":"{{status}}","procStart":"{{procStart}}"}
+            {"pid":{{Environment.ProcessId}},"cwd":{{System.Text.Json.JsonSerializer.Serialize(copy)}},"entrypoint":"cli","kind":"bg","jobId":"7339dced","status":"{{status}}","procStart":"{{procStart}}"}
             """);
         return dir;
     }

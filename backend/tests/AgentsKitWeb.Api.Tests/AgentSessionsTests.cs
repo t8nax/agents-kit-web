@@ -148,84 +148,85 @@ public sealed class AgentSessionsTests : IDisposable
     [InlineData("busy", SessionState.Working)]
     [InlineData("waiting", SessionState.Waiting)]
     [InlineData("idle", SessionState.Idle)]
-    public void StateIn_SessionOfThatCopy_IsItsState(string status, string expected)
+    public void State_SessionOfTheTask_IsItsState(string status, string expected)
     {
-        Write(@"D:\Projects\app", 100, status: status);
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: status);
 
-        Assert.Equal(expected, Sessions(live: true).StateIn(@"D:\Projects\app"));
+        Assert.Equal(expected, Annotated(@"D:\Projects\app", "7339dced")[0].SessionState);
     }
 
     [Theory]
     [InlineData("tomorrow-status")]
     [InlineData(null)]
-    public void StateIn_StatusPanelDoesNotKnow_CountsAsStanding(string? status)
+    public void State_StatusPanelDoesNotKnow_CountsAsStanding(string? status)
     {
-        Write(@"D:\Projects\app", 100, status: status);
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: status);
 
-        Assert.Equal(SessionState.Idle, Sessions(live: true).StateIn(@"D:\Projects\app"));
+        Assert.Equal(SessionState.Idle, Annotated(@"D:\Projects\app", "7339dced")[0].SessionState);
+    }
+
+    /// <summary>Точка у имени копии говорит о сессии задачи, а не о той, что оператор завёл рядом.</summary>
+    [Fact]
+    public void State_SomeoneElsesSessionNextToTheTaskOne_IsTheTaskOne()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "outsider", status: "waiting");
+        WriteBackground(@"D:\Projects\app", 201, "7339dced", status: "busy");
+
+        Assert.Equal(SessionState.Working, Annotated(@"D:\Projects\app", "7339dced")[0].SessionState);
+    }
+
+    /// <summary>Сессия в копии есть, но задачу ведёт не она: строке показывать нечего.</summary>
+    [Fact]
+    public void State_OnlySomeoneElsesSessionInTheCopy_IsNull()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "outsider", status: "busy");
+
+        Assert.Null(Annotated(@"D:\Projects\app", "7339dced")[0].SessionState);
     }
 
     [Fact]
-    public void StateIn_WaitingSessionNextToWorkingOne_Wins()
+    public void State_TaskSessionOfAnotherCopy_IsNull()
     {
-        Write(@"D:\Projects\app", 100, status: "busy");
-        Write(@"D:\Projects\app", 101, status: "waiting");
+        WriteBackground(@"D:\Projects\other", 200, "7339dced", status: "busy");
 
-        Assert.Equal(SessionState.Waiting, Sessions(live: true).StateIn(@"D:\Projects\app"));
+        Assert.Null(Annotated(@"D:\Projects\app", "7339dced")[0].SessionState);
     }
 
     [Fact]
-    public void StateIn_WorkingSessionNextToStandingOne_Wins()
+    public void State_FileLeftFromDeadSession_IsNull()
     {
-        Write(@"D:\Projects\app", 100, status: "idle");
-        Write(@"D:\Projects\app", 101, status: "busy");
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "busy");
 
-        Assert.Equal(SessionState.Working, Sessions(live: true).StateIn(@"D:\Projects\app"));
+        Assert.Null(Sessions(live: false).Annotate([Row(@"D:\Projects\app")], _ => "7339dced")[0].SessionState);
     }
 
     [Fact]
-    public void StateIn_NoSessionInThatCopy_IsNull()
+    public void State_PidTakenByAnotherProgram_IsNull()
     {
-        Write(@"D:\Projects\other", 100, status: "busy");
-
-        Assert.Null(Sessions(live: true).StateIn(@"D:\Projects\app"));
-    }
-
-    [Fact]
-    public void StateIn_FileLeftFromDeadSession_IsNull()
-    {
-        Write(@"D:\Projects\app", 100, status: "busy");
-
-        Assert.Null(Sessions(live: false).StateIn(@"D:\Projects\app"));
-    }
-
-    [Fact]
-    public void StateIn_PidTakenByAnotherProgram_IsNull()
-    {
-        Write(@"D:\Projects\app", 100, status: "busy");
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "busy");
 
         // Процесс с этим номером идёт, но стартовал не тогда, когда записано в файле, — это чужая программа.
         var sessions = new AgentSessions(_dir, _ => Started + 1);
 
-        Assert.Null(sessions.StateIn(@"D:\Projects\app"));
+        Assert.Null(sessions.Annotate([Row(@"D:\Projects\app")], _ => "7339dced")[0].SessionState);
     }
 
     [Fact]
-    public void StateIn_FileWithoutProcessStart_IsJudgedByPidAlone()
+    public void State_FileWithoutProcessStart_IsJudgedByPidAlone()
     {
         File.WriteAllText(
-            Path.Combine(_dir, "100.json"),
-            """{"pid":100,"cwd":"D:\\Projects\\app","entrypoint":"cli","status":"busy"}""");
+            Path.Combine(_dir, "200.json"),
+            """{"pid":200,"cwd":"D:\\Projects\\app","entrypoint":"cli","kind":"bg","jobId":"7339dced","status":"busy"}""");
 
-        Assert.Equal(SessionState.Working, Sessions(live: true).StateIn(@"D:\Projects\app"));
+        Assert.Equal(SessionState.Working, Annotated(@"D:\Projects\app", "7339dced")[0].SessionState);
     }
 
     [Fact]
-    public void Annotate_RowOfCopyWithSession_CarriesItsState()
+    public void Annotate_RowOfCopyWithTaskSession_CarriesItsState()
     {
-        Write(@"D:\Projects\app", 100, status: "waiting");
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "waiting");
 
-        var annotated = Annotated(@"D:\Projects\app");
+        var annotated = Annotated(@"D:\Projects\app", "7339dced");
 
         Assert.Equal(SessionState.Waiting, annotated[0].SessionState);
     }

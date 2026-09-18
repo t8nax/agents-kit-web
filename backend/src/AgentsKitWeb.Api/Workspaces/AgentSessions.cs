@@ -81,24 +81,18 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
         session is null ? null : In(copyPath, s => s.InBackground && s.JobId == session);
 
     /// <summary>
-    /// Что делает сессия в каталоге копии; null — живой сессии в нём нет. Состояние берётся у той же
-    /// сессии, в которую ведёт переход: иначе подпись строки говорила бы об одной сессии, а переход
-    /// открывал другую.
-    /// </summary>
-    public string? StateIn(string copyPath) => In(copyPath, _ => true)?.State;
-
-    /// <summary>
-    /// Дописывает строкам таблицы состояние их сессии и отметку фоновой — той, в которую есть переход
-    /// из терминала. Строке с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
+    /// Дописывает строкам таблицы состояние сессии их задачи и отметку о переходе в неё. И то и другое —
+    /// про одну сессию: подпись строки не должна говорить об одной, пока переход ведёт в другую. Строке
+    /// с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
     /// </summary>
     public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, Func<string, string?> taskSession) => rows
-        .Select(row => row.Error is null
-            ? row with
-            {
-                SessionState = StateIn(row.Path),
-                BackgroundSession = BackgroundIn(row.Path, taskSession(row.Path)) is not null,
-            }
-            : row)
+        .Select(row =>
+        {
+            if (row.Error is not null)
+                return row;
+            var session = BackgroundIn(row.Path, taskSession(row.Path));
+            return row with { SessionState = session?.State, BackgroundSession = session is not null };
+        })
         .ToList();
 
     /// <summary>Все живые сессии реестра — перечень раздела «Сессии»; каталог сессии может не быть копией базы.</summary>
