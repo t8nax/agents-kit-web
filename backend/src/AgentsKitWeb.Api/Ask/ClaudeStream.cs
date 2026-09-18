@@ -12,7 +12,7 @@ public sealed record AskEvent(
     string Text,
     IReadOnlyList<string>? Files = null,
     long? DurationMs = null,
-    string? Output = null);
+    string? Output = null) : IAgentEvent;
 
 /// <summary>
 /// Разбор вывода `claude -p --output-format stream-json --verbose`: вызовы инструментов становятся строками

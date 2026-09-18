@@ -1,8 +1,4 @@
 using System.Diagnostics;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Unicode;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
 
@@ -28,20 +24,13 @@ public static class AskEndpoints
         стоит ответ.
         """;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        // Ответ агента почти весь по-русски: без этого каждая буква уходит в поток escape-последовательностью.
-        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-    };
-
     public static void MapAskEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/ask/bases", (BasesStore bases) =>
             bases.List().Select(b => new AskBase(b, ProjectName.Of(b))).ToList());
 
-        // Ответ идёт потоком NDJSON: строки хода появляются в окне, пока агент работает.
-        app.MapPost("/api/ask", async (AskRequest request, BasesStore bases, IAgentProcess agent, HttpContext http) =>
+        // Просьбу держит панель: POST её заводит и отдаёт сводку, а ход окно читает потоком просьбы.
+        app.MapPost("/api/ask", (AskRequest request, BasesStore bases, IAgentProcess agent, AgentRequests requests) =>
         {
             // Агент запускается только в базе из списка панели: путь запроса сверяется со списком.
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
@@ -50,38 +39,39 @@ public static class AskEndpoints
             if (string.IsNullOrWhiteSpace(request.Question))
                 return Results.BadRequest();
 
-            var response = http.Response;
-            response.ContentType = "application/x-ndjson; charset=utf-8";
-            response.Headers.CacheControl = "no-cache";
-            await response.StartAsync(http.RequestAborted);
-
-            var stream = new ClaudeStream(basePath);
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-            timeout.CancelAfter(Timeout);
-            try
-            {
-                var exit = await agent.RunAsync(
-                    StartInfo(basePath),
-                    request.Question.Trim(),
-                    async line =>
-                    {
-                        foreach (var e in stream.Read(line))
-                            await WriteAsync(response, e, timeout.Token);
-                    },
-                    timeout.Token);
-                if (!stream.Finished)
-                    await WriteAsync(response, Failure(exit, stream), http.RequestAborted);
-            }
-            catch (OperationCanceledException) when (!http.RequestAborted.IsCancellationRequested)
-            {
-                await WriteAsync(response, new AskEvent("error", "Агент не ответил за пять минут и остановлен"), CancellationToken.None);
-            }
-            catch (OperationCanceledException)
-            {
-                // Оператор отменил вопрос: писать ответ некому, процесс агента уже убит.
-            }
-            return Results.Empty;
+            var question = request.Question.Trim();
+            var started = requests.Start(
+                AgentRequests.Ask, basePath, ProjectName.Of(basePath), question,
+                (asking, cancellationToken) => RunAsync(basePath, question, agent, asking, cancellationToken));
+            return Results.Ok(started.Summary);
         });
+    }
+
+    private static async Task RunAsync(
+        string basePath, string question, IAgentProcess agent, AgentRequest asking, CancellationToken cancellationToken)
+    {
+        var stream = new ClaudeStream(basePath);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(Timeout);
+        try
+        {
+            var exit = await agent.RunAsync(
+                StartInfo(basePath),
+                question,
+                line =>
+                {
+                    foreach (var e in stream.Read(line))
+                        asking.Write(e);
+                    return Task.CompletedTask;
+                },
+                timeout.Token);
+            if (!stream.Finished)
+                asking.Write(Failure(exit, stream));
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            asking.Write(new AskEvent("error", "Агент не ответил за пять минут и остановлен"));
+        }
     }
 
     /// <summary>
@@ -117,9 +107,4 @@ public static class AskEndpoints
             Output: output.Length > 0 ? output : $"код выхода {exit.ExitCode}");
     }
 
-    private static async Task WriteAsync(HttpResponse response, AskEvent e, CancellationToken cancellationToken)
-    {
-        await response.WriteAsync(JsonSerializer.Serialize(e, JsonOptions) + "\n", cancellationToken);
-        await response.Body.FlushAsync(cancellationToken);
-    }
 }

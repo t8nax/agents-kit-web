@@ -1,8 +1,4 @@
 using System.Diagnostics;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Unicode;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Workspaces;
@@ -22,7 +18,7 @@ public sealed record BacklogWriteEvent(
     IReadOnlyList<BacklogEntry>? Entries = null,
     string? Commit = null,
     long? DurationMs = null,
-    string? Output = null);
+    string? Output = null) : IAgentEvent;
 
 public static class BacklogWriteEndpoints
 {
@@ -33,16 +29,11 @@ public static class BacklogWriteEndpoints
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(5);
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-    };
-
     public static void MapBacklogWriteEndpoints(this IEndpointRouteBuilder app)
     {
-        // Ход идёт потоком NDJSON, как в вопросе по базе; итог панель выводит сама из backlog.md до и после.
-        app.MapPost("/api/backlog/write", async (BacklogWriteRequest request, BasesStore bases, IAgentProcess agent, HttpContext http) =>
+        // Просьбу держит панель: POST её заводит и отдаёт сводку, а ход окно читает потоком просьбы.
+        app.MapPost("/api/backlog/write", (
+            BacklogWriteRequest request, BasesStore bases, IAgentProcess agent, AgentRequests requests) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
             if (basePath is null || !Directory.Exists(basePath))
@@ -50,25 +41,17 @@ public static class BacklogWriteEndpoints
             if (string.IsNullOrWhiteSpace(request.Text))
                 return Results.BadRequest();
 
-            var response = http.Response;
-            response.ContentType = "application/x-ndjson; charset=utf-8";
-            response.Headers.CacheControl = "no-cache";
-            await response.StartAsync(http.RequestAborted);
-
-            try
-            {
-                await WriteAsync(response, await RunAsync(basePath, request.Text.Trim(), agent, response, http.RequestAborted), CancellationToken.None);
-            }
-            catch (OperationCanceledException)
-            {
-                // Оператор отменил запись: писать итог некому, процесс агента уже убит.
-            }
-            return Results.Empty;
+            var text = request.Text.Trim();
+            var started = requests.Start(
+                AgentRequests.Backlog, basePath, ProjectName.Of(basePath), text,
+                async (writing, cancellationToken) =>
+                    writing.Write(await RunAsync(basePath, text, agent, writing, cancellationToken)));
+            return Results.Ok(started.Summary);
         });
     }
 
     private static async Task<BacklogWriteEvent> RunAsync(
-        string basePath, string text, IAgentProcess agent, HttpResponse response, CancellationToken aborted)
+        string basePath, string text, IAgentProcess agent, AgentRequest writing, CancellationToken aborted)
     {
         // Навык кита работает только там, где кит подаёт базу, — в копии проекта, а не в каталоге базы.
         var copy = WorkspaceCollector.ReadCopies(basePath) is { } copies ? WorkspaceCollector.NewCopySource(copies) : null;
@@ -97,15 +80,16 @@ public static class BacklogWriteEndpoints
             exit = await agent.RunAsync(
                 StartInfo(basePath, copy),
                 $"/agents-kit:backlog {text}",
-                async line =>
+                line =>
                 {
                     foreach (var e in stream.Read(line))
                     {
                         if (e.Type == "step")
-                            await WriteAsync(response, new BacklogWriteEvent("step", e.Text), timeout.Token);
+                            writing.Write(new BacklogWriteEvent("step", e.Text));
                         else
                             result = e;
                     }
+                    return Task.CompletedTask;
                 },
                 timeout.Token);
         }
@@ -210,9 +194,4 @@ public static class BacklogWriteEndpoints
     // Кириллическая «В-7» — тот же номер, что «B-7».
     private static string Latin(string number) => number.Replace('В', 'B');
 
-    private static async Task WriteAsync(HttpResponse response, BacklogWriteEvent e, CancellationToken cancellationToken)
-    {
-        await response.WriteAsync(JsonSerializer.Serialize(e, JsonOptions) + "\n", cancellationToken);
-        await response.Body.FlushAsync(cancellationToken);
-    }
 }

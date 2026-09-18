@@ -237,11 +237,12 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     private static HttpRequestMessage Post(string basePath, string text) =>
         new(HttpMethod.Post, "/api/backlog/write") { Content = JsonContent.Create(new BacklogWriteRequest(basePath, text)) };
 
+    /// <summary>Как окно: просьба заводится POST, а ход и итог читаются её потоком с начала.</summary>
     private static async Task<List<BacklogWriteEvent>> Write(HttpClient client, string basePath, string text)
     {
-        using var response = await client.SendAsync(Post(basePath, text));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
+        using var started = await client.SendAsync(Post(basePath, text));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var body = await client.GetStringAsync("/api/agent/backlog/stream?from=0");
         return body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => JsonSerializer.Deserialize<BacklogWriteEvent>(line, Json)!)
             .ToList();

@@ -297,11 +297,12 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     private static HttpRequestMessage Post(string basePath, string wish) =>
         new(HttpMethod.Post, "/api/flow/rewrite") { Content = JsonContent.Create(new FlowRewriteRequest(basePath, wish)) };
 
+    /// <summary>Как окно: просьба заводится POST, а ход и итог читаются её потоком с начала.</summary>
     private static async Task<List<FlowRewriteEvent>> Rewrite(HttpClient client, string basePath, string wish)
     {
-        using var response = await client.SendAsync(Post(basePath, wish));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
+        using var started = await client.SendAsync(Post(basePath, wish));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var body = await client.GetStringAsync("/api/agent/flow/stream?from=0");
         return body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => JsonSerializer.Deserialize<FlowRewriteEvent>(line, Json)!)
             .ToList();
