@@ -34,7 +34,9 @@ param(
     # Не подменять агента: панель будет звать настоящий claude. Деньги и настоящие права.
     [switch]$RealAgent,
     # Не поднимать процессы-пустышки под живые сессии агентов.
-    [switch]$NoSessions
+    [switch]$NoSessions,
+    # Не собирать песочницу, а сверить живое состояние со снимком, снятым при сборке.
+    [switch]$Verify
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +44,53 @@ $PSNativeCommandUseErrorActionPreference = $true
 
 $repo = Split-Path $PSScriptRoot -Parent
 $state = Join-Path $Root 'state.json'
+
+# Снимок живого состояния: список отслеживаемых баз оператора и каждая живая база — её HEAD
+# и незакоммиченные правки. Песочница ничего этого касаться не должна, и «-Verify» это показывает.
+# Живые базы меняют и соседние сессии, поэтому расхождение называет файл: по нему видно, чья это
+# работа — панели песочницы или сессии в другой копии.
+function Get-LiveSnapshot {
+    $file = Join-Path $env:APPDATA 'agents-kit-webases.json'
+    $snapshot = [ordered]@{ basesFile = $null; bases = [ordered]@{} }
+    if (-not (Test-Path -LiteralPath $file)) { return $snapshot }
+    $snapshot.basesFile = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+    $live = try { (Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).bases } catch { @() }
+    foreach ($base in @($live)) {
+        if (-not (Test-Path -LiteralPath $base -PathType Container)) { continue }
+        $head = (git -C $base rev-parse HEAD 2>$null) -join ''
+        $dirty = (git -C $base status --porcelain 2>$null) -join "`n"
+        $snapshot.bases[$base] = [ordered]@{ head = $head; dirty = $dirty }
+    }
+    return $snapshot
+}
+
+function Compare-Live([string]$File) {
+    if (-not (Test-Path -LiteralPath $File)) {
+        throw "снимка живого состояния нет: $File — сначала соберите песочницу"
+    }
+    $before = Get-Content -LiteralPath $File -Raw | ConvertFrom-Json
+    $after = Get-LiveSnapshot
+    $changes = [Collections.Generic.List[string]]::new()
+    if ($before.basesFile -ne $after.basesFile) { $changes.Add('список отслеживаемых баз оператора (bases.json) изменился') }
+    foreach ($base in $before.bases.PSObject.Properties) {
+        $now = $after.bases[$base.Name]
+        if (-not $now) { $changes.Add("база $($base.Name) пропала из списка"); continue }
+        if ($base.Value.head -ne $now.head) { $changes.Add("в базе $($base.Name) новый коммит") }
+        if ($base.Value.dirty -ne $now.dirty) {
+            $changes.Add("в базе $($base.Name) изменились незакоммиченные правки:")
+            foreach ($line in @(($now.dirty -split "`n") | Where-Object { $_ })) { $changes.Add("    $line") }
+        }
+    }
+    if ($changes.Count -eq 0) {
+        Write-Host "Живое состояние не изменилось: список баз оператора и живые базы те же."
+        return
+    }
+    Write-Host "Живое состояние изменилось:"
+    foreach ($line in $changes) { Write-Host "  $line" }
+    Write-Host ""
+    Write-Host "Панель песочницы живых баз не видит вовсе, поэтому загляните, чья это работа:"
+    Write-Host "почти всегда — сессия агента в другой рабочей копии, которая коммитит свою память."
+}
 
 function Write-Utf8([string]$Path, [string]$Text, [switch]$Crlf) {
     $dir = Split-Path $Path -Parent
@@ -143,7 +192,8 @@ function Get-KitSandboxMode {
 function Get-KitBaseFindings([string]$BaseDir, [string]$Worktree) {
     switch (Get-KitSandboxMode) {
         'empty'   { exit 0 }
-        'garbage' { Write-Output 'кит сегодня отвечает не по-json'; return @() }
+        # Печатаем мимо возвращаемого значения: Write-Output стал бы находкой, а не мусором в потоке.
+        'garbage' { [Console]::Out.WriteLine('кит сегодня отвечает не по-json'); return @() }
         'hang'    { Start-Sleep -Seconds 600; return @() }
         'fail'    { throw "сверка базы $BaseDir не удалась: заглушка кита так настроена" }
         'huge'    {
@@ -196,13 +246,44 @@ git -C $Path worktree add -b $branch $target --quiet 2>&1 | Out-Null
 # --- подставной агент --------------------------------------------------------------------
 
 # Панель зовёт агента голым именем claude через PATH, поэтому в песочнице его перехватывает
-# claude.cmd впереди PATH. Настоящий агент отвечает нормально, а панель ломается на кривом
+# свой claude впереди PATH. Настоящий агент отвечает нормально, а панель ломается на кривом
 # ответе — оборванном, мусорном, медленном; показать их может только подставной.
+#
+# Подменять нужно именно claude.exe: панель запускает процесс без оболочки, а CreateProcess
+# Windows дописывает к имени только «.exe» и claude.cmd не видит — с ним панель звала бы
+# настоящего агента. Исполняемую обёртку собирает Windows PowerShell: в pwsh компиляции в exe
+# нет. Обёртка ничего не делает сама — зовёт claude-stub.ps1, отдав ему свои аргументы
+# переменной окружения, а потоки ввода и вывода достаются заглушке по наследству.
 function New-ClaudeStub([string]$Path) {
-    Write-Utf8 (Join-Path $Path 'claude.cmd') @'
-@echo off
-pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0claude-stub.ps1" %*
+    Write-Utf8 (Join-Path $Path 'claude-shim.cs') @'
+using System;
+using System.Diagnostics;
+using System.IO;
+
+public static class ClaudeShim
+{
+    public static int Main(string[] args)
+    {
+        string dir = Path.GetDirectoryName(typeof(ClaudeShim).Assembly.Location);
+        var start = new ProcessStartInfo("pwsh");
+        start.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(dir, "claude-stub.ps1") + "\"";
+        start.UseShellExecute = false;
+        // Аргументы уходят переменной окружения: среди них многострочный системный промпт,
+        // который в командной строке пришлось бы экранировать.
+        start.EnvironmentVariables["AKW_CLAUDE_ARGS"] = string.Join(((char)1).ToString(), args);
+        using (var process = Process.Start(start))
+        {
+            process.WaitForExit();
+            return process.ExitCode;
+        }
+    }
+}
 '@
+
+    $exe = Join-Path $Path 'claude.exe'
+    $source = Join-Path $Path 'claude-shim.cs'
+    & powershell.exe -NoProfile -NonInteractive -Command         "Add-Type -TypeDefinition (Get-Content -Raw '$source') -OutputAssembly '$exe' -OutputType ConsoleApplication" | Out-Null
+    if (-not (Test-Path -LiteralPath $exe)) { throw "не собралась подмена агента: $exe" }
 
     Write-Utf8 (Join-Path $Path 'claude-stub.ps1') @'
 # Подставной агент Claude Code. Режим читается на каждый вызов из claude-mode.txt корня
@@ -220,8 +301,15 @@ $modeFile = Join-Path $root 'claude-mode.txt'
 $mode = if (Test-Path -LiteralPath $modeFile) { (Get-Content -LiteralPath $modeFile -Raw).Trim().ToLowerInvariant() } else { 'ok' }
 if (-not $mode) { $mode = 'ok' }
 
-$arguments = @($args)
-$stdin = if ([Console]::IsInputRedirected) { [Console]::In.ReadToEnd() } else { '' }
+# Аргументы приходят от обёртки claude.exe переменной окружения: в командной строке
+# многострочный системный промпт пришлось бы экранировать.
+$arguments = if ($env:AKW_CLAUDE_ARGS) { @($env:AKW_CLAUDE_ARGS -split [char]1) } else { @($args) }
+# Текст оператора приходит в stdin в UTF-8: читаем поток сами, иначе консоль отдаст его
+# в кодировке по умолчанию и русские буквы приедут мусором.
+$stdin = if ([Console]::IsInputRedirected) {
+    $reader = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false))
+    $reader.ReadToEnd()
+} else { '' }
 
 function Get-Argument([string]$Name) {
     for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
@@ -283,7 +371,8 @@ if ($baseDir) {
 
     $text = [IO.File]::ReadAllText($backlog)
     $number = if ($text -match '(?m)^следующий номер:\s*B-(\d+)\s*$') { [int]$Matches[1] } else { 1 }
-    $said = $stdin.Trim()
+    # Панель шлёт агенту вызов навыка кита с текстом оператора: заголовок записи — сам текст.
+    $said = ($stdin -replace '(?m)^\s*/[\w:-]+\s*', '').Trim()
     if (-not $said) { $said = 'Оператор ничего не сказал.' }
     $title = ($said -split "`n")[0]
     if ($title.Length -gt 70) { $title = $title.Substring(0, 70) }
@@ -445,7 +534,7 @@ $question
 }
 
 # Выдуманная база знаний: та же раскладка, что у настоящей, — панель читает её теми же правилами.
-function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson) {
+function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted) {
     New-Repo $Path
     if (-not $NoProduct) {
         Write-Utf8 (Join-Path $Path 'product.md') @"
@@ -463,14 +552,23 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
     else {
         Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; workspaces = $Copies })
     }
-    New-Flow $Path
+    if (-not $FlowUncommitted) { New-Flow $Path }
     New-Backlog $Path
     New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
     Write-Utf8 (Join-Path $Path '.gitignore') "local/`n"
     Add-Commit $Path 'Каркас базы песочницы'
+    # Флоу, которого нет в истории: панель коммитит правку без git add, и такой файл ей не закоммитить.
+    if ($FlowUncommitted) { New-Flow $Path }
 }
 
 # --- сборка ------------------------------------------------------------------------------
+
+if ($Verify) {
+    Compare-Live (Join-Path $Root 'live-snapshot.json')
+    return
+}
+
+$live = Get-LiveSnapshot
 
 Stop-OldDummies
 if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
@@ -516,6 +614,101 @@ foreach ($copy in @($goodCopy, $goodWorktree)) {
 }
 $findings.Add([pscustomobject]@{ base = $goodBase; findings = @() })
 
+# --- сломанный набор ---------------------------------------------------------------------
+
+# Каждая кривая база отдельная: сломанное не должно мешать здоровому набору.
+
+# База без описания проекта: название панель возьмёт из имени папки.
+$noProductCopy = Join-Path $copiesDir 'nameless'
+New-Repo $noProductCopy
+Write-Utf8 (Join-Path $noProductCopy 'README.md') "# Проект без описания в базе`n"
+Add-Commit $noProductCopy 'Первый коммит'
+$noProductBase = Join-Path $basesDir 'no-product'
+New-Base $noProductBase 'Без описания' @($noProductCopy) -NoProduct
+$links.Add([pscustomobject]@{ path = $noProductCopy; status = 'Linked'; base = $noProductBase })
+$bases.Add($noProductBase)
+$findings.Add([pscustomobject]@{ base = $noProductBase; findings = @(
+    [pscustomobject]@{ severity = 'FAIL'; file = 'product.md'; message = 'нет product.md — название проекта взять неоткуда' }) })
+
+# База с битым agents-kit.json: список копий не прочитать.
+$brokenJsonBase = Join-Path $basesDir 'broken-json'
+New-Base $brokenJsonBase 'Битый список копий' @() -BrokenJson
+$bases.Add($brokenJsonBase)
+$findings.Add([pscustomobject]@{ base = $brokenJsonBase; findings = @(
+    [pscustomobject]@{ severity = 'FAIL'; file = 'agents-kit.json'; message = 'список копий не разобран' }) })
+
+# Кривые копии: одной нет на диске, вторая не под git, третья с кириллицей в пути,
+# четвёртая записана через «..».
+$cyrillicCopy = Join-Path $copiesDir 'копия-с-кириллицей'
+New-Repo $cyrillicCopy
+Write-Utf8 (Join-Path $cyrillicCopy 'README.md') "# Копия с кириллицей`n"
+Add-Commit $cyrillicCopy 'Первый коммит'
+
+$notGitCopy = Join-Path $copiesDir 'not-git'
+New-Item -ItemType Directory -Path $notGitCopy -Force | Out-Null
+Write-Utf8 (Join-Path $notGitCopy 'README.md') "# Копия вне git`n"
+
+$dottedCopy = Join-Path $copiesDir 'dotted\..\dotted'
+New-Repo (Join-Path $copiesDir 'dotted')
+Write-Utf8 (Join-Path $copiesDir 'dotted\README.md') "# Копия, записанная через «..»`n"
+Add-Commit (Join-Path $copiesDir 'dotted') 'Первый коммит'
+
+$goneCopy = Join-Path $copiesDir 'gone'
+
+$quirksBase = Join-Path $basesDir 'quirks'
+New-Base $quirksBase 'Кривые копии' @($cyrillicCopy, $notGitCopy, $dottedCopy, $goneCopy) -FlowUncommitted
+$bases.Add($quirksBase)
+
+# Память с CRLF — на копию с кириллицей.
+New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей.md') $cyrillicCopy 'main' -Crlf
+# Вопрос без строки «ответ:» — панели нечего заполнить, а форма памяти нарушена.
+New-Memory (Join-Path $quirksBase 'work\dotted.md') $dottedCopy 'main' -NoAnswerKey
+# Несколько вопросов в одной памяти.
+New-Memory (Join-Path $quirksBase 'work\not-git.md') $notGitCopy 'main' -TwoQuestions
+# Две памяти на одну копию: какая из них настоящая, панель не знает.
+New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей-вторая.md') $cyrillicCopy 'feat/вторая'
+Add-Commit $quirksBase 'Памяти кривых копий'
+
+# Незакоммиченная правка бэклога: агент записи унёс бы её в свой коммит.
+Add-Content -LiteralPath (Join-Path $quirksBase 'backlog.md') -Value "`n## Запись без номера, дописанная руками`n" -Encoding utf8NoBOM
+
+$links.Add([pscustomobject]@{ path = $cyrillicCopy; status = 'Linked'; base = $quirksBase })
+$links.Add([pscustomobject]@{ path = $notGitCopy; status = 'NotGit'; base = $null })
+$links.Add([pscustomobject]@{ path = (Join-Path $copiesDir 'dotted'); status = 'Unlisted'; base = $quirksBase })
+$findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
+    [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
+    [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
+    [pscustomobject]@{ severity = 'WARN'; file = 'flow.md'; message = 'флоу не в истории git' }) })
+
+# Кит без скриптов: путь к нему панель не примет, и это видно в «Настройках».
+$brokenKit = Join-Path $claudeDir 'skills\agents-kit-broken'
+New-Item -ItemType Directory -Path (Join-Path $brokenKit 'scripts') -Force | Out-Null
+Write-Utf8 (Join-Path $brokenKit 'README.md') "# Кит без скриптов`n`nПуть сюда панель принять не должна.`n"
+
+# Файл сессии на мёртвый процесс: он переживает свою сессию, живость видна только по процессу,
+# поэтому в строке этой копии панель работы показать не должна.
+Write-Session $sessionsDir 999123 (Join-Path $copiesDir 'dotted') @{ status = 'busy' }
+
+# База на полсотни копий: по ключу -Load, потому что собирается заметно дольше остального.
+if ($Load) {
+    $loadCopy = Join-Path $copiesDir 'load'
+    New-Repo $loadCopy
+    Write-Utf8 (Join-Path $loadCopy 'README.md') "# Копия под нагрузку`n"
+    Add-Commit $loadCopy 'Первый коммит'
+    $loadBase = Join-Path $basesDir 'load-knowledge'
+    New-Base $loadBase 'Полсотни копий' @($loadCopy)
+    $links.Add([pscustomobject]@{ path = $loadCopy; status = 'Linked'; base = $loadBase })
+    foreach ($i in 1..50) {
+        $worktree = Join-Path $copiesDir "load-$i"
+        git -C $loadCopy worktree add -b "load/$i" $worktree --quiet
+        $links.Add([pscustomobject]@{ path = $worktree; status = 'Linked'; base = $loadBase })
+        if ($i % 5 -eq 0) { New-Memory (Join-Path $loadBase "work\load-$i.md") $worktree "load/$i" }
+    }
+    Add-Commit $loadBase 'Памяти копий под нагрузку'
+    $bases.Add($loadBase)
+    $findings.Add([pscustomobject]@{ base = $loadBase; findings = @() })
+}
+
 # --- таблицы заглушки кита и настройки панели --------------------------------------------
 
 Write-Json (Join-Path $kitDir 'scripts\links.json') $links.ToArray()
@@ -535,6 +728,7 @@ if (-not $NoSessions) {
 }
 
 Write-Json $state ([pscustomobject]@{ dummies = $dummies.ToArray(); port = $Port; root = $Root })
+Write-Json (Join-Path $Root 'live-snapshot.json') $live
 
 # --- строка запуска ----------------------------------------------------------------------
 
@@ -564,7 +758,13 @@ Write-Host ""
 Write-Host "  запуск панели:  pwsh -NoProfile -File `"$(Join-Path $Root 'start-panel.ps1')`""
 Write-Host "  адрес панели:   http://localhost:$Port"
 Write-Host "  режим кита:     $(Join-Path $Root 'kit-mode.txt')     (ok, empty, garbage, huge, fail, hang)"
-Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
+if ($RealAgent) {
+    Write-Host "  агент:          настоящий claude из PATH — это деньги и настоящие права"
+}
+else {
+    Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
+}
 Write-Host ""
 Write-Host "  пересобрать:    pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
+Write-Host "  сверить живое:  pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`" -Verify"
 Write-Host ""
