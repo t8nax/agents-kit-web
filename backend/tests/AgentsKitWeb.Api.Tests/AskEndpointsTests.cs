@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using AgentsKitWeb.Api.Ask;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -15,10 +15,11 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class AskEndpointsTests : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-ask-").FullName;
     private readonly string _base;
-    private readonly FakeAgent _agent = new();
+    private readonly TestChat _agent = new();
 
     public AskEndpointsTests()
     {
@@ -37,115 +38,197 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Ask_StreamsStepsAndAnswerWithFilesRead()
+    public async Task Ask_PutsQuestionStepsAndAnswerIntoConversation()
     {
         var file = Path.Combine(_base, "decisions", "ui.md");
-        _agent.Lines =
+        _agent.Answers =
         [
-            """{"type":"system","subtype":"init","tools":["Read"]}""",
-            Tool("Grep", new { pattern = "опрос", path = Path.Combine(_base, "decisions") }),
-            Tool("Read", new { file_path = file }),
-            """{"type":"user","message":{"content":[{"type":"tool_result","content":"..."}]}}""",
-            """{"type":"result","subtype":"success","is_error":false,"duration_ms":8335,"result":"Так решил оператор."}""",
+            [
+                """{"type":"system","subtype":"init","tools":["Read"]}""",
+                Tool("Grep", new { pattern = "опрос", path = Path.Combine(_base, "decisions") }),
+                Tool("Read", new { file_path = file }),
+                """{"type":"user","message":{"content":[{"type":"tool_result","content":"..."}]}}""",
+                """{"type":"result","subtype":"success","is_error":false,"duration_ms":8335,"result":"Так решил оператор."}""",
+            ],
         ];
+        var client = Client(_base);
 
-        var events = await Ask(Client(_base), _base, "Почему опрос?");
+        await Ask(client, _base, "Почему опрос?");
+        var events = await Read(client, 4);
 
         Assert.Equal(
             [
+                new AskEvent("reply", "Почему опрос?"),
                 new AskEvent("step", "ищет «опрос» в decisions"),
                 new AskEvent("step", "читает decisions/ui.md"),
             ],
-            events.Take(2));
-        var answer = events[2];
+            events.Take(3));
+        var answer = events[3];
         Assert.Equal("answer", answer.Type);
         Assert.Equal("Так решил оператор.", answer.Text);
         Assert.Equal(["decisions/ui.md"], answer.Files);
         Assert.Equal(8335, answer.DurationMs);
-        Assert.Equal(3, events.Count);
     }
 
     [Fact]
-    public async Task Ask_RunsReadOnlyClaudeInBaseWithQuestionOnStdin()
+    public async Task Ask_RunsReadOnlyClaudeInBaseWithReplyOnStdin()
     {
-        _agent.Lines = ["""{"type":"result","subtype":"success","is_error":false,"result":"ok"}"""];
+        _agent.Answers = [[Result("ok")]];
 
-        await Ask(Client(_base), _base, "--help и ещё вопрос");
+        var client = Client(_base);
+        await Ask(client, _base, "--help и ещё вопрос");
+        await Read(client, 2);
 
-        var startInfo = _agent.StartInfo!;
+        var startInfo = Assert.Single(_agent.Starts);
         Assert.Equal("claude", startInfo.FileName);
         Assert.Equal(_base, startInfo.WorkingDirectory);
         Assert.True(startInfo.CreateNoWindow);
         Assert.False(startInfo.UseShellExecute);
         var args = startInfo.ArgumentList.ToList();
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
-        Assert.Contains("-p", args);
+        Assert.Equal("stream-json", args[args.IndexOf("--input-format") + 1]);
+        Assert.Contains("--no-session-persistence", args);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
-        Assert.Equal("--help и ещё вопрос", _agent.Input);
+        var sent = Assert.Single(_agent.Input);
+        Assert.Contains("--help и ещё вопрос", sent);
+        Assert.Equal("user", JsonDocument.Parse(sent).RootElement.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task Reply_ContinuesSameConversationInSameProcess()
+    {
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        Assert.Equal(HttpStatusCode.NoContent, (await Reply(client, "Второй вопрос")).StatusCode);
+        var events = await Read(client, 4);
+
+        Assert.Equal(
+            [
+                ("reply", "Первый вопрос"),
+                ("answer", "Первый ответ"),
+                ("reply", "Второй вопрос"),
+                ("answer", "Второй ответ"),
+            ],
+            events.Select(e => (e.Type, e.Text)));
+        // Тот же процесс на обе реплики: в нём и живёт память разговора.
+        Assert.Single(_agent.Starts);
+        Assert.Equal(2, _agent.Input.Count);
+    }
+
+    [Fact]
+    public async Task Reply_IsRefusedWhileAgentIsAnswering()
+    {
+        var release = new TaskCompletionSource();
+        _agent.Answers = [[Result("Ответ")]];
+        _agent.BeforeLine = _ => release.Task;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Вопрос");
+
+        Assert.Equal(HttpStatusCode.Conflict, (await Reply(client, "И ещё")).StatusCode);
+        release.SetResult();
+    }
+
+    [Fact]
+    public async Task Reply_WithoutConversationIsNotFound()
+    {
+        var client = Client(_base);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await Reply(client, "Вопрос")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Reply(client, "  ")).StatusCode);
+        Assert.Empty(_agent.Starts);
+    }
+
+    [Fact]
+    public async Task Reply_RaisesNewAgentWhenProcessIsGoneAndSaysHeForgot()
+    {
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        // Процесс кончился сам, ответив на первую реплику: продолжать нечем.
+        _agent.StopAfter = 1;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        Assert.Equal(HttpStatusCode.NoContent, (await Reply(client, "Второй вопрос")).StatusCode);
+        var events = await Read(client, 5);
+
+        Assert.Equal("note", events[2].Type);
+        Assert.Contains("не помнит", events[2].Text);
+        Assert.Equal(("reply", "Второй вопрос"), (events[3].Type, events[3].Text));
+        Assert.Equal(("answer", "Второй ответ"), (events[4].Type, events[4].Text));
+        Assert.Equal(2, _agent.Starts.Count);
     }
 
     [Fact]
     public async Task Ask_StreamsEachLineAsAgentWritesIt()
     {
         var release = new TaskCompletionSource();
-        _agent.Lines =
+        _agent.Answers =
         [
-            Tool("Read", new { file_path = Path.Combine(_base, "product.md") }),
-            """{"type":"result","subtype":"success","is_error":false,"result":"ok"}""",
+            [Tool("Read", new { file_path = Path.Combine(_base, "product.md") }), Result("ok")],
         ];
         _agent.BeforeLine = index => index == 1 ? release.Task : Task.CompletedTask;
 
         var client = Client(_base);
-        (await client.SendAsync(Post(_base, "Что за проект?"))).EnsureSuccessStatusCode();
+        await Ask(client, _base, "Что за проект?");
         using var response = await client.GetAsync(
             "/api/agent/ask/stream?from=0", HttpCompletionOption.ResponseHeadersRead);
         using var reader = new StreamReader(await response.Content.ReadAsStreamAsync());
 
-        var first = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
-        Assert.Equal(new AskEvent("step", "читает product.md"), JsonSerializer.Deserialize<AskEvent>(first!, Json));
+        Assert.Equal("reply", (await Line(reader)).Type);
+        Assert.Equal(new AskEvent("step", "читает product.md"), await Line(reader));
 
         release.SetResult();
-        var second = JsonSerializer.Deserialize<AskEvent>((await reader.ReadLineAsync())!, Json)!;
-        Assert.Equal("answer", second.Type);
+        Assert.Equal("answer", (await Line(reader)).Type);
     }
 
     [Fact]
     public async Task Ask_ReportsAgentErrorResultWithItsText()
     {
-        _agent.Lines = ["""{"type":"result","subtype":"success","is_error":true,"result":"Invalid API key · Please run /login"}"""];
-        _agent.Exit = new AgentExit(1, "");
+        _agent.Answers =
+        [
+            ["""{"type":"result","subtype":"success","is_error":true,"result":"Invalid API key · Please run /login"}"""],
+        ];
+        var client = Client(_base);
 
-        var events = await Ask(Client(_base), _base, "Вопрос");
+        await Ask(client, _base, "Вопрос");
+        var events = await Read(client, 2);
 
-        var error = Assert.Single(events);
-        Assert.Equal("error", error.Type);
-        Assert.Equal("Invalid API key · Please run /login", error.Output);
+        Assert.Equal("error", events[1].Type);
+        Assert.Equal("Invalid API key · Please run /login", events[1].Output);
     }
 
     [Fact]
     public async Task Ask_ReportsExitWithoutResultWithStderrAndStdout()
     {
-        _agent.Lines = ["не JSON"];
+        _agent.Answers = [["не JSON"]];
+        _agent.StopAfter = 1;
         _agent.Exit = new AgentExit(2, "что-то сломалось");
+        var client = Client(_base);
 
-        var events = await Ask(Client(_base), _base, "Вопрос");
+        await Ask(client, _base, "Вопрос");
+        var events = await Read(client, 2);
 
-        var error = Assert.Single(events);
-        Assert.Equal("error", error.Type);
-        Assert.Equal("что-то сломалось\nне JSON", error.Output);
+        Assert.Equal("error", events[1].Type);
+        Assert.Equal("что-то сломалось\nне JSON", events[1].Output);
     }
 
     [Fact]
     public async Task Ask_ReportsAgentThatDidNotStart()
     {
+        _agent.StopAfter = 0;
         _agent.Exit = new AgentExit(null, "Не удаётся найти указанный файл");
+        var client = Client(_base);
 
-        var events = await Ask(Client(_base), _base, "Вопрос");
+        await Ask(client, _base, "Вопрос");
+        var events = await Read(client, 2);
 
-        var error = Assert.Single(events);
-        Assert.Equal("Claude Code не запустился", error.Text);
-        Assert.Equal("Не удаётся найти указанный файл", error.Output);
+        Assert.Equal("Claude Code не запустился", events[1].Text);
+        Assert.Equal("Не удаётся найти указанный файл", events[1].Output);
     }
 
     [Fact]
@@ -157,7 +240,55 @@ public sealed class AskEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Post(other, "Вопрос"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(Post(_base, "  "))).StatusCode);
-        Assert.Null(_agent.StartInfo);
+        Assert.Empty(_agent.Starts);
+    }
+
+    [Fact]
+    public async Task AgentChat_AnswersEveryReplyFromOneLiveProcess()
+    {
+        var startInfo = AgentProcess.StartInfo("pwsh", _root);
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add("while ($line = [Console]::In.ReadLine()) { Write-Output \"$PID+$line\" }");
+        var replies = Channel.CreateUnbounded<string>();
+        var lines = Channel.CreateUnbounded<string>();
+
+        var run = new AgentChat().RunAsync(
+            startInfo, replies.Reader, line => { lines.Writer.TryWrite(line); return Task.CompletedTask; }, CancellationToken.None);
+        replies.Writer.TryWrite("раз");
+        var first = await lines.Reader.ReadAsync().AsTask().WaitAsync(Wait);
+        replies.Writer.TryWrite("два");
+        var second = await lines.Reader.ReadAsync().AsTask().WaitAsync(Wait);
+        replies.Writer.Complete();
+        var exit = await run.WaitAsync(Wait);
+
+        Assert.EndsWith("+раз", first);
+        Assert.EndsWith("+два", second);
+        // Обе реплики прочитал один процесс: между ними он не перезапускался.
+        Assert.Equal(first.Split('+')[0], second.Split('+')[0]);
+        Assert.Equal(0, exit.ExitCode);
+    }
+
+    [Fact]
+    public async Task AgentChat_CancellationKillsProcess()
+    {
+        var startInfo = AgentProcess.StartInfo("pwsh", _root);
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add("Write-Output $PID; Start-Sleep -Seconds 60");
+        using var cancel = new CancellationTokenSource();
+        var replies = Channel.CreateUnbounded<string>();
+        var pid = 0;
+
+        var run = new AgentChat().RunAsync(startInfo, replies.Reader, line =>
+        {
+            pid = int.Parse(line);
+            cancel.Cancel();
+            return Task.CompletedTask;
+        }, cancel.Token);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run.WaitAsync(TimeSpan.FromSeconds(30)));
+        Assert.Throws<ArgumentException>(() => Process.GetProcessById(pid));
     }
 
     [Fact]
@@ -227,18 +358,47 @@ public sealed class AskEndpointsTests : IDisposable
         message = new { content = new object[] { new { type = "tool_use", name, input } } },
     });
 
+    private static string Result(string text) => JsonSerializer.Serialize(new
+    {
+        type = "result",
+        subtype = "success",
+        is_error = false,
+        result = text,
+    });
+
     private static HttpRequestMessage Post(string basePath, string question) =>
         new(HttpMethod.Post, "/api/ask") { Content = JsonContent.Create(new AskRequest(basePath, question)) };
 
-    /// <summary>Как окно: просьба заводится POST, а ход и итог читаются её потоком с начала.</summary>
-    private static async Task<List<AskEvent>> Ask(HttpClient client, string basePath, string question)
+    private static async Task Ask(HttpClient client, string basePath, string question)
     {
         using var started = await client.SendAsync(Post(basePath, question));
         Assert.Equal(HttpStatusCode.OK, started.StatusCode);
-        var body = await client.GetStringAsync("/api/agent/ask/stream?from=0");
-        return body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => JsonSerializer.Deserialize<AskEvent>(line, Json)!)
-            .ToList();
+    }
+
+    private static Task<HttpResponseMessage> Reply(HttpClient client, string text) =>
+        client.PostAsJsonAsync("/api/ask/reply", new AskReply(text));
+
+    /// <summary>Как окно: переписка читается потоком просьбы с начала и ждёт следующих событий в нём же.</summary>
+    private static async Task<List<AskEvent>> Read(HttpClient client, int count)
+    {
+        using var response = await client.GetAsync(
+            "/api/agent/ask/stream?from=0", HttpCompletionOption.ResponseHeadersRead);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync());
+        var events = new List<AskEvent>();
+        while (events.Count < count)
+            events.Add(await Line(reader));
+        return events;
+    }
+
+    private static async Task<AskEvent> Line(StreamReader reader)
+    {
+        while (true)
+        {
+            var line = await reader.ReadLineAsync().WaitAsync(Wait);
+            Assert.NotNull(line);
+            if (line.Trim().Length > 0)
+                return JsonSerializer.Deserialize<AskEvent>(line, Json)!;
+        }
     }
 
     private HttpClient Client(params string[] bases) =>
@@ -252,30 +412,8 @@ public sealed class AskEndpointsTests : IDisposable
             // Настоящий claude в прогоне не запускается: проверяется, как панель его зовёт и читает вывод.
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IAgentProcess>();
-                services.AddSingleton<IAgentProcess>(_agent);
+                services.RemoveAll<IAgentChat>();
+                services.AddSingleton<IAgentChat>(_agent);
             });
         }).CreateClient();
-
-    private sealed class FakeAgent : IAgentProcess
-    {
-        public IReadOnlyList<string> Lines { get; set; } = [];
-        public AgentExit Exit { get; set; } = new(0, "");
-        public Func<int, Task> BeforeLine { get; set; } = _ => Task.CompletedTask;
-        public ProcessStartInfo? StartInfo { get; private set; }
-        public string? Input { get; private set; }
-
-        public async Task<AgentExit> RunAsync(
-            ProcessStartInfo startInfo, string input, Func<string, Task> onLine, CancellationToken cancellationToken)
-        {
-            StartInfo = startInfo;
-            Input = input;
-            for (var i = 0; i < Lines.Count; i++)
-            {
-                await BeforeLine(i).WaitAsync(cancellationToken);
-                await onLine(Lines[i]);
-            }
-            return Exit;
-        }
-    }
 }

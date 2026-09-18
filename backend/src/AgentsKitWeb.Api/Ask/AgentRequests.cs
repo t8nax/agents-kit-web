@@ -45,18 +45,27 @@ public sealed class AgentRequest
     private readonly Stopwatch _elapsed = Stopwatch.StartNew();
     private TaskCompletionSource _written = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private string _state = Running;
+    private bool _removed;
+    private bool _working = true;
 
     public const string Running = "running";
     public const string Done = "done";
     public const string Failed = "failed";
 
-    public AgentRequest(string kind, string basePath, string project, string text)
+    public AgentRequest(string kind, string basePath, string project, string text, bool continues = false)
     {
         Kind = kind;
         Base = basePath;
         Project = project;
         Text = text;
+        Continues = continues;
     }
+
+    /// <summary>
+    /// Просьба-переписка: итог закрывает реплику, а не просьбу — разговор ждёт следующей и убирается только
+    /// кнопкой «Новая переписка» или уходом панели (B-79).
+    /// </summary>
+    public bool Continues { get; }
 
     public string Kind { get; }
 
@@ -79,6 +88,16 @@ public sealed class AgentRequest
         }
     }
 
+    /// <summary>Работа ещё идёт: у переписки это значит, что живой процесс агента ждёт следующей реплики.</summary>
+    public bool Working
+    {
+        get
+        {
+            lock (_gate)
+                return _working;
+        }
+    }
+
     public AgentRequestSummary Summary
     {
         get
@@ -95,20 +114,39 @@ public sealed class AgentRequest
         }
     }
 
-    /// <summary>Пишет событие в просьбу. Событие не «step» закрывает её: агенту больше нечего сказать.</summary>
+    /// <summary>
+    /// Пишет событие в просьбу. Событие не «step» закрывает её: агенту больше нечего сказать. У переписки оно
+    /// закрывает только реплику — следующая открывает её снова.
+    /// </summary>
     public void Write(IAgentEvent e)
     {
         var line = JsonSerializer.Serialize(e, e.GetType(), JsonOptions);
         lock (_gate)
         {
-            if (_state != Running)
+            if (_removed || (!Continues && _state != Running))
                 return;
             _lines.Add(line);
-            if (e.Type != "step")
+            if (e.Type is not ("step" or "note"))
             {
                 _state = e.Type == "error" ? Failed : Done;
                 _elapsed.Stop();
             }
+            Pulse();
+        }
+    }
+
+    /// <summary>Реплика оператора: она встаёт в переписку событием и снова пускает просьбу в работу.</summary>
+    public void Reply(IAgentEvent e)
+    {
+        var line = JsonSerializer.Serialize(e, e.GetType(), JsonOptions);
+        lock (_gate)
+        {
+            if (_removed)
+                return;
+            _lines.Add(line);
+            _state = Running;
+            _working = true;
+            _elapsed.Restart();
             Pulse();
         }
     }
@@ -118,6 +156,7 @@ public sealed class AgentRequest
     {
         lock (_gate)
         {
+            _working = false;
             if (_state == Running)
             {
                 _state = Failed;
@@ -129,6 +168,8 @@ public sealed class AgentRequest
 
     public void Cancel()
     {
+        lock (_gate)
+            _removed = true;
         _cancel.Cancel();
         Finish();
     }
@@ -142,7 +183,9 @@ public sealed class AgentRequest
         lock (_gate)
         {
             var lines = from < _lines.Count ? _lines[from..] : [];
-            return (lines, _state != Running, _written.Task);
+            // Поток переписки закрывает только уход самой просьбы: между репликами окно ждёт следующую в нём же.
+            var finished = Continues ? _removed : _state != Running;
+            return (lines, finished, _written.Task);
         }
     }
 
@@ -175,9 +218,14 @@ public sealed class AgentRequests
     private readonly Dictionary<string, AgentRequest> _requests = new(StringComparer.Ordinal);
 
     public AgentRequest Start(
-        string kind, string basePath, string project, string text, Func<AgentRequest, CancellationToken, Task> work)
+        string kind,
+        string basePath,
+        string project,
+        string text,
+        Func<AgentRequest, CancellationToken, Task> work,
+        bool continues = false)
     {
-        var request = new AgentRequest(kind, basePath, project, text);
+        var request = new AgentRequest(kind, basePath, project, text, continues);
         lock (_gate)
         {
             if (_requests.Remove(kind, out var previous))
@@ -185,6 +233,16 @@ public sealed class AgentRequests
             _requests[kind] = request;
         }
 
+        Run(request, work);
+        return request;
+    }
+
+    /// <summary>
+    /// Поднимает работу для просьбы, которая уже живёт: разговор продолжается тем же списком реплик, хотя
+    /// прежний процесс агента кончился.
+    /// </summary>
+    public void Run(AgentRequest request, Func<AgentRequest, CancellationToken, Task> work)
+    {
         _ = Task.Run(async () =>
         {
             try
@@ -204,7 +262,6 @@ public sealed class AgentRequests
                 request.Finish();
             }
         });
-        return request;
     }
 
     public AgentRequest? Of(string kind)
