@@ -508,6 +508,117 @@ td.num-col {
   gap: 8px;
 }
 
+.actions-col {
+  text-align: right;
+}
+
+/* Меню действий строки: всплывает над соседними строками, поэтому у ячейки свой слой. */
+.row-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.action-btn-menu {
+  display: inline-flex;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.action-btn-menu svg {
+  width: 16px;
+  height: 16px;
+}
+
+.action-btn-menu:hover:not(:disabled),
+.action-btn-menu[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.action-btn-menu:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.action-btn-menu:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.row-menu-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 230px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px var(--shadow-color);
+}
+
+.row-menu-item {
+  font: inherit;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-menu-item svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-secondary);
+}
+
+.row-menu-item:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+
+.row-menu-item:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.row-menu-item:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.row-menu-item:disabled svg {
+  color: var(--text-tertiary);
+}
+
+.row-menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Приглушённый пункт говорит, чего ждать, — иначе непонятно, почему он не нажимается. */
+.row-menu-why {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 /* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе со значком. */
 .action-btn-code {
   display: inline-flex;

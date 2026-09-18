@@ -40,6 +40,8 @@ export type WorkspaceRow = {
   problemsState?: ProblemsState | null
   /** Стоит у копии, от которой кит заводит новые: каталог, куда он их кладёт. */
   copiesDir?: string | null
+  /** В копии идёт фоновая сессия агента — в неё есть переход из терминала. */
+  backgroundSession?: boolean
 }
 
 /** Только что заведённая копия: её строка отмечена, пока висит уведомление. */
@@ -520,6 +522,29 @@ function WorkspacesTable({
   const [openError, setOpenError] = useState<string | null>(null)
   const groups = useCollapsedGroups()
 
+  // Переход в фоновую сессию: своего окна у неё нет, и панель открывает терминал, подключённый к ней.
+  async function openInTerminal(row: WorkspaceRow) {
+    setOpening(row.path)
+    setOpenError(null)
+    try {
+      const response = await fetch('/api/session/terminal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base: row.base, copy: row.path }),
+      })
+      if (response.ok) return
+      setOpenError(
+        response.status === 409
+          ? `Сессия в ${copyName(row.path)} уже не идёт в фоне`
+          : `Не удалось открыть терминал на ${row.path}`,
+      )
+    } catch {
+      setOpenError(`Не удалось открыть терминал на ${row.path}: нет связи с API`)
+    } finally {
+      setOpening(null)
+    }
+  }
+
   // Окно открывается не мгновенно, а таблица тем временем живёт своим опросом: кнопка ждёт ответа API.
   async function openInVsCode(row: WorkspaceRow) {
     setOpening(row.path)
@@ -561,9 +586,7 @@ function WorkspacesTable({
             <th>Прогресс</th>
             <th>Статус</th>
             <th>Проблемы</th>
-            <th>
-              <span className="visually-hidden">Действия</span>
-            </th>
+            <th className="actions-col">Действия</th>
           </tr>
         </thead>
         {groupByBase(rows).map((group) => {
@@ -649,16 +672,12 @@ function WorkspacesTable({
                   )}
                   {/* Строке с ошибкой открывать нечего: копии на диске нет или её не прочитали. */}
                   {!row.error && (
-                    <button
-                      type="button"
-                      className="action-btn-code"
-                      disabled={opening === row.path}
-                      aria-label={`Открыть ${row.path} в VS Code`}
-                      title={`Открыть ${row.path} в VS Code`}
-                      onClick={() => void openInVsCode(row)}
-                    >
-                      <VsCodeIcon />
-                    </button>
+                    <RowActionsMenu
+                      row={row}
+                      busy={opening === row.path}
+                      onTerminal={() => void openInTerminal(row)}
+                      onVsCode={() => void openInVsCode(row)}
+                    />
                   )}
                 </div>
               </td>
@@ -669,6 +688,115 @@ function WorkspacesTable({
         })}
       </table>
     </>
+  )
+}
+
+/**
+ * Действия строки — одним меню: переходов стало два, и в строке они занимали больше места, чем стоят —
+ * решение оператора. Пункт терминала виден и без фоновой сессии, но приглушён и говорит почему.
+ */
+function RowActionsMenu({
+  row,
+  busy,
+  onTerminal,
+  onVsCode,
+}: {
+  row: WorkspaceRow
+  busy: boolean
+  onTerminal: () => void
+  onVsCode: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const host = useRef<HTMLDivElement>(null)
+
+  // Меню закрывает и клик мимо него, и Escape: оно перекрывает соседние строки таблицы.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (!host.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const copy = copyName(row.path)
+
+  return (
+    <div className="row-menu" ref={host}>
+      <button
+        type="button"
+        className="action-btn-menu"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Действия с ${copy}`}
+        title="Действия"
+        disabled={busy}
+        onClick={() => setOpen((was) => !was)}
+      >
+        <DotsIcon />
+      </button>
+      {open && (
+        <div className="row-menu-popup" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="row-menu-item"
+            disabled={!row.backgroundSession}
+            onClick={() => {
+              setOpen(false)
+              onTerminal()
+            }}
+          >
+            <TerminalIcon />
+            <span className="row-menu-text">
+              Открыть в терминале
+              {!row.backgroundSession && (
+                <span className="row-menu-why">Подключаться не к чему: сессия в фоне не идёт</span>
+              )}
+            </span>
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="row-menu-item"
+            onClick={() => {
+              setOpen(false)
+              onVsCode()
+            }}
+          >
+            <VsCodeIcon />
+            <span className="row-menu-text">Открыть в VS Code</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DotsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
+    </svg>
+  )
+}
+
+export function TerminalIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <polyline points="6 9 9 12 6 15" />
+      <line x1="12" y1="15" x2="17" y2="15" />
+    </svg>
   )
 }
 
