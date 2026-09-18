@@ -22,6 +22,7 @@ export type PanelRelease = {
 
 export type PanelUpdates = {
   latest: string
+  sha: string
   releases: PanelRelease[]
 }
 
@@ -130,7 +131,12 @@ export default function PanelCard() {
 
   const version = panel.published?.version ?? panel.version
   const latest = updates?.latest
-  const behind = latest !== undefined && latest !== version && (updates?.releases.length ?? 0) > 0
+  // Отстала панель или нет, видно только по коду канала: номер версии поднимает человек, и он
+  // его пропускает — по номерам ушедший вперёд канал выглядел бы прежним.
+  const behind = !!updates && !!panel.published && updates.sha !== panel.published.sha
+  const releases = updates?.releases ?? []
+  // Исходников проекта на месте нет — собрать обновление не из чего, и кнопка ничего не сделает.
+  const unavailable = panel.installed && !checking && !updates
 
   return (
     <PanelShell>
@@ -173,23 +179,30 @@ export default function PanelCard() {
           <div className="panel-row panel-row-top">
             <span className="panel-label">Вышла</span>
             {checking && <span className="panel-hint">Смотрим, что вышло…</span>}
-            {!checking && latest === undefined && (
-              <span className="panel-hint">Репозиторий проекта недоступен — сравнить не с чем.</span>
+            {!checking && !updates && (
+              <span className="panel-hint">Исходники проекта недоступны — сравнить не с чем.</span>
             )}
-            {!checking && latest !== undefined && !behind && (
+            {!checking && updates && !behind && (
               <span className="panel-current">{latest} — новее в канале {panel.channel} пока нет</span>
             )}
-            {!checking && latest !== undefined && behind && (
+            {!checking && updates && behind && (
               <div className="panel-releases">
                 <span className="panel-version panel-version-new">{latest}</span>
-                <ul>
-                  {updates?.releases.map((release) => (
-                    <li key={release.version}>
-                      <span className="panel-release-version">{release.version}</span>
-                      {release.title}
-                    </li>
-                  ))}
-                </ul>
+                {releases.length > 0 ? (
+                  <ul>
+                    {releases.map((release) => (
+                      <li key={release.version}>
+                        <span className="panel-release-version">{release.version}</span>
+                        {release.title}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  // Номер не подняли — перечислять нечего, и панель говорит это словами.
+                  <span className="panel-hint">
+                    в канале {panel.channel} есть работа, за которой номер версии не подняли
+                  </span>
+                )}
               </div>
             )}
           </div>
@@ -214,20 +227,27 @@ export default function PanelCard() {
         {error && <p className="bases-error" role="alert">{error}</p>}
 
         <div className="panel-row panel-row-actions">
-          {panel.installed ? (
+          {!panel.installed && (
+            <span className="panel-development">
+              Это запуск для разработки — обновлять тут нечего. Обновляется постоянная панель, и кнопка живёт в ней.
+            </span>
+          )}
+          {unavailable && (
+            <span className="panel-development">
+              Панель собирает обновление из исходников проекта. Их нет на месте, которое записано при установке, —
+              обновиться отсюда не получится.
+            </span>
+          )}
+          {panel.installed && !unavailable && (
             <>
               <span className="panel-hint panel-hint-grow">
                 Обновление собирает версию и подменяет панель: минуты две она будет недоступна, страница дождётся её
                 сама.
               </span>
               <button type="button" className="bases-btn panel-primary" onClick={start}>
-                {behind ? `Обновить до ${latest}` : 'Собрать заново'}
+                {behind ? (latest === version ? 'Обновить' : `Обновить до ${latest}`) : 'Собрать заново'}
               </button>
             </>
-          ) : (
-            <span className="panel-development">
-              Это запуск для разработки — обновлять тут нечего. Обновляется постоянная панель, и кнопка живёт в ней.
-            </span>
           )}
         </div>
       </div>

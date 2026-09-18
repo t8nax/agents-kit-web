@@ -21,13 +21,17 @@ const development: Panel = { version: '1.2.0', installed: false, channel: 'maste
 
 const behind: PanelUpdates = {
   latest: '1.2.0',
+  sha: 'e5c1a2b0000',
   releases: [
     { version: '1.2.0', title: 'Исполнитель синхронизируется по копиям' },
     { version: '1.1.0', title: 'Переход строки ведёт в сессию задачи' },
   ],
 }
 
-const current: PanelUpdates = { latest: '1.0.0', releases: [] }
+const current: PanelUpdates = { latest: '1.0.0', sha: '4189d1f0000', releases: [] }
+
+/** Канал ушёл вперёд, а номер версии за ним не подняли: перечислять нечего, обновляться есть чем. */
+const unnumbered: PanelUpdates = { latest: '1.0.0', sha: 'e5c1a2b0000', releases: [] }
 
 const idle: PanelUpdateState = { state: 'none', version: null, log: [], file: 'C:\\app\\update.log' }
 
@@ -71,6 +75,27 @@ test('панель на последней версии говорит, что �
 
   expect(await screen.findByText(/новее в канале master пока нет/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Собрать заново' })).toBeTruthy()
+})
+
+test('панель зовёт обновиться, когда за работой в канале не подняли номер', async () => {
+  stubApi(api(installed, unnumbered))
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText(/есть работа, за которой номер версии не подняли/)).toBeTruthy()
+  // Номера у этой работы нет, и кнопка его не обещает.
+  expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
+})
+
+test('без исходников проекта кнопки обновления нет', async () => {
+  stubApi(api(installed, current, idle, { 'GET /api/panel/updates': () => new Response(null, { status: 404 }) }))
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText(/Исходники проекта недоступны/)).toBeTruthy()
+  expect(screen.getByText(/обновиться отсюда не получится/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /Обновить/ })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Собрать заново' })).toBeNull()
 })
 
 test('в запуске для разработки кнопки обновления нет', async () => {
