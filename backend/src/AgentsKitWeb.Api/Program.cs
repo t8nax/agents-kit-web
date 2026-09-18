@@ -58,6 +58,7 @@ app.MapFlowRewriteEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
+app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.

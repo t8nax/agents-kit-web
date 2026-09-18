@@ -14,6 +14,8 @@ import {
 import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
+import RowMenu from './RowMenu'
+import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
@@ -119,7 +121,7 @@ const refreshIntervalMs = 3000
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
-type Section = 'workspaces' | 'backlog' | 'flow' | 'problems' | 'settings'
+type Section = 'workspaces' | 'backlog' | 'flow' | 'sessions' | 'problems' | 'settings'
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
@@ -259,6 +261,8 @@ function App() {
             <Backlog />
           ) : section === 'flow' ? (
             <Flow />
+          ) : section === 'sessions' ? (
+            <Sessions />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
           ) : (
@@ -368,6 +372,15 @@ function Sidebar({
         </SideItem>
         <SideItem label="Флоу" expanded={expanded} active={section === 'flow'} onClick={() => onSection('flow')}>
           <FlowIcon />
+        </SideItem>
+        {/* Сессии стоят за флоу и перед проблемами: это раздел про то, что идёт прямо сейчас */}
+        <SideItem
+          label="Сессии"
+          expanded={expanded}
+          active={section === 'sessions'}
+          onClick={() => onSection('sessions')}
+        >
+          <SessionsIcon />
         </SideItem>
         <SideItem
           label="Проблемы баз"
@@ -742,9 +755,8 @@ function WorkspacesTable({
 }
 
 /**
- * Действия строки — одним меню: переходов стало два, и в строке они занимали больше места, чем стоят —
- * решение оператора. Без фоновой сессии пункт терминала виден, но не нажимается: подписи о причине
- * у него нет — оператор убрал её на приёмке.
+ * Действия строки: переходов стало два, и они собраны в меню — решение оператора. Без фоновой сессии
+ * пункт терминала виден, но не нажимается: подписи о причине у него нет — оператор убрал её на приёмке.
  */
 function RowActionsMenu({
   row,
@@ -757,51 +769,17 @@ function RowActionsMenu({
   onTerminal: () => void
   onVsCode: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const host = useRef<HTMLDivElement>(null)
-
-  // Меню закрывает и клик мимо него, и Escape: оно перекрывает соседние строки таблицы.
-  useEffect(() => {
-    if (!open) return
-    const onDown = (event: MouseEvent) => {
-      if (!host.current?.contains(event.target as Node)) setOpen(false)
-    }
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const copy = copyName(row.path)
-
   return (
-    <div className="row-menu" ref={host}>
-      <button
-        type="button"
-        className="action-btn-menu"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Действия с ${copy}`}
-        title="Действия"
-        disabled={busy}
-        onClick={() => setOpen((was) => !was)}
-      >
-        <DotsIcon />
-      </button>
-      {open && (
-        <div className="row-menu-popup" role="menu">
+    <RowMenu label={`Действия с ${copyName(row.path)}`} disabled={busy}>
+      {(close) => (
+        <>
           <button
             type="button"
             role="menuitem"
             className="row-menu-item"
             disabled={!row.backgroundSession}
             onClick={() => {
-              setOpen(false)
+              close()
               onTerminal()
             }}
           >
@@ -813,26 +791,16 @@ function RowActionsMenu({
             role="menuitem"
             className="row-menu-item"
             onClick={() => {
-              setOpen(false)
+              close()
               onVsCode()
             }}
           >
             <VsCodeIcon />
             Открыть в VS Code
           </button>
-        </div>
+        </>
       )}
-    </div>
-  )
-}
-
-function DotsIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.8" />
-      <circle cx="12" cy="12" r="1.8" />
-      <circle cx="19" cy="12" r="1.8" />
-    </svg>
+    </RowMenu>
   )
 }
 
