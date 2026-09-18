@@ -186,7 +186,7 @@
 }
 
 /* Номер, название и плашки идут одной строкой и переносятся вместе: плашки стоят за названием. */
-.entry-modal-title {
+.entry-modal-name {
   flex: 1;
   min-width: 0;
   display: flex;

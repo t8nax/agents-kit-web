@@ -202,7 +202,7 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
       <div className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-modal-title">
         <div className="entry-modal-head">
           {/* Плашки стоят за названием — выбор оператора на B-75 */}
-          <div className="entry-modal-title">
+          <div className="entry-modal-name">
             {entry.number && <span className="entry-num">{entry.number}</span>}
             <h3 id="entry-modal-title">
               <InlineMarkdown text={entry.title} />
