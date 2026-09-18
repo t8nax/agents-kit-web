@@ -759,29 +759,6 @@ td.num-col {
 }
 
 /* Запуск задачи в свободной копии */
-.action-btn-start {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-base);
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.action-btn-start:hover {
-  background: var(--bg-surface-hover);
-}
-
-.action-btn-start:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
-}
 
 /* Чипы-фильтр над списком раздела — в бэклоге по проектам, в сессиях по копиям */
 .filter-bar {

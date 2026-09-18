@@ -7,3 +7,8 @@ import type { WorkspaceRow } from './App'
 export function freeCopies(rows: WorkspaceRow[], base: string) {
   return rows.filter((row) => row.base === base && row.error === null && row.status === 'free')
 }
+
+/** Имя копии — имя её каталога: путь почти повторяет его и в строке не нужен. */
+export function copyName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
+}

@@ -21,6 +21,7 @@ import ReplyModal from './ReplyModal'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
+import { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
 import { TerminalIcon } from './TerminalIcon'
@@ -103,6 +104,9 @@ type Fresh = { base: string; name: string | null }
 
 const freshMs = 8000
 
+/** Сколько висит сообщение о запущенной задаче — решение оператора на приёмке B-40. */
+const startedMs = 5000
+
 export type ProblemsState = 'checked' | 'pending' | 'kit-not-set' | 'kit-not-found' | 'failed'
 
 const problemsStateLabels: Record<Exclude<ProblemsState, 'checked'>, string> = {
@@ -142,6 +146,8 @@ function App() {
   // Просьба, к которой оператор вернулся из шапки: раздел с её окном открывается заново, с её базой.
   const [openRequest, setOpenRequest] = useState<{ kind: AgentKind; base: string; at: number } | null>(null)
   const [creating, setCreating] = useState(false)
+  // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
+  const [started, setStarted] = useState<string | null>(null)
   const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
@@ -193,6 +199,13 @@ function App() {
   const closeReply = useCallback(() => setReplyTo(null), [])
   const closeAsk = useCallback(() => setAsking(false), [])
   const closeCreate = useCallback(() => setCreating(false), [])
+
+  // Сообщение о запущенной задаче гаснет само — решение оператора на приёмке B-40
+  useEffect(() => {
+    if (!started) return
+    const timer = setTimeout(() => setStarted(null), startedMs)
+    return () => clearTimeout(timer)
+  }, [started])
 
   useEffect(() => {
     if (!fresh) return
@@ -274,6 +287,11 @@ function App() {
             <Backlog
               key={openRequest?.kind === 'backlog' ? openRequest.at : 'backlog'}
               writeFor={openRequest?.kind === 'backlog' ? openRequest.base : null}
+              onStarted={(copy) => {
+                setStarted(copy)
+                // Копия станет занятой, когда агент заведёт память задачи; опрос покажет это сам
+                loadRows()
+              }}
             />
           ) : section === 'flow' ? (
             <Flow
@@ -300,6 +318,12 @@ function App() {
       </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {asking && <AskModal onClose={closeAsk} />}
+      {started && (
+        <div className="nw-toast" role="status">
+          <PlayIcon />
+          <span>Задача запущена в {started}</span>
+        </div>
+      )}
       {creating && state.rows && (
         <NewWorkspaceModal
           rows={state.rows}

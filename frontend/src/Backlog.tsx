@@ -3,7 +3,7 @@ import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { InlineMarkdown, Markdown } from './Markdown'
-import { freeCopies } from './freeCopies'
+import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 
 export type BacklogEntry = {
@@ -25,35 +25,43 @@ export type BaseBacklog = {
 /** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
 type Started = { base: string; entry: BacklogEntry & { number: string } }
 
-/** Сколько висит сообщение о запущенной задаче — решение оператора на приёмке B-40. */
-const startedMs = 5000
-
 type Load =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
   | { kind: 'loaded'; backlogs: BaseBacklog[] }
 
 // Фильтр по проектам: null — все проекты, иначе путь базы выбранного проекта.
-/** writeFor — база просьбы, к которой вернулся оператор: окно записи открывается сразу на ней. */
-export default function Backlog({ writeFor = null }: { writeFor?: string | null } = {}) {
+/**
+ * writeFor — база просьбы, к которой вернулся оператор: окно записи открывается сразу на ней.
+ * onStarted — запущенная задача: сообщение о ней показывает App, потому что раздел оператор
+ * тут же покидает, чтобы посмотреть строку копии.
+ */
+export default function Backlog({
+  writeFor = null,
+  onStarted,
+}: {
+  writeFor?: string | null
+  onStarted?: (copy: string) => void
+} = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [filter, setFilter] = useState<string | null>(writeFor)
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
-  // Запись, которую берут в работу, и имя копии, в которую задача ушла
+  // Запись, которую берут в работу
   const [starting, setStarting] = useState<Started | null>(null)
-  const [started, setStarted] = useState<string | null>(null)
   // Копии всех баз: по ним видно, есть ли у проекта записи куда запускать. null — ещё не прочитаны.
   const [copies, setCopies] = useState<WorkspaceRow[] | null>(null)
   // Записи, добавленные из панели, ключом «база|номер»: отмечены новыми до следующего «Обновить».
   const [fresh, setFresh] = useState<Set<string>>(() => new Set())
-  // Закрытое окно возвращает фокус записи, с которой его открыли: клавиатура остаётся на месте в списке.
+  // Закрытое окно возвращает фокус кнопке, с которой его открыли: клавиатура остаётся на месте в списке.
   const opener = useRef<HTMLButtonElement | null>(null)
+
+  const focusOpener = useCallback(() => opener.current?.focus(), [])
 
   const closeEntry = useCallback(() => {
     setOpened(null)
-    opener.current?.focus()
-  }, [])
+    focusOpener()
+  }, [focusOpener])
 
   const loadBacklogs = useCallback(() => {
     fetch('/api/backlog')
@@ -88,13 +96,6 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
   // Бэклог и копии читаются при открытии раздела и кнопкой «Обновить», без опроса по таймеру.
   useEffect(loadBacklogs, [loadBacklogs])
   useEffect(loadCopies, [loadCopies])
-
-  // Сообщение о запущенной задаче гаснет само — решение оператора на приёмке B-40
-  useEffect(() => {
-    if (!started) return
-    const timer = setTimeout(() => setStarted(null), startedMs)
-    return () => clearTimeout(timer)
-  }, [started])
 
   const refresh = useCallback(() => {
     setLoad({ kind: 'loading' })
@@ -204,7 +205,10 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
                           // Копий ещё не прочитали или свободных не осталось — запускать некуда;
                           // почему, кнопка не пишет — как приглушённые переходы строки копии.
                           disabled={copies === null || freeCopies(copies, backlog.base).length === 0}
-                          onClick={() => setStarting({ base: backlog.base, entry: { ...entry, number: entry.number! } })}
+                          onClick={(e) => {
+                            opener.current = e.currentTarget
+                            setStarting({ base: backlog.base, entry: { ...entry, number: entry.number! } })
+                          }}
                         >
                           <PlayIcon />
                           Взять задачу
@@ -224,21 +228,20 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
         <StartTaskModal
           base={starting.base}
           entry={starting.entry}
-          onClose={() => setStarting(null)}
-          onStarted={(copy) => {
-            setStarted(copy)
+          onClose={() => {
             setStarting(null)
-            // Запись из бэклога убирает агент, а копия становится занятой — перечитываем и то и другое
+            focusOpener()
+          }}
+          onStarted={(copy) => {
+            setStarting(null)
+            focusOpener()
+            onStarted?.(copy)
+            // Копия становится занятой сразу, а запись из бэклога убирает агент, когда до неё дойдёт:
+            // в этом чтении её обычно ещё видно.
             loadBacklogs()
             loadCopies()
           }}
         />
-      )}
-      {started && (
-        <div className="nw-toast" role="status">
-          <PlayIcon />
-          <span>Задача запущена в {started}</span>
-        </div>
       )}
       {writing && (
         <BacklogWriteModal

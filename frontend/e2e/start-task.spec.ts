@@ -33,6 +33,19 @@ const backlog = [
   },
 ]
 
+const notaFreeRow = {
+  ...freeRow,
+  project: 'Nota',
+  base: 'D:\\Projects\\nota-knowledge',
+  path: 'D:\\Projects\\nota',
+}
+const notaBacklog = {
+  base: notaFreeRow.base,
+  project: 'Nota',
+  entries: [{ number: 'B-4', title: 'Экспорт заметок', text: null }],
+  error: null,
+}
+
 async function routeApi(page: Page, reply: { status: number; json: unknown }, rows = [busyRow, freeRow]) {
   const posts: unknown[] = []
   await page.route('**/api/workspaces', async (route) => route.fulfill({ json: rows }))
@@ -81,9 +94,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`без свободной копии кнопка записи погашена (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme })
-    await routeApi(page, { status: 200, json: { session: '7339dced' } }, [busyRow])
+    // У соседнего проекта копия свободна: его живая кнопка говорит, что копии уже прочитаны
+    await page.route('**/api/workspaces', async (route) => route.fulfill({ json: [busyRow, notaFreeRow] }))
+    await page.route('**/api/backlog', async (route) => route.fulfill({ json: [...backlog, notaBacklog] }))
     const entries = await openBacklog(page)
 
+    await expect(entries.filter({ hasText: 'B-4' }).getByRole('button', { name: 'Взять задачу' })).toBeEnabled()
     const start = entries.filter({ hasText: 'B-7' }).getByRole('button', { name: 'Взять задачу' })
     await expect(start).toBeVisible()
     await expect(start).toBeDisabled()

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
 import type { BacklogEntry } from './Backlog'
-import { freeCopies } from './freeCopies'
+import { copyName, freeCopies } from './copies'
 import './StartTaskModal.css'
 
 type Props = {
@@ -128,13 +128,13 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
 
           <div className="st-field">
             <span className="st-label">Запись бэклога</span>
-            <span className="st-record-line">
+            <span className="st-entry">
               <span className="num-chip">{entry.number}</span>
-              <span className="st-record-title">{entry.title}</span>
+              <span className="st-entry-title">{entry.title}</span>
             </span>
           </div>
 
-          <fieldset className="st-field st-records">
+          <fieldset className="st-field st-copies">
             <legend className="st-label">Рабочая копия</legend>
             {load.kind === 'loading' && <p className="text-sec st-message">Копии читаются…</p>}
             {load.kind === 'failed' && <p className="warning-text st-message">{load.message}</p>}
@@ -145,7 +145,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               <ul className="st-list">
                 {copies.map((row) => (
                   <li key={row.path}>
-                    <label className={`st-record ${row.path === path ? 'is-on' : ''}`} title={row.path}>
+                    <label className={`st-copy ${row.path === path ? 'is-on' : ''}`} title={row.path}>
                       <input
                         type="radio"
                         name="st-copy"
@@ -160,8 +160,9 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                       <span className="st-radio" aria-hidden="true" />
                       <span className="st-copy-text">
                         <span className="st-copy-name">{copyName(row.path)}</span>
-                        <span className="st-copy-sub text-ter mono">
-                          {row.branch ? `ветка ${row.branch}` : 'ветка неизвестна'}
+                        {/* Моноширинным идёт только имя ветки — как в строке таблицы копий */}
+                        <span className="st-copy-sub text-ter">
+                          {row.branch ? <>ветка <span className="mono">{row.branch}</span></> : 'ветка неизвестна'}
                         </span>
                       </span>
                     </label>
@@ -192,9 +193,6 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
   )
 }
 
-function copyName(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
-}
 
 export function PlayIcon() {
   return (
