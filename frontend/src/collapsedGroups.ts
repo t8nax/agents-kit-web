@@ -2,34 +2,37 @@ import { useCallback, useState } from 'react'
 
 const collapsedKey = 'agents-kit-web.collapsed-groups'
 
-// Группа — база; свёрнутые помнит браузер. Хранилище может быть недоступно — тогда всё развёрнуто.
-function read(): string[] {
+// Свёрнутые группы помнит браузер, у каждого раздела свои. Хранилище может быть недоступно — тогда всё развёрнуто.
+function read(key: string): string[] {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(collapsedKey) ?? '[]')
+    const value: unknown = JSON.parse(localStorage.getItem(key) ?? '[]')
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
   } catch {
     return []
   }
 }
 
-function write(bases: string[]) {
+function write(key: string, groups: string[]) {
   try {
-    localStorage.setItem(collapsedKey, JSON.stringify(bases))
+    localStorage.setItem(key, JSON.stringify(groups))
   } catch {
     // выбор проживёт до перезагрузки
   }
 }
 
-export function useCollapsedGroups() {
-  const [collapsed, setCollapsed] = useState<string[]>(read)
+export function useCollapsedGroups(key: string = collapsedKey) {
+  const [collapsed, setCollapsed] = useState<string[]>(() => read(key))
 
-  const toggle = useCallback((base: string) => {
-    setCollapsed((prev) => {
-      const next = prev.includes(base) ? prev.filter((item) => item !== base) : [...prev, base]
-      write(next)
-      return next
-    })
-  }, [])
+  const toggle = useCallback(
+    (group: string) => {
+      setCollapsed((prev) => {
+        const next = prev.includes(group) ? prev.filter((item) => item !== group) : [...prev, group]
+        write(key, next)
+        return next
+      })
+    },
+    [key],
+  )
 
-  return { isCollapsed: (base: string) => collapsed.includes(base), toggle }
+  return { isCollapsed: (group: string) => collapsed.includes(group), toggle }
 }
