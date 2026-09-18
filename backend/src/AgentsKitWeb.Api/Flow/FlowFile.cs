@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -28,6 +29,26 @@ public sealed record FlowRejection(int Step, FlowProblem Problem);
 public static partial class FlowFile
 {
     public const string FileName = "flow.md";
+
+    private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
+
+    /// <summary>Отпечаток файла: по нему видно, что флоу не разошёлся с тем, который читали.</summary>
+    public static string Fingerprint(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+
+    /// <summary>Текст файла без BOM; HasBom — писать ли его обратно.</summary>
+    public static (string Text, bool HasBom) Decode(byte[] bytes)
+    {
+        var hasBom = bytes.AsSpan().StartsWith(Utf8Bom);
+        var offset = hasBom ? Utf8Bom.Length : 0;
+        return (new UTF8Encoding(false).GetString(bytes, offset, bytes.Length - offset), hasBom);
+    }
+
+    /// <summary>Байты файла: текст в UTF-8, BOM — если он там был.</summary>
+    public static byte[] Encode(string text, bool hasBom)
+    {
+        var bytes = new UTF8Encoding(false).GetBytes(text);
+        return hasBom ? [.. Utf8Bom, .. bytes] : bytes;
+    }
 
     // «## 3. Реализация» → «Реализация». Раздел «##» без номера тоже шаг: номер ставит запись.
     [GeneratedRegex(@"^##\s+(?:\d+\.\s*)?(?<title>.*)$")]
