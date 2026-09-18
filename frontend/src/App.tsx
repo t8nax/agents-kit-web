@@ -62,14 +62,13 @@ const sessionLabels: Record<SessionState, string> = {
 
 const noSessionLabel = 'сессии нет'
 
-/** Точка состояния сессии у имени копии: цвет читается по легенде под таблицей, слова — подсказкой. */
+/**
+ * Точка состояния сессии у имени копии: цвет читается по легенде под таблицей, слова — подсказкой.
+ * Подпись идёт меткой, а не скрытым текстом: скрытый текст попал бы в содержимое ячейки с именем копии.
+ */
 function SessionDot({ state }: { state: SessionState | null }) {
   const label = state ? sessionLabels[state] : noSessionLabel
-  return (
-    <span className={`session-dot session-${state ?? 'none'}`} title={label}>
-      <span className="visually-hidden">{label}</span>
-    </span>
-  )
+  return <span className={`session-dot session-${state ?? 'none'}`} role="img" aria-label={label} title={label} />
 }
 
 /** Легенда точек: без неё цвет у имени копии ничего не говорит, пока на него не наведёшь мышь. */
@@ -77,14 +76,15 @@ function SessionLegend() {
   return (
     <div className="session-legend">
       <span className="text-ter">Точка у имени копии:</span>
+      {/* Точки легенды подписаны рядом словами, и диктору читать их второй раз незачем */}
       {(Object.keys(sessionLabels) as SessionState[]).map((state) => (
         <span key={state} className="session-legend-item">
-          <span className={`session-dot session-${state}`} />
+          <span className={`session-dot session-${state}`} aria-hidden="true" />
           {sessionLabels[state].replace('сессия ', '')}
         </span>
       ))}
       <span className="session-legend-item">
-        <span className="session-dot session-none" />
+        <span className="session-dot session-none" aria-hidden="true" />
         {noSessionLabel}
       </span>
     </div>

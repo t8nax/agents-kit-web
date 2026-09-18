@@ -115,14 +115,17 @@ test('точка у имени копии говорит, что делает е
   const tableRows = await findTableRows()
 
   // Статус копии считается по памяти и остаётся прежним — состояние сессии читается рядом с ним
-  expect(within(tableRows[1]).getByText('сессия стоит без дела')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByLabelText('сессия стоит без дела')).toBeInTheDocument()
   expect(within(tableRows[1]).getByText('Ждёт оператора')).toBeInTheDocument()
-  expect(within(tableRows[2]).getByText('сессия работает')).toBeInTheDocument()
-  expect(within(tableRows[4]).getByText('сессии нет')).toBeInTheDocument()
+  expect(within(tableRows[2]).getByLabelText('сессия работает')).toBeInTheDocument()
+  expect(within(tableRows[4]).getByLabelText('сессии нет')).toBeInTheDocument()
   expect(within(tableRows[4]).getByText('В работе')).toBeInTheDocument()
 
   // Строке с ошибкой точку ставить не о чем: копии на диске нет
-  expect(within(tableRows[3]).queryByText(/^сесси/)).not.toBeInTheDocument()
+  expect(within(tableRows[3]).queryByRole('img')).not.toBeInTheDocument()
+
+  // Подпись точки — метка, а не текст: содержимое ячейки остаётся именем копии и её веткой
+  expect(within(tableRows[1]).getAllByRole('cell')[0]).toHaveTextContent(/^appfeat\/table$/)
 
   // Цвет точки сам по себе ничего не говорит — под таблицей стоит легенда
   expect(screen.getByText('Точка у имени копии:')).toBeInTheDocument()
@@ -136,7 +139,7 @@ test('сессия, ждущая оператора в терминале, от�
   render(<App />)
   const tableRows = await findTableRows()
 
-  expect(within(tableRows[1]).getByText('сессия ждёт вас в терминале')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByLabelText('сессия ждёт вас в терминале')).toBeInTheDocument()
 })
 
 const otherBase: WorkspaceRow = {
