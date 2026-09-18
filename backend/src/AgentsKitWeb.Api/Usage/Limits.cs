@@ -17,16 +17,3 @@ public interface ILimits
 {
     Task<LimitsSnapshot> ReadAsync(CancellationToken cancellationToken);
 }
-
-/// <summary>
-/// Пока панель не умеет спрашивать проценты: адрес запроса известен, а формат ответа — ещё нет,
-/// и выдумывать его сессия не стала. Раздел в этом состоянии показывает свой счёт токенов
-/// и строку отказа — тот же вид, что и при отказе Anthropic.
-/// </summary>
-public sealed class PendingLimits : ILimits
-{
-    public const string Problem = "Панель ещё не умеет спрашивать проценты лимита у Anthropic.";
-
-    public Task<LimitsSnapshot> ReadAsync(CancellationToken cancellationToken) =>
-        Task.FromResult(LimitsSnapshot.Failed(Problem));
-}
