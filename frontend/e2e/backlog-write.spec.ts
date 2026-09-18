@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockAgentPanel, ndjson } from './agentPanel.ts'
 
 type Entry = { number: string | null; title: string; text: string | null }
 
@@ -9,7 +10,6 @@ const added: Entry[] = [
   { number: 'B-33', title: 'Таблица сортируется по номеру задачи', text: null },
 ]
 
-const ndjson = (...events: object[]) => events.map((e) => JSON.stringify(e)).join('\n') + '\n'
 
 // /api подменяется: запись из прогона не должна попасть в живые бэклоги оператора (decisions/tests.md).
 async function mockApi(page: Page) {
@@ -24,6 +24,7 @@ async function mockApi(page: Page) {
       ],
     })
   })
+  return mockAgentPanel(page, 'backlog', '/api/backlog/write')
 }
 
 async function openWrite(page: Page) {
@@ -35,25 +36,20 @@ async function openWrite(page: Page) {
 }
 
 test('оператор пишет своими словами, видит новые записи в окне и отмеченными в бэклоге', async ({ page }) => {
-  await mockApi(page)
-  let posted: unknown = null
-  await page.route('**/api/backlog/write', async (route) => {
-    posted = route.request().postDataJSON()
-    await route.fulfill({
-      contentType: 'application/x-ndjson',
-      body: ndjson(
-        { type: 'step', text: 'правит backlog.md' },
-        { type: 'written', text: 'Записал.', entries: added, commit: '4f1c2a9', durationMs: 72000 },
-      ),
-    })
-  })
+  const panel = await mockApi(page)
+  panel.reply(
+    ndjson(
+      { type: 'step', text: 'правит backlog.md' },
+      { type: 'written', text: 'Записал.', entries: added, commit: '4f1c2a9', durationMs: 72000 },
+    ),
+  )
 
   const dialog = await openWrite(page)
   await dialog.getByLabel('Что записать').fill('Хочу видеть ожидание. И сортировать по номеру.')
   await dialog.getByRole('button', { name: 'Добавить' }).click()
 
   await expect(dialog.getByText('Добавлено 2 записи')).toBeVisible()
-  expect(posted).toEqual({ base: akwBase, text: 'Хочу видеть ожидание. И сортировать по номеру.' })
+  expect(panel.posts).toEqual([{ base: akwBase, text: 'Хочу видеть ожидание. И сортировать по номеру.' }])
   await expect(dialog.getByText('коммит 4f1c2a9 · 1 мин 12 с')).toBeVisible()
   const entries = dialog.getByRole('list', { name: 'Новые записи' })
   await expect(entries.getByText('B-32', { exact: true })).toBeVisible()
@@ -71,8 +67,7 @@ test('оператор пишет своими словами, видит нов
 })
 
 test('пока агент пишет, виден счётчик, а «Отменить» возвращает текст в поле', async ({ page }) => {
-  await mockApi(page)
-  await page.route('**/api/backlog/write', () => {})
+  const panel = await mockApi(page)
 
   const dialog = await openWrite(page)
   await dialog.getByLabel('Что записать').fill('Долгая мысль')
@@ -82,21 +77,38 @@ test('пока агент пишет, виден счётчик, а «Отмен
   await expect(dialog.getByLabel('Прошло времени')).toHaveText(/0:0[1-9]/)
   await dialog.getByRole('button', { name: 'Отменить' }).click()
   await expect(dialog.getByLabel('Что записать')).toHaveValue('Долгая мысль')
+  expect(panel.deletes).toBe(1)
+})
+
+test('закрытое окно не останавливает агента: запись доходит и ждёт в шапке', async ({ page }) => {
+  const panel = await mockApi(page)
+
+  const dialog = await openWrite(page)
+  await dialog.getByLabel('Что записать').fill('Хочу видеть ожидание')
+  await dialog.getByRole('button', { name: 'Добавить' }).click()
+  await expect(dialog.getByText('Чудо-юдо пишет в бэклог Agents Kit Web…')).toBeVisible()
+
+  // Оператор закрыл окно и пошёл читать бэклог: агент дописывает запись без него.
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  expect(panel.deletes).toBe(0)
+
+  panel.reply(ndjson({ type: 'written', text: 'ok', entries: added, commit: '4f1c2a9' }))
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо записал в бэклог/ })
+  await expect(done).toBeVisible()
+
+  await done.click()
+
+  const reopened = page.getByRole('dialog', { name: 'Запись в бэклог' })
+  await expect(reopened.getByText('Добавлено 2 записи')).toBeVisible()
+  expect(panel.posts).toHaveLength(1)
 })
 
 test('неудача видна с выводом агента, текст можно отправить снова', async ({ page }) => {
-  await mockApi(page)
-  let calls = 0
-  await page.route('**/api/backlog/write', async (route) => {
-    calls++
-    await route.fulfill({
-      contentType: 'application/x-ndjson',
-      body:
-        calls === 1
-          ? ndjson({ type: 'error', text: 'Агент закончил, но новых записей в бэклоге нет', output: 'Коммит отклонён сверкой' })
-          : ndjson({ type: 'written', text: 'ok', entries: [added[1]] }),
-    })
-  })
+  const panel = await mockApi(page)
+  panel.reply(
+    ndjson({ type: 'error', text: 'Агент закончил, но новых записей в бэклоге нет', output: 'Коммит отклонён сверкой' }),
+  )
 
   const dialog = await openWrite(page)
   await dialog.getByLabel('Что записать').fill('Мысль')
@@ -108,20 +120,16 @@ test('неудача видна с выводом агента, текст мо�
 
   await dialog.getByRole('button', { name: 'Изменить текст' }).click()
   await expect(dialog.getByLabel('Что записать')).toHaveValue('Мысль')
+  panel.reply(ndjson({ type: 'written', text: 'ok', entries: [added[1]] }))
   await dialog.getByRole('button', { name: 'Добавить' }).click()
   await expect(dialog.getByText('Добавлено 1 запись')).toBeVisible()
-  expect(calls).toBe(2)
+  expect(panel.posts).toHaveLength(2)
 })
 
 for (const theme of ['dark', 'light'] as const) {
   test(`запись в бэклог читается в теме ${theme}`, async ({ page }) => {
-    await mockApi(page)
-    await page.route('**/api/backlog/write', (route) =>
-      route.fulfill({
-        contentType: 'application/x-ndjson',
-        body: ndjson({ type: 'written', text: 'ok', entries: added, commit: '4f1c2a9' }),
-      }),
-    )
+    const panel = await mockApi(page)
+    panel.reply(ndjson({ type: 'written', text: 'ok', entries: added, commit: '4f1c2a9' }))
     await page.emulateMedia({ colorScheme: theme })
 
     const dialog = await openWrite(page)
