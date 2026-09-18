@@ -623,12 +623,16 @@ Write-Utf8 (Join-Path $goodCopy 'README.md') "# Дом`n`nВыдуманный �
 Add-Commit $goodCopy 'Первый коммит'
 $goodWorktree = Join-Path $copiesDir 'house-task'
 git -C $goodCopy worktree add -b feat/polling $goodWorktree --quiet
+# Копия, где задача уже закончилась: памяти у неё нет, и сессия в ней стоит одна — на ней
+# и видно, как панель гасит отработавшую сессию, ничего вокруг не задевая.
+$goodDone = Join-Path $copiesDir 'house-done'
+git -C $goodCopy worktree add -b feat/done $goodDone --quiet
 
 New-Base $goodBase 'Дом' @($goodCopy)
 New-Memory (Join-Path $goodBase 'work\house-task.md') $goodWorktree 'feat/polling'
 Add-Commit $goodBase 'Память задачи'
 $bases.Add($goodBase)
-foreach ($copy in @($goodCopy, $goodWorktree)) {
+foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
     $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $goodBase })
 }
 $findings.Add([pscustomobject]@{ base = $goodBase; findings = @() })
@@ -746,13 +750,14 @@ if (-not $NoSessions) {
     Write-Session $sessionsDir $background $goodWorktree @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'a1b2c3d4'; status = 'waiting' }
 
     # Отработавшая сессия задачи: копия свободна — памяти у неё нет, — а сессия стоит без дела.
-    # Такую панель гасит сама, и в песочнице видно, как её строка уходит из перечня.
+    # Такую панель гасит сама, и в песочнице видно, как её строка уходит из перечня. Стоит она
+    # в копии, где сессий больше нет: иначе рядом остаётся чужая строка той же копии.
     $finished = Start-Dummy
     $dummies.Add($finished)
-    Write-Session $sessionsDir $finished $goodCopy @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'f1e2d3c4'; status = 'idle' }
+    Write-Session $sessionsDir $finished $goodDone @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'f1e2d3c4'; status = 'idle' }
     # Ту самую сессию задачи копии панель знает только по своему запуску — отсюда и эта запись.
     Write-Json (Join-Path $panelDir 'task-sessions.json') ([pscustomobject]@{
-            sessions = @([pscustomobject]@{ copy = $goodCopy; session = 'f1e2d3c4' }) })
+            sessions = @([pscustomobject]@{ copy = $goodDone; session = 'f1e2d3c4' }) })
 }
 
 Write-Json $state ([pscustomobject]@{ dummies = $dummies.ToArray(); port = $Port; root = $Root })
