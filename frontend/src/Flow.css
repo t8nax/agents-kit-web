@@ -659,6 +659,13 @@ textarea.flow-input {
   stroke-linejoin: round;
 }
 
+/* Почему в списке исполнителей шага не все заведённые: тот, кто лежит не во всех копиях, шагу не годится. */
+.flow-hint {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
 .flow-missing {
   margin: 0;
   padding: 8px 10px;
