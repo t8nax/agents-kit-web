@@ -140,7 +140,7 @@ public static class PerformersEndpoints
     }
 
     /// <summary>Копии проекта, что есть на диске; первая копия из agents-kit.json помечена основной.</summary>
-    private static async Task<IReadOnlyList<PerformerCopy>> CopiesAsync(string basePath, CancellationToken cancellationToken)
+    internal static async Task<IReadOnlyList<PerformerCopy>> CopiesAsync(string basePath, CancellationToken cancellationToken)
     {
         var main = WorkspaceCollector.ReadCopies(basePath) is { } configured
             ? WorkspaceCollector.NewCopySource(configured)
