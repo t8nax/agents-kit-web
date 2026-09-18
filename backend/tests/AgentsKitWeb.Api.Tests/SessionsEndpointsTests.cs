@@ -242,7 +242,8 @@ public sealed class SessionsEndpointsTests : IDisposable
         Assert.Equal(_copy, startInfo.WorkingDirectory);
         Assert.True(startInfo.CreateNoWindow);
         // Просьба уходит после «--»: текст, начатый с «-», claude принял бы за флаг.
-        Assert.Equal(["--bg", "--", "посмотри, почему падает e2e"], startInfo.ArgumentList);
+        // Настройками сессия оставлена в самой копии: без них claude уходит работать в отдельное дерево.
+        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "посмотри, почему падает e2e"], startInfo.ArgumentList);
     }
 
     [Fact]
@@ -254,7 +255,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("abc123", (await response.Content.ReadFromJsonAsync<SessionStartResponse>())!.Session);
-        Assert.Equal(["--bg"], _agent.StartInfo!.ArgumentList);
+        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg"], _agent.StartInfo!.ArgumentList);
     }
 
     [Fact]
