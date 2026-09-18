@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { mockAgentPanel, ndjson } from './agentPanel.ts'
 
 const bases = [
-  { base: 'D:\Projects\app-knowledge', project: 'Agents Kit Web' },
-  { base: 'D:\Projects\nota-knowledge', project: 'Nota' },
+  { base: 'D:\\Projects\\app-knowledge', project: 'Agents Kit Web' },
+  { base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
 // /api подменяется: настоящий вопрос запустил бы агента в живой базе оператора.
@@ -44,7 +44,7 @@ test('оператор спрашивает базу из шапки и чита
   await expect(dialog.getByText('product.md')).toBeVisible()
   await expect(dialog.getByText('31 с')).toBeVisible()
   expect(panel.posts).toEqual([
-    { base: 'D:\Projects\nota-knowledge', question: 'Почему таблица обновляется опросом?' },
+    { base: 'D:\\Projects\\nota-knowledge', question: 'Почему таблица обновляется опросом?' },
   ])
 
   await dialog.getByRole('button', { name: 'Новый вопрос' }).click()
