@@ -1,11 +1,19 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
+import { type AgentKind, type AgentRequestSummary } from './agentRequest'
 import { applyChosenTheme } from './theme'
 
 // Индикатор просьб к агенту опрашивает панель сам и проверяется своим тестом: здесь он молчит,
-// иначе его опрос путался бы со счётом опросов таблицы копий.
-vi.mock('./AgentBar', () => ({ default: () => null }))
+// иначе его опрос путался бы со счётом опросов таблицы копий. Возврат к просьбе зовут сами тесты —
+// мок отдаёт им обработчик отметки в шапке.
+let openRequest: ((request: AgentRequestSummary) => void) | null = null
+vi.mock('./AgentBar', () => ({
+  default: ({ onOpen }: { onOpen: (request: AgentRequestSummary) => void }) => {
+    openRequest = onOpen
+    return null
+  },
+}))
 
 let visibility: DocumentVisibilityState = 'visible'
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility })
@@ -869,4 +877,133 @@ test('опрос не закрывает окно ответа и не сбра�
   expect(fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces')).toHaveLength(4)
   expect(screen.getByRole('dialog')).toBe(dialog)
   expect(within(dialog).getByRole('textbox')).toHaveValue('три секунды')
+})
+
+
+const backlogs = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    entries: [{ number: 'B-1', title: 'Запись своего проекта', text: null }],
+    error: null,
+  },
+  {
+    base: 'D:\\Projects\\nota-knowledge',
+    project: 'Nota',
+    entries: [{ number: 'B-2', title: 'Запись соседнего проекта', text: null }],
+    error: null,
+  },
+]
+
+const flows = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    steps: [],
+    activeTasks: 0,
+    version: 'v1',
+    error: null,
+    icons: {},
+  },
+]
+
+const performers = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    copies: [{ path: 'D:\\Projects\\app', name: 'app', branch: 'master', main: true }],
+    performers: [],
+    error: null,
+  },
+]
+
+// Разделы, к которым ведёт возврат к просьбе, читают каждый своё; окна просьб — /api/agent/requests
+function stubSections() {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/backlog') return new Response(JSON.stringify(backlogs), { status: 200 })
+    if (url === '/api/flow') return new Response(JSON.stringify(flows), { status: 200 })
+    if (url === '/api/performers') return new Response(JSON.stringify(performers), { status: 200 })
+    if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
+    return new Response(JSON.stringify([]), { status: 200 })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+// Оператор вернулся к просьбе отметкой в шапке: панель открывает её раздел с её окном
+function returnToRequest(kind: AgentKind, base: string) {
+  act(() => {
+    openRequest?.({ kind, id: 'r1', base, project: 'app-knowledge', text: 'запиши', elapsedMs: 0, state: 'running' })
+  })
+}
+
+function sidebarButtons() {
+  return within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+}
+
+test('«Бэклог» из сайдбара открывается списком, а не окном записи после возврата к просьбе', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Бэклог/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Запись в бэклог' })).not.toBeInTheDocument()
+  // Фильтр по проекту забыт вместе с окном: в списке снова все проекты
+  expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
+})
+
+test('«Флоу» из сайдбара открывается схемой, а не окном переписывания после возврата к просьбе', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('flow', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Переписать флоу' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Флоу/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Переписать флоу' })).not.toBeInTheDocument()
+})
+
+test('«Исполнители» из сайдбара открываются списком, а не окном заведения после возврата к просьбе', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('performer', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Новый исполнитель' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Исполнители/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Исполнители' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Новый исполнитель' })).not.toBeInTheDocument()
+})
+
+test('возврат к просьбе из шапки открывает раздел с окном на её базе сколько угодно раз', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+
+  fireEvent.click(sidebarButtons().getByRole('button', { name: /Рабочие копии/ }))
+  await screen.findByRole('table')
+
+  returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  // Раздел встал на базе просьбы: записи соседнего проекта список не показывает
+  expect(screen.queryByText('Запись соседнего проекта')).not.toBeInTheDocument()
 })
