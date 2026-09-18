@@ -85,6 +85,7 @@ app.MapFlowRewriteEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
+app.MapPerformerDraftEndpoints();
 app.MapPerformersEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();

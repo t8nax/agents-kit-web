@@ -115,6 +115,20 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Performers_CommitSaysWhetherPerformerWasAddedOrChanged()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", copy);
+
+        await Save(basePath, new SavePerformerRequest(basePath, copy, "reviewer", "Первое", null, null, "Тело"));
+        Assert.Equal("Исполнитель заведён из панели", Subject(copy));
+
+        await Save(basePath, new SavePerformerRequest(basePath, copy, "reviewer", "Второе", null, null, "Другое тело"));
+        // По истории копии видно, что произошло: правка заведённого — не заведение — решение оператора на B-69.
+        Assert.Equal("Исполнитель изменён из панели", Subject(copy));
+    }
+
+    [Fact]
     public async Task Performers_CommitTakesOnlyThePerformerFile()
     {
         var copy = TestGit.Repository(Path.Combine(_root, "app"));
@@ -197,6 +211,8 @@ public sealed class PerformersEndpointsTests : IDisposable
         return basePath;
     }
 
+    private static string Subject(string copy) => Run(copy, "log", "-1", "--format=%s").Trim();
+
     private static string[] Status(string copy) =>
         Run(copy, "status", "--porcelain").Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.Trim()).ToArray();
 
@@ -206,7 +222,13 @@ public sealed class PerformersEndpointsTests : IDisposable
 
     private static string Run(string workingDirectory, params string[] args)
     {
-        var startInfo = new System.Diagnostics.ProcessStartInfo("git") { WorkingDirectory = workingDirectory, RedirectStandardOutput = true };
+        // Сообщения коммитов панели по-русски: без UTF-8 вывод git читается кодировкой консоли и не сходится.
+        var startInfo = new System.Diagnostics.ProcessStartInfo("git")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+        };
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
         using var process = System.Diagnostics.Process.Start(startInfo)!;

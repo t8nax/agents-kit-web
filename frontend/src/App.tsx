@@ -232,7 +232,7 @@ function App() {
               setAsking(true)
               return
             }
-            setSection(request.kind === 'backlog' ? 'backlog' : 'flow')
+            setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
             setOpenRequest({ kind: request.kind, base: request.base, at: Date.now() })
           }}
         />
@@ -296,7 +296,11 @@ function App() {
               onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (
-            <Performers />
+            // Возврат к просьбе открывает раздел заново: окно исполнителя встаёт на базе просьбы.
+            <Performers
+              key={openRequest?.kind === 'performer' ? openRequest.at : 'performers'}
+              draftFor={openRequest?.kind === 'performer' ? openRequest.base : null}
+            />
           ) : section === 'sessions' ? (
             <Sessions />
           ) : section === 'usage' ? (

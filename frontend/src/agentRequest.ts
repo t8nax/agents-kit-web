@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** Виды просьб к агенту: разом идёт по одной каждого вида — решение оператора на B-52. */
-export type AgentKind = 'ask' | 'backlog' | 'flow'
+export type AgentKind = 'ask' | 'backlog' | 'flow' | 'performer'
 
 export type AgentRequestSummary = {
   kind: AgentKind
