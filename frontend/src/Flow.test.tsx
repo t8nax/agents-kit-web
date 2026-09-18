@@ -409,3 +409,40 @@ test('пустой шаг добавляется в конец, пресет у�
   expect(nodes(region)[3]).toHaveTextContent(/^без названия/)
   expect(screen.getByText('Не сохранить: шаг 4 — нет названия, не указан выход')).toBeInTheDocument()
 })
+
+test('переписанный агентом флоу ложится в схему правками, а не записью в базу', async () => {
+  const rewritten: FlowStep[] = [criterion, { ...review, output: 'вердикт по sha всей ветки' }, acceptance]
+  const stream = new Response(
+    new TextEncoder().encode(
+      JSON.stringify({ type: 'rewritten', text: '', steps: rewritten, version: 'v1', durationMs: 12000 }) + '\n',
+    ),
+    { headers: { 'Content-Type': 'application/x-ndjson' } },
+  )
+  const fetchMock = stubApi(api([app], [], { 'POST /api/flow/rewrite': () => stream }))
+  const region = await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-юдо' }))
+  fireEvent.change(await screen.findByLabelText('Что поменять во флоу'), {
+    target: { value: 'Ревью смотрит дифф всей ветки' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Взять правки в схему' }))
+
+  expect(screen.getByText('Правки Чудо-юдо в схеме — их ещё нужно сохранить')).toBeInTheDocument()
+  expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
+  // Флоу базы записывает не окно, а прежняя кнопка «Сохранить».
+  expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
+
+  const drawer = await openStep(region, /^Шаг 2: /)
+  expect(drawer.getByLabelText('выход')).toHaveValue('вердикт по sha всей ветки')
+})
+
+test('со своими несохранёнными правками переписывать нельзя: агент читает файл базы', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+
+  const drawer = await openStep(region, /^Шаг 1: /)
+  fireEvent.change(drawer.getByLabelText('выход'), { target: { value: 'критерий и ответ оператора' } })
+
+  expect(screen.getByRole('button', { name: 'Переписать с Чудо-юдо' })).toBeDisabled()
+})
