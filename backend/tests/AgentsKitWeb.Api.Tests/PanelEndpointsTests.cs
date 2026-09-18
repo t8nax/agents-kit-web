@@ -124,6 +124,28 @@ public sealed class PanelEndpointsTests : IDisposable
 
         Assert.NotNull(update);
         Assert.Equal("1.2.0", update.Latest);
+        Assert.Equal(head, update.Sha);
+        Assert.Empty(update.Releases);
+    }
+
+    [Fact]
+    public async Task Updates_WhenChannelMovedWithoutANewVersion_StillTellTheCodeItStandsOn()
+    {
+        // Работа уехала в канал, а номер версии за ней не подняли: по номерам панель выглядит свежей,
+        // и отставание видно только по коду.
+        var (repository, _) = RepositoryWithReleases();
+        var origin = Path.Combine(_root, "origin");
+        var standing = Head(origin);
+        Change(origin, "Оператор удаляет рабочую копию из панели");
+        var file = Published(Panel("dev", "origin/dev", standing, "1.2.0", repository));
+        using var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.NotNull(update);
+        Assert.Equal("1.2.0", update.Latest);
+        Assert.Equal(Head(origin), update.Sha);
+        // В перечень идут только задачи с поднятым номером — эта в него не попадает.
         Assert.Empty(update.Releases);
     }
 
@@ -149,6 +171,14 @@ public sealed class PanelEndpointsTests : IDisposable
         var copy = Path.Combine(_root, "copy");
         TestGit.Run(_root, "clone", origin, copy);
         return (copy, standing);
+    }
+
+    /// <summary>Коммит, который номер версии не поднял: в перечень вышедшего он не попадает.</summary>
+    private static void Change(string repository, string title)
+    {
+        File.WriteAllText(Path.Combine(repository, "changed.txt"), title + "\n");
+        TestGit.Run(repository, "add", "changed.txt");
+        TestGit.Run(repository, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", title);
     }
 
     private static void Release(string repository, string version, string title)

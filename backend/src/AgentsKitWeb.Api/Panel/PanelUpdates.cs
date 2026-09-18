@@ -6,10 +6,11 @@ namespace AgentsKitWeb.Api.Panel;
 public sealed record PanelRelease(string Version, string Title);
 
 /// <summary>
-/// Что в канале есть сверх стоящей панели. Latest — последняя версия канала; Releases — версии
-/// от стоящей до неё, новые первыми. Пустой список при том же Latest значит «панель свежая».
+/// Что в канале есть сверх стоящей панели. Sha — код, на котором стоит канал: отстала панель или нет,
+/// видно только по нему, потому что номер версии поднимает человек и пропускает. Latest — версия
+/// канала; Releases — версии от стоящей до неё, новые первыми, и пустым он бывает у отставшей панели.
 /// </summary>
-public sealed record PanelUpdate(string Latest, IReadOnlyList<PanelRelease> Releases);
+public sealed record PanelUpdate(string Latest, string Sha, IReadOnlyList<PanelRelease> Releases);
 
 /// <summary>
 /// Вышедшие версии считаются по репозиторию проекта, который назвал published.json: номер версии
@@ -33,10 +34,13 @@ public static class PanelUpdates
         if (fetched.ExitCode != 0)
             return null;
 
-        if (await VersionAtAsync(repository, $"origin/{channel}", cancellationToken) is not { } latest)
+        if (await RevisionAsync(repository, $"origin/{channel}", cancellationToken) is not { } head)
             return null;
 
-        return new PanelUpdate(latest, await ReleasesAsync(repository, channel, sha, version, cancellationToken));
+        if (await VersionAtAsync(repository, head, cancellationToken) is not { } latest)
+            return null;
+
+        return new PanelUpdate(latest, head, await ReleasesAsync(repository, channel, sha, version, cancellationToken));
     }
 
     private static async Task<IReadOnlyList<PanelRelease>> ReleasesAsync(
@@ -68,6 +72,16 @@ public static class PanelUpdates
         }
         releases.Reverse();
         return releases;
+    }
+
+    /// <summary>Код, на котором стоит ревизия: им панель и сравнивает себя с каналом.</summary>
+    private static async Task<string?> RevisionAsync(string repository, string revision, CancellationToken cancellationToken)
+    {
+        var shown = await GitRunner.RunAsync(repository, ReadTimeout, cancellationToken, "rev-parse", $"{revision}^{{commit}}");
+        if (shown.ExitCode != 0)
+            return null;
+        var sha = shown.Output.Trim();
+        return sha.Length == 0 ? null : sha;
     }
 
     private static async Task<string?> VersionAtAsync(string repository, string revision, CancellationToken cancellationToken)
