@@ -39,6 +39,11 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddHttpClient<ILimits, AnthropicLimits>(client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton(services =>
     new InstalledPanel(services.GetRequiredService<IConfiguration>()["PublishedFile"] ?? InstalledPanel.DefaultFile));
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new PanelChannelStore(config["PanelFile"] ?? PanelChannelStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
+});
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
