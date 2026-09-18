@@ -108,3 +108,17 @@
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
 }
+
+/* Только что записанный исполнитель отмечен, как новая запись бэклога, — до следующего чтения раздела. */
+.performer-fresh {
+  border-color: var(--accent-active-border);
+}
+
+.performer-fresh-mark {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-active-border);
+  background: var(--accent-active-bg);
+  color: var(--accent-active-text);
+}

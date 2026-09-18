@@ -7,12 +7,14 @@ namespace AgentsKitWeb.Api.Performers;
 /// <summary>
 /// Исполнитель — субагент Claude Code. Source: copy — лежит в рабочей копии проекта и правится из панели;
 /// profile — лежит в профиле оператора, панель его только показывает. Copy — копия, в которой найден файл.
+/// Prompt — задание из файла: окно правки берёт его отсюда, а не отдельным запросом по пути к файлу.
 /// </summary>
 public sealed record Performer(
     string Name,
     string? Description,
     string? Model,
     string? Tools,
+    string Prompt,
     string Path,
     string Source,
     string? Copy);
@@ -195,6 +197,7 @@ public static class PerformersEndpoints
                 fields.Description,
                 fields.Model,
                 fields.Tools,
+                fields.Prompt,
                 file,
                 source,
                 copy));

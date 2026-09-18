@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import PerformerModal from './PerformerModal'
 import './Performers.css'
 
 /** Исполнитель — субагент Claude Code. source: copy — лежит в копии проекта, profile — в профиле оператора. */
@@ -7,6 +8,7 @@ export type Performer = {
   description: string | null
   model: string | null
   tools: string | null
+  prompt: string
   path: string
   source: 'copy' | 'profile'
   copy: string | null
@@ -39,6 +41,10 @@ type Load =
 export default function Performers() {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [project, setProject] = useState<string | null>(null)
+  // Окно открыто: заводится новый (performer null) или правится заведённый.
+  const [editing, setEditing] = useState<{ performer: Performer | null } | null>(null)
+  // Только что записанные, именем: отмечены в списке до следующего чтения раздела.
+  const [fresh, setFresh] = useState<Set<string>>(() => new Set())
 
   const loadPerformers = useCallback(() => {
     fetch('/api/performers')
@@ -70,7 +76,12 @@ export default function Performers() {
     <>
       <div className="content-head">
         <h2>Исполнители</h2>
-        <button type="button" className="bases-btn bases-btn-add head-end" disabled={shown === null}>
+        <button
+          type="button"
+          className="bases-btn bases-btn-add head-end"
+          disabled={shown === null || shown.copies.length === 0}
+          onClick={() => setEditing({ performer: null })}
+        >
           <PlusIcon />
           Новый исполнитель
         </button>
@@ -116,18 +127,45 @@ export default function Performers() {
             </p>
           )}
           {shown.performers.map((performer) => (
-            <PerformerRow key={`${performer.source}|${performer.path}`} performer={performer} />
+            <PerformerRow
+              key={`${performer.source}|${performer.path}`}
+              performer={performer}
+              fresh={fresh.has(performer.name)}
+              onEdit={() => setEditing({ performer })}
+            />
           ))}
         </div>
+      )}
+
+      {editing && shown && (
+        <PerformerModal
+          base={shown.base}
+          copies={shown.copies}
+          editing={editing.performer}
+          onClose={() => setEditing(null)}
+          onSaved={(name) => {
+            setEditing(null)
+            setFresh((prev) => new Set([...prev, name]))
+            loadPerformers()
+          }}
+        />
       )}
     </>
   )
 }
 
-function PerformerRow({ performer }: { performer: Performer }) {
+function PerformerRow({
+  performer,
+  fresh,
+  onEdit,
+}: {
+  performer: Performer
+  fresh: boolean
+  onEdit: () => void
+}) {
   const fromProfile = performer.source === 'profile'
   return (
-    <div className={`performer ${fromProfile ? 'performer-profile' : ''}`}>
+    <div className={`performer ${fromProfile ? 'performer-profile' : ''} ${fresh ? 'performer-fresh' : ''}`}>
       <span className="performer-mark" aria-hidden="true">
         <PerformerIcon />
       </span>
@@ -137,6 +175,7 @@ function PerformerRow({ performer }: { performer: Performer }) {
           <span className={`performer-source ${fromProfile ? '' : 'performer-source-copy'}`}>
             {fromProfile ? 'из профиля' : 'в проекте'}
           </span>
+          {fresh && <span className="performer-fresh-mark">записан</span>}
         </div>
         {performer.description && <p className="performer-desc">{performer.description}</p>}
         <span className="performer-path">{performer.path}</span>
@@ -145,7 +184,7 @@ function PerformerRow({ performer }: { performer: Performer }) {
         {performer.model && <span className="performer-badge">{performer.model}</span>}
         <span className="performer-badge">{performer.tools ?? 'все инструменты'}</span>
         {/* Панель правит только то, что лежит в копии проекта: профиль она показывает и не трогает. */}
-        <button type="button" className="bases-btn" disabled={fromProfile}>
+        <button type="button" className="bases-btn" disabled={fromProfile} onClick={onEdit}>
           Править
         </button>
       </div>
