@@ -94,6 +94,49 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Empty(await GetBacklogs());
     }
 
+    [Fact]
+    public async Task Backlog_ReturnsDeclaredFieldsOfEntries()
+    {
+        var basePath = CreateBase("app-knowledge", """
+            # Проект — бэклог
+
+            следующий номер: B-3
+            поля: приоритет, тип
+
+            ## B-1 Панель показывает проблемы баз знаний
+
+            приоритет: блокер
+            тип: баг
+
+            Сейчас панель не говорит, что с базой что-то не так.
+
+            ## B-2 Светлая тема
+
+            тип: фича
+
+            Панель сейчас только тёмная.
+            """);
+
+        var entries = Assert.Single(await GetBacklogs(basePath)).Entries;
+
+        Assert.Equal("блокер", entries[0].Priority);
+        Assert.Equal("баг", entries[0].Type);
+        Assert.Equal("Сейчас панель не говорит, что с базой что-то не так.", entries[0].Text);
+        Assert.Null(entries[1].Priority);
+        Assert.Equal("фича", entries[1].Type);
+    }
+
+    [Fact]
+    public async Task Backlog_WithoutDeclarationHasNoFields()
+    {
+        var basePath = CreateBase("app-knowledge", "## B-1 Первая\n\nприоритет: блокер\n\nТекст.\n");
+
+        var entry = Assert.Single(Assert.Single(await GetBacklogs(basePath)).Entries);
+
+        Assert.Null(entry.Priority);
+        Assert.Null(entry.Type);
+    }
+
     private string CreateBase(string name, string backlog)
     {
         var basePath = Path.Combine(_root, name);
