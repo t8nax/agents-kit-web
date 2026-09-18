@@ -3,6 +3,7 @@ using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Tasks;
+using AgentsKitWeb.Api.Usage;
 using AgentsKitWeb.Api.Workspaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,6 +26,11 @@ builder.Services.AddSingleton(services =>
     var config = services.GetRequiredService<IConfiguration>();
     return new TaskSessions(config["TaskSessionsFile"] ?? TaskSessions.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(services =>
+    new UsageScanner(services.GetRequiredService<IConfiguration>()["ProjectsDir"] ?? UsageScanner.DefaultDirectory,
+        services.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton<ILimits, PendingLimits>();
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
@@ -68,6 +74,7 @@ app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
+app.MapUsageEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.
 app.MapFallback("/api/{**path}", () => Results.NotFound());
