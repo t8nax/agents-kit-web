@@ -733,6 +733,8 @@ Write-Json (Join-Path $Root 'live-snapshot.json') $live
 # --- строка запуска ----------------------------------------------------------------------
 
 $api = Join-Path $repo 'backend\src\AgentsKitWeb.Api'
+$frontend = Join-Path $repo 'frontend'
+$apiPort = $Port + 1
 $pathLine = if ($RealAgent) {
     '# агент настоящий: claude берётся из PATH как обычно'
 }
@@ -740,23 +742,44 @@ else {
     "`$env:PATH = '$binDir;' + `$env:PATH"
 }
 
+# Панель — это фронт и API, как в разработке: API отдаёт собранный фронт только в поставленной
+# панели, а песочница работает на том коде, что лежит в рабочей копии. Поэтому скрипт поднимает
+# оба: API на своём порту, а dev-сервер фронта — на том, который открывает оператор, и он же
+# проксирует на API.
 Write-Utf8 (Join-Path $Root 'start-panel.ps1') @"
-# Поднимает панель на песочнице. Живых баз она при этом не видит: список баз, реестр сессий
-# и профиль Claude Code взяты из песочницы, а не из профиля оператора.
+# Поднимает панель на песочнице: API и dev-сервер фронта. Живых баз панель не видит — список баз,
+# реестр сессий и профиль Claude Code взяты из песочницы, а не из профиля оператора.
+# Гасится Ctrl+C: API останавливается вместе с фронтом.
 `$ErrorActionPreference = 'Stop'
 $pathLine
-dotnet run --project '$api' --no-launch-profile -- ``
-    --urls 'http://localhost:$Port' ``
-    --BasesFile '$(Join-Path $panelDir 'bases.json')' ``
-    --SessionsDir '$sessionsDir' ``
-    --ClaudeDir '$claudeDir'
+
+if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
+    throw 'нет node_modules фронта — сначала «npm install» в frontend'
+}
+
+`$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
+    '-NoProfile', '-NonInteractive', '-Command',
+    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir'")
+
+try {
+    `$env:WEB_PORT = '$Port'
+    `$env:API_PORT = '$apiPort'
+    Write-Host 'Панель песочницы: http://localhost:$Port (API на $apiPort)'
+    Push-Location '$frontend'
+    npm run dev
+}
+finally {
+    Pop-Location
+    # dotnet run держит API отдельным дочерним процессом: гасим всё дерево.
+    & taskkill.exe /PID `$api.Id /T /F 2>`$null | Out-Null
+}
 "@
 
 Write-Host ""
 Write-Host "Песочница собрана: $Root"
 Write-Host ""
 Write-Host "  запуск панели:  pwsh -NoProfile -File `"$(Join-Path $Root 'start-panel.ps1')`""
-Write-Host "  адрес панели:   http://localhost:$Port"
+Write-Host "  адрес панели:   http://localhost:$Port   (API рядом, на $apiPort)"
 Write-Host "  режим кита:     $(Join-Path $Root 'kit-mode.txt')     (ok, empty, garbage, huge, fail, hang)"
 if ($RealAgent) {
     Write-Host "  агент:          настоящий claude из PATH — это деньги и настоящие права"
