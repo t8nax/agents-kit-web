@@ -200,7 +200,7 @@ test('про копию с идущей задачей окно предупре
   await page.getByRole('button', { name: 'Новая сессия' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Новая сессия' })
-  await expect(dialog).toContainText('идёт задача B-22 Правка флоу проекта из панели')
+  await expect(dialog).toContainText('идёт задача B-22')
   await expect(dialog).toContainText('Новая сессия её не прервёт')
 
   await dialog.getByLabel('С чего начать — необязательно').fill('поработаем руками')

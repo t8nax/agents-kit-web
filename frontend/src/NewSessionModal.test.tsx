@@ -114,7 +114,8 @@ test('про копию с идущей задачей окно предупре
 
   fireEvent.click(copies[1])
 
-  expect(screen.getByText(/В копии noble-keen-walrus идёт задача B-58/)).toBeInTheDocument()
+  expect(screen.getByText(/В копии noble-keen-walrus идёт задача B-58 Панель зовёт кит/)).toBeInTheDocument()
+  expect(screen.getByText('идёт задача B-58')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Запустить' })).toBeEnabled()
 
   fireEvent.click(screen.getByRole('button', { name: 'Запустить' }))

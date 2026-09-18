@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
 import { plural } from './plural'
 import type { SessionRow } from './Sessions'
+import { splitTask } from './taskTitle'
 import './NewSessionModal.css'
 
 type Props = {
@@ -143,9 +144,14 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
                         }}
                       />
                       <span className="ns-radio" aria-hidden="true" />
-                      <span className="ns-copy-name">{copyName(row.path)}</span>
-                      {row.task && <span className="ns-task">идёт задача {row.task}</span>}
-                      <span className="ns-copy-sub text-ter">{subtitle(row, sessions)}</span>
+                      <span className="ns-copy-text">
+                        <span className="ns-copy-head">
+                          <span className="ns-copy-name">{copyName(row.path)}</span>
+                          {/* В плашке только номер: заголовок задачи длинный, и целиком он в предупреждении ниже */}
+                          {row.task && <span className="ns-task">идёт задача {splitTask(row.task).number ?? row.task}</span>}
+                        </span>
+                        <span className="ns-copy-sub text-ter">{subtitle(row, sessions)}</span>
+                      </span>
                     </label>
                   </li>
                 ))}

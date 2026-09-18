@@ -84,6 +84,7 @@
   margin: 0;
   padding: 0;
   max-height: 210px;
+  overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
@@ -124,18 +125,30 @@
   border: 4px solid var(--text-primary);
 }
 
+.ns-copy-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ns-copy-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .ns-copy-name {
   font-size: 14px;
   line-height: 1.4;
+  white-space: nowrap;
 }
 
 /* Задача копии — та же плашка, что у статуса «В работе» в таблице копий */
 .ns-task {
   flex-shrink: 0;
-  max-width: 220px;
-  overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
   padding: 2px 9px;
   border-radius: 999px;
   font-size: 12px;
@@ -145,9 +158,10 @@
 }
 
 .ns-copy-sub {
-  margin-left: auto;
-  flex-shrink: 0;
   font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ns-prompt {
