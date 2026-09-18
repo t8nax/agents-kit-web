@@ -89,7 +89,7 @@ test('тип и приоритет записи видны плашками в �
   expect(screen.getByRole('button', { name: 'B-3 Без полей' })).toBeInTheDocument()
 })
 
-test('в окне записи тип и приоритет стоят после названия', async () => {
+test('в окне записи тип и приоритет стоят под заголовком', async () => {
   stubFetch([
     {
       ...backlogs[0],
@@ -100,8 +100,10 @@ test('в окне записи тип и приоритет стоят посл�
   render(<Backlog />)
   fireEvent.click(await screen.findByRole('button', { name: /B-1 баг высокий Копия не пускает/ }))
 
+  // Номер с названием идут строкой, плашки — строкой ниже
   const dialog = screen.getByRole('dialog', { name: 'Копия не пускает' })
-  expect(dialog.textContent).toMatch(/B-1\s*Копия не пускает\s*баг\s*высокий/)
+  expect(dialog.querySelector('.entry-modal-line')?.textContent).toBe('B-1Копия не пускает')
+  expect(dialog.querySelector('.entry-modal-fields')?.textContent).toMatch(/баг\s*высокий/)
 })
 
 test('значение поля вне перечня кита показывается как есть', async () => {

@@ -78,7 +78,7 @@ test('запись открывается окном с размеченным �
   await expect(dialog).toHaveCount(0)
 })
 
-test('тип и приоритет записи видны в списке и в окне, после названия', async ({ page }) => {
+test('тип и приоритет записи видны в списке и в окне, под заголовком', async ({ page }) => {
   await mockApi(page, [
     { number: 'B-1', title: 'Копия не пускает следующую задачу', text: 'Текст.', priority: 'блокер', type: 'баг' },
     { number: 'B-13', title: 'У панели есть светлая тема', text: null, priority: 'низкий', type: 'фича' },
@@ -95,7 +95,9 @@ test('тип и приоритет записи видны в списке и в
 
   await entry.click()
   const dialog = page.getByRole('dialog', { name: 'Копия не пускает следующую задачу' })
-  await expect(dialog.locator('.entry-modal-name')).toHaveText(/B-1\s*Копия не пускает следующую задачу\s*баг\s*блокер/)
+  // В окне плашки идут своей строкой под заголовком
+  await expect(dialog.locator('.entry-modal-line')).toHaveText(/B-1\s*Копия не пускает следующую задачу/)
+  await expect(dialog.locator('.entry-modal-fields')).toHaveText(/баг\s*блокер/)
 })
 
 test('запись без текста открывается окном «Описания нет»', async ({ page }) => {

@@ -201,13 +201,19 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
     <div className="entry-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-modal-title">
         <div className="entry-modal-head">
-          {/* Плашки стоят за названием — выбор оператора на B-75 */}
+          {/* Плашки стоят строкой под заголовком — выбор оператора на приёмке B-75 */}
           <div className="entry-modal-name">
-            {entry.number && <span className="entry-num">{entry.number}</span>}
-            <h3 id="entry-modal-title">
-              <InlineMarkdown text={entry.title} />
-            </h3>
-            <EntryFields entry={entry} />
+            <div className="entry-modal-line">
+              {entry.number && <span className="entry-num">{entry.number}</span>}
+              <h3 id="entry-modal-title">
+                <InlineMarkdown text={entry.title} />
+              </h3>
+            </div>
+            {(entry.type || entry.priority) && (
+              <div className="entry-modal-fields">
+                <EntryFields entry={entry} />
+              </div>
+            )}
           </div>
           <button ref={closeRef} type="button" className="entry-close" aria-label="Закрыть" onClick={onClose}>
             <svg viewBox="0 0 24 24" aria-hidden="true">

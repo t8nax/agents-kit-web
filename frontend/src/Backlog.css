@@ -185,14 +185,27 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-/* Номер, название и плашки идут одной строкой и переносятся вместе: плашки стоят за названием. */
+/* Номер с названием в строке, плашки — строкой под ними. */
 .entry-modal-name {
   flex: 1;
   min-width: 0;
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.entry-modal-line {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
+}
+
+.entry-modal-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 .entry-modal-head h3 {
