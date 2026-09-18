@@ -46,6 +46,8 @@ builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
+// Отработавшую сессию задачи панель гасит сама — решение оператора на B-68.
+builder.Services.AddHostedService<FinishedTaskSessions>();
 var app = builder.Build();
 
 // Собранный фронт лежит в wwwroot поставленной панели; в разработке его отдаёт Vite, а wwwroot пуст.
@@ -55,10 +57,16 @@ app.UseStaticFiles();
 app.MapGet("/api/ping", () => new PingResponse("pong"));
 
 app.MapGet("/api/workspaces", async (
-    BasesStore bases, HealthMonitor health, AgentSessions sessions, TaskSessions tasks, CancellationToken cancellationToken) =>
-    sessions.Annotate(
+    BasesStore bases,
+    HealthMonitor health,
+    AgentSessions sessions,
+    TaskSessions tasks,
+    StartedTasks started,
+    CancellationToken cancellationToken) =>
+    // Отметка о только что запущенной задаче ложится последней: ей нужна живая сессия из sessions.Annotate.
+    started.Annotate(sessions.Annotate(
         HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot),
-        tasks.SessionIn));
+        tasks.SessionIn)));
 
 app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
 app.MapPost("/api/health/check", (HealthMonitor health) =>
@@ -77,6 +85,7 @@ app.MapFlowRewriteEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
+app.MapPerformerDraftEndpoints();
 app.MapPerformersEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();

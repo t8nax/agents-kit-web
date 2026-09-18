@@ -344,6 +344,25 @@ if ($mode -eq 'fail') {
     exit 1
 }
 
+# Гашение сессии: настоящий claude stop завершает её процесс, и файл реестра за ним исчезает.
+# Здесь то же самое: гаснет пустышка, которой заведена сессия, и уходит её файл — иначе не видно,
+# как строка пропадает из перечня.
+if ($arguments.Count -ge 2 -and $arguments[0] -eq 'stop') {
+    $wanted = $arguments[1]
+    foreach ($file in Get-ChildItem -LiteralPath (Join-Path $root 'sessions') -Filter '*.json' -ErrorAction Ignore) {
+        $session = try { Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json } catch { $null }
+        if (-not $session -or $session.jobId -ne $wanted) { continue }
+        $process = Get-Process -Id $session.pid -ErrorAction Ignore
+        # Номера процессов Windows переиспользует: гасим только свою пустышку.
+        if ($process -and $process.ProcessName -eq 'pwsh') { Stop-Process -Id $session.pid -Force -ErrorAction Ignore }
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Ignore
+        Write-Line "Session $wanted stopped"
+        exit 0
+    }
+    [Console]::Error.WriteLine("no such session: $wanted")
+    exit 1
+}
+
 # Запуск задачи: панель ждёт в выводе короткий id фоновой сессии.
 if ($arguments -contains '--bg') {
     if ($mode -in @('garbage', 'truncated')) {
@@ -351,6 +370,22 @@ if ($arguments -contains '--bg') {
         exit 0
     }
     $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    # Настоящая фоновая сессия появляется в реестре живых, и панель по ней видит, что запуск
+    # ещё идёт: без записи копия числилась бы свободной до самой памяти задачи.
+    $dummy = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 86400')
+    $session = [ordered]@{
+        pid        = $dummy.Id
+        cwd        = (Get-Location).Path
+        entrypoint = 'cli'
+        kind       = 'bg'
+        jobId      = $id
+        status     = 'busy'
+        name       = "песочница drive $id"
+        startedAt  = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    }
+    $file = Join-Path (Join-Path $root 'sessions') "$($dummy.Id).json"
+    [IO.File]::WriteAllText($file, (([pscustomobject]$session) | ConvertTo-Json -Depth 4), [Text.UTF8Encoding]::new($false))
     Write-Line "Session backgrounded · $id"
     exit 0
 }
@@ -604,12 +639,16 @@ Write-Utf8 (Join-Path $goodCopy 'README.md') "# Дом`n`nВыдуманный �
 Add-Commit $goodCopy 'Первый коммит'
 $goodWorktree = Join-Path $copiesDir 'house-task'
 git -C $goodCopy worktree add -b feat/polling $goodWorktree --quiet
+# Копия, где задача уже закончилась: памяти у неё нет, и сессия в ней стоит одна — на ней
+# и видно, как панель гасит отработавшую сессию, ничего вокруг не задевая.
+$goodDone = Join-Path $copiesDir 'house-done'
+git -C $goodCopy worktree add -b feat/done $goodDone --quiet
 
 New-Base $goodBase 'Дом' @($goodCopy)
 New-Memory (Join-Path $goodBase 'work\house-task.md') $goodWorktree 'feat/polling'
 Add-Commit $goodBase 'Память задачи'
 $bases.Add($goodBase)
-foreach ($copy in @($goodCopy, $goodWorktree)) {
+foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
     $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $goodBase })
 }
 $findings.Add([pscustomobject]@{ base = $goodBase; findings = @() })
@@ -725,6 +764,16 @@ if (-not $NoSessions) {
     $background = Start-Dummy
     $dummies.Add($background)
     Write-Session $sessionsDir $background $goodWorktree @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'a1b2c3d4'; status = 'waiting' }
+
+    # Отработавшая сессия задачи: копия свободна — памяти у неё нет, — а сессия стоит без дела.
+    # Такую панель гасит сама, и в песочнице видно, как её строка уходит из перечня. Стоит она
+    # в копии, где сессий больше нет: иначе рядом остаётся чужая строка той же копии.
+    $finished = Start-Dummy
+    $dummies.Add($finished)
+    Write-Session $sessionsDir $finished $goodDone @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'f1e2d3c4'; status = 'idle' }
+    # Ту самую сессию задачи копии панель знает только по своему запуску — отсюда и эта запись.
+    Write-Json (Join-Path $panelDir 'task-sessions.json') ([pscustomobject]@{
+            sessions = @([pscustomobject]@{ copy = $goodDone; session = 'f1e2d3c4' }) })
 }
 
 Write-Json $state ([pscustomobject]@{ dummies = $dummies.ToArray(); port = $Port; root = $Root })
@@ -759,7 +808,7 @@ if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
 
 `$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command',
-    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir'")
+    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
 
 try {
     `$env:WEB_PORT = '$Port'

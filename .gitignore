@@ -12,3 +12,4 @@ bin/
 obj/
 test-results/
 playwright-report/
+kit-asks/

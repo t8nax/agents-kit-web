@@ -28,7 +28,8 @@ import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
-export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
+/** starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал. */
+export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting'
 
 export type WorkspaceRow = {
   project: string
@@ -116,6 +117,7 @@ const problemsStateLabels: Record<Exclude<ProblemsState, 'checked'>, string> = {
 
 const statusLabels: Record<WorkspaceStatus, string> = {
   free: 'Свободна',
+  starting: 'Запускается',
   'in-work': 'В работе',
   waiting: 'Ждёт оператора',
 }
@@ -230,7 +232,7 @@ function App() {
               setAsking(true)
               return
             }
-            setSection(request.kind === 'backlog' ? 'backlog' : 'flow')
+            setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
             setOpenRequest({ kind: request.kind, base: request.base, at: Date.now() })
           }}
         />
@@ -294,7 +296,11 @@ function App() {
               onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (
-            <Performers />
+            // Возврат к просьбе открывает раздел заново: окно исполнителя встаёт на базе просьбы.
+            <Performers
+              key={openRequest?.kind === 'performer' ? openRequest.at : 'performers'}
+              draftFor={openRequest?.kind === 'performer' ? openRequest.base : null}
+            />
           ) : section === 'sessions' ? (
             <Sessions />
           ) : section === 'usage' ? (

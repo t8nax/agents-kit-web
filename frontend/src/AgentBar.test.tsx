@@ -78,3 +78,22 @@ test('несколько просьб разворачиваются списк�
   expect(opened).toEqual([rewriting])
   expect(screen.queryByRole('list', { name: 'Просьбы' })).not.toBeInTheDocument()
 })
+
+test('просьба об исполнителе названа в шапке своими словами', async () => {
+  stubRequests([
+    {
+      kind: 'performer',
+      id: 'r3',
+      base: 'D:\\Projects\\app-knowledge',
+      project: 'Agents Kit Web',
+      text: 'Читает дифф ветки и возвращает вердикт',
+      elapsedMs: 4000,
+      state: 'running',
+    },
+  ])
+  render(<AgentBar onOpen={() => {}} />)
+
+  expect(
+    await screen.findByRole('button', { name: /Чудо-юдо заводит исполнителя Agents Kit Web/ }),
+  ).toBeInTheDocument()
+})

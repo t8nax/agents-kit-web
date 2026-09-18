@@ -47,7 +47,14 @@ public sealed record PerformerRejectedResponse(string Problem, string? Detail = 
 
 public static class PerformersEndpoints
 {
-    private const string CommitMessage = "Исполнитель заведён из панели";
+    /// <summary>
+    /// Сообщение коммита говорит, что произошло на самом деле: заведён исполнитель или изменён
+    /// заведённый. Про правку узнаём по файлу на диске, а не по слову окна: окно правки открывают
+    /// и у того, чей файл успели удалить руками.
+    /// </summary>
+    private const string AddedMessage = "Исполнитель заведён из панели";
+
+    private const string ChangedMessage = "Исполнитель изменён из панели";
 
     public static void MapPerformersEndpoints(this IEndpointRouteBuilder app)
     {
@@ -90,6 +97,7 @@ public static class PerformersEndpoints
                 Trimmed(request.Tools),
                 request.Prompt?.Trim() ?? "");
 
+            var existed = File.Exists(file);
             try
             {
                 System.IO.Directory.CreateDirectory(directory);
@@ -107,7 +115,8 @@ public static class PerformersEndpoints
             if (!added.Done)
                 return Results.Conflict(new PerformerRejectedResponse("not-committed", added.Error));
 
-            var committed = await PerformerGit.CommitFileAsync(copy.Path, relative, CommitMessage, cancellationToken);
+            var committed = await PerformerGit.CommitFileAsync(
+                copy.Path, relative, existed ? ChangedMessage : AddedMessage, cancellationToken);
             if (!committed.Done)
             {
                 await PerformerGit.UnstageFileAsync(copy.Path, relative, cancellationToken);
@@ -140,7 +149,7 @@ public static class PerformersEndpoints
     }
 
     /// <summary>Копии проекта, что есть на диске; первая копия из agents-kit.json помечена основной.</summary>
-    private static async Task<IReadOnlyList<PerformerCopy>> CopiesAsync(string basePath, CancellationToken cancellationToken)
+    internal static async Task<IReadOnlyList<PerformerCopy>> CopiesAsync(string basePath, CancellationToken cancellationToken)
     {
         var main = WorkspaceCollector.ReadCopies(basePath) is { } configured
             ? WorkspaceCollector.NewCopySource(configured)
