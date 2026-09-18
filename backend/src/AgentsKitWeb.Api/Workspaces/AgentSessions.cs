@@ -3,10 +3,16 @@ using System.Text.Json;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
-/// <summary>Сессия агента из реестра: каталог, в котором она идёт, и чем запущена.</summary>
-public sealed record AgentSession(string Cwd, int Pid, string? Entrypoint)
+/// <summary>
+/// Сессия агента из реестра: каталог, в котором она идёт, чем запущена и, у фоновой, её короткий id —
+/// тот, которым в неё входят из терминала.
+/// </summary>
+public sealed record AgentSession(string Cwd, int Pid, string? Entrypoint, string? Kind = null, string? JobId = null)
 {
     public bool InVsCode => Entrypoint == "claude-vscode";
+
+    /// <summary>Фоновая сессия — та, что живёт своим процессом без окна; войти в неё можно только по JobId.</summary>
+    public bool InBackground => Kind == "bg" && !string.IsNullOrEmpty(JobId);
 }
 
 /// <summary>
@@ -21,11 +27,19 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "sessions");
 
     /// <summary>Живая сессия VS Code в каталоге копии; null — такой сессии нет.</summary>
-    public AgentSession? VsCodeIn(string copyPath)
+    public AgentSession? VsCodeIn(string copyPath) => In(copyPath, session => session.InVsCode);
+
+    /// <summary>
+    /// Живая фоновая сессия в каталоге копии; null — такой сессии нет. Ту, что запустила панель, панель
+    /// у себя не помнит: id берётся отсюда, поэтому переход есть и после её перезапуска.
+    /// </summary>
+    public AgentSession? BackgroundIn(string copyPath) => In(copyPath, session => session.InBackground);
+
+    private AgentSession? In(string copyPath, Func<AgentSession, bool> wanted)
     {
         var copy = WorkspaceCollector.Normalize(copyPath);
         return All().FirstOrDefault(session =>
-            session.InVsCode && WorkspaceCollector.Normalize(session.Cwd).Equals(copy, StringComparison.OrdinalIgnoreCase));
+            wanted(session) && WorkspaceCollector.Normalize(session.Cwd).Equals(copy, StringComparison.OrdinalIgnoreCase));
     }
 
     private IEnumerable<AgentSession> All()
@@ -54,10 +68,8 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
             if (!root.TryGetProperty("pid", out var pid) || !pid.TryGetInt32(out var pidValue))
                 return null;
 
-            var entrypoint = root.TryGetProperty("entrypoint", out var e) && e.ValueKind == JsonValueKind.String
-                ? e.GetString()
-                : null;
-            return new AgentSession(cwd.GetString()!, pidValue, entrypoint);
+            return new AgentSession(
+                cwd.GetString()!, pidValue, Text(root, "entrypoint"), Text(root, "kind"), Text(root, "jobId"));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -65,6 +77,11 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
             return null;
         }
     }
+
+    private static string? Text(JsonElement root, string property) =>
+        root.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 
     private static bool IsAlive(int pid)
     {

@@ -70,12 +70,61 @@ public sealed class AgentSessionsTests : IDisposable
         Assert.Null(sessions.VsCodeIn(@"D:\Projects\app"));
     }
 
+    [Fact]
+    public void BackgroundIn_LiveBackgroundSessionOfThatCopy_IsFoundWithItsId()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced");
+
+        var session = Sessions(alive: _ => true).BackgroundIn(@"D:\Projects\app");
+
+        Assert.Equal("7339dced", session!.JobId);
+    }
+
+    [Fact]
+    public void BackgroundIn_SessionInVsCode_IsNotFound()
+    {
+        Write(@"D:\Projects\app", 200);
+
+        Assert.Null(Sessions(alive: _ => true).BackgroundIn(@"D:\Projects\app"));
+    }
+
+    [Fact]
+    public void BackgroundIn_BackgroundSessionWithoutId_IsNotFound()
+    {
+        WriteBackground(@"D:\Projects\app", 200, jobId: null);
+
+        Assert.Null(Sessions(alive: _ => true).BackgroundIn(@"D:\Projects\app"));
+    }
+
+    [Fact]
+    public void BackgroundIn_FileLeftFromDeadSession_IsNotFound()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced");
+
+        Assert.Null(Sessions(alive: _ => false).BackgroundIn(@"D:\Projects\app"));
+    }
+
+    [Fact]
+    public void BackgroundIn_SessionOfAnotherCopy_IsNotFound()
+    {
+        WriteBackground(@"D:\Projects\other", 200, "7339dced");
+
+        Assert.Null(Sessions(alive: _ => true).BackgroundIn(@"D:\Projects\app"));
+    }
+
     private AgentSessions Sessions(Func<int, bool> alive) => new(_dir, alive);
 
     private void Write(string cwd, int pid, string entrypoint = "claude-vscode") =>
         File.WriteAllText(
             Path.Combine(_dir, $"{pid}.json"),
             $$"""{"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"{{entrypoint}}","status":"waiting"}""");
+
+    private void WriteBackground(string cwd, int pid, string? jobId) =>
+        File.WriteAllText(
+            Path.Combine(_dir, $"{pid}.json"),
+            $$"""
+            {"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg"{{(jobId is null ? "" : $",\"jobId\":\"{jobId}\"")}}}
+            """);
 
     public void Dispose()
     {
