@@ -72,6 +72,36 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+// Запуск задачи виден в строке копии до памяти: панель сама помнит, с какой записью её запустила.
+const startingRow = {
+  ...freeRow,
+  task: 'B-8 Кнопка запуска задачи',
+  status: 'starting',
+  sessionState: 'working',
+  backgroundSession: true,
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`копия с запускающейся задачей стоит занятой (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await page.route('**/api/workspaces', async (route) => route.fulfill({ json: [busyRow, startingRow] }))
+    await page.goto('/')
+
+    const row = page.getByRole('table').locator('tbody tr').filter({ hasText: 'rustic-silver-sparrow' })
+    // Номер и заголовок записи стоят на своих местах, шага флоу и прогресса ещё нет
+    await expect(row.getByRole('cell').nth(1)).toHaveText('B-8')
+    await expect(row.getByRole('cell').nth(2)).toHaveText('Кнопка запуска задачи')
+    await expect(row.getByRole('cell').nth(3)).toHaveText('—')
+    await expect(row.getByRole('cell').nth(4)).toHaveText('—')
+    // Вторую задачу в неё не запустить: кнопки у занятой копии нет
+    await expect(row.getByRole('button', { name: 'Взять задачу' })).toBeHidden()
+
+    const badge = row.getByText('Запускается')
+    await expect(badge).toBeVisible()
+    await expect(badge).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  })
+}
+
 test('сообщение о запущенной задаче гаснет само', async ({ page }) => {
   await routeApi(page, { status: 200, json: { session: '7339dced' } })
   await page.goto('/')
