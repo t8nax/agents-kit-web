@@ -207,115 +207,86 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
         </div>
 
         <div className="pf-body">
-          {/* Просьба стоит в самом окне: второго окна у исполнителя нет — решение оператора на B-69. */}
-          <div className={`pf-ask ${phase === 'taken' ? 'pf-ask-done' : ''}`}>
-            {phase === 'taken' ? (
-              <div className="pf-ask-head">
-                <span className="pf-ask-mark" aria-hidden="true">
-                  <BotIcon />
-                </span>
-                <span className="pf-ask-title">Поля от «{AGENT_NAME}» — правьте что угодно</span>
-                <div className="pf-ask-actions">
-                  <button type="button" className="bases-btn bases-btn-small" disabled={busy} onClick={() => void revert()}>
-                    Вернуть как было
+          {/* Просьба — первое поле формы: отдельного окна у исполнителя нет — решение оператора на B-69. */}
+          <div className="pf-field">
+            <label className="pf-label" htmlFor="pf-wish">
+              Просьба к «{AGENT_NAME}»{' '}
+              <span className="text-ter">{editing ? '— он перепишет поля ниже' : '— он заполнит поля ниже'}</span>
+            </label>
+            <textarea
+              id="pf-wish"
+              className="pf-input pf-text"
+              rows={2}
+              value={phase === 'running' ? asked : wish}
+              placeholder={
+                editing
+                  ? 'Пусть ещё сверяет работу с критериями задачи и не чинит найденное сам'
+                  : 'Читает дифф ветки задачи, ищет ошибки по критериям и возвращает вердикт с замечаниями'
+              }
+              disabled={busy || phase === 'running'}
+              onChange={(event) => setWish(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void ask(wish)
+              }}
+            />
+
+            {phase === 'idle' && !editing && !wish && (
+              <div className="pf-examples">
+                {examples.map((example) => (
+                  <button key={example} type="button" className="pf-example" onClick={() => setWish(example)}>
+                    {example}
                   </button>
-                  <button type="button" className="bases-btn bases-btn-small" disabled={busy} onClick={() => void again()}>
-                    Переспросить
-                  </button>
-                </div>
+                ))}
               </div>
-            ) : phase === 'running' ? (
+            )}
+
+            {phase === 'running' && (
               <>
-                <div className="pf-ask-head">
+                <div className="pf-status" role="status">
                   <span className="pf-spinner" aria-hidden="true" />
-                  <span className="pf-ask-title pf-ask-working" role="status">
+                  <span className="pf-status-text">
                     «{AGENT_NAME}» {editing ? 'переписывает исполнителя' : 'заводит исполнителя'}…
                   </span>
                   {draft.startedAt !== null && <Elapsed since={draft.startedAt} />}
-                  <button type="button" className="bases-btn bases-btn-small" onClick={() => void draft.forget()}>
-                    Отменить
+                  <button type="button" className="pf-preset" onClick={() => void draft.forget()}>
+                    отменить
                   </button>
                 </div>
-                {asked && (
-                  <div className="pf-asked">
-                    <span className="pf-asked-label">Просьба</span>
-                    <span className="pf-asked-text">{asked}</span>
-                  </div>
-                )}
                 {draft.steps.length > 0 && (
-                  <ol className="pf-ask-steps" aria-label={`Ход работы «${AGENT_NAME}»`}>
+                  <ol className="pf-steps" aria-label={`Ход работы «${AGENT_NAME}»`}>
                     {draft.steps.map((step, i) => (
                       <li key={i}>{step}</li>
                     ))}
                   </ol>
                 )}
-                <p className="pf-ask-note">
+                <p className="pf-note">
                   Окно можно закрыть: просьба останется в шапке панели, и открытое заново окно покажет её ход с начала.
                 </p>
               </>
-            ) : (
-              <>
-                <div className="pf-ask-head">
-                  <span className="pf-ask-mark" aria-hidden="true">
-                    <BotIcon />
-                  </span>
-                  <span className="pf-ask-title">
-                    {editing
-                      ? `Скажите, что в нём поправить, — «${AGENT_NAME}» перепишет нынешние поля`
-                      : `Скажите словами, что исполнитель должен делать, — поля заполнит «${AGENT_NAME}»`}
-                  </span>
-                </div>
-                <label className="visually-hidden" htmlFor="pf-wish">
-                  {editing ? 'Что поправить в исполнителе' : 'Что исполнитель должен делать'}
-                </label>
-                <textarea
-                  id="pf-wish"
-                  className="pf-input pf-text"
-                  rows={editing ? 2 : 3}
-                  value={wish}
-                  placeholder={
-                    editing
-                      ? 'Пусть ещё сверяет работу с критериями задачи и не чинит найденное сам'
-                      : 'Читает дифф ветки задачи, ищет ошибки по критериям и возвращает вердикт с замечаниями'
-                  }
-                  disabled={busy}
-                  onChange={(event) => setWish(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void ask(wish)
-                  }}
-                />
-                {!editing && !wish && (
-                  <div className="pf-examples">
-                    {examples.map((example) => (
-                      <button key={example} type="button" className="pf-example" onClick={() => setWish(example)}>
-                        {example}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {phase === 'failed' && (
-                  <div className="pf-error" role="alert">
-                    <span className="pf-error-title">«{AGENT_NAME}» не заполнил поля</span>
-                    <p className="pf-error-text">{draftError}. Поля окна не тронуты.</p>
-                    {draftOutput && <p className="pf-error-text mono">{draftOutput}</p>}
-                  </div>
-                )}
-                <div className="pf-ask-foot">
-                  <p className="pf-ask-note">
-                    «{AGENT_NAME}» прочитает код копии и флоу базы. Файлов он не пишет: исполнителя запишет «Сохранить».
-                  </p>
-                  <button
-                    type="button"
-                    className="bases-btn bases-btn-primary"
-                    disabled={busy || !chosen || !wish.trim()}
-                    onClick={() => void ask(wish)}
-                  >
-                    {phase === 'failed' ? 'Попросить снова' : askLabel}
-                  </button>
-                </div>
-              </>
+            )}
+
+            {phase === 'taken' && (
+              <div className="pf-status">
+                <span className="pf-status-text">Поля ниже заполнил «{AGENT_NAME}»</span>
+                <button type="button" className="pf-preset" disabled={busy} onClick={() => void revert()}>
+                  вернуть как было
+                </button>
+                <button type="button" className="pf-preset" disabled={busy} onClick={() => void again()}>
+                  переспросить
+                </button>
+              </div>
+            )}
+
+            {phase === 'failed' && (
+              <div className="pf-error" role="alert">
+                <span className="pf-error-title">«{AGENT_NAME}» не заполнил поля</span>
+                <p className="pf-error-text">{draftError}. Поля окна не тронуты.</p>
+                {draftOutput && <p className="pf-error-text mono">{draftOutput}</p>}
+              </div>
             )}
           </div>
+
+          <div className="pf-sep">поля исполнителя</div>
 
           <div className="pf-row">
             <div className="pf-field pf-grow">
@@ -447,6 +418,17 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
             <button type="button" className="bases-btn" disabled={busy} onClick={onClose}>
               Отмена
             </button>
+            {/* Просьба уходит из подвала, рядом с «Сохранить»: она такое же действие окна — выбор оператора на B-69. */}
+            {phase !== 'running' && (
+              <button
+                type="button"
+                className="bases-btn"
+                disabled={busy || !chosen || !wish.trim()}
+                onClick={() => void ask(wish)}
+              >
+                {phase === 'failed' ? 'Попросить снова' : askLabel}
+              </button>
+            )}
             <button type="submit" className="bases-btn bases-btn-primary" disabled={locked || !chosen || !trimmed}>
               {busy ? 'Сохраняется…' : 'Сохранить'}
             </button>
@@ -469,20 +451,5 @@ function Elapsed({ since }: { since: number }) {
     <span className="pf-elapsed" aria-label="Прошло времени">
       {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
     </span>
-  )
-}
-
-/** Значок исполнителя — тот же бот, что у раздела и его строк. */
-function BotIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="4" y="8" width="16" height="11" rx="3.5" />
-      <path d="M12 4.6V8" />
-      <circle cx="12" cy="3.4" r="1.2" />
-      <path d="M9.2 13h.01" />
-      <path d="M14.8 13h.01" />
-      <path d="M2 12.5v2.5" />
-      <path d="M22 12.5v2.5" />
-    </svg>
   )
 }

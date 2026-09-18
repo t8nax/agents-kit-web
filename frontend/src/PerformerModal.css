@@ -164,92 +164,50 @@
   flex-shrink: 0;
 }
 
-/* Просьба к «Чудо-юдо» стоит в самом окне, над полями: второго окна у исполнителя нет — решение B-69. */
-.pf-ask {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--bg-base);
-}
-
-.pf-ask-head {
+/* Просьба к «Чудо-юдо» — такое же поле формы, как остальные: особой полосы в окне нет — выбор оператора на B-69. */
+.pf-sep {
   display: flex;
   align-items: center;
   gap: 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
 }
 
-.pf-ask-mark {
-  display: inline-flex;
-  color: var(--text-secondary);
+.pf-sep::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
 }
 
-.pf-ask-done .pf-ask-mark {
-  color: var(--accent-active-text);
-}
-
-.pf-ask-title {
+/* Что делает агент и что стало с полями — подписью под полем просьбы, как статус поля в окне ответа. */
+.pf-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: var(--text-secondary);
+}
+
+.pf-status-text {
   min-width: 0;
 }
 
-.pf-ask-working {
-  color: var(--text-primary);
+.pf-status .pf-preset {
+  align-self: auto;
 }
 
-.pf-ask-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.pf-ask-head .bases-btn {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-.pf-ask-actions .bases-btn {
-  margin-left: 0;
-}
-
-.pf-ask-foot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.pf-ask-note {
+.pf-note {
   margin: 0;
-  flex: 1;
   font-size: 11px;
   color: var(--text-tertiary);
   line-height: 1.5;
 }
 
-.pf-asked {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.pf-asked-label {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-.pf-asked-text {
-  font-size: 13px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
 /* Ход работы агента — как в окне вопроса по базе: моноширинный, последняя строка ярче. */
-.pf-ask-steps {
+.pf-steps {
   margin: 0;
   padding: 0 0 0 16px;
   list-style: none;
@@ -261,13 +219,13 @@
   color: var(--text-tertiary);
 }
 
-.pf-ask-steps li:last-child {
+.pf-steps li:last-child {
   color: var(--text-primary);
 }
 
 .pf-spinner {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
   border-radius: 50%;
   border: 2px solid var(--border-strong);

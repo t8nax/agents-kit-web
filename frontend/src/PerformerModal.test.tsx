@@ -155,7 +155,7 @@ test('просьба к «Чудо-юдо» идёт из окна и запол
   const panel = stubPanel('performer', stream, { project: 'Agents Kit Web' })
   open()
 
-  fireEvent.change(screen.getByLabelText('Что исполнитель должен делать'), {
+  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), {
     target: { value: 'Читает дифф ветки и возвращает вердикт' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }))
@@ -173,7 +173,7 @@ test('просьба к «Чудо-юдо» идёт из окна и запол
 
   stream.send({ type: 'step', text: 'читает flow.md' })
   expect(await screen.findByText('читает flow.md')).toBeInTheDocument()
-  expect(screen.getByText(/заводит исполнителя/)).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('заводит исполнителя')
 
   stream.send({
     type: 'drafted',
@@ -202,7 +202,7 @@ test('«Вернуть как было» возвращает поля, каки
   stubPanel('performer', stream)
   open(reviewer)
 
-  fireEvent.change(screen.getByLabelText('Что поправить в исполнителе'), {
+  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), {
     target: { value: 'Пусть ещё сверяет с критериями' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью «Чудо-юдо»' }))
@@ -216,7 +216,7 @@ test('«Вернуть как было» возвращает поля, каки
 
   await waitFor(() => expect(screen.getByLabelText('Задание')).toHaveValue('Новое задание.'))
 
-  fireEvent.click(screen.getByRole('button', { name: 'Вернуть как было' }))
+  fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
 
   await waitFor(() => expect(screen.getByLabelText('Задание')).toHaveValue('Ты читаешь дифф ветки целиком.'))
   expect(screen.getByLabelText(/Описание/)).toHaveValue('Читает дифф ветки задачи.')
@@ -228,7 +228,7 @@ test('нынешние поля уходят агенту, когда испол
   const panel = stubPanel('performer', stream)
   open(reviewer)
 
-  fireEvent.change(screen.getByLabelText('Что поправить в исполнителе'), {
+  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), {
     target: { value: 'Пусть не чинит найденное сам' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью «Чудо-юдо»' }))
@@ -248,7 +248,7 @@ test('неудача агента сказана словами, поля и п�
   stubPanel('performer', stream)
   open()
 
-  fireEvent.change(screen.getByLabelText('Что исполнитель должен делать'), { target: { value: 'Ревьюер ветки' } })
+  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), { target: { value: 'Ревьюер ветки' } })
   fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }))
 
   stream.send({ type: 'error', text: 'Чудо-юдо вернул исполнителя без имени', output: 'Готово!' })
@@ -257,7 +257,7 @@ test('неудача агента сказана словами, поля и п�
   expect(await screen.findByRole('alert')).toHaveTextContent('Чудо-юдо вернул исполнителя без имени')
   expect(screen.getByText('Готово!')).toBeInTheDocument()
   expect(screen.getByLabelText('Имя')).toHaveValue('')
-  expect(screen.getByLabelText('Что исполнитель должен делать')).toHaveValue('Ревьюер ветки')
+  expect(screen.getByLabelText(/Просьба к «Чудо-юдо»/)).toHaveValue('Ревьюер ветки')
   expect(screen.getByRole('button', { name: 'Попросить снова' })).toBeInTheDocument()
 })
 
@@ -266,10 +266,10 @@ test('«Отменить» убирает просьбу из панели', asy
   const panel = stubPanel('performer', stream)
   open()
 
-  fireEvent.change(screen.getByLabelText('Что исполнитель должен делать'), { target: { value: 'Ревьюер ветки' } })
+  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), { target: { value: 'Ревьюер ветки' } })
   fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }))
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'отменить' }))
 
   await waitFor(() => expect(panel.deletes).toEqual(['/api/agent/performer']))
 })

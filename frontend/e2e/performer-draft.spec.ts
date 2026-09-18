@@ -60,14 +60,14 @@ test('оператор описывает исполнителя словами,
   )
 
   const modal = await openNew(page)
-  await modal.getByLabel('Что исполнитель должен делать').fill('Читает дифф ветки и возвращает вердикт')
+  await modal.getByLabel(/Просьба к «Чудо-юдо»/).fill('Читает дифф ветки и возвращает вердикт')
   await modal.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }).click()
 
   await expect(modal.getByLabel('Имя')).toHaveValue('reviewer')
   await expect(modal.getByLabel('Модель')).toHaveValue('opus')
   await expect(modal.getByLabel('Инструменты')).toHaveValue('Read, Glob, Grep')
   await expect(modal.getByLabel('Задание')).toHaveValue('Ты читаешь дифф ветки целиком и возвращаешь вердикт.')
-  await expect(modal.getByText('Поля от «Чудо-юдо» — правьте что угодно')).toBeVisible()
+  await expect(modal.getByText('Поля ниже заполнил «Чудо-юдо»')).toBeVisible()
   expect(panel.posts).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
@@ -98,7 +98,7 @@ test('закрытое окно не останавливает агента: п
   const { panel } = await mockApi(page)
 
   const modal = await openNew(page)
-  await modal.getByLabel('Что исполнитель должен делать').fill('Ревьюер ветки')
+  await modal.getByLabel(/Просьба к «Чудо-юдо»/).fill('Ревьюер ветки')
   await modal.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }).click()
   await expect(modal.getByRole('status')).toContainText('заводит исполнителя')
 
@@ -126,14 +126,14 @@ test('неудача агента сказана словами, просьба 
   )
 
   const modal = await openNew(page)
-  await modal.getByLabel('Что исполнитель должен делать').fill('Ревьюер ветки')
+  await modal.getByLabel(/Просьба к «Чудо-юдо»/).fill('Ревьюер ветки')
   await modal.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }).click()
 
   const alert = modal.getByRole('alert')
   await expect(alert).toContainText('не заполнил поля')
   await expect(alert).toContainText('Готово, я придумал ревьюера.')
   await expect(modal.getByLabel('Имя')).toHaveValue('')
-  await expect(modal.getByLabel('Что исполнитель должен делать')).toHaveValue('Ревьюер ветки')
+  await expect(modal.getByLabel(/Просьба к «Чудо-юдо»/)).toHaveValue('Ревьюер ветки')
 
   panel.reply(ndjson({ type: 'drafted', text: '---', fields: drafted, durationMs: 4000 }))
   await modal.getByRole('button', { name: 'Попросить снова' }).click()
