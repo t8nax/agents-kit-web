@@ -98,7 +98,7 @@ public sealed class FoldersEndpointsTests : IDisposable
 
     public void Dispose()
     {
-        _factory.Dispose();
+        TestHost.Stop(_factory);
         try
         {
             foreach (var dir in Directory.EnumerateDirectories(_root, "*", SearchOption.AllDirectories))

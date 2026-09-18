@@ -1,0 +1,45 @@
+namespace AgentsKitWeb.Api.Usage;
+
+/// <summary>
+/// Окно лимита для панели: свой счёт токенов по журналам и процент лимита от Anthropic.
+/// Percent и ResetsAt пустые, когда проценты получить не удалось, — счёт токенов при этом остаётся.
+/// </summary>
+public sealed record UsageWindowView(
+    DateTimeOffset Since,
+    long Tokens,
+    long Answers,
+    int? Percent,
+    DateTimeOffset? ResetsAt);
+
+/// <summary>Ответ раздела «Расход». LimitsProblem — почему нет процентов; ключа доступа в нём не бывает.</summary>
+public sealed record UsageView(
+    UsageWindowView FiveHours,
+    UsageWindowView Week,
+    IReadOnlyList<ModelUsage> Models,
+    string? LimitsProblem,
+    DateTimeOffset FetchedAt);
+
+public static class UsageEndpoints
+{
+    public static void MapUsageEndpoints(this IEndpointRouteBuilder app)
+    {
+        // Раздел перечитывается при открытии и по кнопке «Обновить», без таймера: проценты меняются
+        // не быстрее, чем идёт работа агентов, а запрос к Anthropic дёргать без нужды незачем.
+        app.MapGet("/api/usage", async (UsageScanner scanner, ILimits limits, TimeProvider time, CancellationToken cancellationToken) =>
+        {
+            var now = time.GetUtcNow();
+            var totals = UsageMath.Sum(scanner.Collect(), now);
+            var snapshot = await limits.ReadAsync(cancellationToken);
+
+            return new UsageView(
+                Window(totals.FiveHours, snapshot.FiveHours),
+                Window(totals.Week, snapshot.Week),
+                totals.Models,
+                snapshot.Problem,
+                now);
+        });
+    }
+
+    private static UsageWindowView Window(UsageWindow window, WindowLimit? limit) =>
+        new(window.Since, window.Tokens, window.Answers, limit?.Percent, limit?.ResetsAt);
+}

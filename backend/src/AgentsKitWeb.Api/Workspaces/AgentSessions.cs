@@ -67,37 +67,32 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
     public static string DefaultDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "sessions");
 
-    /// <summary>Живая сессия VS Code в каталоге копии; null — такой сессии нет.</summary>
+    /// <summary>
+    /// Живая сессия VS Code в каталоге копии — та из них, которой оператор нужнее; null — такой сессии нет.
+    /// </summary>
     public AgentSession? VsCodeIn(string copyPath) => In(copyPath, session => session.InVsCode);
 
     /// <summary>
-    /// Живая фоновая сессия в каталоге копии; null — такой сессии нет. Ту, что запустила панель, панель
-    /// у себя не помнит: id берётся отсюда, поэтому переход есть и после её перезапуска.
+    /// Живая фоновая сессия копии с этим id — та, что панель завела под задачу копии; null — id не задан
+    /// или сессия уже ушла. Какая сессия ведёт задачу, из чужого списка живых сессий не видно, поэтому
+    /// id приходит из памяти панели о запуске (Tasks/TaskSessions).
     /// </summary>
-    public AgentSession? BackgroundIn(string copyPath) => In(copyPath, session => session.InBackground);
+    public AgentSession? BackgroundIn(string copyPath, string? session) =>
+        session is null ? null : In(copyPath, s => s.InBackground && s.JobId == session);
 
     /// <summary>
-    /// Что делает сессия в каталоге копии; null — живой сессии в нём нет. Сессий в копии бывает несколько,
-    /// и берётся та, которой оператор нужнее: ждущая важнее работающей, потому что до ответа работа стоит.
+    /// Дописывает строкам таблицы состояние сессии их задачи и отметку о переходе в неё. И то и другое —
+    /// про одну сессию: подпись строки не должна говорить об одной, пока переход ведёт в другую. Строке
+    /// с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
     /// </summary>
-    public string? StateIn(string copyPath)
-    {
-        var states = LiveIn(copyPath).Select(session => session.State).ToList();
-        if (states.Count == 0)
-            return null;
-        if (states.Contains(SessionState.Waiting))
-            return SessionState.Waiting;
-        return states.Contains(SessionState.Working) ? SessionState.Working : SessionState.Idle;
-    }
-
-    /// <summary>
-    /// Дописывает строкам таблицы состояние их сессии и отметку фоновой — той, в которую есть переход
-    /// из терминала. Строке с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
-    /// </summary>
-    public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows) => rows
-        .Select(row => row.Error is null
-            ? row with { SessionState = StateIn(row.Path), BackgroundSession = BackgroundIn(row.Path) is not null }
-            : row)
+    public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, Func<string, string?> taskSession) => rows
+        .Select(row =>
+        {
+            if (row.Error is not null)
+                return row;
+            var session = BackgroundIn(row.Path, taskSession(row.Path));
+            return row with { SessionState = session?.State, BackgroundSession = session is not null };
+        })
         .ToList();
 
     /// <summary>Все живые сессии реестра — перечень раздела «Сессии»; каталог сессии может не быть копией базы.</summary>
@@ -107,8 +102,26 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
     public AgentSession? ByJobId(string jobId) =>
         All().FirstOrDefault(session => session.JobId == jobId);
 
+    /// <summary>
+    /// Сессия копии, которой оператор нужнее: ждущая важнее работающей, потому что до ответа работа
+    /// стоит, а работающая важнее стоящей без дела. Из равных берётся запущенная позже: старшая — скорее
+    /// брошенная с прошлого раза, а времени старта в файле нет — сессия считается старшей. Порядок
+    /// файлов реестра ничего не значит, и опираться на него нельзя.
+    /// </summary>
     private AgentSession? In(string copyPath, Func<AgentSession, bool> wanted) =>
-        LiveIn(copyPath).FirstOrDefault(wanted);
+        LiveIn(copyPath)
+            .Where(wanted)
+            .OrderByDescending(Urgency)
+            .ThenByDescending(session => session.ProcStart ?? 0)
+            .FirstOrDefault();
+
+    /// <summary>Насколько сессия нужна оператору прямо сейчас.</summary>
+    private static int Urgency(AgentSession session) => session.State switch
+    {
+        SessionState.Waiting => 2,
+        SessionState.Working => 1,
+        _ => 0,
+    };
 
     private IEnumerable<AgentSession> LiveIn(string copyPath)
     {

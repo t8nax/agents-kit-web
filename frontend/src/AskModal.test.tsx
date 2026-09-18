@@ -132,3 +132,42 @@ test('закрытое с готовым ответом окно убирает 
 
   await vi.waitFor(() => expect(deletes).toEqual(['/api/agent/ask']))
 })
+
+type NodeRejections = {
+  on(event: 'unhandledRejection', handler: (reason: unknown) => void): void
+  off(event: 'unhandledRejection', handler: (reason: unknown) => void): void
+}
+
+test('закрытое окно молчит, когда панель не ответила на уборку просьбы', async () => {
+  const stream = controlledStream<AskEvent>()
+  stubFetch(stream)
+  // Отказ отдаёт голая функция, а не vi.fn: обёртка vitest сама подписывается на промис заглушки,
+  // и необработанного отказа через неё не случается — регресс такой тест бы не заметил.
+  const panelFetch = globalThis.fetch
+  const cleanups: string[] = []
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+    if ((init?.method ?? 'GET') !== 'DELETE') return panelFetch(url, init)
+    cleanups.push(url)
+    return Promise.reject(new TypeError('Failed to fetch'))
+  })
+  // О необработанном отказе node сообщает событием, а не исключением теста. Типы node коду фронта
+  // не подключены, поэтому process берётся из globalThis со своим объявлением.
+  const { process: node } = globalThis as unknown as { process: NodeRejections }
+  const rejections: unknown[] = []
+  const catchRejection = (reason: unknown) => rejections.push(reason)
+  node.on('unhandledRejection', catchRejection)
+
+  try {
+    const { unmount } = render(<AskModal onClose={() => {}} />)
+    await askQuestion('Почему опрос?')
+    stream.send({ type: 'answer', text: 'Так решил оператор.', files: [], durationMs: 1000 })
+    await screen.findByText('Так решил оператор.')
+    unmount()
+
+    await vi.waitFor(() => expect(cleanups).toEqual(['/api/agent/ask']))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(rejections).toEqual([])
+  } finally {
+    node.off('unhandledRejection', catchRejection)
+  }
+})

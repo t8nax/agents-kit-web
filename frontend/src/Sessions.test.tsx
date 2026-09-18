@@ -62,14 +62,34 @@ const zebra: SessionRow = {
   startedAt: Date.now() - 50 * 60 * 60_000,
 }
 
-/** Перечень отдаётся GET, а гашение и переход — POST; ответ на действие задаётся тестом. */
+/**
+ * Перечень отдаётся GET, а гашение, переход и запуск — POST; ответ на действие задаётся тестом.
+ * Окно новой сессии читает копии своим GET /api/workspaces.
+ */
 function stubSessions(rows: SessionRow[], action: Response = new Response(null, { status: 204 })) {
-  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
-    init?.method === 'POST' ? action : new Response(JSON.stringify(rows), { status: 200 }),
-  )
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return action
+    if (url === '/api/workspaces') return Response.json(copies)
+    return new Response(JSON.stringify(rows), { status: 200 })
+  })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
+
+/** Копии для окна новой сессии: в перечень сессий они не входят. */
+const copies = [
+  {
+    project: 'Agents Kit Web',
+    base: 'D:\\Projects\\agents-kit-web-knowledge',
+    path: 'D:\\Projects\\rustic-silver-sparrow',
+    branch: 'dev',
+    task: null,
+    flowStep: null,
+    progress: null,
+    status: 'free',
+    error: null,
+  },
+]
 
 async function openMenu(row: string) {
   fireEvent.click(await screen.findByRole('button', { name: `Действия с сессией в ${row}` }))
@@ -238,4 +258,21 @@ test('живых сессий нет — раздел так и говорит',
   render(<Sessions />)
 
   expect(await screen.findByText('Живых сессий Claude Code нет.')).toBeInTheDocument()
+})
+
+test('кнопка в шапке заводит сессию и отмечает её сообщением', async () => {
+  const fetchMock = stubSessions([working], Response.json({ session: '7339dced', terminal: true }))
+
+  render(<Sessions />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Новая сессия' }))
+
+  const dialog = await screen.findByRole('dialog', { name: 'Новая сессия' })
+  await within(dialog).findAllByRole('radio')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Запустить' }))
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith('/api/sessions/new', expect.objectContaining({ method: 'POST' })),
+  )
+  expect(await screen.findByText('Сессия 7339dced запущена — окно с ней открыто.')).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Новая сессия' })).not.toBeInTheDocument()
 })

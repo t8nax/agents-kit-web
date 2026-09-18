@@ -141,13 +141,7 @@ public sealed class BasesEndpointsTests : IDisposable
 
     public void Dispose()
     {
-        _factory.Dispose();
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
+        TestHost.Stop(_factory);
+        Directory.Delete(_root, recursive: true);
     }
 }

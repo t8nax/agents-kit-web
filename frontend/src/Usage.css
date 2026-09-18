@@ -1,0 +1,225 @@
+/* Раздел «Расход» — по макету задачи B-60: два окна лимита, строка источника и таблица моделей */
+
+.usage {
+  padding-bottom: 24px;
+}
+
+.usage-refresh {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.usage-refresh:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.usage-refresh:disabled {
+  cursor: default;
+  color: var(--text-tertiary);
+}
+
+/* Окна — главное в разделе, поэтому это широкие блоки, а не мелкие плитки */
+.usage-windows {
+  display: grid;
+  gap: 12px;
+  margin: 0 24px 16px;
+}
+
+@media (min-width: 720px) {
+  .usage-windows {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.usage-window {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 16px 18px;
+}
+
+.usage-window-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.usage-window-head h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.usage-when {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.usage-share-line {
+  margin-top: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.usage-percent {
+  font-size: 32px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.usage-window.failed .usage-percent {
+  color: var(--text-tertiary);
+}
+
+.usage-of {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.usage-track {
+  margin-top: 12px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-free-bg);
+  overflow: hidden;
+}
+
+.usage-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-active-text);
+}
+
+.usage-fill.warn {
+  background: var(--accent-waiting-fill);
+}
+
+.usage-window-foot {
+  margin-top: 10px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.usage-window-foot b {
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Откуда взялись числа — строка текста, а не карточка: её читают один раз */
+.usage-source {
+  margin: 0 24px 16px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.usage-source b {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.usage-source code,
+.usage-failure code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* Отказ Anthropic прячется не лучше ошибки: проценты пропали — это видно словами */
+.usage-failure {
+  margin: 0 24px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-error-border);
+  background: var(--accent-error-bg);
+  border-radius: 8px;
+  color: var(--accent-error-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.usage-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin: 0 24px 16px;
+  overflow: hidden;
+}
+
+.usage-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.usage-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.usage-card-head .sub {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.usage-table-wrap {
+  overflow-x: auto;
+}
+
+.usage td {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage th.num,
+.usage td.num {
+  text-align: right;
+}
+
+.usage tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Доля модели — полоска рядом с числом: кто съедает лимит, видно не читая цифр */
+.usage-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.usage-share-bar {
+  width: 64px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-free-bg);
+  overflow: hidden;
+}
+
+.usage-share-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent-done-text);
+}

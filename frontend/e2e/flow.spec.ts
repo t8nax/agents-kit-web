@@ -58,6 +58,31 @@ async function mockApi(page: Page, activeTasks = 0) {
     calls.open.push(route.request().postDataJSON())
     return route.fulfill({ status: 204 })
   })
+  // Раздел спрашивает заведённых исполнителей: из них шагу выбирают субагента.
+  await page.route('**/api/performers', (route) =>
+    route.fulfill({
+      json: [
+        {
+          base: 'D:\\Projects\\app-knowledge',
+          project: 'Agents Kit Web',
+          copies: [],
+          performers: [
+            {
+              name: 'reviewer',
+              description: null,
+              model: null,
+              tools: null,
+              prompt: '',
+              path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
+              source: 'copy',
+              copy: 'D:\\Projects\\agents-kit-web',
+            },
+          ],
+          error: null,
+        },
+      ],
+    }),
+  )
   await page.route('**/api/presets', (route) => {
     if (route.request().method() === 'POST') {
       const preset = { ...(route.request().postDataJSON() as Step), id: `p${presets.length + 1}` }
@@ -200,7 +225,8 @@ test('шаг сохраняется как пресет из сайдбара и
   await page.getByRole('dialog', { name: 'Добавить шаг' }).getByRole('button', { name: /^Ревью/ }).click()
   const drawer = page.getByRole('complementary')
   await expect(drawer.getByRole('textbox', { name: 'Название шага' })).toHaveValue('Ревью')
-  await expect(drawer.getByRole('textbox', { name: 'Имя субагента' })).toHaveValue('reviewer')
+  // Имя субагента теперь выбирается из заведённых, поэтому поле — список, а не строка
+  await expect(drawer.getByLabel('Имя субагента')).toHaveValue('reviewer')
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
@@ -246,4 +272,25 @@ test('описание шага правится в окне по кнопке �
   expect((calls.flow[0] as { steps: Step[] }).steps[1].description).toBe(
     'Критерий пишется до кода.\n\n- проверяемый;\n1. с макетом.\n\n2.1. Написать критерий.',
   )
+})
+
+test('исполнитель шага выбирается из заведённых, а ненайденный отмечен', async ({ page }) => {
+  await mockApi(page)
+  const region = await openFlow(page)
+
+  // Шага с reviewer на схеме не отмечено: такой исполнитель заведён
+  const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
+  await expect(review.locator('.flow-node-missing')).toHaveCount(0)
+
+  await review.click()
+  const drawer = page.getByRole('complementary')
+  const picker = drawer.getByLabel('Имя субагента')
+  await expect(picker).toHaveValue('reviewer')
+
+  // Чужое имя вписывается вручную, и шаг сразу отмечен: сессия на нём спросит оператора
+  await picker.selectOption('__custom__')
+  await drawer.getByLabel('Имя субагента').fill('doc-writer')
+  await expect(review.locator('.flow-node-missing')).toBeVisible()
+  await expect(drawer.getByRole('status')).toContainText('нет на диске')
+  await expect(drawer.getByRole('button', { name: 'Завести исполнителя' })).toBeVisible()
 })

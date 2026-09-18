@@ -1,4 +1,5 @@
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Tasks;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -30,7 +31,7 @@ public static class OperatorEndpoints
 {
     public static void MapOperatorEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/questions", (string @base, string copy, BasesStore bases, AgentSessions sessions) =>
+        app.MapGet("/api/questions", (string @base, string copy, BasesStore bases, AgentSessions sessions, TaskSessions tasks) =>
         {
             if (FindMemory(bases, @base, copy) is not { } found)
                 return Results.NotFound();
@@ -45,7 +46,7 @@ public static class OperatorEndpoints
                 memory.Design,
                 memory.Questions.Where(q => q.Answer is null).ToList(),
                 sessions.VsCodeIn(memory.Copy!) is not null,
-                sessions.BackgroundIn(memory.Copy!) is not null));
+                sessions.BackgroundIn(memory.Copy!, tasks.SessionIn(memory.Copy!)) is not null));
         });
 
         // Панель не запускает сессию, а поднимает окно уже идущей: перехода нет, пока сессии нет.
@@ -86,19 +87,21 @@ public static class OperatorEndpoints
                 : await windows.OpenAsync(copy, cancellationToken));
         });
 
-        // Переход в фоновую сессию: своего окна у неё нет, и панель открывает терминал, подключённый к ней
-        // по id из реестра. Сессии нет — переходить не к чему.
+        // Переход в фоновую сессию задачи: своего окна у неё нет, и панель открывает терминал, подключённый
+        // к ней по id своего запуска. Задачу панель тут не запускала или её сессия ушла — переходить не к чему:
+        // в чужую сессию копии переход не ведёт — решение оператора на B-58.
         app.MapPost("/api/session/terminal", async (
             OpenSessionRequest request,
             BasesStore bases,
             AgentSessions sessions,
+            TaskSessions tasks,
             ITerminalWindows terminals,
             CancellationToken cancellationToken) =>
         {
             if (await FindCopy(bases, request.Base, request.Copy, cancellationToken) is not { } copy)
                 return Results.NotFound();
 
-            if (sessions.BackgroundIn(copy) is not { JobId: { } jobId })
+            if (sessions.BackgroundIn(copy, tasks.SessionIn(copy)) is not { JobId: { } jobId })
                 return Results.Conflict(new OpenSessionFailedResponse("no-session"));
 
             return await terminals.AttachAsync(copy, jobId, cancellationToken)

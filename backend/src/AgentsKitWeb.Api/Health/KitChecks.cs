@@ -108,11 +108,30 @@ public sealed class PwshKitChecks : IKitChecks
                     return (null, FirstLine(await stderr) ?? $"скрипт кита завершился с кодом {process.ExitCode}");
                 return Parse(output);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException)
             {
-                process.Kill(entireProcessTree: true);
+                // Гасится и свой таймаут, и остановка панели: сверка ничего не пишет, прерывать её
+                // можно в любой момент, а брошенный pwsh держал бы файлы кита ещё две минуты.
+                await KillAsync(process);
+                if (cancellationToken.IsCancellationRequested)
+                    throw;
                 return (null, "проверка кита не уложилась по времени");
             }
+        }
+    }
+
+    /// <summary>Гасит pwsh со всем, что он запустил, и ждёт, пока он отпустит файлы.</summary>
+    private static async Task KillAsync(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync(wait.Token);
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or OperationCanceledException)
+        {
+            // Процесс успел завершиться сам или не дался — ждать больше нечего.
         }
     }
 

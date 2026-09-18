@@ -26,6 +26,17 @@ public sealed record SessionActionRequest(string? Session);
 /// <summary>Почему действие не вышло: problem — чем именно, message — что сказал запуск.</summary>
 public sealed record SessionActionProblem(string Problem, string? Message = null);
 
+/// <summary>
+/// Запуск сессии не под задачу: база и копия из списка панели, а не путь, и необязательная первая просьба.
+/// </summary>
+public sealed record SessionStartRequest(string? Base, string? Copy, string? Prompt);
+
+/// <summary>
+/// Заведённая сессия: её короткий id — им оператор в неё входит и ею её гасят. Terminal — открылось ли
+/// окно с сессией: сессия завелась и без него, входят в неё тогда из строки перечня.
+/// </summary>
+public sealed record SessionStartResponse(string Session, bool Terminal);
+
 public static partial class SessionsEndpoints
 {
     /// <summary>Столько ждут гашения: claude stop только просит сессию завершиться и сам не работает долго.</summary>
@@ -59,6 +70,40 @@ public static partial class SessionsEndpoints
                 .ThenBy(item => item.Started)
                 .Select(item => item.Row)
                 .ToList();
+        });
+
+        // Заведение сессии не под задачу: оператор открывает её, чтобы спросить, посмотреть, поработать руками.
+        // Занятость копии здесь не проверяется: такая сессия задачи не берёт и памяти не заводит, а править те
+        // же файлы рядом с идущей задачей — решение оператора, и предупреждает его окно.
+        app.MapPost("/api/sessions/new", async (
+            SessionStartRequest request,
+            BasesStore bases,
+            IAgentProcess agent,
+            ITerminalWindows terminals,
+            CancellationToken cancellationToken) =>
+        {
+            var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
+            if (basePath is null || !Directory.Exists(basePath))
+                return Results.NotFound();
+            if (string.IsNullOrWhiteSpace(request.Copy))
+                return Results.BadRequest();
+
+            var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
+            var row = rows.FirstOrDefault(r => WorkspaceCollector.Normalize(r.Path)
+                .Equals(WorkspaceCollector.Normalize(request.Copy), StringComparison.OrdinalIgnoreCase));
+            if (row is null || row.Error is not null)
+                return Results.NotFound();
+
+            var prompt = request.Prompt?.Trim();
+            var startInfo = Ask.BackgroundSession.StartInfo(row.Path, prompt);
+            var (session, failure) = await Ask.BackgroundSession.StartAsync(agent, startInfo, cancellationToken);
+            if (session is null)
+                return Results.BadRequest(new SessionActionProblem("agent", failure));
+
+            // Окно с сессией открывается сразу — решение оператора на приёмке B-61. Терминал адресуется
+            // каталогом копии и id запуска, а не реестром: в нём заведённая сессия появляется не сразу.
+            var terminal = await terminals.AttachAsync(row.Path, session, cancellationToken);
+            return Results.Ok(new SessionStartResponse(session, terminal));
         });
 
         // Гашение фоновой сессии: панель просит сам claude остановить её по короткому id. Сессия со своим
