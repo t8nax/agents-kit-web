@@ -47,6 +47,7 @@ const rows: WorkspaceRow[] = [
     progress: 33,
     status: 'waiting',
     error: null,
+    backgroundSession: true,
   },
   {
     project: 'app-knowledge',
@@ -206,7 +207,15 @@ test('номер задачи из бэклога стоит своей коло
   expect(within(tableRows[4]).getAllByRole('cell')[1]).toHaveAttribute('colspan', '5')
 })
 
-test('кнопка «Открыть в VS Code» стоит у прочитанных копий и открывает ту, чью строку нажали', async () => {
+// Меню действий строки: кнопка «⋯» открывает его, пункт — действие над копией этой строки
+async function openRowMenu(row: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(within(row).getByRole('button', { name: /Действия с / }))
+  })
+  return within(row).getByRole('menu')
+}
+
+test('меню действий стоит у прочитанных копий и открывает в VS Code ту, чью строку нажали', async () => {
   const fetchMock = vi.fn(async (url: string) =>
     url === '/api/workspace/open'
       ? new Response(null, { status: 204 })
@@ -217,13 +226,13 @@ test('кнопка «Открыть в VS Code» стоит у прочитан�
   render(<App />)
   const tableRows = await findTableRows()
 
-  // Строка с ошибкой открывать нечего — у неё кнопки нет
-  expect(within(tableRows[1]).getByRole('button', { name: 'Открыть D:\\Projects\\app в VS Code' })).toBeInTheDocument()
-  expect(within(tableRows[2]).getByRole('button', { name: /Открыть .* в VS Code/ })).toBeInTheDocument()
-  expect(within(tableRows[3]).queryByRole('button', { name: /в VS Code/ })).not.toBeInTheDocument()
+  // Строка с ошибкой открывать нечего — у неё меню нет
+  expect(within(tableRows[1]).getByRole('button', { name: 'Действия с app' })).toBeInTheDocument()
+  expect(within(tableRows[3]).queryByRole('button', { name: /Действия с / })).not.toBeInTheDocument()
 
+  const menu = await openRowMenu(tableRows[2])
   await act(async () => {
-    fireEvent.click(within(tableRows[2]).getByRole('button', { name: /в VS Code/ }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Открыть в VS Code' }))
   })
 
   expect(fetchMock).toHaveBeenCalledWith('/api/workspace/open', {
@@ -231,6 +240,57 @@ test('кнопка «Открыть в VS Code» стоит у прочитан�
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' }),
   })
+  // Выбранный пункт закрывает меню: строка снова показывает одну кнопку действий
+  expect(within(tableRows[2]).queryByRole('menu')).not.toBeInTheDocument()
+})
+
+test('«Открыть в терминале» ведёт в фоновую сессию копии, а без неё приглушено', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/session/terminal'
+      ? new Response(null, { status: 204 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  // У свободной копии фоновой сессии нет: пункт виден, но не нажимается и говорит почему
+  const free = await openRowMenu(tableRows[2])
+  // Подписи о причине у приглушённого пункта нет — оператор убрал её на приёмке
+  const disabled = within(free).getByRole('menuitem', { name: 'Открыть в терминале' })
+  expect(disabled).toBeDisabled()
+  expect(disabled).toHaveTextContent('Открыть в терминале')
+
+  const menu = await openRowMenu(tableRows[1])
+  await act(async () => {
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Открыть в терминале' }))
+  })
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/session/terminal', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' }),
+  })
+})
+
+test('терминал не открылся — панель говорит об этом строкой', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/session/terminal'
+      ? new Response(JSON.stringify({ problem: 'no-session' }), { status: 409 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  const menu = await openRowMenu(tableRows[1])
+  await act(async () => {
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Открыть в терминале' }))
+  })
+
+  expect(await screen.findByText('Сессия в app уже не идёт в фоне')).toBeInTheDocument()
 })
 
 test('«Взять задачу» стоит только у свободных копий и запускает выбранную запись', async () => {
@@ -315,8 +375,9 @@ test('копия не открылась — панель говорит об э
   render(<App />)
   const tableRows = await findTableRows()
 
+  const menu = await openRowMenu(tableRows[2])
   await act(async () => {
-    fireEvent.click(within(tableRows[2]).getByRole('button', { name: /в VS Code/ }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Открыть в VS Code' }))
   })
 
   expect(

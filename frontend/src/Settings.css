@@ -32,7 +32,6 @@
 
 .settings-card {
   margin: 0 24px 16px;
-  max-width: 880px;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;

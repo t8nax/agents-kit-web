@@ -39,7 +39,6 @@
 
 .backlog-list {
   padding: 0 24px 32px;
-  max-width: 900px;
   display: flex;
   flex-direction: column;
   gap: 6px;

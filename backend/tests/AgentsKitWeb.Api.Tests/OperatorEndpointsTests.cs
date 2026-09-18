@@ -18,6 +18,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     private readonly string _memoryPath;
     private readonly string _sessionsDir;
     private readonly FakeEditorWindows _windows = new();
+    private readonly FakeTerminalWindows _terminals = new();
     private readonly WebApplicationFactory<Program> _factory;
 
     private const string Sections = """
@@ -86,6 +87,8 @@ public sealed class OperatorEndpointsTests : IDisposable
             {
                 services.RemoveAll<IEditorWindows>();
                 services.AddSingleton<IEditorWindows>(_windows);
+                services.RemoveAll<ITerminalWindows>();
+                services.AddSingleton<ITerminalWindows>(_terminals);
             });
         });
     }
@@ -312,6 +315,77 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Empty(_windows.Raised);
     }
 
+    [Fact]
+    public async Task OpenTerminal_BackgroundSessionInCopy_AttachesToItById()
+    {
+        var free = FreeCopy();
+        WriteBackgroundSession(free, "7339dced");
+
+        var response = await PostOpenTerminal(_base, free);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(free, "7339dced")], _terminals.Attached);
+    }
+
+    /// <summary>Сессия панели переживает саму панель, поэтому переход не зависит от её памяти о запуске.</summary>
+    [Fact]
+    public async Task OpenTerminal_SessionStartedOutsideThePanel_IsStillReachable()
+    {
+        WriteBackgroundSession(_copy, "a1b2c3d4");
+
+        var response = await PostOpenTerminal(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(_copy, "a1b2c3d4")], _terminals.Attached);
+    }
+
+    [Fact]
+    public async Task OpenTerminal_OnlyVsCodeSessionInCopy_IsRejectedAndOpensNothing()
+    {
+        WriteSession(_copy);
+
+        var response = await PostOpenTerminal(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(new OpenSessionFailedResponse("no-session"), await response.Content.ReadFromJsonAsync<OpenSessionFailedResponse>());
+        Assert.Empty(_terminals.Attached);
+    }
+
+    [Fact]
+    public async Task OpenTerminal_TerminalDidNotOpen_IsBadGateway()
+    {
+        WriteBackgroundSession(_copy, "7339dced");
+        _terminals.Result = false;
+
+        var response = await PostOpenTerminal(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Equal(new OpenSessionFailedResponse("not-opened"), await response.Content.ReadFromJsonAsync<OpenSessionFailedResponse>());
+    }
+
+    [Fact]
+    public async Task OpenTerminal_CopyOutsideBase_IsNotFoundAndOpensNothing()
+    {
+        var outsider = Path.Combine(_root, "nope");
+        WriteBackgroundSession(outsider, "7339dced");
+
+        var response = await PostOpenTerminal(_base, outsider);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_terminals.Attached);
+    }
+
+    [Fact]
+    public async Task Questions_TellsWhetherTheCopyHasABackgroundSession()
+    {
+        var before = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
+        WriteBackgroundSession(_copy, "7339dced");
+        var after = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
+
+        Assert.False(before!.BackgroundSession);
+        Assert.True(after!.BackgroundSession);
+    }
+
     /// <summary>Копия без памяти: такой строкой таблицы её делает только git, поэтому нужен репозиторий.</summary>
     private string FreeCopy()
     {
@@ -331,11 +405,33 @@ public sealed class OperatorEndpointsTests : IDisposable
     private Task<HttpResponseMessage> PostOpenWorkspace(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/workspace/open", new OpenWorkspaceRequest(basePath, copy));
 
+    private Task<HttpResponseMessage> PostOpenTerminal(string basePath, string copy) =>
+        _factory.CreateClient().PostAsJsonAsync("/api/session/terminal", new OpenSessionRequest(basePath, copy));
+
+    // Фоновая сессия — та же запись реестра, но с kind=bg и коротким id, которым в неё входят.
+    private void WriteBackgroundSession(string cwd, string jobId) =>
+        File.WriteAllText(
+            Path.Combine(_sessionsDir, $"{Guid.NewGuid():N}.json"),
+            $$"""{"pid":{{Environment.ProcessId}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg","jobId":"{{jobId}}"}""");
+
     // Живой сессией считается та, чей процесс существует, поэтому в фикстуре стоит pid самого прогона.
     private void WriteSession(string cwd, string entrypoint = "claude-vscode") =>
         File.WriteAllText(
             Path.Combine(_sessionsDir, $"{Guid.NewGuid():N}.json"),
             $$"""{"pid":{{Environment.ProcessId}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"{{entrypoint}}"}""");
+
+    private sealed class FakeTerminalWindows : ITerminalWindows
+    {
+        public List<(string Copy, string Session)> Attached { get; } = [];
+
+        public bool Result { get; set; } = true;
+
+        public Task<bool> AttachAsync(string copyPath, string sessionId, CancellationToken cancellationToken)
+        {
+            Attached.Add((copyPath, sessionId));
+            return Task.FromResult(Result);
+        }
+    }
 
     private sealed class FakeEditorWindows : IEditorWindows
     {
