@@ -15,5 +15,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Хуки идут в порядке объявления, а не задом наперёд: иначе afterEach файла теста снимает
+    // заглушку fetch раньше, чем cleanup размонтирует окна, и их запросы уходят в настоящую сеть.
+    sequence: { hooks: 'list' },
   },
 })
