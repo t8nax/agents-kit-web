@@ -135,3 +135,77 @@ test('сессию своего окна панель не гасит', async ({
 
   expect(opened).toEqual([{ base: inEditor.base, copy: inEditor.path }])
 })
+
+const freeCopy = {
+  project: 'Agents Kit Web',
+  base: 'D:\\Projects\\agents-kit-web-knowledge',
+  path: 'D:\\Projects\\rustic-silver-sparrow',
+  branch: 'dev',
+  task: null,
+  flowStep: null,
+  progress: null,
+  status: 'free',
+  error: null,
+}
+
+const busyCopy = {
+  ...freeCopy,
+  path: 'D:\\Projects\\noble-keen-walrus',
+  branch: 'feat/flow-edit',
+  task: 'B-22 Правка флоу проекта из панели',
+  flowStep: 'Реализация',
+  progress: 45,
+  status: 'in-work',
+}
+
+test('сессия запускается из шапки раздела и появляется в перечне', async ({ page }) => {
+  const posts: unknown[] = []
+  let rows: unknown[] = []
+
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [busyCopy, freeCopy] }))
+  await page.route('**/api/sessions', (route) => route.fulfill({ json: rows }))
+  await page.route('**/api/sessions/new', async (route) => {
+    posts.push(route.request().postDataJSON())
+    rows = [{ ...working, session: '7339dced', name: null, state: 'idle', startedAt: Date.now() }]
+    await route.fulfill({ json: { session: '7339dced' } })
+  })
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Сессии' }).click()
+  await expect(page.getByText('Живых сессий Claude Code нет.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Новая сессия' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Новая сессия' })
+  // Первой в списке стоит занятая копия — оператор выбирает свободную
+  await dialog.getByText('rustic-silver-sparrow').click()
+  await dialog.getByLabel('С чего начать — необязательно').fill('посмотри, почему падает e2e')
+  await dialog.getByRole('button', { name: 'Запустить' }).click()
+
+  expect(posts).toEqual([
+    { base: freeCopy.base, copy: freeCopy.path, prompt: 'посмотри, почему падает e2e' },
+  ])
+  await expect(page.getByText('Сессия 7339dced запущена')).toBeVisible()
+  await expect(page.getByRole('row', { name: /rustic-silver-sparrow/ })).toContainText('фоновая · 7339dced')
+})
+
+test('про копию с идущей задачей окно предупреждает, а неудачный запуск остаётся в нём', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [busyCopy, freeCopy] }))
+  await page.route('**/api/sessions', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/sessions/new', (route) =>
+    route.fulfill({ status: 400, json: { problem: 'agent', message: 'claude не запустился' } }),
+  )
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Сессии' }).click()
+  await page.getByRole('button', { name: 'Новая сессия' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Новая сессия' })
+  await expect(dialog).toContainText('идёт задача B-22 Правка флоу проекта из панели')
+  await expect(dialog).toContainText('Новая сессия её не прервёт')
+
+  await dialog.getByLabel('С чего начать — необязательно').fill('поработаем руками')
+  await dialog.getByRole('button', { name: 'Запустить' }).click()
+
+  await expect(dialog.getByRole('alert')).toHaveText('Сессия не запущена: агент не стартовал. claude не запустился')
+  await expect(dialog.getByLabel('С чего начать — необязательно')).toHaveValue('поработаем руками')
+})
