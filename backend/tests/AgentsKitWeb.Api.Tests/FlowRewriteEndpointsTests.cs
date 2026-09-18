@@ -171,7 +171,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
         var error = Assert.Single(events);
         Assert.Equal("error", error.Type);
-        Assert.Equal("Чудо-юдо вернул не флоу: шагов в его ответе нет", error.Text);
+        Assert.Equal("Чудо-Юдо вернул не флоу: шагов в его ответе нет", error.Text);
         Assert.Equal("Готово, я добавил шаг ревью.", error.Output);
     }
 

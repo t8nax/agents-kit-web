@@ -31,7 +31,7 @@ async function openWrite(page: Page) {
   await page.goto('/')
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
   await expect(page.getByText('B-1', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' }).click()
+  await page.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' }).click()
   return page.getByRole('dialog', { name: 'Запись в бэклог' })
 }
 
@@ -73,7 +73,7 @@ test('пока агент пишет, виден счётчик, а «Отмен
   await dialog.getByLabel('Что записать').fill('Долгая мысль')
   await dialog.getByRole('button', { name: 'Добавить' }).click()
 
-  await expect(dialog.getByText('Чудо-юдо пишет в бэклог Agents Kit Web…')).toBeVisible()
+  await expect(dialog.getByText('Чудо-Юдо пишет в бэклог Agents Kit Web…')).toBeVisible()
   await expect(dialog.getByLabel('Прошло времени')).toHaveText(/0:0[1-9]/)
   await dialog.getByRole('button', { name: 'Отменить' }).click()
   await expect(dialog.getByLabel('Что записать')).toHaveValue('Долгая мысль')
@@ -86,7 +86,7 @@ test('закрытое окно не останавливает агента: з
   const dialog = await openWrite(page)
   await dialog.getByLabel('Что записать').fill('Хочу видеть ожидание')
   await dialog.getByRole('button', { name: 'Добавить' }).click()
-  await expect(dialog.getByText('Чудо-юдо пишет в бэклог Agents Kit Web…')).toBeVisible()
+  await expect(dialog.getByText('Чудо-Юдо пишет в бэклог Agents Kit Web…')).toBeVisible()
 
   // Оператор закрыл окно и пошёл читать бэклог: агент дописывает запись без него.
   await page.keyboard.press('Escape')
@@ -94,7 +94,7 @@ test('закрытое окно не останавливает агента: з
   expect(panel.deletes).toBe(0)
 
   panel.reply(ndjson({ type: 'written', text: 'ok', entries: added, commit: '4f1c2a9' }))
-  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо записал в бэклог/ })
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо записал в бэклог/ })
   await expect(done).toBeVisible()
 
   await done.click()
@@ -115,7 +115,7 @@ test('неудача видна с выводом агента, текст мо�
   await dialog.getByRole('button', { name: 'Добавить' }).click()
 
   const alert = dialog.getByRole('alert')
-  await expect(alert.getByText('Чудо-юдо не записал')).toBeVisible()
+  await expect(alert.getByText('Чудо-Юдо не записал')).toBeVisible()
   await expect(alert.getByText('Коммит отклонён сверкой')).toBeVisible()
 
   await dialog.getByRole('button', { name: 'Изменить текст' }).click()

@@ -10,7 +10,7 @@ const models = ['', 'opus', 'sonnet', 'haiku']
 /** Наборы инструментов: пусто — все инструменты сессии, иначе список, как его понимает Claude Code. */
 const READ_ONLY = 'Read, Glob, Grep'
 
-/** Поля исполнителя, как их возвращает «Чудо-юдо»: те же, что в окне, кроме копии. */
+/** Поля исполнителя, как их возвращает Чудо-Юдо: те же, что в окне, кроме копии. */
 export type DraftFields = {
   name: string | null
   description: string | null
@@ -54,7 +54,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
   const [failure, setFailure] = useState<Failure | null>(null)
   const field = useRef<HTMLInputElement>(null)
 
-  // Просьба к «Чудо-юдо» живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
+  // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
   const draft = useAgentRequest<DraftEvent>('performer')
   const [wish, setWish] = useState('')
   // Поля, какими они были до ответа агента: «Вернуть как было» ставит их обратно.
@@ -191,7 +191,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
   }
 
   const locked = busy || phase === 'running'
-  const askLabel = editing ? `Переписать с помощью «${AGENT_NAME}»` : `Завести с помощью «${AGENT_NAME}»`
+  const askLabel = editing ? `Переписать с помощью ${AGENT_NAME}` : `Завести с помощью ${AGENT_NAME}`
 
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && !locked && onClose()}>
@@ -210,7 +210,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
           {/* Просьба — первое поле формы: отдельного окна у исполнителя нет — решение оператора на B-69. */}
           <div className="pf-field">
             <label className="pf-label" htmlFor="pf-wish">
-              Просьба к «{AGENT_NAME}»{' '}
+              Просьба к {AGENT_NAME}{' '}
               <span className="text-ter">{editing ? '— он перепишет поля ниже' : '— он заполнит поля ниже'}</span>
             </label>
             <textarea
@@ -245,7 +245,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
                 <div className="pf-status" role="status">
                   <span className="pf-spinner" aria-hidden="true" />
                   <span className="pf-status-text">
-                    «{AGENT_NAME}» {editing ? 'переписывает исполнителя' : 'заводит исполнителя'}…
+                    {AGENT_NAME} {editing ? 'переписывает исполнителя' : 'заводит исполнителя'}…
                   </span>
                   {draft.startedAt !== null && <Elapsed since={draft.startedAt} />}
                   <button type="button" className="pf-preset" onClick={() => void draft.forget()}>
@@ -253,7 +253,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
                   </button>
                 </div>
                 {draft.steps.length > 0 && (
-                  <ol className="pf-steps" aria-label={`Ход работы «${AGENT_NAME}»`}>
+                  <ol className="pf-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
                     {draft.steps.map((step, i) => (
                       <li key={i}>{step}</li>
                     ))}
@@ -267,7 +267,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
             {phase === 'taken' && (
               <div className="pf-status">
-                <span className="pf-status-text">Поля ниже заполнил «{AGENT_NAME}»</span>
+                <span className="pf-status-text">Поля ниже заполнил {AGENT_NAME}</span>
                 <button type="button" className="pf-preset" disabled={busy} onClick={() => void revert()}>
                   вернуть как было
                 </button>
@@ -279,7 +279,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
             {phase === 'failed' && (
               <div className="pf-error" role="alert">
-                <span className="pf-error-title">«{AGENT_NAME}» не заполнил поля</span>
+                <span className="pf-error-title">{AGENT_NAME} не заполнил поля</span>
                 <p className="pf-error-text">{draftError}. Поля окна не тронуты.</p>
                 {draftOutput && <p className="pf-error-text mono">{draftOutput}</p>}
               </div>

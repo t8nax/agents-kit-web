@@ -5,7 +5,7 @@ import './AskModal.css'
 import './BacklogWriteModal.css'
 
 // Имя агента, который оформляет мысль оператора в записи бэклога, — выбор оператора.
-export const AGENT_NAME = 'Чудо-юдо'
+export const AGENT_NAME = 'Чудо-Юдо'
 
 export type WriteBase = { base: string; project: string }
 

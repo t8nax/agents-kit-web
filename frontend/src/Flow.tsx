@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { AGENT_NAME } from './BacklogWriteModal'
 import './Backlog.css'
 import './Flow.css'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
@@ -350,7 +351,7 @@ export default function Flow({
                 }}
               >
                 <RewriteIcon />
-                Переписать с Чудо-юдо
+                Переписать с {AGENT_NAME}
               </button>
               <button type="button" className="btn-code" onClick={() => void openInVsCode(flow.base)}>
                 <VsCodeIcon />
@@ -503,7 +504,7 @@ export default function Flow({
                     setDraft(renumbered(steps.map((step) => toDraft(step, flow.icons?.[step.title] ?? ''))))
                     setOpened(null)
                     setModal(null)
-                    setNotice({ kind: 'done', text: 'Правки Чудо-юдо в схеме — их ещё нужно сохранить' })
+                    setNotice({ kind: 'done', text: `Правки ${AGENT_NAME} в схеме — их ещё нужно сохранить` })
                   }}
                 />
               )}

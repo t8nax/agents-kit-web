@@ -440,7 +440,7 @@ test('переписанный агентом флоу ложится в схе�
   )
   const region = await renderFlow()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-юдо' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
   fireEvent.change(await screen.findByLabelText('Что поменять во флоу'), {
     target: { value: 'Ревью смотрит дифф всей ветки' },
   })
@@ -448,7 +448,7 @@ test('переписанный агентом флоу ложится в схе�
   fireEvent.click(await screen.findByRole('button', { name: 'Взять правки в схему' }))
 
   // Итог просьбы забирается вместе с правками, поэтому схема их получает следующим ходом.
-  expect(await screen.findByText('Правки Чудо-юдо в схеме — их ещё нужно сохранить')).toBeInTheDocument()
+  expect(await screen.findByText('Правки Чудо-Юдо в схеме — их ещё нужно сохранить')).toBeInTheDocument()
   expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
   // Флоу базы записывает не окно, а прежняя кнопка «Сохранить».
   expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
@@ -464,7 +464,7 @@ test('со своими несохранёнными правками переп
   const drawer = await openStep(region, /^Шаг 1: /)
   fireEvent.change(drawer.getByLabelText('выход'), { target: { value: 'критерий и ответ оператора' } })
 
-  expect(screen.getByRole('button', { name: 'Переписать с Чудо-юдо' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeDisabled()
 })
 
 /** Заведённые исполнители проекта: из них шагу выбирают субагента. */

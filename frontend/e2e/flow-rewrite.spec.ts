@@ -76,7 +76,7 @@ test('оператор просит переписать флоу словами
   )
 
   const region = await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-юдо' }).click()
+  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь шаг ревью перед мержем')
@@ -121,7 +121,7 @@ test('отказ оставляет флоу как был, а неудачу а
   )
 
   const region = await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-юдо' }).click()
+  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь ревью')
@@ -145,14 +145,14 @@ test('пока агент переписывает, идёт счётчик, а 
   const calls = await mockApi(page)
 
   await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-юдо' }).click()
+  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь ревью')
   await dialog.getByRole('button', { name: 'Переписать' }).click()
 
   const waiting = dialog.getByRole('status')
-  await expect(waiting).toContainText('Чудо-юдо переписывает флоу Agents Kit Web…')
+  await expect(waiting).toContainText('Чудо-Юдо переписывает флоу Agents Kit Web…')
   await expect(waiting.getByLabel('Прошло времени')).toBeVisible()
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()
@@ -164,11 +164,11 @@ test('закрытое окно не останавливает агента: р
   const calls = await mockApi(page)
 
   await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-юдо' }).click()
+  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь ревью')
   await dialog.getByRole('button', { name: 'Переписать' }).click()
-  await expect(dialog.getByRole('status')).toContainText('Чудо-юдо переписывает флоу Agents Kit Web…')
+  await expect(dialog.getByRole('status')).toContainText('Чудо-Юдо переписывает флоу Agents Kit Web…')
 
   // Оператор ушёл смотреть копии: агент дописывает флоу без него.
   await page.keyboard.press('Escape')
@@ -183,7 +183,7 @@ test('закрытое окно не останавливает агента: р
       version: 'v1',
     }),
   )
-  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо переписал флоу/ })
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо переписал флоу/ })
   await expect(done).toBeVisible()
 
   await done.click()

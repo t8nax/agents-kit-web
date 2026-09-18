@@ -94,7 +94,7 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
           disabled={backlogs.length === 0}
         >
           <WriteIcon />
-          Добавить с помощью «{AGENT_NAME}»
+          Добавить с помощью {AGENT_NAME}
         </button>
         <button type="button" className="bases-btn" onClick={refresh} disabled={load.kind === 'loading'}>
           <RefreshIcon />
