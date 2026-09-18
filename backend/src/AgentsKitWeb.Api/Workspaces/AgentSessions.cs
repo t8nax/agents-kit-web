@@ -1,27 +1,60 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text.Json;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
+/// <summary>Что делает сессия агента в копии. Сессии нет — состояния нет, у строки стоит null.</summary>
+public static class SessionState
+{
+    /// <summary>Идёт запрос: агент работает.</summary>
+    public const string Working = "working";
+
+    /// <summary>Сессия держит свой диалог и ждёт оператора в терминале — ответить из панели такому вопросу нельзя.</summary>
+    public const string Waiting = "waiting";
+
+    /// <summary>Сессия жива, но ничего не делает и ни о чём не спрашивает.</summary>
+    public const string Idle = "idle";
+}
+
 /// <summary>
-/// Сессия агента из реестра: каталог, в котором она идёт, чем запущена и, у фоновой, её короткий id —
-/// тот, которым в неё входят из терминала.
+/// Сессия агента из реестра: каталог, в котором она идёт, чем запущена, что делает и, у фоновой,
+/// её короткий id — тот, которым в неё входят из терминала.
 /// </summary>
-public sealed record AgentSession(string Cwd, int Pid, string? Entrypoint, string? Kind = null, string? JobId = null)
+public sealed record AgentSession(
+    string Cwd,
+    int Pid,
+    string? Entrypoint,
+    string? Kind = null,
+    string? JobId = null,
+    string? Status = null,
+    long? ProcStart = null)
 {
     public bool InVsCode => Entrypoint == "claude-vscode";
 
     /// <summary>Фоновая сессия — та, что живёт своим процессом без окна; войти в неё можно только по JobId.</summary>
     public bool InBackground => Kind == "bg" && !string.IsNullOrEmpty(JobId);
+
+    /// <summary>
+    /// Состояние сессии по её строке status. Claude Code пишет туда waiting, когда держит диалог и ждёт
+    /// нажатия, и busy, пока идёт запрос; всё остальное — сессия стоит. Незнакомое значение тоже считается
+    /// «стоит»: чужой формат может завести новое, и оно не должно выглядеть работой.
+    /// </summary>
+    public string State => Status switch
+    {
+        "waiting" => SessionState.Waiting,
+        "busy" => SessionState.Working,
+        _ => SessionState.Idle,
+    };
 }
 
 /// <summary>
 /// Реестр живых сессий агентов — файлы &lt;pid&gt;.json каталога сессий Claude Code.
 /// Формат чужой: панель его только читает и на неизвестные поля не опирается.
 /// </summary>
-public sealed class AgentSessions(string directory, Func<int, bool>? alive = null)
+public sealed class AgentSessions(string directory, Func<int, long?>? processStart = null)
 {
-    private readonly Func<int, bool> _alive = alive ?? IsAlive;
+    private readonly Func<int, long?> _processStart = processStart ?? StartedAt;
 
     public static string DefaultDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "sessions");
@@ -35,18 +68,38 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
     /// </summary>
     public AgentSession? BackgroundIn(string copyPath) => In(copyPath, session => session.InBackground);
 
-    /// <summary>Помечает строки таблицы теми копиями, в которых идёт фоновая сессия: в них есть куда перейти.</summary>
+    /// <summary>
+    /// Что делает сессия в каталоге копии; null — живой сессии в нём нет. Сессий в копии бывает несколько,
+    /// и берётся та, которой оператор нужнее: ждущая важнее работающей, потому что до ответа работа стоит.
+    /// </summary>
+    public string? StateIn(string copyPath)
+    {
+        var states = LiveIn(copyPath).Select(session => session.State).ToList();
+        if (states.Count == 0)
+            return null;
+        if (states.Contains(SessionState.Waiting))
+            return SessionState.Waiting;
+        return states.Contains(SessionState.Working) ? SessionState.Working : SessionState.Idle;
+    }
+
+    /// <summary>
+    /// Дописывает строкам таблицы состояние их сессии и отметку фоновой — той, в которую есть переход
+    /// из терминала. Строке с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
+    /// </summary>
     public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows) => rows
-        .Select(row => row.Error is null && BackgroundIn(row.Path) is not null
-            ? row with { BackgroundSession = true }
+        .Select(row => row.Error is null
+            ? row with { SessionState = StateIn(row.Path), BackgroundSession = BackgroundIn(row.Path) is not null }
             : row)
         .ToList();
 
-    private AgentSession? In(string copyPath, Func<AgentSession, bool> wanted)
+    private AgentSession? In(string copyPath, Func<AgentSession, bool> wanted) =>
+        LiveIn(copyPath).FirstOrDefault(wanted);
+
+    private IEnumerable<AgentSession> LiveIn(string copyPath)
     {
         var copy = WorkspaceCollector.Normalize(copyPath);
-        return All().FirstOrDefault(session =>
-            wanted(session) && WorkspaceCollector.Normalize(session.Cwd).Equals(copy, StringComparison.OrdinalIgnoreCase));
+        return All().Where(session =>
+            WorkspaceCollector.Normalize(session.Cwd).Equals(copy, StringComparison.OrdinalIgnoreCase));
     }
 
     private IEnumerable<AgentSession> All()
@@ -56,11 +109,19 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
 
         foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
         {
-            // Файл сессии переживает свой процесс, поэтому живость проверяется по pid, а не по наличию файла.
-            if (Parse(file) is { } session && _alive(session.Pid))
+            // Файл сессии переживает свой процесс, поэтому живость проверяется по процессу, а не по наличию файла.
+            if (Parse(file) is { } session && IsLive(session))
                 yield return session;
         }
     }
+
+    /// <summary>
+    /// Сессия жива, когда её процесс идёт и стартовал тогда же, когда записано в файле: номер процесса
+    /// Windows переиспользует, и без сверки времени старта чужая программа сошла бы за брошенную сессию.
+    /// Времени в файле нет — сверять нечем, и остаётся один номер процесса.
+    /// </summary>
+    private bool IsLive(AgentSession session) =>
+        _processStart(session.Pid) is { } started && (session.ProcStart is null || session.ProcStart == started);
 
     private static AgentSession? Parse(string file)
     {
@@ -76,7 +137,13 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
                 return null;
 
             return new AgentSession(
-                cwd.GetString()!, pidValue, Text(root, "entrypoint"), Text(root, "kind"), Text(root, "jobId"));
+                cwd.GetString()!,
+                pidValue,
+                Text(root, "entrypoint"),
+                Text(root, "kind"),
+                Text(root, "jobId"),
+                Text(root, "status"),
+                Number(root, "procStart"));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -90,16 +157,30 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
             ? value.GetString()
             : null;
 
-    private static bool IsAlive(int pid)
+    /// <summary>Время старта процесса Claude Code пишет строкой, но числу тоже незачем ломать разбор.</summary>
+    private static long? Number(JsonElement root, string property)
+    {
+        if (!root.TryGetProperty(property, out var value))
+            return null;
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number))
+            return number;
+        return value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), out var parsed)
+            ? parsed
+            : null;
+    }
+
+    /// <summary>Время старта процесса в той же шкале, в какой его пишет реестр; null — процесса нет.</summary>
+    private static long? StartedAt(int pid)
     {
         try
         {
             using var process = Process.GetProcessById(pid);
-            return !process.HasExited;
+            return process.HasExited ? null : process.StartTime.ToFileTimeUtc();
         }
-        catch (ArgumentException)
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
         {
-            return false;
+            // Процесса нет, он успел уйти между поиском и опросом или его время старта не отдают.
+            return null;
         }
     }
 }
