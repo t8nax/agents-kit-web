@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import BacklogWriteModal, { type WriteBase, type WriteEvent } from './BacklogWriteModal'
+import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -11,59 +12,37 @@ const bases: WriteBase[] = [
   { base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
-/** Поток NDJSON, который тест выдаёт по строке, когда нужно. */
-function controlledStream() {
-  let controller!: ReadableStreamDefaultController<Uint8Array>
-  const body = new ReadableStream<Uint8Array>({
-    start: (c) => {
-      controller = c
-    },
-  })
-  const encoder = new TextEncoder()
-  return {
-    body,
-    send: (event: WriteEvent) => controller.enqueue(encoder.encode(JSON.stringify(event) + '\n')),
-    close: () => controller.close(),
-  }
-}
-
-function stubFetch(stream: ReturnType<typeof controlledStream>) {
-  const posts: { url: string; body: unknown; signal: AbortSignal }[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn((url: string, init?: RequestInit) => {
-      posts.push({ url, body: JSON.parse(String(init?.body)), signal: init!.signal! })
-      return Promise.resolve(new Response(stream.body, { headers: { 'Content-Type': 'application/x-ndjson' } }))
-    }),
-  )
-  return posts
+function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: ReturnType<typeof runningRequest>) {
+  return stubPanel('backlog', stream, { running, project: 'Nota' })
 }
 
 function renderModal(initialBase: string | null = null) {
   const onEntries = vi.fn()
-  render(<BacklogWriteModal bases={bases} initialBase={initialBase} onClose={() => {}} onEntries={onEntries} />)
-  return onEntries
+  const view = render(
+    <BacklogWriteModal bases={bases} initialBase={initialBase} onClose={() => {}} onEntries={onEntries} />,
+  )
+  return Object.assign(onEntries, { unmount: view.unmount })
 }
 
-function send(text: string) {
-  fireEvent.change(screen.getByLabelText('Что записать'), { target: { value: text } })
+async function send(text: string) {
+  fireEvent.change(await screen.findByLabelText('Что записать'), { target: { value: text } })
   fireEvent.click(screen.getByRole('button', { name: 'Добавить' }))
 }
 
 test('текст уходит в проект раздела, ход агента виден, итог показывает новые записи с текстом', async () => {
   const stream = controlledStream()
-  const posts = stubFetch(stream)
+  const { posts } = stubFetch(stream)
   const onEntries = renderModal('D:\\Projects\\nota-knowledge')
 
   expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
-  send('  Хочу видеть ожидание и сортировку  ')
+  await send('  Хочу видеть ожидание и сортировку  ')
 
+  expect(await screen.findByText('Чудо-юдо пишет в бэклог Nota…')).toBeInTheDocument()
   expect(posts[0].url).toBe('/api/backlog/write')
   expect(posts[0].body).toEqual({ base: 'D:\\Projects\\nota-knowledge', text: 'Хочу видеть ожидание и сортировку' })
-  expect(await screen.findByText('Чудо-юдо пишет в бэклог Nota…')).toBeInTheDocument()
 
   stream.send({ type: 'step', text: 'правит backlog.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы агента' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
   expect(within(steps).getByText('правит backlog.md')).toBeInTheDocument()
 
   stream.send({
@@ -91,10 +70,10 @@ test('текст уходит в проект раздела, ход агент�
 
 test('неудача называет причину и вывод агента, а текст остаётся для повторной отправки', async () => {
   const stream = controlledStream()
-  const posts = stubFetch(stream)
+  const { posts } = stubFetch(stream)
   const onEntries = renderModal()
 
-  send('Мысль')
+  await send('Мысль')
   stream.send({ type: 'error', text: 'Агент закончил, но новых записей в бэклоге нет', output: 'Правка запрещена' })
 
   const alert = await screen.findByRole('alert')
@@ -112,7 +91,7 @@ test('незакоммиченные записи показаны при оши
   stubFetch(stream)
   const onEntries = renderModal()
 
-  send('Мысль')
+  await send('Мысль')
   stream.send({
     type: 'error',
     text: 'Записи появились, но backlog.md не закоммичен',
@@ -129,27 +108,59 @@ test('оборванный без итога поток — сбой, а не в
   stubFetch(stream)
   renderModal()
 
-  send('Мысль')
+  await send('Мысль')
   stream.close()
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Запись оборвалась')
+  expect(await screen.findByRole('alert')).toHaveTextContent('оборвал')
 })
 
-test('«Отменить» обрывает запрос и возвращает текст в поле', async () => {
+test('«Отменить» убирает просьбу из панели и возвращает текст в поле', async () => {
   const stream = controlledStream()
-  const posts = stubFetch(stream)
+  const { deletes } = stubFetch(stream)
   renderModal()
 
-  send('Долгая мысль')
+  await send('Долгая мысль')
   fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
 
-  expect(posts[0].signal.aborted).toBe(true)
-  expect(screen.getByLabelText('Что записать')).toHaveValue('Долгая мысль')
+  expect(deletes).toEqual(['/api/agent/backlog'])
+  expect(await screen.findByLabelText('Что записать')).toHaveValue('Долгая мысль')
 })
 
-test('без текста добавить нельзя', () => {
+test('закрытое окно не останавливает агента: просьба остаётся в панели', async () => {
+  const stream = controlledStream()
+  const { deletes } = stubFetch(stream)
+  const onEntries = renderModal()
+
+  await send('Долгая мысль')
+  await screen.findByRole('status')
+  onEntries.unmount()
+
+  expect(deletes).toEqual([])
+})
+
+test('открытое заново окно показывает запись, которая шла без него', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { posts } = stubFetch(stream, runningRequest('backlog', 'Хочу ожидание', bases[1].base, 'Nota', 12000))
+  const onEntries = renderModal()
+
+  expect(await screen.findByText('Хочу ожидание')).toBeInTheDocument()
+  expect(screen.getByLabelText('Прошло времени')).toHaveTextContent('0:12')
+
+  stream.send({
+    type: 'written',
+    text: '',
+    entries: [{ number: 'B-60', title: 'Ожидание в таблице', text: null }],
+    commit: 'a1b2c3d',
+  })
+
+  expect(await screen.findByText('B-60')).toBeInTheDocument()
+  expect(onEntries).toHaveBeenCalledWith(bases[0].base, ['B-60'])
+  expect(posts).toEqual([])
+})
+
+test('без текста добавить нельзя', async () => {
   stubFetch(controlledStream())
   renderModal()
 
-  expect(screen.getByRole('button', { name: 'Добавить' })).toBeDisabled()
+  expect(await screen.findByRole('button', { name: 'Добавить' })).toBeDisabled()
 })

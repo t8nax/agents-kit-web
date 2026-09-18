@@ -3,6 +3,8 @@ import './App.css'
 import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
 import { useCollapsedGroups } from './collapsedGroups'
+import AgentBar from './AgentBar'
+import type { AgentKind } from './agentRequest'
 import Flow, { FlowIcon } from './Flow'
 import NewWorkspaceModal, { PlusIcon } from './NewWorkspaceModal'
 import {
@@ -128,6 +130,8 @@ function App() {
   const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [asking, setAsking] = useState(false)
+  // Просьба, к которой оператор вернулся из шапки: раздел с её окном открывается заново, с её базой.
+  const [openRequest, setOpenRequest] = useState<{ kind: AgentKind; base: string; at: number } | null>(null)
   const [creating, setCreating] = useState(false)
   // Копия, в которой оператор запускает задачу, и сообщение о запущенной
   const [starting, setStarting] = useState<WorkspaceRow | null>(null)
@@ -210,6 +214,16 @@ function App() {
           onRequest={notifications.request}
           onToggle={notifications.setEnabled}
         />
+        <AgentBar
+          onOpen={(request) => {
+            if (request.kind === 'ask') {
+              setAsking(true)
+              return
+            }
+            setSection(request.kind === 'backlog' ? 'backlog' : 'flow')
+            setOpenRequest({ kind: request.kind, base: request.base, at: Date.now() })
+          }}
+        />
         <button type="button" className="bases-btn" onClick={() => setAsking(true)}>
           <AskIcon />
           Спросить базу
@@ -258,9 +272,16 @@ function App() {
               )}
             </>
           ) : section === 'backlog' ? (
-            <Backlog />
+            // Возврат к просьбе открывает раздел заново: окно встаёт на базе просьбы, а не на прежнем фильтре.
+            <Backlog
+              key={openRequest?.kind === 'backlog' ? openRequest.at : 'backlog'}
+              writeFor={openRequest?.kind === 'backlog' ? openRequest.base : null}
+            />
           ) : section === 'flow' ? (
-            <Flow />
+            <Flow
+              key={openRequest?.kind === 'flow' ? openRequest.at : 'flow'}
+              rewriteFor={openRequest?.kind === 'flow' ? openRequest.base : null}
+            />
           ) : section === 'sessions' ? (
             <Sessions />
           ) : section === 'problems' ? (

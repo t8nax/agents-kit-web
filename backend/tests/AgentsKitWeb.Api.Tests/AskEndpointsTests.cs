@@ -96,8 +96,10 @@ public sealed class AskEndpointsTests : IDisposable
         ];
         _agent.BeforeLine = index => index == 1 ? release.Task : Task.CompletedTask;
 
-        using var response = await Client(_base).SendAsync(
-            Post(_base, "Что за проект?"), HttpCompletionOption.ResponseHeadersRead);
+        var client = Client(_base);
+        (await client.SendAsync(Post(_base, "Что за проект?"))).EnsureSuccessStatusCode();
+        using var response = await client.GetAsync(
+            "/api/agent/ask/stream?from=0", HttpCompletionOption.ResponseHeadersRead);
         using var reader = new StreamReader(await response.Content.ReadAsStreamAsync());
 
         var first = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
@@ -228,11 +230,12 @@ public sealed class AskEndpointsTests : IDisposable
     private static HttpRequestMessage Post(string basePath, string question) =>
         new(HttpMethod.Post, "/api/ask") { Content = JsonContent.Create(new AskRequest(basePath, question)) };
 
+    /// <summary>Как окно: просьба заводится POST, а ход и итог читаются её потоком с начала.</summary>
     private static async Task<List<AskEvent>> Ask(HttpClient client, string basePath, string question)
     {
-        using var response = await client.SendAsync(Post(basePath, question));
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadAsStringAsync();
+        using var started = await client.SendAsync(Post(basePath, question));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var body = await client.GetStringAsync("/api/agent/ask/stream?from=0");
         return body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
             .Select(line => JsonSerializer.Deserialize<AskEvent>(line, Json)!)
             .ToList();

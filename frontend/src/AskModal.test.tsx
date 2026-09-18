@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import AskModal, { type AskBase, type AskEvent } from './AskModal'
+import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -11,33 +12,13 @@ const bases: AskBase[] = [
   { base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
-/** Поток NDJSON, который тест выдаёт по строке, когда нужно. */
-function controlledStream() {
-  let controller!: ReadableStreamDefaultController<Uint8Array>
-  const body = new ReadableStream<Uint8Array>({
-    start: (c) => {
-      controller = c
-    },
+/** Базы окно читает своим вызовом: стенд панели о них не знает. */
+function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: ReturnType<typeof runningRequest>) {
+  return stubPanel('ask', stream, {
+    running,
+    project: 'Nota',
+    others: (url) => (url === '/api/ask/bases' ? Response.json(bases) : null),
   })
-  const encoder = new TextEncoder()
-  return {
-    body,
-    send: (event: AskEvent) => controller.enqueue(encoder.encode(JSON.stringify(event) + '\n')),
-    close: () => controller.close(),
-  }
-}
-
-function stubFetch(stream: ReturnType<typeof controlledStream>) {
-  const posts: { body: unknown; signal: AbortSignal }[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn((url: string, init?: RequestInit) => {
-      if (url === '/api/ask/bases') return Promise.resolve(Response.json(bases))
-      posts.push({ body: JSON.parse(String(init?.body)), signal: init!.signal! })
-      return Promise.resolve(new Response(stream.body, { headers: { 'Content-Type': 'application/x-ndjson' } }))
-    }),
-  )
-  return posts
 }
 
 async function askQuestion(text: string) {
@@ -46,18 +27,18 @@ async function askQuestion(text: string) {
 }
 
 test('вопрос уходит в выбранную базу, ход работы виден до ответа, ответ показан с прочитанными файлами', async () => {
-  const stream = controlledStream()
-  const posts = stubFetch(stream)
+  const stream = controlledStream<AskEvent>()
+  const { posts } = stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Nota' }))
   await askQuestion('Почему опрос?')
 
   expect(posts[0].body).toEqual({ base: 'D:\\Projects\\nota-knowledge', question: 'Почему опрос?' })
-  expect(await screen.findByText('Агент читает базу Nota…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-юдо читает базу Nota…')).toBeInTheDocument()
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы агента' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
   expect(within(steps).getByText('читает decisions/ui.md')).toBeInTheDocument()
 
   stream.send({ type: 'answer', text: 'Так решил **оператор**.\n\n- проще всего', files: ['decisions/ui.md'], durationMs: 31000 })
@@ -67,11 +48,11 @@ test('вопрос уходит в выбранную базу, ход рабо�
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Новый вопрос' }))
-  expect(screen.getByLabelText('Вопрос')).toHaveValue('')
+  expect(await screen.findByLabelText('Вопрос')).toHaveValue('')
 })
 
 test('сбой агента показан с его выводом, вопрос можно изменить', async () => {
-  const stream = controlledStream()
+  const stream = controlledStream<AskEvent>()
   stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
@@ -82,11 +63,11 @@ test('сбой агента показан с его выводом, вопро�
   expect(within(alert).getByText('Invalid API key · Please run /login')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Изменить вопрос' }))
-  expect(screen.getByLabelText('Вопрос')).toHaveValue('Что за проект?')
+  expect(await screen.findByLabelText('Вопрос')).toHaveValue('Что за проект?')
 })
 
 test('оборванный без ответа поток — сбой, а не вечное ожидание', async () => {
-  const stream = controlledStream()
+  const stream = controlledStream<AskEvent>()
   stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
@@ -96,27 +77,58 @@ test('оборванный без ответа поток — сбой, а не 
   expect(await screen.findByRole('alert')).toHaveTextContent('Ответ оборвался')
 })
 
-test('«Отменить» обрывает запрос и возвращает вопрос в поле', async () => {
-  const stream = controlledStream()
-  const posts = stubFetch(stream)
+test('«Отменить» убирает просьбу из панели и возвращает вопрос в поле', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { deletes } = stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
   await askQuestion('Долгий вопрос')
   fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
 
-  expect(posts[0].signal.aborted).toBe(true)
-  expect(screen.getByLabelText('Вопрос')).toHaveValue('Долгий вопрос')
+  expect(await screen.findByLabelText('Вопрос')).toHaveValue('Долгий вопрос')
+  expect(deletes).toEqual(['/api/agent/ask'])
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
 
-test('закрытое окно обрывает идущий запрос', async () => {
-  const stream = controlledStream()
-  const posts = stubFetch(stream)
+test('закрытое окно не останавливает агента: просьба остаётся в панели', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { deletes } = stubFetch(stream)
   const { unmount } = render(<AskModal onClose={() => {}} />)
 
   await askQuestion('Вопрос')
   await screen.findByRole('status')
   unmount()
 
-  expect(posts[0].signal.aborted).toBe(true)
+  expect(deletes).toEqual([])
+})
+
+test('открытое заново окно показывает работу, которая шла без него', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { posts } = stubFetch(stream, runningRequest('ask', 'Почему опрос?', bases[1].base, 'Nota', 42000))
+  render(<AskModal onClose={() => {}} />)
+
+  expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-юдо читает базу Nota…')).toBeInTheDocument()
+  expect(screen.getByLabelText('Прошло времени')).toHaveTextContent('0:42')
+
+  stream.send({ type: 'step', text: 'читает decisions/ui.md' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
+  expect(within(steps).getByText('читает decisions/ui.md')).toBeInTheDocument()
+
+  stream.send({ type: 'answer', text: 'Так решил оператор.', files: [], durationMs: 60000 })
+  expect(await screen.findByText('Так решил оператор.')).toBeInTheDocument()
+  expect(posts).toEqual([])
+})
+
+test('закрытое с готовым ответом окно убирает просьбу: отметка в шапке о ней больше не говорит', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { deletes } = stubFetch(stream)
+  const { unmount } = render(<AskModal onClose={() => {}} />)
+
+  await askQuestion('Почему опрос?')
+  stream.send({ type: 'answer', text: 'Так решил оператор.', files: [], durationMs: 1000 })
+  await screen.findByText('Так решил оператор.')
+  unmount()
+
+  await vi.waitFor(() => expect(deletes).toEqual(['/api/agent/ask']))
 })

@@ -3,6 +3,10 @@ import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import { applyChosenTheme } from './theme'
 
+// Индикатор просьб к агенту опрашивает панель сам и проверяется своим тестом: здесь он молчит,
+// иначе его опрос путался бы со счётом опросов таблицы копий.
+vi.mock('./AgentBar', () => ({ default: () => null }))
+
 let visibility: DocumentVisibilityState = 'visible'
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility })
 
