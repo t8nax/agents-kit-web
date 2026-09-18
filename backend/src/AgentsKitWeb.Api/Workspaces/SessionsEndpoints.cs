@@ -152,7 +152,17 @@ public static partial class SessionsEndpoints
         copy.Base,
         session.Name,
         session.InBackground ? session.JobId : null,
-        session.State,
+        StateOf(session, copy),
         session.InBackground,
         session.StartedAt);
+
+    /// <summary>
+    /// Что делает сессия. Стоящая сессия копии, которая ждёт ответа оператора, без дела не стоит: её работа
+    /// упёрлась в вопрос из файла памяти — замечание оператора на приёмке B-50. Какая из стоящих сессий копии
+    /// этот вопрос задала, реестр не говорит, и ожидание показывается всем стоящим сессиям копии.
+    /// </summary>
+    private static string StateOf(AgentSession session, WorkspaceRow copy) =>
+        session.State == SessionState.Idle && copy.Status == WorkspaceStatus.Waiting
+            ? SessionState.AwaitingOperator
+            : session.State;
 }

@@ -19,21 +19,24 @@ export type SessionRow = {
   startedAt: number | null
 }
 
-type SessionState = 'working' | 'waiting' | 'idle'
+type SessionState = 'working' | 'waiting' | 'operator' | 'idle'
 
 /**
  * Состояние сессии показывается такой же плашкой, как статус копии в её таблице, — решение оператора.
- * «Ждёт в терминале» — про вопрос самой сессии, на который из панели не ответить.
+ * Ожиданий два, и они разные: «Ждёт в терминале» — про вопрос самой сессии, на который из панели
+ * не ответить, «Ждёт оператора» — про вопрос в файле памяти копии, тот же, что в статусе копии.
  */
 const stateLabels: Record<SessionState, string> = {
   working: 'Работает',
   waiting: 'Ждёт в терминале',
+  operator: 'Ждёт оператора',
   idle: 'Стоит без дела',
 }
 
 const stateBadges: Record<SessionState, string> = {
   working: 'status-in-work',
   waiting: 'status-waiting',
+  operator: 'status-waiting',
   idle: 'status-free',
 }
 
@@ -231,7 +234,7 @@ export default function Sessions() {
                                   disabled={!row.background}
                                   onClick={() => {
                                     close()
-                                    // Занятую сессию гасят через вопрос, простаивающую — сразу: решение оператора
+                                    // Через вопрос гасят и занятую, и ждущую ответа сессию; сразу — только простаивающую: решение оператора
                                     if (row.state === 'idle') void stop(row)
                                     else setConfirming(row)
                                   }}
@@ -266,6 +269,14 @@ export default function Sessions() {
   )
 }
 
+/** Чем занята сессия, у которой панель переспрашивает; простаивающую она гасит без вопроса. */
+const stopStates: Record<SessionState, string> = {
+  working: 'сейчас работает',
+  waiting: 'ждёт вас в терминале',
+  operator: 'ждёт вашего ответа в памяти задачи',
+  idle: 'ничего не делает',
+}
+
 /** Гашение необратимо, и у занятой сессии панель переспрашивает — решение оператора. */
 function StopConfirm({ row, onClose, onStop }: { row: SessionRow; onClose: () => void; onStop: () => void }) {
   useEffect(() => {
@@ -282,7 +293,7 @@ function StopConfirm({ row, onClose, onStop }: { row: SessionRow; onClose: () =>
         <h3 id="stop-title">Погасить сессию?</h3>
         <p>
           Сессия <span className="mono">{row.session}</span> в копии {copyName(row.path)}{' '}
-          {row.state === 'working' ? 'сейчас работает' : 'ждёт вас в терминале'}. Погашенная сессия не
+          {stopStates[row.state]}. Погашенная сессия не
           возобновляется: начатое в ней придётся начинать заново.
         </p>
         <p className="text-sec">Незакоммиченные правки останутся в копии как есть.</p>

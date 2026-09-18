@@ -29,6 +29,17 @@ const idle: SessionRow = {
   startedAt: Date.now() - 14 * 60 * 60_000,
 }
 
+const awaiting: SessionRow = {
+  path: 'D:\\Projects\\quiet-cedar',
+  project: 'Agents Kit Web',
+  base: 'D:\\Projects\\agents-kit-web-knowledge',
+  name: 'agents-kit b-44 drive',
+  session: 'c4770f21',
+  state: 'operator',
+  background: true,
+  startedAt: Date.now() - 30 * 60_000,
+}
+
 const inEditor: SessionRow = {
   path: 'D:\\Projects\\noble-keen-walrus',
   project: 'Agents Kit Web',
@@ -119,6 +130,22 @@ test('простаивающая сессия гаснет одним нажат
   const body = fetchMock.mock.calls.find((call) => call[0] === '/api/sessions/stop')![1]!.body
   expect(JSON.parse(String(body))).toEqual({ session: 'a1c66bfd' })
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('сессия копии, которая ждёт ответа, без дела не стоит и гаснет через вопрос', async () => {
+  const fetchMock = stubSessions([awaiting])
+
+  render(<Sessions />)
+
+  expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
+  expect(screen.queryByText('Стоит без дела')).not.toBeInTheDocument()
+
+  await openMenu('quiet-cedar')
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Погасить сессию' }))
+
+  const dialog = screen.getByRole('dialog', { name: 'Погасить сессию?' })
+  expect(within(dialog).getByText(/ждёт вашего ответа в памяти задачи/)).toBeInTheDocument()
+  expect(fetchMock.mock.calls.every((call) => call[0] !== '/api/sessions/stop')).toBe(true)
 })
 
 test('работающую сессию гасят через вопрос, и отмена её не гасит', async () => {

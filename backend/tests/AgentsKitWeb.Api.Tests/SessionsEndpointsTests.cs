@@ -56,6 +56,39 @@ public sealed class SessionsEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Sessions_StandingSessionOfCopyWaitingForOperator_WaitsForHimToo()
+    {
+        WriteMemory(answer: "");
+        WriteBackground(_copy, 200, "7339dced", status: "idle");
+
+        var rows = await Client().GetFromJsonAsync<List<SessionRow>>("/api/sessions");
+
+        Assert.Equal(SessionState.AwaitingOperator, Assert.Single(rows!).State);
+    }
+
+    [Fact]
+    public async Task Sessions_WorkingSessionOfCopyWaitingForOperator_IsStillWorking()
+    {
+        WriteMemory(answer: "");
+        WriteBackground(_copy, 200, "7339dced", status: "busy");
+
+        var rows = await Client().GetFromJsonAsync<List<SessionRow>>("/api/sessions");
+
+        Assert.Equal(SessionState.Working, Assert.Single(rows!).State);
+    }
+
+    [Fact]
+    public async Task Sessions_StandingSessionOfCopyWhoseQuestionIsAnswered_JustStands()
+    {
+        WriteMemory(answer: "да");
+        WriteBackground(_copy, 200, "7339dced", status: "idle");
+
+        var rows = await Client().GetFromJsonAsync<List<SessionRow>>("/api/sessions");
+
+        Assert.Equal(SessionState.Idle, Assert.Single(rows!).State);
+    }
+
+    [Fact]
     public async Task Sessions_SessionOfDirectoryOutsideBases_IsNotShown()
     {
         WriteBackground(Path.Combine(_root, "playground"), 300, "9919e753");
@@ -220,6 +253,27 @@ public sealed class SessionsEndpointsTests : IDisposable
             status,
             startedAt,
         }));
+
+    /// <summary>Память копии с одним вопросом оператору: пустой ответ — копия его ждёт.</summary>
+    private void WriteMemory(string answer) =>
+        File.WriteAllText(Path.Combine(_base, "work", "app.md"), $"""
+            # Задача копии
+            рабочая копия: {_copy}
+            ветка: dev
+
+            ## Оператору
+
+            ### Подтвердите критерий
+            За вами объём.
+
+            ответ: {answer}
+
+            ## Агенту
+
+            ### Флоу
+            - [x] 1. Критерий — выход: да
+            - [ ] 2. Ветка
+            """);
 
     private void WriteVsCode(string cwd, int pid) =>
         File.WriteAllText(Path.Combine(_sessionsDir, $"{pid}.json"), JsonSerializer.Serialize(new

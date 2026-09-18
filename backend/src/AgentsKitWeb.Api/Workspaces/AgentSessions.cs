@@ -15,6 +15,12 @@ public static class SessionState
 
     /// <summary>Сессия жива, но ничего не делает и ни о чём не спрашивает.</summary>
     public const string Idle = "idle";
+
+    /// <summary>
+    /// Сессия стоит, а её копия ждёт ответа оператора в файле памяти: работа упёрлась в вопрос, а не кончилась.
+    /// Состояние считается по копии, поэтому у строки таблицы копий его нет — только в перечне сессий.
+    /// </summary>
+    public const string AwaitingOperator = "operator";
 }
 
 /// <summary>
