@@ -35,6 +35,13 @@ public sealed class AgentSessions(string directory, Func<int, bool>? alive = nul
     /// </summary>
     public AgentSession? BackgroundIn(string copyPath) => In(copyPath, session => session.InBackground);
 
+    /// <summary>Помечает строки таблицы теми копиями, в которых идёт фоновая сессия: в них есть куда перейти.</summary>
+    public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows) => rows
+        .Select(row => row.Error is null && BackgroundIn(row.Path) is not null
+            ? row with { BackgroundSession = true }
+            : row)
+        .ToList();
+
     private AgentSession? In(string copyPath, Func<AgentSession, bool> wanted)
     {
         var copy = WorkspaceCollector.Normalize(copyPath);

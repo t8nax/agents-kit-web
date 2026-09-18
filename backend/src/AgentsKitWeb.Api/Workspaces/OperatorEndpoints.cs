@@ -11,7 +11,8 @@ public sealed record QuestionsResponse(
     string? OutOfScope,
     string? Design,
     IReadOnlyList<OperatorQuestion> Questions,
-    bool VsCodeSession);
+    bool VsCodeSession,
+    bool BackgroundSession);
 
 public sealed record AnswersRequest(string Base, string Copy, IReadOnlyList<OperatorAnswer> Answers);
 
@@ -43,7 +44,8 @@ public static class OperatorEndpoints
                 memory.OutOfScope,
                 memory.Design,
                 memory.Questions.Where(q => q.Answer is null).ToList(),
-                sessions.VsCodeIn(memory.Copy!) is not null));
+                sessions.VsCodeIn(memory.Copy!) is not null,
+                sessions.BackgroundIn(memory.Copy!) is not null));
         });
 
         // Панель не запускает сессию, а поднимает окно уже идущей: перехода нет, пока сессии нет.
@@ -82,6 +84,26 @@ public static class OperatorEndpoints
             return Opened(sessions.VsCodeIn(copy) is not null
                 ? await windows.RaiseAsync(copy, cancellationToken)
                 : await windows.OpenAsync(copy, cancellationToken));
+        });
+
+        // Переход в фоновую сессию: своего окна у неё нет, и панель открывает терминал, подключённый к ней
+        // по id из реестра. Сессии нет — переходить не к чему.
+        app.MapPost("/api/session/terminal", async (
+            OpenSessionRequest request,
+            BasesStore bases,
+            AgentSessions sessions,
+            ITerminalWindows terminals,
+            CancellationToken cancellationToken) =>
+        {
+            if (await FindCopy(bases, request.Base, request.Copy, cancellationToken) is not { } copy)
+                return Results.NotFound();
+
+            if (sessions.BackgroundIn(copy) is not { JobId: { } jobId })
+                return Results.Conflict(new OpenSessionFailedResponse("no-session"));
+
+            return await terminals.AttachAsync(copy, jobId, cancellationToken)
+                ? Results.NoContent()
+                : Results.Json(new OpenSessionFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
         });
 
         app.MapPost("/api/answers", async (AnswersRequest request, BasesStore bases, CancellationToken cancellationToken) =>
