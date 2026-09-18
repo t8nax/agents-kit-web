@@ -64,7 +64,8 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal(_copy, startInfo.WorkingDirectory);
         Assert.True(startInfo.CreateNoWindow);
         // Просьба уходит после «--»: текст, начатый с «-», claude принял бы за флаг.
-        Assert.Equal(["--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
+        // Настройками сессия оставлена в самой копии: без них claude уходит работать в отдельное дерево.
+        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
         // Панель не правит бэклог и не заводит память: и то и другое делает навык кита в этой сессии.
         Assert.Contains("B-7", File.ReadAllText(Path.Combine(_base, "backlog.md")));
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
@@ -90,7 +91,7 @@ public sealed class TaskEndpointsTests : IDisposable
         var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "В-8"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("/agents-kit:drive B-8", _agent.StartInfo!.ArgumentList[2]);
+        Assert.Equal("/agents-kit:drive B-8", _agent.StartInfo!.ArgumentList[^1]);
     }
 
     [Fact]

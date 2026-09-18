@@ -23,12 +23,22 @@ public static partial class BackgroundSession
     private static partial Regex AnsiCodes { get; }
 
     /// <summary>
-    /// `claude --bg -- &lt;просьба&gt;` в каталоге копии. Просьба уходит после «--»: текст, начатый с «-»,
-    /// claude принял бы за флаг. Просьбы нет — сессия заводится простаивающей и ждёт оператора.
+    /// Фоновая сессия claude по умолчанию правит файлы не в каталоге запуска, а в отдельном рабочем дереве
+    /// git внутри него. Панель отключает это настройкой запуска: копия должна стоять в таблице на ветке
+    /// задачи, а лишнее дерево показалось бы ещё одной свободной копией — задача B-66.
+    /// </summary>
+    private const string InCopySettings = """{"worktree":{"bgIsolation":"none"}}""";
+
+    /// <summary>
+    /// `claude --settings &lt;настройки&gt; --bg -- &lt;просьба&gt;` в каталоге копии. Просьба уходит
+    /// после «--»: текст, начатый с «-», claude принял бы за флаг. Просьбы нет — сессия заводится
+    /// простаивающей и ждёт оператора.
     /// </summary>
     public static ProcessStartInfo StartInfo(string copyPath, string? prompt = null)
     {
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, copyPath);
+        startInfo.ArgumentList.Add("--settings");
+        startInfo.ArgumentList.Add(InCopySettings);
         startInfo.ArgumentList.Add("--bg");
         if (!string.IsNullOrWhiteSpace(prompt))
         {
