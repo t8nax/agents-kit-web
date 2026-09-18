@@ -100,7 +100,11 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind) {
   }, [outcome, failure])
   useEffect(
     () => () => {
-      if (finished.current) void fetch(`/api/agent/${kind}`, { method: 'DELETE', keepalive: true })
+      // Панель недоступна — итог уйдёт вместе с ней, и показывать оператору нечего: отказ глотается,
+      // как в forget. Без этого закрытие окна оставляет в консоли необработанную ошибку.
+      if (finished.current) {
+        void fetch(`/api/agent/${kind}`, { method: 'DELETE', keepalive: true }).catch(() => {})
+      }
     },
     [kind],
   )
