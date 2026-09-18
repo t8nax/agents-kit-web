@@ -514,6 +514,27 @@ td.num-col {
   height: 4px;
 }
 
+/* Задача запускается: заливка как у свободной копии, а мигающая точка говорит, что это ненадолго */
+.status-starting {
+  background: var(--accent-free-bg);
+  color: var(--text-secondary);
+}
+
+.status-starting::before {
+  background: var(--text-secondary);
+  animation: blink 1.4s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
 @keyframes pulse-border {
   0% {
     box-shadow: 0 0 0 0 var(--accent-waiting-glow);
@@ -527,7 +548,8 @@ td.num-col {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .status-waiting {
+  .status-waiting,
+  .status-starting::before {
     animation: none;
   }
 }
