@@ -1,0 +1,155 @@
+/* Разбор переписанного флоу в окне агента — поверх общих стилей окна вопроса */
+
+.rewrite-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rewrite-change {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-base);
+}
+
+/* Цвет плашки говорит, что стало с шагом: добавлен, изменён, переставлен, удалён. */
+.rewrite-added {
+  border-color: var(--accent-active-border);
+  background: var(--accent-active-bg);
+}
+
+.rewrite-removed .rewrite-change-title {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+
+.rewrite-change-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rewrite-mark {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+
+.rewrite-added .rewrite-mark {
+  color: var(--accent-active-text);
+  border-color: var(--accent-active-border);
+}
+
+.rewrite-changed .rewrite-mark {
+  color: var(--accent-waiting-text);
+  border-color: var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+}
+
+.rewrite-removed .rewrite-mark {
+  color: var(--accent-error-text);
+  border-color: var(--accent-error-border);
+  background: var(--accent-error-bg);
+}
+
+.rewrite-change-title {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.rewrite-place {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.rewrite-fields {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 4px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Поле правки — своя пара «ключ — значение»: в ней два значения, прежнее и новое. */
+.rewrite-field {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.rewrite-fields dt {
+  color: var(--text-tertiary);
+}
+
+.rewrite-fields dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+
+.rewrite-was {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+}
+
+.rewrite-none {
+  color: var(--text-tertiary);
+}
+
+.rewrite-description {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rewrite-description-mark {
+  font-size: 12px;
+  color: var(--accent-waiting-text);
+}
+
+.rewrite-description-text {
+  margin: 0;
+  height: 300px;
+  overflow: auto;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.rewrite-untouched {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.rewrite-untouched-titles {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.rewrite-meta {
+  display: flex;
+  justify-content: flex-end;
+}

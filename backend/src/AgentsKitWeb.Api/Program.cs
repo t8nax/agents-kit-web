@@ -54,6 +54,7 @@ app.MapBacklogEndpoints();
 app.MapBacklogWriteEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
+app.MapFlowRewriteEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();

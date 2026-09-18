@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
 
@@ -35,7 +33,6 @@ public sealed record OpenFlowRequest(string Base);
 public static class FlowEndpoints
 {
     private const string CommitMessage = "Флоу правлен из панели";
-    private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
 
     public static void MapFlowEndpoints(this IEndpointRouteBuilder app)
     {
@@ -55,18 +52,17 @@ public static class FlowEndpoints
 
             var file = Path.Combine(basePath, FlowFile.FileName);
             var bytes = await File.ReadAllBytesAsync(file, cancellationToken);
-            if (Fingerprint(bytes) != request.Version)
+            if (FlowFile.Fingerprint(bytes) != request.Version)
                 return Results.Conflict(new FlowRejectedResponse("changed"));
 
             if (FlowFile.Validate(request.Steps) is { } rejection)
                 return Results.BadRequest(new FlowRejectedResponse("invalid", rejection.Step, Problem(rejection.Problem)));
 
-            var (text, hasBom) = Decode(bytes);
+            var (text, hasBom) = FlowFile.Decode(bytes);
             var updated = FlowFile.Serialize(
                 FlowFile.Parse(text) with { Steps = request.Steps },
                 text.Contains("\r\n") ? "\r\n" : "\n");
-            var output = new UTF8Encoding(false).GetBytes(updated);
-            output = hasBom ? [.. Utf8Bom, .. output] : output;
+            var output = FlowFile.Encode(updated, hasBom);
             // Значки живут в настройках панели: шаги могли не измениться, а значок шага — да.
             icons.Save(basePath, request.Icons);
 
@@ -84,7 +80,7 @@ public static class FlowEndpoints
                     statusCode: StatusCodes.Status502BadGateway);
             }
 
-            return Results.Ok(new FlowSavedResponse(Fingerprint(output)));
+            return Results.Ok(new FlowSavedResponse(FlowFile.Fingerprint(output)));
         });
 
         app.MapGet("/api/presets", (PresetsStore presets) => presets.List());
@@ -131,9 +127,9 @@ public static class FlowEndpoints
             return new BaseFlow(
                 basePath,
                 project,
-                FlowFile.Parse(Decode(bytes).Text).Steps,
+                FlowFile.Parse(FlowFile.Decode(bytes).Text).Steps,
                 WorkspaceCollector.MemoryFiles(basePath).Count,
-                Fingerprint(bytes),
+                FlowFile.Fingerprint(bytes),
                 null,
                 icons.Of(basePath));
         }
@@ -149,15 +145,6 @@ public static class FlowEndpoints
     {
         var configured = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, basePath));
         return configured is not null && Directory.Exists(configured) ? configured : null;
-    }
-
-    private static string Fingerprint(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
-
-    private static (string Text, bool HasBom) Decode(byte[] bytes)
-    {
-        var hasBom = bytes.AsSpan().StartsWith(Utf8Bom);
-        var offset = hasBom ? Utf8Bom.Length : 0;
-        return (new UTF8Encoding(false).GetString(bytes, offset, bytes.Length - offset), hasBom);
     }
 
     private static async Task WriteAsync(string file, byte[] bytes, CancellationToken cancellationToken)

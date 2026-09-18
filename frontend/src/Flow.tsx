@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import './Backlog.css'
 import './Flow.css'
+import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
 import { plural } from './plural'
 import { VsCodeIcon } from './VsCodeIcon'
 
@@ -147,8 +148,8 @@ export default function Flow() {
   const [edits, setEdits] = useState<{ key: string; steps: DraftStep[] } | null>(null)
   // Какой шаг открыт в сайдбаре: key шага, а не место — место меняется перетаскиванием.
   const [opened, setOpened] = useState<number | null>(null)
-  // Какое окно открыто поверх схемы: описание шага или выбор нового шага.
-  const [modal, setModal] = useState<'description' | 'add' | null>(null)
+  // Какое окно открыто поверх схемы: описание шага, выбор нового шага или переписывание флоу агентом.
+  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -313,6 +314,20 @@ export default function Flow() {
           </button>
           {editable && (
             <>
+              <button
+                type="button"
+                className="bases-btn"
+                // Пока правки не сохранены, переписывать нечего: агент работает с файлом базы.
+                disabled={dirty}
+                title={dirty ? 'Сначала сохраните или отмените свои правки' : undefined}
+                onClick={() => {
+                  setNotice(null)
+                  setModal('rewrite')
+                }}
+              >
+                <RewriteIcon />
+                Переписать с Чудо-юдо
+              </button>
               <button type="button" className="btn-code" onClick={() => void openInVsCode(flow.base)}>
                 <VsCodeIcon />
                 Открыть в VS Code
@@ -445,6 +460,23 @@ export default function Flow() {
                   onDone={(description) => {
                     update(openedIndex, { description })
                     setModal(null)
+                  }}
+                />
+              )}
+
+              {modal === 'rewrite' && (
+                <FlowRewriteModal
+                  base={flow.base}
+                  project={flow.project}
+                  steps={flow.steps}
+                  version={flow.version}
+                  onClose={() => setModal(null)}
+                  onApply={(steps) => {
+                    // Переписанное ложится в правки схемы: записывает его та же кнопка «Сохранить».
+                    setDraft(renumbered(steps.map((step) => toDraft(step, flow.icons?.[step.title] ?? ''))))
+                    setOpened(null)
+                    setModal(null)
+                    setNotice({ kind: 'done', text: 'Правки Чудо-юдо в схеме — их ещё нужно сохранить' })
                   }}
                 />
               )}
