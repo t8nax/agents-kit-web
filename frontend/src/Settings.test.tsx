@@ -40,10 +40,16 @@ async function openSettings() {
   }
 }
 
+// Карточка «Панель» стоит в этом же разделе и спрашивает панель о ней самой; своё у неё — свой тест.
+const panel = { version: '1.0.0', installed: false, channel: 'master', published: null }
+const noUpdate = { state: 'none', version: null, log: [], file: 'C:\\app\\update.log' }
+
 const api = (extra: Record<string, Handler> = {}) => ({
   'GET /api/workspaces': () => json([]),
   'GET /api/bases': () => json([existing]),
   'GET /api/kit': () => json(noKit),
+  'GET /api/panel': () => json(panel),
+  'GET /api/panel/update': () => json(noUpdate),
   ...extra,
 })
 

@@ -2,8 +2,11 @@ using System.Diagnostics;
 
 namespace AgentsKitWeb.Api.Panel;
 
-/// <summary>Чем кончилось или чем занято обновление, и последние строки его журнала.</summary>
-public sealed record PanelUpdateState(string State, string? Version, IReadOnlyList<string> Log);
+/// <summary>
+/// Чем кончилось или чем занято обновление, последние строки его журнала и путь к журналу целиком:
+/// сорвавшуюся сборку дочитывают в файле, и панель даёт оператору его скопировать.
+/// </summary>
+public sealed record PanelUpdateState(string State, string? Version, IReadOnlyList<string> Log, string File);
 
 public static class PanelUpdateStates
 {
@@ -40,15 +43,15 @@ public sealed class PanelUpdateRunner(string logFile)
     {
         var lines = Lines();
         if (lines.Count == 0)
-            return new PanelUpdateState(PanelUpdateStates.None, null, []);
+            return new PanelUpdateState(PanelUpdateStates.None, null, [], File);
 
         var tail = lines.TakeLast(Tail).ToList();
         var end = lines.LastOrDefault(line => line.StartsWith(Finished, StringComparison.Ordinal));
         if (end is null)
-            return new PanelUpdateState(PanelUpdateStates.Running, null, tail);
+            return new PanelUpdateState(PanelUpdateStates.Running, null, tail, File);
         return end.StartsWith(FinishedOk, StringComparison.Ordinal)
-            ? new PanelUpdateState(PanelUpdateStates.Done, end[FinishedOk.Length..].Trim(), tail)
-            : new PanelUpdateState(PanelUpdateStates.Failed, null, tail);
+            ? new PanelUpdateState(PanelUpdateStates.Done, end[FinishedOk.Length..].Trim(), tail, File)
+            : new PanelUpdateState(PanelUpdateStates.Failed, null, tail, File);
     }
 
     /// <summary>Уже идёт — второй раз не запускаем: две подмены одного каталога встретились бы на полпути.</summary>
