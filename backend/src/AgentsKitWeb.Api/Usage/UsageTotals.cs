@@ -71,6 +71,8 @@ public static class UsageMath
 
         var weighted = byModel.Sum(model => model.Tokens * model.Weight);
         return byModel
+            // Служебные записи журнала («<synthetic>») токенов не стоят, и строка о них в таблице лишняя.
+            .Where(model => model.Tokens > 0)
             .Select(model => new ModelUsage(
                 model.Model,
                 model.Answers,

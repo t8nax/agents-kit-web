@@ -119,6 +119,21 @@ public class UsageMathTests
     }
 
     [Fact]
+    public void Sum_LeavesOutModelsThatCostNothing()
+    {
+        // Claude Code пишет служебные ответы моделью «<synthetic>» и нулём токенов
+        var buckets = new[]
+        {
+            Bucket(Now.AddHours(-2), "claude-sonnet-5", 1000),
+            Bucket(Now.AddHours(-2), "<synthetic>", 0),
+        };
+
+        var totals = UsageMath.Sum(buckets, Now);
+
+        Assert.Equal("claude-sonnet-5", Assert.Single(totals.Models).Model);
+    }
+
+    [Fact]
     public void Sum_EmptyJournalsGiveZeroes()
     {
         var totals = UsageMath.Sum([], Now);
