@@ -7,6 +7,9 @@ export type BacklogEntry = {
   number: string | null
   title: string
   text: string | null
+  /** Поля кита: запись несёт их, когда шапка backlog.md базы объявила их строкой «поля:», иначе они пусты. */
+  priority?: string | null
+  type?: string | null
 }
 
 export type BaseBacklog = {
@@ -155,6 +158,7 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
                     >
                       {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
                       {entry.number && <span className="entry-num">{entry.number}</span>}{' '}
+                      <EntryFields entry={entry} />{' '}
                       <InlineMarkdown className="entry-title" text={entry.title} />
                       {isFresh && <span className="entry-fresh-badge">новая</span>}
                       <ChevronIcon />
@@ -197,10 +201,20 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
     <div className="entry-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="entry-modal-title">
         <div className="entry-modal-head">
-          {entry.number && <span className="entry-num">{entry.number}</span>}
-          <h3 id="entry-modal-title">
-            <InlineMarkdown text={entry.title} />
-          </h3>
+          {/* Плашки стоят строкой под заголовком — выбор оператора на приёмке B-75 */}
+          <div className="entry-modal-name">
+            <div className="entry-modal-line">
+              {entry.number && <span className="entry-num">{entry.number}</span>}
+              <h3 id="entry-modal-title">
+                <InlineMarkdown text={entry.title} />
+              </h3>
+            </div>
+            {(entry.type || entry.priority) && (
+              <div className="entry-modal-fields">
+                <EntryFields entry={entry} />
+              </div>
+            )}
+          </div>
           <button ref={closeRef} type="button" className="entry-close" aria-label="Закрыть" onClick={onClose}>
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18" />
@@ -217,6 +231,52 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
         </div>
       </div>
     </div>
+  )
+}
+
+// Значения полей задаёт кит; своё значение панель не судит, а показывает плашкой без цвета.
+const PRIORITY_CLASS: Record<string, string> = {
+  низкий: 'entry-prio-low',
+  средний: 'entry-prio-mid',
+  высокий: 'entry-prio-high',
+  блокер: 'entry-prio-blocker',
+}
+
+const TYPE_CLASS: Record<string, string> = { баг: 'entry-type-bug', фича: 'entry-type-feature' }
+
+/** Тип и приоритет записи: тип — значок со словом, приоритет — плашка, цвет которой растёт со срочностью. */
+function EntryFields({ entry }: { entry: BacklogEntry }) {
+  return (
+    <>
+      {/* Пробелы не видны во flex-строке, но разделяют плашки в имени кнопки записи */}
+      {entry.type && (
+        <span className={`entry-type ${TYPE_CLASS[entry.type] ?? ''}`}>
+          {entry.type === 'фича' ? <FeatureIcon /> : <BugIcon />}
+          {entry.type}
+        </span>
+      )}{' '}
+      {entry.priority && (
+        <span className={`entry-prio ${PRIORITY_CLASS[entry.priority] ?? ''}`}>{entry.priority}</span>
+      )}
+    </>
+  )
+}
+
+function BugIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="8" x2="12" y2="13" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  )
+}
+
+function FeatureIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z" />
+    </svg>
   )
 }
 

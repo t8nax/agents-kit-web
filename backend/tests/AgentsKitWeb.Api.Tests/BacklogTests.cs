@@ -88,4 +88,160 @@ public class BacklogTests
         Assert.Equal("B-2", entry.Number);
         Assert.Null(entry.Text);
     }
+
+    // Тот же файл, но с полями кита: объявление в шапке и пары под заголовком записи.
+    private static readonly string FileWithFields = """
+        # Проект — бэклог
+
+        следующий номер: B-17
+        поля: приоритет, тип
+
+        ## B-1 Панель показывает проблемы баз знаний
+
+        приоритет: высокий
+        тип: баг
+
+        Сейчас панель не говорит, что с базой что-то не так.
+
+        ### Агенту
+        - где: design/sketch.html
+
+        ## B-8 Панель показывает бэклог базы
+
+        тип: фича
+
+        Бэклог сейчас виден только в файле базы.
+        """.ReplaceLineEndings("\n");
+
+    [Fact]
+    public void Parse_ReadsDeclaredFields()
+    {
+        var entries = Backlog.Parse(FileWithFields);
+
+        Assert.Equal("высокий", entries[0].Priority);
+        Assert.Equal("баг", entries[0].Type);
+        // Объявленное поле, которого запись не несёт, остаётся пустым
+        Assert.Null(entries[1].Priority);
+        Assert.Equal("фича", entries[1].Type);
+    }
+
+    [Fact]
+    public void Parse_KeepsFieldsOutOfOperatorText()
+    {
+        var entries = Backlog.Parse(FileWithFields);
+
+        Assert.Equal("Сейчас панель не говорит, что с базой что-то не так.", entries[0].Text);
+        Assert.Equal("Бэклог сейчас виден только в файле базы.", entries[1].Text);
+    }
+
+    [Fact]
+    public void Parse_WithoutDeclarationKeepsPairsAsText()
+    {
+        var file = """
+            ## B-1 Без объявления
+
+            приоритет: высокий
+            тип: баг
+
+            Текст.
+            """.ReplaceLineEndings("\n");
+
+        var entry = Backlog.Parse(file)[0];
+
+        Assert.Null(entry.Priority);
+        Assert.Null(entry.Type);
+        Assert.Equal("приоритет: высокий\nтип: баг\n\nТекст.", entry.Text);
+    }
+
+    [Fact]
+    public void Parse_ReadsOnlyDeclaredNames()
+    {
+        var file = """
+            поля: приоритет
+
+            ## B-1 Объявлено одно поле
+
+            приоритет: низкий
+            тип: баг
+
+            Текст.
+            """.ReplaceLineEndings("\n");
+
+        var entry = Backlog.Parse(file)[0];
+
+        Assert.Equal("низкий", entry.Priority);
+        // «тип» шапкой не объявлен, поэтому его строка принадлежит тексту оператору
+        Assert.Null(entry.Type);
+        Assert.Equal("тип: баг\n\nТекст.", entry.Text);
+    }
+
+    [Fact]
+    public void Parse_KeepsValueOutsideKitList()
+    {
+        var file = """
+            поля: приоритет, тип
+
+            ## B-1 Значение вне перечня
+
+            приоритет: срочно
+
+            Текст.
+            """.ReplaceLineEndings("\n");
+
+        // Панель значения не судит: перечень значений сверяет кит
+        Assert.Equal("срочно", Backlog.Parse(file)[0].Priority);
+    }
+
+    [Fact]
+    public void Parse_TreatsEmptyFieldValueAsMissing()
+    {
+        var file = """
+            поля: приоритет, тип
+
+            ## B-1 Пустое значение
+
+            приоритет:
+            тип: баг
+
+            Текст.
+            """.ReplaceLineEndings("\n");
+
+        var entry = Backlog.Parse(file)[0];
+
+        Assert.Null(entry.Priority);
+        Assert.Equal("баг", entry.Type);
+        Assert.Equal("Текст.", entry.Text);
+    }
+
+    [Fact]
+    public void Parse_KeepsTextLineWithColonAsText()
+    {
+        var file = """
+            поля: приоритет, тип
+
+            ## B-1 Двоеточие в тексте
+
+            Панель: всё плохо.
+            """.ReplaceLineEndings("\n");
+
+        Assert.Equal("Панель: всё плохо.", Backlog.Parse(file)[0].Text);
+    }
+
+    [Fact]
+    public void Parse_ReadsDeclarationOnlyFromFileHeader()
+    {
+        var file = """
+            ## B-1 Объявление внутри записи
+
+            поля: приоритет, тип
+
+            приоритет: высокий
+            """.ReplaceLineEndings("\n");
+
+        // Объявление стоит после первой записи, а не в шапке файла: полей у записей нет
+        var entry = Backlog.Parse(file)[0];
+
+        Assert.Null(entry.Priority);
+        Assert.Equal("поля: приоритет, тип\n\nприоритет: высокий", entry.Text);
+    }
 }
