@@ -374,11 +374,63 @@ td.num-col {
 }
 
 .proj {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   font-weight: 500;
 }
 
 .sub {
   margin-top: 2px;
+}
+
+/* Ветка встаёт под именем копии, а не под точкой состояния сессии */
+.copy-col .sub {
+  margin-left: 17px;
+}
+
+/* Состояние сессии агента в копии: точка у имени, подписи — в легенде под таблицей */
+.session-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.session-working {
+  background: var(--accent-active-text);
+  box-shadow: 0 0 0 3px var(--accent-active-bg);
+}
+
+.session-waiting {
+  background: var(--accent-waiting-fill);
+  box-shadow: 0 0 0 3px var(--accent-waiting-bg);
+}
+
+.session-idle {
+  background: var(--text-secondary);
+}
+
+.session-none {
+  border: 1px solid var(--border-strong);
+}
+
+.session-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.session-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .progress-container {
