@@ -164,6 +164,32 @@ public sealed class WorkspacesEndpointTests : IDisposable
         Assert.Empty(await GetRows());
     }
 
+    /// <summary>Переход в терминал есть только у копии с фоновой сессией, и строка таблицы об этом говорит.</summary>
+    [Fact]
+    public async Task Workspaces_CopyWithBackgroundSession_IsMarked()
+    {
+        var withSession = Path.Combine(_root, "busy");
+        var withoutSession = Path.Combine(_root, "quiet");
+        foreach (var copy in new[] { withSession, withoutSession })
+        {
+            Directory.CreateDirectory(copy);
+            Git(copy, "init", "-b", "dev");
+        }
+
+        var basePath = CreateBase("sessions-knowledge", withSession, withoutSession);
+        var sessionsDir = Path.Combine(_root, "sessions");
+        Directory.CreateDirectory(sessionsDir);
+        // Живой считается сессия, чей процесс существует, поэтому в фикстуре стоит pid самого прогона.
+        File.WriteAllText(
+            Path.Combine(sessionsDir, "bg.json"),
+            $$"""{"pid":{{Environment.ProcessId}},"cwd":{{System.Text.Json.JsonSerializer.Serialize(withSession)}},"entrypoint":"cli","kind":"bg","jobId":"7339dced"}""");
+
+        var rows = await GetRows(sessionsDir, [basePath]);
+
+        Assert.True(Assert.Single(rows, r => r.Path == withSession).BackgroundSession);
+        Assert.False(Assert.Single(rows, r => r.Path == withoutSession).BackgroundSession);
+    }
+
     private string CreateBase(string name, params string[] copies)
     {
         var basePath = Path.Combine(_root, name);
@@ -173,13 +199,17 @@ public sealed class WorkspacesEndpointTests : IDisposable
         return basePath;
     }
 
-    private async Task<List<WorkspaceRow>> GetRows(params string[] bases)
+    private Task<List<WorkspaceRow>> GetRows(params string[] bases) => GetRows(sessionsDir: null, bases);
+
+    private async Task<List<WorkspaceRow>> GetRows(string? sessionsDir, string[] bases)
     {
         await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases))]);
+                config.AddInMemoryCollection(sessionsDir is null
+                    ? [new("BasesFile", TestBases.File(_root, bases))]
+                    : [new("BasesFile", TestBases.File(_root, bases)), new("SessionsDir", sessionsDir)]);
             }));
         var client = factory.CreateClient();
 
