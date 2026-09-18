@@ -221,6 +221,111 @@ public sealed class SessionsEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
     }
 
+    [Fact]
+    public async Task New_LaunchesBackgroundSessionInCopyWithTheOperatorsPrompt()
+    {
+        // Цвета claude пишет и в перенаправленный вывод: без них id не встречается вовсе.
+        _agent.Lines = ["backgrounded · \u001b[36m7339dced\u001b[39m", "  claude attach 7339dced"];
+
+        var response = await Client().PostAsJsonAsync(
+            "/api/sessions/new", new SessionStartRequest(_base, _copy, "  посмотри, почему падает e2e  "));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var started = await response.Content.ReadFromJsonAsync<SessionStartResponse>();
+        Assert.Equal("7339dced", started!.Session);
+        // Окно с сессией открывается сразу — решение оператора на приёмке B-61
+        Assert.True(started.Terminal);
+        Assert.Equal([(_copy, "7339dced")], _terminals.Attached);
+
+        var startInfo = _agent.StartInfo!;
+        Assert.Equal("claude", startInfo.FileName);
+        Assert.Equal(_copy, startInfo.WorkingDirectory);
+        Assert.True(startInfo.CreateNoWindow);
+        // Просьба уходит после «--»: текст, начатый с «-», claude принял бы за флаг.
+        Assert.Equal(["--bg", "--", "посмотри, почему падает e2e"], startInfo.ArgumentList);
+    }
+
+    [Fact]
+    public async Task New_WithoutPrompt_StartsSessionThatJustWaits()
+    {
+        _agent.Lines = ["backgrounded · abc123 (idle — send a prompt to start)"];
+
+        var response = await Client().PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, _copy, "   "));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("abc123", (await response.Content.ReadFromJsonAsync<SessionStartResponse>())!.Session);
+        Assert.Equal(["--bg"], _agent.StartInfo!.ArgumentList);
+    }
+
+    [Fact]
+    public async Task New_StartsSessionInCopyThatAlreadyRunsTask()
+    {
+        WriteMemory("");
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        var response = await Client().PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, _copy, null));
+
+        // Сессия не под задачу памяти не заводит, и занятость копии её не отменяет — решение оператора.
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task New_SessionThatStartedWithoutItsWindow_IsStillReturned()
+    {
+        _agent.Lines = ["backgrounded · 7339dced"];
+        _terminals.Result = false;
+
+        var response = await Client().PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, _copy, null));
+
+        // Сессия завелась, и запуск не считается неудачей: в неё входят из строки перечня
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var started = await response.Content.ReadFromJsonAsync<SessionStartResponse>();
+        Assert.Equal("7339dced", started!.Session);
+        Assert.False(started.Terminal);
+    }
+
+    [Fact]
+    public async Task New_ReportsWhyClaudeDidNotStart()
+    {
+        _agent.Exit = new AgentExit(null, "\u001b[31mНе удалось найти файл\u001b[39m");
+
+        var response = await Client().PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, _copy, null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<SessionActionProblem>();
+        Assert.Equal("agent", problem!.Problem);
+        Assert.Equal("Не удалось найти файл", problem.Message);
+    }
+
+    [Fact]
+    public async Task New_ReportsClaudeThatSaidNoSessionId()
+    {
+        _agent.Lines = ["error: not logged in"];
+        _agent.Exit = new AgentExit(1, "");
+
+        var response = await Client().PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, _copy, null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var problem = await response.Content.ReadFromJsonAsync<SessionActionProblem>();
+        Assert.Equal("agent", problem!.Problem);
+        Assert.Equal("error: not logged in", problem.Message);
+    }
+
+    [Fact]
+    public async Task New_RejectsBaseOutsideListUnknownCopyAndEmptyCopy()
+    {
+        var other = Path.Combine(_root, "other");
+        Directory.CreateDirectory(other);
+        var client = Client();
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(other, _copy, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, Path.Combine(_root, "gone"), null))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, " ", null))).StatusCode);
+        Assert.Null(_agent.StartInfo);
+        Assert.Empty(_terminals.Attached);
+    }
+
     public void Dispose()
     {
         try
@@ -310,13 +415,17 @@ public sealed class SessionsEndpointsTests : IDisposable
     {
         public AgentExit Exit { get; set; } = new(0, "");
 
+        public IReadOnlyList<string> Lines { get; set; } = [];
+
         public ProcessStartInfo? StartInfo { get; set; }
 
-        public Task<AgentExit> RunAsync(
+        public async Task<AgentExit> RunAsync(
             ProcessStartInfo startInfo, string input, Func<string, Task> onLine, CancellationToken cancellationToken)
         {
             StartInfo = startInfo;
-            return Task.FromResult(Exit);
+            foreach (var line in Lines)
+                await onLine(line);
+            return Exit;
         }
     }
 

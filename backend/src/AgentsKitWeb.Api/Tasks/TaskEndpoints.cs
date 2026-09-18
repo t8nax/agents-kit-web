@@ -17,16 +17,9 @@ public sealed record TaskStartProblem(string Problem, string? Message = null);
 
 public static partial class TaskEndpoints
 {
-    /// <summary>Заведение фоновой сессии — не разговор с агентом: дольше этого оно не идёт.</summary>
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
-
     // Номер записи бэклога; кириллическая «В-7» — тот же номер, что «B-7».
     [GeneratedRegex(@"^[BВ]-\d+$")]
     private static partial Regex NumberFormat { get; }
-
-    // Короткий id фоновой сессии в выводе claude: «backgrounded · 7339dced».
-    [GeneratedRegex(@"backgrounded[^0-9a-f]*(?<id>[0-9a-f]{6,})")]
-    private static partial Regex Backgrounded { get; }
 
     public static void MapTaskEndpoints(this IEndpointRouteBuilder app)
     {
@@ -67,7 +60,7 @@ public static partial class TaskEndpoints
             if (!Entries(basePath).Contains(number))
                 return Results.BadRequest(new TaskStartProblem("record-unknown"));
 
-            var (session, failure) = await StartAsync(agent, row.Path, number, cancellationToken);
+            var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number), cancellationToken);
             if (session is null)
                 return Results.BadRequest(new TaskStartProblem("agent", failure));
 
@@ -79,54 +72,10 @@ public static partial class TaskEndpoints
     }
 
     /// <summary>
-    /// Заводит фоновую сессию агента в каталоге копии и возвращает её id из вывода claude. Задачу берёт навык
-    /// кита: правила взятия записи и заведения памяти держит кит, панель их не повторяет.
+    /// Задачу берёт навык кита: правила взятия записи и заведения памяти держит кит, панель их не повторяет.
     /// </summary>
-    private static async Task<(string? Session, string? Failure)> StartAsync(
-        IAgentProcess agent, string copyPath, string number, CancellationToken cancellationToken)
-    {
-        var output = new List<string>();
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(Timeout);
-
-        AgentExit exit;
-        try
-        {
-            exit = await agent.RunAsync(StartInfo(copyPath, number), "", line =>
-            {
-                output.Add(line);
-                return Task.CompletedTask;
-            }, timeout.Token);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            return (null, "claude не завёл сессию за две минуты");
-        }
-
-        var said = string.Join("\n", output).Trim();
-        if (exit.ExitCode is null)
-            return (null, exit.Error.Length > 0 ? exit.Error : "claude не запустился");
-
-        var match = Backgrounded.Match(said);
-        if (!match.Success)
-        {
-            var text = new[] { said, exit.Error }.FirstOrDefault(t => t.Length > 0);
-            return (null, text ?? $"claude завершился с кодом {exit.ExitCode} и ничего не сказал");
-        }
-        return (match.Groups["id"].Value, null);
-    }
-
-    /// <summary>
-    /// Сессия заводится фоновой (--bg): она переживает панель, оператор входит в неё «claude attach &lt;id&gt;»
-    /// и гасит «claude stop &lt;id&gt;». Прав панель не навязывает — сессия идёт в обычном режиме оператора.
-    /// </summary>
-    public static ProcessStartInfo StartInfo(string copyPath, string number)
-    {
-        var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, copyPath);
-        startInfo.ArgumentList.Add("--bg");
-        startInfo.ArgumentList.Add($"/agents-kit:drive {number}");
-        return startInfo;
-    }
+    public static ProcessStartInfo StartInfo(string copyPath, string number) =>
+        BackgroundSession.StartInfo(copyPath, $"/agents-kit:drive {number}");
 
     private static HashSet<string> Entries(string basePath)
     {
