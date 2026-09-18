@@ -22,30 +22,89 @@
   padding: 4px 0;
 }
 
-/* Запись в списке — только номер и заголовок; текст открывается окном по клику. */
-.entry {
-  font: inherit;
-  width: 100%;
+/* Строка записи держит две кнопки: чтение записи и её запуск — кнопка в кнопку не вкладывается. */
+.entry-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  align-items: stretch;
+  gap: 6px;
+  padding: 4px 6px 4px 8px;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   background: var(--bg-surface);
+}
+
+.entry-row:hover {
+  border-color: var(--border-strong);
+}
+
+/* Запись в списке — только номер и заголовок; текст открывается окном по клику. */
+.entry {
+  font: inherit;
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
 }
 
 .entry:hover {
-  border-color: var(--border-strong);
   background: var(--bg-surface-hover);
 }
 
 .entry:focus-visible {
   outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+/* Запуск записи: вид как у «Взять задачу» в таблице копий, откуда он сюда и переехал. */
+.entry-start {
+  font: inherit;
+  font-size: 13px;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.entry-start svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.entry-start:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+
+.entry-start:focus-visible {
+  outline: 2px solid var(--text-primary);
   outline-offset: 2px;
+}
+
+/* Запускать некуда: кнопка гаснет и причины не пишет — как приглушённые переходы строки копии */
+.entry-start:disabled {
+  border-color: var(--border-subtle);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: default;
 }
 
 .entry-num {

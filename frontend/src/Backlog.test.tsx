@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
+import type { WorkspaceRow } from './App'
 import Backlog, { type BaseBacklog } from './Backlog'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -26,12 +27,39 @@ const backlogs: BaseBacklog[] = [
   },
 ]
 
+const copy = (base: string, path: string, status: WorkspaceRow['status']): WorkspaceRow => ({
+  project: 'Проект',
+  base,
+  path,
+  branch: 'dev',
+  task: null,
+  flowStep: null,
+  progress: null,
+  status,
+  error: null,
+})
+
+const copies: WorkspaceRow[] = [
+  copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+  copy('D:\\Projects\\nota-knowledge', 'D:\\Projects\\nota-copy', 'free'),
+]
+
+/** Отвечает бэклогом по очереди на каждое чтение, а на копии — списком `rows` (одним и тем же). */
 function stubFetch(...responses: BaseBacklog[][]) {
-  const fetchMock = vi.fn()
-  for (const backlog of responses)
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(backlog), { status: 200 }))
+  const queue = [...responses]
+  let rows = copies
+  const fetchMock = vi.fn((url: string) => {
+    if (url === '/api/workspaces') return Promise.resolve(Response.json(rows))
+    return Promise.resolve(Response.json(queue.length > 1 ? queue.shift()! : queue[0]))
+  })
   vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
+  return Object.assign(fetchMock, {
+    /** Сколько раз читали бэклог: копии раздел читает своим запросом. */
+    backlogReads: () => fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length,
+    setCopies: (next: WorkspaceRow[]) => {
+      rows = next
+    },
+  })
 }
 
 test('показывает записи бэклога группами по проектам, без текста', async () => {
@@ -201,7 +229,7 @@ test('«Обновить» перечитывает бэклог', async () => {
 
   expect(await screen.findByText('B-17')).toBeInTheDocument()
   expect(screen.queryByText('B-1')).not.toBeInTheDocument()
-  expect(fetchMock).toHaveBeenCalledTimes(2)
+  expect(fetchMock.backlogReads()).toBe(2)
 })
 
 test('фильтр сбрасывается, когда его базы больше нет', async () => {
@@ -295,4 +323,47 @@ test('без баз добавлять некуда', async () => {
   await screen.findByText(/Нет отслеживаемых баз/)
 
   expect(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' })).toBeDisabled()
+})
+
+test('«Взять задачу» открывает окно запуска записи и говорит, куда задача ушла', async () => {
+  const fetchMock = stubFetch(backlogs, [{ ...backlogs[0], entries: [backlogs[0].entries[1]] }, backlogs[1]])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest(
+    '.entry-row',
+  )!
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' }))
+
+  // Окно берёт запись из строки, а копию спрашивает
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  expect(dialog).toHaveTextContent('Панель показывает проблемы баз знаний')
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /noble-keen-walrus/ }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByText('Задача запущена в noble-keen-walrus')).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Взять задачу в работу' })).not.toBeInTheDocument()
+  // Запись из бэклога убирает агент — раздел перечитывает бэклог, чтобы её не показывать
+  await waitFor(() => expect(screen.queryByText('B-1')).not.toBeInTheDocument())
+  expect(fetchMock.backlogReads()).toBe(2)
+})
+
+test('у проекта без свободной копии кнопка записи погашена', async () => {
+  const fetchMock = stubFetch(backlogs)
+  fetchMock.setCopies([copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'in-work')])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest(
+    '.entry-row',
+  )!
+
+  await waitFor(() => expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled())
+})
+
+test('у записи без номера запуска нет: запуск адресует её номером', async () => {
+  stubFetch([{ ...backlogs[0], entries: [{ number: null, title: 'Дописана руками', text: null }] }])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: 'Дописана руками' })).closest('.entry-row')!
+
+  expect(within(row as HTMLElement).queryByRole('button', { name: 'Взять задачу' })).not.toBeInTheDocument()
 })

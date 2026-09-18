@@ -244,7 +244,7 @@ test('номер задачи из бэклога стоит своей коло
   expect(within(tableRows[1]).getByText('B-24')).toHaveClass('num-chip')
   expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'Задача не из бэклога'])
   // У свободной копии задачи нет, и на её месте стоит запуск
-  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', 'Взять задачу'])
+  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', '—'])
   // Строка с ошибкой накрывает и колонку номера: ячеек в ней столько же, сколько колонок
   expect(within(tableRows[4]).getAllByRole('cell')[1]).toHaveAttribute('colspan', '5')
 })
@@ -335,45 +335,17 @@ test('терминал не открылся — панель говорит о�
   expect(await screen.findByText('Сессия в app уже не идёт в фоне')).toBeInTheDocument()
 })
 
-test('«Взять задачу» стоит только у свободных копий и запускает выбранную запись', async () => {
-  const backlog = [
-    {
-      base: 'D:\\Projects\\app-knowledge',
-      project: 'app-knowledge',
-      entries: [{ number: 'B-7', title: 'Панель показывает задачу сразу', text: null }],
-      error: null,
-    },
-  ]
-  const fetchMock = vi.fn(async (url: string) => {
-    if (url === '/api/tasks') return Response.json({ session: '7339dced' })
-    if (url === '/api/backlog') return Response.json(backlog)
-    return Response.json(rows)
-  })
-  vi.stubGlobal('fetch', fetchMock)
+test('задачу из таблицы копий не берут: запуск живёт в разделе «Бэклог»', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(rows)))
 
   render(<App />)
   const tableRows = await findTableRows()
 
-  // Ждущая ответа и нечитаемая копии задачу не принимают
-  expect(within(tableRows[1]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
-  expect(within(tableRows[3]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
-  // Кнопка стоит на месте задачи, а не в колонке действий — решение оператора на приёмке
+  // Кнопки нет ни у свободной копии, ни у занятой — решение оператора на B-86
+  expect(screen.queryByRole('button', { name: 'Взять задачу' })).toBeNull()
+  // На её месте у свободной копии прочерк, остальная строка прежняя
   const taskCell = within(tableRows[2]).getAllByRole('cell')[2]
-  fireEvent.click(within(taskCell).getByRole('button', { name: 'Взять задачу' }))
-
-  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
-  fireEvent.click(await within(dialog).findByRole('radio', { name: /B-7/ }))
-  await act(async () => {
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
-  })
-
-  expect(screen.queryByRole('dialog')).toBeNull()
-  expect(await screen.findByRole('status')).toHaveTextContent('Задача запущена в app-wt')
-  expect(fetchMock).toHaveBeenCalledWith('/api/tasks', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt', number: 'B-7' }),
-  })
+  expect(taskCell).toHaveTextContent('—')
 })
 
 test('запущенная задача стоит в строке копии до памяти: номер, заголовок и «Запускается»', async () => {
@@ -393,8 +365,6 @@ test('запущенная задача стоит в строке копии д
   // Номер с заголовком записи — всё, что панель знает о задаче; шага флоу и прогресса ещё нет
   expect(cells.slice(1, 6)).toEqual(['B-7', 'Панель показывает задачу сразу', '—', '—', 'Запускается'])
   expect(within(row).getByText('Запускается')).toHaveClass('status-starting')
-  // Вторую задачу в занятую копию не запустить, и кнопки у неё нет
-  expect(within(row).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
 })
 
 test('«Новая копия» открывает окно, заведённая копия отмечена в таблице и уведомлением', async () => {

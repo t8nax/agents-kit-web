@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
 import type { BacklogEntry } from './Backlog'
+import { freeCopies } from './freeCopies'
 import './StartTaskModal.css'
 
 type Props = {
@@ -189,11 +190,6 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
       </form>
     </div>
   )
-}
-
-/** Свободные копии базы: занятая задачей копия вторую не принимает, и запускать в неё нечего. */
-export function freeCopies(rows: WorkspaceRow[], base: string) {
-  return rows.filter((row) => row.base === base && row.error === null && row.status === 'free')
 }
 
 function copyName(path: string) {

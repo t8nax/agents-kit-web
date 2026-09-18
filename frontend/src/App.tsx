@@ -21,7 +21,6 @@ import ReplyModal from './ReplyModal'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
-import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
 import { TerminalIcon } from './TerminalIcon'
@@ -104,9 +103,6 @@ type Fresh = { base: string; name: string | null }
 
 const freshMs = 8000
 
-/** Сколько висит сообщение о запущенной задаче — решение оператора на приёмке B-40. */
-const startedMs = 5000
-
 export type ProblemsState = 'checked' | 'pending' | 'kit-not-set' | 'kit-not-found' | 'failed'
 
 const problemsStateLabels: Record<Exclude<ProblemsState, 'checked'>, string> = {
@@ -146,9 +142,6 @@ function App() {
   // Просьба, к которой оператор вернулся из шапки: раздел с её окном открывается заново, с её базой.
   const [openRequest, setOpenRequest] = useState<{ kind: AgentKind; base: string; at: number } | null>(null)
   const [creating, setCreating] = useState(false)
-  // Копия, в которой оператор запускает задачу, и сообщение о запущенной
-  const [starting, setStarting] = useState<WorkspaceRow | null>(null)
-  const [started, setStarted] = useState<string | null>(null)
   const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
@@ -206,13 +199,6 @@ function App() {
     const timer = setTimeout(() => setFresh(null), freshMs)
     return () => clearTimeout(timer)
   }, [fresh])
-
-  // Сообщение о запущенной задаче гаснет само, как и сообщение о заведённой копии
-  useEffect(() => {
-    if (!started) return
-    const timer = setTimeout(() => setStarted(null), startedMs)
-    return () => clearTimeout(timer)
-  }, [started])
 
   return (
     <>
@@ -273,7 +259,6 @@ function App() {
                   rows={state.rows}
                   fresh={fresh}
                   onReply={setReplyTo}
-                  onStart={setStarting}
                   onProblems={() => setSection('problems')}
                   onSettings={() => setSection('settings')}
                 />
@@ -315,24 +300,6 @@ function App() {
       </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {asking && <AskModal onClose={closeAsk} />}
-      {starting && (
-        <StartTaskModal
-          row={starting}
-          onClose={() => setStarting(null)}
-          onStarted={() => {
-            setStarted(copyName(starting.path))
-            setStarting(null)
-            // Копия станет занятой, когда агент заведёт память задачи; опрос покажет это сам
-            loadRows()
-          }}
-        />
-      )}
-      {started && (
-        <div className="nw-toast" role="status">
-          <PlayIcon />
-          <span>Задача запущена в {started}</span>
-        </div>
-      )}
       {creating && state.rows && (
         <NewWorkspaceModal
           rows={state.rows}
@@ -598,13 +565,13 @@ function BellOffIcon() {
 }
 
 // Номер записи бэклога стоит своей колонкой перед заголовком: в тексте задачи он терялся
-function TaskCells({ task, start }: { task: string | null; start?: ReactNode }) {
+function TaskCells({ task }: { task: string | null }) {
   if (task === null) {
+    // Задачу берут в разделе «Бэклог», а у свободной копии здесь стоит прочерк — решение оператора на B-86
     return (
       <>
         <td className="num-col text-ter">—</td>
-        {/* У свободной копии на месте задачи стоит её запуск — решение оператора на приёмке */}
-        <td className={`task-col ${start ? '' : 'text-ter'}`}>{start ?? '—'}</td>
+        <td className="task-col text-ter">—</td>
       </>
     )
   }
@@ -623,14 +590,12 @@ function WorkspacesTable({
   rows,
   fresh,
   onReply,
-  onStart,
   onProblems,
   onSettings,
 }: {
   rows: WorkspaceRow[]
   fresh: Fresh | null
   onReply: (row: WorkspaceRow) => void
-  onStart: (row: WorkspaceRow) => void
   onProblems: () => void
   onSettings: () => void
 }) {
@@ -758,17 +723,7 @@ function WorkspacesTable({
                 </td>
               ) : (
                 <>
-                  <TaskCells
-                    task={row.task}
-                    start={
-                      row.status === 'free' ? (
-                        <button type="button" className="action-btn-start" onClick={() => onStart(row)}>
-                          <PlayIcon />
-                          Взять задачу
-                        </button>
-                      ) : undefined
-                    }
-                  />
+                  <TaskCells task={row.task} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
                     {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
