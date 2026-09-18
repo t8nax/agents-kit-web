@@ -680,6 +680,22 @@ td.num-col {
   color: var(--text-tertiary);
 }
 
+/* Разделитель отделяет необратимое от переходов, и красный цвет в меню несёт только удаление */
+.row-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
+}
+
+.row-menu-item-danger:not(:disabled),
+.row-menu-item-danger:not(:disabled) svg {
+  color: var(--accent-error-text);
+}
+
+.row-menu-item-danger:hover:not(:disabled) {
+  background: var(--accent-error-bg);
+}
+
 /* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе со значком. */
 .action-btn-code {
   display: inline-flex;

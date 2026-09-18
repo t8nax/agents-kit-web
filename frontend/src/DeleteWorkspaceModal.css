@@ -1,0 +1,188 @@
+/* Окно удаления рабочей копии — по макету B-55; части те же, что у окна новой копии */
+
+.dw-modal {
+  width: 600px;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 24px 48px var(--shadow-color);
+  overflow: hidden;
+}
+
+.dw-modal svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dw-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.dw-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.dw-head-icon {
+  display: inline-flex;
+  color: var(--accent-error-text);
+}
+
+.dw-close {
+  margin-left: auto;
+  display: inline-flex;
+  padding: 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.dw-close:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.dw-close:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.dw-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dw-lead {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.dw-strong {
+  font-weight: 500;
+}
+
+.dw-preview {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.dw-preview dt {
+  color: var(--text-tertiary);
+}
+
+.dw-preview dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Ветку кит оставляет — окно говорит это там же, где её называет */
+.dw-note {
+  color: var(--text-tertiary);
+}
+
+.dw-error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent-error-border);
+  background: var(--accent-error-bg);
+  border-radius: 6px;
+}
+
+.dw-error-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-error-text);
+  font-weight: 500;
+}
+
+.dw-error-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+}
+
+.dw-error-action {
+  margin-top: 2px;
+}
+
+.dw-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--footer-tint);
+}
+
+.dw-busy-note {
+  font-size: 12px;
+}
+
+.dw-footer-end {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* Кнопка необратимого действия: заливка, а не рамка — её не спутать с «Отмена» */
+.dw-btn-danger {
+  background: var(--accent-error-text);
+  color: var(--bg-surface);
+  border-color: transparent;
+  font-weight: 500;
+}
+
+.dw-btn-danger:hover:not(:disabled) {
+  background: var(--accent-error-text);
+  border-color: transparent;
+  opacity: 0.9;
+}
+
+.dw-spinner {
+  width: 14px;
+  height: 14px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-right-color: currentColor;
+  animation: dw-spin 0.9s linear infinite;
+}
+
+@keyframes dw-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dw-spinner {
+    animation-duration: 3s;
+  }
+}

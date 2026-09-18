@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
+import DeleteWorkspaceModal, { TrashIcon } from './DeleteWorkspaceModal'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { useCollapsedGroups } from './collapsedGroups'
 import AgentBar from './AgentBar'
@@ -149,6 +150,9 @@ function App() {
   // Копия, в которой оператор запускает задачу, и сообщение о запущенной
   const [starting, setStarting] = useState<WorkspaceRow | null>(null)
   const [started, setStarted] = useState<string | null>(null)
+  // Копия, которую оператор убирает, и сообщение об убранной
+  const [removing, setRemoving] = useState<WorkspaceRow | null>(null)
+  const [removed, setRemoved] = useState<string | null>(null)
   const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
@@ -214,6 +218,12 @@ function App() {
     return () => clearTimeout(timer)
   }, [started])
 
+  useEffect(() => {
+    if (!removed) return
+    const timer = setTimeout(() => setRemoved(null), startedMs)
+    return () => clearTimeout(timer)
+  }, [removed])
+
   return (
     <>
       <header className="app-header">
@@ -274,6 +284,7 @@ function App() {
                   fresh={fresh}
                   onReply={setReplyTo}
                   onStart={setStarting}
+                  onRemove={setRemoving}
                   onProblems={() => setSection('problems')}
                   onSettings={() => setSection('settings')}
                 />
@@ -331,6 +342,30 @@ function App() {
         <div className="nw-toast" role="status">
           <PlayIcon />
           <span>Задача запущена в {started}</span>
+        </div>
+      )}
+      {removing && (
+        <DeleteWorkspaceModal
+          row={removing}
+          onClose={() => setRemoving(null)}
+          onRemoved={() => {
+            setRemoved(copyName(removing.path))
+            setRemoving(null)
+            // Копию убрал кит — ближайший опрос и так её потеряет, но ждать его незачем
+            loadRows()
+          }}
+          onSettings={() => {
+            setRemoving(null)
+            setSection('settings')
+          }}
+        />
+      )}
+      {removed && (
+        <div className="nw-toast nw-toast-plain" role="status">
+          <TrashIcon />
+          <span>
+            Копия <span className="mono">{removed}</span> удалена
+          </span>
         </div>
       )}
       {creating && state.rows && (
@@ -624,6 +659,7 @@ function WorkspacesTable({
   fresh,
   onReply,
   onStart,
+  onRemove,
   onProblems,
   onSettings,
 }: {
@@ -631,6 +667,7 @@ function WorkspacesTable({
   fresh: Fresh | null
   onReply: (row: WorkspaceRow) => void
   onStart: (row: WorkspaceRow) => void
+  onRemove: (row: WorkspaceRow) => void
   onProblems: () => void
   onSettings: () => void
 }) {
@@ -795,6 +832,7 @@ function WorkspacesTable({
                       busy={opening === row.path}
                       onTerminal={() => void openInTerminal(row)}
                       onVsCode={() => void openInVsCode(row)}
+                      onRemove={() => onRemove(row)}
                     />
                   )}
                 </div>
@@ -813,17 +851,21 @@ function WorkspacesTable({
 /**
  * Действия строки: переходов стало два, и они собраны в меню — решение оператора. Без фоновой сессии
  * пункт терминала виден, но не нажимается: подписи о причине у него нет — оператор убрал её на приёмке.
+ * Удаление копии стоит там же, за разделителем: у основной копии проекта его нет вовсе — её кит
+ * не удаляет и от неё заводит новые, — а у копии с задачей пункт приглушён.
  */
 function RowActionsMenu({
   row,
   busy,
   onTerminal,
   onVsCode,
+  onRemove,
 }: {
   row: WorkspaceRow
   busy: boolean
   onTerminal: () => void
   onVsCode: () => void
+  onRemove: () => void
 }) {
   return (
     <RowMenu label={`Действия с ${copyName(row.path)}`} disabled={busy}>
@@ -854,6 +896,24 @@ function RowActionsMenu({
             <VsCodeIcon />
             Открыть в VS Code
           </button>
+          {!row.copiesDir && (
+            <>
+              <div className="row-menu-sep" />
+              <button
+                type="button"
+                role="menuitem"
+                className="row-menu-item row-menu-item-danger"
+                disabled={row.status !== 'free'}
+                onClick={() => {
+                  close()
+                  onRemove()
+                }}
+              >
+                <TrashIcon />
+                Удалить копию
+              </button>
+            </>
+          )}
         </>
       )}
     </RowMenu>

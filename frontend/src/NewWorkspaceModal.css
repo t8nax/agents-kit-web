@@ -339,3 +339,12 @@ tr.row-fresh td:first-child {
 .nw-toast svg {
   color: var(--accent-active-text);
 }
+
+/* Удаление — не приобретение: у его сообщения нет зелёной рамки и зелёного значка */
+.nw-toast-plain {
+  border-color: var(--border-strong);
+}
+
+.nw-toast-plain svg {
+  color: var(--text-secondary);
+}
