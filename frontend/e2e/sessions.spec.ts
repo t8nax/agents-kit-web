@@ -167,7 +167,7 @@ test('сессия запускается из шапки раздела и по
   await page.route('**/api/sessions/new', async (route) => {
     posts.push(route.request().postDataJSON())
     rows = [{ ...working, session: '7339dced', name: null, state: 'idle', startedAt: Date.now() }]
-    await route.fulfill({ json: { session: '7339dced' } })
+    await route.fulfill({ json: { session: '7339dced', terminal: true } })
   })
 
   await page.goto('/')
@@ -184,7 +184,7 @@ test('сессия запускается из шапки раздела и по
   expect(posts).toEqual([
     { base: freeCopy.base, copy: freeCopy.path, prompt: 'посмотри, почему падает e2e' },
   ])
-  await expect(page.getByText('Сессия 7339dced запущена')).toBeVisible()
+  await expect(page.getByText('Сессия 7339dced запущена — окно с ней открыто.')).toBeVisible()
   await expect(page.getByRole('row', { name: /rustic-silver-sparrow/ })).toContainText('фоновая · 7339dced')
 })
 

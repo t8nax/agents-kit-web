@@ -231,7 +231,11 @@ public sealed class SessionsEndpointsTests : IDisposable
             "/api/sessions/new", new SessionStartRequest(_base, _copy, "  посмотри, почему падает e2e  "));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("7339dced", (await response.Content.ReadFromJsonAsync<SessionStartResponse>())!.Session);
+        var started = await response.Content.ReadFromJsonAsync<SessionStartResponse>();
+        Assert.Equal("7339dced", started!.Session);
+        // Окно с сессией открывается сразу — решение оператора на приёмке B-61
+        Assert.True(started.Terminal);
+        Assert.Equal([(_copy, "7339dced")], _terminals.Attached);
 
         var startInfo = _agent.StartInfo!;
         Assert.Equal("claude", startInfo.FileName);
@@ -264,6 +268,21 @@ public sealed class SessionsEndpointsTests : IDisposable
         // Сессия не под задачу памяти не заводит, и занятость копии её не отменяет — решение оператора.
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task New_SessionThatStartedWithoutItsWindow_IsStillReturned()
+    {
+        _agent.Lines = ["backgrounded · 7339dced"];
+        _terminals.Result = false;
+
+        var response = await Client().PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, _copy, null));
+
+        // Сессия завелась, и запуск не считается неудачей: в неё входят из строки перечня
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var started = await response.Content.ReadFromJsonAsync<SessionStartResponse>();
+        Assert.Equal("7339dced", started!.Session);
+        Assert.False(started.Terminal);
     }
 
     [Fact]
@@ -304,6 +323,7 @@ public sealed class SessionsEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, Path.Combine(_root, "gone"), null))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, " ", null))).StatusCode);
         Assert.Null(_agent.StartInfo);
+        Assert.Empty(_terminals.Attached);
     }
 
     public void Dispose()

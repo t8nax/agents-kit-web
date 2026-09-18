@@ -183,13 +183,6 @@
   outline-offset: -1px;
 }
 
-.ns-hint {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-tertiary);
-}
-
 /* Про идущую в копии задачу окно предупреждает, но запуск не отменяет */
 .ns-warning {
   margin: 0;

@@ -261,7 +261,7 @@ test('живых сессий нет — раздел так и говорит',
 })
 
 test('кнопка в шапке заводит сессию и отмечает её сообщением', async () => {
-  const fetchMock = stubSessions([working], Response.json({ session: '7339dced' }))
+  const fetchMock = stubSessions([working], Response.json({ session: '7339dced', terminal: true }))
 
   render(<Sessions />)
   fireEvent.click(await screen.findByRole('button', { name: 'Новая сессия' }))
@@ -273,6 +273,6 @@ test('кнопка в шапке заводит сессию и отмечает
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith('/api/sessions/new', expect.objectContaining({ method: 'POST' })),
   )
-  expect(await screen.findByText(/Сессия 7339dced запущена/)).toBeInTheDocument()
+  expect(await screen.findByText('Сессия 7339dced запущена — окно с ней открыто.')).toBeInTheDocument()
   expect(screen.queryByRole('dialog', { name: 'Новая сессия' })).not.toBeInTheDocument()
 })

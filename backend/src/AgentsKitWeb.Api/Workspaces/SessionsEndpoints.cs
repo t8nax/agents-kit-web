@@ -31,8 +31,11 @@ public sealed record SessionActionProblem(string Problem, string? Message = null
 /// </summary>
 public sealed record SessionStartRequest(string? Base, string? Copy, string? Prompt);
 
-/// <summary>Заведённая сессия: её короткий id — им оператор в неё входит и ею её гасят.</summary>
-public sealed record SessionStartResponse(string Session);
+/// <summary>
+/// Заведённая сессия: её короткий id — им оператор в неё входит и ею её гасят. Terminal — открылось ли
+/// окно с сессией: сессия завелась и без него, входят в неё тогда из строки перечня.
+/// </summary>
+public sealed record SessionStartResponse(string Session, bool Terminal);
 
 public static partial class SessionsEndpoints
 {
@@ -76,6 +79,7 @@ public static partial class SessionsEndpoints
             SessionStartRequest request,
             BasesStore bases,
             IAgentProcess agent,
+            ITerminalWindows terminals,
             CancellationToken cancellationToken) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
@@ -93,9 +97,13 @@ public static partial class SessionsEndpoints
             var prompt = request.Prompt?.Trim();
             var startInfo = Ask.BackgroundSession.StartInfo(row.Path, prompt);
             var (session, failure) = await Ask.BackgroundSession.StartAsync(agent, startInfo, cancellationToken);
-            return session is null
-                ? Results.BadRequest(new SessionActionProblem("agent", failure))
-                : Results.Ok(new SessionStartResponse(session));
+            if (session is null)
+                return Results.BadRequest(new SessionActionProblem("agent", failure));
+
+            // Окно с сессией открывается сразу — решение оператора на приёмке B-61. Терминал адресуется
+            // каталогом копии и id запуска, а не реестром: в нём заведённая сессия появляется не сразу.
+            var terminal = await terminals.AttachAsync(row.Path, session, cancellationToken);
+            return Results.Ok(new SessionStartResponse(session, terminal));
         });
 
         // Гашение фоновой сессии: панель просит сам claude остановить её по короткому id. Сессия со своим

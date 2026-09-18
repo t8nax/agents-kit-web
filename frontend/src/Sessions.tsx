@@ -179,7 +179,7 @@ export default function Sessions() {
           Новая сессия
         </button>
       </div>
-      {started && <p className="message">Сессия {started} запущена — она появится в перечне через миг.</p>}
+      {started && <p className="message">{started}</p>}
       {failed && <p className="message warning-text">Нет связи с API</p>}
       {error && (
         <p className="message warning-text" role="alert">
@@ -312,9 +312,14 @@ export default function Sessions() {
         <NewSessionModal
           sessions={rows ?? []}
           onClose={() => setStarting(false)}
-          onStarted={(session) => {
+          onStarted={(session, terminal) => {
             setStarting(false)
-            setStarted(session)
+            // Окно с сессией открывает API; не открылось — оператор входит в неё из строки перечня
+            setStarted(
+              terminal
+                ? `Сессия ${session} запущена — окно с ней открыто.`
+                : `Сессия ${session} запущена, но окно с ней не открылось: войдите в неё из строки перечня.`,
+            )
             load()
           }}
         />

@@ -9,7 +9,7 @@ type Props = {
   /** Сессии перечня: по ним видно, сколько их уже идёт в копии. */
   sessions: SessionRow[]
   onClose: () => void
-  onStarted: (session: string) => void
+  onStarted: (session: string, terminal: boolean) => void
 }
 
 type Load =
@@ -81,8 +81,8 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
         body: JSON.stringify({ base: chosen.base, copy: chosen.path, prompt: prompt.trim() || null }),
       })
       if (response.ok) {
-        const body = (await response.json()) as { session: string }
-        onStarted(body.session)
+        const body = (await response.json()) as { session: string; terminal: boolean }
+        onStarted(body.session, body.terminal)
         return
       }
       if (response.status === 400) {
@@ -172,10 +172,6 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
               disabled={busy}
               onChange={(event) => setPrompt(event.target.value)}
             />
-            <p className="ns-hint">
-              Пусто — сессия просто откроется и будет ждать вас. Текст — уйдёт ей первой просьбой; можно начать его
-              с косой черты, тогда это будет навык: <span className="mono">/agents-kit:drive B-61</span>.
-            </p>
           </div>
 
           {chosen?.task && (
@@ -184,11 +180,6 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
               те же файлы — запускать её или нет, решаете вы.
             </p>
           )}
-
-          <p className="ns-hint">
-            Сессия заводится фоновой, как задача: она переживёт панель, входить в неё — «Войти в сессию» в строке
-            перечня.
-          </p>
         </div>
 
         <div className="ns-footer">

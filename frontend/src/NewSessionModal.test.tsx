@@ -68,7 +68,7 @@ function renderModal() {
 }
 
 test('окно показывает копии списка с ветками и числом их сессий, без недоступных', async () => {
-  stub(Response.json({ session: '7339dced' }))
+  stub(Response.json({ session: '7339dced', terminal: true }))
   renderModal()
 
   const copies = await screen.findAllByRole('radio')
@@ -82,7 +82,7 @@ test('окно показывает копии списка с ветками и
 })
 
 test('сессия запускается в выбранной копии с набранной просьбой', async () => {
-  const posts = stub(Response.json({ session: '7339dced' }))
+  const posts = stub(Response.json({ session: '7339dced', terminal: true }))
   const props = renderModal()
 
   await screen.findAllByRole('radio')
@@ -91,12 +91,12 @@ test('сессия запускается в выбранной копии с н
   })
   fireEvent.click(screen.getByRole('button', { name: 'Запустить' }))
 
-  await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('7339dced'))
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('7339dced', true))
   expect(posts).toEqual([{ base, copy: free.path, prompt: 'посмотри, почему падает e2e' }])
 })
 
 test('пустая просьба уходит как её отсутствие', async () => {
-  const posts = stub(Response.json({ session: 'abc123' }))
+  const posts = stub(Response.json({ session: 'abc123', terminal: true }))
   renderModal()
 
   await screen.findAllByRole('radio')
@@ -106,7 +106,7 @@ test('пустая просьба уходит как её отсутствие'
 })
 
 test('про копию с идущей задачей окно предупреждает, но запускать не мешает', async () => {
-  const posts = stub(Response.json({ session: 'abc123' }))
+  const posts = stub(Response.json({ session: 'abc123', terminal: true }))
   renderModal()
 
   const copies = await screen.findAllByRole('radio')
