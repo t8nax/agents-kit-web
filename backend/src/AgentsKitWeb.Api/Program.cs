@@ -4,6 +4,7 @@ using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Performers;
 using AgentsKitWeb.Api.Tasks;
+using AgentsKitWeb.Api.Usage;
 using AgentsKitWeb.Api.Workspaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +27,15 @@ builder.Services.AddSingleton(services =>
     var config = services.GetRequiredService<IConfiguration>();
     return new TaskSessions(config["TaskSessionsFile"] ?? TaskSessions.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(services =>
+    new UsageScanner(services.GetRequiredService<IConfiguration>()["ProjectsDir"] ?? UsageScanner.DefaultDirectory,
+        services.GetRequiredService<TimeProvider>()));
+builder.Services.AddSingleton(services =>
+    new ClaudeCredentials(services.GetRequiredService<IConfiguration>()["CredentialsFile"] ?? ClaudeCredentials.DefaultFile));
+// Запрос о лимитах идёт к Anthropic, и ждать его дольше нескольких секунд разделу незачем:
+// лучше строка «не ответил вовремя», чем раздел, который висит на открытии.
+builder.Services.AddHttpClient<ILimits, AnthropicLimits>(client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
@@ -70,6 +80,7 @@ app.MapOperatorEndpoints();
 app.MapPerformersEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
+app.MapUsageEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.
 app.MapFallback("/api/{**path}", () => Results.NotFound());

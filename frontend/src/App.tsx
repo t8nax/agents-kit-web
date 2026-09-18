@@ -24,6 +24,7 @@ import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
 import { TerminalIcon } from './TerminalIcon'
+import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
@@ -124,7 +125,15 @@ const refreshIntervalMs = 3000
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
-type Section = 'workspaces' | 'backlog' | 'flow' | 'performers' | 'sessions' | 'problems' | 'settings'
+type Section =
+  | 'workspaces'
+  | 'backlog'
+  | 'flow'
+  | 'performers'
+  | 'sessions'
+  | 'usage'
+  | 'problems'
+  | 'settings'
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
@@ -288,6 +297,8 @@ function App() {
             <Performers />
           ) : section === 'sessions' ? (
             <Sessions />
+          ) : section === 'usage' ? (
+            <Usage />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
           ) : (
@@ -415,6 +426,10 @@ function Sidebar({
           onClick={() => onSection('sessions')}
         >
           <SessionsIcon />
+        </SideItem>
+        {/* Расход стоит за сессиями: это тоже про происходящее сейчас, только про его цену */}
+        <SideItem label="Расход" expanded={expanded} active={section === 'usage'} onClick={() => onSection('usage')}>
+          <UsageIcon />
         </SideItem>
         <SideItem
           label="Проблемы баз"
