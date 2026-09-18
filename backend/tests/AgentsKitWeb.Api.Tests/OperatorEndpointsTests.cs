@@ -20,6 +20,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     private readonly FakeEditorWindows _windows = new();
     private readonly FakeTerminalWindows _terminals = new();
     private readonly WebApplicationFactory<Program> _factory;
+    private int _sessionFiles;
 
     private const string Sections = """
         ## Критерии закрытия
@@ -316,10 +317,11 @@ public sealed class OperatorEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task OpenTerminal_BackgroundSessionInCopy_AttachesToItById()
+    public async Task OpenTerminal_SessionThePanelStarted_AttachesToItById()
     {
         var free = FreeCopy();
         WriteBackgroundSession(free, "7339dced");
+        StartedByPanel(free, "7339dced");
 
         var response = await PostOpenTerminal(_base, free);
 
@@ -327,16 +329,45 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal([(free, "7339dced")], _terminals.Attached);
     }
 
-    /// <summary>Сессия панели переживает саму панель, поэтому переход не зависит от её памяти о запуске.</summary>
+    /// <summary>
+    /// Отметка о запуске лежит в файле профиля, а не в памяти процесса: сессия переживает панель,
+    /// и переход в неё есть и после её перезапуска.
+    /// </summary>
     [Fact]
-    public async Task OpenTerminal_SessionStartedOutsideThePanel_IsStillReachable()
+    public async Task OpenTerminal_PanelRestartedSinceTheStart_StillAttaches()
     {
         WriteBackgroundSession(_copy, "a1b2c3d4");
+        StartedByPanel(_copy, "a1b2c3d4");
 
         var response = await PostOpenTerminal(_base, _copy);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal([(_copy, "a1b2c3d4")], _terminals.Attached);
+    }
+
+    /// <summary>Сессию, заведённую оператором в терминале, панель задачей копии не считает.</summary>
+    [Fact]
+    public async Task OpenTerminal_SessionStartedOutsideThePanel_IsRejectedAndOpensNothing()
+    {
+        WriteBackgroundSession(_copy, "a1b2c3d4");
+
+        var response = await PostOpenTerminal(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(_terminals.Attached);
+    }
+
+    /// <summary>Сессия запуска умерла — переходить некуда, даже если в копии работает другая.</summary>
+    [Fact]
+    public async Task OpenTerminal_StartedSessionIsGone_IsRejectedAndOpensNothing()
+    {
+        WriteBackgroundSession(_copy, "a1b2c3d4");
+        StartedByPanel(_copy, "7339dced");
+
+        var response = await PostOpenTerminal(_base, _copy);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(_terminals.Attached);
     }
 
     [Fact]
@@ -355,6 +386,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     public async Task OpenTerminal_TerminalDidNotOpen_IsBadGateway()
     {
         WriteBackgroundSession(_copy, "7339dced");
+        StartedByPanel(_copy, "7339dced");
         _terminals.Result = false;
 
         var response = await PostOpenTerminal(_base, _copy);
@@ -368,6 +400,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     {
         var outsider = Path.Combine(_root, "nope");
         WriteBackgroundSession(outsider, "7339dced");
+        StartedByPanel(outsider, "7339dced");
 
         var response = await PostOpenTerminal(_base, outsider);
 
@@ -375,11 +408,45 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Empty(_terminals.Attached);
     }
 
+    /// <summary>
+    /// Сессий в копии бывает несколько — брошенная, заведённая вручную, ведущая задачу, — и переход
+    /// ведёт в ту, которую панель тут запустила.
+    /// </summary>
     [Fact]
-    public async Task Questions_TellsWhetherTheCopyHasABackgroundSession()
+    public async Task OpenTerminal_SeveralBackgroundSessionsInCopy_AttachesToTheStartedOne()
     {
-        var before = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
+        var free = FreeCopy();
+        WriteBackgroundSession(free, "outsider", status: "waiting");
+        WriteBackgroundSession(free, "thetask0", status: "busy");
+        StartedByPanel(free, "thetask0");
+
+        var response = await PostOpenTerminal(_base, free);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(free, "thetask0")], _terminals.Attached);
+    }
+
+    /// <summary>Кнопка окна ответа зовёт тот же переход, поэтому и она приводит в ту же сессию.</summary>
+    [Fact]
+    public async Task Questions_SeveralBackgroundSessionsInCopy_ItsTerminalButtonLeadsToTheStartedOne()
+    {
+        WriteBackgroundSession(_copy, "outsider", status: "idle");
+        WriteBackgroundSession(_copy, "thetask0", status: "busy");
+        StartedByPanel(_copy, "thetask0");
+
+        var questions = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
+        await PostOpenTerminal(_base, _copy);
+
+        Assert.True(questions!.BackgroundSession);
+        Assert.Equal([(_copy, "thetask0")], _terminals.Attached);
+    }
+
+    [Fact]
+    public async Task Questions_TellsWhetherTheCopyHasTheStartedSession()
+    {
         WriteBackgroundSession(_copy, "7339dced");
+        var before = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
+        StartedByPanel(_copy, "7339dced");
         var after = await _factory.CreateClient().GetFromJsonAsync<QuestionsResponse>(QuestionsUrl(_base, _copy));
 
         Assert.False(before!.BackgroundSession);
@@ -399,6 +466,9 @@ public sealed class OperatorEndpointsTests : IDisposable
     private static string QuestionsUrl(string basePath, string copy) =>
         $"/api/questions?base={Uri.EscapeDataString(basePath)}&copy={Uri.EscapeDataString(copy)}";
 
+    // Отметка панели о том, что сессию задачи в этой копии завела она сама.
+    private void StartedByPanel(string copy, string session) => TestBases.TaskSession(_root, copy, session);
+
     private Task<HttpResponseMessage> PostOpenSession(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/session/open", new OpenSessionRequest(basePath, copy));
 
@@ -409,15 +479,15 @@ public sealed class OperatorEndpointsTests : IDisposable
         _factory.CreateClient().PostAsJsonAsync("/api/session/terminal", new OpenSessionRequest(basePath, copy));
 
     // Фоновая сессия — та же запись реестра, но с kind=bg и коротким id, которым в неё входят.
-    private void WriteBackgroundSession(string cwd, string jobId) =>
+    private void WriteBackgroundSession(string cwd, string jobId, string? status = null) =>
         File.WriteAllText(
-            Path.Combine(_sessionsDir, $"{Guid.NewGuid():N}.json"),
-            $$"""{"pid":{{Environment.ProcessId}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg","jobId":"{{jobId}}"}""");
+            Path.Combine(_sessionsDir, $"{++_sessionFiles}.json"),
+            $$"""{"pid":{{Environment.ProcessId}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg","jobId":"{{jobId}}"{{(status is null ? "" : $",\"status\":\"{status}\"")}}}""");
 
     // Живой сессией считается та, чей процесс существует, поэтому в фикстуре стоит pid самого прогона.
     private void WriteSession(string cwd, string entrypoint = "claude-vscode") =>
         File.WriteAllText(
-            Path.Combine(_sessionsDir, $"{Guid.NewGuid():N}.json"),
+            Path.Combine(_sessionsDir, $"{++_sessionFiles}.json"),
             $$"""{"pid":{{Environment.ProcessId}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"{{entrypoint}}"}""");
 
     private sealed class FakeTerminalWindows : ITerminalWindows

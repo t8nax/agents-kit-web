@@ -34,6 +34,7 @@ public static partial class TaskEndpoints
             TaskStartRequest request,
             BasesStore bases,
             StartedTasks started,
+            TaskSessions taskSessions,
             IAgentProcess agent,
             CancellationToken cancellationToken) =>
         {
@@ -71,6 +72,8 @@ public static partial class TaskEndpoints
                 return Results.BadRequest(new TaskStartProblem("agent", failure));
 
             started.Add(row.Path, session);
+            // Переход в сессию копии ведёт по этой записи: чем ещё узнать ту самую, панель не знает.
+            taskSessions.Remember(row.Path, session);
             return Results.Ok(new TaskStartResponse(session));
         });
     }

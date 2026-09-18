@@ -20,6 +20,11 @@ builder.Services.AddSingleton(services =>
 });
 builder.Services.AddSingleton(services =>
     new AgentSessions(services.GetRequiredService<IConfiguration>()["SessionsDir"] ?? AgentSessions.DefaultDirectory));
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new TaskSessions(config["TaskSessionsFile"] ?? TaskSessions.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
+});
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
@@ -39,9 +44,10 @@ app.UseStaticFiles();
 app.MapGet("/api/ping", () => new PingResponse("pong"));
 
 app.MapGet("/api/workspaces", async (
-    BasesStore bases, HealthMonitor health, AgentSessions sessions, CancellationToken cancellationToken) =>
+    BasesStore bases, HealthMonitor health, AgentSessions sessions, TaskSessions tasks, CancellationToken cancellationToken) =>
     sessions.Annotate(
-        HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot)));
+        HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot),
+        tasks.SessionIn));
 
 app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
 app.MapPost("/api/health/check", (HealthMonitor health) =>
