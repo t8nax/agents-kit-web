@@ -37,6 +37,7 @@ public sealed class TaskEndpointsTests : IDisposable
     private readonly string _copy;
     private readonly string _sessionsDir;
     private readonly FakeAgent _agent = new();
+    private readonly FakeTime _time = new(new DateTimeOffset(2026, 9, 18, 12, 0, 0, TimeSpan.Zero));
 
     public TaskEndpointsTests()
     {
@@ -64,7 +65,8 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal(_copy, startInfo.WorkingDirectory);
         Assert.True(startInfo.CreateNoWindow);
         // Просьба уходит после «--»: текст, начатый с «-», claude принял бы за флаг.
-        Assert.Equal(["--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
+        // Настройками сессия оставлена в самой копии: без них claude уходит работать в отдельное дерево.
+        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
         // Панель не правит бэклог и не заводит память: и то и другое делает навык кита в этой сессии.
         Assert.Contains("B-7", File.ReadAllText(Path.Combine(_base, "backlog.md")));
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
@@ -90,7 +92,7 @@ public sealed class TaskEndpointsTests : IDisposable
         var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "В-8"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("/agents-kit:drive B-8", _agent.StartInfo!.ArgumentList[2]);
+        Assert.Equal("/agents-kit:drive B-8", _agent.StartInfo!.ArgumentList[^1]);
     }
 
     [Fact]
@@ -219,8 +221,9 @@ public sealed class TaskEndpointsTests : IDisposable
     }
 
     /// <summary>
-    /// Сессия ушла, не заведя памяти — запуск сорвался или её погасили: копия снова свободна, и задачу
-    /// в неё запускают заново.
+    /// Сессия была в реестре и ушла, не заведя памяти — её погасили или она упала: копия снова
+    /// свободна сразу, и задачу в неё запускают заново. Льгота первых секунд тут не при чём: она
+    /// переживает только то время, пока сессию ещё ни разу не видели.
     /// </summary>
     [Fact]
     public async Task StartedTask_WhoseSessionIsGone_LeavesTheCopyFreeAgain()
@@ -229,7 +232,55 @@ public sealed class TaskEndpointsTests : IDisposable
         var client = Client();
 
         await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+        WriteSession("7339dced", live: true);
+        Assert.Equal(WorkspaceStatus.Starting, (await Row(client)).Status);
+
         WriteSession("7339dced", live: false);
+
+        var row = await Row(client);
+
+        Assert.Equal(WorkspaceStatus.Free, row.Status);
+        Assert.Null(row.Task);
+
+        _agent.StartInfo = null;
+        var again = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-8"));
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+    }
+
+    /// <summary>
+    /// В реестр живых сессий заведённая сессия попадает не одновременно с ответом запуска, а спустя
+    /// десятые доли секунды, и первый опрос таблицы успевает пройти раньше. Пока сессии там нет,
+    /// копия всё равно стоит «запускается»: иначе тот самый первый опрос стирал бы отметку насовсем,
+    /// и запущенная задача в таблице не показывалась бы вовсе.
+    /// </summary>
+    [Fact]
+    public async Task StartedTask_ShowsInTheCopyRow_WhileItsSessionHasNotReachedTheRegistry()
+    {
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+
+        var row = await Row(client);
+
+        Assert.Equal(WorkspaceStatus.Starting, row.Status);
+        Assert.Equal("B-7 Панель показывает задачу сразу", row.Task);
+    }
+
+    /// <summary>
+    /// Сессия не появилась в реестре и за льготу — запуск сорвался, а сказать об этом нечем: копия
+    /// снова свободна, и задачу в неё запускают заново.
+    /// </summary>
+    [Fact]
+    public async Task StartedTask_WhoseSessionNeverReachedTheRegistry_LeavesTheCopyFreeAfterTheGrace()
+    {
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+        Assert.Equal(WorkspaceStatus.Starting, (await Row(client)).Status);
+
+        _time.Advance(TimeSpan.FromSeconds(11));
 
         var row = await Row(client);
 
@@ -305,8 +356,20 @@ public sealed class TaskEndpointsTests : IDisposable
             {
                 services.RemoveAll<IAgentProcess>();
                 services.AddSingleton<IAgentProcess>(_agent);
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(_time);
             });
         }).CreateClient();
+
+    /// <summary>Часы прогона: льгота отметки о запуске отмеряется ими, а не настоящим временем.</summary>
+    private sealed class FakeTime(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _now = now;
+
+        public void Advance(TimeSpan span) => _now += span;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
 
     private sealed class FakeAgent : IAgentProcess
     {

@@ -24,7 +24,7 @@ public sealed class FinishedTaskSessionsTests : IDisposable
     private readonly string _sessionsDir;
     private readonly FakeAgent _agent = new();
     private readonly FakeTime _time = new(new DateTimeOffset(2026, 9, 18, 12, 0, 0, TimeSpan.Zero));
-    private readonly StartedTasks _started = new();
+    private readonly StartedTasks _started;
     private readonly TaskSessions _tasks;
 
     public FinishedTaskSessionsTests()
@@ -39,6 +39,7 @@ public sealed class FinishedTaskSessionsTests : IDisposable
         _sessionsDir = Path.Combine(_root, "sessions");
         Directory.CreateDirectory(_sessionsDir);
         _tasks = new TaskSessions(Path.Combine(_root, "task-sessions.json"));
+        _started = new StartedTasks(_time);
     }
 
     [Fact]

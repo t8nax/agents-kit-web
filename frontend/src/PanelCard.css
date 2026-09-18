@@ -1,0 +1,239 @@
+/* Карточка «Панель» в «Настройках» и окно хода обновления — по макету задачи B-81. */
+
+.panel-card-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.panel-row-top {
+  align-items: flex-start;
+}
+
+.panel-row-actions {
+  padding-top: 4px;
+}
+
+.panel-label {
+  width: 78px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.panel-row-top .panel-label {
+  padding-top: 4px;
+}
+
+.panel-divider {
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.panel-channels {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.panel-channel {
+  padding: 7px 18px;
+  min-height: 36px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.panel-channel + .panel-channel {
+  border-left: 1px solid var(--border-strong);
+}
+
+.panel-channel:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.panel-channel-on,
+.panel-channel-on:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.panel-hint {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.panel-hint-grow {
+  flex-grow: 1;
+}
+
+.panel-version {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.panel-version-new {
+  color: var(--accent-done-text);
+}
+
+.panel-current {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  color: var(--accent-active-text);
+}
+
+.panel-releases {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel-releases ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.panel-releases li {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.panel-release-version {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  padding-right: 10px;
+}
+
+.panel-primary {
+  color: var(--text-primary);
+}
+
+.panel-development {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.panel-failed {
+  border: 1px solid var(--accent-error-border);
+  background: var(--accent-error-bg);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel-failed strong {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-error-text);
+}
+
+.panel-failed p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.panel-failed pre,
+.panel-log {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-base);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-x: auto;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.panel-failed-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.panel-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.panel-window {
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 24px 60px var(--shadow-color);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-window h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.panel-progress {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.panel-progress-bar {
+  width: 40%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--accent-waiting-fill);
+  animation: panel-progress-slide 1.6s ease-in-out infinite;
+}
+
+@keyframes panel-progress-slide {
+  0% {
+    margin-left: 0;
+  }
+
+  50% {
+    margin-left: 60%;
+  }
+
+  100% {
+    margin-left: 0;
+  }
+}
