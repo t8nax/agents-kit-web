@@ -59,10 +59,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(unnumbered.nth(1)).toHaveText('—')
     await expect(unnumbered.nth(2)).toHaveText('Задача не из бэклога')
 
-    // У свободной копии задачи нет, и на её месте стоит кнопка запуска
+    // У свободной копии задачи нет, и на её месте прочерк: задачу берут в разделе «Бэклог»
     const free = bodyRows.nth(2).getByRole('cell')
     await expect(free.nth(1)).toHaveText('—')
-    await expect(free.nth(2).getByRole('button', { name: 'Взять задачу' })).toBeVisible()
+    await expect(free.nth(2)).toHaveText('—')
   })
 }
 

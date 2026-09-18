@@ -33,9 +33,22 @@ const backlog = [
   },
 ]
 
-async function routeApi(page: Page, reply: { status: number; json: unknown }) {
+const notaFreeRow = {
+  ...freeRow,
+  project: 'Nota',
+  base: 'D:\\Projects\\nota-knowledge',
+  path: 'D:\\Projects\\nota',
+}
+const notaBacklog = {
+  base: notaFreeRow.base,
+  project: 'Nota',
+  entries: [{ number: 'B-4', title: 'Экспорт заметок', text: null }],
+  error: null,
+}
+
+async function routeApi(page: Page, reply: { status: number; json: unknown }, rows = [busyRow, freeRow]) {
   const posts: unknown[] = []
-  await page.route('**/api/workspaces', async (route) => route.fulfill({ json: [busyRow, freeRow] }))
+  await page.route('**/api/workspaces', async (route) => route.fulfill({ json: rows }))
   await page.route('**/api/backlog', async (route) => route.fulfill({ json: backlog }))
   await page.route('**/api/tasks', async (route) => {
     posts.push(route.request().postDataJSON())
@@ -44,31 +57,52 @@ async function routeApi(page: Page, reply: { status: number; json: unknown }) {
   return posts
 }
 
+/** Открывает раздел «Бэклог»: задачу берут там, а не в таблице копий. */
+async function openBacklog(page: Page) {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Бэклог' }).click()
+  return page.locator('.entry-row')
+}
+
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`задача запускается из строки свободной копии (${colorScheme})`, async ({ page }) => {
+  test(`задача запускается из записи бэклога (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme })
     const posts = await routeApi(page, { status: 200, json: { session: '7339dced' } })
-    await page.goto('/')
+    const entries = await openBacklog(page)
 
-    const rows = page.getByRole('table').locator('tbody tr')
-    // Занятая копия задачу не принимает: кнопка стоит только у свободной
-    await expect(rows.filter({ hasText: 'B-22' }).getByRole('button', { name: 'Взять задачу' })).toBeHidden()
-    // Кнопка стоит на месте задачи — в третьей ячейке строки, а не в колонке действий
-    const taskCell = rows.filter({ hasText: 'rustic-silver-sparrow' }).getByRole('cell').nth(2)
-    await taskCell.getByRole('button', { name: 'Взять задачу' }).click()
+    // Строка записи по-прежнему открывается на чтение, а рядом с ней — запуск
+    const entry = entries.filter({ hasText: 'B-8' })
+    await entry.getByRole('button', { name: 'Взять задачу' }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
-    await expect(dialog).toContainText('D:\\Projects\\rustic-silver-sparrow · ветка dev')
-    // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
+    await expect(dialog).toContainText('Кнопка запуска задачи')
+    // Окно непрозрачно в обеих темах: список под ним не просвечивает
     await expect(dialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(dialog.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
 
-    await dialog.locator('label').filter({ hasText: 'B-8' }).click()
+    // Занятая копия в выбор не попадает
+    await expect(dialog.locator('label').filter({ hasText: 'noble-keen-walrus' })).toBeHidden()
+    await dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }).click()
     await dialog.getByRole('button', { name: 'Взять в работу' }).click()
 
     await expect(dialog).toBeHidden()
     await expect(page.getByRole('status')).toContainText('Задача запущена в rustic-silver-sparrow')
     expect(posts).toEqual([{ base: freeRow.base, copy: freeRow.path, number: 'B-8' }])
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`без свободной копии кнопка записи погашена (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    // У соседнего проекта копия свободна: его живая кнопка говорит, что копии уже прочитаны
+    await page.route('**/api/workspaces', async (route) => route.fulfill({ json: [busyRow, notaFreeRow] }))
+    await page.route('**/api/backlog', async (route) => route.fulfill({ json: [...backlog, notaBacklog] }))
+    const entries = await openBacklog(page)
+
+    await expect(entries.filter({ hasText: 'B-4' }).getByRole('button', { name: 'Взять задачу' })).toBeEnabled()
+    const start = entries.filter({ hasText: 'B-7' }).getByRole('button', { name: 'Взять задачу' })
+    await expect(start).toBeVisible()
+    await expect(start).toBeDisabled()
   })
 }
 
@@ -93,8 +127,6 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(row.getByRole('cell').nth(2)).toHaveText('Кнопка запуска задачи')
     await expect(row.getByRole('cell').nth(3)).toHaveText('—')
     await expect(row.getByRole('cell').nth(4)).toHaveText('—')
-    // Вторую задачу в неё не запустить: кнопки у занятой копии нет
-    await expect(row.getByRole('button', { name: 'Взять задачу' })).toBeHidden()
 
     const badge = row.getByText('Запускается')
     await expect(badge).toBeVisible()
@@ -102,14 +134,22 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
-test('сообщение о запущенной задаче гаснет само', async ({ page }) => {
+test('в таблице копий задачу не берут: у свободной копии прочерк', async ({ page }) => {
   await routeApi(page, { status: 200, json: { session: '7339dced' } })
   await page.goto('/')
 
-  await page.getByRole('table').locator('tbody tr').filter({ hasText: 'rustic-silver-sparrow' })
-    .getByRole('button', { name: 'Взять задачу' }).click()
+  const row = page.getByRole('table').locator('tbody tr').filter({ hasText: 'rustic-silver-sparrow' })
+  await expect(row.getByRole('cell').nth(2)).toHaveText('—')
+  await expect(page.getByRole('button', { name: 'Взять задачу' })).toBeHidden()
+})
+
+test('сообщение о запущенной задаче гаснет само', async ({ page }) => {
+  await routeApi(page, { status: 200, json: { session: '7339dced' } })
+  const entries = await openBacklog(page)
+
+  await entries.filter({ hasText: 'B-7' }).getByRole('button', { name: 'Взять задачу' }).click()
   const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
-  await dialog.locator('label').filter({ hasText: 'B-7' }).click()
+  await dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }).click()
   await dialog.getByRole('button', { name: 'Взять в работу' }).click()
 
   const toast = page.getByRole('status')
@@ -121,13 +161,12 @@ test('сообщение о запущенной задаче гаснет са�
 
 test('копию успели занять: окно называет идущую задачу и остаётся открытым', async ({ page }) => {
   await routeApi(page, { status: 400, json: { problem: 'copy-busy', message: 'B-5 Прошлая задача' } })
-  await page.goto('/')
+  const entries = await openBacklog(page)
 
-  await page.getByRole('table').locator('tbody tr').filter({ hasText: 'rustic-silver-sparrow' })
-    .getByRole('button', { name: 'Взять задачу' }).click()
+  await entries.filter({ hasText: 'B-7' }).getByRole('button', { name: 'Взять задачу' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
-  await dialog.locator('label').filter({ hasText: 'B-7' }).click()
+  await dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }).click()
   await dialog.getByRole('button', { name: 'Взять в работу' }).click()
 
   await expect(dialog.getByRole('alert')).toContainText('В копии уже идёт задача «B-5 Прошлая задача»')

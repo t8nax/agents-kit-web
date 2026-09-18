@@ -70,16 +70,7 @@
   color: var(--text-secondary);
 }
 
-.st-copy {
-  font-size: 14px;
-}
-
-.st-sub {
-  font-size: 12px;
-  word-break: break-all;
-}
-
-.st-records {
+.st-copies {
   min-height: 0;
 }
 
@@ -102,7 +93,7 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.st-record {
+.st-copy {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -110,15 +101,15 @@
   cursor: pointer;
 }
 
-.st-record.is-on {
+.st-copy.is-on {
   background: var(--bg-surface-hover);
 }
 
-.st-record:hover {
+.st-copy:hover {
   background: var(--bg-surface-hover);
 }
 
-.st-record:focus-within {
+.st-copy:focus-within {
   outline: 2px solid var(--text-primary);
   outline-offset: -2px;
 }
@@ -132,19 +123,40 @@
   border: 1.5px solid var(--border-strong);
 }
 
-.st-record.is-on .st-radio {
+.st-copy.is-on .st-radio {
   border: 4px solid var(--text-primary);
 }
 
-/* Номер не ужимается: во flex плашка иначе рвётся на две строки */
-.st-record .num-chip {
+/* Взятая запись: номер не ужимается — во flex плашка иначе рвётся на две строки */
+.st-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.st-entry .num-chip {
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-.st-record-title {
+.st-entry-title {
   font-size: 14px;
   line-height: 1.4;
+}
+
+.st-copy-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.st-copy-name {
+  font-size: 14px;
+}
+
+.st-copy-sub {
+  font-size: 12px;
 }
 
 .st-hint {

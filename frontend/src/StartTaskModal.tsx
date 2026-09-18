@@ -1,12 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
-import type { BacklogEntry, BaseBacklog } from './Backlog'
+import type { BacklogEntry } from './Backlog'
+import { copyName, freeCopies } from './copies'
 import './StartTaskModal.css'
 
 type Props = {
-  row: WorkspaceRow
+  base: string
+  entry: BacklogEntry & { number: string }
   onClose: () => void
-  onStarted: (session: string) => void
+  /** Имя каталога копии, в которую ушла задача: им панель говорит, где она запустилась. */
+  onStarted: (copy: string) => void
 }
 
 type Problem = 'copy-busy' | 'copy-starting' | 'record-unknown' | 'agent'
@@ -14,7 +17,7 @@ type Problem = 'copy-busy' | 'copy-starting' | 'record-unknown' | 'agent'
 type Load =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
-  | { kind: 'loaded'; entries: BacklogEntry[] }
+  | { kind: 'loaded'; copies: WorkspaceRow[] }
 
 function failureOf(problem: Problem, message: string | null): string {
   switch (problem) {
@@ -29,10 +32,10 @@ function failureOf(problem: Problem, message: string | null): string {
   }
 }
 
-/** Окно запуска задачи: копия уже выбрана строкой таблицы, оператор выбирает запись бэклога её проекта. */
-export default function StartTaskModal({ row, onClose, onStarted }: Props) {
+/** Окно запуска задачи: запись выбрана в бэклоге, оператор выбирает свободную копию её проекта. */
+export default function StartTaskModal({ base, entry, onClose, onStarted }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [number, setNumber] = useState<string | null>(null)
+  const [path, setPath] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -44,24 +47,18 @@ export default function StartTaskModal({ row, onClose, onStarted }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [busy, onClose])
 
-  // Бэклог читается на открытие окна: соседние сессии берут и дописывают записи прямо сейчас.
+  // Копии читаются на открытие окна, а не берутся из раздела: соседняя задача занимает копию прямо сейчас.
   useEffect(() => {
     let alive = true
-    fetch('/api/backlog')
+    fetch('/api/workspaces')
       .then((response) => {
-        if (!response.ok) throw new Error(`Бэклог не загрузился: HTTP ${response.status}`)
-        return response.json() as Promise<BaseBacklog[]>
+        if (!response.ok) throw new Error(`Копии не загрузились: HTTP ${response.status}`)
+        return response.json() as Promise<WorkspaceRow[]>
       })
       .then(
-        (backlogs) => {
+        (rows) => {
           if (!alive) return
-          const backlog = backlogs.find((b) => b.base === row.base)
-          if (backlog?.error) {
-            setLoad({ kind: 'failed', message: backlog.error })
-            return
-          }
-          // Без номера запись не адресовать: запуск просит агента взять её по номеру.
-          setLoad({ kind: 'loaded', entries: backlog?.entries.filter((e) => e.number) ?? [] })
+          setLoad({ kind: 'loaded', copies: freeCopies(rows, base) })
         },
         (e: unknown) => {
           if (!alive) return
@@ -74,22 +71,24 @@ export default function StartTaskModal({ row, onClose, onStarted }: Props) {
     return () => {
       alive = false
     }
-  }, [row.base])
+  }, [base])
+
+  const copies = load.kind === 'loaded' ? load.copies : []
+  const chosen = copies.find((row) => row.path === path) ?? null
 
   async function start(event: FormEvent) {
     event.preventDefault()
-    if (!number || busy) return
+    if (!chosen || busy) return
     setBusy(true)
     setFailure(null)
     try {
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: row.base, copy: row.path, number }),
+        body: JSON.stringify({ base, copy: chosen.path, number: entry.number }),
       })
       if (response.ok) {
-        const body = (await response.json()) as { session: string }
-        onStarted(body.session)
+        onStarted(copyName(chosen.path))
         return
       }
       if (response.status === 400) {
@@ -128,40 +127,44 @@ export default function StartTaskModal({ row, onClose, onStarted }: Props) {
           )}
 
           <div className="st-field">
-            <span className="st-label">Рабочая копия</span>
-            <span className="st-copy">{row.project}</span>
-            <span className="mono text-ter st-sub">
-              {row.path}
-              {row.branch ? ` · ветка ${row.branch}` : ''}
+            <span className="st-label">Запись бэклога</span>
+            <span className="st-entry">
+              <span className="num-chip">{entry.number}</span>
+              <span className="st-entry-title">{entry.title}</span>
             </span>
           </div>
 
-          <fieldset className="st-field st-records">
-            <legend className="st-label">Запись бэклога</legend>
-            {load.kind === 'loading' && <p className="text-sec st-message">Бэклог читается…</p>}
+          <fieldset className="st-field st-copies">
+            <legend className="st-label">Рабочая копия</legend>
+            {load.kind === 'loading' && <p className="text-sec st-message">Копии читаются…</p>}
             {load.kind === 'failed' && <p className="warning-text st-message">{load.message}</p>}
-            {load.kind === 'loaded' && load.entries.length === 0 && (
-              <p className="text-sec st-message">В бэклоге проекта нет записей с номером.</p>
+            {load.kind === 'loaded' && copies.length === 0 && (
+              <p className="text-sec st-message">Свободной копии у проекта сейчас нет — все заняты задачами.</p>
             )}
-            {load.kind === 'loaded' && load.entries.length > 0 && (
+            {copies.length > 0 && (
               <ul className="st-list">
-                {load.entries.map((entry) => (
-                  <li key={entry.number}>
-                    <label className={`st-record ${entry.number === number ? 'is-on' : ''}`}>
+                {copies.map((row) => (
+                  <li key={row.path}>
+                    <label className={`st-copy ${row.path === path ? 'is-on' : ''}`} title={row.path}>
                       <input
                         type="radio"
-                        name="st-record"
+                        name="st-copy"
                         className="visually-hidden"
-                        checked={entry.number === number}
+                        checked={row.path === path}
                         disabled={busy}
                         onChange={() => {
-                          setNumber(entry.number)
+                          setPath(row.path)
                           setFailure(null)
                         }}
                       />
                       <span className="st-radio" aria-hidden="true" />
-                      <span className="num-chip">{entry.number}</span>
-                      <span className="st-record-title">{entry.title}</span>
+                      <span className="st-copy-text">
+                        <span className="st-copy-name">{copyName(row.path)}</span>
+                        {/* Моноширинным идёт только имя ветки — как в строке таблицы копий */}
+                        <span className="st-copy-sub text-ter">
+                          {row.branch ? <>ветка <span className="mono">{row.branch}</span></> : 'ветка неизвестна'}
+                        </span>
+                      </span>
                     </label>
                   </li>
                 ))}
@@ -180,7 +183,7 @@ export default function StartTaskModal({ row, onClose, onStarted }: Props) {
             <button type="button" className="btn" disabled={busy} onClick={onClose}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-primary" disabled={busy || !number}>
+            <button type="submit" className="btn btn-primary" disabled={busy || !chosen}>
               {busy ? 'Запускается…' : 'Взять в работу'}
             </button>
           </div>
@@ -189,6 +192,7 @@ export default function StartTaskModal({ row, onClose, onStarted }: Props) {
     </div>
   )
 }
+
 
 export function PlayIcon() {
   return (
