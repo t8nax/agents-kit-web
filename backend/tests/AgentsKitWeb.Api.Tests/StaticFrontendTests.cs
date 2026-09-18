@@ -73,7 +73,7 @@ public sealed class StaticFrontendTests : IDisposable
 
     public void Dispose()
     {
-        _factory.Dispose();
+        TestHost.Stop(_factory);
         try
         {
             Directory.Delete(_root, recursive: true);
