@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+﻿using System.Net.Http.Json;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Workspaces;
@@ -182,6 +182,50 @@ public sealed class HealthTests : IDisposable
             Assert.Empty(problems);
         else
             Assert.Equal([new HealthProblem("error", null, message)], problems);
+    }
+
+    [Fact]
+    public async Task Health_PanelStopped_RunningCheckIsKilled()
+    {
+        // Скрипт кита называет свой процесс и засыпает надолго: погашен он или брошен, видно по нему.
+        var kit = TestKit.Create(Path.Combine(_root, "agents-kit"),
+            baseCheck: """
+                Set-Content -LiteralPath (Join-Path $PSScriptRoot 'pid.txt') -Value $PID
+                Start-Sleep -Seconds 300
+                """);
+        await WaitFor(s => !s.Pending);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+        var pid = await WaitForPid(Path.Combine(kit, "scripts", "pid.txt"));
+
+        _factory.Dispose();
+
+        Assert.True(Exited(pid), "pwsh сверки пережил остановку панели и держит файлы кита");
+    }
+
+    private static async Task<int> WaitForPid(string file)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (File.Exists(file) && int.TryParse(File.ReadAllText(file).Trim(), out var pid))
+                return pid;
+            await Task.Delay(50);
+        }
+        throw new TimeoutException($"Проверка не дошла до скрипта кита: {file} так и не появился");
+    }
+
+    private static bool Exited(int pid)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(pid);
+            return process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            // Процесса с таким номером уже нет.
+            return true;
+        }
     }
 
     [Fact]
