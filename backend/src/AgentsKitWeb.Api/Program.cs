@@ -46,6 +46,8 @@ builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
+// Отработавшую сессию задачи панель гасит сама — решение оператора на B-68.
+builder.Services.AddHostedService<FinishedTaskSessions>();
 var app = builder.Build();
 
 // Собранный фронт лежит в wwwroot поставленной панели; в разработке его отдаёт Vite, а wwwroot пуст.
