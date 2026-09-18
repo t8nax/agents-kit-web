@@ -10,6 +10,21 @@ export type AskEvent =
   | { type: 'answer'; text: string; files?: string[]; durationMs?: number }
   | { type: 'error'; text: string; output?: string }
 
+/** Через сколько окно дочитывает оборванный поток разговора. */
+const reconnectDelay = 500
+
+/** Разговор ещё в панели: по этому окно отличает оборванную связь от убранной просьбы. */
+async function alive(id: string) {
+  try {
+    const response = await fetch('/api/agent/requests')
+    if (!response.ok) return false
+    const list = (await response.json()) as { kind: string; id: string }[]
+    return list.some((request) => request.kind === 'ask' && request.id === id)
+  } catch {
+    return false
+  }
+}
+
 /**
  * Разговор с агентом по базе. Переписку держит панель, а окно её только показывает: открытое заново, оно
  * читает её с начала — вместе с ответом, пришедшим без него. Закрытие окна разговор не трогает, убирает его
@@ -25,21 +40,23 @@ export function useAgentConversation() {
   const [restoring, setRestoring] = useState(true)
   const reading = useRef<AbortController | null>(null)
 
-  const follow = useCallback(async (summary: AgentRequestSummary) => {
+  const follow = useCallback(async function watch(summary: AgentRequestSummary, from = 0): Promise<void> {
     reading.current?.abort()
     const controller = new AbortController()
     reading.current = controller
     setBase(summary.base)
-    setEvents([])
     setFailure(null)
-    setRetry(null)
+    if (from === 0) {
+      setEvents([])
+      setRetry(null)
+    }
     let answering = summary.state === 'running'
     setRunning(answering)
     // Время реплики идёт от её начала, а не от открытия окна: сколько агент отвечает, знает панель.
     setStartedAt(Date.now() - summary.elapsedMs)
 
     try {
-      const response = await fetch(`/api/agent/ask/stream?id=${summary.id}&from=0`, {
+      const response = await fetch(`/api/agent/ask/stream?id=${summary.id}&from=${from}`, {
         signal: controller.signal,
       })
       if (!response.ok || !response.body) {
@@ -50,8 +67,9 @@ export function useAgentConversation() {
 
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
       let buffer = ''
-      let restored = false
+      let restored = from > 0
       let said: string | null = null
+      let seen = from
       for (;;) {
         const { done, value } = await reader.read()
         if (done) break
@@ -74,6 +92,7 @@ export function useAgentConversation() {
           if (event.type === 'error') setRetry(said)
         }
         if (chunk.length > 0) setEvents((prev) => [...prev, ...chunk])
+        seen += chunk.length
         setRunning(answering)
         if (!restored) {
           restored = true
@@ -81,11 +100,16 @@ export function useAgentConversation() {
           if (answering) setStartedAt(Date.now() - summary.elapsedMs)
         }
       }
-      // Поток разговора закрывается, только когда просьбы не стало: оборвался он на неотвеченной реплике — сбой.
-      if (answering) {
-        setRunning(false)
-        setFailure('Ответ оборвался: API закрыл поток без ответа агента')
+      // Поток кончился: разговор мог уйти из панели, а мог просто оборваться — тогда окно дочитывает его
+      // дальше с того же места, и ход работы агента не теряется.
+      await new Promise((wake) => setTimeout(wake, reconnectDelay))
+      if (controller.signal.aborted) return
+      if (await alive(summary.id)) {
+        void watch(summary, seen)
+        return
       }
+      setRunning(false)
+      if (answering) setFailure('Ответ оборвался: API закрыл поток без ответа агента')
     } catch (error) {
       if (controller.signal.aborted) return
       setRunning(false)

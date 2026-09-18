@@ -248,6 +248,9 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
 
 /** Одно событие переписки: реплика оператора, ответ агента, его сбой или слово панели о разговоре. */
 function Said({ event }: { event: AskEvent }) {
+  // Ход работы виден, пока идёт ответ, и отдельным списком: в переписке он не остаётся.
+  if (event.type === 'step') return null
+
   if (event.type === 'reply') return <div className="ask-said">{event.text}</div>
 
   if (event.type === 'answer') {

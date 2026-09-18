@@ -193,15 +193,54 @@ test('открытое заново окно показывает перепис
   expect(posts).toEqual([])
 })
 
-test('оборванный без ответа поток — сбой, а не вечное ожидание', async () => {
+test('поток оборвался, а разговора в панели не стало — это сбой, а не вечное ожидание', async () => {
   const stream = controlledStream<AskEvent>()
-  stubFetch(stream)
+  let gone = false
+  stubPanel('ask', stream, {
+    project: 'Nota',
+    others: (url) => {
+      if (url === '/api/ask/bases') return Response.json(bases)
+      if (url === '/api/agent/requests' && gone) return Response.json([])
+      return null
+    },
+  })
   render(<AskModal onClose={() => {}} />)
 
   await ask('Вопрос')
   stream.send({ type: 'reply', text: 'Вопрос' })
   await screen.findByRole('status')
+  gone = true
   stream.close()
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Ответ оборвался')
+  expect(await screen.findByRole('alert', {}, { timeout: 3000 })).toHaveTextContent('Ответ оборвался')
+})
+
+test('оборванный поток окно дочитывает само: разговор в панели цел', async () => {
+  const first = controlledStream<AskEvent>()
+  const next = controlledStream<AskEvent>()
+  let reconnected = false
+  stubPanel('ask', first, {
+    project: 'Nota',
+    others: (url) => {
+      if (url === '/api/ask/bases') return Response.json(bases)
+      if (url.startsWith('/api/agent/ask/stream') && reconnected) {
+        return new Response(next.body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+      }
+      return null
+    },
+  })
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Вопрос')
+  first.send({ type: 'reply', text: 'Вопрос' })
+  await screen.findByRole('status')
+  reconnected = true
+  first.close()
+
+  // Ответ пришёл в дочитанный поток: окно его показывает, а сбоя не случилось.
+  await vi.waitFor(() => next.send({ type: 'answer', text: 'Ответ после обрыва', files: [], durationMs: 1000 }), {
+    timeout: 3000,
+  })
+  expect(await screen.findByText('Ответ после обрыва')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
