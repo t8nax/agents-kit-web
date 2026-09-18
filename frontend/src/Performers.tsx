@@ -37,12 +37,15 @@ type Load =
 /**
  * Раздел «Исполнители»: субагенты проекта и профиля. Проект выбирается чипами, как в бэклоге и флоу,
  * а списка «все проекты» нет — заводят исполнителя всегда в копию одного проекта.
+ * draftFor — база просьбы, к которой вернулся оператор: окно исполнителя открывается сразу на ней.
  */
-export default function Performers() {
+export default function Performers({ draftFor = null }: { draftFor?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [project, setProject] = useState<string | null>(null)
+  const [project, setProject] = useState<string | null>(draftFor)
   // Окно открыто: заводится новый (performer null) или правится заведённый.
-  const [editing, setEditing] = useState<{ performer: Performer | null } | null>(null)
+  const [editing, setEditing] = useState<{ performer: Performer | null } | null>(
+    draftFor === null ? null : { performer: null },
+  )
   // Только что записанные, именем: отмечены в списке до следующего чтения раздела.
   const [fresh, setFresh] = useState<Set<string>>(() => new Set())
 
