@@ -67,7 +67,7 @@ public sealed class FinishedTaskSessionsTests : IDisposable
     {
         WriteBackground(_copy, 200, Session, status: "idle");
         _tasks.Remember(_copy, Session);
-        _started.Add(_copy, Session);
+        _started.Add(_copy, Session, "B-7 Задача копии");
         var janitor = Janitor();
 
         await janitor.SweepAsync(CancellationToken.None);
@@ -152,7 +152,7 @@ public sealed class FinishedTaskSessionsTests : IDisposable
     {
         WriteBackground(_copy, 200, Session, status: "idle");
         _tasks.Remember(_copy, Session);
-        _started.Add(_copy, Session);
+        _started.Add(_copy, Session, "B-7 Задача копии");
         _agent.Exit = new AgentExit(1, "no such session");
         var janitor = Janitor();
 

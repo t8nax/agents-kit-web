@@ -57,14 +57,16 @@ public static partial class TaskEndpoints
             if (started.SessionIn(row.Path) is { } running)
                 return Results.BadRequest(new TaskStartProblem("copy-starting", running));
 
-            if (!Entries(basePath).Contains(number))
+            if (!Entries(basePath).TryGetValue(number, out var title))
                 return Results.BadRequest(new TaskStartProblem("record-unknown"));
 
             var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number), cancellationToken);
             if (session is null)
                 return Results.BadRequest(new TaskStartProblem("agent", failure));
 
-            started.Add(row.Path, session);
+            // Номер с заголовком записи — всё, что панель знает о задаче, пока агент не завёл память:
+            // из них и стоит задача в строке копии, чтобы не числить её свободной (Tasks/StartedTasks).
+            started.Add(row.Path, session, $"{number} {title}");
             // Переход в сессию копии ведёт по этой записи: чем ещё узнать ту самую, панель не знает.
             taskSessions.Remember(row.Path, session);
             return Results.Ok(new TaskStartResponse(session));
@@ -77,12 +79,16 @@ public static partial class TaskEndpoints
     public static ProcessStartInfo StartInfo(string copyPath, string number) =>
         BackgroundSession.StartInfo(copyPath, $"/agents-kit:drive {number}");
 
-    private static HashSet<string> Entries(string basePath)
+    /// <summary>Записи бэклога базы: номер — заголовок. Бэклога нет или он не прочитан — записей нет.</summary>
+    private static Dictionary<string, string> Entries(string basePath)
     {
         try
         {
             var text = File.ReadAllText(Path.Combine(basePath, "backlog.md"));
-            return Backlog.Parse(text).Select(e => e.Number).OfType<string>().Select(Latin).ToHashSet();
+            return Backlog.Parse(text)
+                .Where(e => e.Number is not null)
+                .GroupBy(e => Latin(e.Number!))
+                .ToDictionary(g => g.Key, g => g.First().Title);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
         {

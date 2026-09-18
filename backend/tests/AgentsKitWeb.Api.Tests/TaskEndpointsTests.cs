@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Tasks;
+using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -34,6 +35,7 @@ public sealed class TaskEndpointsTests : IDisposable
     private readonly string _root = Directory.CreateTempSubdirectory("akw-tasks-").FullName;
     private readonly string _base;
     private readonly string _copy;
+    private readonly string _sessionsDir;
     private readonly FakeAgent _agent = new();
 
     public TaskEndpointsTests()
@@ -41,6 +43,8 @@ public sealed class TaskEndpointsTests : IDisposable
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
         _base = Path.Combine(_root, "app-knowledge");
         Directory.CreateDirectory(Path.Combine(_base, "work"));
+        _sessionsDir = Path.Combine(_root, "sessions");
+        Directory.CreateDirectory(_sessionsDir);
         File.WriteAllText(Path.Combine(_base, "agents-kit.json"), JsonSerializer.Serialize(new { workspaces = new[] { _copy } }));
         File.WriteAllText(Path.Combine(_base, "backlog.md"), Backlog.ReplaceLineEndings("\n") + "\n");
     }
@@ -175,6 +179,68 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    /// <summary>
+    /// Пока агент не завёл память, о задаче знает только панель: строка копии стоит её номером с заголовком
+    /// записи и статусом «запускается», а кнопку «Взять задачу» фронт у такой копии не рисует.
+    /// </summary>
+    [Fact]
+    public async Task StartedTask_ShowsInTheCopyRowBeforeTheAgentWritesItsMemory()
+    {
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+        WriteSession("7339dced", live: true);
+
+        var row = await Row(client);
+
+        Assert.Equal(WorkspaceStatus.Starting, row.Status);
+        Assert.Equal("B-7 Панель показывает задачу сразу", row.Task);
+        Assert.Null(row.FlowStep);
+        Assert.Null(row.Progress);
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
+    }
+
+    /// <summary>Появилась память — строка живёт по ней, и отметка панели о запуске больше ничего не значит.</summary>
+    [Fact]
+    public async Task StartedTask_GivesWayToTheMemoryTheAgentWrote()
+    {
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+        WriteSession("7339dced", live: true);
+        WriteMemory("B-7 Задача, как её назвал агент");
+
+        var row = await Row(client);
+
+        Assert.Equal(WorkspaceStatus.InWork, row.Status);
+        Assert.Equal("B-7 Задача, как её назвал агент", row.Task);
+    }
+
+    /// <summary>
+    /// Сессия ушла, не заведя памяти — запуск сорвался или её погасили: копия снова свободна, и задачу
+    /// в неё запускают заново.
+    /// </summary>
+    [Fact]
+    public async Task StartedTask_WhoseSessionIsGone_LeavesTheCopyFreeAgain()
+    {
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+        WriteSession("7339dced", live: false);
+
+        var row = await Row(client);
+
+        Assert.Equal(WorkspaceStatus.Free, row.Status);
+        Assert.Null(row.Task);
+
+        _agent.StartInfo = null;
+        var again = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-8"));
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+    }
+
     public void Dispose()
     {
         try
@@ -188,13 +254,51 @@ public sealed class TaskEndpointsTests : IDisposable
         }
     }
 
+    private async Task<WorkspaceRow> Row(HttpClient client)
+    {
+        var rows = await client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
+        return Assert.Single(rows!, row => row.Path == _copy);
+    }
+
+    /// <summary>Память задачи, какой её завёл агент: копия занята, и строка идёт уже из неё.</summary>
+    private void WriteMemory(string task) =>
+        File.WriteAllText(Path.Combine(_base, "work", "app.md"), string.Join('\n', [
+            "# " + task,
+            "рабочая копия: " + _copy,
+            "ветка: feat/row",
+        ]));
+
+    /// <summary>
+    /// Запись реестра о фоновой сессии копии. Живой её делает номер процесса прогона: панель сверяет
+    /// время старта, и запись с чужим временем считается брошенной.
+    /// </summary>
+    private void WriteSession(string jobId, bool live)
+    {
+        var procStart = Process.GetCurrentProcess().StartTime.ToFileTimeUtc() + (live ? 0 : 1);
+        File.WriteAllText(
+            Path.Combine(_sessionsDir, $"{Environment.ProcessId}.json"),
+            JsonSerializer.Serialize(new
+            {
+                pid = Environment.ProcessId,
+                cwd = _copy,
+                entrypoint = "cli",
+                kind = "bg",
+                jobId,
+                status = "busy",
+                procStart = procStart.ToString(),
+            }));
+    }
+
     private HttpClient Client() =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, _base))]);
+                config.AddInMemoryCollection([
+                    new("BasesFile", TestBases.File(_root, _base)),
+                    new("SessionsDir", _sessionsDir),
+                ]);
             });
             // Настоящий claude в прогоне не запускается: проверяется, как панель его зовёт и что делает с ответом.
             builder.ConfigureServices(services =>
