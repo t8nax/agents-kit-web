@@ -69,6 +69,56 @@ test('клик по записи открывает окно с номером, 
   ])
 })
 
+test('тип и приоритет записи видны плашками в списке, а у записи без них плашек нет', async () => {
+  stubFetch([
+    {
+      ...backlogs[0],
+      entries: [
+        { number: 'B-1', title: 'Копия не пускает следующую задачу', text: null, priority: 'блокер', type: 'баг' },
+        { number: 'B-2', title: 'Светлая тема', text: null, priority: 'низкий', type: 'фича' },
+        { number: 'B-3', title: 'Без полей', text: null, priority: null, type: null },
+      ],
+    },
+  ])
+
+  render(<Backlog />)
+
+  // Плашки стоят между номером и заголовком — выбор оператора на B-75
+  expect(await screen.findByRole('button', { name: /B-1 баг блокер Копия не пускает следующую задачу/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /B-2 фича низкий Светлая тема/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'B-3 Без полей' })).toBeInTheDocument()
+})
+
+test('в окне записи тип и приоритет стоят под заголовком', async () => {
+  stubFetch([
+    {
+      ...backlogs[0],
+      entries: [{ number: 'B-1', title: 'Копия не пускает', text: 'Текст.', priority: 'высокий', type: 'баг' }],
+    },
+  ])
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-1 баг высокий Копия не пускает/ }))
+
+  // Номер с названием идут строкой, плашки — строкой ниже
+  const dialog = screen.getByRole('dialog', { name: 'Копия не пускает' })
+  expect(dialog.querySelector('.entry-modal-line')?.textContent).toBe('B-1Копия не пускает')
+  expect(dialog.querySelector('.entry-modal-fields')?.textContent).toMatch(/баг\s*высокий/)
+})
+
+test('значение поля вне перечня кита показывается как есть', async () => {
+  stubFetch([
+    {
+      ...backlogs[0],
+      entries: [{ number: 'B-1', title: 'Своё значение', text: null, priority: 'срочно', type: 'задача' }],
+    },
+  ])
+
+  render(<Backlog />)
+
+  expect(await screen.findByRole('button', { name: /B-1 задача срочно Своё значение/ })).toBeInTheDocument()
+})
+
 test('адрес в тексте записи — ссылка в новую вкладку', async () => {
   stubFetch([
     { ...backlogs[0], entries: [{ number: 'B-7', title: 'Со ссылкой', text: 'Подробности: https://example.com/t/7' }] },
@@ -193,7 +243,7 @@ test('сбой запроса показан строкой, а не пусты�
   expect(await screen.findByRole('alert')).toHaveTextContent('Нет связи с API')
 })
 
-test('кнопка «Добавить с помощью «Чудо-юдо»» открывает окно записи, новые записи отмечены до «Обновить»', async () => {
+test('кнопка «Добавить с помощью Чудо-Юдо» открывает окно записи, новые записи отмечены до «Обновить»', async () => {
   const withNew: BaseBacklog[] = [
     { ...backlogs[0], entries: [...backlogs[0].entries, { number: 'B-32', title: 'Добавлена агентом', text: null }] },
     backlogs[1],
@@ -221,7 +271,7 @@ test('кнопка «Добавить с помощью «Чудо-юдо»» о
 
   render(<Backlog />)
   await screen.findByText('B-1')
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' }))
 
   const dialog = within(screen.getByRole('dialog', { name: 'Запись в бэклог' }))
   fireEvent.change(await dialog.findByLabelText('Что записать'), { target: { value: 'Мысль' } })
@@ -244,5 +294,5 @@ test('без баз добавлять некуда', async () => {
   render(<Backlog />)
   await screen.findByText(/Нет отслеживаемых баз/)
 
-  expect(screen.getByRole('button', { name: 'Добавить с помощью «Чудо-юдо»' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' })).toBeDisabled()
 })

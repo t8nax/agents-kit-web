@@ -20,6 +20,9 @@ const reviewer: Performer = {
   path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
   source: 'copy',
   copy: 'D:\\Projects\\agents-kit-web',
+  in: ['D:\\Projects\\agents-kit-web', 'D:\\Projects\\noble-keen-walrus'],
+  differs: [],
+  everywhere: true,
 }
 
 function open(editing: Performer | null = null, onSaved = vi.fn()) {
@@ -58,7 +61,7 @@ test('заводит исполнителя в основную копию и п
   fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'Читает дифф.' } })
   fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Ты читаешь дифф.' } })
 
-  // Копия по умолчанию — основная, и путь файла виден до сохранения
+  // Файл ложится в основную копию проекта, и путь виден до сохранения
   expect(screen.getByText('D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
@@ -67,7 +70,6 @@ test('заводит исполнителя в основную копию и п
   expect(fetchMock).toHaveBeenCalledWith('/api/performers', expect.objectContaining({ method: 'POST' }))
   expect(saved(fetchMock)).toEqual({
     base: 'D:\\Projects\\app-knowledge',
-    copy: 'D:\\Projects\\agents-kit-web',
     name: 'reviewer',
     description: 'Читает дифф.',
     model: null,
@@ -76,22 +78,24 @@ test('заводит исполнителя в основную копию и п
   })
 })
 
-test('копию выбирают в окне, и файл ложится в неё', async () => {
+test('копию в окне не выбирают: файл всегда ложится в основную', async () => {
   const fetchMock = stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
   open()
 
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
-  fireEvent.change(screen.getByLabelText('Копия'), { target: { value: 'D:\\Projects\\noble-keen-walrus' } })
 
-  expect(screen.getByText('D:\\Projects\\noble-keen-walrus\\.claude\\agents\\e2e-runner.md')).toBeInTheDocument()
+  // Исполнитель — про проект целиком, и поля выбора копии в окне больше нет — решение оператора на B-77.
+  expect(screen.queryByLabelText('Копия')).not.toBeInTheDocument()
+  expect(screen.getByText('D:\\Projects\\agents-kit-web\\.claude\\agents\\e2e-runner.md')).toBeInTheDocument()
+  expect(screen.getByText(/в остальные — кнопкой «Синхронизировать»/)).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled())
-  expect(saved(fetchMock).copy).toBe('D:\\Projects\\noble-keen-walrus')
+  expect(saved(fetchMock).copy).toBeUndefined()
 })
 
-test('правка заведённого открывает его поля и не даёт переехать в другую копию', () => {
+test('правка заведённого открывает его поля', () => {
   open(reviewer)
 
   expect(screen.getByLabelText('Имя')).toHaveValue('reviewer')
@@ -99,7 +103,6 @@ test('правка заведённого открывает его поля и 
   expect(screen.getByLabelText('Задание')).toHaveValue('Ты читаешь дифф ветки целиком.')
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
   expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Glob, Grep')
-  expect(screen.getByLabelText('Копия')).toBeDisabled()
 })
 
 test('негодное имя объясняется словами, а набранное остаётся', async () => {
@@ -150,22 +153,21 @@ test('кнопка «только чтение» ставит набор инс�
   expect(screen.getByLabelText('Инструменты')).toHaveValue('')
 })
 
-test('просьба к «Чудо-юдо» идёт из окна и заполняет его поля', async () => {
+test('просьба к Чудо-Юдо идёт из окна и заполняет его поля', async () => {
   const stream = controlledStream<DraftEvent>()
   const panel = stubPanel('performer', stream, { project: 'Agents Kit Web' })
   open()
 
-  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), {
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), {
     target: { value: 'Читает дифф ветки и возвращает вердикт' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
 
   await waitFor(() => expect(panel.posts).toHaveLength(1))
   expect(panel.posts[0]).toEqual({
     url: '/api/performers/draft',
     body: {
       base: 'D:\\Projects\\app-knowledge',
-      copy: 'D:\\Projects\\agents-kit-web',
       wish: 'Читает дифф ветки и возвращает вердикт',
       current: null,
     },
@@ -202,10 +204,10 @@ test('«Вернуть как было» возвращает поля, каки
   stubPanel('performer', stream)
   open(reviewer)
 
-  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), {
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), {
     target: { value: 'Пусть ещё сверяет с критериями' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью «Чудо-юдо»' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
 
   stream.send({
     type: 'drafted',
@@ -228,10 +230,10 @@ test('нынешние поля уходят агенту, когда испол
   const panel = stubPanel('performer', stream)
   open(reviewer)
 
-  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), {
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), {
     target: { value: 'Пусть не чинит найденное сам' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью «Чудо-юдо»' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
 
   await waitFor(() => expect(panel.posts).toHaveLength(1))
   expect(panel.posts[0].body.current).toEqual({
@@ -248,16 +250,16 @@ test('неудача агента сказана словами, поля и п�
   stubPanel('performer', stream)
   open()
 
-  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), { target: { value: 'Ревьюер ветки' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }))
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
 
-  stream.send({ type: 'error', text: 'Чудо-юдо вернул исполнителя без имени', output: 'Готово!' })
+  stream.send({ type: 'error', text: 'Чудо-Юдо вернул исполнителя без имени', output: 'Готово!' })
   stream.close()
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Чудо-юдо вернул исполнителя без имени')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Чудо-Юдо вернул исполнителя без имени')
   expect(screen.getByText('Готово!')).toBeInTheDocument()
   expect(screen.getByLabelText('Имя')).toHaveValue('')
-  expect(screen.getByLabelText(/Просьба к «Чудо-юдо»/)).toHaveValue('Ревьюер ветки')
+  expect(screen.getByLabelText(/Просьба к Чудо-Юдо/)).toHaveValue('Ревьюер ветки')
   expect(screen.getByRole('button', { name: 'Попросить снова' })).toBeInTheDocument()
 })
 
@@ -266,8 +268,8 @@ test('«Отменить» убирает просьбу из панели', asy
   const panel = stubPanel('performer', stream)
   open()
 
-  fireEvent.change(screen.getByLabelText(/Просьба к «Чудо-юдо»/), { target: { value: 'Ревьюер ветки' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью «Чудо-юдо»' }))
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
 
   fireEvent.click(await screen.findByRole('button', { name: 'отменить' }))
 

@@ -10,7 +10,7 @@ const models = ['', 'opus', 'sonnet', 'haiku']
 /** Наборы инструментов: пусто — все инструменты сессии, иначе список, как его понимает Claude Code. */
 const READ_ONLY = 'Read, Glob, Grep'
 
-/** Поля исполнителя, как их возвращает «Чудо-юдо»: те же, что в окне, кроме копии. */
+/** Поля исполнителя, как их возвращает Чудо-Юдо: те же, что в окне, кроме копии. */
 export type DraftFields = {
   name: string | null
   description: string | null
@@ -33,7 +33,7 @@ const examples = [
 type Props = {
   base: string
   copies: PerformerCopy[]
-  /** Правится заведённый — поля заполнены им, копия и имя уже выбраны; null — заводится новый. */
+  /** Правится заведённый — поля заполнены им, а имя уже задано; null — заводится новый. */
   editing: Performer | null
   onClose: () => void
   onSaved: (name: string) => void
@@ -47,14 +47,11 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
   const [model, setModel] = useState(editing?.model ?? '')
   const [tools, setTools] = useState(editing?.tools ?? '')
   const [prompt, setPrompt] = useState(editing?.prompt ?? '')
-  const [copy, setCopy] = useState(
-    () => editing?.copy ?? copies.find((c) => c.main)?.path ?? copies[0]?.path ?? '',
-  )
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<Failure | null>(null)
   const field = useRef<HTMLInputElement>(null)
 
-  // Просьба к «Чудо-юдо» живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
+  // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
   const draft = useAgentRequest<DraftEvent>('performer')
   const [wish, setWish] = useState('')
   // Поля, какими они были до ответа агента: «Вернуть как было» ставит их обратно.
@@ -85,8 +82,9 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
   }, [outcome])
 
   const trimmed = name.trim()
-  const chosen = copies.find((c) => c.path === copy) ?? null
-  const file = chosen && trimmed ? `${chosen.path}\\.claude\\agents\\${trimmed}.md` : null
+  // Исполнитель — про проект целиком: файл ложится в основную копию, и копию для этого не выбирают.
+  const main = copies.find((c) => c.main) ?? null
+  const file = main && trimmed ? `${main.path}\\.claude\\agents\\${trimmed}.md` : null
   const draftError =
     draft.failure ?? (draft.outcome?.type === 'error' ? draft.outcome.text : null)
   const draftOutput = draft.outcome?.type === 'error' ? (draft.outcome.output ?? null) : null
@@ -101,27 +99,26 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
   const ask = useCallback(
     async (text: string) => {
-      if (!text.trim() || !chosen) return
+      if (!text.trim() || !main) return
       taken.current = false
       const current = editing
         ? { name, description, model, tools, prompt }
         : null
       const started = await draft.start('/api/performers/draft', {
         base,
-        copy: chosen.path,
         wish: text.trim(),
         current,
       })
       if (started.ok) return
       draft.setFailure(
         started.status === 404
-          ? 'Панель не нашла базу или копию'
+          ? 'Панель не нашла базу или её основную копию'
           : started.status === null
             ? 'Нет связи с API'
             : 'Панель не приняла просьбу',
       )
     },
-    [base, chosen, draft, editing, name, description, model, tools, prompt],
+    [base, main, draft, editing, name, description, model, tools, prompt],
   )
 
   /** Забывает просьбу и возвращает полосу к набору: текст просьбы остаётся, чтобы переспросить. */
@@ -145,7 +142,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (busy || !chosen || !trimmed) return
+    if (busy || !main || !trimmed) return
     setBusy(true)
     setFailure(null)
     try {
@@ -154,7 +151,6 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           base,
-          copy: chosen.path,
           name: trimmed,
           description: description.trim() || null,
           model: model || null,
@@ -178,7 +174,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
           git: true,
         })
       } else if (response.status === 404) {
-        setFailure({ text: 'Этой копии больше нет у проекта.', git: false })
+        setFailure({ text: 'Этой базы больше нет в списке панели.', git: false })
       } else {
         setFailure({ text: `Исполнитель не записан: HTTP ${response.status}.`, git: false })
       }
@@ -191,7 +187,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
   }
 
   const locked = busy || phase === 'running'
-  const askLabel = editing ? `Переписать с помощью «${AGENT_NAME}»` : `Завести с помощью «${AGENT_NAME}»`
+  const askLabel = editing ? `Переписать с помощью ${AGENT_NAME}` : `Завести с помощью ${AGENT_NAME}`
 
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && !locked && onClose()}>
@@ -210,7 +206,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
           {/* Просьба — первое поле формы: отдельного окна у исполнителя нет — решение оператора на B-69. */}
           <div className="pf-field">
             <label className="pf-label" htmlFor="pf-wish">
-              Просьба к «{AGENT_NAME}»{' '}
+              Просьба к {AGENT_NAME}{' '}
               <span className="text-ter">{editing ? '— он перепишет поля ниже' : '— он заполнит поля ниже'}</span>
             </label>
             <textarea
@@ -245,7 +241,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
                 <div className="pf-status" role="status">
                   <span className="pf-spinner" aria-hidden="true" />
                   <span className="pf-status-text">
-                    «{AGENT_NAME}» {editing ? 'переписывает исполнителя' : 'заводит исполнителя'}…
+                    {AGENT_NAME} {editing ? 'переписывает исполнителя' : 'заводит исполнителя'}…
                   </span>
                   {draft.startedAt !== null && <Elapsed since={draft.startedAt} />}
                   <button type="button" className="pf-preset" onClick={() => void draft.forget()}>
@@ -253,7 +249,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
                   </button>
                 </div>
                 {draft.steps.length > 0 && (
-                  <ol className="pf-steps" aria-label={`Ход работы «${AGENT_NAME}»`}>
+                  <ol className="pf-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
                     {draft.steps.map((step, i) => (
                       <li key={i}>{step}</li>
                     ))}
@@ -267,7 +263,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
             {phase === 'taken' && (
               <div className="pf-status">
-                <span className="pf-status-text">Поля ниже заполнил «{AGENT_NAME}»</span>
+                <span className="pf-status-text">Поля ниже заполнил {AGENT_NAME}</span>
                 <button type="button" className="pf-preset" disabled={busy} onClick={() => void revert()}>
                   вернуть как было
                 </button>
@@ -279,7 +275,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
             {phase === 'failed' && (
               <div className="pf-error" role="alert">
-                <span className="pf-error-title">«{AGENT_NAME}» не заполнил поля</span>
+                <span className="pf-error-title">{AGENT_NAME} не заполнил поля</span>
                 <p className="pf-error-text">{draftError}. Поля окна не тронуты.</p>
                 {draftOutput && <p className="pf-error-text mono">{draftOutput}</p>}
               </div>
@@ -366,26 +362,6 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
                 {tools === READ_ONLY ? 'все инструменты' : 'только чтение'}
               </button>
             </div>
-            <div className="pf-field">
-              <label className="pf-label" htmlFor="pf-copy">
-                Копия
-              </label>
-              <select
-                id="pf-copy"
-                className="pf-input mono"
-                value={copy}
-                disabled={locked || editing !== null}
-                onChange={(event) => setCopy(event.target.value)}
-              >
-                {copies.map((c) => (
-                  <option key={c.path} value={c.path}>
-                    {c.name}
-                    {c.branch ? ` — ${c.branch}` : ''}
-                    {c.main ? ' · основная' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
           </div>
 
           <div className="pf-field">
@@ -412,8 +388,11 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
         </div>
 
         <div className="pf-footer">
-          {/* Файл ложится в репозиторий копии, и панель его коммитит: рядом идёт чужая работа. */}
-          <span className="mono text-ter pf-file">{file ?? 'путь появится, когда задано имя'}</span>
+          {/* Файл ложится в основную копию проекта, и панель его там коммитит: рядом идёт чужая работа. */}
+          <span className="pf-file">
+            <span className="mono text-ter">{file ?? 'путь появится, когда задано имя'}</span>
+            <span className="text-ter pf-file-note">Ложится в основную копию; в остальные — кнопкой «Синхронизировать» в списке.</span>
+          </span>
           <div className="pf-footer-end">
             <button type="button" className="bases-btn" disabled={busy} onClick={onClose}>
               Отмена
@@ -423,13 +402,13 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
               <button
                 type="button"
                 className="bases-btn"
-                disabled={busy || !chosen || !wish.trim()}
+                disabled={busy || !main || !wish.trim()}
                 onClick={() => void ask(wish)}
               >
                 {phase === 'failed' ? 'Попросить снова' : askLabel}
               </button>
             )}
-            <button type="submit" className="bases-btn bases-btn-primary" disabled={locked || !chosen || !trimmed}>
+            <button type="submit" className="bases-btn bases-btn-primary" disabled={locked || !main || !trimmed}>
               {busy ? 'Сохраняется…' : 'Сохранить'}
             </button>
           </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { AGENT_NAME } from './BacklogWriteModal'
 import './Backlog.css'
 import './Flow.css'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
@@ -205,9 +206,20 @@ export default function Flow({
 
   const flows = load.kind === 'loaded' ? load.flows : []
   const flow = flows.find((f) => f.base === selected) ?? null
-  // Шаг зовёт исполнителя именем; здесь — те, кто у проекта есть на диске, из копий и профиля.
+  // Шаг зовёт исполнителя именем; здесь — те, кто есть во всех копиях проекта, и те, кто в профиле.
+  // Разнесённый наполовину в список не попадает: в копиях без него сессия шаг не отработает — B-77.
   const known = flow
-    ? (performers.find((p) => p.base === flow.base)?.performers.map((p) => p.name) ?? [])
+    ? (performers
+        .find((p) => p.base === flow.base)
+        ?.performers.filter((p) => p.everywhere)
+        .map((p) => p.name) ?? [])
+    : []
+  // Заведённые, но лежащие не во всех копиях: шагу они не годятся, и сказать об этом надо иначе.
+  const partial = flow
+    ? (performers
+        .find((p) => p.base === flow.base)
+        ?.performers.filter((p) => !p.everywhere)
+        .map((p) => p.name) ?? [])
     : []
 
   // Шаги базы кладутся в форму: править их можно сразу, отдельного режима правки нет.
@@ -350,7 +362,7 @@ export default function Flow({
                 }}
               >
                 <RewriteIcon />
-                Переписать с Чудо-юдо
+                Переписать с {AGENT_NAME}
               </button>
               <button type="button" className="btn-code" onClick={() => void openInVsCode(flow.base)}>
                 <VsCodeIcon />
@@ -441,6 +453,7 @@ export default function Flow({
                     key={step.key}
                     step={step}
                     missing={missingPerformer(step, known)}
+                    partial={partial.includes(step.agent.trim())}
                     number={index + 1}
                     opened={step.key === opened}
                     onOpen={() => setOpened(step.key)}
@@ -465,6 +478,7 @@ export default function Flow({
                 <StepDrawer
                   step={draft[openedIndex]}
                   known={known}
+                  partial={partial}
                   onPerformers={onPerformers}
                   number={openedIndex + 1}
                   isPreset={presets.some((preset) => sameStep(preset, toStep(draft[openedIndex])))}
@@ -503,7 +517,7 @@ export default function Flow({
                     setDraft(renumbered(steps.map((step) => toDraft(step, flow.icons?.[step.title] ?? ''))))
                     setOpened(null)
                     setModal(null)
-                    setNotice({ kind: 'done', text: 'Правки Чудо-юдо в схеме — их ещё нужно сохранить' })
+                    setNotice({ kind: 'done', text: `Правки ${AGENT_NAME} в схеме — их ещё нужно сохранить` })
                   }}
                 />
               )}
@@ -553,6 +567,7 @@ const executorKind = (step: DraftStep) =>
 function StepNode({
   step,
   missing,
+  partial,
   number,
   index,
   last,
@@ -562,6 +577,8 @@ function StepNode({
 }: {
   step: DraftStep
   missing: boolean
+  /** Исполнитель заведён, но лежит не во всех копиях проекта: пользоваться им всё равно нельзя. */
+  partial: boolean
   number: number
   index: number
   last: boolean
@@ -615,9 +632,16 @@ function StepNode({
             <SkipIcon />
           </span>
         )}
-        {/* Исполнителя с таким именем на диске нет: сессия дойдёт до шага и спросит оператора. */}
+        {/* Исполнителя шагу не хватает: сессия дойдёт до него и спросит оператора. */}
         {missing && (
-          <span className="flow-node-missing" aria-label={`Исполнителя ${step.agent.trim()} нет на диске`}>
+          <span
+            className="flow-node-missing"
+            aria-label={
+              partial
+                ? `Исполнитель ${step.agent.trim()} есть не во всех копиях`
+                : `Исполнителя ${step.agent.trim()} нет на диске`
+            }
+          >
             <MissingIcon />
           </span>
         )}
@@ -648,16 +672,20 @@ function StepNode({
 function PerformerField({
   step,
   known,
+  partial,
   onChange,
   onPerformers,
 }: {
   step: DraftStep
   known: string[]
+  partial: string[]
   onChange: (patch: Partial<DraftStep>) => void
   onPerformers?: () => void
 }) {
   const agent = step.agent.trim()
   const missing = missingPerformer(step, known)
+  // Исполнитель заведён, но лежит не во всех копиях: в копиях без него сессия шаг не отработает.
+  const notEverywhere = missing && partial.includes(agent)
   // Ручной ввод включает сам оператор; список исполнителей приезжает после первого показа сайдбара.
   const [typing, setTyping] = useState(false)
 
@@ -678,7 +706,7 @@ function PerformerField({
             выбрать из заведённых
           </button>
         )}
-        {missing && <MissingNote agent={agent} onPerformers={onPerformers} />}
+        {missing && <MissingNote agent={agent} partial={notEverywhere} onPerformers={onPerformers} />}
       </div>
     )
   }
@@ -700,7 +728,9 @@ function PerformerField({
         }}
       >
         {agent === '' && <option value="">выберите исполнителя</option>}
-        {missing && <option value={agent}>{agent} — на диске нет</option>}
+        {missing && (
+          <option value={agent}>{agent} — {notEverywhere ? 'не во всех копиях' : 'на диске нет'}</option>
+        )}
         {known.map((name) => (
           <option key={name} value={name}>
             {name}
@@ -708,7 +738,10 @@ function PerformerField({
         ))}
         <option value={CUSTOM_AGENT}>вписать имя…</option>
       </select>
-      {missing && <MissingNote agent={agent} onPerformers={onPerformers} />}
+      {missing && <MissingNote agent={agent} partial={notEverywhere} onPerformers={onPerformers} />}
+      {known.length > 0 && (
+        <span className="flow-hint">В списке — те, кто лежит во всех копиях проекта.</span>
+      )}
     </div>
   )
 }
@@ -716,15 +749,28 @@ function PerformerField({
 /** Пункт «вписать имя…»: именем субагента такая строка быть не может — только строчная латиница. */
 const CUSTOM_AGENT = '__custom__'
 
-/** Ненайденный исполнитель — не ошибка файла: сессия дойдёт до шага и спросит оператора. */
-function MissingNote({ agent, onPerformers }: { agent: string; onPerformers?: () => void }) {
+/**
+ * Исполнитель, которого шагу не хватает, — не ошибка файла: сессия дойдёт до шага и спросит оператора.
+ * partial — он заведён, но лежит не во всех копиях: в копиях без него сессия его не найдёт — B-77.
+ */
+function MissingNote({
+  agent,
+  partial,
+  onPerformers,
+}: {
+  agent: string
+  partial: boolean
+  onPerformers?: () => void
+}) {
   return (
     <p className="flow-missing" role="status">
-      Исполнителя <span className="mono">{agent}</span> нет на диске. Сессия дойдёт до шага и спросит вас, а сама за
-      него работать не станет.
+      Исполнитель <span className="mono">{agent}</span>{' '}
+      {partial
+        ? 'лежит не во всех копиях проекта. В остальных сессия его не найдёт: дойдёт до шага и спросит вас, а сама за него работать не станет.'
+        : 'на диске не найден. Сессия дойдёт до шага и спросит вас, а сама за него работать не станет.'}
       {onPerformers && (
         <button type="button" className="flow-link" onClick={onPerformers}>
-          Завести исполнителя
+          {partial ? 'Открыть исполнителей' : 'Завести исполнителя'}
         </button>
       )}
     </p>
@@ -746,6 +792,7 @@ function FlowArrow() {
 function StepDrawer({
   step,
   known,
+  partial,
   onPerformers,
   number,
   isPreset,
@@ -757,6 +804,7 @@ function StepDrawer({
 }: {
   step: DraftStep
   known: string[]
+  partial: string[]
   onPerformers?: () => void
   number: number
   isPreset: boolean
@@ -823,7 +871,13 @@ function StepDrawer({
         </label>
 
         {step.kind === 'субагент' && (
-          <PerformerField step={step} known={known} onChange={onChange} onPerformers={onPerformers} />
+          <PerformerField
+            step={step}
+            known={known}
+            partial={partial}
+            onChange={onChange}
+            onPerformers={onPerformers}
+          />
         )}
 
         <label className="flow-field">

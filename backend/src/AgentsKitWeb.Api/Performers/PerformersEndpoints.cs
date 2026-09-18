@@ -5,9 +5,14 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Performers;
 
 /// <summary>
-/// Исполнитель — субагент Claude Code. Source: copy — лежит в рабочей копии проекта и правится из панели;
-/// profile — лежит в профиле оператора, панель его только показывает. Copy — копия, в которой найден файл.
+/// Исполнитель — субагент Claude Code, схлопнутый по имени: один и тот же файл в нескольких копиях —
+/// один Performer, а не строка на копию. Source: copy — лежит в рабочих копиях проекта и правится
+/// из панели; profile — лежит в профиле оператора, панель его только показывает.
+/// Copy и Path — копия и файл, откуда взяты поля: основная копия, а нет его там — первая, где нашёлся.
 /// Prompt — задание из файла: окно правки берёт его отсюда, а не отдельным запросом по пути к файлу.
+/// In — копии, где файл есть, Differs — из них те, где он отличается от взятого.
+/// Everywhere — исполнитель есть во всех копиях проекта и всюду одинаков: только таким шаг флоу
+/// даёт поручить работу; у исполнителя профиля он true — из любой копии его видно и так.
 /// </summary>
 public sealed record Performer(
     string Name,
@@ -17,7 +22,10 @@ public sealed record Performer(
     string Prompt,
     string Path,
     string Source,
-    string? Copy);
+    string? Copy,
+    IReadOnlyList<string> In,
+    IReadOnlyList<string> Differs,
+    bool Everywhere);
 
 /// <summary>Копия проекта, куда панель может положить исполнителя; Main — та, что окно предлагает по умолчанию.</summary>
 public sealed record PerformerCopy(string Path, string Name, string? Branch, bool Main);
@@ -30,10 +38,13 @@ public sealed record BasePerformers(
     IReadOnlyList<Performer> Performers,
     string? Error);
 
-/// <summary>Копия названа путём, как и в остальных запросах панели: база плюс копия, а не путь к файлу.</summary>
+/// <summary>
+/// Запрос называет базу, а не путь к файлу: путь панель собирает сама. Копии в запросе нет —
+/// исполнитель заводится на весь проект и ложится в основную копию, а по остальным его разносит
+/// синхронизация — решение оператора на B-77.
+/// </summary>
 public sealed record SavePerformerRequest(
     string Base,
-    string Copy,
     string Name,
     string? Description,
     string? Model,
@@ -42,7 +53,7 @@ public sealed record SavePerformerRequest(
 
 public sealed record PerformerSavedResponse(string Path);
 
-/// <summary>Problem: invalid-name · not-committed; Detail — вывод git, когда коммит не прошёл.</summary>
+/// <summary>Problem: invalid-name · no-main-copy · not-committed; Detail — вывод git, когда коммит не прошёл.</summary>
 public sealed record PerformerRejectedResponse(string Problem, string? Detail = null);
 
 public static class PerformersEndpoints
@@ -61,7 +72,7 @@ public static class PerformersEndpoints
         // Файлы читаются на каждый запрос: исполнителей правят и руками, и сессии в копиях.
         app.MapGet("/api/performers", async (BasesStore bases, KitLocator kit, CancellationToken cancellationToken) =>
         {
-            var profile = ReadProfile(kit.ClaudeDir);
+            var profile = PerformerList.OfProfile(kit.ClaudeDir);
             var result = new List<BasePerformers>();
             foreach (var basePath in bases.List())
                 result.Add(await ReadBaseAsync(basePath, profile, cancellationToken));
@@ -77,18 +88,17 @@ public static class PerformersEndpoints
             if (Configured(bases, request.Base) is not { } basePath)
                 return Results.NotFound();
 
+            // Исполнитель — про проект целиком: файл ложится в основную копию, и копию для этого не выбирают.
             var copies = await CopiesAsync(basePath, cancellationToken);
-            var copy = copies.FirstOrDefault(c =>
-                string.Equals(WorkspaceCollector.Normalize(c.Path), WorkspaceCollector.Normalize(request.Copy),
-                    StringComparison.OrdinalIgnoreCase));
+            var copy = copies.FirstOrDefault(c => c.Main);
             if (copy is null)
-                return Results.NotFound();
+                return Results.Conflict(new PerformerRejectedResponse("no-main-copy"));
 
             var name = request.Name?.Trim();
             if (!PerformerFile.ValidName(name))
                 return Results.BadRequest(new PerformerRejectedResponse("invalid-name"));
 
-            var directory = System.IO.Path.Combine(copy.Path, PerformerFile.Directory.Replace('/', '\\'));
+            var directory = PerformerList.AgentsDirectory(copy.Path);
             var file = System.IO.Path.Combine(directory, PerformerFile.FileName(name!));
             var fields = new PerformerFields(
                 name,
@@ -139,10 +149,7 @@ public static class PerformersEndpoints
         if (copies.Count == 0)
             return new BasePerformers(basePath, project, [], profile, "У проекта нет рабочих копий на диске");
 
-        var performers = new List<Performer>();
-        foreach (var copy in copies)
-            performers.AddRange(ReadDirectory(
-                System.IO.Path.Combine(copy.Path, PerformerFile.Directory.Replace('/', '\\')), "copy", copy.Path));
+        var performers = PerformerList.OfCopies(copies);
         performers.AddRange(profile);
 
         return new BasePerformers(basePath, project, copies, performers, null);
@@ -165,53 +172,6 @@ public static class PerformersEndpoints
                     WorkspaceCollector.Normalize(row.Path), WorkspaceCollector.Normalize(main),
                     StringComparison.OrdinalIgnoreCase)))
             .ToList();
-    }
-
-    /// <summary>Исполнители профиля оператора: панель их показывает, чтобы шаг флоу не считал их пропавшими.</summary>
-    private static IReadOnlyList<Performer> ReadProfile(string claudeDir) =>
-        ReadDirectory(System.IO.Path.Combine(claudeDir, "agents"), "profile", null);
-
-    private static List<Performer> ReadDirectory(string directory, string source, string? copy)
-    {
-        var performers = new List<Performer>();
-        if (!System.IO.Directory.Exists(directory))
-            return performers;
-
-        IEnumerable<string> files;
-        try
-        {
-            files = System.IO.Directory.EnumerateFiles(directory, "*.md").OrderBy(f => f, StringComparer.OrdinalIgnoreCase);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return performers;
-        }
-
-        foreach (var file in files)
-        {
-            string text;
-            try
-            {
-                text = File.ReadAllText(file);
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-            {
-                continue;
-            }
-
-            var fields = PerformerFile.Parse(text);
-            performers.Add(new Performer(
-                // Шаг флоу зовёт субагента именем из поля name; его нет — Claude Code берёт имя файла.
-                fields.Name ?? System.IO.Path.GetFileNameWithoutExtension(file),
-                fields.Description,
-                fields.Model,
-                fields.Tools,
-                fields.Prompt,
-                file,
-                source,
-                copy));
-        }
-        return performers;
     }
 
     private static string? Configured(BasesStore bases, string? requested) =>

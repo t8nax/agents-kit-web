@@ -37,12 +37,12 @@ test('текст уходит в проект раздела, ход агент�
   expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
   await send('  Хочу видеть ожидание и сортировку  ')
 
-  expect(await screen.findByText('Чудо-юдо пишет в бэклог Nota…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо пишет в бэклог Nota…')).toBeInTheDocument()
   expect(posts[0].url).toBe('/api/backlog/write')
   expect(posts[0].body).toEqual({ base: 'D:\\Projects\\nota-knowledge', text: 'Хочу видеть ожидание и сортировку' })
 
   stream.send({ type: 'step', text: 'правит backlog.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-Юдо' })
   expect(within(steps).getByText('правит backlog.md')).toBeInTheDocument()
 
   stream.send({
@@ -77,7 +77,7 @@ test('неудача называет причину и вывод агента,
   stream.send({ type: 'error', text: 'Агент закончил, но новых записей в бэклоге нет', output: 'Правка запрещена' })
 
   const alert = await screen.findByRole('alert')
-  expect(within(alert).getByText('Чудо-юдо не записал')).toBeInTheDocument()
+  expect(within(alert).getByText('Чудо-Юдо не записал')).toBeInTheDocument()
   expect(within(alert).getByText('Правка запрещена')).toBeInTheDocument()
   expect(onEntries).not.toHaveBeenCalled()
 

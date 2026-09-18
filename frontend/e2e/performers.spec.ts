@@ -9,17 +9,27 @@ type Performer = {
   path: string
   source: 'copy' | 'profile'
   copy: string | null
+  in: string[]
+  differs: string[]
+  everywhere: boolean
 }
 
+const main = 'D:\\Projects\\agents-kit-web'
+const second = 'D:\\Projects\\noble-keen-walrus'
+
+/** Заведён, но лежит только в основной копии: пользоваться им нельзя, пока не разойдётся по остальным. */
 const reviewer: Performer = {
   name: 'reviewer',
   description: 'Читает дифф ветки задачи и возвращает вердикт.',
   model: 'opus',
   tools: 'Read, Glob, Grep',
   prompt: 'Ты читаешь дифф ветки целиком.',
-  path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
+  path: `${main}\\.claude\\agents\\reviewer.md`,
   source: 'copy',
-  copy: 'D:\\Projects\\agents-kit-web',
+  copy: main,
+  in: [main],
+  differs: [],
+  everywhere: false,
 }
 
 const specWriter: Performer = {
@@ -31,25 +41,59 @@ const specWriter: Performer = {
   path: 'C:\\Users\\me\\.claude\\agents\\spec-writer.md',
   source: 'profile',
   copy: null,
+  in: [],
+  differs: [],
+  everywhere: true,
 }
 
 const copies = [
-  { path: 'D:\\Projects\\agents-kit-web', name: 'agents-kit-web', branch: 'master', main: true },
-  { path: 'D:\\Projects\\noble-keen-walrus', name: 'noble-keen-walrus', branch: 'dev', main: false },
+  { path: main, name: 'agents-kit-web', branch: 'dev', main: true },
+  { path: second, name: 'noble-keen-walrus', branch: 'master', main: false },
 ]
 
 /**
  * /api подменяется: прогон работает с живыми базами оператора, и заведение исполнителя
  * положило бы файл в живой репозиторий и закоммитило бы его.
  */
-async function mockApi(page: Page, options: { refuseCommit?: boolean } = {}) {
+async function mockApi(page: Page, options: { refuseCommit?: boolean; refuseSync?: boolean } = {}) {
   const saved: unknown[] = []
+  const synced: unknown[] = []
   let performers: Performer[] = [reviewer, specWriter]
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
+
+  await page.route('**/api/performers/sync', (route) => {
+    const request = route.request().postDataJSON() as { name: string; confirmed: boolean }
+    synced.push(request)
+    if (!request.confirmed)
+      return route.fulfill({
+        status: 409,
+        json: {
+          problem: 'needs-confirmation',
+          risky: [{ copy: second, name: 'noble-keen-walrus', branch: 'master', reason: 'branch' }],
+        },
+      })
+    if (options.refuseSync)
+      return route.fulfill({
+        json: {
+          copies: [
+            { copy: second, name: 'noble-keen-walrus', done: false, commit: null, error: 'hook: сверка кита не прошла' },
+          ],
+        },
+      })
+    performers = performers.map((performer) =>
+      performer.name === request.name
+        ? { ...performer, in: [main, second], everywhere: true }
+        : performer,
+    )
+    return route.fulfill({
+      json: { copies: [{ copy: second, name: 'noble-keen-walrus', done: true, commit: 'a41c9e2', error: null }] },
+    })
+  })
+
   await page.route('**/api/performers', (route) => {
     if (route.request().method() === 'POST') {
-      const request = route.request().postDataJSON() as Performer & { copy: string }
+      const request = route.request().postDataJSON() as Performer
       if (options.refuseCommit)
         return route.fulfill({
           status: 409,
@@ -64,12 +108,16 @@ async function mockApi(page: Page, options: { refuseCommit?: boolean } = {}) {
           model: request.model,
           tools: request.tools,
           prompt: request.prompt,
-          path: `${request.copy}\\.claude\\agents\\${request.name}.md`,
+          // Копию не выбирают: файл ложится в основную копию проекта.
+          path: `${main}\\.claude\\agents\\${request.name}.md`,
           source: 'copy',
-          copy: request.copy,
+          copy: main,
+          in: [main],
+          differs: [],
+          everywhere: false,
         },
       ]
-      return route.fulfill({ json: { path: `${request.copy}\\.claude\\agents\\${request.name}.md` } })
+      return route.fulfill({ json: { path: `${main}\\.claude\\agents\\${request.name}.md` } })
     }
     return route.fulfill({
       json: [
@@ -83,7 +131,7 @@ async function mockApi(page: Page, options: { refuseCommit?: boolean } = {}) {
       ],
     })
   })
-  return saved
+  return { saved, synced }
 }
 
 async function openPerformers(page: Page) {
@@ -98,7 +146,7 @@ test('раздел показывает исполнителей проекта 
 
   await expect(page.getByText('reviewer', { exact: true })).toBeVisible()
   await expect(page.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeVisible()
-  await expect(page.getByText('D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md')).toBeVisible()
+  await expect(page.getByText(`${main}\\.claude\\agents\\reviewer.md`)).toBeVisible()
 
   await expect(page.getByText('из профиля')).toBeVisible()
   const edit = page.getByRole('button', { name: 'Править' })
@@ -106,29 +154,39 @@ test('раздел показывает исполнителей проекта 
   await expect(edit.last()).toBeDisabled()
 })
 
-test('исполнитель заводится окном и появляется в списке', async ({ page }) => {
-  const saved = await mockApi(page)
+test('строка показывает копии, где исполнителя ещё нет', async ({ page }) => {
+  await mockApi(page)
+  await openPerformers(page)
+
+  await expect(page.getByText('в 1 копиях из 2 — пользоваться нельзя')).toBeVisible()
+  await expect(page.getByText('agents-kit-web', { exact: true })).toBeVisible()
+  await expect(page.getByText('noble-keen-walrus', { exact: true })).toBeVisible()
+  // Исполнителю профиля синхронизация ни к чему: его видно из любой копии.
+  await expect(page.getByRole('button', { name: 'Синхронизировать' })).toHaveCount(1)
+})
+
+test('исполнитель заводится окном и ложится в основную копию', async ({ page }) => {
+  const { saved } = await mockApi(page)
   await openPerformers(page)
 
   await page.getByRole('button', { name: 'Новый исполнитель' }).click()
   const modal = page.getByRole('dialog')
   await modal.getByLabel('Имя').fill('e2e-runner')
   await modal.getByLabel(/Описание/).fill('Прогоняет e2e затронутых экранов.')
-  await modal.getByLabel('Копия').selectOption('D:\\Projects\\noble-keen-walrus')
   await modal.getByLabel('Задание').fill('Поднимаешь панель и прогоняешь e2e.')
 
-  // Путь файла виден до сохранения: по нему понятно, в какую копию он ляжет
-  await expect(modal.getByText('D:\\Projects\\noble-keen-walrus\\.claude\\agents\\e2e-runner.md')).toBeVisible()
+  // Копию в окне не выбирают: путь файла виден до сохранения и ведёт в основную копию.
+  await expect(modal.getByLabel('Копия')).toHaveCount(0)
+  await expect(modal.getByText(`${main}\\.claude\\agents\\e2e-runner.md`)).toBeVisible()
 
   await modal.getByRole('button', { name: 'Сохранить' }).click()
 
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByText('e2e-runner', { exact: true })).toBeVisible()
-  await expect(page.getByText('записан')).toBeVisible()
+  await expect(page.getByText('записан', { exact: true })).toBeVisible()
   expect(saved).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
-      copy: 'D:\\Projects\\noble-keen-walrus',
       name: 'e2e-runner',
       description: 'Прогоняет e2e затронутых экранов.',
       model: null,
@@ -136,6 +194,42 @@ test('исполнитель заводится окном и появляетс
       prompt: 'Поднимаешь панель и прогоняешь e2e.',
     },
   ])
+})
+
+test('синхронизация спрашивает про копию на master и по согласию показывает исход', async ({ page }) => {
+  const { synced } = await mockApi(page)
+  await openPerformers(page)
+
+  await page.getByRole('button', { name: 'Синхронизировать' }).click()
+
+  const modal = page.getByRole('dialog')
+  await expect(modal.getByText('копия на master — из неё публикуется панель')).toBeVisible()
+  await modal.getByRole('button', { name: 'Синхронизировать всё равно' }).click()
+
+  await expect(modal.getByText('записан и закоммичен')).toBeVisible()
+  await expect(modal.getByText('a41c9e2')).toBeVisible()
+  await modal.getByRole('button', { name: 'Готово' }).click()
+
+  // Копия записана — строка это показывает, и синхронизировать больше нечего.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Синхронизировать' })).toHaveCount(0)
+  expect(synced).toEqual([
+    { base: 'D:\\Projects\\app-knowledge', name: 'reviewer', confirmed: false },
+    { base: 'D:\\Projects\\app-knowledge', name: 'reviewer', confirmed: true },
+  ])
+})
+
+test('копия, где коммит не прошёл, названа с выводом git дословно', async ({ page }) => {
+  await mockApi(page, { refuseSync: true })
+  await openPerformers(page)
+
+  await page.getByRole('button', { name: 'Синхронизировать' }).click()
+
+  const modal = page.getByRole('dialog')
+  await modal.getByRole('button', { name: 'Синхронизировать всё равно' }).click()
+
+  await expect(modal.getByText('коммит не прошёл')).toBeVisible()
+  await expect(modal.getByText('hook: сверка кита не прошла')).toBeVisible()
 })
 
 test('отказ коммита виден дословно, а набранное остаётся в окне', async ({ page }) => {

@@ -38,4 +38,29 @@ public static class PerformerGit
     /// </summary>
     public static async Task UnstageFileAsync(string copyPath, string file, CancellationToken cancellationToken) =>
         await GitRunner.RunAsync(copyPath, Timeout, cancellationToken, "restore", "--staged", "--", file);
+
+    /// <summary>Короткий sha последнего коммита копии — им панель показывает, чем кончилась запись.</summary>
+    public static async Task<string?> HeadAsync(string copyPath, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(copyPath, Timeout, cancellationToken, "rev-parse", "--short", "HEAD");
+        return run.ExitCode == 0 && run.Output.Length > 0 ? run.Output.Trim() : null;
+    }
+
+    /// <summary>
+    /// В копии лежит незакоммиченная работа. Сам файл исполнителя не в счёт: его расхождение —
+    /// то самое, ради чего синхронизацию и затевают.
+    /// </summary>
+    public static async Task<bool> DirtyAsync(string copyPath, string performerFile, CancellationToken cancellationToken)
+    {
+        // Без --untracked-files=all git сворачивает новый каталог в одну строку «?? .claude/», и по ней
+        // не видно, что за ней стоит один лишь файл исполнителя.
+        var run = await GitRunner.RunAsync(
+            copyPath, Timeout, cancellationToken, "status", "--porcelain", "--untracked-files=all");
+        if (run.ExitCode != 0)
+            return false;
+        return run.Output
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Length > 3 ? line[3..].Trim().Trim('"') : "")
+            .Any(path => path.Length > 0 && !path.Equals(performerFile, StringComparison.OrdinalIgnoreCase));
+    }
 }

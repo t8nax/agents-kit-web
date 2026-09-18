@@ -122,3 +122,62 @@
   background: var(--accent-active-bg);
   color: var(--accent-active-text);
 }
+
+/* Копии проекта у строки исполнителя: пока он лежит не всюду, по строке видно, чего не хватает — B-77. */
+.performer-copies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.performer-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 9px;
+  border-radius: 999px;
+}
+
+.performer-copy-mark {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.performer-copy-has {
+  border: 1px solid var(--accent-active-border);
+  background: var(--accent-active-bg);
+  color: var(--accent-active-text);
+}
+
+.performer-copy-differs {
+  border: 1px solid var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
+}
+
+/* Копия, где исполнителя нет: пунктир — того же рода пометка, что у шага флоу без исполнителя. */
+.performer-copy-missing {
+  border: 1px dashed var(--border-strong);
+  color: var(--text-tertiary);
+}
+
+.performer-partial {
+  border-color: var(--accent-waiting-border);
+}
+
+.performer-partial-mark {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
+}

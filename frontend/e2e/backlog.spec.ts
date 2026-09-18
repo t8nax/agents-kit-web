@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Entry = { number: string | null; title: string; text: string | null }
+type Entry = { number: string | null; title: string; text: string | null; priority?: string; type?: string }
 
 const entries: Record<'akw' | 'nota', Entry[]> = {
   akw: [
@@ -76,6 +76,28 @@ test('запись открывается окном с размеченным �
   await page.keyboard.press('Space')
   await dialog.getByRole('button', { name: 'Закрыть' }).click()
   await expect(dialog).toHaveCount(0)
+})
+
+test('тип и приоритет записи видны в списке и в окне, под заголовком', async ({ page }) => {
+  await mockApi(page, [
+    { number: 'B-1', title: 'Копия не пускает следующую задачу', text: 'Текст.', priority: 'блокер', type: 'баг' },
+    { number: 'B-13', title: 'У панели есть светлая тема', text: null, priority: 'низкий', type: 'фича' },
+    { number: 'B-5', title: 'Дописана руками', text: null },
+  ])
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+  // В списке плашки стоят между номером и заголовком, а запись без полей идёт как прежде
+  const entry = page.getByRole('button', { name: 'B-1 баг блокер Копия не пускает следующую задачу' })
+  await expect(entry).toBeVisible()
+  await expect(page.getByRole('button', { name: 'B-13 фича низкий У панели есть светлая тема' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'B-5 Дописана руками' })).toBeVisible()
+
+  await entry.click()
+  const dialog = page.getByRole('dialog', { name: 'Копия не пускает следующую задачу' })
+  // В окне плашки идут своей строкой под заголовком
+  await expect(dialog.locator('.entry-modal-line')).toHaveText(/B-1\s*Копия не пускает следующую задачу/)
+  await expect(dialog.locator('.entry-modal-fields')).toHaveText(/баг\s*блокер/)
 })
 
 test('запись без текста открывается окном «Описания нет»', async ({ page }) => {

@@ -69,13 +69,13 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Performers_WritesFileIntoChosenCopyAndCommitsIt()
+    public async Task Performers_WritesFileIntoMainCopyAndCommitsIt()
     {
         var copy = TestGit.Repository(Path.Combine(_root, "app"));
         var basePath = CreateBase("app-knowledge", copy);
 
         var response = await Save(basePath, new SavePerformerRequest(
-            basePath, copy, "reviewer", "Читает дифф ветки задачи.", "opus", "Read, Glob, Grep", "Ты читаешь дифф."));
+            basePath, "reviewer", "Читает дифф ветки задачи.", "opus", "Read, Glob, Grep", "Ты читаешь дифф."));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var file = Path.Combine(copy, ".claude", "agents", "reviewer.md");
@@ -103,9 +103,9 @@ public sealed class PerformersEndpointsTests : IDisposable
         var copy = TestGit.Repository(Path.Combine(_root, "app"));
         var basePath = CreateBase("app-knowledge", copy);
 
-        await Save(basePath, new SavePerformerRequest(basePath, copy, "reviewer", "Первое", null, null, "Тело"));
+        await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Первое", null, null, "Тело"));
         var second = await Save(basePath, new SavePerformerRequest(
-            basePath, copy, "reviewer", "Второе", null, null, "Другое тело"));
+            basePath, "reviewer", "Второе", null, null, "Другое тело"));
 
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
         var text = File.ReadAllText(Path.Combine(copy, ".claude", "agents", "reviewer.md"));
@@ -120,10 +120,10 @@ public sealed class PerformersEndpointsTests : IDisposable
         var copy = TestGit.Repository(Path.Combine(_root, "app"));
         var basePath = CreateBase("app-knowledge", copy);
 
-        await Save(basePath, new SavePerformerRequest(basePath, copy, "reviewer", "Первое", null, null, "Тело"));
+        await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Первое", null, null, "Тело"));
         Assert.Equal("Исполнитель заведён из панели", Subject(copy));
 
-        await Save(basePath, new SavePerformerRequest(basePath, copy, "reviewer", "Второе", null, null, "Другое тело"));
+        await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Второе", null, null, "Другое тело"));
         // По истории копии видно, что произошло: правка заведённого — не заведение — решение оператора на B-69.
         Assert.Equal("Исполнитель изменён из панели", Subject(copy));
     }
@@ -137,7 +137,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         var basePath = CreateBase("app-knowledge", copy);
 
         var response = await Save(basePath, new SavePerformerRequest(
-            basePath, copy, "reviewer", "Читает дифф.", null, null, "Тело"));
+            basePath, "reviewer", "Читает дифф.", null, null, "Тело"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal([".claude/agents/reviewer.md"], CommittedFiles(copy));
@@ -151,7 +151,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         var basePath = CreateBase("app-knowledge", copy);
 
         var response = await Save(basePath, new SavePerformerRequest(
-            basePath, copy, "Ревью Диффа", "Описание", null, null, "Тело"));
+            basePath, "Ревью Диффа", "Описание", null, null, "Тело"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("invalid-name", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
@@ -159,17 +159,19 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Performers_RefusesCopyThatIsNotOfTheBase()
+    public async Task Performers_WritesOnlyIntoMainCopyEvenWhenProjectHasMore()
     {
-        var copy = TestGit.Repository(Path.Combine(_root, "app"));
-        var stranger = TestGit.Repository(Path.Combine(_root, "stranger"));
-        var basePath = CreateBase("app-knowledge", copy);
+        var main = TestGit.Repository(Path.Combine(_root, "app"));
+        var second = TestGit.Repository(Path.Combine(_root, "app-two"));
+        var basePath = CreateBase("app-knowledge", main, second);
 
         var response = await Save(basePath, new SavePerformerRequest(
-            basePath, stranger, "reviewer", "Описание", null, null, "Тело"));
+            basePath, "reviewer", "Описание", null, null, "Тело"));
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.False(Directory.Exists(Path.Combine(stranger, ".claude")));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(File.Exists(Path.Combine(main, ".claude", "agents", "reviewer.md")));
+        // По остальным копиям исполнителя разносит синхронизация, и это решение оператора, а не заведения.
+        Assert.False(Directory.Exists(Path.Combine(second, ".claude")));
     }
 
     [Fact]
@@ -183,7 +185,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         var basePath = CreateBase("app-knowledge", copy);
 
         var response = await Save(basePath, new SavePerformerRequest(
-            basePath, copy, "reviewer", "Описание", null, null, "Тело"));
+            basePath, "reviewer", "Описание", null, null, "Тело"));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         var rejected = await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>();
@@ -191,6 +193,86 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.Contains("сверка не прошла", rejected.Detail);
         // Файл остался на диске, но не в индексе: иначе его унесла бы в свой коммит чужая сессия.
         Assert.Equal(["?? .claude/"], Status(copy));
+    }
+
+    [Fact]
+    public async Task Performers_FoldsTheSamePerformerOfSeveralCopiesIntoOneRow()
+    {
+        var main = TestGit.Repository(Path.Combine(_root, "app"));
+        var second = TestGit.Repository(Path.Combine(_root, "app-two"));
+        const string text = """
+            ---
+            name: reviewer
+            description: Читает дифф.
+            ---
+
+            Тело.
+            """;
+        Performer(main, "reviewer", text);
+        Performer(second, "reviewer", text);
+
+        var performers = Assert.Single(await Get(Path.Combine(_root, "profile"), CreateBase("app-knowledge", main, second)));
+
+        // Файл — про проект, а не про копию: строкой на копию раздел говорил бы о нём дважды.
+        var reviewer = Assert.Single(performers.Performers);
+        Assert.Equal(main, reviewer.Copy);
+        Assert.Equal([main, second], reviewer.In);
+        Assert.Empty(reviewer.Differs);
+        Assert.True(reviewer.Everywhere);
+    }
+
+    [Fact]
+    public async Task Performers_TellsWhereThePerformerIsMissingAndWhereTheFileDiffers()
+    {
+        var main = TestGit.Repository(Path.Combine(_root, "app"));
+        var second = TestGit.Repository(Path.Combine(_root, "app-two"));
+        var third = TestGit.Repository(Path.Combine(_root, "app-three"));
+        Performer(main, "reviewer", """
+            ---
+            name: reviewer
+            ---
+
+            Тело основной копии.
+            """);
+        Performer(second, "reviewer", """
+            ---
+            name: reviewer
+            ---
+
+            Тело поправили руками.
+            """);
+
+        var performers = Assert.Single(
+            await Get(Path.Combine(_root, "profile"), CreateBase("app-knowledge", main, second, third)));
+
+        var reviewer = Assert.Single(performers.Performers);
+        // Поля берутся из основной копии, а копия с другим файлом названа отдельно: она не в счёт.
+        Assert.Equal("Тело основной копии.", reviewer.Prompt);
+        Assert.Equal([main, second], reviewer.In);
+        Assert.Equal([second], reviewer.Differs);
+        Assert.False(reviewer.Everywhere);
+        Assert.DoesNotContain(third, reviewer.In);
+    }
+
+    [Fact]
+    public async Task Performers_ProfilePerformerNeedsNoSync()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var claudeDir = Path.Combine(_root, "profile");
+        Performer(claudeDir, "spec-writer", """
+            ---
+            name: spec-writer
+            ---
+
+            Тело.
+            """);
+
+        var performers = Assert.Single(await Get(claudeDir, CreateBase("app-knowledge", copy)));
+
+        // Исполнителя профиля видно из любой копии: разносить его некуда, и шагу флоу он годится.
+        var profile = Assert.Single(performers.Performers);
+        Assert.True(profile.Everywhere);
+        Assert.Empty(profile.In);
     }
 
     private static void Performer(string root, string name, string text)
