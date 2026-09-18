@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
@@ -39,9 +38,6 @@ public sealed record SessionStartResponse(string Session, bool Terminal);
 
 public static partial class SessionsEndpoints
 {
-    /// <summary>Столько ждут гашения: claude stop только просит сессию завершиться и сам не работает долго.</summary>
-    private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(30);
-
     // Короткий id сессии в реестре — шестнадцатеричный; чужой формат панель на слово не берёт.
     [GeneratedRegex("^[0-9a-f]{6,}$")]
     private static partial Regex SessionId { get; }
@@ -117,30 +113,9 @@ public static partial class SessionsEndpoints
             if (Live(request, sessions) is not { } found)
                 return Problem(request);
 
-            var output = new List<string>();
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(StopTimeout);
-
-            AgentExit exit;
-            try
-            {
-                exit = await agent.RunAsync(StopInfo(found), "", line =>
-                {
-                    output.Add(line);
-                    return Task.CompletedTask;
-                }, timeout.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                return Failed("claude не погасил сессию за полминуты");
-            }
-
-            if (exit.ExitCode == 0)
-                return Results.NoContent();
-
-            var said = string.Join("\n", output).Trim();
-            var text = new[] { exit.Error, said }.FirstOrDefault(t => t.Length > 0);
-            return Failed(text ?? $"claude завершился с кодом {exit.ExitCode} и ничего не сказал");
+            return await SessionStop.StopAsync(agent, found, cancellationToken) is { } failure
+                ? Failed(failure)
+                : Results.NoContent();
         });
 
         // Переход в сессию: своего окна у фоновой нет, и панель открывает терминал, подключённый к ней
@@ -158,18 +133,6 @@ public static partial class SessionsEndpoints
                 ? Results.NoContent()
                 : Failed("терминал не открылся");
         });
-    }
-
-    /// <summary>`claude stop &lt;id&gt;` в каталоге сессии; каталога уже нет — в каталоге профиля.</summary>
-    public static ProcessStartInfo StopInfo(AgentSession session)
-    {
-        var directory = Directory.Exists(session.Cwd)
-            ? session.Cwd
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, directory);
-        startInfo.ArgumentList.Add("stop");
-        startInfo.ArgumentList.Add(session.JobId!);
-        return startInfo;
     }
 
     // Действие идёт только над живой фоновой сессией: у неё есть короткий id, которым её и адресуют.
