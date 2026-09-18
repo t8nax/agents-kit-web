@@ -47,6 +47,7 @@ const rows: WorkspaceRow[] = [
     progress: 33,
     status: 'waiting',
     error: null,
+    sessionState: 'idle',
     backgroundSession: true,
   },
   {
@@ -59,6 +60,7 @@ const rows: WorkspaceRow[] = [
     progress: null,
     status: 'free',
     error: null,
+    sessionState: 'working',
   },
   {
     project: 'app-knowledge',
@@ -102,6 +104,42 @@ test('показывает рабочие копии из /api/workspaces', asyn
 
   expect(within(tableRows[3]).getByText('Копия не найдена на диске')).toBeInTheDocument()
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
+})
+
+test('точка у имени копии говорит, что делает её сессия', async () => {
+  // Копия без сессии — та, где задачу ведут, а сессию уже закрыли: её видно среди работающих
+  const abandoned: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\left', status: 'in-work', sessionState: null }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, abandoned]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  // Статус копии считается по памяти и остаётся прежним — состояние сессии читается рядом с ним
+  expect(within(tableRows[1]).getByLabelText('сессия стоит без дела')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Ждёт оператора')).toBeInTheDocument()
+  expect(within(tableRows[2]).getByLabelText('сессия работает')).toBeInTheDocument()
+  expect(within(tableRows[4]).getByLabelText('сессии нет')).toBeInTheDocument()
+  expect(within(tableRows[4]).getByText('В работе')).toBeInTheDocument()
+
+  // Строке с ошибкой точку ставить не о чем: копии на диске нет
+  expect(within(tableRows[3]).queryByRole('img')).not.toBeInTheDocument()
+
+  // Подпись точки — метка, а не текст: содержимое ячейки остаётся именем копии и её веткой
+  expect(within(tableRows[1]).getAllByRole('cell')[0]).toHaveTextContent(/^appfeat\/table$/)
+
+  // Цвет точки сам по себе ничего не говорит — под таблицей стоит легенда
+  expect(screen.getByText('Точка у имени копии:')).toBeInTheDocument()
+  expect(screen.getByText('ждёт вас в терминале')).toBeInTheDocument()
+})
+
+test('сессия, ждущая оператора в терминале, отмечена своей точкой', async () => {
+  const asking: WorkspaceRow = { ...rows[1], sessionState: 'waiting' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([asking]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  expect(within(tableRows[1]).getByLabelText('сессия ждёт вас в терминале')).toBeInTheDocument()
 })
 
 const otherBase: WorkspaceRow = {

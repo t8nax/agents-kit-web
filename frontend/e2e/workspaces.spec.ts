@@ -127,3 +127,48 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(page.getByText('Экспорт заметок')).toBeVisible()
   })
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`точка у имени копии показывает состояние её сессии в обеих темах (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await page.route('**/api/workspaces', (route) =>
+      route.fulfill({
+        json: [
+          { ...row, sessionState: 'working' },
+          { ...row, path: 'D:\\Projects\\agents-kit-web-2', sessionState: 'waiting' },
+          { ...row, path: 'D:\\Projects\\agents-kit-web-3', sessionState: 'idle' },
+          { ...row, path: 'D:\\Projects\\agents-kit-web-4', sessionState: null },
+        ],
+      }),
+    )
+    await page.goto('/')
+
+    const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
+    const states = ['сессия работает', 'сессия ждёт вас в терминале', 'сессия стоит без дела', 'сессии нет']
+    const colors: string[] = []
+    for (const [index, state] of states.entries()) {
+      const dot = bodyRows.nth(index).getByRole('img', { name: state })
+      await expect(dot).toBeVisible()
+      colors.push(await dot.evaluate((node) => getComputedStyle(node).backgroundColor))
+    }
+
+    // Состояние читается цветом, поэтому у работающей, ждущей и стоящей сессии он разный,
+    // а у копии без сессии точка пустая и обведена рамкой
+    expect(new Set(colors.slice(0, 3)).size).toBe(3)
+    const empty = bodyRows.nth(3).getByRole('img', { name: 'сессии нет' })
+    await expect(empty).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(empty).toHaveCSS('border-top-width', '1px')
+
+    // Легенда стоит под таблицей и называет все четыре состояния словами
+    const legend = page.locator('.session-legend')
+    await expect(legend).toBeVisible()
+    for (const label of ['работает', 'ждёт вас в терминале', 'стоит без дела', 'сессии нет']) {
+      await expect(legend.getByText(label, { exact: true })).toBeVisible()
+    }
+    const [tableBox, legendBox] = await Promise.all([
+      page.getByRole('table').boundingBox(),
+      legend.boundingBox(),
+    ])
+    expect(legendBox!.y).toBeGreaterThanOrEqual(tableBox!.y + tableBox!.height)
+  })
+}

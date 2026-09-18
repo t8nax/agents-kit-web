@@ -190,6 +190,63 @@ public sealed class WorkspacesEndpointTests : IDisposable
         Assert.False(Assert.Single(rows, r => r.Path == withoutSession).BackgroundSession);
     }
 
+    /// <summary>Строка копии несёт состояние её сессии, а копия без сессии — ничего.</summary>
+    [Fact]
+    public async Task Workspaces_CopyWithSession_CarriesItsState()
+    {
+        var withSession = Path.Combine(_root, "asking");
+        var withoutSession = Path.Combine(_root, "empty");
+        foreach (var copy in new[] { withSession, withoutSession })
+        {
+            Directory.CreateDirectory(copy);
+            Git(copy, "init", "-b", "dev");
+        }
+
+        var basePath = CreateBase("state-knowledge", withSession, withoutSession);
+        var sessionsDir = SessionsDirWith(withSession, "waiting", ProcessStart);
+
+        var rows = await GetRows(sessionsDir, [basePath]);
+
+        Assert.Equal(SessionState.Waiting, Assert.Single(rows, r => r.Path == withSession).SessionState);
+        Assert.Null(Assert.Single(rows, r => r.Path == withoutSession).SessionState);
+    }
+
+    /// <summary>
+    /// Файл брошенной сессии остаётся на диске, а её номер процесса Windows отдаёт другой программе:
+    /// такая запись живой сессией не считается.
+    /// </summary>
+    [Fact]
+    public async Task Workspaces_SessionFileWhosePidWasTakenByAnotherProgram_IsNotLive()
+    {
+        var copy = Path.Combine(_root, "abandoned");
+        Directory.CreateDirectory(copy);
+        Git(copy, "init", "-b", "dev");
+
+        var basePath = CreateBase("abandoned-knowledge", copy);
+        var sessionsDir = SessionsDirWith(copy, "busy", ProcessStart + 1);
+
+        var rows = await GetRows(sessionsDir, [basePath]);
+
+        Assert.Null(Assert.Single(rows, r => r.Path == copy).SessionState);
+    }
+
+    /// <summary>Время старта процесса прогона — то же, что панель спросит у Windows по его номеру.</summary>
+    private static long ProcessStart =>
+        System.Diagnostics.Process.GetCurrentProcess().StartTime.ToFileTimeUtc();
+
+    /// <summary>Каталог сессий с одной записью о копии; pid прогона делает её процесс заведомо живым.</summary>
+    private string SessionsDirWith(string copy, string status, long procStart)
+    {
+        var dir = Path.Combine(_root, $"sessions-{status}-{procStart}");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(
+            Path.Combine(dir, $"{Environment.ProcessId}.json"),
+            $$"""
+            {"pid":{{Environment.ProcessId}},"cwd":{{System.Text.Json.JsonSerializer.Serialize(copy)}},"entrypoint":"cli","status":"{{status}}","procStart":"{{procStart}}"}
+            """);
+        return dir;
+    }
+
     private string CreateBase(string name, params string[] copies)
     {
         var basePath = Path.Combine(_root, name);
