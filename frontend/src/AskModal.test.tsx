@@ -12,18 +12,37 @@ const bases: AskBase[] = [
   { base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
-/** Базы окно читает своим вызовом: стенд панели о них не знает. */
+/** Панель разговора: базы, следующие реплики и остановка ответа — свои вызовы окна. */
 function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: ReturnType<typeof runningRequest>) {
-  return stubPanel('ask', stream, {
+  const replies: string[] = []
+  const stops: string[] = []
+  const panel = stubPanel('ask', stream, {
     running,
     project: 'Nota',
-    others: (url) => (url === '/api/ask/bases' ? Response.json(bases) : null),
+    others: (url, init) => {
+      if (url === '/api/ask/bases') return Response.json(bases)
+      if (url === '/api/ask/reply') {
+        replies.push(String((JSON.parse(String(init?.body)) as { text: string }).text))
+        return new Response(null, { status: 204 })
+      }
+      if (url === '/api/ask/stop') {
+        stops.push(url)
+        return new Response(null, { status: 204 })
+      }
+      return null
+    },
   })
+  return { ...panel, replies, stops }
 }
 
-async function askQuestion(text: string) {
+async function ask(text: string) {
   fireEvent.change(await screen.findByLabelText('Вопрос'), { target: { value: text } })
-  fireEvent.click(screen.getByRole('button', { name: 'Спросить' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+}
+
+async function say(text: string) {
+  fireEvent.change(await screen.findByLabelText('Следующая реплика'), { target: { value: text } })
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
 }
 
 test('вопрос уходит в выбранную базу, ход работы виден до ответа, ответ показан с прочитанными файлами', async () => {
@@ -32,9 +51,11 @@ test('вопрос уходит в выбранную базу, ход рабо�
   render(<AskModal onClose={() => {}} />)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Nota' }))
-  await askQuestion('Почему опрос?')
+  await ask('Почему опрос?')
 
   expect(posts[0].body).toEqual({ base: 'D:\\Projects\\nota-knowledge', question: 'Почему опрос?' })
+  stream.send({ type: 'reply', text: 'Почему опрос?' })
+  expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
   expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })
@@ -46,67 +67,119 @@ test('вопрос уходит в выбранную базу, ход рабо�
   expect(screen.getByText('decisions/ui.md')).toBeInTheDocument()
   expect(screen.getByText('31 с')).toBeInTheDocument()
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Новый вопрос' }))
-  expect(await screen.findByLabelText('Вопрос')).toHaveValue('')
 })
 
-test('сбой агента показан с его выводом, вопрос можно изменить', async () => {
+test('разговор продолжается: следующая реплика уходит в него же, и вся переписка остаётся на экране', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { posts, replies } = stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Первый вопрос')
+  stream.send({ type: 'reply', text: 'Первый вопрос' })
+  stream.send({ type: 'answer', text: 'Первый ответ', files: [], durationMs: 1000 })
+  await screen.findByText('Первый ответ')
+
+  await say('А почему так?')
+  stream.send({ type: 'reply', text: 'А почему так?' })
+  stream.send({ type: 'answer', text: 'Второй ответ', files: [], durationMs: 1000 })
+
+  expect(await screen.findByText('Второй ответ')).toBeInTheDocument()
+  expect(replies).toEqual(['А почему так?'])
+  // Новую просьбу реплика не заводит: разговор один.
+  expect(posts.map((post) => post.url)).toEqual(['/api/ask'])
+  expect(screen.getByText('Первый вопрос')).toBeInTheDocument()
+  expect(screen.getByText('Первый ответ')).toBeInTheDocument()
+  expect(screen.getByLabelText('Следующая реплика')).toHaveValue('')
+})
+
+test('база выбирается один раз: посреди разговора кнопки проектов не нажимаются', async () => {
   const stream = controlledStream<AskEvent>()
   stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
-  await askQuestion('Что за проект?')
-  stream.send({ type: 'error', text: 'Агент завершился с ошибкой', output: 'Invalid API key · Please run /login' })
+  expect(await screen.findByRole('button', { name: 'Nota' })).toBeEnabled()
+  await ask('Вопрос')
+  stream.send({ type: 'reply', text: 'Вопрос' })
+  await screen.findByText('Вопрос')
+
+  expect(screen.getByRole('button', { name: 'Nota' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Agents Kit Web' })).toBeDisabled()
+})
+
+test('сбой посреди переписки её не рушит: прежние ответы на месте, реплика вернулась в поле', async () => {
+  const stream = controlledStream<AskEvent>()
+  stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Первый вопрос')
+  stream.send({ type: 'reply', text: 'Первый вопрос' })
+  stream.send({ type: 'answer', text: 'Первый ответ', files: [], durationMs: 1000 })
+  await screen.findByText('Первый ответ')
+
+  await say('Второй вопрос')
+  stream.send({ type: 'reply', text: 'Второй вопрос' })
+  stream.send({ type: 'error', text: 'Чудо-Юдо завершился с ошибкой', output: 'Invalid API key · Please run /login' })
 
   const alert = await screen.findByRole('alert')
   expect(within(alert).getByText('Invalid API key · Please run /login')).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Изменить вопрос' }))
-  expect(await screen.findByLabelText('Вопрос')).toHaveValue('Что за проект?')
+  expect(screen.getByText('Первый ответ')).toBeInTheDocument()
+  expect(await screen.findByLabelText('Следующая реплика')).toHaveValue('Второй вопрос')
 })
 
-test('оборванный без ответа поток — сбой, а не вечное ожидание', async () => {
+test('«Отменить» обрывает ответ, а переписка остаётся', async () => {
   const stream = controlledStream<AskEvent>()
-  stubFetch(stream)
+  const { stops, deletes } = stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
-  await askQuestion('Вопрос')
-  stream.close()
+  await ask('Долгий вопрос')
+  stream.send({ type: 'reply', text: 'Долгий вопрос' })
+  await screen.findByRole('status')
+  fireEvent.click(screen.getByRole('button', { name: 'Отменить' }))
+  stream.send({ type: 'stopped', text: 'Чудо-Юдо остановлен: ответа на эту реплику не будет' })
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Ответ оборвался')
+  expect(await screen.findByText('Чудо-Юдо остановлен: ответа на эту реплику не будет')).toBeInTheDocument()
+  expect(screen.getByText('Долгий вопрос')).toBeInTheDocument()
+  await vi.waitFor(() => expect(stops).toEqual(['/api/ask/stop']))
+  expect(deletes).toEqual([])
 })
 
-test('«Отменить» убирает просьбу из панели и возвращает вопрос в поле', async () => {
+test('«Новая переписка» убирает разговор из панели и возвращает окно к первому вопросу', async () => {
   const stream = controlledStream<AskEvent>()
   const { deletes } = stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
-  await askQuestion('Долгий вопрос')
-  fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
+  await ask('Вопрос')
+  stream.send({ type: 'reply', text: 'Вопрос' })
+  stream.send({ type: 'answer', text: 'Ответ', files: [], durationMs: 1000 })
+  await screen.findByText('Ответ')
 
-  expect(await screen.findByLabelText('Вопрос')).toHaveValue('Долгий вопрос')
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+
+  expect(await screen.findByLabelText('Вопрос')).toHaveValue('')
+  expect(screen.queryByText('Ответ')).not.toBeInTheDocument()
   expect(deletes).toEqual(['/api/agent/ask'])
-  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
 
-test('закрытое окно не останавливает агента: просьба остаётся в панели', async () => {
+test('закрытое окно разговор не теряет: просьба остаётся в панели', async () => {
   const stream = controlledStream<AskEvent>()
   const { deletes } = stubFetch(stream)
   const { unmount } = render(<AskModal onClose={() => {}} />)
 
-  await askQuestion('Вопрос')
-  await screen.findByRole('status')
+  await ask('Вопрос')
+  stream.send({ type: 'reply', text: 'Вопрос' })
+  stream.send({ type: 'answer', text: 'Ответ', files: [], durationMs: 1000 })
+  await screen.findByText('Ответ')
   unmount()
 
   expect(deletes).toEqual([])
 })
 
-test('открытое заново окно показывает работу, которая шла без него', async () => {
+test('открытое заново окно показывает переписку, которая шла без него', async () => {
   const stream = controlledStream<AskEvent>()
   const { posts } = stubFetch(stream, runningRequest('ask', 'Почему опрос?', bases[1].base, 'Nota', 42000))
   render(<AskModal onClose={() => {}} />)
 
+  stream.send({ type: 'reply', text: 'Почему опрос?' })
   expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
   expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
   expect(screen.getByLabelText('Прошло времени')).toHaveTextContent('0:42')
@@ -120,54 +193,15 @@ test('открытое заново окно показывает работу, 
   expect(posts).toEqual([])
 })
 
-test('закрытое с готовым ответом окно убирает просьбу: отметка в шапке о ней больше не говорит', async () => {
-  const stream = controlledStream<AskEvent>()
-  const { deletes } = stubFetch(stream)
-  const { unmount } = render(<AskModal onClose={() => {}} />)
-
-  await askQuestion('Почему опрос?')
-  stream.send({ type: 'answer', text: 'Так решил оператор.', files: [], durationMs: 1000 })
-  await screen.findByText('Так решил оператор.')
-  unmount()
-
-  await vi.waitFor(() => expect(deletes).toEqual(['/api/agent/ask']))
-})
-
-type NodeRejections = {
-  on(event: 'unhandledRejection', handler: (reason: unknown) => void): void
-  off(event: 'unhandledRejection', handler: (reason: unknown) => void): void
-}
-
-test('закрытое окно молчит, когда панель не ответила на уборку просьбы', async () => {
+test('оборванный без ответа поток — сбой, а не вечное ожидание', async () => {
   const stream = controlledStream<AskEvent>()
   stubFetch(stream)
-  // Отказ отдаёт голая функция, а не vi.fn: обёртка vitest сама подписывается на промис заглушки,
-  // и необработанного отказа через неё не случается — регресс такой тест бы не заметил.
-  const panelFetch = globalThis.fetch
-  const cleanups: string[] = []
-  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
-    if ((init?.method ?? 'GET') !== 'DELETE') return panelFetch(url, init)
-    cleanups.push(url)
-    return Promise.reject(new TypeError('Failed to fetch'))
-  })
-  // О необработанном отказе node сообщает событием, а не исключением теста. Типы node коду фронта
-  // не подключены, поэтому process берётся из globalThis со своим объявлением.
-  const { process: node } = globalThis as unknown as { process: NodeRejections }
-  const rejections: unknown[] = []
-  const catchRejection = (reason: unknown) => rejections.push(reason)
-  node.on('unhandledRejection', catchRejection)
+  render(<AskModal onClose={() => {}} />)
 
-  try {
-    const { unmount } = render(<AskModal onClose={() => {}} />)
-    await askQuestion('Почему опрос?')
-    stream.send({ type: 'answer', text: 'Так решил оператор.', files: [], durationMs: 1000 })
-    await screen.findByText('Так решил оператор.')
-    unmount()
+  await ask('Вопрос')
+  stream.send({ type: 'reply', text: 'Вопрос' })
+  await screen.findByRole('status')
+  stream.close()
 
-    await vi.waitFor(() => expect(cleanups).toEqual(['/api/agent/ask']))
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(rejections).toEqual([])
-  } finally {
-    node.off('unhandledRejection', catchRejection)
-  }
+  expect(await screen.findByRole('alert')).toHaveTextContent('Ответ оборвался')
 })
