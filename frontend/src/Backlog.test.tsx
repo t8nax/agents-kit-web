@@ -69,6 +69,54 @@ test('клик по записи открывает окно с номером, 
   ])
 })
 
+test('тип и приоритет записи видны плашками в списке, а у записи без них плашек нет', async () => {
+  stubFetch([
+    {
+      ...backlogs[0],
+      entries: [
+        { number: 'B-1', title: 'Копия не пускает следующую задачу', text: null, priority: 'блокер', type: 'баг' },
+        { number: 'B-2', title: 'Светлая тема', text: null, priority: 'низкий', type: 'фича' },
+        { number: 'B-3', title: 'Без полей', text: null, priority: null, type: null },
+      ],
+    },
+  ])
+
+  render(<Backlog />)
+
+  // Плашки стоят между номером и заголовком — выбор оператора на B-75
+  expect(await screen.findByRole('button', { name: /B-1 баг блокер Копия не пускает следующую задачу/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /B-2 фича низкий Светлая тема/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'B-3 Без полей' })).toBeInTheDocument()
+})
+
+test('в окне записи тип и приоритет стоят после названия', async () => {
+  stubFetch([
+    {
+      ...backlogs[0],
+      entries: [{ number: 'B-1', title: 'Копия не пускает', text: 'Текст.', priority: 'высокий', type: 'баг' }],
+    },
+  ])
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-1 баг высокий Копия не пускает/ }))
+
+  const dialog = screen.getByRole('dialog', { name: 'Копия не пускает' })
+  expect(dialog.textContent).toMatch(/B-1\s*Копия не пускает\s*баг\s*высокий/)
+})
+
+test('значение поля вне перечня кита показывается как есть', async () => {
+  stubFetch([
+    {
+      ...backlogs[0],
+      entries: [{ number: 'B-1', title: 'Своё значение', text: null, priority: 'срочно', type: 'задача' }],
+    },
+  ])
+
+  render(<Backlog />)
+
+  expect(await screen.findByRole('button', { name: /B-1 задача срочно Своё значение/ })).toBeInTheDocument()
+})
+
 test('адрес в тексте записи — ссылка в новую вкладку', async () => {
   stubFetch([
     { ...backlogs[0], entries: [{ number: 'B-7', title: 'Со ссылкой', text: 'Подробности: https://example.com/t/7' }] },

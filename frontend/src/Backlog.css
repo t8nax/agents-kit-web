@@ -51,11 +51,74 @@
 .entry-num {
   font-family: var(--font-mono);
   font-size: 13px;
+  line-height: 18px;
   color: var(--accent-done-text);
   background: var(--accent-done-bg);
   border-radius: 4px;
-  padding: 1px 6px;
+  padding: 0 6px;
   flex-shrink: 0;
+}
+
+/* Тип и приоритет записи — поля, объявленные шапкой backlog.md базы.
+   Цвет несёт приоритет, а тип читается словом со значком: иначе в строке спорят два цвета. */
+.entry-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  /* Общая ширина плашек в списке: без неё заголовки записей стоят вразнобой */
+  min-width: 62px;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.entry-type svg {
+  width: 13px;
+  height: 13px;
+}
+
+.entry-type-bug {
+  color: var(--accent-error-text);
+}
+
+.entry-type-feature {
+  color: var(--accent-active-text);
+}
+
+.entry-prio {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 66px;
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.entry-prio-mid {
+  color: var(--text-secondary);
+  background: var(--accent-free-bg);
+  border-color: var(--border-strong);
+}
+
+.entry-prio-high {
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border-color: var(--accent-waiting-border);
+  font-weight: 600;
+}
+
+.entry-prio-blocker {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
+  font-weight: 600;
 }
 
 .entry-title {
@@ -122,16 +185,27 @@
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.entry-modal-head .entry-num {
-  margin-top: 3px;
+/* Номер, название и плашки идут одной строкой и переносятся вместе: плашки стоят за названием. */
+.entry-modal-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
 }
 
 .entry-modal-head h3 {
-  flex: 1;
   margin: 0;
   font-size: 17px;
-  line-height: 1.4;
+  line-height: 22px;
   font-weight: 600;
+}
+
+/* В окне плашки стоят за названием, и выравнивать их по ширине не с чем. */
+.entry-modal-head .entry-type,
+.entry-modal-head .entry-prio {
+  min-width: 0;
 }
 
 .entry-close {
