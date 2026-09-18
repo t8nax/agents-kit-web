@@ -115,6 +115,65 @@ public sealed class AgentSessionsTests : IDisposable
         Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app"));
     }
 
+    [Fact]
+    public void BackgroundIn_WaitingSessionNextToWorkingOne_IsTheOneOperatorIsWaitedFor()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "working0", status: "busy");
+        WriteBackground(@"D:\Projects\app", 201, "waiting0", status: "waiting");
+
+        Assert.Equal("waiting0", Sessions(live: true).BackgroundIn(@"D:\Projects\app")!.JobId);
+    }
+
+    [Fact]
+    public void BackgroundIn_WorkingSessionNextToStandingOne_IsTheWorkingOne()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "standing", status: "idle");
+        WriteBackground(@"D:\Projects\app", 201, "working0", status: "busy");
+
+        Assert.Equal("working0", Sessions(live: true).BackgroundIn(@"D:\Projects\app")!.JobId);
+    }
+
+    /// <summary>Из сессий с одним состоянием старшая — скорее брошенная с прошлого раза.</summary>
+    [Fact]
+    public void BackgroundIn_TwoSessionsOfTheSameState_IsTheOneStartedLater()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "older000", status: "busy", procStart: Started);
+        WriteBackground(@"D:\Projects\app", 201, "younger0", status: "busy", procStart: Started + 1);
+        var sessions = new AgentSessions(_dir, pid => pid == 201 ? Started + 1 : Started);
+
+        Assert.Equal("younger0", sessions.BackgroundIn(@"D:\Projects\app")!.JobId);
+    }
+
+    /// <summary>Переход и подпись строки говорят об одной сессии, иначе оператор попадает не туда.</summary>
+    [Fact]
+    public void BackgroundIn_SessionOfTheTransition_IsTheOneThatGaveTheRowItsState()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "working0", status: "busy");
+        WriteBackground(@"D:\Projects\app", 201, "waiting0", status: "waiting");
+        var sessions = Sessions(live: true);
+
+        Assert.Equal(sessions.StateIn(@"D:\Projects\app"), sessions.BackgroundIn(@"D:\Projects\app")!.State);
+    }
+
+    [Fact]
+    public void VsCodeIn_WaitingSessionNextToWorkingOne_IsTheOneOperatorIsWaitedFor()
+    {
+        Write(@"D:\Projects\app", 100, status: "busy");
+        Write(@"D:\Projects\app", 101, status: "waiting");
+
+        Assert.Equal(101, Sessions(live: true).VsCodeIn(@"D:\Projects\app")!.Pid);
+    }
+
+    /// <summary>Сессия другого вида состояние строки даёт, а переход в терминал ведёт не к ней.</summary>
+    [Fact]
+    public void BackgroundIn_WaitingSessionIsInVsCode_IsStillTheBestBackgroundOne()
+    {
+        Write(@"D:\Projects\app", 100, status: "waiting");
+        WriteBackground(@"D:\Projects\app", 200, "working0", status: "busy");
+
+        Assert.Equal("working0", Sessions(live: true).BackgroundIn(@"D:\Projects\app")!.JobId);
+    }
+
     [Theory]
     [InlineData("busy", SessionState.Working)]
     [InlineData("waiting", SessionState.Waiting)]
@@ -235,18 +294,19 @@ public sealed class AgentSessionsTests : IDisposable
     private AgentSessions Sessions(bool live) => new(_dir, _ => live ? Started : null);
 
     private void Write(
-        string cwd, int pid, string entrypoint = "claude-vscode", string? status = "waiting") =>
+        string cwd, int pid, string entrypoint = "claude-vscode", string? status = "waiting", long procStart = Started) =>
         File.WriteAllText(
             Path.Combine(_dir, $"{pid}.json"),
             $$"""
-            {"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"{{entrypoint}}","procStart":"{{Started}}"{{(status is null ? "" : $",\"status\":\"{status}\"")}}}
+            {"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"{{entrypoint}}","procStart":"{{procStart}}"{{(status is null ? "" : $",\"status\":\"{status}\"")}}}
             """);
 
-    private void WriteBackground(string cwd, int pid, string? jobId) =>
+    private void WriteBackground(
+        string cwd, int pid, string? jobId, string? status = null, long procStart = Started) =>
         File.WriteAllText(
             Path.Combine(_dir, $"{pid}.json"),
             $$"""
-            {"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg","procStart":"{{Started}}"{{(jobId is null ? "" : $",\"jobId\":\"{jobId}\"")}}}
+            {"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg","procStart":"{{procStart}}"{{(jobId is null ? "" : $",\"jobId\":\"{jobId}\"")}}{{(status is null ? "" : $",\"status\":\"{status}\"")}}}
             """);
 
     public void Dispose()
