@@ -86,6 +86,7 @@ app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
 app.MapPerformerDraftEndpoints();
+app.MapPerformerSyncEndpoints();
 app.MapPerformersEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();

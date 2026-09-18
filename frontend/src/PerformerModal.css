@@ -155,6 +155,14 @@
   font-size: 11px;
   min-width: 0;
   overflow-wrap: anywhere;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Копию в окне не выбирают: подпись говорит, куда лёг файл и чем его разносят дальше. */
+.pf-file-note {
+  font-size: 11px;
 }
 
 .pf-footer-end {

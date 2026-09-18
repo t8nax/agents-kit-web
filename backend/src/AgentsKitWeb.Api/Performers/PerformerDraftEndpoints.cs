@@ -17,8 +17,8 @@ public sealed record PerformerDraftFields(
     string? Tools,
     string Prompt);
 
-/// <summary>Copy — копия, в которой агент работает: её код он и читает. Current задан — исполнителя правят.</summary>
-public sealed record PerformerDraftRequest(string? Base, string? Copy, string? Wish, PerformerDraftFields? Current);
+/// <summary>Копии в запросе нет: агент работает в основной копии проекта — там же, куда ляжет файл. Current задан — исполнителя правят.</summary>
+public sealed record PerformerDraftRequest(string? Base, string? Wish, PerformerDraftFields? Current);
 
 /// <summary>
 /// Событие просьбы об исполнителе, одной строкой NDJSON. Type: step — ход работы агента (Text);
@@ -60,14 +60,9 @@ public static class PerformerDraftEndpoints
             if (string.IsNullOrWhiteSpace(request.Wish))
                 return Results.BadRequest();
 
-            // Агент работает в той копии, что выбрана в окне: исполнитель ляжет именно в неё.
+            // Агент работает в основной копии: туда же ляжет файл, и её код он и читает.
             var copies = await PerformersEndpoints.CopiesAsync(basePath, cancellationToken);
-            var copy = request.Copy is null
-                ? null
-                : copies.FirstOrDefault(c => string.Equals(
-                    WorkspaceCollector.Normalize(c.Path), WorkspaceCollector.Normalize(request.Copy),
-                    StringComparison.OrdinalIgnoreCase));
-            if (copy is null)
+            if (copies.FirstOrDefault(c => c.Main) is not { } copy)
                 return Results.NotFound();
 
             var wish = request.Wish.Trim();

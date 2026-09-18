@@ -76,6 +76,9 @@ async function mockApi(page: Page, activeTasks = 0) {
               path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
               source: 'copy',
               copy: 'D:\\Projects\\agents-kit-web',
+              in: ['D:\\Projects\\agents-kit-web'],
+              differs: [],
+              everywhere: true,
             },
           ],
           error: null,
@@ -291,6 +294,6 @@ test('исполнитель шага выбирается из заведённ
   await picker.selectOption('__custom__')
   await drawer.getByLabel('Имя субагента').fill('doc-writer')
   await expect(review.locator('.flow-node-missing')).toBeVisible()
-  await expect(drawer.getByRole('status')).toContainText('нет на диске')
+  await expect(drawer.getByRole('status')).toContainText('на диске не найден')
   await expect(drawer.getByRole('button', { name: 'Завести исполнителя' })).toBeVisible()
 })

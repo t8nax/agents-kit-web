@@ -23,9 +23,10 @@ async function mockApi(page: Page) {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/performers', (route) => {
     if (route.request().method() === 'POST') {
-      const request = route.request().postDataJSON() as { copy: string; name: string }
+      const request = route.request().postDataJSON() as { name: string }
       saved.push(request)
-      return route.fulfill({ json: { path: `${request.copy}\\claude\\agents\\${request.name}.md` } })
+      // Копию не выбирают: файл ложится в основную копию проекта.
+      return route.fulfill({ json: { path: `${copies[0].path}\\.claude\\agents\\${request.name}.md` } })
     }
     return route.fulfill({
       json: [
@@ -71,7 +72,6 @@ test('оператор описывает исполнителя словами,
   expect(panel.posts).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
-      copy: 'D:\\Projects\\agents-kit-web',
       wish: 'Читает дифф ветки и возвращает вердикт',
       current: null,
     },
@@ -84,7 +84,6 @@ test('оператор описывает исполнителя словами,
   expect(saved).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
-      copy: 'D:\\Projects\\agents-kit-web',
       name: 'reviewer',
       description: 'Читает дифф ветки задачи и возвращает вердикт.',
       model: 'opus',

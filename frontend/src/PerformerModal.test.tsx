@@ -20,6 +20,9 @@ const reviewer: Performer = {
   path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
   source: 'copy',
   copy: 'D:\\Projects\\agents-kit-web',
+  in: ['D:\\Projects\\agents-kit-web', 'D:\\Projects\\noble-keen-walrus'],
+  differs: [],
+  everywhere: true,
 }
 
 function open(editing: Performer | null = null, onSaved = vi.fn()) {
@@ -58,7 +61,7 @@ test('заводит исполнителя в основную копию и п
   fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'Читает дифф.' } })
   fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Ты читаешь дифф.' } })
 
-  // Копия по умолчанию — основная, и путь файла виден до сохранения
+  // Файл ложится в основную копию проекта, и путь виден до сохранения
   expect(screen.getByText('D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
@@ -67,7 +70,6 @@ test('заводит исполнителя в основную копию и п
   expect(fetchMock).toHaveBeenCalledWith('/api/performers', expect.objectContaining({ method: 'POST' }))
   expect(saved(fetchMock)).toEqual({
     base: 'D:\\Projects\\app-knowledge',
-    copy: 'D:\\Projects\\agents-kit-web',
     name: 'reviewer',
     description: 'Читает дифф.',
     model: null,
@@ -76,22 +78,24 @@ test('заводит исполнителя в основную копию и п
   })
 })
 
-test('копию выбирают в окне, и файл ложится в неё', async () => {
+test('копию в окне не выбирают: файл всегда ложится в основную', async () => {
   const fetchMock = stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
   open()
 
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
-  fireEvent.change(screen.getByLabelText('Копия'), { target: { value: 'D:\\Projects\\noble-keen-walrus' } })
 
-  expect(screen.getByText('D:\\Projects\\noble-keen-walrus\\.claude\\agents\\e2e-runner.md')).toBeInTheDocument()
+  // Исполнитель — про проект целиком, и поля выбора копии в окне больше нет — решение оператора на B-77.
+  expect(screen.queryByLabelText('Копия')).not.toBeInTheDocument()
+  expect(screen.getByText('D:\\Projects\\agents-kit-web\\.claude\\agents\\e2e-runner.md')).toBeInTheDocument()
+  expect(screen.getByText(/в остальные — кнопкой «Синхронизировать»/)).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalled())
-  expect(saved(fetchMock).copy).toBe('D:\\Projects\\noble-keen-walrus')
+  expect(saved(fetchMock).copy).toBeUndefined()
 })
 
-test('правка заведённого открывает его поля и не даёт переехать в другую копию', () => {
+test('правка заведённого открывает его поля', () => {
   open(reviewer)
 
   expect(screen.getByLabelText('Имя')).toHaveValue('reviewer')
@@ -99,7 +103,6 @@ test('правка заведённого открывает его поля и 
   expect(screen.getByLabelText('Задание')).toHaveValue('Ты читаешь дифф ветки целиком.')
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
   expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Glob, Grep')
-  expect(screen.getByLabelText('Копия')).toBeDisabled()
 })
 
 test('негодное имя объясняется словами, а набранное остаётся', async () => {
@@ -165,7 +168,6 @@ test('просьба к Чудо-Юдо идёт из окна и заполня
     url: '/api/performers/draft',
     body: {
       base: 'D:\\Projects\\app-knowledge',
-      copy: 'D:\\Projects\\agents-kit-web',
       wish: 'Читает дифф ветки и возвращает вердикт',
       current: null,
     },

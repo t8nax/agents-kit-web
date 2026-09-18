@@ -1,0 +1,174 @@
+/* Окно синхронизации исполнителя: предупреждение до записи и исход по каждой копии — B-77. */
+.sync-modal {
+  width: min(660px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  box-shadow: 0 24px 48px var(--shadow-color);
+  overflow: hidden;
+}
+
+.sync-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sync-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sync-head-end {
+  flex-grow: 1;
+}
+
+.sync-warn-mark {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
+}
+
+.sync-warn-mark svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+}
+
+.sync-body {
+  flex-grow: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sync-lead {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.sync-note {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+.sync-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sync-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.sync-row-risky {
+  flex-direction: row;
+  align-items: center;
+  border-color: var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+}
+
+.sync-row-done {
+  border-color: var(--accent-active-border);
+  background: var(--accent-active-bg);
+}
+
+.sync-row-failed {
+  border-color: var(--accent-error-border);
+  background: var(--accent-error-bg);
+}
+
+.sync-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-copy {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.sync-branch {
+  font-size: 12px;
+}
+
+.sync-row-end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sync-commit {
+  font-size: 12px;
+}
+
+/* Вывод git — как его дал git: оператор читает причину отказа дословно. */
+.sync-git {
+  margin: 0;
+  padding: 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sync-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--footer-tint);
+}
+
+.sync-footer-gap {
+  flex-grow: 1;
+}
+
+/* Кнопка, которой соглашаются на коммит в чужую ветку: она того же янтаря, что и предупреждение. */
+.bases-btn-warn {
+  border-color: var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
+}
+
+.bases-btn-warn:hover:not(:disabled) {
+  border-color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+}
