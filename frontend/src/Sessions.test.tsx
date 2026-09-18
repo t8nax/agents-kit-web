@@ -181,6 +181,22 @@ test('сессию своего окна из панели не погасить
   expect(screen.getByRole('menuitem', { name: 'Войти в сессию' })).toBeDisabled()
 })
 
+test('копия сессии своего окна открывается в VS Code', async () => {
+  const fetchMock = stubSessions([inEditor])
+
+  render(<Sessions />)
+  await openMenu('noble-keen-walrus')
+
+  expect(screen.getByRole('menuitem', { name: 'Открыть в VS Code' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Открыть в VS Code' }))
+
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith('/api/workspace/open', expect.objectContaining({ method: 'POST' })),
+  )
+  const body = fetchMock.mock.calls.find((call) => call[0] === '/api/workspace/open')![1]!.body
+  expect(JSON.parse(String(body))).toEqual({ base: inEditor.base, copy: inEditor.path })
+})
+
 test('переход открывает терминал по id сессии', async () => {
   const fetchMock = stubSessions([working])
 

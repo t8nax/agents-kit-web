@@ -4,6 +4,7 @@ import RowMenu from './RowMenu'
 import './Sessions.css'
 import { TerminalIcon } from './TerminalIcon'
 import { uptime } from './uptime'
+import { VsCodeIcon } from './VsCodeIcon'
 
 /** Строка перечня сессий; в перечень идут только сессии рабочих копий из списка баз. */
 export type SessionRow = {
@@ -90,7 +91,7 @@ export default function Sessions() {
   // Сессия со своим окном гаснет там, где её открыли; панель гасит только фоновую — по её короткому id.
   async function stop(row: SessionRow) {
     if (!row.session) return
-    setBusy(row.session)
+    setBusy(rowKey(row))
     setError(null)
     try {
       const response = await fetch('/api/sessions/stop', {
@@ -110,9 +111,32 @@ export default function Sessions() {
     }
   }
 
+  // Переход в редактор есть и у сессии своего окна: войти в неё панель не может, но показать, где она идёт, — да
+  async function openInEditor(row: SessionRow) {
+    setBusy(rowKey(row))
+    setError(null)
+    try {
+      const response = await fetch('/api/workspace/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base: row.base, copy: row.path }),
+      })
+      if (response.ok) return
+      setError(
+        response.status === 404
+          ? `Копия ${row.path} больше не числится за базой`
+          : `Не удалось открыть VS Code на ${row.path}`,
+      )
+    } catch {
+      setError(`Не удалось открыть VS Code на ${row.path}: нет связи с API`)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function openInTerminal(row: SessionRow) {
     if (!row.session) return
-    setBusy(row.session)
+    setBusy(rowKey(row))
     setError(null)
     try {
       const response = await fetch('/api/sessions/terminal', {
@@ -208,12 +232,23 @@ export default function Sessions() {
                         <div className="row-actions">
                           <RowMenu
                             label={`Действия с сессией в ${copyName(row.path)}`}
-                            // Ждёт ответа API только та сессия, над которой идёт действие; у сессии
-                            // своего окна id нет, и пустой busy не должен запирать её меню
-                            disabled={busy !== null && busy === row.session}
+                            // Ждёт ответа API только та строка, над которой идёт действие
+                            disabled={busy === rowKey(row)}
                           >
                             {(close) => (
                               <>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  className="row-menu-item"
+                                  onClick={() => {
+                                    close()
+                                    void openInEditor(row)
+                                  }}
+                                >
+                                  <VsCodeIcon />
+                                  Открыть в VS Code
+                                </button>
                                 <button
                                   type="button"
                                   role="menuitem"

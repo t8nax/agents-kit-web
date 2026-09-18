@@ -124,4 +124,14 @@ test('сессию своего окна панель не гасит', async ({
 
   await expect(page.getByRole('menuitem', { name: 'Погасить сессию' })).toBeDisabled()
   await expect(page.getByRole('menuitem', { name: 'Войти в сессию' })).toBeDisabled()
+
+  // Дойти до такой сессии панель всё же помогает: окно редактора её копии открывается из того же меню
+  const opened: unknown[] = []
+  await page.route('**/api/workspace/open', async (route) => {
+    opened.push(route.request().postDataJSON())
+    await route.fulfill({ status: 204 })
+  })
+  await page.getByRole('menuitem', { name: 'Открыть в VS Code' }).click()
+
+  expect(opened).toEqual([{ base: inEditor.base, copy: inEditor.path }])
 })
