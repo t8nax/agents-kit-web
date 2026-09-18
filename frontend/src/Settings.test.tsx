@@ -4,6 +4,9 @@ import App from './App'
 import type { FolderListing } from './FolderBrowser'
 import type { BaseEntry, KitEntry } from './Settings'
 
+// Индикатор просьб к агенту опрашивает панель сам и проверяется своим тестом; настройкам он не нужен.
+vi.mock('./AgentBar', () => ({ default: () => null }))
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
