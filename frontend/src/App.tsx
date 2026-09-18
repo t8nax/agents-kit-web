@@ -28,7 +28,8 @@ import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
-export type WorkspaceStatus = 'free' | 'in-work' | 'waiting'
+/** starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал. */
+export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting'
 
 export type WorkspaceRow = {
   project: string
@@ -116,6 +117,7 @@ const problemsStateLabels: Record<Exclude<ProblemsState, 'checked'>, string> = {
 
 const statusLabels: Record<WorkspaceStatus, string> = {
   free: 'Свободна',
+  starting: 'Запускается',
   'in-work': 'В работе',
   waiting: 'Ждёт оператора',
 }

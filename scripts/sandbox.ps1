@@ -370,6 +370,22 @@ if ($arguments -contains '--bg') {
         exit 0
     }
     $id = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    # Настоящая фоновая сессия появляется в реестре живых, и панель по ней видит, что запуск
+    # ещё идёт: без записи копия числилась бы свободной до самой памяти задачи.
+    $dummy = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 86400')
+    $session = [ordered]@{
+        pid        = $dummy.Id
+        cwd        = (Get-Location).Path
+        entrypoint = 'cli'
+        kind       = 'bg'
+        jobId      = $id
+        status     = 'busy'
+        name       = "песочница drive $id"
+        startedAt  = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    }
+    $file = Join-Path (Join-Path $root 'sessions') "$($dummy.Id).json"
+    [IO.File]::WriteAllText($file, (([pscustomobject]$session) | ConvertTo-Json -Depth 4), [Text.UTF8Encoding]::new($false))
     Write-Line "Session backgrounded · $id"
     exit 0
 }

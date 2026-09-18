@@ -376,6 +376,27 @@ test('«Взять задачу» стоит только у свободных 
   })
 })
 
+test('запущенная задача стоит в строке копии до памяти: номер, заголовок и «Запускается»', async () => {
+  const starting: WorkspaceRow = {
+    ...rows[1],
+    task: 'B-7 Панель показывает задачу сразу',
+    status: 'starting',
+    sessionState: 'working',
+    backgroundSession: true,
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([starting])))
+
+  render(<App />)
+
+  const row = (await findTableRows())[1]
+  const cells = within(row).getAllByRole('cell').map((cell) => cell.textContent)
+  // Номер с заголовком записи — всё, что панель знает о задаче; шага флоу и прогресса ещё нет
+  expect(cells.slice(1, 6)).toEqual(['B-7', 'Панель показывает задачу сразу', '—', '—', 'Запускается'])
+  expect(within(row).getByText('Запускается')).toHaveClass('status-starting')
+  // Вторую задачу в занятую копию не запустить, и кнопки у неё нет
+  expect(within(row).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
+})
+
 test('«Новая копия» открывает окно, заведённая копия отмечена в таблице и уведомлением', async () => {
   const source: WorkspaceRow = { ...rows[1], copiesDir: 'D:\\Projects' }
   const created: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\quiet-cedar', branch: 'quiet-cedar' }

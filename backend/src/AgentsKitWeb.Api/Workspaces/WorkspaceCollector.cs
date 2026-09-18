@@ -5,6 +5,9 @@ namespace AgentsKitWeb.Api.Workspaces;
 public static class WorkspaceStatus
 {
     public const string Free = "free";
+
+    /// <summary>Панель запустила задачу, а памяти у копии ещё нет: агент только начал (Tasks/StartedTasks).</summary>
+    public const string Starting = "starting";
     public const string InWork = "in-work";
     public const string Waiting = "waiting";
 }

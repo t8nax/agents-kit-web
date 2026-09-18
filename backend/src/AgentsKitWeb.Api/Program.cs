@@ -57,10 +57,16 @@ app.UseStaticFiles();
 app.MapGet("/api/ping", () => new PingResponse("pong"));
 
 app.MapGet("/api/workspaces", async (
-    BasesStore bases, HealthMonitor health, AgentSessions sessions, TaskSessions tasks, CancellationToken cancellationToken) =>
-    sessions.Annotate(
+    BasesStore bases,
+    HealthMonitor health,
+    AgentSessions sessions,
+    TaskSessions tasks,
+    StartedTasks started,
+    CancellationToken cancellationToken) =>
+    // Отметка о только что запущенной задаче ложится последней: ей нужна живая сессия из sessions.Annotate.
+    started.Annotate(sessions.Annotate(
         HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot),
-        tasks.SessionIn));
+        tasks.SessionIn)));
 
 app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
 app.MapPost("/api/health/check", (HealthMonitor health) =>
