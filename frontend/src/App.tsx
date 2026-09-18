@@ -41,8 +41,54 @@ export type WorkspaceRow = {
   problemsState?: ProblemsState | null
   /** Стоит у копии, от которой кит заводит новые: каталог, куда он их кладёт. */
   copiesDir?: string | null
+  /** Что делает сессия агента в копии; null или нет поля — живой сессии в ней нет. */
+  sessionState?: SessionState | null
   /** В копии идёт фоновая сессия агента — в неё есть переход из терминала. */
   backgroundSession?: boolean
+}
+
+/** Состояния сессии агента в копии; отсутствие сессии состоянием не считается. */
+export type SessionState = 'working' | 'waiting' | 'idle'
+
+/**
+ * Подписи состояний. «Ждёт вас в терминале» — про вопрос самой сессии, на который из панели не ответить;
+ * «Ждёт оператора» в статусе копии — про вопрос в файле памяти, и это разные ожидания.
+ */
+const sessionLabels: Record<SessionState, string> = {
+  working: 'сессия работает',
+  waiting: 'сессия ждёт вас в терминале',
+  idle: 'сессия стоит без дела',
+}
+
+const noSessionLabel = 'сессии нет'
+
+/**
+ * Точка состояния сессии у имени копии: цвет читается по легенде под таблицей, слова — подсказкой.
+ * Подпись идёт меткой, а не скрытым текстом: скрытый текст попал бы в содержимое ячейки с именем копии.
+ */
+function SessionDot({ state }: { state: SessionState | null }) {
+  const label = state ? sessionLabels[state] : noSessionLabel
+  return <span className={`session-dot session-${state ?? 'none'}`} role="img" aria-label={label} title={label} />
+}
+
+/** Легенда точек: без неё цвет у имени копии ничего не говорит, пока на него не наведёшь мышь. */
+function SessionLegend() {
+  return (
+    <div className="session-legend">
+      <span className="text-ter">Точка у имени копии:</span>
+      {/* Точки легенды подписаны рядом словами, и диктору читать их второй раз незачем */}
+      {(Object.keys(sessionLabels) as SessionState[]).map((state) => (
+        <span key={state} className="session-legend-item">
+          <span className={`session-dot session-${state}`} aria-hidden="true" />
+          {sessionLabels[state].replace('сессия ', '')}
+        </span>
+      ))}
+      <span className="session-legend-item">
+        <span className="session-dot session-none" aria-hidden="true" />
+        {noSessionLabel}
+      </span>
+    </div>
+  )
 }
 
 /** Только что заведённая копия: её строка отмечена, пока висит уведомление. */
@@ -625,8 +671,10 @@ function WorkspacesTable({
               </tr>
               {!collapsed && group.rows.map((row) => (
             <tr key={rowKey(row)} className={isFresh(row, fresh) ? 'row-fresh' : undefined}>
-              <td title={row.path}>
+              {/* Строке с ошибкой точку ставить не о чем: копии на диске нет или её не прочитали. */}
+              <td title={row.path} className={row.error ? undefined : 'copy-col'}>
                 <div className="proj">
+                  {!row.error && <SessionDot state={row.sessionState ?? null} />}
                   {copyName(row.path)}
                   {isFresh(row, fresh) && <span className="new-tag">новая</span>}
                 </div>
@@ -688,6 +736,7 @@ function WorkspacesTable({
           )
         })}
       </table>
+      <SessionLegend />
     </>
   )
 }
