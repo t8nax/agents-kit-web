@@ -569,7 +569,7 @@ td.num-col {
 .row-menu-item {
   font: inherit;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   width: 100%;
   padding: 8px 10px;
@@ -585,7 +585,6 @@ td.num-col {
   width: 16px;
   height: 16px;
   flex: none;
-  margin-top: 1px;
   color: var(--text-secondary);
 }
 
@@ -604,18 +603,6 @@ td.num-col {
 }
 
 .row-menu-item:disabled svg {
-  color: var(--text-tertiary);
-}
-
-.row-menu-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* Приглушённый пункт говорит, чего ждать, — иначе непонятно, почему он не нажимается. */
-.row-menu-why {
-  font-size: 12px;
   color: var(--text-tertiary);
 }
 

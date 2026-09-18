@@ -694,7 +694,8 @@ function WorkspacesTable({
 
 /**
  * Действия строки — одним меню: переходов стало два, и в строке они занимали больше места, чем стоят —
- * решение оператора. Пункт терминала виден и без фоновой сессии, но приглушён и говорит почему.
+ * решение оператора. Без фоновой сессии пункт терминала виден, но не нажимается: подписи о причине
+ * у него нет — оператор убрал её на приёмке.
  */
 function RowActionsMenu({
   row,
@@ -756,12 +757,7 @@ function RowActionsMenu({
             }}
           >
             <TerminalIcon />
-            <span className="row-menu-text">
-              Открыть в терминале
-              {!row.backgroundSession && (
-                <span className="row-menu-why">Подключаться не к чему: сессия в фоне не идёт</span>
-              )}
-            </span>
+            Открыть в терминале
           </button>
           <button
             type="button"
@@ -773,7 +769,7 @@ function RowActionsMenu({
             }}
           >
             <VsCodeIcon />
-            <span className="row-menu-text">Открыть в VS Code</span>
+            Открыть в VS Code
           </button>
         </div>
       )}

@@ -257,9 +257,10 @@ test('«Открыть в терминале» ведёт в фоновую се
 
   // У свободной копии фоновой сессии нет: пункт виден, но не нажимается и говорит почему
   const free = await openRowMenu(tableRows[2])
-  const disabled = within(free).getByRole('menuitem', { name: /Открыть в терминале/ })
+  // Подписи о причине у приглушённого пункта нет — оператор убрал её на приёмке
+  const disabled = within(free).getByRole('menuitem', { name: 'Открыть в терминале' })
   expect(disabled).toBeDisabled()
-  expect(disabled).toHaveTextContent('сессия в фоне не идёт')
+  expect(disabled).toHaveTextContent('Открыть в терминале')
 
   const menu = await openRowMenu(tableRows[1])
   await act(async () => {

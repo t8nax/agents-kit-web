@@ -86,11 +86,11 @@ test('из меню строки оператор переходит в фоно
 
   await page.goto('/')
 
-  // Без фоновой сессии пункт виден, но не нажимается и говорит почему
+  // Без фоновой сессии пункт виден, но не нажимается; подписи о причине у него нет
   await page.getByRole('row', { name: /app-wt/ }).getByRole('button', { name: 'Действия с app-wt' }).click()
-  const dead = page.getByRole('menuitem', { name: /Открыть в терминале/ })
+  const dead = page.getByRole('menuitem', { name: 'Открыть в терминале' })
   await expect(dead).toBeDisabled()
-  await expect(dead).toContainText('сессия в фоне не идёт')
+  await expect(dead).toHaveText('Открыть в терминале')
   await page.keyboard.press('Escape')
 
   await page.getByRole('row', { name: /Окно ответа/ }).getByRole('button', { name: 'Действия с app' }).click()
