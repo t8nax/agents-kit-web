@@ -46,7 +46,7 @@ test('идущая просьба названа в шапке вместе со
   const opened: AgentRequestSummary[] = []
   render(<AgentBar onOpen={(request) => opened.push(request)} />)
 
-  const chip = await screen.findByRole('button', { name: /Агент читает базу Agents Kit Web/ })
+  const chip = await screen.findByRole('button', { name: /Чудо-юдо читает базу Agents Kit Web/ })
   expect(within(chip).getByLabelText('Просьба идёт')).toHaveTextContent('1:12')
 
   fireEvent.click(chip)
@@ -66,10 +66,10 @@ test('несколько просьб разворачиваются списк�
   const opened: AgentRequestSummary[] = []
   render(<AgentBar onOpen={(request) => opened.push(request)} />)
 
-  fireEvent.click(await screen.findByRole('button', { name: /Агент занят/ }))
+  fireEvent.click(await screen.findByRole('button', { name: /Чудо-юдо занят/ }))
 
   const list = await screen.findByRole('list', { name: 'Просьбы' })
-  expect(within(list).getByText('Агент читает базу Agents Kit Web')).toBeInTheDocument()
+  expect(within(list).getByText('Чудо-юдо читает базу Agents Kit Web')).toBeInTheDocument()
   expect(within(list).getByText('Добавь ревью перед мержем')).toBeInTheDocument()
   expect(within(list).getByText('готов')).toBeInTheDocument()
 

@@ -61,19 +61,19 @@ test('закрытое окно не останавливает агента: о
   const dialog = await openAsk(page)
   await dialog.getByLabel('Вопрос').fill('Почему опрос?')
   await dialog.getByRole('button', { name: 'Спросить' }).click()
-  await expect(dialog.getByRole('status')).toContainText('Агент читает базу Agents Kit Web…')
+  await expect(dialog.getByRole('status')).toContainText('Чудо-юдо читает базу Agents Kit Web…')
 
   // Оператор закрыл окно и занялся другим: агент работает дальше.
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
   expect(panel.deletes).toBe(0)
 
-  const chip = page.getByRole('banner').getByRole('button', { name: /Агент читает базу/ })
+  const chip = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо читает базу/ })
   await expect(chip).toBeVisible()
 
   // Агент закончил, пока окно было закрыто.
   panel.reply(ndjson({ type: 'answer', text: 'Так решил оператор.', files: ['decisions/ui.md'], durationMs: 12000 }))
-  const done = page.getByRole('banner').getByRole('button', { name: /Ответ по базе Agents Kit Web готов/ })
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо ответил по базе Agents Kit Web/ })
   await expect(done).toBeVisible()
 
   await done.click()
@@ -93,14 +93,14 @@ test('пока агент думает, идёт счётчик, а «Отмен
   await dialog.getByRole('button', { name: 'Спросить' }).click()
 
   const waiting = dialog.getByRole('status')
-  await expect(waiting).toContainText('Агент читает базу Agents Kit Web…')
+  await expect(waiting).toContainText('Чудо-юдо читает базу Agents Kit Web…')
   await expect(waiting.getByLabel('Прошло времени')).toHaveText('0:01', { timeout: 5000 })
   await expect(dialog.getByRole('button', { name: 'Nota', exact: true })).toBeDisabled()
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()
   await expect(dialog.getByLabel('Вопрос')).toHaveValue('Долгий вопрос')
   expect(panel.deletes).toBe(1)
-  await expect(page.getByRole('banner').getByRole('button', { name: /Агент читает базу/ })).toHaveCount(0)
+  await expect(page.getByRole('banner').getByRole('button', { name: /Чудо-юдо читает базу/ })).toHaveCount(0)
 })
 
 test('сбой агента виден с его выводом, вопрос можно повторить', async ({ page }) => {
@@ -112,7 +112,7 @@ test('сбой агента виден с его выводом, вопрос м
   await dialog.getByRole('button', { name: 'Спросить' }).click()
 
   const alert = dialog.getByRole('alert')
-  await expect(alert).toContainText('Агент не ответил')
+  await expect(alert).toContainText('Чудо-юдо не ответил')
   await expect(alert).toContainText('Invalid API key · Please run /login')
 
   panel.reply(ndjson({ type: 'answer', text: 'Теперь ответил', files: [], durationMs: 2000 }))
@@ -151,7 +151,7 @@ for (const theme of ['dark', 'light'] as const) {
     await dialog.getByRole('button', { name: 'Спросить' }).click()
     await page.keyboard.press('Escape')
 
-    const chip = page.getByRole('banner').getByRole('button', { name: /Агент читает базу/ })
+    const chip = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо читает базу/ })
     await expect(chip).toBeVisible()
     const [color, background] = await Promise.all([
       chip.evaluate((el) => getComputedStyle(el).color),

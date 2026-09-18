@@ -99,7 +99,7 @@ public static class FlowRewriteEndpoints
         }
         catch (OperationCanceledException) when (!aborted.IsCancellationRequested)
         {
-            return new FlowRewriteEvent("error", "Агент не закончил за пять минут и остановлен");
+            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} не закончил за пять минут и остановлен");
         }
 
         if (result is null)
@@ -119,7 +119,7 @@ public static class FlowRewriteEndpoints
     {
         var document = FlowFile.Parse(Unfence(answer.Text));
         if (document.Steps.Count == 0)
-            return new FlowRewriteEvent("error", "Агент вернул не флоу: шагов в его ответе нет", Output: Shorten(answer.Text));
+            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} вернул не флоу: шагов в его ответе нет", Output: Shorten(answer.Text));
         if (FlowFile.Validate(document.Steps) is { } rejection)
             return new FlowRewriteEvent(
                 "error",
@@ -131,7 +131,7 @@ public static class FlowRewriteEndpoints
         {
             if (FlowFile.Fingerprint(await File.ReadAllBytesAsync(file, cancellationToken)) != version)
                 return new FlowRewriteEvent(
-                    "error", "Флоу базы изменился, пока агент его переписывал", Problem: "changed");
+                    "error", $"Флоу базы изменился, пока {AgentRequests.AgentName} его переписывал", Problem: "changed");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -204,7 +204,7 @@ public static class FlowRewriteEndpoints
         var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
         return new FlowRewriteEvent(
             "error",
-            "Агент завершился без ответа",
+            $"{AgentRequests.AgentName} завершился без ответа",
             Output: output.Length > 0 ? Shorten(output) : $"код выхода {exit.ExitCode}");
     }
 

@@ -6,21 +6,21 @@ import './AgentBar.css'
 /** Как часто панель перечитывает свои просьбы — тем же шагом, что и таблицу копий. */
 const refreshIntervalMs = 3000
 
-// Имя агента носят запись в бэклог и переписывание флоу; вопрос по базе так не называется.
+// Имя агента панели носят все три просьбы, вопрос по базе тоже, — замечание оператора на приёмке B-52.
 const running: Record<AgentKind, (project: string) => string> = {
-  ask: (project) => `Агент читает базу ${project}`,
+  ask: (project) => `${AGENT_NAME} читает базу ${project}`,
   backlog: (project) => `${AGENT_NAME} пишет в бэклог ${project}`,
   flow: (project) => `${AGENT_NAME} переписывает флоу ${project}`,
 }
 
 const done: Record<AgentKind, (project: string) => string> = {
-  ask: (project) => `Ответ по базе ${project} готов`,
+  ask: (project) => `${AGENT_NAME} ответил по базе ${project}`,
   backlog: (project) => `${AGENT_NAME} записал в бэклог ${project}`,
   flow: (project) => `${AGENT_NAME} переписал флоу ${project}`,
 }
 
 const failed: Record<AgentKind, (project: string) => string> = {
-  ask: (project) => `Вопрос по базе ${project} не вышел`,
+  ask: (project) => `${AGENT_NAME} не ответил по базе ${project}`,
   backlog: (project) => `${AGENT_NAME} не записал в бэклог ${project}`,
   flow: (project) => `${AGENT_NAME} не переписал флоу ${project}`,
 }
@@ -89,7 +89,7 @@ export default function AgentBar({ onOpen }: { onOpen: (request: AgentRequestSum
       >
         {state === 'running' ? <Spinner /> : <span className="agent-dot" aria-hidden="true" />}
         <span className="agent-chip-text">
-          {only ? title(only) : busy.length > 0 ? 'Агент занят' : 'Итоги ждут вас'}
+          {only ? title(only) : busy.length > 0 ? `${AGENT_NAME} занят` : 'Итоги ждут вас'}
         </span>
         {only?.state === 'running' && <Elapsed since={only.elapsedMs} read={readAt} now={now} />}
         {!only && <span className="agent-count">{requests.length}</span>}

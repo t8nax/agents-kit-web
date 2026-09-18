@@ -95,7 +95,7 @@ public static class BacklogWriteEndpoints
         }
         catch (OperationCanceledException) when (!aborted.IsCancellationRequested)
         {
-            return await Outcome(basePath, before, new BacklogWriteEvent("error", "Агент не закончил за пять минут и остановлен"));
+            return await Outcome(basePath, before, new BacklogWriteEvent("error", $"{AgentRequests.AgentName} не закончил за пять минут и остановлен"));
         }
 
         if (result is null)
@@ -118,7 +118,7 @@ public static class BacklogWriteEndpoints
         if (failure is not null)
             return added.Count == 0 ? failure : failure with { Entries = added };
         if (added.Count == 0)
-            return new BacklogWriteEvent("error", "Агент закончил, но новых записей в бэклоге нет", Output: output);
+            return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} закончил, но новых записей в бэклоге нет", Output: output);
         if (await BaseGit.IsDirtyAsync(basePath, BacklogFile, CancellationToken.None) != false)
             return new BacklogWriteEvent("error", "Записи появились, но backlog.md не закоммичен", added, Output: output);
 
@@ -172,7 +172,7 @@ public static class BacklogWriteEndpoints
         var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
         return new BacklogWriteEvent(
             "error",
-            "Агент завершился без итога",
+            $"{AgentRequests.AgentName} завершился без итога",
             Output: output.Length > 0 ? output : $"код выхода {exit.ExitCode}");
     }
 

@@ -176,7 +176,7 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
                 {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
               {steps.length > 0 && (
-                <ol className="ask-steps" aria-label="Ход работы агента">
+                <ol className="ask-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
                   {steps.map((step, i) => (
                     <li key={i}>{step}</li>
                   ))}

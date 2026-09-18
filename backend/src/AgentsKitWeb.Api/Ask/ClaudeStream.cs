@@ -72,7 +72,7 @@ public sealed class ClaudeStream(string basePath, string? copyPath = null)
                 var failed = root.TryGetProperty("is_error", out var isError) && isError.ValueKind == JsonValueKind.True
                     || Text(root, "subtype") != "success";
                 yield return failed
-                    ? new AskEvent("error", "Агент завершился с ошибкой", Output: text.Length > 0 ? text : Text(root, "subtype"))
+                    ? new AskEvent("error", $"{AgentRequests.AgentName} завершился с ошибкой", Output: text.Length > 0 ? text : Text(root, "subtype"))
                     : new AskEvent("answer", text, _files.ToList(), duration);
                 break;
         }

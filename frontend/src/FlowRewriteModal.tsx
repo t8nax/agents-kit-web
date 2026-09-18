@@ -185,7 +185,7 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
                 {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
               {agentSteps.length > 0 && (
-                <ol className="ask-steps" aria-label="Ход работы агента">
+                <ol className="ask-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
                   {agentSteps.map((step, i) => (
                     <li key={i}>{step}</li>
                   ))}

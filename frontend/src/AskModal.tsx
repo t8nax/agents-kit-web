@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { AGENT_NAME } from './BacklogWriteModal'
 import { Markdown } from './Markdown'
 import { useAgentRequest } from './agentRequest'
 import './AskModal.css'
@@ -169,11 +170,13 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
             <>
               <div className="ask-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
-                <span className="ask-waiting-text">Агент читает базу {project}…</span>
+                <span className="ask-waiting-text">
+                  {AGENT_NAME} читает базу {project}…
+                </span>
                 {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
               {steps.length > 0 && (
-                <ol className="ask-steps" aria-label="Ход работы агента">
+                <ol className="ask-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
                   {steps.map((step, i) => (
                     <li key={i}>{step}</li>
                   ))}
@@ -207,7 +210,7 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
 
           {phase === 'failed' && (
             <div className="ask-error" role="alert">
-              <strong>Агент не ответил</strong>
+              <strong>{AGENT_NAME} не ответил</strong>
               <span>{error}. База не менялась.</span>
               {output && <pre>{output}</pre>}
             </div>
@@ -217,7 +220,7 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
         <div className="modal-footer ask-footer">
           <span className="ask-hint">
             <LockIcon />
-            Агент только читает базу и ничего в ней не меняет
+            {AGENT_NAME} только читает базу и ничего в ней не меняет
           </span>
           <div className="footer-right">
             {phase === 'idle' && (

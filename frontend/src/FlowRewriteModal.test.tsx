@@ -58,7 +58,7 @@ test('просьба уходит в базу раздела, ход агент�
   expect(posts[0].body).toEqual({ base, wish: 'Добавь ревью перед мержем' })
 
   stream.send({ type: 'step', text: 'читает flow.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы агента' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
   expect(within(steps).getByText('читает flow.md')).toBeInTheDocument()
 
   const rewritten = [

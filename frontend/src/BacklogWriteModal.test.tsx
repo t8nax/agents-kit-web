@@ -42,7 +42,7 @@ test('текст уходит в проект раздела, ход агент�
   expect(posts[0].body).toEqual({ base: 'D:\\Projects\\nota-knowledge', text: 'Хочу видеть ожидание и сортировку' })
 
   stream.send({ type: 'step', text: 'правит backlog.md' })
-  const steps = await screen.findByRole('list', { name: 'Ход работы агента' })
+  const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-юдо' })
   expect(within(steps).getByText('правит backlog.md')).toBeInTheDocument()
 
   stream.send({

@@ -161,6 +161,9 @@ public sealed class AgentRequest
 /// </summary>
 public sealed class AgentRequests
 {
+    /// <summary>Имя агента панели, выбранное оператором: им зовут все три просьбы — приёмка B-52.</summary>
+    public const string AgentName = "Чудо-юдо";
+
     public const string Ask = "ask";
     public const string Backlog = "backlog";
     public const string Flow = "flow";

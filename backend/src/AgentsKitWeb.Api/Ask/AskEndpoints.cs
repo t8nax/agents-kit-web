@@ -70,7 +70,7 @@ public static class AskEndpoints
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            asking.Write(new AskEvent("error", "Агент не ответил за пять минут и остановлен"));
+            asking.Write(new AskEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен"));
         }
     }
 
@@ -103,7 +103,7 @@ public static class AskEndpoints
         var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
         return new AskEvent(
             "error",
-            "Агент завершился без ответа",
+            $"{AgentRequests.AgentName} завершился без ответа",
             Output: output.Length > 0 ? output : $"код выхода {exit.ExitCode}");
     }
 
