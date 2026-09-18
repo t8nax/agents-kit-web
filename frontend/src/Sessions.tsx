@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCollapsedGroups } from './collapsedGroups'
+import NewSessionModal from './NewSessionModal'
+import { PlusIcon } from './NewWorkspaceModal'
 import RowMenu from './RowMenu'
 import './Sessions.css'
 import { TerminalIcon } from './TerminalIcon'
@@ -43,6 +45,8 @@ const stateBadges: Record<SessionState, string> = {
 
 const refreshIntervalMs = 3000
 
+const startedMessageMs = 5000
+
 const collapsedKey = 'agents-kit-web.collapsed-session-groups'
 
 const columnCount = 5
@@ -58,6 +62,8 @@ export default function Sessions() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<SessionRow | null>(null)
+  const [starting, setStarting] = useState(false)
+  const [started, setStarted] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const lastRequest = useRef(0)
   const groups = useCollapsedGroups(collapsedKey)
@@ -87,6 +93,13 @@ export default function Sessions() {
     const timer = setInterval(load, refreshIntervalMs)
     return () => clearInterval(timer)
   }, [load])
+
+  // Сообщение о запуске гаснет само, как в окне запуска задачи
+  useEffect(() => {
+    if (!started) return
+    const timer = setTimeout(() => setStarted(null), startedMessageMs)
+    return () => clearTimeout(timer)
+  }, [started])
 
   // Сессия со своим окном гаснет там, где её открыли; панель гасит только фоновую — по её короткому id.
   async function stop(row: SessionRow) {
@@ -160,7 +173,13 @@ export default function Sessions() {
     <>
       <div className="content-head">
         <h2>Сессии</h2>
+        {/* Кнопка стоит там же и выглядит так же, как «Новая копия» в таблице копий — решение оператора */}
+        <button type="button" className="bases-btn bases-btn-add head-end" onClick={() => setStarting(true)}>
+          <PlusIcon />
+          Новая сессия
+        </button>
       </div>
+      {started && <p className="message">Сессия {started} запущена — она появится в перечне через миг.</p>}
       {failed && <p className="message warning-text">Нет связи с API</p>}
       {error && (
         <p className="message warning-text" role="alert">
@@ -288,6 +307,17 @@ export default function Sessions() {
             )
           })}
         </table>
+      )}
+      {starting && (
+        <NewSessionModal
+          sessions={rows ?? []}
+          onClose={() => setStarting(false)}
+          onStarted={(session) => {
+            setStarting(false)
+            setStarted(session)
+            load()
+          }}
+        />
       )}
       {confirming && (
         <StopConfirm

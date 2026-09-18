@@ -1,0 +1,209 @@
+/* Окно запуска сессии — по макету B-61, устройством повторяет окно запуска задачи */
+
+.ns-modal {
+  width: 600px;
+  max-width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 24px 48px var(--shadow-color);
+  overflow: hidden;
+}
+
+.ns-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ns-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ns-close {
+  margin-left: auto;
+}
+
+.ns-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ns-failure {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border: 1px solid var(--accent-error-border);
+}
+
+.ns-field {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ns-label {
+  display: block;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.ns-copies {
+  min-height: 0;
+}
+
+.ns-message {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ns-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.ns-list li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.ns-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.ns-copy.is-on,
+.ns-copy:hover {
+  background: var(--bg-surface-hover);
+}
+
+.ns-copy:focus-within {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.ns-radio {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+}
+
+.ns-copy.is-on .ns-radio {
+  border: 4px solid var(--text-primary);
+}
+
+.ns-copy-name {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Задача копии — та же плашка, что у статуса «В работе» в таблице копий */
+.ns-task {
+  flex-shrink: 0;
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--accent-active-text);
+  background: var(--accent-active-bg);
+  border: 1px solid var(--accent-active-border);
+}
+
+.ns-copy-sub {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.ns-prompt {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.ns-prompt:focus {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -1px;
+}
+
+.ns-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+/* Про идущую в копии задачу окно предупреждает, но запуск не отменяет */
+.ns-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border: 1px solid var(--accent-waiting-border);
+}
+
+.ns-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--footer-tint);
+}
+
+/* Надпись на кнопке не переносится */
+.ns-footer .btn {
+  white-space: nowrap;
+}
+
+.ns-footer-end {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
