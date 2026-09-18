@@ -103,6 +103,7 @@ app.MapPanelEndpoints();
 app.MapPerformerDraftEndpoints();
 app.MapPerformerSyncEndpoints();
 app.MapPerformersEndpoints();
+app.MapRemoveWorkspaceEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 app.MapUsageEndpoints();
