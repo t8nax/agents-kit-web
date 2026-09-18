@@ -2,6 +2,7 @@ using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
+using AgentsKitWeb.Api.Panel;
 using AgentsKitWeb.Api.Performers;
 using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Usage;
@@ -36,6 +37,8 @@ builder.Services.AddSingleton(services =>
 // Запрос о лимитах идёт к Anthropic, и ждать его дольше нескольких секунд разделу незачем:
 // лучше строка «не ответил вовремя», чем раздел, который висит на открытии.
 builder.Services.AddHttpClient<ILimits, AnthropicLimits>(client => client.Timeout = TimeSpan.FromSeconds(15));
+builder.Services.AddSingleton(services =>
+    new InstalledPanel(services.GetRequiredService<IConfiguration>()["PublishedFile"] ?? InstalledPanel.DefaultFile));
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
@@ -85,6 +88,7 @@ app.MapFlowRewriteEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
+app.MapPanelEndpoints();
 app.MapPerformerDraftEndpoints();
 app.MapPerformerSyncEndpoints();
 app.MapPerformersEndpoints();
