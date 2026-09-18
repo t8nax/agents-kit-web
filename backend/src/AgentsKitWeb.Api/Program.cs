@@ -2,6 +2,7 @@ using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
+using AgentsKitWeb.Api.Performers;
 using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Workspaces;
 
@@ -66,6 +67,7 @@ app.MapFlowRewriteEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
+app.MapPerformersEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 

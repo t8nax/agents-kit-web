@@ -7,6 +7,7 @@ import AgentBar from './AgentBar'
 import type { AgentKind } from './agentRequest'
 import Flow, { FlowIcon } from './Flow'
 import NewWorkspaceModal, { PlusIcon } from './NewWorkspaceModal'
+import Performers, { PerformerIcon } from './Performers'
 import {
   notificationsActive,
   notifyStatusChange,
@@ -123,7 +124,7 @@ const refreshIntervalMs = 3000
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
-type Section = 'workspaces' | 'backlog' | 'flow' | 'sessions' | 'problems' | 'settings'
+type Section = 'workspaces' | 'backlog' | 'flow' | 'performers' | 'sessions' | 'problems' | 'settings'
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
@@ -281,7 +282,10 @@ function App() {
             <Flow
               key={openRequest?.kind === 'flow' ? openRequest.at : 'flow'}
               rewriteFor={openRequest?.kind === 'flow' ? openRequest.base : null}
+              onPerformers={() => setSection('performers')}
             />
+          ) : section === 'performers' ? (
+            <Performers />
           ) : section === 'sessions' ? (
             <Sessions />
           ) : section === 'problems' ? (
@@ -393,6 +397,15 @@ function Sidebar({
         </SideItem>
         <SideItem label="Флоу" expanded={expanded} active={section === 'flow'} onClick={() => onSection('flow')}>
           <FlowIcon />
+        </SideItem>
+        {/* Исполнители стоят за флоу: шаг флоу поручает работу им же */}
+        <SideItem
+          label="Исполнители"
+          expanded={expanded}
+          active={section === 'performers'}
+          onClick={() => onSection('performers')}
+        >
+          <PerformerIcon />
         </SideItem>
         {/* Сессии стоят за флоу и перед проблемами: это раздел про то, что идёт прямо сейчас */}
         <SideItem
