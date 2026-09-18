@@ -1,0 +1,49 @@
+/* Раздел «Сессии»: таблица и группы взяты у рабочих копий, чипы — у бэклога */
+
+/* Гашение необратимо, и его пункт назван цветом ошибки — как и кнопка в окне подтверждения */
+.row-menu-item.row-menu-danger:not(:disabled),
+.row-menu-item.row-menu-danger:not(:disabled) svg {
+  color: var(--accent-error-text);
+}
+
+.row-menu-item.row-menu-danger:not(:disabled):hover {
+  background: var(--accent-error-bg);
+}
+
+.stop-modal {
+  width: 460px;
+  max-width: 100%;
+  padding: 20px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 24px 48px var(--shadow-color);
+}
+
+.stop-modal h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.stop-modal p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.stop-footer {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.btn.btn-danger {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
+}
+
+.btn.btn-danger:hover {
+  border-color: var(--accent-error-text);
+}

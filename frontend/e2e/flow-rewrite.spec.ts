@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockAgentPanel, ndjson } from './agentPanel.ts'
 
 type Step = { title: string; executor: string; output: string; skip: string | null; description: string | null }
 
@@ -18,11 +19,12 @@ const review: Step = {
   description: '2.1. Собрать дифф всей ветки.',
 }
 
-const ndjson = (...events: object[]) => events.map((e) => JSON.stringify(e)).join('\n') + '\n'
 
 // /api подменяется: настоящая просьба запустила бы агента в живой базе, а запись ушла бы в её flow.md.
+const flowBase = 'D:\\Projects\\app-knowledge'
+
 async function mockApi(page: Page) {
-  const calls: { save: unknown[]; rewrite: unknown[] } = { save: [], rewrite: [] }
+  const calls: { save: unknown[] } = { save: [] }
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/presets', (route) => route.fulfill({ json: [] }))
@@ -45,7 +47,8 @@ async function mockApi(page: Page) {
       ],
     })
   })
-  return calls
+  const panel = await mockAgentPanel(page, 'flow', '/api/flow/rewrite')
+  return { save: calls.save, panel }
 }
 
 async function openFlow(page: Page) {
@@ -58,23 +61,19 @@ async function openFlow(page: Page) {
 
 test('оператор просит переписать флоу словами, смотрит разбор и берёт правки в схему', async ({ page }) => {
   const calls = await mockApi(page)
-  await page.route('**/api/flow/rewrite', async (route) => {
-    calls.rewrite.push(route.request().postDataJSON())
-    await route.fulfill({
-      contentType: 'application/x-ndjson',
-      body: ndjson(
-        // Ход работы агента приходит теми же строками, что в окнах вопроса и записи.
-        { type: 'step', text: 'читает flow.md' },
-        {
-          type: 'rewritten',
-          text: '',
-          steps: [criterion, review, { ...merge, output: 'sha в dev после вердикта ревью' }],
-          version: 'v1',
-          durationMs: 18000,
-        },
-      ),
-    })
-  })
+  calls.panel.reply(
+    ndjson(
+      // Ход работы агента приходит теми же строками, что в окнах вопроса и записи.
+      { type: 'step', text: 'читает flow.md' },
+      {
+        type: 'rewritten',
+        text: '',
+        steps: [criterion, review, { ...merge, output: 'sha в dev после вердикта ревью' }],
+        version: 'v1',
+        durationMs: 18000,
+      },
+    ),
+  )
 
   const region = await openFlow(page)
   await page.getByRole('button', { name: 'Переписать с Чудо-юдо' }).click()
@@ -88,7 +87,7 @@ test('оператор просит переписать флоу словами
   await expect(changes.getByText('изменён')).toBeVisible()
   await expect(changes.getByText('sha в dev после вердикта ревью')).toBeVisible()
   await expect(changes.getByText('18 с')).toBeVisible()
-  expect(calls.rewrite).toEqual([{ base: 'D:\\Projects\\app-knowledge', wish: 'Добавь шаг ревью перед мержем' }])
+  expect(calls.panel.posts).toEqual([{ base: flowBase, wish: 'Добавь шаг ревью перед мержем' }])
 
   // Описание нового шага не пересказано: его открывает своё окно поверх разбора.
   await expect(dialog.getByText('Собрать дифф всей ветки')).toHaveCount(0)
@@ -113,14 +112,11 @@ test('оператор просит переписать флоу словами
 
 test('отказ оставляет флоу как был, а неудачу агента видно словами', async ({ page }) => {
   const calls = await mockApi(page)
-  await page.route('**/api/flow/rewrite', (route) =>
-    route.fulfill({
-      contentType: 'application/x-ndjson',
-      body: ndjson({
-        type: 'error',
-        text: 'Агент вернул не флоу: шагов в его ответе нет',
-        output: 'Готово, я добавил шаг ревью.',
-      }),
+  calls.panel.reply(
+    ndjson({
+      type: 'error',
+      text: 'Агент вернул не флоу: шагов в его ответе нет',
+      output: 'Готово, я добавил шаг ревью.',
     }),
   )
 
@@ -146,9 +142,7 @@ test('отказ оставляет флоу как был, а неудачу а
 })
 
 test('пока агент переписывает, идёт счётчик, а «Отменить» возвращает просьбу в поле', async ({ page }) => {
-  await mockApi(page)
-  // Ответ не приходит: агент «переписывает», пока тест не отменит просьбу.
-  await page.route('**/api/flow/rewrite', () => {})
+  const calls = await mockApi(page)
 
   await openFlow(page)
   await page.getByRole('button', { name: 'Переписать с Чудо-юдо' }).click()
@@ -163,4 +157,41 @@ test('пока агент переписывает, идёт счётчик, а 
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()
   await expect(dialog.getByLabel('Что поменять во флоу')).toHaveValue('Добавь ревью')
+  expect(calls.panel.deletes).toBe(1)
+})
+
+test('закрытое окно не останавливает агента: разбор ждёт в шапке и открывается оттуда', async ({ page }) => {
+  const calls = await mockApi(page)
+
+  await openFlow(page)
+  await page.getByRole('button', { name: 'Переписать с Чудо-юдо' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
+  await dialog.getByLabel('Что поменять во флоу').fill('Добавь ревью')
+  await dialog.getByRole('button', { name: 'Переписать' }).click()
+  await expect(dialog.getByRole('status')).toContainText('Чудо-юдо переписывает флоу Agents Kit Web…')
+
+  // Оператор ушёл смотреть копии: агент дописывает флоу без него.
+  await page.keyboard.press('Escape')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Рабочие копии' }).click()
+  expect(calls.panel.deletes).toBe(0)
+
+  calls.panel.reply(
+    ndjson({
+      type: 'rewritten',
+      text: '',
+      steps: [criterion, review, { ...merge, output: 'sha в dev после вердикта ревью' }],
+      version: 'v1',
+    }),
+  )
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-юдо переписал флоу/ })
+  await expect(done).toBeVisible()
+
+  await done.click()
+
+  const reopened = page.getByRole('dialog', { name: 'Переписать флоу' })
+  await expect(reopened.getByLabel('Что изменилось во флоу').getByText('добавлен')).toBeVisible()
+  await reopened.getByRole('button', { name: 'Взять правки в схему' }).click()
+  const region = page.getByRole('region', { name: 'Agents Kit Web' })
+  await expect(region.getByRole('button', { name: 'Шаг 2: Ревью' })).toBeVisible()
+  expect(calls.panel.posts).toHaveLength(1)
 })

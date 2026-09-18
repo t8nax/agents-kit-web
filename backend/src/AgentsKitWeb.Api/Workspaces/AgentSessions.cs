@@ -15,6 +15,12 @@ public static class SessionState
 
     /// <summary>Сессия жива, но ничего не делает и ни о чём не спрашивает.</summary>
     public const string Idle = "idle";
+
+    /// <summary>
+    /// Сессия стоит, а её копия ждёт ответа оператора в файле памяти: работа упёрлась в вопрос, а не кончилась.
+    /// Состояние считается по копии, поэтому у строки таблицы копий его нет — только в перечне сессий.
+    /// </summary>
+    public const string AwaitingOperator = "operator";
 }
 
 /// <summary>
@@ -28,7 +34,9 @@ public sealed record AgentSession(
     string? Kind = null,
     string? JobId = null,
     string? Status = null,
-    long? ProcStart = null)
+    long? ProcStart = null,
+    string? Name = null,
+    long? StartedAt = null)
 {
     public bool InVsCode => Entrypoint == "claude-vscode";
 
@@ -92,6 +100,13 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
             : row)
         .ToList();
 
+    /// <summary>Все живые сессии реестра — перечень раздела «Сессии»; каталог сессии может не быть копией базы.</summary>
+    public IReadOnlyList<AgentSession> Live() => All().ToList();
+
+    /// <summary>Живая сессия по её короткому id; null — такой сессии в реестре уже нет.</summary>
+    public AgentSession? ByJobId(string jobId) =>
+        All().FirstOrDefault(session => session.JobId == jobId);
+
     private AgentSession? In(string copyPath, Func<AgentSession, bool> wanted) =>
         LiveIn(copyPath).FirstOrDefault(wanted);
 
@@ -143,7 +158,9 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
                 Text(root, "kind"),
                 Text(root, "jobId"),
                 Text(root, "status"),
-                Number(root, "procStart"));
+                Number(root, "procStart"),
+                Text(root, "name"),
+                Number(root, "startedAt"));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {

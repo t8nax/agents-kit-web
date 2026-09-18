@@ -22,11 +22,12 @@ type Load =
   | { kind: 'loaded'; backlogs: BaseBacklog[] }
 
 // Фильтр по проектам: null — все проекты, иначе путь базы выбранного проекта.
-export default function Backlog() {
+/** writeFor — база просьбы, к которой вернулся оператор: окно записи открывается сразу на ней. */
+export default function Backlog({ writeFor = null }: { writeFor?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [filter, setFilter] = useState<string | null>(null)
+  const [filter, setFilter] = useState<string | null>(writeFor)
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
-  const [writing, setWriting] = useState(false)
+  const [writing, setWriting] = useState(writeFor !== null)
   // Записи, добавленные из панели, ключом «база|номер»: отмечены новыми до следующего «Обновить».
   const [fresh, setFresh] = useState<Set<string>>(() => new Set())
   // Закрытое окно возвращает фокус записи, с которой его открыли: клавиатура остаётся на месте в списке.

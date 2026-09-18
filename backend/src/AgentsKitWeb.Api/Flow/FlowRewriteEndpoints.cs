@@ -1,10 +1,7 @@
 using System.Diagnostics;
-using System.Text.Encodings.Web;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Unicode;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Flow;
 
@@ -24,7 +21,7 @@ public sealed record FlowRewriteEvent(
     long? DurationMs = null,
     string? Output = null,
     string? Problem = null,
-    int? Step = null);
+    int? Step = null) : IAgentEvent;
 
 public static class FlowRewriteEndpoints
 {
@@ -33,18 +30,12 @@ public static class FlowRewriteEndpoints
     /// <summary>Сколько текста агента показывать оператором, когда флоу из него не вышел.</summary>
     private const int OutputLimit = 2000;
 
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        // Флоу и просьба по-русски: без этого каждая буква уходит в поток escape-последовательностью.
-        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-    };
-
     public static void MapFlowRewriteEndpoints(this IEndpointRouteBuilder app)
     {
-        // Ход идёт потоком NDJSON, как вопрос по базе и запись в бэклог; флоу панель не пишет — только разбирает.
-        app.MapPost("/api/flow/rewrite", async (
-            FlowRewriteRequest request, BasesStore bases, IAgentProcess agent, HttpContext http) =>
+        // Просьбу держит панель: POST её заводит и отдаёт сводку, а ход окно читает потоком просьбы.
+        // Флоу панель не пишет — только разбирает: записывает его оператор, подтвердив правку.
+        app.MapPost("/api/flow/rewrite", (
+            FlowRewriteRequest request, BasesStore bases, IAgentProcess agent, AgentRequests requests) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
             if (basePath is null || !Directory.Exists(basePath))
@@ -52,26 +43,18 @@ public static class FlowRewriteEndpoints
             if (string.IsNullOrWhiteSpace(request.Wish))
                 return Results.BadRequest();
 
-            var response = http.Response;
-            response.ContentType = "application/x-ndjson; charset=utf-8";
-            response.Headers.CacheControl = "no-cache";
-            await response.StartAsync(http.RequestAborted);
-
-            try
-            {
-                var outcome = await RunAsync(basePath, request.Wish.Trim(), bases.Kit(), agent, response, http.RequestAborted);
-                await WriteAsync(response, outcome, CancellationToken.None);
-            }
-            catch (OperationCanceledException)
-            {
-                // Оператор закрыл окно или отменил просьбу: писать итог некому, процесс агента уже убит.
-            }
-            return Results.Empty;
+            var wish = request.Wish.Trim();
+            var kit = bases.Kit();
+            var started = requests.Start(
+                AgentRequests.Flow, basePath, ProjectName.Of(basePath), wish,
+                async (rewriting, cancellationToken) =>
+                    rewriting.Write(await RunAsync(basePath, wish, kit, agent, rewriting, cancellationToken)));
+            return Results.Ok(started.Summary);
         });
     }
 
     private static async Task<FlowRewriteEvent> RunAsync(
-        string basePath, string wish, string? kit, IAgentProcess agent, HttpResponse response, CancellationToken aborted)
+        string basePath, string wish, string? kit, IAgentProcess agent, AgentRequest rewriting, CancellationToken aborted)
     {
         var file = Path.Combine(basePath, FlowFile.FileName);
         byte[] before;
@@ -101,21 +84,22 @@ public static class FlowRewriteEndpoints
             exit = await agent.RunAsync(
                 StartInfo(basePath, rules),
                 Input(wish, FlowFile.Decode(before).Text),
-                async line =>
+                line =>
                 {
                     foreach (var e in stream.Read(line))
                     {
                         if (e.Type == "step")
-                            await WriteAsync(response, new FlowRewriteEvent("step", e.Text), timeout.Token);
+                            rewriting.Write(new FlowRewriteEvent("step", e.Text));
                         else
                             result = e;
                     }
+                    return Task.CompletedTask;
                 },
                 timeout.Token);
         }
         catch (OperationCanceledException) when (!aborted.IsCancellationRequested)
         {
-            return new FlowRewriteEvent("error", "Агент не закончил за пять минут и остановлен");
+            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} не закончил за пять минут и остановлен");
         }
 
         if (result is null)
@@ -135,7 +119,7 @@ public static class FlowRewriteEndpoints
     {
         var document = FlowFile.Parse(Unfence(answer.Text));
         if (document.Steps.Count == 0)
-            return new FlowRewriteEvent("error", "Агент вернул не флоу: шагов в его ответе нет", Output: Shorten(answer.Text));
+            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} вернул не флоу: шагов в его ответе нет", Output: Shorten(answer.Text));
         if (FlowFile.Validate(document.Steps) is { } rejection)
             return new FlowRewriteEvent(
                 "error",
@@ -147,7 +131,7 @@ public static class FlowRewriteEndpoints
         {
             if (FlowFile.Fingerprint(await File.ReadAllBytesAsync(file, cancellationToken)) != version)
                 return new FlowRewriteEvent(
-                    "error", "Флоу базы изменился, пока агент его переписывал", Problem: "changed");
+                    "error", $"Флоу базы изменился, пока {AgentRequests.AgentName} его переписывал", Problem: "changed");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -220,7 +204,7 @@ public static class FlowRewriteEndpoints
         var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
         return new FlowRewriteEvent(
             "error",
-            "Агент завершился без ответа",
+            $"{AgentRequests.AgentName} завершился без ответа",
             Output: output.Length > 0 ? Shorten(output) : $"код выхода {exit.ExitCode}");
     }
 
@@ -235,9 +219,4 @@ public static class FlowRewriteEndpoints
         _ => "перевод строки в ключе шага",
     };
 
-    private static async Task WriteAsync(HttpResponse response, FlowRewriteEvent e, CancellationToken cancellationToken)
-    {
-        await response.WriteAsync(JsonSerializer.Serialize(e, JsonOptions) + "\n", cancellationToken);
-        await response.Body.FlushAsync(cancellationToken);
-    }
 }

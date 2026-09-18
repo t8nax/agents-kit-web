@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { useAgentRequest } from './agentRequest'
 import './AskModal.css'
 import './BacklogWriteModal.css'
 
@@ -25,22 +26,6 @@ export type WriteEvent =
     }
   | { type: 'error'; text: string; output?: string; entries?: WrittenEntry[] }
 
-type Phase =
-  | { kind: 'idle' }
-  | { kind: 'running'; startedAt: number }
-  | {
-      kind: 'written'
-      entries: WrittenEntry[]
-      commit: string | null
-      durationMs: number | null
-    }
-  | {
-      kind: 'failed'
-      text: string
-      output: string | null
-      entries: WrittenEntry[]
-    }
-
 type Props = {
   bases: WriteBase[]
   initialBase: string | null
@@ -52,12 +37,9 @@ type Props = {
 export default function BacklogWriteModal({ bases, initialBase, onClose, onEntries }: Props) {
   const [base, setBase] = useState<string | null>(initialBase ?? bases[0]?.base ?? null)
   const [text, setText] = useState('')
-  const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
-  const [steps, setSteps] = useState<string[]>([])
-  const running = useRef<AbortController | null>(null)
-
-  // Закрытое окно не ждёт агента: запрос обрывается, и API останавливает процесс
-  useEffect(() => () => running.current?.abort(), [])
+  // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
+  const { asked, steps, outcome, running, startedAt, failure, restoring, start, forget, setFailure } =
+    useAgentRequest<WriteEvent>('backlog')
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -67,99 +49,54 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const write = useCallback(async () => {
-    if (!base || !text.trim()) return
-    running.current?.abort()
-    const controller = new AbortController()
-    running.current = controller
-    setSteps([])
-    setPhase({ kind: 'running', startedAt: Date.now() })
+  const write = useCallback(
+    async (what: string) => {
+      if (!base || !what.trim()) return
+      const started = await start('/api/backlog/write', { base, text: what.trim() })
+      if (started.ok) return
+      setFailure(
+        started.status === 404
+          ? 'Базы нет в списке панели или на диске'
+          : started.status === null
+            ? 'Нет связи с API'
+            : 'Панель не приняла текст',
+      )
+    },
+    [base, start, setFailure],
+  )
 
-    const finish = (next: Phase) => {
-      if (running.current !== controller) return
-      running.current = null
-      setPhase(next)
-      const entries = next.kind === 'written' || next.kind === 'failed' ? next.entries : []
-      const numbers = entries.map((e) => e.number).filter((n): n is string => n !== null)
-      if (numbers.length > 0) onEntries(base, numbers)
-    }
+  const written = outcome?.type === 'written' ? outcome : null
+  const error = failure ?? (outcome?.type === 'error' ? outcome.text : null)
+  const output = outcome?.type === 'error' ? (outcome.output ?? null) : null
+  const entries = written?.entries ?? (outcome?.type === 'error' ? (outcome.entries ?? []) : [])
+  const phase: 'restoring' | 'idle' | 'running' | 'written' | 'failed' = restoring
+    ? 'restoring'
+    : running
+      ? 'running'
+      : error
+        ? 'failed'
+        : written
+          ? 'written'
+          : 'idle'
+  const shown = asked || text.trim()
 
-    try {
-      const response = await fetch('/api/backlog/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base, text: text.trim() }),
-        signal: controller.signal,
-      })
-      if (!response.ok || !response.body) {
-        finish({
-          kind: 'failed',
-          text: response.status === 404 ? 'Базы нет в списке панели или на диске' : 'Панель не приняла текст',
-          output: null,
-          entries: [],
-        })
-        return
-      }
+  // Записи появились — список бэклога перечитывается и отмечает их новыми, даже если окно открыли заново.
+  const numbers = entries
+    .map((entry) => entry.number)
+    .filter((number): number is string => number !== null)
+    .join(' ')
+  useEffect(() => {
+    if (base && numbers) onEntries(base, numbers.split(' '))
+  }, [base, numbers, onEntries])
 
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
-      let buffer = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += value
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-        for (const line of lines) {
-          if (!line.trim()) continue
-          const event = JSON.parse(line) as WriteEvent
-          if (event.type === 'step') {
-            setSteps((prev) => [...prev, event.text])
-          } else if (event.type === 'written') {
-            finish({
-              kind: 'written',
-              entries: event.entries,
-              commit: event.commit ?? null,
-              durationMs: event.durationMs ?? null,
-            })
-            return
-          } else {
-            finish({
-              kind: 'failed',
-              text: event.text,
-              output: event.output ?? null,
-              entries: event.entries ?? [],
-            })
-            return
-          }
-        }
-      }
-      finish({
-        kind: 'failed',
-        text: 'Запись оборвалась: API закрыл соединение без итога',
-        output: null,
-        entries: [],
-      })
-    } catch (error) {
-      if (controller.signal.aborted) return
-      finish({
-        kind: 'failed',
-        text: error instanceof SyntaxError ? 'API прислал непонятный ответ' : 'Нет связи с API',
-        output: null,
-        entries: [],
-      })
-    }
-  }, [base, text, onEntries])
-
-  function cancel() {
-    running.current?.abort()
-    running.current = null
-    setPhase({ kind: 'idle' })
+  async function writeMore() {
+    setText('')
+    await forget()
   }
 
-  function writeMore() {
-    setText('')
-    setSteps([])
-    setPhase({ kind: 'idle' })
+  async function close() {
+    await forget()
+    onClose()
   }
 
   const project = bases.find((b) => b.base === base)?.project ?? ''
@@ -187,7 +124,7 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
                   className={`chip ${b.base === base ? 'active' : ''}`}
                   aria-pressed={b.base === base}
                   title={b.base}
-                  disabled={phase.kind === 'running'}
+                  disabled={phase === 'running'}
                   onClick={() => setBase(b.base)}
                 >
                   {b.project}
@@ -198,7 +135,8 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
         </div>
 
         <div className="ask-body">
-          {phase.kind === 'idle' && (
+          {phase === 'restoring' && <p className="modal-message">Загрузка…</p>}
+          {phase === 'idle' && (
             <>
               <label htmlFor="backlog-write-text" className="visually-hidden">
                 Что записать
@@ -211,7 +149,7 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
                 placeholder="Расскажите своими словами, что стоит сделать или решить: баг, пожелание, мысль на потом. Можно несколько сразу"
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void write()
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void write(text)
                 }}
               />
               <p className="write-note">
@@ -221,24 +159,24 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
             </>
           )}
 
-          {phase.kind !== 'idle' && phase.kind !== 'written' && (
+          {shown && phase !== 'idle' && phase !== 'restoring' && phase !== 'written' && (
             <div className="ask-asked">
               <span className="ask-asked-label">Текст</span>
-              <span className="ask-asked-text">{text.trim()}</span>
+              <span className="ask-asked-text">{shown}</span>
             </div>
           )}
 
-          {phase.kind === 'running' && (
+          {phase === 'running' && (
             <>
               <div className="ask-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
                 <span className="ask-waiting-text">
                   {AGENT_NAME} пишет в бэклог {project}…
                 </span>
-                <Elapsed since={phase.startedAt} />
+                {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
               {steps.length > 0 && (
-                <ol className="ask-steps" aria-label="Ход работы агента">
+                <ol className="ask-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
                   {steps.map((step, i) => (
                     <li key={i}>{step}</li>
                   ))}
@@ -247,35 +185,35 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
             </>
           )}
 
-          {phase.kind === 'written' && (
+          {written && phase === 'written' && (
             <>
               <div className="write-done" role="status">
                 <CheckIcon />
-                <span className="write-done-text">{writtenTitle(phase.entries.length)}</span>
+                <span className="write-done-text">{writtenTitle(written.entries.length)}</span>
                 <span className="write-done-meta">
                   {[
-                    phase.commit && `коммит ${phase.commit}`,
-                    phase.durationMs !== null && formatDuration(phase.durationMs),
+                    written.commit && `коммит ${written.commit}`,
+                    written.durationMs !== undefined && formatDuration(written.durationMs),
                   ]
                     .filter(Boolean)
                     .join(' · ')}
                 </span>
               </div>
-              <WrittenEntries entries={phase.entries} />
+              <WrittenEntries entries={written.entries} />
             </>
           )}
 
-          {phase.kind === 'failed' && (
+          {phase === 'failed' && (
             <>
               <div className="ask-error" role="alert">
                 <strong>{AGENT_NAME} не записал</strong>
-                <span>{phase.text}. Текст остался — его можно отправить снова.</span>
-                {phase.output && <pre>{phase.output}</pre>}
+                <span>{error}. Текст остался — его можно отправить снова.</span>
+                {output && <pre>{output}</pre>}
               </div>
-              {phase.entries.length > 0 && (
+              {entries.length > 0 && (
                 <>
                   <p className="write-note">В бэклоге при этом появились записи:</p>
-                  <WrittenEntries entries={phase.entries} />
+                  <WrittenEntries entries={entries} />
                 </>
               )}
             </>
@@ -288,37 +226,44 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
             {AGENT_NAME} меняет в базе только backlog.md и сам его коммитит
           </span>
           <div className="footer-right">
-            {phase.kind === 'idle' && (
+            {phase === 'idle' && (
               <button
                 type="button"
                 className="btn btn-primary"
                 disabled={!base || !text.trim()}
-                onClick={() => void write()}
+                onClick={() => void write(text)}
               >
                 Добавить
               </button>
             )}
-            {phase.kind === 'running' && (
-              <button type="button" className="btn" onClick={cancel}>
+            {phase === 'running' && (
+              <button type="button" className="btn" onClick={() => void forget()}>
                 Отменить
               </button>
             )}
-            {phase.kind === 'written' && (
+            {phase === 'written' && (
               <>
-                <button type="button" className="btn" onClick={writeMore}>
+                <button type="button" className="btn" onClick={() => void writeMore()}>
                   Записать ещё
                 </button>
-                <button type="button" className="btn btn-primary" onClick={onClose}>
+                <button type="button" className="btn btn-primary" onClick={() => void close()}>
                   К бэклогу
                 </button>
               </>
             )}
-            {phase.kind === 'failed' && (
+            {phase === 'failed' && (
               <>
-                <button type="button" className="btn" onClick={() => setPhase({ kind: 'idle' })}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => {
+                    setText(shown)
+                    void forget()
+                  }}
+                >
                   Изменить текст
                 </button>
-                <button type="button" className="btn btn-primary" onClick={() => void write()}>
+                <button type="button" className="btn btn-primary" onClick={() => void write(shown)}>
                   Отправить снова
                 </button>
               </>

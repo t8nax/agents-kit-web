@@ -139,9 +139,10 @@ const invalidLabels: Record<string, string> = {
   'line-break': 'перевод строки в поле',
 }
 
-export default function Flow() {
+/** rewriteFor — база просьбы, к которой вернулся оператор: окно переписывания открывается сразу на ней. */
+export default function Flow({ rewriteFor = null }: { rewriteFor?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(rewriteFor)
   const [presets, setPresets] = useState<StepPreset[]>([])
   // Правки поверх прочитанного файла: ключ — база и её отпечаток, поэтому правки чужого
   // или перечитанного флоу не всплывают.
@@ -149,7 +150,7 @@ export default function Flow() {
   // Какой шаг открыт в сайдбаре: key шага, а не место — место меняется перетаскиванием.
   const [opened, setOpened] = useState<number | null>(null)
   // Какое окно открыто поверх схемы: описание шага, выбор нового шага или переписывание флоу агентом.
-  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(null)
+  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(rewriteFor ? 'rewrite' : null)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)

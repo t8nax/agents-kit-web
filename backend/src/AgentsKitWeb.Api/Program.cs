@@ -26,6 +26,7 @@ builder.Services.AddSingleton(services =>
     new KitLocator(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
 builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
+builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
@@ -49,6 +50,7 @@ app.MapPost("/api/health/check", (HealthMonitor health) =>
     return Results.Accepted();
 });
 
+app.MapAgentRequestEndpoints();
 app.MapAskEndpoints();
 app.MapBacklogEndpoints();
 app.MapBacklogWriteEndpoints();
@@ -58,6 +60,7 @@ app.MapFlowRewriteEndpoints();
 app.MapFoldersEndpoints();
 app.MapNewWorkspaceEndpoints();
 app.MapOperatorEndpoints();
+app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.

@@ -63,6 +63,8 @@ function stubApi(handlers: Record<string, Handler>) {
 const api = (flows: BaseFlow[], presets: StepPreset[] = [], extra: Record<string, Handler> = {}) => ({
   'GET /api/flow': () => json(flows),
   'GET /api/presets': () => json(presets),
+  // Окно переписывания спрашивает панель, не идёт ли уже такая просьба.
+  'GET /api/agent/requests': () => json([]),
   ...extra,
 })
 
@@ -418,7 +420,22 @@ test('переписанный агентом флоу ложится в схе�
     ),
     { headers: { 'Content-Type': 'application/x-ndjson' } },
   )
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow/rewrite': () => stream }))
+  const summary = {
+    kind: 'flow',
+    id: 'r1',
+    base: app.base,
+    project: app.project,
+    text: 'Ревью смотрит дифф всей ветки',
+    elapsedMs: 0,
+    state: 'running',
+  }
+  const fetchMock = stubApi(
+    api([app], [], {
+      'POST /api/flow/rewrite': () => json(summary),
+      'GET /api/agent/flow/stream?id=r1&from=0': () => stream,
+      'DELETE /api/agent/flow': () => new Response(null, { status: 204 }),
+    }),
+  )
   const region = await renderFlow()
 
   fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-юдо' }))
@@ -428,7 +445,8 @@ test('переписанный агентом флоу ложится в схе�
   fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Взять правки в схему' }))
 
-  expect(screen.getByText('Правки Чудо-юдо в схеме — их ещё нужно сохранить')).toBeInTheDocument()
+  // Итог просьбы забирается вместе с правками, поэтому схема их получает следующим ходом.
+  expect(await screen.findByText('Правки Чудо-юдо в схеме — их ещё нужно сохранить')).toBeInTheDocument()
   expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
   // Флоу базы записывает не окно, а прежняя кнопка «Сохранить».
   expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
