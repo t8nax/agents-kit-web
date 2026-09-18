@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
@@ -141,13 +141,7 @@ public sealed class BasesEndpointsTests : IDisposable
 
     public void Dispose()
     {
-        _factory.Dispose();
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (IOException)
-        {
-        }
+        TestHost.Stop(_factory);
+        Directory.Delete(_root, recursive: true);
     }
 }

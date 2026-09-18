@@ -143,7 +143,7 @@ public sealed class KitEndpointsTests : IDisposable
 
     public void Dispose()
     {
-        _factory.Dispose();
+        TestHost.Stop(_factory);
         Directory.Delete(_root, recursive: true);
     }
 }

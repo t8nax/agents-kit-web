@@ -197,7 +197,7 @@ public sealed class HealthTests : IDisposable
         await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
         var pid = await WaitForPid(Path.Combine(kit, "scripts", "pid.txt"));
 
-        _factory.Dispose();
+        TestHost.Stop(_factory);
 
         Assert.True(Exited(pid), "pwsh сверки пережил остановку панели и держит файлы кита");
     }
@@ -261,7 +261,7 @@ public sealed class HealthTests : IDisposable
 
     public void Dispose()
     {
-        _factory.Dispose();
+        TestHost.Stop(_factory);
         try
         {
             Directory.Delete(_root, recursive: true);

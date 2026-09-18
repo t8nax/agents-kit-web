@@ -533,7 +533,7 @@ public sealed class OperatorEndpointsTests : IDisposable
 
     public void Dispose()
     {
-        _factory.Dispose();
+        TestHost.Stop(_factory);
         try
         {
             // Объекты git лежат только для чтения: без снятия атрибута каталог прогона не удалить.
