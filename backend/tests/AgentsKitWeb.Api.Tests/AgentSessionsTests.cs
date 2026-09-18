@@ -74,13 +74,30 @@ public sealed class AgentSessionsTests : IDisposable
     }
 
     [Fact]
-    public void BackgroundIn_LiveBackgroundSessionOfThatCopy_IsFoundWithItsId()
+    public void BackgroundIn_SessionThePanelStarted_IsFoundWithItsId()
     {
         WriteBackground(@"D:\Projects\app", 200, "7339dced");
 
-        var session = Sessions(live: true).BackgroundIn(@"D:\Projects\app");
+        var session = Sessions(live: true).BackgroundIn(@"D:\Projects\app", "7339dced");
 
         Assert.Equal("7339dced", session!.JobId);
+    }
+
+    /// <summary>Сессию, заведённую мимо панели, переход не берёт: что она ведёт задачу, ниоткуда не видно.</summary>
+    [Fact]
+    public void BackgroundIn_AnotherSessionThanTheStartedOne_IsNotFound()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "outsider");
+
+        Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app", "7339dced"));
+    }
+
+    [Fact]
+    public void BackgroundIn_PanelDidNotStartATaskHere_IsNotFound()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced");
+
+        Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app", null));
     }
 
     [Fact]
@@ -88,15 +105,7 @@ public sealed class AgentSessionsTests : IDisposable
     {
         Write(@"D:\Projects\app", 200);
 
-        Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app"));
-    }
-
-    [Fact]
-    public void BackgroundIn_BackgroundSessionWithoutId_IsNotFound()
-    {
-        WriteBackground(@"D:\Projects\app", 200, jobId: null);
-
-        Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app"));
+        Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app", "7339dced"));
     }
 
     [Fact]
@@ -104,7 +113,7 @@ public sealed class AgentSessionsTests : IDisposable
     {
         WriteBackground(@"D:\Projects\app", 200, "7339dced");
 
-        Assert.Null(Sessions(live: false).BackgroundIn(@"D:\Projects\app"));
+        Assert.Null(Sessions(live: false).BackgroundIn(@"D:\Projects\app", "7339dced"));
     }
 
     [Fact]
@@ -112,47 +121,7 @@ public sealed class AgentSessionsTests : IDisposable
     {
         WriteBackground(@"D:\Projects\other", 200, "7339dced");
 
-        Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app"));
-    }
-
-    [Fact]
-    public void BackgroundIn_WaitingSessionNextToWorkingOne_IsTheOneOperatorIsWaitedFor()
-    {
-        WriteBackground(@"D:\Projects\app", 200, "working0", status: "busy");
-        WriteBackground(@"D:\Projects\app", 201, "waiting0", status: "waiting");
-
-        Assert.Equal("waiting0", Sessions(live: true).BackgroundIn(@"D:\Projects\app")!.JobId);
-    }
-
-    [Fact]
-    public void BackgroundIn_WorkingSessionNextToStandingOne_IsTheWorkingOne()
-    {
-        WriteBackground(@"D:\Projects\app", 200, "standing", status: "idle");
-        WriteBackground(@"D:\Projects\app", 201, "working0", status: "busy");
-
-        Assert.Equal("working0", Sessions(live: true).BackgroundIn(@"D:\Projects\app")!.JobId);
-    }
-
-    /// <summary>Из сессий с одним состоянием старшая — скорее брошенная с прошлого раза.</summary>
-    [Fact]
-    public void BackgroundIn_TwoSessionsOfTheSameState_IsTheOneStartedLater()
-    {
-        WriteBackground(@"D:\Projects\app", 200, "older000", status: "busy", procStart: Started);
-        WriteBackground(@"D:\Projects\app", 201, "younger0", status: "busy", procStart: Started + 1);
-        var sessions = new AgentSessions(_dir, pid => pid == 201 ? Started + 1 : Started);
-
-        Assert.Equal("younger0", sessions.BackgroundIn(@"D:\Projects\app")!.JobId);
-    }
-
-    /// <summary>Переход и подпись строки говорят об одной сессии, иначе оператор попадает не туда.</summary>
-    [Fact]
-    public void BackgroundIn_SessionOfTheTransition_IsTheOneThatGaveTheRowItsState()
-    {
-        WriteBackground(@"D:\Projects\app", 200, "working0", status: "busy");
-        WriteBackground(@"D:\Projects\app", 201, "waiting0", status: "waiting");
-        var sessions = Sessions(live: true);
-
-        Assert.Equal(sessions.StateIn(@"D:\Projects\app"), sessions.BackgroundIn(@"D:\Projects\app")!.State);
+        Assert.Null(Sessions(live: true).BackgroundIn(@"D:\Projects\app", "7339dced"));
     }
 
     [Fact]
@@ -164,14 +133,15 @@ public sealed class AgentSessionsTests : IDisposable
         Assert.Equal(101, Sessions(live: true).VsCodeIn(@"D:\Projects\app")!.Pid);
     }
 
-    /// <summary>Сессия другого вида состояние строки даёт, а переход в терминал ведёт не к ней.</summary>
+    /// <summary>Из сессий с одним состоянием старшая — скорее брошенная с прошлого раза.</summary>
     [Fact]
-    public void BackgroundIn_WaitingSessionIsInVsCode_IsStillTheBestBackgroundOne()
+    public void VsCodeIn_TwoSessionsOfTheSameState_IsTheOneStartedLater()
     {
-        Write(@"D:\Projects\app", 100, status: "waiting");
-        WriteBackground(@"D:\Projects\app", 200, "working0", status: "busy");
+        Write(@"D:\Projects\app", 100, status: "busy", procStart: Started);
+        Write(@"D:\Projects\app", 101, status: "busy", procStart: Started + 1);
+        var sessions = new AgentSessions(_dir, pid => pid == 101 ? Started + 1 : Started);
 
-        Assert.Equal("working0", Sessions(live: true).BackgroundIn(@"D:\Projects\app")!.JobId);
+        Assert.Equal(101, sessions.VsCodeIn(@"D:\Projects\app")!.Pid);
     }
 
     [Theory]
@@ -255,7 +225,7 @@ public sealed class AgentSessionsTests : IDisposable
     {
         Write(@"D:\Projects\app", 100, status: "waiting");
 
-        var annotated = Sessions(live: true).Annotate([Row(@"D:\Projects\app")]);
+        var annotated = Annotated(@"D:\Projects\app");
 
         Assert.Equal(SessionState.Waiting, annotated[0].SessionState);
     }
@@ -263,7 +233,7 @@ public sealed class AgentSessionsTests : IDisposable
     [Fact]
     public void Annotate_RowOfCopyWithoutSession_HasNoState()
     {
-        var annotated = Sessions(live: true).Annotate([Row(@"D:\Projects\app")]);
+        var annotated = Annotated(@"D:\Projects\app");
 
         Assert.Null(annotated[0].SessionState);
     }
@@ -273,20 +243,35 @@ public sealed class AgentSessionsTests : IDisposable
     {
         Write(@"D:\Projects\app", 100, status: "busy");
 
-        var annotated = Sessions(live: true).Annotate([Row(@"D:\Projects\app") with { Error = "Копия не найдена на диске" }]);
+        var annotated = Sessions(live: true).Annotate(
+            [Row(@"D:\Projects\app") with { Error = "Копия не найдена на диске" }], _ => "7339dced");
 
         Assert.Null(annotated[0].SessionState);
     }
 
     [Fact]
-    public void Annotate_RowOfCopyWithBackgroundSession_IsMarked()
+    public void Annotate_RowOfCopyWithTheStartedSession_IsMarked()
     {
         WriteBackground(@"D:\Projects\app", 200, "7339dced");
 
-        var annotated = Sessions(live: true).Annotate([Row(@"D:\Projects\app")]);
+        var annotated = Annotated(@"D:\Projects\app", "7339dced");
 
         Assert.True(annotated[0].BackgroundSession);
     }
+
+    /// <summary>Переход приглушён, пока в копии нет сессии, которую панель тут завела.</summary>
+    [Fact]
+    public void Annotate_RowOfCopyWithSomeoneElsesSession_IsNotMarked()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "outsider");
+
+        var annotated = Annotated(@"D:\Projects\app", "7339dced");
+
+        Assert.False(annotated[0].BackgroundSession);
+    }
+
+    private IReadOnlyList<WorkspaceRow> Annotated(string path, string? started = null) =>
+        Sessions(live: true).Annotate([Row(path)], _ => started);
 
     private static WorkspaceRow Row(string path) =>
         new("Проект", @"D:\base", path, "dev", null, null, null, WorkspaceStatus.Free, null);

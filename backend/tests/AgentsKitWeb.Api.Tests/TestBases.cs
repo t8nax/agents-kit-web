@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AgentsKitWeb.Api.Tasks;
 
 namespace AgentsKitWeb.Api.Tests;
 
@@ -12,4 +13,8 @@ internal static class TestBases
         System.IO.File.WriteAllText(file, JsonSerializer.Serialize(new { bases }));
         return file;
     }
+
+    /// <summary>Отмечает сессию задачи копии так же, как её запоминает панель после своего запуска.</summary>
+    public static void TaskSession(string root, string copy, string session) =>
+        new TaskSessions(TaskSessions.FileBeside(Path.Combine(root, "panel", "bases.json"))).Remember(copy, session);
 }

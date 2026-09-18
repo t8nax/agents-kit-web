@@ -73,11 +73,12 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
     public AgentSession? VsCodeIn(string copyPath) => In(copyPath, session => session.InVsCode);
 
     /// <summary>
-    /// Живая фоновая сессия в каталоге копии — та из них, которой оператор нужнее; null — такой сессии нет.
-    /// Ту, что запустила панель, панель у себя не помнит: id берётся отсюда, поэтому переход есть и после
-    /// её перезапуска.
+    /// Живая фоновая сессия копии с этим id — та, что панель завела под задачу копии; null — id не задан
+    /// или сессия уже ушла. Какая сессия ведёт задачу, из чужого списка живых сессий не видно, поэтому
+    /// id приходит из памяти панели о запуске (Tasks/TaskSessions).
     /// </summary>
-    public AgentSession? BackgroundIn(string copyPath) => In(copyPath, session => session.InBackground);
+    public AgentSession? BackgroundIn(string copyPath, string? session) =>
+        session is null ? null : In(copyPath, s => s.InBackground && s.JobId == session);
 
     /// <summary>
     /// Что делает сессия в каталоге копии; null — живой сессии в нём нет. Состояние берётся у той же
@@ -90,9 +91,13 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
     /// Дописывает строкам таблицы состояние их сессии и отметку фоновой — той, в которую есть переход
     /// из терминала. Строке с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
     /// </summary>
-    public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows) => rows
+    public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, Func<string, string?> taskSession) => rows
         .Select(row => row.Error is null
-            ? row with { SessionState = StateIn(row.Path), BackgroundSession = BackgroundIn(row.Path) is not null }
+            ? row with
+            {
+                SessionState = StateIn(row.Path),
+                BackgroundSession = BackgroundIn(row.Path, taskSession(row.Path)) is not null,
+            }
             : row)
         .ToList();
 

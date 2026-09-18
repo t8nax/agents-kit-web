@@ -164,9 +164,12 @@ public sealed class WorkspacesEndpointTests : IDisposable
         Assert.Empty(await GetRows());
     }
 
-    /// <summary>Переход в терминал есть только у копии с фоновой сессией, и строка таблицы об этом говорит.</summary>
+    /// <summary>
+    /// Переход в терминал есть только у копии, где сессию задачи завела сама панель: в чужую сессию
+    /// копии он не ведёт.
+    /// </summary>
     [Fact]
-    public async Task Workspaces_CopyWithBackgroundSession_IsMarked()
+    public async Task Workspaces_CopyWithTheSessionThePanelStarted_IsMarked()
     {
         var withSession = Path.Combine(_root, "busy");
         var withoutSession = Path.Combine(_root, "quiet");
@@ -183,6 +186,8 @@ public sealed class WorkspacesEndpointTests : IDisposable
         File.WriteAllText(
             Path.Combine(sessionsDir, "bg.json"),
             $$"""{"pid":{{Environment.ProcessId}},"cwd":{{System.Text.Json.JsonSerializer.Serialize(withSession)}},"entrypoint":"cli","kind":"bg","jobId":"7339dced"}""");
+
+        TestBases.TaskSession(_root, withSession, "7339dced");
 
         var rows = await GetRows(sessionsDir, [basePath]);
 

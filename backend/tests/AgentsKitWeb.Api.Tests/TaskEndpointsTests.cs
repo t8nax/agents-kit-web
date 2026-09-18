@@ -65,6 +65,18 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
     }
 
+    /// <summary>Переход в сессию копии ведёт по этой отметке: иначе «ту самую» сессию не узнать.</summary>
+    [Fact]
+    public async Task Start_RemembersTheSessionItStartedInTheCopy()
+    {
+        _agent.Lines = ["backgrounded \u00b7 7339dced"];
+
+        await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+
+        var remembered = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+        Assert.Equal("7339dced", remembered.SessionIn(_copy));
+    }
+
     [Fact]
     public async Task Start_TakesCyrillicNumberAsTheSameRecord()
     {
