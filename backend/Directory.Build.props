@@ -1,0 +1,9 @@
+<Project>
+
+  <PropertyGroup>
+    <!-- Номер версии панели один на весь репозиторий и лежит в version.txt его корня:
+         его читают и сборка, и скрипт публикации, и сессия, которая поднимает номер на мерже. -->
+    <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)..\version.txt').Trim())</Version>
+  </PropertyGroup>
+
+</Project>
