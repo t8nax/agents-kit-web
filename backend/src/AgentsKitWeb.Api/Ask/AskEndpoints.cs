@@ -36,16 +36,16 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     public AgentRequestSummary Start(string basePath, string question)
     {
         var replies = Channel.CreateUnbounded<string>();
-        var timeout = new CancellationTokenSource();
+        var turn = new Turn(replies.Writer);
         var request = requests.Start(
             AgentRequests.Ask,
             basePath,
             ProjectName.Of(basePath),
             question,
-            (asking, cancellationToken) => RunAsync(basePath, replies.Reader, timeout, asking, cancellationToken),
+            (asking, cancellationToken) => RunAsync(basePath, replies.Reader, turn, asking, cancellationToken),
             continues: true);
 
-        var turn = new Turn(request.Id, replies.Writer, timeout);
+        turn.Request = request;
         lock (_gate)
             _turn = turn;
         Say(request, turn, question);
@@ -62,11 +62,31 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
 
         Turn? turn;
         lock (_gate)
-            turn = _turn?.Id == request.Id && request.Working ? _turn : null;
+            turn = _turn?.Request == request && request.Working ? _turn : null;
 
         turn ??= Restart(request);
         Say(request, turn, text);
         return AskReplied.Sent;
+    }
+
+    /// <summary>
+    /// «Отменить»: нынешний ответ обрывается вместе с процессом агента, а переписка остаётся на экране —
+    /// критерий B-79. Следующая реплика поднимет нового агента и скажет, что прошлого он не помнит.
+    /// </summary>
+    public bool Stop()
+    {
+        if (requests.Of(AgentRequests.Ask) is not { Continues: true } request || request.Finished)
+            return false;
+
+        Turn? turn;
+        lock (_gate)
+            turn = _turn?.Request == request ? _turn : null;
+        if (turn is null)
+            return false;
+
+        turn.Stopped = true;
+        turn.Timeout.Cancel();
+        return true;
     }
 
     /// <summary>
@@ -76,8 +96,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     private Turn Restart(AgentRequest request)
     {
         var replies = Channel.CreateUnbounded<string>();
-        var timeout = new CancellationTokenSource();
-        var turn = new Turn(request.Id, replies.Writer, timeout);
+        var turn = new Turn(replies.Writer) { Request = request };
         lock (_gate)
             _turn = turn;
 
@@ -85,7 +104,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
             "note", $"{AgentRequests.AgentName} отвечает заново: сказанного раньше он уже не помнит"));
         requests.Run(
             request,
-            (asking, cancellationToken) => RunAsync(request.Base, replies.Reader, timeout, asking, cancellationToken));
+            (asking, cancellationToken) => RunAsync(request.Base, replies.Reader, turn, asking, cancellationToken));
         return turn;
     }
 
@@ -100,11 +119,11 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     private async Task RunAsync(
         string basePath,
         ChannelReader<string> replies,
-        CancellationTokenSource timeout,
+        Turn turn,
         AgentRequest asking,
         CancellationToken cancellationToken)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, turn.Timeout.Token);
         var stream = new ClaudeStream(basePath);
         try
         {
@@ -118,20 +137,22 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                     if (stream.Finished)
                     {
                         // Реплика отвечена: следующей ждём сколько угодно, а прочитанные файлы считаются заново.
-                        timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                        turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
                         stream = new ClaudeStream(basePath);
                     }
                     return Task.CompletedTask;
                 },
                 linked.Token);
-            // Процесс кончился на неотвеченной реплике — это сбой; кончился между репликами — просто сбой процесса,
-            // и о нём скажет следующая реплика, подняв новый.
+            // Процесс кончился на неотвеченной реплике — это сбой; кончился между репликами — о нём скажет
+            // следующая реплика, подняв нового агента.
             if (!asking.Finished)
                 asking.Write(Failure(exit, stream));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            asking.Write(new AskEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен"));
+            asking.Write(turn.Stopped
+                ? new AskEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
+                : new AskEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен"));
         }
     }
 
@@ -178,8 +199,18 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
             Output: output.Length > 0 ? output : $"код выхода {exit.ExitCode}");
     }
 
-    /// <summary>Живой процесс разговора: кому уходят реплики и сколько ждать ответа на нынешнюю.</summary>
-    private sealed record Turn(string Id, ChannelWriter<string> Replies, CancellationTokenSource Timeout);
+    /// <summary>Живой процесс разговора: кому уходят реплики, сколько ждать ответа и не остановлен ли он.</summary>
+    private sealed class Turn(ChannelWriter<string> replies)
+    {
+        public ChannelWriter<string> Replies { get; } = replies;
+
+        public CancellationTokenSource Timeout { get; } = new();
+
+        public AgentRequest? Request { get; set; }
+
+        /// <summary>Ответ оборвал оператор, а не пятиминутное ожидание: в переписке это не сбой.</summary>
+        public bool Stopped { get; set; }
+    }
 }
 
 public static class AskEndpoints
@@ -227,5 +258,9 @@ public static class AskEndpoints
                 _ => Results.NotFound(),
             };
         });
+
+        // «Отменить» обрывает нынешний ответ, а не весь разговор: переписка остаётся у оператора на экране.
+        app.MapPost("/api/ask/stop", (AskConversations conversations) =>
+            conversations.Stop() ? Results.NoContent() : Results.NotFound());
     }
 }

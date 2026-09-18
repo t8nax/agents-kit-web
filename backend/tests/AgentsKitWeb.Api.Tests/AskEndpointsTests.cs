@@ -164,6 +164,30 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Stop_EndsCurrentAnswerAndKeepsConversation()
+    {
+        var release = new TaskCompletionSource();
+        _agent.Answers = [[Result("Ответ")], [Result("Второй ответ")]];
+        _agent.BeforeLine = _ => release.Task;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Долгий вопрос");
+        Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/ask/stop", null)).StatusCode);
+        var stopped = await Read(client, 2);
+
+        Assert.Equal("stopped", stopped[1].Type);
+        Assert.True(await _agent.CancelledWithin(Wait));
+        release.SetResult();
+
+        // Переписка осталась, и разговор продолжается новым агентом.
+        Assert.Equal(HttpStatusCode.NoContent, (await Reply(client, "Второй вопрос")).StatusCode);
+        var events = await Read(client, 5);
+        Assert.Equal("reply", events[0].Type);
+        Assert.Equal("note", events[2].Type);
+        Assert.Equal(("answer", "Второй ответ"), (events[4].Type, events[4].Text));
+    }
+
+    [Fact]
     public async Task Ask_StreamsEachLineAsAgentWritesIt()
     {
         var release = new TaskCompletionSource();
