@@ -31,7 +31,7 @@ public sealed class PanelEndpointsTests : IDisposable
     [Fact]
     public async Task Panel_WithPublishedFile_TellsChannelAndBuild()
     {
-        var file = Published(new PublishedPanel("dev", "origin/dev", "4189d1f", "1.0.0", Built, _root));
+        var file = Published(Panel("dev", "origin/dev", "4189d1f", "1.0.0", _root));
         using var factory = Factory(file);
 
         var panel = await factory.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
@@ -48,7 +48,7 @@ public sealed class PanelEndpointsTests : IDisposable
     [Fact]
     public async Task Panel_BuiltFromTaskBranch_FallsBackToMasterChannel()
     {
-        var file = Published(new PublishedPanel("feat/some-task", "feat/some-task", "abc1234", "1.0.0", Built, _root));
+        var file = Published(Panel("feat/some-task", "feat/some-task", "abc1234", "1.0.0", _root));
         using var factory = Factory(file);
 
         var panel = await factory.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
@@ -74,7 +74,7 @@ public sealed class PanelEndpointsTests : IDisposable
     [Fact]
     public async Task Channel_Chosen_OutlivesPanelRestart()
     {
-        var file = Published(new PublishedPanel("master", "origin/master", "4189d1f", "1.0.0", Built, _root));
+        var file = Published(Panel("master", "origin/master", "4189d1f", "1.0.0", _root));
         using (var factory = Factory(file))
         {
             var response = await factory.CreateClient().PutAsJsonAsync("/api/panel/channel", new PanelChannelRequest("dev"));
@@ -101,7 +101,7 @@ public sealed class PanelEndpointsTests : IDisposable
     public async Task Updates_ListsVersionsReleasedSincePanelWasBuilt()
     {
         var (repository, standing) = RepositoryWithReleases();
-        var file = Published(new PublishedPanel("dev", "origin/dev", standing, "1.0.0", Built, repository));
+        var file = Published(Panel("dev", "origin/dev", standing, "1.0.0", repository));
         using var factory = Factory(file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
@@ -117,7 +117,7 @@ public sealed class PanelEndpointsTests : IDisposable
     {
         var (repository, _) = RepositoryWithReleases();
         var head = Head(repository);
-        var file = Published(new PublishedPanel("dev", "origin/dev", head, "1.2.0", Built, repository));
+        var file = Published(Panel("dev", "origin/dev", head, "1.2.0", repository));
         using var factory = Factory(file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
@@ -163,6 +163,10 @@ public sealed class PanelEndpointsTests : IDisposable
         var head = Path.Combine(repository, ".git", "refs", "heads", "dev");
         return File.ReadAllText(head).Trim();
     }
+
+    /// <summary>Что оставил бы скрипт публикации: каталог, порт и задача для этих тестов не важны.</summary>
+    private static PublishedPanel Panel(string channel, string reference, string sha, string version, string repository) =>
+        new(channel, reference, sha, version, Built, repository, @"C:\panel\app", 5080, "agents-kit-web panel");
 
     private string Published(PublishedPanel? panel = null)
     {

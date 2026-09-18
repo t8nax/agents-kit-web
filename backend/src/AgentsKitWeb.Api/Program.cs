@@ -44,6 +44,12 @@ builder.Services.AddSingleton(services =>
     var config = services.GetRequiredService<IConfiguration>();
     return new PanelChannelStore(config["PanelFile"] ?? PanelChannelStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new PanelUpdateRunner(
+        config["UpdateLogFile"] ?? PanelUpdateRunner.FileBeside(config["PublishedFile"] ?? InstalledPanel.DefaultFile));
+});
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>

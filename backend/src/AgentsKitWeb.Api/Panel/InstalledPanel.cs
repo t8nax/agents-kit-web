@@ -14,7 +14,10 @@ public sealed record PublishedPanel(
     string Sha,
     string Version,
     DateTimeOffset BuiltAt,
-    string Repository);
+    string Repository,
+    string Target,
+    int Port,
+    string TaskName);
 
 /// <summary>
 /// Поставленная панель против запуска для разработки. Признак один — файл публикации рядом с exe:

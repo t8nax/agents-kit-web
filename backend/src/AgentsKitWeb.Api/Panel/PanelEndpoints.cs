@@ -47,6 +47,19 @@ public static class PanelEndpoints
                 published.Repository, Channel(channels, published), published.Sha, published.Version, cancellationToken);
             return update is null ? Results.NotFound() : Results.Ok(update);
         });
+
+        app.MapGet("/api/panel/update", (PanelUpdateRunner updates) => updates.Read());
+
+        app.MapPost("/api/panel/update", (
+            InstalledPanel installed, PanelChannelStore channels, PanelUpdateRunner updates) =>
+        {
+            if (installed.Read() is not { } published)
+                return Results.NotFound();
+            // Уже идёт: панель не запускает вторую подмену того же каталога.
+            return updates.Start(published, Channel(channels, published))
+                ? Results.Accepted()
+                : Results.Conflict();
+        });
     }
 
     /// <summary>

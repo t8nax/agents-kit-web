@@ -79,6 +79,11 @@ try {
         version = (Get-Content (Join-Path $work 'version.txt') -Raw).Trim()
         builtAt = (Get-Date).ToUniversalTime().ToString('o')
         repository = $repo
+        # Куда, на какой порт и какой задачей поставлена панель: обновление зовёт публикацию
+        # с теми же значениями, а гадать ему не по чему — рядом может стоять вторая панель.
+        target = $Target
+        port = $Port
+        taskName = $TaskName
     }
     Set-Content (Join-Path $staging 'published.json') ($published | ConvertTo-Json)
 
