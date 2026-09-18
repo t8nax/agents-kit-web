@@ -5,11 +5,11 @@ import './Sessions.css'
 import { TerminalIcon } from './TerminalIcon'
 import { uptime } from './uptime'
 
-/** Строка перечня сессий; project и base пусты у сессии, чей каталог не числится копией баз панели. */
+/** Строка перечня сессий; в перечень идут только сессии рабочих копий из списка баз. */
 export type SessionRow = {
   path: string
-  project: string | null
-  base: string | null
+  project: string
+  base: string
   name: string | null
   /** Короткий id фоновой сессии — им её гасят и в неё входят; null — сессия идёт в своём окне. */
   session: string | null
@@ -36,8 +36,6 @@ const stateBadges: Record<SessionState, string> = {
   waiting: 'status-waiting',
   idle: 'status-free',
 }
-
-const outsideProject = 'Вне списка баз'
 
 const refreshIntervalMs = 3000
 
@@ -135,7 +133,6 @@ export default function Sessions() {
     <>
       <div className="content-head">
         <h2>Сессии</h2>
-        <span className="sub">Живые сессии Claude Code — перечень обновляется сам</span>
       </div>
       {failed && <p className="message warning-text">Нет связи с API</p>}
       {error && (
@@ -334,14 +331,13 @@ async function failure(response: Response, row: SessionRow, action: string) {
 
 type SessionGroup = { key: string; project: string; rows: SessionRow[] }
 
-// Группа — проект копии; сессии каталогов вне списка баз собраны в свою группу, её API отдаёт последней
+// Группа — проект копии; группы и сессии в них идут в порядке, в каком их отдал API
 function groupByProject(rows: SessionRow[]): SessionGroup[] {
   const groups = new Map<string, SessionGroup>()
   for (const row of rows) {
-    const key = row.base ?? ''
-    const group = groups.get(key)
+    const group = groups.get(row.base)
     if (group) group.rows.push(row)
-    else groups.set(key, { key, project: row.project ?? outsideProject, rows: [row] })
+    else groups.set(row.base, { key: row.base, project: row.project, rows: [row] })
   }
   return [...groups.values()]
 }

@@ -35,11 +35,11 @@ const inEditor = {
   startedAt: hours(26),
 }
 
-const outsider = {
-  path: 'D:\\Projects\\playground',
-  project: null,
-  base: null,
-  name: 'перебрать зависимости',
+const zebra = {
+  path: 'D:\\Projects\\silver-misty-zebra',
+  project: 'Nota',
+  base: 'D:\\Projects\\nota-knowledge',
+  name: 'agents-kit n-12 drive',
   session: '9919e753',
   state: 'idle',
   background: true,
@@ -49,14 +49,14 @@ const outsider = {
 // /api подменяется: настоящее гашение остановило бы живые сессии на машине, где идёт прогон.
 test('раздел показывает живые сессии группами по проекту и фильтрует их по копии', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
-  await page.route('**/api/sessions', (route) => route.fulfill({ json: [working, idle, inEditor, outsider] }))
+  await page.route('**/api/sessions', (route) => route.fulfill({ json: [working, idle, inEditor, zebra] }))
 
   await page.goto('/')
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Сессии' }).click()
 
   await expect(page.getByRole('heading', { name: 'Сессии' })).toBeVisible()
   await expect(page.getByRole('rowgroup').filter({ hasText: 'Agents Kit Web' }).first()).toBeVisible()
-  await expect(page.getByText('Вне списка баз')).toBeVisible()
+  await expect(page.getByText('Nota')).toBeVisible()
   await expect(page.getByRole('row', { name: /agents-kit b-50 drive/ })).toContainText('Работает')
   await expect(page.getByRole('row', { name: /agents-kit b-50 drive/ })).toContainText('2 ч 00 мин')
   await expect(page.getByRole('row', { name: /noble-keen-walrus/ })).toContainText('в своём окне')
@@ -64,7 +64,7 @@ test('раздел показывает живые сессии группами
   await page.getByRole('button', { name: 'agents-kit-web', exact: true }).click()
   await expect(page.getByText('agents-kit b-31 drive flow')).toBeVisible()
   await expect(page.getByText('agents-kit b-50 drive')).toBeHidden()
-  await expect(page.getByText('Вне списка баз')).toBeHidden()
+  await expect(page.getByText('Nota')).toBeHidden()
 })
 
 test('простаивающая сессия гаснет из меню строки, работающая — после подтверждения', async ({ page }) => {

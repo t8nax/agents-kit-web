@@ -6,14 +6,14 @@ using AgentsKitWeb.Api.Bases;
 namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>
-/// Строка раздела «Сессии»: живая сессия Claude Code и копия, в которой она идёт. Project и Base пусты
-/// у сессии, чей каталог не числится копией ни одной базы списка; Session — короткий id фоновой сессии,
-/// им её гасят и в неё входят. StartedAt — время старта в миллисекундах epoch, как его пишет реестр.
+/// Строка раздела «Сессии»: живая сессия Claude Code и копия, в которой она идёт. Session — короткий id
+/// фоновой сессии, им её гасят и в неё входят; у сессии своего окна его нет.
+/// StartedAt — время старта в миллисекундах epoch, как его пишет реестр.
 /// </summary>
 public sealed record SessionRow(
     string Path,
-    string? Project,
-    string? Base,
+    string Project,
+    string Base,
     string? Name,
     string? Session,
     string State,
@@ -37,8 +37,9 @@ public static partial class SessionsEndpoints
 
     public static void MapSessionsEndpoints(this IEndpointRouteBuilder app)
     {
-        // Перечень живых сессий: копии идут в том же порядке, что в таблице рабочих копий, сессии внутри
-        // копии — от старой к новой, а сессии каталогов вне списка баз — последними, своей группой.
+        // Перечень живых сессий рабочих копий: копии идут в том же порядке, что в таблице копий, сессии
+        // внутри копии — от старой к новой. Сессия каталога, который копией не числится, в перечень
+        // не попадает — решение оператора на приёмке B-50.
         app.MapGet("/api/sessions", async (BasesStore bases, AgentSessions sessions, CancellationToken cancellationToken) =>
         {
             var rows = await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken);
@@ -46,22 +47,17 @@ public static partial class SessionsEndpoints
             foreach (var row in rows.Where(row => row.Error is null))
                 copies.TryAdd(WorkspaceCollector.Normalize(row.Path), (row, copies.Count));
 
-            var known = new List<(SessionRow Row, int Order, long Started)>();
-            var unknown = new List<(SessionRow Row, long Started)>();
+            var rowsOfCopies = new List<(SessionRow Row, int Order, long Started)>();
             foreach (var session in sessions.Live())
             {
-                var started = session.StartedAt ?? long.MaxValue;
                 if (copies.TryGetValue(WorkspaceCollector.Normalize(session.Cwd), out var copy))
-                    known.Add((Row(session, copy.Row), copy.Order, started));
-                else
-                    unknown.Add((Row(session, null), started));
+                    rowsOfCopies.Add((Row(session, copy.Row), copy.Order, session.StartedAt ?? long.MaxValue));
             }
 
-            return known
+            return rowsOfCopies
                 .OrderBy(item => item.Order)
                 .ThenBy(item => item.Started)
                 .Select(item => item.Row)
-                .Concat(unknown.OrderBy(item => item.Started).Select(item => item.Row))
                 .ToList();
         });
 
@@ -150,10 +146,10 @@ public static partial class SessionsEndpoints
     private static IResult Failed(string message) =>
         Results.Json(new SessionActionProblem("agent", message), statusCode: StatusCodes.Status502BadGateway);
 
-    private static SessionRow Row(AgentSession session, WorkspaceRow? copy) => new(
+    private static SessionRow Row(AgentSession session, WorkspaceRow copy) => new(
         session.Cwd,
-        copy?.Project,
-        copy?.Base,
+        copy.Project,
+        copy.Base,
         session.Name,
         session.InBackground ? session.JobId : null,
         session.State,

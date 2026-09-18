@@ -40,11 +40,11 @@ const inEditor: SessionRow = {
   startedAt: Date.now() - 26 * 60 * 60_000,
 }
 
-const outsider: SessionRow = {
-  path: 'D:\\Projects\\playground',
-  project: null,
-  base: null,
-  name: 'перебрать зависимости',
+const zebra: SessionRow = {
+  path: 'D:\\Projects\\silver-misty-zebra',
+  project: 'Nota',
+  base: 'D:\\Projects\\nota-knowledge',
+  name: 'agents-kit n-12 drive',
   session: '9919e753',
   state: 'idle',
   background: true,
@@ -64,13 +64,13 @@ async function openMenu(row: string) {
   fireEvent.click(await screen.findByRole('button', { name: `Действия с сессией в ${row}` }))
 }
 
-test('сессии показаны группами по проекту, чужой каталог — своей группой', async () => {
-  stubSessions([working, idle, inEditor, outsider])
+test('сессии показаны группами по проекту', async () => {
+  stubSessions([working, idle, inEditor, zebra])
 
   render(<Sessions />)
 
   expect(await screen.findByText('Agents Kit Web')).toBeInTheDocument()
-  expect(screen.getByText('Вне списка баз')).toBeInTheDocument()
+  expect(screen.getByText('Nota')).toBeInTheDocument()
   expect(screen.getByText('agents-kit b-50 drive')).toBeInTheDocument()
   expect(screen.getByText('фоновая · 540066c8')).toBeInTheDocument()
   expect(screen.getByText('Работает')).toBeInTheDocument()
@@ -81,7 +81,7 @@ test('сессии показаны группами по проекту, чуж
 })
 
 test('чипы оставляют сессии одной копии', async () => {
-  stubSessions([working, idle, outsider])
+  stubSessions([working, idle, zebra])
 
   render(<Sessions />)
 
@@ -89,21 +89,21 @@ test('чипы оставляют сессии одной копии', async () 
 
   expect(screen.getByText('agents-kit b-31 drive flow')).toBeInTheDocument()
   expect(screen.queryByText('agents-kit b-50 drive')).not.toBeInTheDocument()
-  expect(screen.queryByText('Вне списка баз')).not.toBeInTheDocument()
+  expect(screen.queryByText('Nota')).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Все копии' }))
   expect(screen.getByText('agents-kit b-50 drive')).toBeInTheDocument()
 })
 
 test('группа сворачивается кликом по шапке', async () => {
-  stubSessions([working, outsider])
+  stubSessions([working, zebra])
 
   render(<Sessions />)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Свернуть Agents Kit Web' }))
 
   expect(screen.queryByText('agents-kit b-50 drive')).not.toBeInTheDocument()
-  expect(screen.getByText('перебрать зависимости')).toBeInTheDocument()
+  expect(screen.getByText('agents-kit n-12 drive')).toBeInTheDocument()
 })
 
 test('простаивающая сессия гаснет одним нажатием', async () => {

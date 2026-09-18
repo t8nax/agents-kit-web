@@ -56,16 +56,13 @@ public sealed class SessionsEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Sessions_SessionOfDirectoryOutsideBases_IsShownWithoutProject()
+    public async Task Sessions_SessionOfDirectoryOutsideBases_IsNotShown()
     {
         WriteBackground(Path.Combine(_root, "playground"), 300, "9919e753");
 
         var rows = await Client().GetFromJsonAsync<List<SessionRow>>("/api/sessions");
 
-        var row = Assert.Single(rows!);
-        Assert.Null(row.Project);
-        Assert.Null(row.Base);
-        Assert.Equal(Path.Combine(_root, "playground"), row.Path);
+        Assert.Empty(rows!);
     }
 
     [Fact]
@@ -90,17 +87,6 @@ public sealed class SessionsEndpointsTests : IDisposable
         var rows = await Client().GetFromJsonAsync<List<SessionRow>>("/api/sessions");
 
         Assert.Equal(["aaaaaaaa", "bbbbbbbb"], rows!.Select(row => row.Session));
-    }
-
-    [Fact]
-    public async Task Sessions_SessionsOfBasesAndOutsiders_PutOutsidersLast()
-    {
-        WriteBackground(Path.Combine(_root, "playground"), 300, "9919e753", startedAt: 1);
-        WriteBackground(_copy, 200, "7339dced", startedAt: 2);
-
-        var rows = await Client().GetFromJsonAsync<List<SessionRow>>("/api/sessions");
-
-        Assert.Equal(["7339dced", "9919e753"], rows!.Select(row => row.Session));
     }
 
     [Fact]
