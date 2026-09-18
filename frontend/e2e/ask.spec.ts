@@ -83,6 +83,11 @@ test('закрытое окно не останавливает агента: о
   await expect(reopened.getByText('Так решил оператор.')).toBeVisible()
   await expect(reopened.getByText('decisions/ui.md')).toBeVisible()
   expect(panel.posts).toHaveLength(1)
+
+  // Прочитанный ответ уходит вместе с окном: отметка в шапке о нём больше не говорит.
+  await page.keyboard.press('Escape')
+  await expect(reopened).toHaveCount(0)
+  await expect(page.getByRole('banner').getByRole('button', { name: /Чудо-юдо/ })).toHaveCount(0)
 })
 
 test('пока агент думает, идёт счётчик, а «Отменить» возвращает вопрос в поле', async ({ page }) => {

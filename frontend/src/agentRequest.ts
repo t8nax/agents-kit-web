@@ -92,6 +92,19 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind) {
     [kind],
   )
 
+  // Итог, который оператор уже видел, уходит вместе с окном: отметка в шапке о нём больше не говорит —
+  // решение оператора на приёмке B-52. Идущая просьба закрытием окна не трогается.
+  const finished = useRef(false)
+  useEffect(() => {
+    finished.current = outcome !== null || failure !== null
+  }, [outcome, failure])
+  useEffect(
+    () => () => {
+      if (finished.current) void fetch(`/api/agent/${kind}`, { method: 'DELETE', keepalive: true })
+    },
+    [kind],
+  )
+
   // Окно открылось: идущая или дождавшаяся просьба этого вида подхватывается с начала.
   useEffect(() => {
     let alive = true

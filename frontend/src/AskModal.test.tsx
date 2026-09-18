@@ -119,3 +119,16 @@ test('открытое заново окно показывает работу, 
   expect(await screen.findByText('Так решил оператор.')).toBeInTheDocument()
   expect(posts).toEqual([])
 })
+
+test('закрытое с готовым ответом окно убирает просьбу: отметка в шапке о ней больше не говорит', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { deletes } = stubFetch(stream)
+  const { unmount } = render(<AskModal onClose={() => {}} />)
+
+  await askQuestion('Почему опрос?')
+  stream.send({ type: 'answer', text: 'Так решил оператор.', files: [], durationMs: 1000 })
+  await screen.findByText('Так решил оператор.')
+  unmount()
+
+  await vi.waitFor(() => expect(deletes).toEqual(['/api/agent/ask']))
+})
