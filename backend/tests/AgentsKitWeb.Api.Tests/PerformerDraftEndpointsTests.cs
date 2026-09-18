@@ -193,14 +193,13 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Draft_RejectsBaseOutsideList_CopyOutsideProject_AndEmptyWish()
+    public async Task Draft_RejectsBaseOutsideListAndEmptyWish()
     {
         var other = Directory.CreateDirectory(Path.Combine(_root, "other")).FullName;
         var client = await Client();
 
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Post(other, _copy, "Ревьюер"))).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Post(_base, other, "Ревьюер"))).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(Post(_base, _copy, "  "))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Post(other, "Ревьюер"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(Post(_base, "  "))).StatusCode);
         Assert.Null(_agent.StartInfo);
     }
 
@@ -234,17 +233,17 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     });
 
     private static HttpRequestMessage Post(
-        string basePath, string copy, string wish, PerformerDraftFields? current = null) =>
+        string basePath, string wish, PerformerDraftFields? current = null) =>
         new(HttpMethod.Post, "/api/performers/draft")
         {
-            Content = JsonContent.Create(new PerformerDraftRequest(basePath, copy, wish, current)),
+            Content = JsonContent.Create(new PerformerDraftRequest(basePath, wish, current)),
         };
 
     /// <summary>Как окно: просьба заводится POST, а ход и итог читаются её потоком с начала.</summary>
     private async Task<List<PerformerDraftEvent>> Draft(
         HttpClient client, string wish, PerformerDraftFields? current = null)
     {
-        using var started = await client.SendAsync(Post(_base, _copy, wish, current));
+        using var started = await client.SendAsync(Post(_base, wish, current));
         Assert.Equal(HttpStatusCode.OK, started.StatusCode);
         var body = await client.GetStringAsync("/api/agent/performer/stream?from=0");
         return body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
