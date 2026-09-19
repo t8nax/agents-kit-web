@@ -770,6 +770,37 @@ $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
     [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
     [pscustomobject]@{ severity = 'WARN'; file = 'flow.md'; message = 'флоу не в истории git' }) })
 
+# Исполнители профиля: файл у каждого один на машину, а проекту он принадлежит приставкой в имени.
+# Последний заведён «оператором» мимо панели — приставки у него нет, и в разделе его быть не должно.
+$agentsDir = Join-Path $claudeDir 'agents'
+New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+Write-Utf8 (Join-Path $agentsDir 'house-reviewer.md') @"
+---
+name: house-reviewer
+description: Вычитывает дифф ветки задачи и возвращает замечания.
+tools: Read, Grep, Glob
+model: opus
+---
+
+Ты читаешь дифф ветки целиком и возвращаешь замечания списком.
+"@
+Write-Utf8 (Join-Path $agentsDir 'quirks-spec-writer.md') @"
+---
+name: quirks-spec-writer
+description: Пишет спеку экрана по разговору с оператором.
+---
+
+Ты пишешь спеку экрана.
+"@
+Write-Utf8 (Join-Path $agentsDir 'statusline-setup.md') @"
+---
+name: statusline-setup
+description: Настраивает строку состояния — заведён мимо панели, приставки проекта нет.
+---
+
+Ты настраиваешь строку состояния.
+"@
+
 # Кит без скриптов: путь к нему панель не примет, и это видно в «Настройках».
 $brokenKit = Join-Path $claudeDir 'skills\agents-kit-broken'
 New-Item -ItemType Directory -Path (Join-Path $brokenKit 'scripts') -Force | Out-Null
