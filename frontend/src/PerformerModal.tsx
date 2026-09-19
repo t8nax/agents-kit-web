@@ -286,9 +286,6 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                     ))}
                   </ol>
                 )}
-                <p className="pf-note">
-                  Окно можно закрыть: просьба останется в шапке панели, и открытое заново окно покажет её ход с начала.
-                </p>
               </>
             )}
 
@@ -427,10 +424,9 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         </div>
 
         <div className="pf-footer">
-          {/* Файл ложится в основную копию проекта, и панель его там коммитит: рядом идёт чужая работа. */}
+          {/* Копию в окне не выбирают: исполнитель лежит в наборе этой машины, и путь к нему один. */}
           <span className="pf-file">
             <span className="mono text-ter">{file ?? 'путь появится, когда задано имя'}</span>
-            <span className="text-ter pf-file-note">Лежит в наборе исполнителей этой машины и виден из любой копии.</span>
           </span>
           <div className="pf-footer-end">
             <button type="button" className="bases-btn" disabled={busy} onClick={onClose}>

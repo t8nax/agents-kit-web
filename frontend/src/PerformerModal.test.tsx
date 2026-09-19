@@ -92,7 +92,8 @@ test('копию в окне не выбирают: файл лежит в на�
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
 
   expect(screen.queryByLabelText('Копия')).not.toBeInTheDocument()
-  expect(screen.getByText(/виден из любой копии/)).toBeInTheDocument()
+  // Путь к файлу один на машину, и окно показывает его же — выбирать между копиями нечего.
+  expect(screen.getByText(/e2e-runner\.md/)).toBeInTheDocument()
 })
 
 test('правка заведённого открывает его поля', () => {
