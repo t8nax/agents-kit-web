@@ -87,7 +87,8 @@ export function useAgentConversation() {
             setRetry(null)
             setStartedAt(Date.now())
           }
-          if (event.type === 'answer' || event.type === 'error') answering = false
+          // Ответ кончает и отмена: агента, которого оборвал оператор, окно ждать не должно — B-109.
+          if (event.type === 'answer' || event.type === 'error' || event.type === 'stopped') answering = false
           // Реплика, на которой агент сорвался, возвращается оператору в поле: отправить её ещё раз — одно нажатие.
           if (event.type === 'error') setRetry(said)
         }
