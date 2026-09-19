@@ -151,24 +151,55 @@ public sealed class PanelEndpointsTests : IDisposable
     [Fact]
     public async Task Updates_NameTheTasksInsideABatchMerge()
     {
-        // В master работа приезжает пачками «Merge dev into master», а задачи лежат внутри пачки:
+        // В master работа приезжает пачкой «Merge dev into master», а задачи лежат внутри пачки:
         // в перечне должны стоять задачи, а не пачка.
-        var (repository, _) = RepositoryWithTasks();
-        var origin = Path.Combine(_root, "origin");
-        var standing = Head(origin);
-        Task(origin, "feat/delete-workspace", "копия удаляется из панели", version: null);
-        TestGit.Run(origin, "switch", "-c", "spare");
-        Commit(origin, "накопленное в канале", "spare.txt");
+        var origin = TestGit.Repository(Path.Combine(_root, "origin"));
+        TestGit.Run(origin, "switch", "-c", "master");
+        var standing = Head(origin, "master");
         TestGit.Run(origin, "switch", "dev");
+        Task(origin, "feat/delete-workspace", "копия удаляется из панели", version: null);
+        TestGit.Run(origin, "switch", "master");
         TestGit.Run(
             origin, "-c", "user.name=t", "-c", "user.email=t@t",
-            "merge", "--no-ff", "spare", "-m", "Merge spare into dev");
-        var file = Published(Panel("dev", "origin/dev", standing, "1.2.0", repository));
+            "merge", "--no-ff", "dev", "-m", "Merge dev into master");
+        var copy = Path.Combine(_root, "copy");
+        TestGit.Run(_root, "clone", origin, copy);
+        var file = Published(Panel("master", "origin/master", standing, "1.2.0", copy));
         using var factory = Factory(file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
         Assert.Equal(["копия удаляется из панели"], update?.Releases.Select(release => release.Title));
+    }
+
+    [Fact]
+    public async Task Updates_SkipTheMergeATaskMadeIntoItself()
+    {
+        // Задача перед мержем подтянула канал к себе: это слияние в перечень попадать не должно —
+        // оно ничего в канал не привезло.
+        var (repository, _) = RepositoryWithTasks();
+        var origin = Path.Combine(_root, "origin");
+        var standing = Head(origin);
+        TestGit.Run(origin, "switch", "-c", "feat/agent-chat");
+        Commit(origin, "разговор продолжается", "chat.txt");
+        TestGit.Run(origin, "switch", "dev");
+        Task(origin, "feat/sidebar", "раздел открывается списком", version: null);
+        TestGit.Run(origin, "switch", "feat/agent-chat");
+        TestGit.Run(
+            origin, "-c", "user.name=t", "-c", "user.email=t@t",
+            "merge", "--no-ff", "dev", "-m", "Merge dev в feat/agent-chat перед мержем задачи");
+        TestGit.Run(origin, "switch", "dev");
+        TestGit.Run(
+            origin, "-c", "user.name=t", "-c", "user.email=t@t",
+            "merge", "--no-ff", "feat/agent-chat", "-m", "Merge feat/agent-chat: разговор продолжается");
+        var file = Published(Panel("dev", "origin/dev", standing, "1.2.0", repository));
+        using var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Equal(
+            ["разговор продолжается", "раздел открывается списком"],
+            update?.Releases.Select(release => release.Title));
     }
 
     [Fact]
@@ -226,9 +257,9 @@ public sealed class PanelEndpointsTests : IDisposable
         TestGit.Run(repository, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", title);
     }
 
-    private static string Head(string repository)
+    private static string Head(string repository, string branch = "dev")
     {
-        var head = Path.Combine(repository, ".git", "refs", "heads", "dev");
+        var head = Path.Combine(repository, ".git", "refs", "heads", branch);
         return File.ReadAllText(head).Trim();
     }
 

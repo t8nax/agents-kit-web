@@ -2,7 +2,7 @@ using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Panel;
 
-/// <summary>Законченная задача, уехавшая в канал: заголовок слияния, которым она туда пришла.</summary>
+/// <summary>Законченная задача, уехавшая в канал: заголовок, которым она туда пришла.</summary>
 public sealed record PanelRelease(string Sha, string Title);
 
 /// <summary>
@@ -14,15 +14,19 @@ public sealed record PanelUpdate(string Sha, IReadOnlyList<PanelRelease> Release
 
 /// <summary>
 /// Что приедет с обновлением, считается по репозиторию проекта, который назвал published.json:
-/// слияния канала от кода стоящей панели до его вершины.
+/// задачи, приехавшие в канал после того, как панель собрали.
 /// </summary>
 public static class PanelUpdates
 {
     private static readonly TimeSpan FetchTimeout = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(30);
 
-    /// <summary>Больше полусотни слияний без обновления панели не разбираем: перечень всё равно не читают.</summary>
+    /// <summary>Больше полусотни задач без обновления панели не разбираем: перечень всё равно не читают.</summary>
     private const int Limit = 50;
+
+    private const char Separator = '\u001f';
+
+    private sealed record Commit(string Sha, string[] Parents, string Title);
 
     public static async Task<PanelUpdate?> ReadAsync(
         string repository, string channel, string sha, CancellationToken cancellationToken)
@@ -43,27 +47,55 @@ public static class PanelUpdates
     private static async Task<IReadOnlyList<PanelRelease>> ReleasesAsync(
         string repository, string sha, string head, CancellationToken cancellationToken)
     {
-        // Слияния, а не первые родители: в master работа приезжает пачками «Merge dev into master»,
-        // и задачи с их заголовками лежат внутри этих пачек, а не в череде первых родителей.
+        var arrived = new List<PanelRelease>();
+        // Панель стоит на коде, которого в этом репозитории нет, — назвать нечего, но отставание уже видно.
+        foreach (var commit in await FirstParentAsync(repository, $"{sha}..{head}", cancellationToken))
+        {
+            if (!Mechanical(commit.Title))
+            {
+                arrived.Add(new PanelRelease(commit.Sha, Arrived(commit.Title)));
+                continue;
+            }
+
+            // Пачка: в master одним слиянием приезжает всё, что накопилось в dev, а задачи лежат внутри
+            // неё. Разворачиваем пачку в то, что она привезла, иначе перечень — череда одинаковых строк.
+            if (commit.Parents.Length < 2)
+                continue;
+            var inside = await FirstParentAsync(
+                repository, $"{commit.Parents[0]}..{commit.Parents[1]}", cancellationToken);
+            arrived.AddRange(inside
+                .Where(task => !Mechanical(task.Title))
+                .Select(task => new PanelRelease(task.Sha, Arrived(task.Title))));
+        }
+
+        return arrived.Take(Limit).ToList();
+    }
+
+    /// <summary>
+    /// Череда первых родителей: так в канал и приезжает работа. Слияние, которым задача подтянула
+    /// канал к себе перед мержем, лежит в стороне от этой череды и в перечень не попадает.
+    /// </summary>
+    private static async Task<IReadOnlyList<Commit>> FirstParentAsync(
+        string repository, string range, CancellationToken cancellationToken)
+    {
         var log = await GitRunner.RunAsync(
             repository, ReadTimeout, cancellationToken,
-            "log", "--merges", "-n", Limit.ToString(), "--format=%H%x1f%s", $"{sha}..{head}");
-        // Панель стоит на коде, которого в этом репозитории нет, — назвать нечего, но отставание уже видно.
+            "log", "--first-parent", "-n", Limit.ToString(), $"--format=%H{Separator}%P{Separator}%s", range);
         if (log.ExitCode != 0)
             return [];
 
         return log.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(line => line.Split('\u001f'))
-            .Where(parts => parts.Length == 2)
-            .Where(parts => !Mechanical(parts[1]))
-            .Select(parts => new PanelRelease(parts[0], Arrived(parts[1])))
+            .Select(line => line.Split(Separator))
+            .Where(parts => parts.Length == 3)
+            .Select(parts => new Commit(
+                parts[0], parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries), parts[2]))
             .ToList();
     }
 
     /// <summary>
     /// Слияние, чей заголовок git написал сам, — «Merge dev into master», «Merge branch …»: оператору
-    /// оно не говорит ничего, а задачи, которые им приехали, стоят в перечне сами по себе.
+    /// оно не говорит ничего, и в перечне вместо него стоят задачи, которые оно привезло.
     /// </summary>
     private static bool Mechanical(string title) =>
         title.StartsWith("Merge branch ", StringComparison.Ordinal)
