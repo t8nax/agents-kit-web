@@ -155,18 +155,20 @@ test('кнопки подвала одного размера и на своих
   // Кнопки подвала — одна пара: разный рост и съехавшее место бросаются в глаза — замечания
   // оператора на приёмке B-79. Рост целый, а не дробный: половина пикселя красится по-разному
   // у заливки и у рамки, и кнопки выглядят разными.
+  // Замер идёт с повтором: пока грузится шрифт, кнопки успевают померяться на запасной гарнитуре.
   const pair = async () => {
-    const left = await dialog.getByRole('button', { name: 'Новая переписка' }).boundingBox()
-    const right = await dialog
-      .getByRole('button', { name: /^(Отправить|Отменить)$/ })
-      .boundingBox()
-    expect(left).not.toBeNull()
-    expect(right).not.toBeNull()
-    expect(left!.height).toBe(right!.height)
-    expect(left!.width).toBe(right!.width)
-    expect(left!.y).toBe(right!.y)
-    expect(Number.isInteger(left!.height)).toBe(true)
-    return right!
+    let right!: { x: number; y: number; width: number; height: number }
+    await expect(async () => {
+      const left = await dialog.getByRole('button', { name: 'Новая переписка' }).boundingBox()
+      right = (await dialog.getByRole('button', { name: /^(Отправить|Отменить)$/ }).boundingBox())!
+      expect(left).not.toBeNull()
+      expect(right).not.toBeNull()
+      expect(left!.height).toBe(right.height)
+      expect(left!.width).toBe(right.width)
+      expect(left!.y).toBe(right.y)
+      expect(Number.isInteger(left!.height)).toBe(true)
+    }).toPass({ timeout: 5000 })
+    return right
   }
 
   const dialog = await openAsk(page)
