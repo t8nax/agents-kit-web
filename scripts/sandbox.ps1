@@ -334,12 +334,14 @@ if (-not $mode) { $mode = 'ok' }
 # Аргументы приходят от обёртки claude.exe переменной окружения: в командной строке
 # многострочный системный промпт пришлось бы экранировать.
 $arguments = if ($env:AKW_CLAUDE_ARGS) { @($env:AKW_CLAUDE_ARGS -split [char]1) } else { @($args) }
+# Разговор по базе идёт живым процессом: реплики приходят строками, и весь ввод разом не читается.
+$chat = $arguments -contains '--input-format'
 # Текст оператора приходит в stdin в UTF-8: читаем поток сами, иначе консоль отдаст его
 # в кодировке по умолчанию и русские буквы приедут мусором.
-$stdin = if ([Console]::IsInputRedirected) {
-    $reader = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false))
-    $reader.ReadToEnd()
-} else { '' }
+$stdinReader = if ([Console]::IsInputRedirected) {
+    [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false))
+} else { $null }
+$stdin = if ($stdinReader -and -not $chat) { $stdinReader.ReadToEnd() } else { '' }
 
 function Get-Argument([string]$Name) {
     for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
@@ -451,13 +453,32 @@ if ($baseDir) {
     exit 0
 }
 
-# Вопрос по базе: агент работает в каталоге базы и только читает.
+# Разговор по базе: агент работает в каталоге базы, только читает и отвечает на каждую реплику,
+# пока панель не закроет ввод. Реплика приходит строкой stream-json.
 $product = Join-Path (Get-Location).Path 'product.md'
-Write-Step 'Read' @{ file_path = $product }
-Write-Step 'Grep' @{ pattern = 'песочница' }
-if ($mode -eq 'truncated') { exit 0 }
-$question = $stdin.Trim()
-Write-Result "Подставной агент песочницы отвечает на «$question»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+if (-not $chat) {
+    Write-Step 'Read' @{ file_path = $product }
+    Write-Step 'Grep' @{ pattern = 'песочница' }
+    if ($mode -eq 'truncated') { exit 0 }
+    Write-Result "Подставной агент песочницы отвечает на «$($stdin.Trim())»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+    exit 0
+}
+
+$said = @()
+while ($null -ne ($line = $stdinReader.ReadLine())) {
+    if (-not $line.Trim()) { continue }
+    $text = try { ([string]($line | ConvertFrom-Json).message.content[0].text).Trim() } catch { $line.Trim() }
+    $said += $text
+    Write-Step 'Read' @{ file_path = $product }
+    Write-Step 'Grep' @{ pattern = 'песочница' }
+    if ($mode -eq 'truncated') { exit 0 }
+    $answer = if ($said.Count -eq 1) {
+        "Подставной агент песочницы отвечает на «$text»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+    } else {
+        "Реплика $($said.Count) — «$text». Прошлые реплики я помню: $($said[0..($said.Count - 2)] -join ' · ')."
+    }
+    Write-Result $answer
+}
 exit 0
 '@
 }
