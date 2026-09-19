@@ -20,9 +20,6 @@ const reviewer: Performer = {
   path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
   source: 'copy',
   copy: 'D:\\Projects\\agents-kit-web',
-  in: ['D:\\Projects\\agents-kit-web', 'D:\\Projects\\noble-keen-walrus'],
-  differs: [],
-  everywhere: true,
 }
 
 function open(editing: Performer | null = null, onSaved = vi.fn()) {

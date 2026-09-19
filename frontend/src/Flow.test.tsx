@@ -467,17 +467,14 @@ test('со своими несохранёнными правками переп
   expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeDisabled()
 })
 
-/**
- * Заведённые исполнители проекта: из них шагу выбирают субагента. Имя со звёздочкой — тот, кто лежит
- * не во всех копиях: шагу он не годится, и в списке выбора его нет — B-77.
- */
+/** Заведённые исполнители проекта: ровно из них шагу выбирают субагента. */
 const performers = (names: string[]) => [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
     copies: [],
     performers: names.map((name) => ({
-      name: name.replace('*', ''),
+      name,
       description: null,
       model: null,
       tools: null,
@@ -522,22 +519,6 @@ test('шаг, чьего исполнителя нет на диске, отме
   expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveValue('reviewer')
   fireEvent.click(drawer.getByRole('button', { name: 'Завести исполнителя' }))
   expect(onPerformers).toHaveBeenCalled()
-})
-
-test('исполнителя, который лежит не во всех копиях, шагу выбрать нельзя', async () => {
-  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['reviewer*', 'e2e-runner'])) }))
-  const region = await renderFlow()
-
-  // Шаг уже зовёт его именем: по схеме видно, что поручить ему работу нельзя.
-  expect(await within(nodes(region)[1]).findByLabelText('Исполнитель reviewer есть не во всех копиях')).toBeInTheDocument()
-
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-  expect(drawer.getByRole('status')).toHaveTextContent('лежит не во всех копиях проекта')
-  // В списке выбора остаются только те, кто есть всюду, — и сам reviewer отдельным пунктом.
-  const picker = await drawer.findByRole('combobox', { name: 'Имя субагента' })
-  expect(within(picker).getByRole('option', { name: 'reviewer — не во всех копиях' })).toBeInTheDocument()
-  expect(within(picker).queryByRole('option', { name: 'reviewer' })).not.toBeInTheDocument()
-  expect(within(picker).getByRole('option', { name: 'e2e-runner' })).toBeInTheDocument()
 })
 
 test('«вписать имя…» возвращает поле для чужого имени', async () => {
