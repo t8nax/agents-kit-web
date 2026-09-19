@@ -200,6 +200,12 @@ function App() {
     }
   }, [loadRows])
 
+  // Раздел, выбранный в сайдбаре, забывает возврат к просьбе: иначе он каждый раз встаёт с её окном — B-73
+  const chooseSection = useCallback((next: Section) => {
+    setSection(next)
+    setOpenRequest(null)
+  }, [])
+
   const closeReply = useCallback(() => setReplyTo(null), [])
   const closeAsk = useCallback(() => setAsking(false), [])
   const closeCreate = useCallback(() => setCreating(false), [])
@@ -259,7 +265,7 @@ function App() {
         <Sidebar
           section={section}
           waiting={state.rows?.filter((row) => row.status === 'waiting').length ?? 0}
-          onSection={setSection}
+          onSection={chooseSection}
         />
         <main className={`content ${section === 'flow' ? 'content-fixed' : ''}`}>
           {section === 'workspaces' ? (
