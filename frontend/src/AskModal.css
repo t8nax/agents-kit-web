@@ -246,8 +246,11 @@
   cursor: not-allowed;
 }
 
+/* Ряд кнопок тянется во всю ширину подвала: подвал центрирует детей по горизонтали,
+   и ряд, оставшийся без соседей, сжался бы по кнопкам и встал посередине. */
 .ask-actions {
   display: flex;
+  align-self: stretch;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
