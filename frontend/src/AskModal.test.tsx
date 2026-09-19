@@ -169,6 +169,37 @@ test('«Отменить» обрывает ответ, а переписка о
   expect(screen.getByText('Долгий вопрос')).toBeInTheDocument()
   await vi.waitFor(() => expect(stops).toEqual(['/api/ask/stop']))
   expect(deletes).toEqual([])
+
+  // Отменённый ответ окно ждать перестаёт: оно снова готово говорить — B-109.
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(await screen.findByLabelText('Следующая реплика')).toBeEnabled()
+  expect(footerButtons()).toEqual(['Новая переписка', 'Отправить'])
+  expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeEnabled()
+})
+
+test('после отмены разговор продолжается: следующая реплика уходит в него же', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { replies, posts } = stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Долгий вопрос')
+  stream.send({ type: 'reply', text: 'Долгий вопрос' })
+  await screen.findByRole('status')
+  fireEvent.click(screen.getByRole('button', { name: 'Отменить' }))
+  stream.send({ type: 'stopped', text: 'Чудо-Юдо остановлен: ответа на эту реплику не будет' })
+  await screen.findByText('Чудо-Юдо остановлен: ответа на эту реплику не будет')
+
+  await say('Тогда короче')
+  stream.send({ type: 'note', text: 'Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит' })
+  stream.send({ type: 'reply', text: 'Тогда короче' })
+  stream.send({ type: 'answer', text: 'Короткий ответ', files: [], durationMs: 1000 })
+
+  expect(await screen.findByText('Короткий ответ')).toBeInTheDocument()
+  expect(screen.getByText('Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит')).toBeInTheDocument()
+  expect(replies).toEqual(['Тогда короче'])
+  // Разговор тот же: новой просьбы реплика не заводит, вся переписка осталась на экране.
+  expect(posts.map((post) => post.url)).toEqual(['/api/ask'])
+  expect(screen.getByText('Долгий вопрос')).toBeInTheDocument()
 })
 
 test('«Новая переписка» убирает разговор из панели и возвращает окно к первому вопросу', async () => {

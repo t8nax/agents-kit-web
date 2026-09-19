@@ -267,6 +267,22 @@ test('пока агент думает, идёт счётчик, а «Отмен
   await expect(dialog.getByText('Долгий вопрос')).toBeVisible()
   expect(panel.stops).toBe(1)
   expect(panel.deletes).toBe(0)
+
+  // Окно перестаёт ждать оборванного агента и снова готово говорить — B-109.
+  await expect(waiting).toBeHidden()
+  await expect(dialog.getByLabel('Следующая реплика')).toBeEnabled()
+  await expect(dialog.getByRole('button', { name: 'Новая переписка' })).toBeEnabled()
+
+  // Разговор продолжается той же просьбой: новый агент отвечает и честно говорит, что прежнего не помнит.
+  await dialog.getByLabel('Следующая реплика').fill('Тогда короче')
+  await dialog.getByRole('button', { name: 'Отправить' }).click()
+  panel.say({ type: 'note', text: 'Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит' })
+  panel.answer({ type: 'answer', text: 'Короткий ответ', files: [], durationMs: 1000 })
+
+  await expect(dialog.getByText('Короткий ответ')).toBeVisible()
+  await expect(dialog.getByText('Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит')).toBeVisible()
+  expect(panel.replies).toEqual(['Тогда короче'])
+  expect(panel.posts).toHaveLength(1)
 })
 
 test('сбой посреди переписки её не рушит: реплика возвращается в поле', async ({ page }) => {
