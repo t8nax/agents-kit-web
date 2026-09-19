@@ -55,8 +55,21 @@ public static class PanelUpdates
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(line => line.Split('\u001f'))
             .Where(parts => parts.Length == 2)
-            .Select(parts => new PanelRelease(parts[0], parts[1]))
+            .Select(parts => new PanelRelease(parts[0], Arrived(parts[1])))
             .ToList();
+    }
+
+    /// <summary>
+    /// «Merge fix/some-task: что сделано» — приставка слияния оператору не говорит ничего, и в карточке
+    /// остаётся только сама фраза о правке.
+    /// </summary>
+    private static string Arrived(string title)
+    {
+        if (!title.StartsWith("Merge ", StringComparison.Ordinal))
+            return title;
+        var colon = title.IndexOf(": ", StringComparison.Ordinal);
+        // Имя ветки — одно слово; пробел в нём значит, что это не приставка, а обычный заголовок.
+        return colon > 0 && !title[6..colon].Contains(' ') ? title[(colon + 2)..] : title;
     }
 
     /// <summary>Код, на котором стоит ревизия: им панель и сравнивает себя с каналом.</summary>

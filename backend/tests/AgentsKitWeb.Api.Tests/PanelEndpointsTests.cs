@@ -179,6 +179,19 @@ public sealed class PanelEndpointsTests : IDisposable
         TestGit.Run(repository, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", title);
     }
 
+    [Fact]
+    public async Task Updates_DropTheMergePrefixFromWhatArrived()
+    {
+        var (repository, standing) = RepositoryWithReleases();
+        Change(Path.Combine(_root, "origin"), "Merge fix/some-task: копия удаляется из панели");
+        var file = Published(Panel("dev", "origin/dev", standing, "1.0.0", repository));
+        using var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Equal("копия удаляется из панели", update?.Releases[0].Title);
+    }
+
     private static void Release(string repository, string version, string title)
     {
         File.WriteAllText(Path.Combine(repository, "version.txt"), version + "\n");
