@@ -150,6 +150,42 @@ test('оператор спрашивает базу из шапки и чита
   await expect(dialog).toHaveCount(0)
 })
 
+test('кнопки подвала одного размера и на своих местах во всём разговоре', async ({ page }) => {
+  const panel = await mockConversation(page)
+  // Кнопки подвала — одна пара: разный рост и съехавшее место бросаются в глаза — замечания
+  // оператора на приёмке B-79. Рост целый, а не дробный: половина пикселя красится по-разному
+  // у заливки и у рамки, и кнопки выглядят разными.
+  const pair = async () => {
+    const left = await dialog.getByRole('button', { name: 'Новая переписка' }).boundingBox()
+    const right = await dialog
+      .getByRole('button', { name: /^(Отправить|Отменить)$/ })
+      .boundingBox()
+    expect(left).not.toBeNull()
+    expect(right).not.toBeNull()
+    expect(left!.height).toBe(right!.height)
+    expect(left!.width).toBe(right!.width)
+    expect(left!.y).toBe(right!.y)
+    expect(Number.isInteger(left!.height)).toBe(true)
+    return right!
+  }
+
+  const dialog = await openAsk(page)
+  const idle = await pair()
+
+  await dialog.getByLabel('Вопрос').fill('Вопрос')
+  await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByRole('status')).toBeVisible()
+  const running = await pair()
+
+  panel.answer({ type: 'answer', text: 'Ответ', files: [], durationMs: 1000 })
+  await expect(dialog.getByText('Ответ')).toBeVisible()
+  const answered = await pair()
+
+  // «Отменить» встаёт ровно туда, где была «Отправить», и обратно.
+  expect([running.x, running.y]).toEqual([idle.x, idle.y])
+  expect([answered.x, answered.y]).toEqual([idle.x, idle.y])
+})
+
 test('разговор продолжается: переспросить можно в том же окне, и вся переписка видна', async ({ page }) => {
   const panel = await mockConversation(page)
 

@@ -257,8 +257,12 @@
   margin-left: auto;
 }
 
+/* Кнопки подвала — одна пара и по ширине, и по высоте: рост задан явно, чтобы его не двигали
+   ни длина надписи, ни шрифт — замечание оператора на приёмке B-79. */
 .ask-footer .btn {
   min-width: 180px;
+  min-height: 42px;
+  padding-block: 0;
   justify-content: center;
   white-space: nowrap;
 }
