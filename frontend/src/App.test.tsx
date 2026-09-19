@@ -139,9 +139,9 @@ test('точка у имени копии говорит, что делает е
   // Подпись точки — метка, а не текст: содержимое ячейки остаётся именем копии и её веткой
   expect(within(tableRows[1]).getAllByRole('cell')[0]).toHaveTextContent(/^appfeat\/table$/)
 
-  // Цвет точки сам по себе ничего не говорит — под таблицей стоит легенда
-  expect(screen.getByText('Точка у имени копии:')).toBeInTheDocument()
-  expect(screen.getByText('ждёт вас в терминале')).toBeInTheDocument()
+  // Слова состояния держит подсказка точки, отдельной легенды под таблицей нет
+  expect(within(tableRows[1]).getByRole('img')).toHaveAttribute('title', 'сессия стоит без дела')
+  expect(screen.queryByText('Точка у имени копии:')).not.toBeInTheDocument()
 })
 
 test('сессия, ждущая оператора в терминале, отмечена своей точкой', async () => {

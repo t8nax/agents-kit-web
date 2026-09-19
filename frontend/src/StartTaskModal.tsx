@@ -171,11 +171,6 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               </ul>
             )}
           </fieldset>
-
-          <p className="st-hint">
-            Запись уйдёт из бэклога, и агент заведёт память задачи сам — панель бэклог не правит. Работает он в фоне,
-            а вопросы задаёт в панели.
-          </p>
         </div>
 
         <div className="st-footer">

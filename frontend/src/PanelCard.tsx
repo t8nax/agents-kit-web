@@ -162,11 +162,6 @@ export default function PanelCard() {
               </button>
             ))}
           </div>
-          <span className="panel-hint">
-            master — принятое и слитое;
-            <br />
-            dev — свежее, ещё не в master.
-          </span>
         </div>
 
         <div className="panel-divider" />
@@ -323,12 +318,7 @@ function UpdateProgress({ onFailed }: { onFailed: (state: PanelUpdateState) => v
             ответит, страница перезагрузится сама.
           </p>
         ) : (
-          <>
-            <pre className="panel-log">{state?.log.join('\n') ?? 'Запускаем обновление…'}</pre>
-            <p className="panel-hint">
-              Когда дойдёт до подмены, панель на минуту пропадёт — страница дождётся её и вернётся сама.
-            </p>
-          </>
+          <pre className="panel-log">{state?.log.join('\n') ?? 'Запускаем обновление…'}</pre>
         )}
       </div>
     </div>
