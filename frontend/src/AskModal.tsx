@@ -212,10 +212,6 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
             }}
           />
           <div className="ask-actions">
-            <span className="ask-hint">
-              <LockIcon />
-              {AGENT_NAME} только читает базу и ничего в ней не меняет
-            </span>
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка»
                 приглушена, а «Отменить» встаёт ровно туда, где была «Отправить». */}
             <div className="footer-right">
@@ -321,15 +317,6 @@ export function AskIcon() {
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       <path d="M9.5 8.5a2.5 2.5 0 0 1 4.8 1c0 1.5-2.3 2-2.3 3" />
       <line x1="12" y1="15" x2="12.01" y2="15" />
-    </svg>
-  )
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   )
 }

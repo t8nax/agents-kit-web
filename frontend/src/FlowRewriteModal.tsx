@@ -151,10 +151,6 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish)
                 }}
               />
-              <p className="write-note">
-                {AGENT_NAME} прочитает флоу проекта и правила кита о форме шага и вернёт переписанный флоу. Файл базы он
-                не трогает. Ctrl+Enter — переписать.
-              </p>
               {!wish && (
                 <div className="ask-examples">
                   <div className="ask-examples-title">Например</div>
@@ -224,12 +220,13 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
         </div>
 
         <div className="modal-footer ask-footer">
-          <span className="ask-hint">
-            <LockIcon />
-            {phase === 'rewritten'
-              ? 'Флоу базы не записан: правки лягут в схему, сохранит их кнопка «Сохранить»'
-              : `${AGENT_NAME} только читает базу: флоу запишет панель и только с вашего согласия`}
-          </span>
+          {/* Не подсказка, а состояние: пока правки не сохранены, флоу базы прежний. */}
+          {phase === 'rewritten' && (
+            <span className="ask-hint">
+              <LockIcon />
+              Флоу базы не записан: правки лягут в схему, сохранит их кнопка «Сохранить»
+            </span>
+          )}
           <div className="footer-right">
             {phase === 'idle' && (
               <button type="button" className="btn btn-primary" disabled={!wish.trim()} onClick={() => void rewrite(wish)}>
