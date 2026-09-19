@@ -98,24 +98,26 @@ public sealed class PanelEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Updates_ListsVersionsReleasedSincePanelWasBuilt()
+    public async Task Updates_ListTheTasksThatArrivedSincePanelWasBuilt()
     {
-        var (repository, standing) = RepositoryWithReleases();
+        var (repository, standing) = RepositoryWithTasks();
         var file = Published(Panel("dev", "origin/dev", standing, "1.0.0", repository));
         using var factory = Factory(file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
         Assert.NotNull(update);
-        Assert.Equal("1.2.0", update.Latest);
-        Assert.Equal(["1.2.0", "1.1.0"], update.Releases.Select(release => release.Version));
-        Assert.Equal("Исполнитель синхронизируется по копиям", update.Releases[0].Title);
+        Assert.Equal(Head(Path.Combine(_root, "origin")), update.Sha);
+        // Новые первыми, и приставка слияния из заголовка убрана — оператору она не говорит ничего.
+        Assert.Equal(
+            ["исполнитель синхронизируется по копиям", "переход строки ведёт в сессию задачи"],
+            update.Releases.Select(release => release.Title));
     }
 
     [Fact]
-    public async Task Updates_WhenPanelIsCurrent_ListsNothing()
+    public async Task Updates_WhenPanelIsCurrent_ListNothing()
     {
-        var (repository, _) = RepositoryWithReleases();
+        var (repository, _) = RepositoryWithTasks();
         var head = Head(repository);
         var file = Published(Panel("dev", "origin/dev", head, "1.2.0", repository));
         using var factory = Factory(file);
@@ -123,8 +125,81 @@ public sealed class PanelEndpointsTests : IDisposable
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
         Assert.NotNull(update);
-        Assert.Equal("1.2.0", update.Latest);
+        Assert.Equal(head, update.Sha);
         Assert.Empty(update.Releases);
+    }
+
+    [Fact]
+    public async Task Updates_ListTheTaskWhoseVersionWasNotRaised()
+    {
+        // Задача уехала в канал, а номер версии за ней не подняли: по номерам панель выглядела бы
+        // свежей, и отставание видно только по коду.
+        var (repository, _) = RepositoryWithTasks();
+        var origin = Path.Combine(_root, "origin");
+        var standing = Head(origin);
+        Task(origin, "feat/delete-workspace", "копия удаляется из панели", version: null);
+        var file = Published(Panel("dev", "origin/dev", standing, "1.2.0", repository));
+        using var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.NotNull(update);
+        Assert.Equal(Head(origin), update.Sha);
+        Assert.Equal(["копия удаляется из панели"], update.Releases.Select(release => release.Title));
+    }
+
+    [Fact]
+    public async Task Updates_NameTheTasksInsideABatchMerge()
+    {
+        // В master работа приезжает пачкой «Merge dev into master», а задачи лежат внутри пачки:
+        // в перечне должны стоять задачи, а не пачка.
+        var origin = TestGit.Repository(Path.Combine(_root, "origin"));
+        TestGit.Run(origin, "switch", "-c", "master");
+        var standing = Head(origin, "master");
+        TestGit.Run(origin, "switch", "dev");
+        Task(origin, "feat/delete-workspace", "копия удаляется из панели", version: null);
+        TestGit.Run(origin, "switch", "master");
+        TestGit.Run(
+            origin, "-c", "user.name=t", "-c", "user.email=t@t",
+            "merge", "--no-ff", "dev", "-m", "Merge dev into master");
+        var copy = Path.Combine(_root, "copy");
+        TestGit.Run(_root, "clone", origin, copy);
+        var file = Published(Panel("master", "origin/master", standing, "1.2.0", copy));
+        using var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Equal(["копия удаляется из панели"], update?.Releases.Select(release => release.Title));
+    }
+
+    [Fact]
+    public async Task Updates_SkipTheMergeATaskMadeIntoItself()
+    {
+        // Задача перед мержем подтянула канал к себе: это слияние в перечень попадать не должно —
+        // оно ничего в канал не привезло.
+        var (repository, _) = RepositoryWithTasks();
+        var origin = Path.Combine(_root, "origin");
+        var standing = Head(origin);
+        TestGit.Run(origin, "switch", "-c", "feat/agent-chat");
+        Commit(origin, "разговор продолжается", "chat.txt");
+        TestGit.Run(origin, "switch", "dev");
+        Task(origin, "feat/sidebar", "раздел открывается списком", version: null);
+        TestGit.Run(origin, "switch", "feat/agent-chat");
+        TestGit.Run(
+            origin, "-c", "user.name=t", "-c", "user.email=t@t",
+            "merge", "--no-ff", "dev", "-m", "Merge dev в feat/agent-chat перед мержем задачи");
+        TestGit.Run(origin, "switch", "dev");
+        TestGit.Run(
+            origin, "-c", "user.name=t", "-c", "user.email=t@t",
+            "merge", "--no-ff", "feat/agent-chat", "-m", "Merge feat/agent-chat: разговор продолжается");
+        var file = Published(Panel("dev", "origin/dev", standing, "1.2.0", repository));
+        using var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Equal(
+            ["разговор продолжается", "раздел открывается списком"],
+            update?.Releases.Select(release => release.Title));
     }
 
     [Fact]
@@ -137,30 +212,54 @@ public sealed class PanelEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    /// <summary>Репозиторий с origin, где вышли 1.1.0 и 1.2.0; возвращает путь копии и sha версии 1.0.0.</summary>
-    private (string Repository, string Standing) RepositoryWithReleases()
+    /// <summary>Репозиторий с origin, в который двумя задачами приехала работа; отдаёт копию и sha до них.</summary>
+    private (string Repository, string Standing) RepositoryWithTasks()
     {
         var origin = TestGit.Repository(Path.Combine(_root, "origin"));
-        Release(origin, "1.0.0", "Первая панель");
+        File.WriteAllText(Path.Combine(origin, "version.txt"), "1.0.0\n");
+        TestGit.Run(origin, "add", "version.txt");
+        Commit(origin, "первая панель");
         var standing = Head(origin);
-        Release(origin, "1.1.0", "Переход строки ведёт в сессию задачи");
-        Release(origin, "1.2.0", "Исполнитель синхронизируется по копиям");
+        Task(origin, "feat/session-link", "переход строки ведёт в сессию задачи", "1.1.0");
+        Task(origin, "feat/performer-sync", "исполнитель синхронизируется по копиям", "1.2.0");
 
         var copy = Path.Combine(_root, "copy");
         TestGit.Run(_root, "clone", origin, copy);
         return (copy, standing);
     }
 
-    private static void Release(string repository, string version, string title)
+    /// <summary>
+    /// Задача: своя ветка, правка и слияние в канал заголовком для оператора — так работа и приезжает
+    /// в dev. version null — номер версии за задачей не подняли.
+    /// </summary>
+    private static void Task(string repository, string branch, string title, string? version)
     {
-        File.WriteAllText(Path.Combine(repository, "version.txt"), version + "\n");
-        TestGit.Run(repository, "add", "version.txt");
+        TestGit.Run(repository, "switch", "-c", branch);
+        if (version is not null)
+        {
+            File.WriteAllText(Path.Combine(repository, "version.txt"), version + "\n");
+            TestGit.Run(repository, "add", "version.txt");
+        }
+        Commit(repository, title, branch.Replace('/', '-') + ".txt");
+        TestGit.Run(repository, "switch", "dev");
+        TestGit.Run(
+            repository, "-c", "user.name=t", "-c", "user.email=t@t",
+            "merge", "--no-ff", branch, "-m", $"Merge {branch}: {title}");
+    }
+
+    private static void Commit(string repository, string title, string? file = null)
+    {
+        if (file is not null)
+        {
+            File.WriteAllText(Path.Combine(repository, file), title + "\n");
+            TestGit.Run(repository, "add", file);
+        }
         TestGit.Run(repository, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", title);
     }
 
-    private static string Head(string repository)
+    private static string Head(string repository, string branch = "dev")
     {
-        var head = Path.Combine(repository, ".git", "refs", "heads", "dev");
+        var head = Path.Combine(repository, ".git", "refs", "heads", branch);
         return File.ReadAllText(head).Trim();
     }
 

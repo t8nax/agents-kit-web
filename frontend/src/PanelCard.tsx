@@ -4,30 +4,27 @@ import './PanelCard.css'
 export type PanelBuild = {
   channel: string
   sha: string
-  version: string
   builtAt: string
 }
 
 export type Panel = {
-  version: string
   installed: boolean
   channel: string
   published: PanelBuild | null
 }
 
 export type PanelRelease = {
-  version: string
+  sha: string
   title: string
 }
 
 export type PanelUpdates = {
-  latest: string
+  sha: string
   releases: PanelRelease[]
 }
 
 export type PanelUpdateState = {
   state: 'none' | 'running' | 'done' | 'failed'
-  version: string | null
   log: string[]
   file: string
 }
@@ -40,9 +37,21 @@ const pollMs = 1500
 const built = (at: string) =>
   new Date(at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
 
+/** Код сборки на месте номера версии: он и говорит, чем одна панель отличается от другой. */
+const code = (build: PanelBuild) => `${build.channel} ${build.sha.slice(0, 7)}`
+
+/** «1 задача ждёт», «2 задачи ждут», «5 задач ждут» — иначе счёт читается не по-русски. */
+const waiting = (count: number) => {
+  const tail = count % 100
+  if (tail % 10 === 1 && tail !== 11) return `${count} задача ждёт обновления`
+  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} задачи ждут обновления`
+  return `${count} задач ждут обновления`
+}
+
 /**
- * Карточка «Панель» в «Настройках»: какая версия стоит, какая вышла в канале и кнопка обновления.
- * В запуске для разработки обновлять нечего — панель говорит это вместо кнопки.
+ * Карточка «Панель» в «Настройках»: какой панель собрана, что лежит в канале и кнопка обновления.
+ * Номерами версий карточка не говорит: номер поднимают руками и пропускают, а свежесть панели
+ * считается кодом канала. В запуске для разработки обновлять нечего — панель говорит это вместо кнопки.
  */
 export default function PanelCard() {
   const [panel, setPanel] = useState<Panel | null>(null)
@@ -128,9 +137,12 @@ export default function PanelCard() {
       </PanelShell>
     )
 
-  const version = panel.published?.version ?? panel.version
-  const latest = updates?.latest
-  const behind = latest !== undefined && latest !== version && (updates?.releases.length ?? 0) > 0
+  // Отстала панель или нет, видно только по коду канала: номер версии поднимает человек, и он
+  // его пропускает — по номерам ушедший вперёд канал выглядел бы прежним.
+  const behind = !!updates && !!panel.published && updates.sha !== panel.published.sha
+  const releases = updates?.releases ?? []
+  // Исходников проекта на месте нет — собрать обновление не из чего, и кнопка ничего не сделает.
+  const unavailable = panel.installed && !checking && !updates
 
   return (
     <PanelShell>
@@ -161,44 +173,44 @@ export default function PanelCard() {
 
         <div className="panel-row">
           <span className="panel-label">Стоит</span>
-          <span className="panel-version">{version}</span>
-          <span className="panel-hint">
-            {panel.published
-              ? `собрана ${built(panel.published.builtAt)} · ${panel.published.channel} ${panel.published.sha.slice(0, 7)}`
-              : 'из рабочей копии'}
-          </span>
+          <span className="panel-build">{panel.published ? code(panel.published) : 'рабочая копия'}</span>
+          {panel.published && <span className="panel-hint">собрана {built(panel.published.builtAt)}</span>}
         </div>
 
         {panel.installed && (
           <div className="panel-row panel-row-top">
-            <span className="panel-label">Вышла</span>
+            <span className="panel-label">В канале</span>
             {checking && <span className="panel-hint">Смотрим, что вышло…</span>}
-            {!checking && latest === undefined && (
-              <span className="panel-hint">Репозиторий проекта недоступен — сравнить не с чем.</span>
+            {!checking && !updates && (
+              <span className="panel-hint">Исходники проекта недоступны — сравнить не с чем.</span>
             )}
-            {!checking && latest !== undefined && !behind && (
-              <span className="panel-current">{latest} — новее в канале {panel.channel} пока нет</span>
+            {!checking && updates && !behind && (
+              <span className="panel-current">Новее в канале {panel.channel} пока нет</span>
             )}
-            {!checking && latest !== undefined && behind && (
+            {!checking && updates && behind && releases.length > 0 && (
               <div className="panel-releases">
-                <span className="panel-version panel-version-new">{latest}</span>
+                <span className="panel-arrived">{waiting(releases.length)}</span>
                 <ul>
-                  {updates?.releases.map((release) => (
-                    <li key={release.version}>
-                      <span className="panel-release-version">{release.version}</span>
-                      {release.title}
-                    </li>
+                  {releases.map((release) => (
+                    <li key={release.sha}>{release.title}</li>
                   ))}
                 </ul>
               </div>
+            )}
+            {!checking && updates && behind && releases.length === 0 && (
+              // Код разошёлся, а назвать нечего: панель собрана не из канала — так стоит приёмочная
+              // сборка из ветки задачи. Считать ей задачи не по чему, а обновление вернёт её в канал.
+              <span className="panel-arrived">
+                Панель собрана не из канала {panel.channel} — обновление вернёт её в него
+              </span>
             )}
           </div>
         )}
 
         {update?.state === 'failed' && !running && (
           <div className="panel-failed" role="alert">
-            <strong>Обновление не удалось — панель осталась на {version}</strong>
-            <p>Сборка сорвалась до подмены, поэтому панель работает прежней версией и ничего не потеряла.</p>
+            <strong>Обновление не удалось — панель осталась прежней</strong>
+            <p>Сборка сорвалась до подмены, поэтому панель работает прежним кодом и ничего не потеряла.</p>
             <pre>{update.log.join('\n')}</pre>
             <div className="panel-failed-actions">
               <button type="button" className="bases-btn" onClick={copyLog}>
@@ -214,20 +226,27 @@ export default function PanelCard() {
         {error && <p className="bases-error" role="alert">{error}</p>}
 
         <div className="panel-row panel-row-actions">
-          {panel.installed ? (
-            <>
-              <span className="panel-hint panel-hint-grow">
-                Обновление собирает версию и подменяет панель: минуты две она будет недоступна, страница дождётся её
-                сама.
-              </span>
-              <button type="button" className="bases-btn panel-primary" onClick={start}>
-                {behind ? `Обновить до ${latest}` : 'Собрать заново'}
-              </button>
-            </>
-          ) : (
+          {!panel.installed && (
             <span className="panel-development">
               Это запуск для разработки — обновлять тут нечего. Обновляется постоянная панель, и кнопка живёт в ней.
             </span>
+          )}
+          {unavailable && (
+            <span className="panel-development">
+              Панель собирает обновление из исходников проекта. Их нет на месте, которое записано при установке, —
+              обновиться отсюда не получится.
+            </span>
+          )}
+          {panel.installed && !unavailable && (
+            <>
+              <span className="panel-hint panel-hint-grow">
+                Обновление собирает панель заново и подменяет её: минуты две она будет недоступна, страница дождётся
+                её сама.
+              </span>
+              <button type="button" className="bases-btn panel-primary" onClick={start}>
+                {behind ? 'Обновить' : 'Собрать заново'}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -246,7 +265,7 @@ function PanelShell({ children }: { children: React.ReactNode }) {
       <div className="settings-card-head">
         <div>
           <h3 id="settings-panel">Панель</h3>
-          <p className="settings-lead">Какая версия панели стоит и как она обновляется.</p>
+          <p className="settings-lead">Какой панель собрана и как она обновляется.</p>
         </div>
       </div>
       {children}
@@ -256,7 +275,7 @@ function PanelShell({ children }: { children: React.ReactNode }) {
 
 /**
  * Окно хода обновления. В середине панель подменяется и перестаёт отвечать — это часть работы,
- * а не поломка: окно ждёт её возвращения и перезагружает страницу уже на новой версии.
+ * а не поломка: окно ждёт её возвращения и перезагружает страницу уже на новой сборке.
  */
 function UpdateProgress({ onFailed }: { onFailed: (state: PanelUpdateState) => void }) {
   const [state, setState] = useState<PanelUpdateState | null>(null)
