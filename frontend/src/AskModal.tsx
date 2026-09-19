@@ -216,27 +216,30 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
               <LockIcon />
               {AGENT_NAME} только читает базу и ничего в ней не меняет
             </span>
+            {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка»
+                приглушена, а «Отменить» встаёт ровно туда, где была «Отправить». */}
             <div className="footer-right">
+              <button
+                type="button"
+                className="btn"
+                disabled={!started || running}
+                onClick={() => void newTalk()}
+              >
+                Новая переписка
+              </button>
               {running ? (
                 <button type="button" className="btn" onClick={() => void stop()}>
                   Отменить
                 </button>
               ) : (
-                <>
-                  {started && (
-                    <button type="button" className="btn" onClick={() => void newTalk()}>
-                      Новая переписка
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    disabled={!active || !value.trim()}
-                    onClick={() => void submit()}
-                  >
-                    Отправить
-                  </button>
-                </>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={!active || !value.trim()}
+                  onClick={() => void submit()}
+                >
+                  Отправить
+                </button>
               )}
             </div>
           </div>

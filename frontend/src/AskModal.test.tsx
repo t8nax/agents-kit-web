@@ -92,6 +92,34 @@ test('разговор продолжается: следующая реплик
   expect(screen.getByLabelText('Следующая реплика')).toHaveValue('')
 })
 
+/** Кнопки подвала по порядку: по ним видно, стоит ли «Отправить» на своём месте. */
+function footerButtons() {
+  const send = screen.queryByRole('button', { name: 'Отправить' }) ?? screen.getByRole('button', { name: 'Отменить' })
+  const footer = send.parentElement as HTMLElement
+  return [...footer.querySelectorAll('button')].map((button) => button.textContent)
+}
+
+test('кнопки подвала не съезжают: «Отправить» стоит на месте и до разговора, и после', async () => {
+  const stream = controlledStream<AskEvent>()
+  stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+
+  // До первого вопроса «Новая переписка» уже на своём месте, только приглушена.
+  expect(await screen.findByRole('button', { name: 'Новая переписка' })).toBeDisabled()
+  expect(footerButtons()).toEqual(['Новая переписка', 'Отправить'])
+
+  await ask('Вопрос')
+  stream.send({ type: 'reply', text: 'Вопрос' })
+  await screen.findByText('Вопрос')
+  // Пока идёт ответ, на месте «Отправить» стоит «Отменить», а «Новая переписка» никуда не делась.
+  expect(footerButtons()).toEqual(['Новая переписка', 'Отменить'])
+
+  stream.send({ type: 'answer', text: 'Ответ', files: [], durationMs: 1000 })
+  await screen.findByText('Ответ')
+  expect(footerButtons()).toEqual(['Новая переписка', 'Отправить'])
+  expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeEnabled()
+})
+
 test('база выбирается один раз: посреди разговора кнопки проектов не нажимаются', async () => {
   const stream = controlledStream<AskEvent>()
   stubFetch(stream)
