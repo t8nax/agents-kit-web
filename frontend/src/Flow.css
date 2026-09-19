@@ -45,6 +45,7 @@
 }
 
 .flow-chain {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -749,4 +750,42 @@ textarea.flow-input {
 .flow-chip-remove svg {
   width: 12px;
   height: 12px;
+}
+
+/* Круги работы: дуги слева от ленты шагов. Слой стоит по левому краю блока и мыши не мешает. */
+.flow-lines {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-92px);
+  pointer-events: none;
+}
+
+.flow-arcs {
+  position: absolute;
+  right: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.flow-arc path {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Дуга открытого шага подсвечена и подписана условием: круг разбирают по одному. */
+.flow-arc-open path {
+  stroke: var(--accent-done-text);
+}
+
+.flow-arc-label {
+  fill: var(--accent-done-text);
+  stroke: none;
+  font-size: 12px;
+  dominant-baseline: middle;
 }

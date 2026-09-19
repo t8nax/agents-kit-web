@@ -1,6 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Step = { title: string; executor: string; output: string; skip: string | null; description: string | null }
+type Step = {
+  title: string
+  executor: string
+  output: string
+  skip: string | null
+  description: string | null
+  returns?: { condition: string; step: string }[]
+  helpers?: string[]
+}
 
 const steps: Step[] = [
   {
@@ -9,6 +17,8 @@ const steps: Step[] = [
     output: 'критерий закрытия в памяти',
     skip: null,
     description: '1.1. Написать критерий.',
+    returns: [],
+    helpers: [],
   },
   {
     title: 'Ревью',
@@ -16,12 +26,22 @@ const steps: Step[] = [
     output: 'вердикт по sha',
     skip: 'правка только в текстах',
     description: '2.1. Собрать дифф.',
+    returns: [],
+    helpers: [],
   },
-  { title: 'Приёмка', executor: 'оператор', output: 'ответ оператора «принято»', skip: null, description: null },
+  {
+    title: 'Приёмка',
+    executor: 'оператор',
+    output: 'ответ оператора «принято»',
+    skip: null,
+    description: null,
+    returns: [],
+    helpers: [],
+  },
 ]
 
 // /api подменяется: прогон работает с живыми базами оператора, и запись флоу или пресета попала бы в них.
-async function mockApi(page: Page, activeTasks = 0) {
+async function mockApi(page: Page, activeTasks = 0, flow: Step[] = steps) {
   const calls: { flow: unknown[]; presets: unknown[]; open: unknown[] } = { flow: [], presets: [], open: [] }
   let presets: (Step & { id: string })[] = []
 
@@ -36,7 +56,7 @@ async function mockApi(page: Page, activeTasks = 0) {
         {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
-          steps,
+          steps: flow,
           activeTasks,
           version: 'v1',
           error: null,
@@ -292,4 +312,29 @@ test('исполнитель шага выбирается из заведённ
   await expect(review.locator('.flow-node-missing')).toBeVisible()
   await expect(drawer.getByRole('status')).toContainText('на диске не найден')
   await expect(drawer.getByRole('button', { name: 'Завести исполнителя' })).toBeVisible()
+})
+
+test('возвраты видны на схеме дугами, у открытого шага дуга подсвечена и подписана', async ({ page }) => {
+  const withReturns: Step[] = [
+    steps[0],
+    steps[1],
+    { ...steps[2], returns: [{ condition: 'есть замечания', step: 'Ревью' }] },
+  ]
+  await mockApi(page, 0, withReturns)
+  const region = await openFlow(page)
+
+  // Круг виден, не открывая шаг: дуга идёт слева от ленты
+  const arc = region.locator('.flow-arc').first()
+  await expect(arc).toBeVisible()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+
+  await expect(async () => {
+    const line = await arc.boundingBox()
+    const node = await region.getByRole('button', { name: /^Шаг 2: Ревью/ }).boundingBox()
+    expect(line && node && line.x + line.width).toBeLessThanOrEqual((node?.x ?? 0) + 2)
+  }).toPass()
+
+  await region.getByRole('button', { name: /^Шаг 3: Приёмка/ }).click()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(1)
+  await expect(region.getByText('есть замечания')).toBeVisible()
 })

@@ -471,6 +471,7 @@ export default function Flow({
             <>
               <div className="flow-scroll">
               <div className="flow-chain">
+                <ReturnArcs steps={draft} opened={openedIndex} />
                 {draft.length === 0 && (
                   <p className="backlog-note text-sec">
                     Во флоу пока нет шагов. Агент не начнёт задачу на этом проекте, пока шаги не записаны.
@@ -591,6 +592,75 @@ const executorOf = (step: DraftStep) => (step.kind === 'субагент' ? `с�
 
 const executorKind = (step: DraftStep) =>
   step.kind === 'оркестратор' ? 'orchestrator' : step.kind === 'оператор' ? 'operator' : 'agent'
+
+/**
+ * Дуги возвратов рисуются по местам блоков, а не по замеру DOM: высота блока и промежуток между ними
+ * заданы в Flow.css и здесь повторены числами — меняются они вместе.
+ */
+const NODE_HEIGHT = 148
+const NODE_GAP = 32
+const ARC_LANE = 26
+const ARC_WIDTH = 150
+const ARC_ROUND = 12
+
+type ReturnArc = { from: number; to: number; condition: string; lane: number }
+
+/**
+ * Возвраты ленты дугами: у каждой своя дорожка, чтобы соседние круги не сливались в одну линию.
+ * Возврат, которому некуда вести, не рисуется — он уже назван ошибкой шага.
+ */
+function returnArcs(steps: DraftStep[]): ReturnArc[] {
+  const arcs: ReturnArc[] = []
+  steps.forEach((step, from) => {
+    for (const back of step.returns) {
+      const target = back.step.trim()
+      const to = steps.findIndex((s) => s.title.trim() === target && target)
+      if (to < 0 || to >= from) continue
+      let lane = 0
+      while (arcs.some((arc) => arc.lane === lane && arc.to <= from && to <= arc.from)) lane++
+      arcs.push({ from, to, condition: back.condition, lane })
+    }
+  })
+  return arcs
+}
+
+const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
+
+/** Круги работы слева от ленты: у шага, открытого в сайдбаре, его дуга подсвечена и подписана условием. */
+function ReturnArcs({ steps, opened }: { steps: DraftStep[]; opened: number }) {
+  const arcs = returnArcs(steps)
+  if (arcs.length === 0) return null
+
+  const height = steps.length * (NODE_HEIGHT + NODE_GAP)
+
+  return (
+    <div className="flow-lines" aria-hidden="true">
+      <svg className="flow-arcs" style={{ width: ARC_WIDTH, height }} viewBox={`0 0 ${ARC_WIDTH} ${height}`}>
+        {arcs.map((arc) => {
+          const lane = ARC_WIDTH - (arc.lane + 1) * ARC_LANE
+          const y1 = arcCenter(arc.from)
+          const y2 = arcCenter(arc.to)
+          const open = arc.from === opened
+          return (
+            <g key={`${arc.from}-${arc.to}-${arc.lane}`} className={`flow-arc ${open ? 'flow-arc-open' : ''}`}>
+              <path
+                d={`M ${ARC_WIDTH} ${y1} H ${lane + ARC_ROUND} Q ${lane} ${y1} ${lane} ${y1 - ARC_ROUND} V ${
+                  y2 + ARC_ROUND
+                } Q ${lane} ${y2} ${lane + ARC_ROUND} ${y2} H ${ARC_WIDTH - 10}`}
+              />
+              <path d={`M ${ARC_WIDTH - 16} ${y2 - 5} L ${ARC_WIDTH - 6} ${y2} L ${ARC_WIDTH - 16} ${y2 + 5}`} />
+              {open && arc.condition.trim() && (
+                <text className="flow-arc-label" x={lane - 8} y={(y1 + y2) / 2} textAnchor="end">
+                  {arc.condition.trim()}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
 
 /** Блок шага на схеме: без номера — по решению оператора, — со значком, названием и исполнителем. */
 function StepNode({

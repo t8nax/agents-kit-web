@@ -631,3 +631,30 @@ test('в сохранённый шаг возврат и помощники не
   await screen.findByRole('button', { name: 'Шаг в пресетах' })
   expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ helpers: [], returns: [] })
 })
+
+test('возвраты нарисованы дугами: у открытого шага дуга подсвечена и подписана условием', async () => {
+  const steps = [
+    criterion,
+    review,
+    { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Ревью' }] },
+  ]
+  stubApi(api([{ ...app, steps }]))
+  const region = await renderFlow()
+
+  // Круг виден и без открытого шага, только приглушённо
+  expect(document.querySelectorAll('.flow-arc')).toHaveLength(1)
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
+
+  await openStep(region, /^Шаг 3: Приёмка/)
+
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(1)
+  expect(document.querySelector('.flow-arc-label')).toHaveTextContent('есть замечания')
+})
+
+test('возврат, которому некуда вести, дугой не рисуется', async () => {
+  const steps = [criterion, review, { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Сборка' }] }]
+  stubApi(api([{ ...app, steps }]))
+  await renderFlow()
+
+  expect(document.querySelectorAll('.flow-arc')).toHaveLength(0)
+})
