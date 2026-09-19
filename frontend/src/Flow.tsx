@@ -714,7 +714,6 @@ function PerformerField({
         <option value={CUSTOM_AGENT}>вписать имя…</option>
       </select>
       {missing && <MissingNote agent={agent} onPerformers={onPerformers} />}
-      {known.length > 0 && <span className="flow-hint">В списке — исполнители этого проекта.</span>}
     </div>
   )
 }
