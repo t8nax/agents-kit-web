@@ -65,6 +65,16 @@ test('карточка показывает код сборки и задачи,
   expect(screen.queryByText(/\d+\.\d+\.\d+/)).toBeNull()
 })
 
+test('панель, собранная не из канала, зовёт вернуться в него', async () => {
+  // Так стоит приёмочная сборка из ветки задачи: код разошёлся, а называть нечего.
+  stubApi(api(installed, { sha: 'e5c1a2b0000', releases: [] }))
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText(/Панель собрана не из канала master/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
+})
+
 test('панель на последней версии говорит, что новее нет', async () => {
   stubApi(api(installed, current))
 

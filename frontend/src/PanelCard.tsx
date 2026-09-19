@@ -190,7 +190,7 @@ export default function PanelCard() {
             {!checking && updates && !behind && (
               <span className="panel-current">Новее в канале {panel.channel} пока нет</span>
             )}
-            {!checking && updates && behind && (
+            {!checking && updates && behind && releases.length > 0 && (
               <div className="panel-releases">
                 <span className="panel-arrived">{waiting(releases.length)}</span>
                 <ul>
@@ -199,6 +199,13 @@ export default function PanelCard() {
                   ))}
                 </ul>
               </div>
+            )}
+            {!checking && updates && behind && releases.length === 0 && (
+              // Код разошёлся, а назвать нечего: панель собрана не из канала — так стоит приёмочная
+              // сборка из ветки задачи. Считать ей задачи не по чему, а обновление вернёт её в канал.
+              <span className="panel-arrived">
+                Панель собрана не из канала {panel.channel} — обновление вернёт её в него
+              </span>
             )}
           </div>
         )}
