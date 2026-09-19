@@ -2,19 +2,19 @@ using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Panel;
 
-/// <summary>Версия, вышедшая в канале, и чем она была — заголовком слияния, которым пришла.</summary>
-public sealed record PanelRelease(string Version, string Title);
+/// <summary>Законченная задача, уехавшая в канал: заголовок слияния, которым она туда пришла.</summary>
+public sealed record PanelRelease(string Sha, string Title);
 
 /// <summary>
 /// Что в канале есть сверх стоящей панели. Sha — код, на котором стоит канал: отстала панель или нет,
-/// видно только по нему, потому что номер версии поднимает человек и пропускает. Latest — версия
-/// канала; Releases — версии от стоящей до неё, новые первыми, и пустым он бывает у отставшей панели.
+/// видно только по нему, потому что номер версии поднимает человек и пропускает его. Releases — задачи
+/// от стоящей панели до вершины канала, новые первыми.
 /// </summary>
-public sealed record PanelUpdate(string Latest, string Sha, IReadOnlyList<PanelRelease> Releases);
+public sealed record PanelUpdate(string Sha, IReadOnlyList<PanelRelease> Releases);
 
 /// <summary>
-/// Вышедшие версии считаются по репозиторию проекта, который назвал published.json: номер версии
-/// живёт в его version.txt, и меняют его слияния принятых задач.
+/// Что приедет с обновлением, считается по репозиторию проекта, который назвал published.json:
+/// слияния канала от кода стоящей панели до его вершины.
 /// </summary>
 public static class PanelUpdates
 {
@@ -25,7 +25,7 @@ public static class PanelUpdates
     private const int Limit = 50;
 
     public static async Task<PanelUpdate?> ReadAsync(
-        string repository, string channel, string sha, string version, CancellationToken cancellationToken)
+        string repository, string channel, string sha, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(repository))
             return null;
@@ -37,41 +37,26 @@ public static class PanelUpdates
         if (await RevisionAsync(repository, $"origin/{channel}", cancellationToken) is not { } head)
             return null;
 
-        if (await VersionAtAsync(repository, head, cancellationToken) is not { } latest)
-            return null;
-
-        return new PanelUpdate(latest, head, await ReleasesAsync(repository, channel, sha, version, cancellationToken));
+        return new PanelUpdate(head, await ReleasesAsync(repository, sha, head, cancellationToken));
     }
 
     private static async Task<IReadOnlyList<PanelRelease>> ReleasesAsync(
-        string repository, string channel, string sha, string version, CancellationToken cancellationToken)
+        string repository, string sha, string head, CancellationToken cancellationToken)
     {
-        // --first-parent: по каналу идут слияния принятых задач, и заголовок слияния — это «что в версии».
+        // --first-parent: по каналу идут слияния принятых задач, и заголовок слияния — это «что приедет».
         var log = await GitRunner.RunAsync(
             repository, ReadTimeout, cancellationToken,
-            "log", "--first-parent", "-n", Limit.ToString(), "--format=%H%x1f%s", $"{sha}..origin/{channel}");
-        // Панель стоит на коде, которого в этом репозитории нет, — сказать нечего, но Latest уже известен.
+            "log", "--first-parent", "-n", Limit.ToString(), "--format=%H%x1f%s", $"{sha}..{head}");
+        // Панель стоит на коде, которого в этом репозитории нет, — назвать нечего, но отставание уже видно.
         if (log.ExitCode != 0)
             return [];
 
-        var commits = log.Output
+        return log.Output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(line => line.Split(''))
+            .Select(line => line.Split('\u001f'))
             .Where(parts => parts.Length == 2)
-            .Reverse()
+            .Select(parts => new PanelRelease(parts[0], parts[1]))
             .ToList();
-
-        var releases = new List<PanelRelease>();
-        var previous = version;
-        foreach (var commit in commits)
-        {
-            if (await VersionAtAsync(repository, commit[0], cancellationToken) is not { } at || at == previous)
-                continue;
-            releases.Add(new PanelRelease(at, commit[1]));
-            previous = at;
-        }
-        releases.Reverse();
-        return releases;
     }
 
     /// <summary>Код, на котором стоит ревизия: им панель и сравнивает себя с каналом.</summary>
@@ -82,14 +67,5 @@ public static class PanelUpdates
             return null;
         var sha = shown.Output.Trim();
         return sha.Length == 0 ? null : sha;
-    }
-
-    private static async Task<string?> VersionAtAsync(string repository, string revision, CancellationToken cancellationToken)
-    {
-        var shown = await GitRunner.RunAsync(repository, ReadTimeout, cancellationToken, "show", $"{revision}:version.txt");
-        if (shown.ExitCode != 0)
-            return null;
-        var version = shown.Output.Trim();
-        return version.Length == 0 ? null : version;
     }
 }

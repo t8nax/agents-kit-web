@@ -20,18 +20,14 @@ const installed: Panel = {
 const development: Panel = { version: '1.2.0', installed: false, channel: 'master', published: null }
 
 const behind: PanelUpdates = {
-  latest: '1.2.0',
   sha: 'e5c1a2b0000',
   releases: [
-    { version: '1.2.0', title: 'Исполнитель синхронизируется по копиям' },
-    { version: '1.1.0', title: 'Переход строки ведёт в сессию задачи' },
+    { sha: 'e5c1a2b0000', title: 'Исполнитель синхронизируется по копиям' },
+    { sha: 'a71fe3d0000', title: 'Переход строки ведёт в сессию задачи' },
   ],
 }
 
-const current: PanelUpdates = { latest: '1.0.0', sha: '4189d1f0000', releases: [] }
-
-/** Канал ушёл вперёд, а номер версии за ним не подняли: перечислять нечего, обновляться есть чем. */
-const unnumbered: PanelUpdates = { latest: '1.0.0', sha: 'e5c1a2b0000', releases: [] }
+const current: PanelUpdates = { sha: '4189d1f0000', releases: [] }
 
 const idle: PanelUpdateState = { state: 'none', version: null, log: [], file: 'C:\\app\\update.log' }
 
@@ -55,17 +51,18 @@ const api = (panel: Panel, updates: PanelUpdates, update: PanelUpdateState = idl
   ...extra,
 })
 
-test('карточка показывает стоящую версию, вышедшую и что в ней', async () => {
+test('карточка показывает код сборки и задачи, которые приедут', async () => {
   stubApi(api(installed, behind))
 
   render(<PanelCard />)
 
-  expect(await screen.findByText('1.0.0')).toBeTruthy()
-  expect(screen.getByText(/собрана 12 сентября.*master 4189d1f/)).toBeTruthy()
-  // «1.2.0» стоит и крупным номером вышедшей версии, и строкой перечня — обе на месте.
-  expect(await screen.findAllByText('1.2.0')).toHaveLength(2)
+  expect(await screen.findByText('master 4189d1f')).toBeTruthy()
+  expect(screen.getByText(/собрана 12 сентября/)).toBeTruthy()
+  expect(await screen.findByText('2 задачи ждут обновления')).toBeTruthy()
   expect(screen.getByText('Исполнитель синхронизируется по копиям')).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Обновить до 1.2.0' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
+  // Номерами версий карточка не говорит вовсе.
+  expect(screen.queryByText(/\d+\.\d+\.\d+/)).toBeNull()
 })
 
 test('панель на последней версии говорит, что новее нет', async () => {
@@ -73,18 +70,16 @@ test('панель на последней версии говорит, что �
 
   render(<PanelCard />)
 
-  expect(await screen.findByText(/новее в канале master пока нет/)).toBeTruthy()
+  expect(await screen.findByText(/Новее в канале master пока нет/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Собрать заново' })).toBeTruthy()
 })
 
-test('панель зовёт обновиться, когда за работой в канале не подняли номер', async () => {
-  stubApi(api(installed, unnumbered))
+test('одна задача в канале посчитана по-русски', async () => {
+  stubApi(api(installed, { sha: 'e5c1a2b0000', releases: [{ sha: 'e5c1a2b0000', title: 'Копия удаляется из панели' }] }))
 
   render(<PanelCard />)
 
-  expect(await screen.findByText(/есть работа, за которой номер версии не подняли/)).toBeTruthy()
-  // Номера у этой работы нет, и кнопка его не обещает.
-  expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
+  expect(await screen.findByText('1 задача ждёт обновления')).toBeTruthy()
 })
 
 test('без исходников проекта кнопки обновления нет', async () => {
@@ -133,7 +128,7 @@ test('кнопка запускает обновление и показывае
   )
 
   render(<PanelCard />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Обновить до 1.2.0' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Обновить' }))
 
   expect(await screen.findByRole('dialog', { name: 'Панель обновляется' })).toBeTruthy()
   expect(await screen.findByText('npm ci')).toBeTruthy()
@@ -149,7 +144,7 @@ test('пропавшая панель в окне обновления — ча�
   )
 
   render(<PanelCard />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Обновить до 1.2.0' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Обновить' }))
 
   expect(await screen.findByRole('dialog', { name: 'Панель перезапускается' })).toBeTruthy()
   expect(screen.getByText(/это часть обновления, а не сбой/)).toBeTruthy()
@@ -166,7 +161,7 @@ test('сорвавшееся обновление видно в карточке
 
   render(<PanelCard />)
 
-  expect(await screen.findByText('Обновление не удалось — панель осталась на 1.0.0')).toBeTruthy()
+  expect(await screen.findByText('Обновление не удалось — панель осталась прежней')).toBeTruthy()
   expect(screen.getByText(/ELIFECYCLE/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy()
 })

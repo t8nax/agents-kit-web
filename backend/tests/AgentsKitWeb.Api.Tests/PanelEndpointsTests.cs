@@ -98,7 +98,7 @@ public sealed class PanelEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Updates_ListsVersionsReleasedSincePanelWasBuilt()
+    public async Task Updates_ListTheTasksThatArrivedSincePanelWasBuilt()
     {
         var (repository, standing) = RepositoryWithReleases();
         var file = Published(Panel("dev", "origin/dev", standing, "1.0.0", repository));
@@ -107,13 +107,14 @@ public sealed class PanelEndpointsTests : IDisposable
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
         Assert.NotNull(update);
-        Assert.Equal("1.2.0", update.Latest);
-        Assert.Equal(["1.2.0", "1.1.0"], update.Releases.Select(release => release.Version));
-        Assert.Equal("Исполнитель синхронизируется по копиям", update.Releases[0].Title);
+        Assert.Equal(Head(Path.Combine(_root, "origin")), update.Sha);
+        Assert.Equal(
+            ["Исполнитель синхронизируется по копиям", "Переход строки ведёт в сессию задачи"],
+            update.Releases.Select(release => release.Title));
     }
 
     [Fact]
-    public async Task Updates_WhenPanelIsCurrent_ListsNothing()
+    public async Task Updates_WhenPanelIsCurrent_ListNothing()
     {
         var (repository, _) = RepositoryWithReleases();
         var head = Head(repository);
@@ -123,16 +124,15 @@ public sealed class PanelEndpointsTests : IDisposable
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
         Assert.NotNull(update);
-        Assert.Equal("1.2.0", update.Latest);
         Assert.Equal(head, update.Sha);
         Assert.Empty(update.Releases);
     }
 
     [Fact]
-    public async Task Updates_WhenChannelMovedWithoutANewVersion_StillTellTheCodeItStandsOn()
+    public async Task Updates_ListTheTaskWhoseVersionWasNotRaised()
     {
-        // Работа уехала в канал, а номер версии за ней не подняли: по номерам панель выглядит свежей,
-        // и отставание видно только по коду.
+        // Работа уехала в канал, а номер версии за ней не подняли: по номерам панель выглядела бы
+        // свежей, и отставание видно только по коду.
         var (repository, _) = RepositoryWithReleases();
         var origin = Path.Combine(_root, "origin");
         var standing = Head(origin);
@@ -143,10 +143,8 @@ public sealed class PanelEndpointsTests : IDisposable
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
         Assert.NotNull(update);
-        Assert.Equal("1.2.0", update.Latest);
         Assert.Equal(Head(origin), update.Sha);
-        // В перечень идут только задачи с поднятым номером — эта в него не попадает.
-        Assert.Empty(update.Releases);
+        Assert.Equal(["Оператор удаляет рабочую копию из панели"], update.Releases.Select(release => release.Title));
     }
 
     [Fact]

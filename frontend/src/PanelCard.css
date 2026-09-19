@@ -81,13 +81,17 @@
   flex-grow: 1;
 }
 
-.panel-version {
-  font-size: 17px;
-  font-weight: 600;
+/* Код сборки стоит там, где раньше стоял номер версии, и набран моноширинным, как коды в панели. */
+.panel-build {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
   letter-spacing: -0.01em;
 }
 
-.panel-version-new {
+.panel-arrived {
+  font-size: 13px;
+  font-weight: 500;
   color: var(--accent-done-text);
 }
 
@@ -101,7 +105,7 @@
 .panel-releases {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .panel-releases ul {
@@ -110,18 +114,26 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
 .panel-releases li {
   font-size: 13px;
   color: var(--text-secondary);
+  line-height: 1.45;
+  padding-left: 14px;
+  position: relative;
 }
 
-.panel-release-version {
-  font-family: var(--font-mono);
-  color: var(--text-tertiary);
-  padding-right: 10px;
+.panel-releases li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--accent-done-text);
 }
 
 .panel-primary {
