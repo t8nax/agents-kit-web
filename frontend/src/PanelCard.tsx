@@ -4,12 +4,10 @@ import './PanelCard.css'
 export type PanelBuild = {
   channel: string
   sha: string
-  version: string
   builtAt: string
 }
 
 export type Panel = {
-  version: string
   installed: boolean
   channel: string
   published: PanelBuild | null
@@ -27,7 +25,6 @@ export type PanelUpdates = {
 
 export type PanelUpdateState = {
   state: 'none' | 'running' | 'done' | 'failed'
-  version: string | null
   log: string[]
   file: string
 }
@@ -213,7 +210,7 @@ export default function PanelCard() {
         {update?.state === 'failed' && !running && (
           <div className="panel-failed" role="alert">
             <strong>Обновление не удалось — панель осталась прежней</strong>
-            <p>Сборка сорвалась до подмены, поэтому панель работает прежней версией и ничего не потеряла.</p>
+            <p>Сборка сорвалась до подмены, поэтому панель работает прежним кодом и ничего не потеряла.</p>
             <pre>{update.log.join('\n')}</pre>
             <div className="panel-failed-actions">
               <button type="button" className="bases-btn" onClick={copyLog}>
@@ -268,7 +265,7 @@ function PanelShell({ children }: { children: React.ReactNode }) {
       <div className="settings-card-head">
         <div>
           <h3 id="settings-panel">Панель</h3>
-          <p className="settings-lead">Какая версия панели стоит и как она обновляется.</p>
+          <p className="settings-lead">Какой панель собрана и как она обновляется.</p>
         </div>
       </div>
       {children}
@@ -278,7 +275,7 @@ function PanelShell({ children }: { children: React.ReactNode }) {
 
 /**
  * Окно хода обновления. В середине панель подменяется и перестаёт отвечать — это часть работы,
- * а не поломка: окно ждёт её возвращения и перезагружает страницу уже на новой версии.
+ * а не поломка: окно ждёт её возвращения и перезагружает страницу уже на новой сборке.
  */
 function UpdateProgress({ onFailed }: { onFailed: (state: PanelUpdateState) => void }) {
   const [state, setState] = useState<PanelUpdateState | null>(null)

@@ -11,13 +11,12 @@ type Handler = (init?: RequestInit) => Response | null
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
 
 const installed: Panel = {
-  version: '1.0.0',
   installed: true,
   channel: 'master',
-  published: { channel: 'master', sha: '4189d1f0000', version: '1.0.0', builtAt: '2026-09-12T16:40:00Z' },
+  published: { channel: 'master', sha: '4189d1f0000', builtAt: '2026-09-12T16:40:00Z' },
 }
 
-const development: Panel = { version: '1.2.0', installed: false, channel: 'master', published: null }
+const development: Panel = { installed: false, channel: 'master', published: null }
 
 const behind: PanelUpdates = {
   sha: 'e5c1a2b0000',
@@ -29,7 +28,7 @@ const behind: PanelUpdates = {
 
 const current: PanelUpdates = { sha: '4189d1f0000', releases: [] }
 
-const idle: PanelUpdateState = { state: 'none', version: null, log: [], file: 'C:\\app\\update.log' }
+const idle: PanelUpdateState = { state: 'none', log: [], file: 'C:\\app\\update.log' }
 
 function stubApi(handlers: Record<string, Handler>) {
   const fetchMock = vi.fn((input: string, init?: RequestInit) => {
@@ -130,7 +129,7 @@ test('кнопка запускает обновление и показывае
   stubApi(
     api(installed, behind, idle, {
       'POST /api/panel/update': () => {
-        update = { state: 'running', version: null, log: ['npm ci'], file: idle.file }
+        update = { state: 'running', log: ['npm ci'], file: idle.file }
         return new Response(null, { status: 202 })
       },
       'GET /api/panel/update': () => json(update),
@@ -163,7 +162,6 @@ test('пропавшая панель в окне обновления — ча�
 test('сорвавшееся обновление видно в карточке вместе с журналом', async () => {
   const failed: PanelUpdateState = {
     state: 'failed',
-    version: null,
     log: ['npm run build', 'ELIFECYCLE Command failed with exit code 2'],
     file: 'C:\\app\\update.log',
   }
