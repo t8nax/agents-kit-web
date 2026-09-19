@@ -124,6 +124,35 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Rewrite_ReadsReturnsAndHelpersFromAnswer()
+    {
+        var answer = """
+            # App — флоу
+
+            ## 1. Критерий
+
+            исполнитель: оркестратор
+            помощники: scout, check-runner
+            выход: критерий закрытия в памяти
+
+            ## 2. Мерж
+
+            исполнитель: оркестратор
+            выход: sha в dev
+            возврат: проверки красные — шаг «Критерий»
+
+            """;
+        _agent.Lines = [Result(answer.ReplaceLineEndings("\n"))];
+        var client = await Client();
+
+        var events = await Rewrite(client, _base, "Опиши круг работы в «Мерже»");
+
+        var steps = events[^1].Steps!;
+        Assert.Equal(["scout", "check-runner"], steps[0].Helpers);
+        Assert.Equal([new FlowReturn("проверки красные", "Критерий")], steps[1].Returns);
+    }
+
+    [Fact]
     public async Task Rewrite_RunsReadOnlyClaudeInBaseWithFlowAndKitRulesOnStdin()
     {
         _agent.Lines = [Result(Rewritten)];

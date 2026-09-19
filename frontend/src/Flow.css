@@ -45,6 +45,7 @@
 }
 
 .flow-chain {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -681,4 +682,110 @@ textarea.flow-input {
   color: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* Возврат в сайдбаре: условие, значок круга и шаг, к которому работа идёт заново. */
+.flow-return {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.flow-return .flow-input {
+  flex: 1;
+}
+
+.flow-return-step {
+  flex: none;
+  width: 128px;
+}
+
+.flow-return-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.flow-return-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Помощники шага: по чипу на исполнителя. */
+.flow-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.flow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
+/* Помощника с таким именем на диске нет — как у исполнителя шага, янтарь. */
+.flow-chip-missing {
+  color: var(--accent-waiting-text);
+  border-color: var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+}
+
+.flow-chip-remove {
+  font: inherit;
+  display: inline-flex;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.flow-chip-remove svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Круги работы: дуги слева от ленты шагов. Слой стоит по левому краю блока и мыши не мешает. */
+.flow-lines {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: translateX(-92px);
+  pointer-events: none;
+}
+
+.flow-arcs {
+  position: absolute;
+  right: 0;
+  top: 0;
+  overflow: visible;
+}
+
+.flow-arc path {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Дуга открытого шага подсвечена и подписана условием: круг разбирают по одному. */
+.flow-arc-open path {
+  stroke: var(--accent-done-text);
+}
+
+.flow-arc-label {
+  fill: var(--accent-done-text);
+  stroke: none;
+  font-size: 12px;
+  dominant-baseline: middle;
 }

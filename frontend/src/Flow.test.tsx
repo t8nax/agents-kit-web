@@ -10,6 +10,8 @@ const criterion: FlowStep = {
   output: 'критерий закрытия в памяти',
   skip: null,
   description: '1.1. Написать критерий до первой строчки кода.',
+  returns: [],
+  helpers: [],
 }
 const review: FlowStep = {
   title: 'Ревью',
@@ -17,6 +19,8 @@ const review: FlowStep = {
   output: 'вердикт по sha',
   skip: 'правка только в текстах',
   description: '2.1. Собрать дифф всей ветки.',
+  returns: [],
+  helpers: [],
 }
 const acceptance: FlowStep = {
   title: 'Приёмка',
@@ -24,6 +28,8 @@ const acceptance: FlowStep = {
   output: 'ответ оператора «принято»',
   skip: null,
   description: null,
+  returns: [],
+  helpers: [],
 }
 
 const app: BaseFlow = {
@@ -533,4 +539,122 @@ test('«вписать имя…» возвращает поле для чужо
 
   expect(within(nodes(region)[1]).getByText('субагент doc-writer')).toBeInTheDocument()
   expect(drawer.getByRole('status')).toHaveTextContent('на диске не найден')
+})
+
+test('возврат шага правится в сайдбаре: условие и шаг, к которому работа идёт заново', async () => {
+  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v2' }) }))
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 3: Приёмка')
+
+  fireEvent.click(drawer.getByRole('button', { name: 'Добавить возврат' }))
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Условие возврата 1' }), {
+    target: { value: 'есть замечания' },
+  })
+  const target = drawer.getByRole('combobox', { name: 'Шаг возврата 1' })
+  // Вернуться можно только на шаг, стоящий раньше: свой и следующие в списке не предлагаются
+  expect(within(target).getAllByRole('option').map((option) => option.textContent)).toEqual([
+    'шаг…',
+    'Критерий',
+    'Ревью',
+  ])
+  fireEvent.change(target, { target: { value: 'Ревью' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps[2].returns).toEqual([
+    { condition: 'есть замечания', step: 'Ревью' },
+  ])
+})
+
+test('возврат без цели не даёт сохранить флоу, и сказано, какой шаг чинить', async () => {
+  const withReturn = { ...app, steps: [criterion, review, { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Сборка' }] }] }
+  stubApi(api([withReturn]))
+  const region = await renderFlow()
+
+  expect(screen.getByText(/Не сохранить: шаг 3/)).toHaveTextContent('возврат ведёт на шаг, которого во флоу нет')
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+
+  // Возврат убирается там же, где правится, — и флоу снова записывается
+  const drawer = await openStep(region, /^Шаг 3: Приёмка/)
+  fireEvent.click(drawer.getByRole('button', { name: 'Убрать возврат 1' }))
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+})
+
+test('помощники есть только у шага оркестратора и стираются при смене исполнителя', async () => {
+  const withHelpers = { ...app, steps: [{ ...criterion, helpers: ['agents-kit-web-scout'] }, review, acceptance] }
+  const fetchMock = stubApi(
+    api([withHelpers], [], {
+      'GET /api/performers': () => json(performers(['agents-kit-web-scout', 'agents-kit-web-check-runner'])),
+      'POST /api/flow': () => json({ version: 'v2' }),
+    }),
+  )
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 1: Критерий')
+
+  fireEvent.change(await drawer.findByRole('combobox', { name: 'Добавить помощника' }), {
+    target: { value: 'agents-kit-web-check-runner' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual([
+    'agents-kit-web-scout',
+    'agents-kit-web-check-runner',
+  ])
+
+  // У шага оператора помощников не бывает: поле исчезает вместе с ними
+  fireEvent.change(drawer.getByRole('combobox', { name: 'Исполнитель шага' }), { target: { value: 'оператор' } })
+  expect(drawer.queryByRole('combobox', { name: 'Добавить помощника' })).not.toBeInTheDocument()
+  expect(drawer.queryByText('agents-kit-web-scout')).not.toBeInTheDocument()
+})
+
+test('помощник, которого нет на диске, отмечен в сайдбаре янтарём', async () => {
+  const withHelpers = { ...app, steps: [{ ...criterion, helpers: ['agents-kit-web-scout'] }, review, acceptance] }
+  stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 1: Критерий')
+
+  expect(await drawer.findByTitle('Исполнителя agents-kit-web-scout нет на диске')).toBeInTheDocument()
+})
+
+test('в сохранённый шаг возврат и помощники не уходят', async () => {
+  const steps = [{ ...criterion, helpers: ['agents-kit-web-scout'], returns: [] }, review, acceptance]
+  const fetchMock = stubApi(
+    api([{ ...app, steps }], [], {
+      'GET /api/performers': () => json(performers(['agents-kit-web-scout'])),
+      'POST /api/presets': () => json({ id: 'p1', ...criterion }),
+    }),
+  )
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 1: Критерий')
+
+  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
+  await screen.findByRole('button', { name: 'Шаг в пресетах' })
+  expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ helpers: [], returns: [] })
+})
+
+test('возвраты нарисованы дугами: у открытого шага дуга подсвечена и подписана условием', async () => {
+  const steps = [
+    criterion,
+    review,
+    { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Ревью' }] },
+  ]
+  stubApi(api([{ ...app, steps }]))
+  const region = await renderFlow()
+
+  // Круг виден и без открытого шага, только приглушённо
+  expect(document.querySelectorAll('.flow-arc')).toHaveLength(1)
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
+
+  await openStep(region, /^Шаг 3: Приёмка/)
+
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(1)
+  expect(document.querySelector('.flow-arc-label')).toHaveTextContent('есть замечания')
+})
+
+test('возврат, которому некуда вести, дугой не рисуется', async () => {
+  const steps = [criterion, review, { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Сборка' }] }]
+  stubApi(api([{ ...app, steps }]))
+  await renderFlow()
+
+  expect(document.querySelectorAll('.flow-arc')).toHaveLength(0)
 })

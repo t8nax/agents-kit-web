@@ -7,6 +7,9 @@ import type { BasePerformers } from './Performers'
 import { plural } from './plural'
 import { VsCodeIcon } from './VsCodeIcon'
 
+/** Возврат шага: при condition работа идёт заново к шагу step, который стоит во флоу раньше. */
+export type FlowReturn = { condition: string; step: string }
+
 export type FlowStep = {
   title: string
   executor: string
@@ -14,6 +17,10 @@ export type FlowStep = {
   skip: string | null
   /** Описание шага пунктами — как в файле. Панель его не показывает, а переносит при записи. */
   description: string | null
+  /** Возвраты шага — круги работы; у шага их может быть несколько. Сохранённый шаг их не несёт. */
+  returns?: FlowReturn[]
+  /** Помощники: исполнители, которых оркестратор зовёт внутри своего шага. */
+  helpers?: string[]
 }
 
 export type BaseFlow = {
@@ -44,6 +51,8 @@ type DraftStep = {
   skip: string
   description: string | null
   icon: string
+  returns: FlowReturn[]
+  helpers: string[]
 }
 
 type Notice = { kind: 'done' | 'error'; text: string } | null
@@ -64,6 +73,8 @@ function toDraft(step: FlowStep, icon = ''): DraftStep {
     skip: step.skip ?? '',
     description: step.description,
     icon,
+    returns: step.returns ?? [],
+    helpers: step.helpers ?? [],
   }
 }
 
@@ -74,6 +85,9 @@ function toStep(draft: DraftStep): FlowStep {
     output: draft.output.trim(),
     skip: draft.skip.trim() || null,
     description: draft.description,
+    returns: draft.returns.map((back) => ({ condition: back.condition.trim(), step: back.step.trim() })),
+    // Помощников зовёт только оркестратор: у шага оператора и у шага субагента их в файле не бывает.
+    helpers: draft.kind === 'оркестратор' ? draft.helpers.map((name) => name.trim()).filter(Boolean) : [],
   }
 }
 
@@ -87,14 +101,27 @@ function toIcons(draft: DraftStep[]): Record<string, string> {
   return icons
 }
 
-/** Что мешает записать шаг в форме кита; пустой список — шаг годится. */
-function stepErrors(draft: DraftStep) {
+/**
+ * Что мешает записать шаг в форме кита; пустой список — шаг годится. Возврату нужны соседи:
+ * он ведёт на шаг, который стоит раньше, поэтому проверяется вся лента.
+ */
+function stepErrors(draft: DraftStep, steps: DraftStep[] = [], index = -1) {
   const errors: string[] = []
   if (!draft.title.trim()) errors.push('нет названия')
   if (draft.kind === 'субагент' && !draft.agent.trim()) errors.push('не указано имя субагента')
   if (!draft.output.trim()) errors.push('не указан выход')
+  for (const back of draft.returns) {
+    if (!back.condition.trim()) errors.push('в возврате не указано условие')
+    const target = steps.findIndex((step) => step.title.trim() === back.step.trim() && back.step.trim())
+    if (target < 0) errors.push('возврат ведёт на шаг, которого во флоу нет')
+    else if (index >= 0 && target >= index) errors.push('возврат ведёт на шаг, который стоит не раньше')
+  }
   return errors
 }
+
+/** Шаги, на которые шагу можно вернуться: только стоящие раньше и названные. */
+const earlierSteps = (steps: DraftStep[], index: number) =>
+  steps.slice(0, Math.max(index, 0)).map((step) => step.title.trim()).filter(Boolean)
 
 // Номер пункта описания «3.2.1.»: номер шага — первое число.
 const pointNumber = /^([ \t]*)\d+(?=(?:\.\d+)+\.)/gm
@@ -112,12 +139,20 @@ function renumbered(draft: DraftStep[]): DraftStep[] {
   })
 }
 
+const sameReturns = (a: FlowReturn[] = [], b: FlowReturn[] = []) =>
+  a.length === b.length && a.every((back, i) => back.condition === b[i].condition && back.step === b[i].step)
+
 const sameStep = (a: FlowStep, b: FlowStep) =>
   a.title === b.title &&
   a.executor === b.executor &&
   a.output === b.output &&
   (a.skip ?? null) === (b.skip ?? null) &&
-  (a.description ?? null) === (b.description ?? null)
+  (a.description ?? null) === (b.description ?? null) &&
+  sameReturns(a.returns, b.returns) &&
+  (a.helpers ?? []).join(',') === (b.helpers ?? []).join(',')
+
+/** Шаг без возвратов и помощников: в сохранённые шаги они не уходят — решение оператора. */
+const plainStep = (step: FlowStep): FlowStep => ({ ...step, returns: [], helpers: [] })
 
 const sameIcons = (a: Record<string, string>, b: Record<string, string>) => {
   const keys = Object.keys(a)
@@ -143,6 +178,9 @@ const invalidLabels: Record<string, string> = {
   'empty-executor': 'не указан исполнитель',
   'empty-output': 'не указан выход',
   'line-break': 'перевод строки в поле',
+  'return-without-condition': 'в возврате не указано условие',
+  'return-unknown-step': 'возврат ведёт на шаг, которого во флоу нет',
+  'return-step-not-earlier': 'возврат ведёт на шаг, который стоит не раньше',
 }
 
 /**
@@ -313,7 +351,7 @@ export default function Flow({
   }
 
   const openedIndex = draft.findIndex((step) => step.key === opened)
-  const firstBad = draft.findIndex((step) => stepErrors(step).length > 0)
+  const firstBad = draft.findIndex((step, index) => stepErrors(step, draft, index).length > 0)
   const editable = flow !== null && !flow.error
 
   return (
@@ -325,7 +363,7 @@ export default function Flow({
           {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
           {firstBad >= 0 && (
             <span className="flow-blocked">
-              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad]).join(', ')}
+              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad).join(', ')}
             </span>
           )}
           <button
@@ -433,6 +471,7 @@ export default function Flow({
             <>
               <div className="flow-scroll">
               <div className="flow-chain">
+                <ReturnArcs steps={draft} opened={openedIndex} />
                 {draft.length === 0 && (
                   <p className="backlog-note text-sec">
                     Во флоу пока нет шагов. Агент не начнёт задачу на этом проекте, пока шаги не записаны.
@@ -443,6 +482,7 @@ export default function Flow({
                     key={step.key}
                     step={step}
                     missing={missingPerformer(step, known)}
+                    invalid={stepErrors(step, draft, index).length > 0}
                     number={index + 1}
                     opened={step.key === opened}
                     onOpen={() => setOpened(step.key)}
@@ -466,13 +506,15 @@ export default function Flow({
               {openedIndex >= 0 && (
                 <StepDrawer
                   step={draft[openedIndex]}
+                  steps={draft}
+                  index={openedIndex}
                   known={known}
                   onPerformers={onPerformers}
                   number={openedIndex + 1}
-                  isPreset={presets.some((preset) => sameStep(preset, toStep(draft[openedIndex])))}
+                  isPreset={presets.some((preset) => sameStep(preset, plainStep(toStep(draft[openedIndex]))))}
                   onChange={(patch) => update(openedIndex, patch)}
                   onClose={() => setOpened(null)}
-                  onSaveAsPreset={() => void saveAsPreset(toStep(draft[openedIndex]))}
+                  onSaveAsPreset={() => void saveAsPreset(plainStep(toStep(draft[openedIndex])))}
                   onEditDescription={() => setModal('description')}
                   onDelete={() => {
                     setDraft(renumbered(draft.filter((_, i) => i !== openedIndex)))
@@ -551,10 +593,80 @@ const executorOf = (step: DraftStep) => (step.kind === 'субагент' ? `с�
 const executorKind = (step: DraftStep) =>
   step.kind === 'оркестратор' ? 'orchestrator' : step.kind === 'оператор' ? 'operator' : 'agent'
 
+/**
+ * Дуги возвратов рисуются по местам блоков, а не по замеру DOM: высота блока и промежуток между ними
+ * заданы в Flow.css и здесь повторены числами — меняются они вместе.
+ */
+const NODE_HEIGHT = 148
+const NODE_GAP = 32
+const ARC_LANE = 26
+const ARC_WIDTH = 150
+const ARC_ROUND = 12
+
+type ReturnArc = { from: number; to: number; condition: string; lane: number }
+
+/**
+ * Возвраты ленты дугами: у каждой своя дорожка, чтобы соседние круги не сливались в одну линию.
+ * Возврат, которому некуда вести, не рисуется — он уже назван ошибкой шага.
+ */
+function returnArcs(steps: DraftStep[]): ReturnArc[] {
+  const arcs: ReturnArc[] = []
+  steps.forEach((step, from) => {
+    for (const back of step.returns) {
+      const target = back.step.trim()
+      const to = steps.findIndex((s) => s.title.trim() === target && target)
+      if (to < 0 || to >= from) continue
+      let lane = 0
+      while (arcs.some((arc) => arc.lane === lane && arc.to <= from && to <= arc.from)) lane++
+      arcs.push({ from, to, condition: back.condition, lane })
+    }
+  })
+  return arcs
+}
+
+const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
+
+/** Круги работы слева от ленты: у шага, открытого в сайдбаре, его дуга подсвечена и подписана условием. */
+function ReturnArcs({ steps, opened }: { steps: DraftStep[]; opened: number }) {
+  const arcs = returnArcs(steps)
+  if (arcs.length === 0) return null
+
+  const height = steps.length * (NODE_HEIGHT + NODE_GAP)
+
+  return (
+    <div className="flow-lines" aria-hidden="true">
+      <svg className="flow-arcs" style={{ width: ARC_WIDTH, height }} viewBox={`0 0 ${ARC_WIDTH} ${height}`}>
+        {arcs.map((arc) => {
+          const lane = ARC_WIDTH - (arc.lane + 1) * ARC_LANE
+          const y1 = arcCenter(arc.from)
+          const y2 = arcCenter(arc.to)
+          const open = arc.from === opened
+          return (
+            <g key={`${arc.from}-${arc.to}-${arc.lane}`} className={`flow-arc ${open ? 'flow-arc-open' : ''}`}>
+              <path
+                d={`M ${ARC_WIDTH} ${y1} H ${lane + ARC_ROUND} Q ${lane} ${y1} ${lane} ${y1 - ARC_ROUND} V ${
+                  y2 + ARC_ROUND
+                } Q ${lane} ${y2} ${lane + ARC_ROUND} ${y2} H ${ARC_WIDTH - 10}`}
+              />
+              <path d={`M ${ARC_WIDTH - 16} ${y2 - 5} L ${ARC_WIDTH - 6} ${y2} L ${ARC_WIDTH - 16} ${y2 + 5}`} />
+              {open && arc.condition.trim() && (
+                <text className="flow-arc-label" x={lane - 8} y={(y1 + y2) / 2} textAnchor="end">
+                  {arc.condition.trim()}
+                </text>
+              )}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 /** Блок шага на схеме: без номера — по решению оператора, — со значком, названием и исполнителем. */
 function StepNode({
   step,
   missing,
+  invalid,
   number,
   index,
   last,
@@ -564,6 +676,7 @@ function StepNode({
 }: {
   step: DraftStep
   missing: boolean
+  invalid: boolean
   number: number
   index: number
   last: boolean
@@ -573,7 +686,6 @@ function StepNode({
 }) {
   const [dragging, setDragging] = useState(false)
   const [over, setOver] = useState(false)
-  const errors = stepErrors(step)
 
   return (
     <>
@@ -582,9 +694,13 @@ function StepNode({
       <button
         type="button"
         className={`flow-node ${opened ? 'opened' : ''} ${dragging ? 'dragging' : ''} ${over ? 'drop-target' : ''} ${
-          errors.length > 0 ? 'invalid' : ''
+          invalid ? 'invalid' : ''
         }`}
-        aria-label={`Шаг ${number}: ${step.title.trim() || 'без названия'}`}
+        // Возврат нарисован дугой, а не текстом: программе чтения экрана он называется здесь.
+        aria-label={`Шаг ${number}: ${step.title.trim() || 'без названия'}${step.returns
+          .filter((back) => back.step.trim())
+          .map((back) => `, возврат к шагу ${back.step.trim()}`)
+          .join('')}`}
         aria-current={opened}
         draggable
         onClick={onOpen}
@@ -747,9 +863,139 @@ function FlowArrow() {
   )
 }
 
+/**
+ * Помощники шага: исполнители проекта, которых оркестратор зовёт внутри своего шага. Выбираются из
+ * заведённых — как исполнитель шага; вписанного руками, которого на диске нет, чип показывает янтарём.
+ */
+function HelpersField({
+  step,
+  known,
+  onChange,
+}: {
+  step: DraftStep
+  known: string[]
+  onChange: (patch: Partial<DraftStep>) => void
+}) {
+  const free = known.filter((name) => !step.helpers.includes(name))
+
+  return (
+    <div className="flow-field">
+      <span>помощники</span>
+      {step.helpers.length > 0 && (
+        <div className="flow-chips">
+          {step.helpers.map((name) => (
+            <span
+              key={name}
+              className={`flow-chip mono ${known.includes(name) ? '' : 'flow-chip-missing'}`}
+              title={known.includes(name) ? undefined : `Исполнителя ${name} нет на диске`}
+            >
+              {name}
+              <button
+                type="button"
+                className="flow-chip-remove"
+                aria-label={`Убрать помощника ${name}`}
+                onClick={() => onChange({ helpers: step.helpers.filter((helper) => helper !== name) })}
+              >
+                <CloseIcon />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {free.length > 0 && (
+        <select
+          className="flow-input mono"
+          aria-label="Добавить помощника"
+          value=""
+          onChange={(event) => event.target.value && onChange({ helpers: [...step.helpers, event.target.value] })}
+        >
+          <option value="">добавить исполнителя…</option>
+          {free.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Возвраты шага: условие и шаг, к которому работа идёт заново. Цель выбирается из шагов, стоящих раньше:
+ * вперёд возврата не бывает, и набирать название руками оператору незачем.
+ */
+function ReturnsField({
+  step,
+  earlier,
+  onChange,
+}: {
+  step: DraftStep
+  earlier: string[]
+  onChange: (patch: Partial<DraftStep>) => void
+}) {
+  const set = (index: number, patch: Partial<FlowReturn>) =>
+    onChange({ returns: step.returns.map((back, i) => (i === index ? { ...back, ...patch } : back)) })
+
+  return (
+    <div className="flow-field">
+      <span>возврат</span>
+      {step.returns.map((back, index) => (
+        <div className="flow-return" key={index}>
+          <input
+            className="flow-input"
+            aria-label={`Условие возврата ${index + 1}`}
+            placeholder="условие"
+            aria-invalid={!back.condition.trim()}
+            value={back.condition}
+            onChange={(event) => set(index, { condition: event.target.value })}
+          />
+          <span className="flow-return-mark" aria-hidden="true">
+            <ReturnIcon />
+          </span>
+          <select
+            className="flow-input flow-return-step"
+            aria-label={`Шаг возврата ${index + 1}`}
+            aria-invalid={!earlier.includes(back.step.trim())}
+            value={back.step}
+            onChange={(event) => set(index, { step: event.target.value })}
+          >
+            <option value="">шаг…</option>
+            {/* Шаг, которого среди стоящих раньше нет, остаётся в списке: иначе правка чужого флоу пропала бы молча. */}
+            {(earlier.includes(back.step.trim()) || !back.step.trim() ? earlier : [back.step, ...earlier]).map(
+              (title) => (
+                <option key={title} value={title}>
+                  {title}
+                </option>
+              ),
+            )}
+          </select>
+          <IconButton
+            label={`Убрать возврат ${index + 1}`}
+            onClick={() => onChange({ returns: step.returns.filter((_, i) => i !== index) })}
+          >
+            <CloseIcon />
+          </IconButton>
+        </div>
+      ))}
+      {earlier.length > 0 && (
+        <button
+          type="button"
+          className="flow-link"
+          onClick={() => onChange({ returns: [...step.returns, { condition: '', step: '' }] })}
+        >
+          Добавить возврат
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** Сайдбар шага: поля правятся сразу, а файл флоу записывается кнопкой «Сохранить» в шапке. */
 function StepDrawer({
   step,
+  steps,
+  index,
   known,
   onPerformers,
   number,
@@ -761,6 +1007,8 @@ function StepDrawer({
   onDelete,
 }: {
   step: DraftStep
+  steps: DraftStep[]
+  index: number
   known: string[]
   onPerformers?: () => void
   number: number
@@ -771,8 +1019,9 @@ function StepDrawer({
   onEditDescription: () => void
   onDelete: () => void
 }) {
-  const errors = stepErrors(step)
+  const errors = stepErrors(step, steps, index)
   const title = step.title.trim() || 'без названия'
+  const earlier = earlierSteps(steps, index)
 
   return (
     <aside
@@ -817,7 +1066,11 @@ function StepDrawer({
             className="flow-input"
             aria-label="Исполнитель шага"
             value={step.kind}
-            onChange={(event) => onChange({ kind: event.target.value as DraftStep['kind'] })}
+            onChange={(event) => {
+              const kind = event.target.value as DraftStep['kind']
+              // Помощники стираются на глазах: в файле у такого шага их не бывает, и молча они бы пропали при записи.
+              onChange({ kind, helpers: kind === 'оркестратор' ? step.helpers : [] })
+            }}
           >
             {kinds.map((kind) => (
               <option key={kind} value={kind}>
@@ -830,6 +1083,9 @@ function StepDrawer({
         {step.kind === 'субагент' && (
           <PerformerField step={step} known={known} onChange={onChange} onPerformers={onPerformers} />
         )}
+
+        {/* Помощников зовёт только оркестратор: у прочих шагов поля нет — форма кита. */}
+        {step.kind === 'оркестратор' && <HelpersField step={step} known={known} onChange={onChange} />}
 
         <label className="flow-field">
           <span>выход</span>
@@ -854,6 +1110,8 @@ function StepDrawer({
             onChange={(event) => onChange({ skip: event.target.value })}
           />
         </label>
+
+        <ReturnsField step={step} earlier={earlier} onChange={onChange} />
 
         <div className="flow-field">
           <span>описание</span>
@@ -1023,7 +1281,15 @@ function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) 
   )
 }
 
-const emptyStep: FlowStep = { title: '', executor: 'оркестратор', output: '', skip: null, description: null }
+const emptyStep: FlowStep = {
+  title: '',
+  executor: 'оркестратор',
+  output: '',
+  skip: null,
+  description: null,
+  returns: [],
+  helpers: [],
+}
 
 /** Новый шаг выбирается своим окном: пустой шаг или шаг из пресетов оператора. */
 function AddStep({
@@ -1231,6 +1497,16 @@ function SkipIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+    </svg>
+  )
+}
+
+/** Значок возврата — стрелка круга: он же стоит у дуги возврата на схеме. */
+function ReturnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 9h11a4 4 0 0 1 0 8H9" />
+      <polyline points="8 5 4 9 8 13" />
     </svg>
   )
 }
