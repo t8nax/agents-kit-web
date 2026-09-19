@@ -65,7 +65,8 @@ async function mockApi(page: Page, activeTasks = 0) {
         {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
-          copies: [],
+          prefix: 'agents-kit-web',
+          directory: 'C:\\Users\\me\\.claude\\agents',
           performers: [
             {
               name: 'reviewer',
@@ -73,12 +74,7 @@ async function mockApi(page: Page, activeTasks = 0) {
               model: null,
               tools: null,
               prompt: '',
-              path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
-              source: 'copy',
-              copy: 'D:\\Projects\\agents-kit-web',
-              in: ['D:\\Projects\\agents-kit-web'],
-              differs: [],
-              everywhere: true,
+              path: 'C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md',
             },
           ],
           error: null,

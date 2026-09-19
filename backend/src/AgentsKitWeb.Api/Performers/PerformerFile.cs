@@ -15,9 +15,6 @@ public sealed record PerformerFields(
 
 public static class PerformerFile
 {
-    /// <summary>Каталог субагентов — тот, где их ищет Claude Code, и в копии, и в профиле.</summary>
-    public const string Directory = ".claude/agents";
-
     /// <summary>Имя файла — имя субагента: во флоу шаг зовёт его именно так.</summary>
     public static string FileName(string name) => name + ".md";
 
