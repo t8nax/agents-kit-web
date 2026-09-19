@@ -216,6 +216,9 @@ public static class FlowRewriteEndpoints
         FlowProblem.EmptyTitle => "нет названия",
         FlowProblem.EmptyExecutor => "не указан исполнитель",
         FlowProblem.EmptyOutput => "не указан выход",
+        FlowProblem.ReturnWithoutCondition => "в возврате не указано условие",
+        FlowProblem.ReturnUnknownStep => "возврат ведёт на шаг, которого во флоу нет",
+        FlowProblem.ReturnStepNotEarlier => "возврат ведёт на шаг, который стоит не раньше",
         _ => "перевод строки в ключе шага",
     };
 

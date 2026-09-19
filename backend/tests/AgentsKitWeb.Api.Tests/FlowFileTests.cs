@@ -179,4 +179,89 @@ public sealed class FlowFileTests
     {
         Assert.Null(FlowFile.Validate([new FlowStep("Шаг", "оркестратор", "коммит", null, "1.1. Сделать.")]));
     }
+
+    private const string FlowWithReturns = """
+        # App — флоу
+
+        ## 1. Обсуждение
+
+        исполнитель: оркестратор
+        выход: ответы оператора в памяти
+
+        ## 2. Реализация
+
+        исполнитель: оркестратор
+        помощники: scout, check-runner
+        выход: sha коммитов и зелёные прогоны
+        возврат: развилка вскрыта — шаг «Обсуждение»
+
+        2.1. Вести работу шагами.
+
+        ## 3. Приёмка
+
+        исполнитель: оператор
+        выход: ответ оператора «принято»
+        пропуск: правка не меняет вида панели
+        возврат: есть замечания — шаг «Реализация»
+        возврат: панель не поднялась — шаг «Обсуждение»
+
+        """;
+
+    [Fact]
+    public void Parse_ReadsReturnsAndHelpers()
+    {
+        var steps = FlowFile.Parse(FlowWithReturns.ReplaceLineEndings("\n")).Steps;
+
+        Assert.Equal(["scout", "check-runner"], steps[1].Helpers);
+        Assert.Equal([new FlowReturn("развилка вскрыта", "Обсуждение")], steps[1].Returns);
+        Assert.Equal(
+            [new FlowReturn("есть замечания", "Реализация"), new FlowReturn("панель не поднялась", "Обсуждение")],
+            steps[2].Returns);
+        Assert.Empty(FlowFile.Helpers(steps[2]));
+        Assert.Empty(FlowFile.Returns(steps[0]));
+    }
+
+    [Fact]
+    public void Serialize_KeepsReturnsAndHelpers()
+    {
+        var text = FlowWithReturns.ReplaceLineEndings("\n");
+
+        Assert.Equal(text, FlowFile.Serialize(FlowFile.Parse(text)));
+    }
+
+    [Fact]
+    public void Parse_ReturnOutOfKitForm_KeepsTextAsConditionWithoutTarget()
+    {
+        var text = "# App\n\n## 1. Шаг\n\nисполнитель: оркестратор\nвыход: коммит\nвозврат: назад к обсуждению\n";
+
+        Assert.Equal([new FlowReturn("назад к обсуждению", "")], FlowFile.Parse(text).Steps[0].Returns);
+    }
+
+    [Theory]
+    [InlineData("", "Первый", FlowProblem.ReturnWithoutCondition)]
+    [InlineData("есть замечания", "Ревью", FlowProblem.ReturnUnknownStep)]
+    [InlineData("есть замечания", "", FlowProblem.ReturnUnknownStep)]
+    [InlineData("есть замечания", "Второй", FlowProblem.ReturnStepNotEarlier)]
+    public void Validate_RejectsReturnThatLeadsNowhere(string condition, string step, FlowProblem problem)
+    {
+        var steps = new[]
+        {
+            new FlowStep("Первый", "оркестратор", "коммит", null, null),
+            new FlowStep("Второй", "оркестратор", "коммит", null, null, [new FlowReturn(condition, step)]),
+        };
+
+        Assert.Equal(new FlowRejection(2, problem), FlowFile.Validate(steps));
+    }
+
+    [Fact]
+    public void Validate_AcceptsReturnToEarlierStep()
+    {
+        var steps = new[]
+        {
+            new FlowStep("Первый", "оркестратор", "коммит", null, null),
+            new FlowStep("Второй", "оркестратор", "коммит", null, null, [new FlowReturn("не вышло", "Первый")], ["scout"]),
+        };
+
+        Assert.Null(FlowFile.Validate(steps));
+    }
 }

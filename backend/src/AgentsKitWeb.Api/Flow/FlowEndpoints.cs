@@ -87,9 +87,14 @@ public static class FlowEndpoints
 
         // Пресет — шаг в форме кита: иначе выбранный из списка он не сохранится во флоу.
         app.MapPost("/api/presets", (FlowStep step, PresetsStore presets) =>
-            FlowFile.Validate([step]) is { } rejection
+        {
+            // Возврат и помощники в сохранённый шаг не уходят: возврат зовёт шаг своего флоу, а помощники —
+            // исполнителей своего проекта, и в чужом флоу их нет — решение оператора.
+            var plain = step with { Returns = [], Helpers = [] };
+            return FlowFile.Validate([plain]) is { } rejection
                 ? Results.BadRequest(new FlowRejectedResponse("invalid", Detail: Problem(rejection.Problem)))
-                : Results.Ok(presets.Add(step)));
+                : Results.Ok(presets.Add(plain));
+        });
 
         app.MapDelete("/api/presets/{id}", (string id, PresetsStore presets) =>
             presets.Remove(id) ? Results.NoContent() : Results.NotFound());
@@ -159,6 +164,9 @@ public static class FlowEndpoints
         FlowProblem.EmptyTitle => "empty-title",
         FlowProblem.EmptyExecutor => "empty-executor",
         FlowProblem.EmptyOutput => "empty-output",
+        FlowProblem.ReturnWithoutCondition => "return-without-condition",
+        FlowProblem.ReturnUnknownStep => "return-unknown-step",
+        FlowProblem.ReturnStepNotEarlier => "return-step-not-earlier",
         _ => "line-break",
     };
 }
