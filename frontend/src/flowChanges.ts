@@ -1,6 +1,6 @@
 import type { FlowStep } from './Flow'
 
-export type FlowFieldName = 'executor' | 'output' | 'skip' | 'description'
+export type FlowFieldName = 'executor' | 'output' | 'skip' | 'description' | 'returns' | 'helpers'
 
 export type FlowFieldChange = { field: FlowFieldName; before: string | null; after: string | null }
 
@@ -17,10 +17,25 @@ export type FlowChange = {
   fields: FlowFieldChange[]
 }
 
-const fieldNames: FlowFieldName[] = ['executor', 'output', 'skip', 'description']
+const fieldNames: FlowFieldName[] = ['executor', 'output', 'skip', 'description', 'returns', 'helpers']
+
+/** Возвраты и помощники — списки, поэтому в строке изменений они читаются одной строкой. */
+const listValue = (step: FlowStep, field: 'returns' | 'helpers') =>
+  field === 'helpers'
+    ? (step.helpers ?? []).join(', ')
+    : (step.returns ?? []).map((back) => `${back.condition} → ${back.step}`).join('; ')
 
 const value = (step: FlowStep, field: FlowFieldName) => {
-  const raw = field === 'executor' ? step.executor : field === 'output' ? step.output : field === 'skip' ? step.skip : step.description
+  const raw =
+    field === 'executor'
+      ? step.executor
+      : field === 'output'
+        ? step.output
+        : field === 'skip'
+          ? step.skip
+          : field === 'description'
+            ? step.description
+            : listValue(step, field)
   return raw === null || raw === undefined || raw === '' ? null : raw
 }
 

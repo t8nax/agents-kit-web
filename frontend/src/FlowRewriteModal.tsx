@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { useAgentRequest } from './agentRequest'
 import type { FlowStep } from './Flow'
@@ -33,6 +33,8 @@ const fieldLabels: Record<FlowFieldName, string> = {
   output: 'выход',
   skip: 'пропуск',
   description: 'описание',
+  returns: 'возврат',
+  helpers: 'помощники',
 }
 
 const kindLabels: Record<FlowChange['kind'], string> = {
@@ -328,6 +330,20 @@ function Change({
               <dd>{step.skip}</dd>
             </>
           )}
+          {step.helpers && step.helpers.length > 0 && (
+            <>
+              <dt>помощники</dt>
+              <dd>{step.helpers.join(', ')}</dd>
+            </>
+          )}
+          {step.returns?.map((back) => (
+            <Fragment key={`${back.condition}-${back.step}`}>
+              <dt>возврат</dt>
+              <dd>
+                {back.condition} → {back.step}
+              </dd>
+            </Fragment>
+          ))}
           {step.description && (
             <>
               <dt>описание</dt>
