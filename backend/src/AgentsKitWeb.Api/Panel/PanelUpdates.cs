@@ -43,10 +43,11 @@ public static class PanelUpdates
     private static async Task<IReadOnlyList<PanelRelease>> ReleasesAsync(
         string repository, string sha, string head, CancellationToken cancellationToken)
     {
-        // --first-parent: по каналу идут слияния принятых задач, и заголовок слияния — это «что приедет».
+        // Слияния, а не первые родители: в master работа приезжает пачками «Merge dev into master»,
+        // и задачи с их заголовками лежат внутри этих пачек, а не в череде первых родителей.
         var log = await GitRunner.RunAsync(
             repository, ReadTimeout, cancellationToken,
-            "log", "--first-parent", "-n", Limit.ToString(), "--format=%H%x1f%s", $"{sha}..{head}");
+            "log", "--merges", "-n", Limit.ToString(), "--format=%H%x1f%s", $"{sha}..{head}");
         // Панель стоит на коде, которого в этом репозитории нет, — назвать нечего, но отставание уже видно.
         if (log.ExitCode != 0)
             return [];
@@ -55,9 +56,21 @@ public static class PanelUpdates
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Select(line => line.Split('\u001f'))
             .Where(parts => parts.Length == 2)
+            .Where(parts => !Mechanical(parts[1]))
             .Select(parts => new PanelRelease(parts[0], Arrived(parts[1])))
             .ToList();
     }
+
+    /// <summary>
+    /// Слияние, чей заголовок git написал сам, — «Merge dev into master», «Merge branch …»: оператору
+    /// оно не говорит ничего, а задачи, которые им приехали, стоят в перечне сами по себе.
+    /// </summary>
+    private static bool Mechanical(string title) =>
+        title.StartsWith("Merge branch ", StringComparison.Ordinal)
+        || title.StartsWith("Merge remote-tracking branch ", StringComparison.Ordinal)
+        || (title.StartsWith("Merge ", StringComparison.Ordinal)
+            && title.Contains(" into ", StringComparison.Ordinal)
+            && !title.Contains(": ", StringComparison.Ordinal));
 
     /// <summary>
     /// «Merge fix/some-task: что сделано» — приставка слияния оператору не говорит ничего, и в карточке
