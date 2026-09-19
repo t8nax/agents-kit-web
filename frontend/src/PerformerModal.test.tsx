@@ -2,14 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import PerformerModal, { type DraftEvent } from './PerformerModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
-import type { Performer, PerformerCopy } from './Performers'
+import type { BasePerformers, Performer } from './Performers'
 
 afterEach(() => vi.unstubAllGlobals())
-
-const copies: PerformerCopy[] = [
-  { path: 'D:\\Projects\\agents-kit-web', name: 'agents-kit-web', branch: 'master', main: true },
-  { path: 'D:\\Projects\\noble-keen-walrus', name: 'noble-keen-walrus', branch: 'dev', main: false },
-]
 
 const reviewer: Performer = {
   name: 'reviewer',
@@ -17,20 +12,23 @@ const reviewer: Performer = {
   model: 'opus',
   tools: 'Read, Glob, Grep',
   prompt: 'Ты читаешь дифф ветки целиком.',
-  path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
-  source: 'copy',
-  copy: 'D:\\Projects\\agents-kit-web',
+  path: 'C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md',
 }
+
+const bases: BasePerformers[] = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'Agents Kit Web',
+    prefix: 'agents-kit-web',
+    directory: 'C:\\Users\\me\\.claude\\agents',
+    performers: [reviewer],
+    error: null,
+  },
+]
 
 function open(editing: Performer | null = null, onSaved = vi.fn()) {
   render(
-    <PerformerModal
-      base={'D:\\Projects\\app-knowledge'}
-      copies={copies}
-      editing={editing}
-      onClose={vi.fn()}
-      onSaved={onSaved}
-    />,
+    <PerformerModal bases={bases} initial={bases[0].base} editing={editing} onClose={vi.fn()} onSaved={onSaved} />,
   )
   return onSaved
 }
@@ -50,46 +48,51 @@ function stubFetch(response: Response) {
   return fetchMock
 }
 
-test('заводит исполнителя в основную копию и показывает путь его файла', async () => {
+test('заводит исполнителя в набор машины и показывает путь его файла', async () => {
   const fetchMock = stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
   const onSaved = open()
 
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
-  fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'Читает дифф.' } })
-  fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Ты читаешь дифф.' } })
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
+  fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'Гоняет e2e.' } })
+  fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Ты гоняешь e2e.' } })
 
-  // Файл ложится в основную копию проекта, и путь виден до сохранения
-  expect(screen.getByText('D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md')).toBeInTheDocument()
+  // Путь виден до сохранения, и приставка проекта в нём уже стоит — набирать её не нужно.
+  expect(screen.getByText('C:\\Users\\me\\.claude\\agents\\agents-kit-web-e2e-runner.md')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
-  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('reviewer'))
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('e2e-runner'))
   expect(fetchMock).toHaveBeenCalledWith('/api/performers', expect.objectContaining({ method: 'POST' }))
   expect(saved(fetchMock)).toEqual({
     base: 'D:\\Projects\\app-knowledge',
-    name: 'reviewer',
-    description: 'Читает дифф.',
+    name: 'e2e-runner',
+    description: 'Гоняет e2e.',
     model: null,
     tools: null,
-    prompt: 'Ты читаешь дифф.',
+    prompt: 'Ты гоняешь e2e.',
+    editing: null,
   })
 })
 
-test('копию в окне не выбирают: файл всегда ложится в основную', async () => {
-  const fetchMock = stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
+test('имя, занятое у проекта, окно бережёт и не даёт сохранить', () => {
+  stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
+  open()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
+
+  // Набор исполнителей один на машину: молча переписать заведённого нельзя.
+  expect(screen.getByRole('status')).toHaveTextContent('уже есть')
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('копию в окне не выбирают: файл лежит в наборе машины', () => {
+  stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
   open()
 
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
 
-  // Исполнитель — про проект целиком, и поля выбора копии в окне больше нет — решение оператора на B-77.
   expect(screen.queryByLabelText('Копия')).not.toBeInTheDocument()
-  expect(screen.getByText('D:\\Projects\\agents-kit-web\\.claude\\agents\\e2e-runner.md')).toBeInTheDocument()
-  expect(screen.getByText(/в остальные — кнопкой «Синхронизировать»/)).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  await waitFor(() => expect(fetchMock).toHaveBeenCalled())
-  expect(saved(fetchMock).copy).toBeUndefined()
+  expect(screen.getByText(/виден из любой копии/)).toBeInTheDocument()
 })
 
 test('правка заведённого открывает его поля', () => {
@@ -115,25 +118,22 @@ test('негодное имя объясняется словами, а набр
   expect(screen.getByLabelText('Задание')).toHaveValue('Тело')
 })
 
-test('отказ коммита показан дословно', async () => {
-  stubFetch(
-    new Response(JSON.stringify({ problem: 'not-committed', detail: 'hook: сверка не прошла' }), { status: 409 }),
-  )
+test('занятое имя, о котором сказал API, объяснено словами', async () => {
+  stubFetch(new Response(JSON.stringify({ problem: 'name-taken' }), { status: 409 }))
   open()
 
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
+  // Имя заняли, пока окно было открыто: список раздела о нём ещё не знает, а API уже знает.
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
-  const alert = await screen.findByRole('alert')
-  expect(alert).toHaveTextContent('Файл записан, но не закоммичен')
-  expect(alert).toHaveTextContent('hook: сверка не прошла')
+  expect(await screen.findByRole('alert')).toHaveTextContent('уже есть')
 })
 
 test('без связи с API окно говорит об этом и не закрывается', async () => {
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('failed to fetch')))
   const onSaved = open()
 
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('нет связи с API')

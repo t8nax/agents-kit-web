@@ -1,10 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mockAgentPanel, ndjson } from './agentPanel.ts'
 
-const copies = [
-  { path: 'D:\\Projects\\agents-kit-web', name: 'agents-kit-web', branch: 'master', main: true },
-  { path: 'D:\\Projects\\noble-keen-walrus', name: 'noble-keen-walrus', branch: 'dev', main: false },
-]
+const agents = 'C:\\Users\\me\\.claude\\agents'
 
 const drafted = {
   name: 'reviewer',
@@ -25,15 +22,16 @@ async function mockApi(page: Page) {
     if (route.request().method() === 'POST') {
       const request = route.request().postDataJSON() as { name: string }
       saved.push(request)
-      // Копию не выбирают: файл ложится в основную копию проекта.
-      return route.fulfill({ json: { path: `${copies[0].path}\\.claude\\agents\\${request.name}.md` } })
+      // Копию не выбирают: файл ложится в набор исполнителей машины, с приставкой проекта.
+      return route.fulfill({ json: { path: `${agents}\\agents-kit-web-${request.name}.md` } })
     }
     return route.fulfill({
       json: [
         {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
-          copies,
+          prefix: 'agents-kit-web',
+          directory: agents,
           performers: [],
           error: null,
         },
@@ -89,6 +87,7 @@ test('оператор описывает исполнителя словами,
       model: 'opus',
       tools: 'Read, Glob, Grep',
       prompt: 'Ты читаешь дифф ветки целиком и возвращаешь вердикт.',
+      editing: null,
     },
   ])
 })
