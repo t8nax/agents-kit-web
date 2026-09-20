@@ -473,45 +473,80 @@ test('со своими несохранёнными правками переп
   expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeDisabled()
 })
 
-/** Заведённые исполнители проекта: ровно из них шагу выбирают субагента. */
-const performers = (names: string[]) => [
+/**
+ * Заведённые исполнители проекта: ровно из них шагу выбирают субагента. Имена здесь короткие, а
+ * приставка проекта лежит рядом — так их и отдаёт API, и ровно поэтому имя из флоу, где оно стоит
+ * с приставкой, нельзя сверять со списком напрямую.
+ */
+const PREFIX = 'agents-kit-web'
+
+const performers = (names: string[], prefix = PREFIX) => [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
-    copies: [],
+    prefix,
+    directory: 'C:\\Users\\Boris\\.claude\\agents',
     performers: names.map((name) => ({
       name,
       description: null,
       model: null,
       tools: null,
       prompt: '',
-      path: `D:\\Projects\\agents-kit-web\\.claude\\agents\\${name.replace('*', '')}.md`,
-      source: 'copy' as const,
-      copy: 'D:\\Projects\\agents-kit-web',
-      in: ['D:\\Projects\\agents-kit-web'],
-      differs: [],
-      everywhere: !name.endsWith('*'),
+      path: `C:\\Users\\Boris\\.claude\\agents\\${prefix}-${name}.md`,
     })),
     error: null,
   },
 ]
 
-test('исполнитель шага выбирается из заведённых', async () => {
-  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['reviewer', 'e2e-runner'])) }))
+/** Шаг субагента так, как он стоит в файле флоу: имя с приставкой проекта. */
+const reviewFull: FlowStep = { ...review, executor: `${PREFIX}-reviewer` }
+
+const withFullNames = (steps: FlowStep[] = [criterion, reviewFull, acceptance]) => ({ ...app, steps })
+
+test('исполнитель шага выбирается из заведённых, а в файл уходит имя с приставкой', async () => {
+  const fetchMock = stubApi(
+    api([withFullNames()], [], {
+      'GET /api/performers': () => json(performers(['reviewer', 'e2e-runner'])),
+      'POST /api/flow': () => json({ version: 'v2' }),
+    }),
+  )
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 2: Ревью')
 
+  // Шаг зовёт исполнителя полным именем, а оператор видит его без приставки
   const picker = await drawer.findByRole('combobox', { name: 'Имя субагента' })
   expect(picker).toHaveValue('reviewer')
+  expect(within(nodes(region)[1]).getByText('субагент reviewer')).toBeInTheDocument()
   expect(drawer.queryByRole('textbox', { name: 'Имя субагента' })).not.toBeInTheDocument()
 
   fireEvent.change(picker, { target: { value: 'e2e-runner' } })
 
   expect(within(nodes(region)[1]).getByText('субагент e2e-runner')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('agents-kit-web-e2e-runner')
+})
+
+test('шаг с полным именем заведённого исполнителя пропавшим не помечен', async () => {
+  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
+  const region = await renderFlow()
+
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  await drawer.findByRole('combobox', { name: 'Имя субагента' })
+
+  expect(within(nodes(region)[1]).queryByLabelText(/нет на диске/)).not.toBeInTheDocument()
+  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
+})
+
+test('шаг, где в файле осталось имя без приставки, помечен как незнакомый', async () => {
+  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
+  const region = await renderFlow()
+
+  expect(await within(nodes(region)[1]).findByLabelText('Исполнителя reviewer нет на диске')).toBeInTheDocument()
 })
 
 test('шаг, чьего исполнителя нет на диске, отмечен на схеме и объяснён в сайдбаре', async () => {
-  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
+  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
   const onPerformers = vi.fn()
   const region = await renderFlow(true, { onPerformers })
 
@@ -522,13 +557,14 @@ test('шаг, чьего исполнителя нет на диске, отме
   const drawer = await openStep(region, 'Шаг 2: Ревью')
   expect(drawer.getByRole('status')).toHaveTextContent('Сессия дойдёт до шага и спросит вас')
   // Имя остаётся в списке, чтобы шаг не потерял исполнителя молча
-  expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveValue('reviewer')
+  expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveValue('agents-kit-web-reviewer')
+  expect(drawer.getByRole('option', { name: 'reviewer — на диске нет' })).toBeInTheDocument()
   fireEvent.click(drawer.getByRole('button', { name: 'Завести исполнителя' }))
   expect(onPerformers).toHaveBeenCalled()
 })
 
 test('«вписать имя…» возвращает поле для чужого имени', async () => {
-  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
+  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 2: Ревью')
 
@@ -581,18 +617,22 @@ test('возврат без цели не даёт сохранить флоу, 
 })
 
 test('помощники есть только у шага оркестратора и стираются при смене исполнителя', async () => {
-  const withHelpers = { ...app, steps: [{ ...criterion, helpers: ['agents-kit-web-scout'] }, review, acceptance] }
+  const withHelpers = withFullNames([{ ...criterion, helpers: ['agents-kit-web-scout'] }, reviewFull, acceptance])
   const fetchMock = stubApi(
     api([withHelpers], [], {
-      'GET /api/performers': () => json(performers(['agents-kit-web-scout', 'agents-kit-web-check-runner'])),
+      'GET /api/performers': () => json(performers(['scout', 'check-runner'])),
       'POST /api/flow': () => json({ version: 'v2' }),
     }),
   )
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 1: Критерий')
 
-  fireEvent.change(await drawer.findByRole('combobox', { name: 'Добавить помощника' }), {
-    target: { value: 'agents-kit-web-check-runner' },
+  // Помощник, выписанный во флоу полным именем, стоит обычным чипом и назван коротко
+  expect(await drawer.findByText('scout')).toBeInTheDocument()
+  expect(drawer.queryByTitle(/нет на диске/)).not.toBeInTheDocument()
+
+  fireEvent.change(drawer.getByRole('combobox', { name: 'Добавить помощника' }), {
+    target: { value: 'check-runner' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await screen.findByText('Флоу сохранён и закоммичен в базу')
@@ -604,23 +644,23 @@ test('помощники есть только у шага оркестрато�
   // У шага оператора помощников не бывает: поле исчезает вместе с ними
   fireEvent.change(drawer.getByRole('combobox', { name: 'Исполнитель шага' }), { target: { value: 'оператор' } })
   expect(drawer.queryByRole('combobox', { name: 'Добавить помощника' })).not.toBeInTheDocument()
-  expect(drawer.queryByText('agents-kit-web-scout')).not.toBeInTheDocument()
+  expect(drawer.queryByText('scout')).not.toBeInTheDocument()
 })
 
 test('помощник, которого нет на диске, отмечен в сайдбаре янтарём', async () => {
-  const withHelpers = { ...app, steps: [{ ...criterion, helpers: ['agents-kit-web-scout'] }, review, acceptance] }
+  const withHelpers = withFullNames([{ ...criterion, helpers: ['agents-kit-web-scout'] }, reviewFull, acceptance])
   stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 1: Критерий')
 
-  expect(await drawer.findByTitle('Исполнителя agents-kit-web-scout нет на диске')).toBeInTheDocument()
+  expect(await drawer.findByTitle('Исполнителя scout нет на диске')).toBeInTheDocument()
 })
 
 test('в сохранённый шаг возврат и помощники не уходят', async () => {
   const steps = [{ ...criterion, helpers: ['agents-kit-web-scout'], returns: [] }, review, acceptance]
   const fetchMock = stubApi(
     api([{ ...app, steps }], [], {
-      'GET /api/performers': () => json(performers(['agents-kit-web-scout'])),
+      'GET /api/performers': () => json(performers(['scout'])),
       'POST /api/presets': () => json({ id: 'p1', ...criterion }),
     }),
   )
@@ -630,6 +670,36 @@ test('в сохранённый шаг возврат и помощники не
   fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
   await screen.findByRole('button', { name: 'Шаг в пресетах' })
   expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ helpers: [], returns: [] })
+})
+
+test('пресет живёт без приставки, а шаг из него получает приставку своего проекта', async () => {
+  const saved: StepPreset = { ...review, executor: 'reviewer', id: 'p2' }
+  const fetchMock = stubApi(
+    api([withFullNames()], [], {
+      'GET /api/performers': () => json(performers(['reviewer'])),
+      'POST /api/presets': () => json(saved),
+      'POST /api/flow': () => json({ version: 'v2' }),
+    }),
+  )
+  const region = await renderFlow()
+
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  await drawer.findByRole('combobox', { name: 'Имя субагента' })
+  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
+
+  // Список пресетов общий для всех проектов, поэтому приставки в пресете нет
+  expect(body(fetchMock, 'POST /api/presets').executor).toBe('reviewer')
+  await screen.findByRole('button', { name: 'Шаг в пресетах' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить шаг' }))
+  fireEvent.click(
+    within(screen.getByRole('group', { name: 'Пресеты шагов' })).getByRole('button', { name: /^Ревью/ }),
+  )
+
+  expect(within(nodes(region)[3]).getByText('субагент reviewer')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps[3].executor).toBe('agents-kit-web-reviewer')
 })
 
 test('возвраты нарисованы дугами: у открытого шага дуга подсвечена и подписана условием', async () => {

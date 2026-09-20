@@ -22,7 +22,8 @@ const steps: Step[] = [
   },
   {
     title: 'Ревью',
-    executor: 'reviewer',
+    // Шаг зовёт исполнителя полным именем — тем же, каким назван его файл на диске
+    executor: 'agents-kit-web-reviewer',
     output: 'вердикт по sha',
     skip: 'правка только в текстах',
     description: '2.1. Собрать дифф.',
@@ -297,9 +298,10 @@ test('исполнитель шага выбирается из заведённ
   await mockApi(page)
   const region = await openFlow(page)
 
-  // Шага с reviewer на схеме не отмечено: такой исполнитель заведён
+  // Шаг зовёт исполнителя полным именем, и пометки на схеме нет: такой исполнитель заведён
   const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
   await expect(review.locator('.flow-node-missing')).toHaveCount(0)
+  await expect(review).toContainText('субагент reviewer')
 
   await review.click()
   const drawer = page.getByRole('complementary')
