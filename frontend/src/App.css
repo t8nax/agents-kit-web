@@ -384,7 +384,7 @@ td.num-col {
 .main-tag {
   display: inline-flex;
   align-items: center;
-  /* Тот же отступ, что у «новой»: рядом они стоят через один просвет */
+  /* Тот же отступ, что у «новой»: вместе с gap контейнера просвет у обеих плашек выходит один */
   margin-left: 8px;
   padding: 0 6px;
   border-radius: 4px;
