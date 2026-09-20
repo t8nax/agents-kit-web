@@ -47,7 +47,7 @@ function stubFetch(...responses: BasePerformers[][]) {
   return fetchMock
 }
 
-test('показывает исполнителя именем без приставки, описанием и путём файла', async () => {
+test('показывает исполнителя именем, описанием и путём файла в базе', async () => {
   const fetchMock = stubFetch(bases)
 
   render(<Performers />)
@@ -66,7 +66,7 @@ test('«Все» показывает исполнителей всех прое
 
   render(<Performers />)
 
-  // Раздел открывается на «Всех»: исполнитель принадлежит машине, а проекту — приставкой в имени.
+  // Раздел открывается на «Всех»: исполнитель принадлежит проекту той базой, где лежит его файл.
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(screen.getByText('spec-writer')).toBeInTheDocument()
   // Название проекта стоит и чипом фильтра, и у строки исполнителя: по ней видно, чей он.

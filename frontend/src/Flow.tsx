@@ -607,7 +607,7 @@ function saveError(status: number, body: { problem?: string; step?: number; deta
   return 'Флоу не сохранён'
 }
 
-/** Исполнитель на блоке: оператор видит имя без приставки — так же, как в разделе «Исполнители». */
+/** Исполнитель на блоке: то же имя, каким его зовёт шаг и каким назван его файл в базе. */
 const executorOf = (step: DraftStep) =>
   step.kind === 'субагент' ? `субагент ${step.agent.trim()}`.trim() : step.kind
 

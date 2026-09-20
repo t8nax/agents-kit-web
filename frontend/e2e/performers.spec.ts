@@ -101,6 +101,8 @@ test('исполнитель заводится окном и ложится в 
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByText('e2e-runner', { exact: true })).toBeVisible()
   await expect(page.getByText('записан', { exact: true })).toBeVisible()
+  // Про перенос по копиям панель молчит: единственное, что она говорит, — с какой сессии звать
+  await expect(page.getByText('e2e-runner записан. Звать его можно со следующей сессии.')).toBeVisible()
   expect(saved).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
