@@ -227,6 +227,14 @@ function Get-KitProjectName([string]$BaseDir) {
 }
 '@
 
+    Write-Utf8 (Join-Path $scripts 'agents-deploy.ps1') @'
+# Заглушка кита. Настоящий довоз кладёт исполнителей базы в копию и прячет их от её git;
+# песочнице хватает того, что прогон есть, что-то печатает и ничего не ломает.
+param([string]$Path = (Get-Location).Path)
+Write-Host "Рабочая копия: $Path"
+Write-Host 'Довезено: 0, обновлено: 0, убрано: 0'
+'@
+
     Write-Utf8 (Join-Path $scripts 'worktree-add.ps1') @'
 # Заглушка кита: копию заводит настоящим git worktree, но рядом с копией песочницы и без
 # связи с базой — проверяется, как панель зовёт кит и показывает его вывод.
@@ -507,14 +515,14 @@ function New-Flow([string]$Path) {
 ## 3. Реализация
 
 исполнитель: оркестратор
-помощники: house-reviewer, reviewer
+помощники: reviewer, doc-writer
 выход: sha коммитов ветки и зелёные прогоны проверок в памяти
 
 3.1. Вести работу шагами, каждый со своей проверкой.
 
 ## 4. Ревью
 
-исполнитель: house-reviewer
+исполнитель: reviewer
 выход: вердикт по sha проверенного коммита
 пропуск: правка не трогает код
 
@@ -522,7 +530,7 @@ function New-Flow([string]$Path) {
 
 ## 5. Сборка
 
-исполнитель: reviewer
+исполнитель: builder
 выход: зелёная сборка в памяти
 
 5.1. Собрать то, что правили.
@@ -786,13 +794,13 @@ $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
     [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
     [pscustomobject]@{ severity = 'WARN'; file = 'flow.md'; message = 'флоу не в истории git' }) })
 
-# Исполнители профиля: файл у каждого один на машину, а проекту он принадлежит приставкой в имени.
-# Последний заведён «оператором» мимо панели — приставки у него нет, и в разделе его быть не должно.
-$agentsDir = Join-Path $claudeDir 'agents'
-New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
-Write-Utf8 (Join-Path $agentsDir 'house-reviewer.md') @"
+# Исполнители живут в базах проектов — там их и показывает раздел, и оттуда кит развозит
+# их по копиям. Второй заведён «оператором» мимо панели: в списке он наравне с остальными.
+# Во флоу песочницы шаг «Сборка» зовёт `builder`, которого нет ни в одной базе: по нему видно,
+# как панель запирает сохранение флоу.
+Write-Utf8 (Join-Path $goodBase 'agents\reviewer.md') @"
 ---
-name: house-reviewer
+name: reviewer
 description: Вычитывает дифф ветки задачи и возвращает замечания.
 tools: Read, Grep, Glob
 model: opus
@@ -800,21 +808,21 @@ model: opus
 
 Ты читаешь дифф ветки целиком и возвращаешь замечания списком.
 "@
-Write-Utf8 (Join-Path $agentsDir 'quirks-spec-writer.md') @"
+Write-Utf8 (Join-Path $goodBase 'agents\doc-writer.md') @"
 ---
-name: quirks-spec-writer
+name: doc-writer
+description: Пишет документацию по коду — заведён мимо панели, прямо в базе.
+---
+
+Ты пишешь документацию по коду.
+"@
+Write-Utf8 (Join-Path $quirksBase 'agents\spec-writer.md') @"
+---
+name: spec-writer
 description: Пишет спеку экрана по разговору с оператором.
 ---
 
 Ты пишешь спеку экрана.
-"@
-Write-Utf8 (Join-Path $agentsDir 'statusline-setup.md') @"
----
-name: statusline-setup
-description: Настраивает строку состояния — заведён мимо панели, приставки проекта нет.
----
-
-Ты настраиваешь строку состояния.
 "@
 
 # Кит без скриптов: путь к нему панель не примет, и это видно в «Настройках».
