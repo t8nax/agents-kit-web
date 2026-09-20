@@ -473,18 +473,19 @@ test('со своими несохранёнными правками переп
   expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeDisabled()
 })
 
-/**
- * Заведённые исполнители проекта: ровно из них шагу выбирают субагента. Имена здесь короткие, а
- * приставка проекта лежит рядом — так их и отдаёт API, и ровно поэтому имя из флоу, где оно стоит
- * с приставкой, нельзя сверять со списком напрямую.
- */
+/** Приставка имён исполнителей проекта: её панель дописывает сама, и в файле флоу имя стоит с ней. */
 const PREFIX = 'agents-kit-web'
 
-const performers = (names: string[], prefix = PREFIX) => [
+/**
+ * Заведённые исполнители проекта: ровно из них шагу выбирают субагента. Имена здесь короткие, а
+ * приставка лежит рядом — так их и отдаёт API, и ровно поэтому имя из флоу, где оно стоит
+ * с приставкой, нельзя сверять со списком напрямую.
+ */
+const performers = (names: string[]) => [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
-    prefix,
+    prefix: PREFIX,
     directory: 'C:\\Users\\Boris\\.claude\\agents',
     performers: names.map((name) => ({
       name,
@@ -492,7 +493,7 @@ const performers = (names: string[], prefix = PREFIX) => [
       model: null,
       tools: null,
       prompt: '',
-      path: `C:\\Users\\Boris\\.claude\\agents\\${prefix}-${name}.md`,
+      path: `C:\\Users\\Boris\\.claude\\agents\\${PREFIX}-${name}.md`,
     })),
     error: null,
   },
@@ -539,10 +540,39 @@ test('шаг с полным именем заведённого исполни�
 })
 
 test('шаг, где в файле осталось имя без приставки, помечен как незнакомый', async () => {
-  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
-  const region = await renderFlow()
+  const fetchMock = stubApi(
+    api([app], [], {
+      'GET /api/performers': () => json(performers(['reviewer'])),
+      'POST /api/flow': () => json({ version: 'v2' }),
+    }),
+  )
+  const region = await renderFlow(true, { onPerformers: vi.fn() })
 
   expect(await within(nodes(region)[1]).findByLabelText('Исполнителя reviewer нет на диске')).toBeInTheDocument()
+
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  expect(drawer.getByRole('status')).toHaveTextContent('Сессия дойдёт до шага и спросит вас')
+  expect(drawer.getByRole('button', { name: 'Завести исполнителя' })).toBeInTheDocument()
+
+  // Чинится выбором одноимённого заведённого: пункт ненайденного за выбор с ним не спорит
+  const picker = await drawer.findByRole('combobox', { name: 'Имя субагента' })
+  fireEvent.change(picker, { target: { value: 'reviewer' } })
+
+  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('agents-kit-web-reviewer')
+})
+
+test('помощник, выписанный без приставки, вторым чипом не добавляется', async () => {
+  const withHelpers = withFullNames([{ ...criterion, helpers: ['scout'] }, reviewFull, acceptance])
+  stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['scout'])) }))
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 1: Критерий')
+
+  // Помощник в файле назван коротко и потому помечен, но занятым он всё равно считается
+  expect(await drawer.findByTitle('Исполнителя scout нет на диске')).toBeInTheDocument()
+  expect(drawer.queryByRole('combobox', { name: 'Добавить помощника' })).not.toBeInTheDocument()
 })
 
 test('шаг, чьего исполнителя нет на диске, отмечен на схеме и объяснён в сайдбаре', async () => {
@@ -557,8 +587,9 @@ test('шаг, чьего исполнителя нет на диске, отме
   const drawer = await openStep(region, 'Шаг 2: Ревью')
   expect(drawer.getByRole('status')).toHaveTextContent('Сессия дойдёт до шага и спросит вас')
   // Имя остаётся в списке, чтобы шаг не потерял исполнителя молча
-  expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveValue('agents-kit-web-reviewer')
-  expect(drawer.getByRole('option', { name: 'reviewer — на диске нет' })).toBeInTheDocument()
+  expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue(
+    'reviewer — на диске нет',
+  )
   fireEvent.click(drawer.getByRole('button', { name: 'Завести исполнителя' }))
   expect(onPerformers).toHaveBeenCalled()
 })

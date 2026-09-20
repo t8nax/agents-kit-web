@@ -844,18 +844,20 @@ function PerformerField({
         className="flow-input mono"
         aria-label="Имя субагента"
         aria-invalid={!agent}
-        value={missing ? agent : picked}
+        value={missing ? MISSING_AGENT : picked}
         onChange={(event) => {
           if (event.target.value === CUSTOM_AGENT) {
             setTyping(true)
             return
           }
+          // Пункт ненайденного исполнителя — не выбор: он только показывает, что стоит в файле.
+          if (event.target.value === MISSING_AGENT) return
           // Во флоу уходит полное имя: им шаг и зовёт исполнителя, им же назван его файл.
           onChange({ agent: fullName(prefix, event.target.value) })
         }}
       >
         {agent === '' && <option value="">выберите исполнителя</option>}
-        {missing && <option value={agent}>{shown} — на диске нет</option>}
+        {missing && <option value={MISSING_AGENT}>{shown} — на диске нет</option>}
         {known.map((name) => (
           <option key={name} value={name}>
             {name}
@@ -870,6 +872,12 @@ function PerformerField({
 
 /** Пункт «вписать имя…»: именем субагента такая строка быть не может — только строчная латиница. */
 const CUSTOM_AGENT = '__custom__'
+
+/**
+ * Пункт ненайденного исполнителя: своё значение, а не имя из файла. С именем он спорил бы за выбор
+ * с одноимённым заведённым — тем самым, которым шаг и чинят.
+ */
+const MISSING_AGENT = '__missing__'
 
 /** Исполнитель, которого шагу не хватает, — не ошибка файла: сессия дойдёт до шага и спросит оператора. */
 function MissingNote({ agent, onPerformers }: { agent: string; onPerformers?: () => void }) {
@@ -913,7 +921,7 @@ function HelpersField({
   onChange: (patch: Partial<DraftStep>) => void
 }) {
   // Помощники в файле названы полными именами, а выбирают их и видят короткими.
-  const taken = step.helpers.map((name) => shortName(prefix, name.trim()))
+  const taken = step.helpers.map((name) => shortName(prefix, name.trim()) ?? name.trim())
   const free = known.filter((name) => !taken.includes(name))
 
   return (
