@@ -110,6 +110,8 @@ public sealed class HealthTests : IDisposable
             agentsDeploy: $"""
                 param([string]$Path)
                 Add-Content -LiteralPath '{log}' -Value $Path
+                Write-Host "Рабочая копия: $Path"
+                Write-Host 'Довезено: 1, обновлено: 0'
                 """);
         await WaitFor(s => !s.Pending);
 
@@ -117,6 +119,7 @@ public sealed class HealthTests : IDisposable
         await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status == BaseHealthStatus.Checked));
 
         // Исполнителей по копиям развозит сама панель: оператор об этом не знает и ничего не запускает.
+        // Скрипт кита печатает свой итог — он не должен попасть в ответ сверки и сломать его разбор.
         Assert.Equal(
             [_main, _worktree],
             File.ReadAllLines(log).Select(l => l.Trim()).Where(l => l.Length > 0).Distinct().Order());
