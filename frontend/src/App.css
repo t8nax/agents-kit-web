@@ -384,6 +384,8 @@ td.num-col {
 .main-tag {
   display: inline-flex;
   align-items: center;
+  /* Тот же отступ, что у «новой»: рядом они стоят через один просвет */
+  margin-left: 8px;
   padding: 0 6px;
   border-radius: 4px;
   font-size: 11px;
