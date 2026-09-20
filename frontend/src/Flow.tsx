@@ -180,6 +180,16 @@ const missingPerformer = (step: DraftStep, known: string[], prefix: string) =>
   !knownPerformer(prefix, known, step.agent)
 
 /**
+ * Имя записано без приставки проекта, а исполнитель с таким именем заведён: так писала панель до того,
+ * как научилась дописывать приставку. На вид имя не отличить от правильного — разница только в файле,
+ * поэтому панель называет её сама.
+ */
+const unprefixed = (name: string, known: string[], prefix: string) => {
+  const trimmed = name.trim()
+  return prefix.length > 0 && shortName(prefix, trimmed) === null && known.includes(trimmed)
+}
+
+/**
  * Пресет общий для всех проектов, поэтому приставки он не держит: с чужой приставкой шаг, добавленный
  * в другом проекте, сразу оказался бы без исполнителя.
  */
@@ -812,6 +822,7 @@ function PerformerField({
   // В файле стоит полное имя, оператор же видит имя без приставки — своё короткое, чужое целиком.
   const shown = shownName(prefix, agent)
   const picked = shortName(prefix, agent) ?? ''
+  const bare = unprefixed(agent, known, prefix)
   // Ручной ввод включает сам оператор; список исполнителей приезжает после первого показа сайдбара.
   const [typing, setTyping] = useState(false)
 
@@ -832,7 +843,14 @@ function PerformerField({
             выбрать из заведённых
           </button>
         )}
-        {missing && <MissingNote agent={shown} onPerformers={onPerformers} />}
+        {missing && (
+          <MissingNote
+            agent={shown}
+            unprefixed={bare}
+            onFix={() => onChange({ agent: fullName(prefix, agent) })}
+            onPerformers={onPerformers}
+          />
+        )}
       </div>
     )
   }
@@ -865,7 +883,14 @@ function PerformerField({
         ))}
         <option value={CUSTOM_AGENT}>вписать имя…</option>
       </select>
-      {missing && <MissingNote agent={shown} onPerformers={onPerformers} />}
+      {missing && (
+        <MissingNote
+          agent={shown}
+          unprefixed={bare}
+          onFix={() => onChange({ agent: fullName(prefix, agent) })}
+          onPerformers={onPerformers}
+        />
+      )}
     </div>
   )
 }
@@ -879,8 +904,35 @@ const CUSTOM_AGENT = '__custom__'
  */
 const MISSING_AGENT = '__missing__'
 
-/** Исполнитель, которого шагу не хватает, — не ошибка файла: сессия дойдёт до шага и спросит оператора. */
-function MissingNote({ agent, onPerformers }: { agent: string; onPerformers?: () => void }) {
+/**
+ * Исполнитель, которого шагу не хватает, — не ошибка файла: сессия дойдёт до шага и спросит оператора.
+ * Имя без приставки — случай особый: исполнитель заведён, и разницу с правильным именем видно только
+ * в файле, поэтому причина названа, а починка стоит рядом — решение оператора на приёмке B-114.
+ */
+function MissingNote({
+  agent,
+  unprefixed = false,
+  onFix,
+  onPerformers,
+}: {
+  agent: string
+  unprefixed?: boolean
+  onFix?: () => void
+  onPerformers?: () => void
+}) {
+  if (unprefixed)
+    return (
+      <p className="flow-missing" role="status">
+        Имя <span className="mono">{agent}</span> записано во флоу без приставки проекта: под ним агент
+        исполнителя не найдёт, хотя такой исполнитель заведён.
+        {onFix && (
+          <button type="button" className="flow-link" onClick={onFix}>
+            Дописать приставку
+          </button>
+        )}
+      </p>
+    )
+
   return (
     <p className="flow-missing" role="status">
       Исполнитель <span className="mono">{agent}</span> на диске не найден. Сессия дойдёт до шага
@@ -923,6 +975,14 @@ function HelpersField({
   // Помощники в файле названы полными именами, а выбирают их и видят короткими.
   const taken = step.helpers.map((name) => shortName(prefix, name.trim()) ?? name.trim())
   const free = known.filter((name) => !taken.includes(name))
+  // Помощники, записанные без приставки: такие панель писала прежде, и на вид они как правильные.
+  const bare = step.helpers.filter((name) => unprefixed(name, known, prefix))
+  const addPrefix = () =>
+    onChange({
+      helpers: step.helpers.map((name) =>
+        unprefixed(name, known, prefix) ? fullName(prefix, name.trim()) : name,
+      ),
+    })
 
   return (
     <div className="flow-field">
@@ -951,6 +1011,17 @@ function HelpersField({
             </span>
           ))}
         </div>
+      )}
+      {bare.length > 0 && (
+        <p className="flow-missing" role="status">
+          {bare.length === 1 ? 'Помощник ' : 'Помощники '}
+          <span className="mono">{bare.map((name) => shownName(prefix, name.trim())).join(', ')}</span>
+          {bare.length === 1 ? ' записан' : ' записаны'} во флоу без приставки проекта: под такими именами
+          агент исполнителей не найдёт, хотя они заведены.
+          <button type="button" className="flow-link" onClick={addPrefix}>
+            Дописать приставку
+          </button>
+        </p>
       )}
       {free.length > 0 && (
         <select
