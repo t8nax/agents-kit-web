@@ -535,7 +535,7 @@ test('шаг с полным именем заведённого исполни�
   const drawer = await openStep(region, 'Шаг 2: Ревью')
   await drawer.findByRole('combobox', { name: 'Имя субагента' })
 
-  expect(within(nodes(region)[1]).queryByLabelText(/нет на диске/)).not.toBeInTheDocument()
+  expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
   expect(drawer.queryByRole('status')).not.toBeInTheDocument()
 })
 
@@ -567,7 +567,7 @@ test('шаг, где в файле осталось имя без пристав
   fireEvent.click(drawer.getByRole('button', { name: 'Дописать приставку' }))
 
   expect(drawer.queryByRole('status')).not.toBeInTheDocument()
-  expect(within(nodes(region)[1]).queryByLabelText(/нет на диске/)).not.toBeInTheDocument()
+  expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await screen.findByText('Флоу сохранён и закоммичен в базу')
   expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('agents-kit-web-reviewer')
@@ -637,7 +637,12 @@ test('шаг, чьего исполнителя нет на диске, отме
 })
 
 test('«вписать имя…» возвращает поле для чужого имени', async () => {
-  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
+  const fetchMock = stubApi(
+    api([withFullNames()], [], {
+      'GET /api/performers': () => json(performers(['reviewer'])),
+      'POST /api/flow': () => json({ version: 'v2' }),
+    }),
+  )
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 2: Ревью')
 
@@ -648,6 +653,11 @@ test('«вписать имя…» возвращает поле для чужо
 
   expect(within(nodes(region)[1]).getByText('субагент doc-writer')).toBeInTheDocument()
   expect(drawer.getByRole('status')).toHaveTextContent('на диске не найден')
+
+  // Вписанное руками панель не переделывает: в файл уходит набранное
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('doc-writer')
 })
 
 test('возврат шага правится в сайдбаре: условие и шаг, к которому работа идёт заново', async () => {
@@ -775,6 +785,19 @@ test('пресет живёт без приставки, а шаг из него
   expect(body(fetchMock, 'POST /api/flow').steps[3].executor).toBe('agents-kit-web-reviewer')
 })
 
+test('о двух помощниках без приставки сказано во множественном числе', async () => {
+  const steps = [{ ...criterion, helpers: ['scout', 'check-runner'] }, reviewFull, acceptance]
+  stubApi(
+    api([withFullNames(steps)], [], { 'GET /api/performers': () => json(performers(['scout', 'check-runner'])) }),
+  )
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 1: Критерий')
+
+  expect(await drawer.findByRole('status')).toHaveTextContent(
+    'Помощники scout, check-runner названы без приставки проекта: под этими именами агент исполнителей не найдёт',
+  )
+})
+
 test('починка помощников не оставляет одного исполнителя дважды', async () => {
   const steps = [{ ...criterion, helpers: ['agents-kit-web-scout', 'scout'] }, reviewFull, acceptance]
   const fetchMock = stubApi(
@@ -793,6 +816,24 @@ test('починка помощников не оставляет одного �
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await screen.findByText('Флоу сохранён и закоммичен в базу')
   expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual(['agents-kit-web-scout'])
+})
+
+test('пресет шага с ненайденным исполнителем приставку не теряет', async () => {
+  const ghost = { ...review, executor: 'agents-kit-web-ghost' }
+  const fetchMock = stubApi(
+    api([withFullNames([criterion, ghost, acceptance])], [], {
+      'GET /api/performers': () => json(performers(['reviewer'])),
+      'POST /api/presets': () => json({ ...ghost, id: 'p3' }),
+    }),
+  )
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+
+  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
+
+  // Приставку такому имени вернуть неоткуда: в пресет оно уходит целиком
+  await screen.findByRole('button', { name: 'Шаг в пресетах' })
+  expect(body(fetchMock, 'POST /api/presets').executor).toBe('agents-kit-web-ghost')
 })
 
 test('возвраты нарисованы дугами: у открытого шага дуга подсвечена и подписана условием', async () => {

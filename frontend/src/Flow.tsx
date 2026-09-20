@@ -193,9 +193,12 @@ const unprefixed = (name: string, known: string[], prefix: string) => {
  * Пресет общий для всех проектов, поэтому приставки он не держит: с чужой приставкой шаг, добавленный
  * в другом проекте, сразу оказался бы без исполнителя.
  */
-const presetStep = (step: FlowStep, prefix: string): FlowStep => ({
+const presetStep = (step: FlowStep, prefix: string, known: string[]): FlowStep => ({
   ...plainStep(step),
-  executor: shortName(prefix, step.executor.trim()) ?? step.executor,
+  // Чужое и ненайденное имя ложится в пресет целиком: приставку ему вернуть будет неоткуда.
+  executor: knownPerformer(prefix, known, step.executor)
+    ? (shortName(prefix, step.executor.trim()) ?? step.executor)
+    : step.executor,
 })
 
 /** Шаг из пресета зовёт исполнителя того проекта, куда его добавляют: приставку ставит панель. */
@@ -546,10 +549,12 @@ export default function Flow({
                   prefix={prefix}
                   onPerformers={onPerformers}
                   number={openedIndex + 1}
-                  isPreset={presets.some((preset) => sameStep(preset, presetStep(toStep(draft[openedIndex]), prefix)))}
+                  isPreset={presets.some((preset) =>
+                    sameStep(preset, presetStep(toStep(draft[openedIndex]), prefix, known)),
+                  )}
                   onChange={(patch) => update(openedIndex, patch)}
                   onClose={() => setOpened(null)}
-                  onSaveAsPreset={() => void saveAsPreset(presetStep(toStep(draft[openedIndex]), prefix))}
+                  onSaveAsPreset={() => void saveAsPreset(presetStep(toStep(draft[openedIndex]), prefix, known))}
                   onEditDescription={() => setModal('description')}
                   onDelete={() => {
                     setDraft(renumbered(draft.filter((_, i) => i !== openedIndex)))
@@ -574,6 +579,7 @@ export default function Flow({
                 <FlowRewriteModal
                   base={flow.base}
                   project={flow.project}
+                  prefix={prefix}
                   steps={flow.steps}
                   version={flow.version}
                   onClose={() => setModal(null)}
@@ -1048,11 +1054,9 @@ function HelpersField({
           className="flow-input mono"
           aria-label="Добавить помощника"
           value=""
-          onChange={(event) => {
-            if (!event.target.value) return
-            const added = fullName(prefix, event.target.value)
-            if (!step.helpers.includes(added)) onChange({ helpers: [...step.helpers, added] })
-          }}
+          onChange={(event) =>
+            event.target.value && onChange({ helpers: [...step.helpers, fullName(prefix, event.target.value)] })
+          }
         >
           <option value="">добавить исполнителя…</option>
           {free.map((name) => (
