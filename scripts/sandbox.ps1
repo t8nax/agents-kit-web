@@ -493,6 +493,29 @@ exit 0
 
 # --- содержимое баз ----------------------------------------------------------------------
 
+# Исполнители базы: их зовёт флоу песочницы, и оттуда же кит развозит их по копиям. Кладутся
+# в каждую базу до первого коммита — в живой базе они тоже лежат в истории.
+function New-Agents([string]$Path) {
+    Write-Utf8 (Join-Path $Path 'agents\reviewer.md') @"
+---
+name: reviewer
+description: Вычитывает дифф ветки задачи и возвращает замечания.
+tools: Read, Grep, Glob
+model: opus
+---
+
+Ты читаешь дифф ветки целиком и возвращаешь замечания списком.
+"@
+    Write-Utf8 (Join-Path $Path 'agents\doc-writer.md') @"
+---
+name: doc-writer
+description: Пишет документацию по коду.
+---
+
+Ты пишешь документацию по коду.
+"@
+}
+
 function New-Flow([string]$Path) {
     Write-Utf8 (Join-Path $Path 'flow.md') @'
 # Песочница — флоу
@@ -663,6 +686,7 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
         Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; workspaces = $Copies })
     }
     if (-not $FlowUncommitted) { New-Flow $Path }
+    New-Agents $Path
     New-Backlog $Path
     New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
     Write-Utf8 (Join-Path $Path '.gitignore') "local/`n"
@@ -794,28 +818,8 @@ $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
     [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
     [pscustomobject]@{ severity = 'WARN'; file = 'flow.md'; message = 'флоу не в истории git' }) })
 
-# Исполнители живут в базах проектов — там их и показывает раздел, и оттуда кит развозит
-# их по копиям. Второй заведён «оператором» мимо панели: в списке он наравне с остальными.
-# Во флоу песочницы шаг «Сборка» зовёт `builder`, которого нет ни в одной базе: по нему видно,
-# как панель запирает сохранение флоу.
-Write-Utf8 (Join-Path $goodBase 'agents\reviewer.md') @"
----
-name: reviewer
-description: Вычитывает дифф ветки задачи и возвращает замечания.
-tools: Read, Grep, Glob
-model: opus
----
-
-Ты читаешь дифф ветки целиком и возвращаешь замечания списком.
-"@
-Write-Utf8 (Join-Path $goodBase 'agents\doc-writer.md') @"
----
-name: doc-writer
-description: Пишет документацию по коду — заведён мимо панели, прямо в базе.
----
-
-Ты пишешь документацию по коду.
-"@
+# Исполнитель, заведённый «оператором» прямо в базе, мимо панели и мимо её коммита: в разделе
+# он виден наравне с остальными, а сверка кита показывает базу с незакоммиченной правкой.
 Write-Utf8 (Join-Path $quirksBase 'agents\spec-writer.md') @"
 ---
 name: spec-writer
