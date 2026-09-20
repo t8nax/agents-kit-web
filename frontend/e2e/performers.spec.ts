@@ -21,8 +21,8 @@ const reviewer: Performer = {
 }
 
 /**
- * /api подменяется: прогон работает с живыми базами оператора, и заведение исполнителя
- * положило бы файл в живой набор исполнителей машины.
+ * /api подменяется: прогон работает с живыми базами оператора, и заведение исполнителя записало бы
+ * файл в живую базу знаний и закоммитило бы его туда.
  */
 async function mockApi(page: Page, options: { taken?: boolean } = {}) {
   const saved: unknown[] = []
@@ -76,7 +76,6 @@ test('раздел показывает исполнителей проекта,
 
   await expect(page.getByText('reviewer', { exact: true })).toBeVisible()
   await expect(page.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeVisible()
-  // Приставка видна только в пути к файлу.
   await expect(page.getByText(`${agents}\\reviewer.md`)).toBeVisible()
 
   await expect(page.getByRole('button', { name: 'Править' })).toBeEnabled()

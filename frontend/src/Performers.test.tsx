@@ -16,7 +16,7 @@ const bases: BasePerformers[] = [
         model: 'opus',
         tools: 'Read, Glob, Grep',
         prompt: 'Ты читаешь дифф ветки целиком.',
-        path: 'C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md',
+        path: 'D:\\Projects\\app-knowledge\\agents\\reviewer.md',
       },
     ],
     error: null,
@@ -32,7 +32,7 @@ const bases: BasePerformers[] = [
         model: null,
         tools: null,
         prompt: 'Тело.',
-        path: 'C:\\Users\\me\\.claude\\agents\\nota-spec-writer.md',
+        path: 'D:\\Projects\\nota-knowledge\\agents\\spec-writer.md',
       },
     ],
     error: null,
@@ -55,8 +55,7 @@ test('показывает исполнителя именем, описание
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/api/performers')
   expect(screen.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeInTheDocument()
-  // Приставка видна только в пути к файлу: в имени её панель не показывает.
-  expect(screen.getByText('C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md')).toBeInTheDocument()
+  expect(screen.getByText('D:\\Projects\\app-knowledge\\agents\\reviewer.md')).toBeInTheDocument()
   expect(screen.getByText('opus')).toBeInTheDocument()
   expect(screen.getByText('Read, Glob, Grep')).toBeInTheDocument()
 })

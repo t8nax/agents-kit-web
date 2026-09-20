@@ -177,14 +177,21 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         const body = (await response.json()) as { problem: string; detail?: string | null }
         if (body.problem === 'not-committed') {
           setFailure({ text: body.detail ?? 'База не приняла коммит.', git: true })
-        } else {
+        } else if (body.problem === 'name-taken') {
           setFailure({
-            text:
-              body.problem === 'name-taken'
-                ? 'Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или откройте его правку.'
-                : 'Исполнитель уже есть в копии проекта. Выберите другое имя.',
+            text: 'Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или откройте его правку.',
             git: false,
           })
+        } else if (body.problem === 'name-in-project') {
+          // Путь копии приходит в detail: без него оператору негде посмотреть, с чем разводить имена.
+          setFailure({
+            text: body.detail
+              ? `Исполнитель с таким именем уже есть в копии ${body.detail}. Выберите другое имя.`
+              : 'Исполнитель уже есть в копии проекта. Выберите другое имя.',
+            git: false,
+          })
+        } else {
+          setFailure({ text: `Исполнитель не записан: панель не поняла отказ «${body.problem}».`, git: false })
         }
       } else if (response.status === 404) {
         setFailure({ text: 'Этой базы больше нет в списке панели.', git: false })
