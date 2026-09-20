@@ -47,7 +47,7 @@ const kindLabels: Record<FlowChange['kind'], string> = {
 
 export default function FlowRewriteModal({ base, project, steps, version, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
-  // Описание шага читается своим окном поверх разбора: в строке шага стоит только кнопка.
+  // Описание стадии читается своим окном поверх разбора: в строке шага стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
   // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
   const { asked, steps: agentSteps, outcome, running, startedAt, failure, restoring, start, forget, setFailure } =
@@ -147,7 +147,7 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
                 className="custom-textarea ask-textarea"
                 autoFocus
                 value={wish}
-                placeholder="Скажите своими словами, что поменять во флоу: добавить шаг, убрать его, переписать выход или условие пропуска"
+                placeholder="Скажите своими словами, что поменять во флоу: добавить стадию, убрать её, переписать выход или условие пропуска"
                 onChange={(e) => setWish(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish)
@@ -286,9 +286,9 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
             className="flow-confirm flow-description"
             role="dialog"
             aria-modal="true"
-            aria-label={`Описание шага «${description.title}»`}
+            aria-label={`Описание стадии «${description.title}»`}
           >
-            <h3>Описание шага «{description.title}»</h3>
+            <h3>Описание стадии «{description.title}»</h3>
             <pre className="rewrite-description-text">{description.text}</pre>
             <div className="flow-confirm-actions">
               <button type="button" className="bases-btn" onClick={() => setDescription(null)}>

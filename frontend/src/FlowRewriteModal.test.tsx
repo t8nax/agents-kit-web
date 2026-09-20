@@ -102,11 +102,11 @@ test('описание шага не пересказывается: его от
 
   fireEvent.click(open)
 
-  const window_ = await screen.findByRole('dialog', { name: 'Описание шага «Ревью»' })
+  const window_ = await screen.findByRole('dialog', { name: 'Описание стадии «Ревью»' })
   expect(within(window_).getByText('3.1. Собрать дифф всей ветки.')).toBeInTheDocument()
 
   fireEvent.click(within(window_).getByRole('button', { name: 'Закрыть' }))
-  expect(screen.queryByRole('dialog', { name: 'Описание шага «Ревью»' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Описание стадии «Ревью»' })).not.toBeInTheDocument()
 })
 
 test('флоу, разошедшийся с разделом, в схему не подставляется', async () => {
@@ -128,7 +128,7 @@ test('неудача агента названа словами, а просьб
   renderModal()
 
   await ask('Добавь ревью')
-  stream.send({ type: 'error', text: 'Агент вернул не флоу: шагов в его ответе нет', output: 'Готово!' })
+  stream.send({ type: 'error', text: 'Агент вернул не флоу: стадий в его ответе нет', output: 'Готово!' })
 
   expect(await screen.findByText(/Агент вернул не флоу/)).toBeInTheDocument()
   expect(screen.getByText('Готово!')).toBeInTheDocument()

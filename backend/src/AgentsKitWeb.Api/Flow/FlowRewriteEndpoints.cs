@@ -11,7 +11,7 @@ public sealed record FlowRewriteRequest(string? Base, string? Wish);
 /// Событие переписывания флоу, одной строкой NDJSON. Type: step — ход работы агента (Text);
 /// rewritten — переписанный флоу разобран (Steps, Version — отпечаток файла, с которого агент работал,
 /// DurationMs); error — флоу не переписан (Text — почему, Output — что вернул агент, Problem — «changed»,
-/// когда флоу базы разошёлся, Step — шаг, который вернулся не в форме кита).
+/// когда флоу базы разошёлся, Step — шаг, который вернулась не в форме кита).
 /// </summary>
 public sealed record FlowRewriteEvent(
     string Type,
@@ -119,11 +119,11 @@ public static class FlowRewriteEndpoints
     {
         var document = FlowFile.Parse(Unfence(answer.Text));
         if (document.Steps.Count == 0)
-            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} вернул не флоу: шагов в его ответе нет", Output: Shorten(answer.Text));
+            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} вернул не флоу: стадий в его ответе нет", Output: Shorten(answer.Text));
         if (FlowFile.Validate(document.Steps) is { } rejection)
             return new FlowRewriteEvent(
                 "error",
-                $"Шаг {rejection.Step} вернулся не в форме кита: {Problem(rejection.Problem)}",
+                $"Стадия {rejection.Step} вернулась не в форме кита: {Problem(rejection.Problem)}",
                 Output: Shorten(answer.Text),
                 Step: rejection.Step);
 
@@ -217,9 +217,9 @@ public static class FlowRewriteEndpoints
         FlowProblem.EmptyExecutor => "не указан исполнитель",
         FlowProblem.EmptyOutput => "не указан выход",
         FlowProblem.ReturnWithoutCondition => "в возврате не указано условие",
-        FlowProblem.ReturnUnknownStep => "возврат ведёт на шаг, которого во флоу нет",
-        FlowProblem.ReturnStepNotEarlier => "возврат ведёт на шаг, который стоит не раньше",
-        _ => "перевод строки в ключе шага",
+        FlowProblem.ReturnUnknownStep => "возврат ведёт на стадию, которой во флоу нет",
+        FlowProblem.ReturnStepNotEarlier => "возврат ведёт на стадию, которая стоит не раньше",
+        _ => "перевод строки в ключе стадии",
     };
 
 }

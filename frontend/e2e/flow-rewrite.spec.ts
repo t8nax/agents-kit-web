@@ -71,7 +71,7 @@ async function openFlow(page: Page) {
   await page.goto('/')
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Флоу' }).click()
   const region = page.getByRole('region', { name: 'Agents Kit Web' })
-  await expect(region.getByRole('button', { name: 'Шаг 1: Критерий' })).toBeVisible()
+  await expect(region.getByRole('button', { name: 'Стадия 1: Критерий' })).toBeVisible()
   return region
 }
 
@@ -108,7 +108,7 @@ test('оператор просит переписать флоу словами
   // Описание нового шага не пересказано: его открывает своё окно поверх разбора.
   await expect(dialog.getByText('Собрать дифф всей ветки')).toHaveCount(0)
   await changes.getByRole('button', { name: 'Открыть описание' }).click()
-  const description = page.getByRole('dialog', { name: 'Описание шага «Ревью»' })
+  const description = page.getByRole('dialog', { name: 'Описание стадии «Ревью»' })
   await expect(description).toContainText('2.1. Собрать дифф всей ветки.')
   await description.getByRole('button', { name: 'Закрыть' }).click()
 
@@ -116,7 +116,7 @@ test('оператор просит переписать флоу словами
   await expect(dialog).toHaveCount(0)
 
   // Правки легли в схему несохранёнными: флоу базы панель пока не трогала.
-  await expect(region.getByRole('button', { name: 'Шаг 2: Ревью' })).toBeVisible()
+  await expect(region.getByRole('button', { name: 'Стадия 2: Ревью' })).toBeVisible()
   await expect(page.getByText('есть несохранённые правки')).toBeVisible()
   expect(calls.save).toEqual([])
 
@@ -131,7 +131,7 @@ test('отказ оставляет флоу как был, а неудачу а
   calls.panel.reply(
     ndjson({
       type: 'error',
-      text: 'Агент вернул не флоу: шагов в его ответе нет',
+      text: 'Агент вернул не флоу: стадий в его ответе нет',
       output: 'Готово, я добавил шаг ревью.',
     }),
   )
@@ -152,7 +152,7 @@ test('отказ оставляет флоу как был, а неудачу а
 
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
-  await expect(region.getByRole('button', { name: 'Шаг 2: Мерж' })).toBeVisible()
+  await expect(region.getByRole('button', { name: 'Стадия 2: Мерж' })).toBeVisible()
   await expect(page.getByText('есть несохранённые правки')).toHaveCount(0)
   expect(calls.save).toEqual([])
 })
@@ -208,6 +208,6 @@ test('закрытое окно не останавливает агента: р
   await expect(reopened.getByLabel('Что изменилось во флоу').getByText('добавлен')).toBeVisible()
   await reopened.getByRole('button', { name: 'Взять правки в схему' }).click()
   const region = page.getByRole('region', { name: 'Agents Kit Web' })
-  await expect(region.getByRole('button', { name: 'Шаг 2: Ревью' })).toBeVisible()
+  await expect(region.getByRole('button', { name: 'Стадия 2: Ревью' })).toBeVisible()
   expect(calls.panel.posts).toHaveLength(1)
 })
