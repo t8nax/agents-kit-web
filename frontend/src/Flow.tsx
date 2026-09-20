@@ -248,10 +248,15 @@ export default function Flow({
       .then(setPresets, () => setPresets([]))
   }, [])
 
+  // Не прочитали список — оставляем null: пустой список пометил бы незаведёнными все шаги разом
+  // и запер бы сохранение флоу из-за временного отказа API.
   useEffect(() => {
     fetch('/api/performers')
-      .then((response) => (response.ok ? (response.json() as Promise<BasePerformers[]>) : []))
-      .then(setPerformers, () => setPerformers([]))
+      .then((response) => (response.ok ? (response.json() as Promise<BasePerformers[]>) : null))
+      .then(
+        (bases) => bases !== null && setPerformers(bases),
+        () => {},
+      )
   }, [])
 
   const flows = load.kind === 'loaded' ? load.flows : []

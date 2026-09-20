@@ -532,6 +532,22 @@ test('шаг с заведённым в базе исполнителем нез
   expect(drawer.queryByRole('status')).not.toBeInTheDocument()
 })
 
+test('отказ чтения исполнителей не метит шаги незаведёнными', async () => {
+  stubApi(
+    api([withPerformers()], [], {
+      'GET /api/performers': () => new Response('', { status: 500 }),
+      'POST /api/flow': () => json({ version: 'v2' }),
+    }),
+  )
+  const region = await renderFlow()
+
+  // Список не прочитан — судить о шагах не по чему, и сохранение запирать нечем
+  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
+  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+})
+
 test('шаг с именем, которого нет в базе, сохранить флоу не даёт', async () => {
   stubApi(
     api([withPerformers()], [], {
