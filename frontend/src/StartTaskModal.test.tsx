@@ -1,7 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
-import type { BaseBacklog } from './Backlog'
 import StartTaskModal from './StartTaskModal'
 
 afterEach(() => {
@@ -9,34 +8,30 @@ afterEach(() => {
 })
 
 const base = 'D:\\Projects\\app-knowledge'
-const row: WorkspaceRow = {
+const entry = { number: 'B-8', title: 'Кнопка запуска', text: null }
+
+const free = (path: string, branch: string | null): WorkspaceRow => ({
   project: 'Agents Kit Web',
   base,
-  path: 'D:\\Projects\\rustic-silver-sparrow',
-  branch: 'dev',
+  path,
+  branch,
   task: null,
   flowStep: null,
   progress: null,
   status: 'free',
   error: null,
-}
+})
 
-const backlogs: BaseBacklog[] = [
-  {
-    base,
-    project: 'Agents Kit Web',
-    entries: [
-      { number: 'B-7', title: 'Панель показывает задачу сразу', text: 'Текст оператору.' },
-      { number: 'B-8', title: 'Кнопка запуска', text: null },
-      { number: null, title: 'Запись без номера', text: null },
-    ],
-    error: null,
-  },
-  { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [{ number: 'B-1', title: 'Чужая', text: null }], error: null },
+const rows: WorkspaceRow[] = [
+  free('D:\\Projects\\rustic-silver-sparrow', 'dev'),
+  free('D:\\Projects\\noble-keen-walrus', null),
+  { ...free('D:\\Projects\\busy-copy', 'dev'), status: 'in-work', task: 'B-5 Прошлая задача' },
+  { ...free('D:\\Projects\\broken-copy', null), error: 'Копии нет на диске' },
+  { ...free('D:\\Projects\\nota-copy', 'dev'), base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
-/** Отвечает на GET /api/backlog списком, на POST /api/tasks — переданным ответом; собирает тела POST. */
-function stub(post: Response | Promise<Response>, list: BaseBacklog[] = backlogs) {
+/** Отвечает на GET /api/workspaces списком, на POST /api/tasks — переданным ответом; собирает тела POST. */
+function stub(post: Response | Promise<Response>, list: WorkspaceRow[] = rows) {
   const posts: unknown[] = []
   vi.stubGlobal(
     'fetch',
@@ -45,7 +40,7 @@ function stub(post: Response | Promise<Response>, list: BaseBacklog[] = backlogs
         posts.push(JSON.parse(String(init.body)))
         return Promise.resolve(post)
       }
-      expect(url).toBe('/api/backlog')
+      expect(url).toBe('/api/workspaces')
       return Promise.resolve(Response.json(list))
     }),
   )
@@ -54,55 +49,70 @@ function stub(post: Response | Promise<Response>, list: BaseBacklog[] = backlogs
 
 function renderModal() {
   const props = { onClose: vi.fn(), onStarted: vi.fn() }
-  render(<StartTaskModal row={row} {...props} />)
+  render(<StartTaskModal base={base} entry={entry} {...props} />)
   return props
 }
 
-test('окно показывает копию и записи бэклога её проекта, без чужих и без записей без номера', async () => {
+test('окно показывает взятую запись и свободные копии её проекта — без занятых, сломанных и чужих', async () => {
   stub(Response.json({ session: '7339dced' }))
   renderModal()
 
   const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
-  expect(dialog).toHaveTextContent('D:\\Projects\\rustic-silver-sparrow · ветка dev')
+  expect(within(dialog).getByText('B-8')).toBeInTheDocument()
+  expect(dialog).toHaveTextContent('Кнопка запуска')
 
-  const records = await screen.findAllByRole('radio')
-  expect(records).toHaveLength(2)
-  expect(within(dialog).getByText('B-7')).toBeInTheDocument()
-  expect(dialog).toHaveTextContent('Панель показывает задачу сразу')
-  expect(dialog).not.toHaveTextContent('Чужая')
-  expect(dialog).not.toHaveTextContent('Запись без номера')
-  // Пока запись не выбрана, запускать нечего
+  const copies = await screen.findAllByRole('radio')
+  expect(copies).toHaveLength(2)
+  expect(dialog).toHaveTextContent('rustic-silver-sparrow')
+  expect(dialog).toHaveTextContent('ветка dev')
+  // Копия без ветки всё равно выбирается — ветку панель просто не знает
+  expect(dialog).toHaveTextContent('ветка неизвестна')
+  expect(dialog).not.toHaveTextContent('busy-copy')
+  expect(dialog).not.toHaveTextContent('broken-copy')
+  expect(dialog).not.toHaveTextContent('nota-copy')
+  // Пока копия не выбрана, запускать некуда
   expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
 })
 
-test('выбранная запись уходит в API с базой и копией, окно отдаёт id сессии', async () => {
+test('окно показывает выбор и с одной свободной копией — сама она не запускается', async () => {
+  stub(Response.json({ session: '7339dced' }), [rows[0], rows[2]])
+  const props = renderModal()
+
+  expect(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ })).not.toBeChecked()
+  expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+  expect(props.onStarted).not.toHaveBeenCalled()
+})
+
+test('выбранная копия уходит в API с базой и номером записи, окно отдаёт имя копии', async () => {
   const posts = stub(Response.json({ session: '7339dced' }))
   const props = renderModal()
 
-  fireEvent.click(await screen.findByRole('radio', { name: /B-8/ }))
+  fireEvent.click(await screen.findByRole('radio', { name: /noble-keen-walrus/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
-  await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('7339dced'))
-  expect(posts).toEqual([{ base, copy: row.path, number: 'B-8' }])
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('noble-keen-walrus'))
+  expect(posts).toEqual([{ base, copy: 'D:\\Projects\\noble-keen-walrus', number: 'B-8' }])
 })
 
-test('занятая копия: окно называет идущую в ней задачу и не закрывается', async () => {
+test('копию успели занять: окно называет идущую в ней задачу и не закрывается', async () => {
   stub(Response.json({ problem: 'copy-busy', message: 'B-5 Прошлая задача' }, { status: 400 }))
   const props = renderModal()
 
-  fireEvent.click(await screen.findByRole('radio', { name: /B-7/ }))
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('В копии уже идёт задача «B-5 Прошлая задача»')
   expect(props.onStarted).not.toHaveBeenCalled()
   expect(props.onClose).not.toHaveBeenCalled()
+  // Выбор не теряется — повторять его не приходится
+  expect(screen.getByRole('radio', { name: /rustic-silver-sparrow/ })).toBeChecked()
 })
 
 test('агент не стартовал: окно показывает, что сказал запуск', async () => {
   stub(Response.json({ problem: 'agent', message: 'Не удалось найти указанный файл' }, { status: 400 }))
   renderModal()
 
-  fireEvent.click(await screen.findByRole('radio', { name: /B-7/ }))
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -114,16 +124,16 @@ test('запись успели взять: окно говорит, что её
   stub(Response.json({ problem: 'record-unknown', message: null }, { status: 400 }))
   renderModal()
 
-  fireEvent.click(await screen.findByRole('radio', { name: /B-7/ }))
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Этой записи больше нет в бэклоге')
 })
 
-test('бэклог базы не прочитан: окно говорит почему и запускать нечего', async () => {
-  stub(Response.json({ session: 'x' }), [{ base, project: 'Agents Kit Web', entries: [], error: 'В базе нет backlog.md' }])
+test('свободных копий не осталось: окно говорит почему и запускать нечего', async () => {
+  stub(Response.json({ session: 'x' }), [rows[2]])
   renderModal()
 
-  expect(await screen.findByText('В базе нет backlog.md')).toBeInTheDocument()
+  expect(await screen.findByText('Свободной копии у проекта сейчас нет — все заняты задачами.')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
 })

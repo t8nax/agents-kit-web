@@ -160,9 +160,15 @@
   gap: 2px;
 }
 
-/* Копию в окне не выбирают: подпись говорит, куда лёг файл и чем его разносят дальше. */
-.pf-file-note {
-  font-size: 11px;
+/* Имя занято у проекта: сохранение переписало бы заведённого, и об этом сказано до записи. */
+.pf-taken {
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-waiting-border);
+  border-radius: 6px;
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
 }
 
 .pf-footer-end {
@@ -205,13 +211,6 @@
 
 .pf-status .pf-preset {
   align-self: auto;
-}
-
-.pf-note {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  line-height: 1.5;
 }
 
 /* Ход работы агента — как в окне вопроса по базе: моноширинный, последняя строка ярче. */

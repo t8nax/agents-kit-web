@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { freeCopies } from './copies'
+import StartTaskModal, { PlayIcon } from './StartTaskModal'
 
 export type BacklogEntry = {
   number: string | null
@@ -19,27 +22,46 @@ export type BaseBacklog = {
   error: string | null
 }
 
+/** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
+type Started = { base: string; entry: BacklogEntry & { number: string } }
+
 type Load =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
   | { kind: 'loaded'; backlogs: BaseBacklog[] }
 
 // Фильтр по проектам: null — все проекты, иначе путь базы выбранного проекта.
-/** writeFor — база просьбы, к которой вернулся оператор: окно записи открывается сразу на ней. */
-export default function Backlog({ writeFor = null }: { writeFor?: string | null } = {}) {
+/**
+ * writeFor — база просьбы, к которой вернулся оператор: окно записи открывается сразу на ней.
+ * onStarted — запущенная задача: сообщение о ней показывает App, потому что раздел оператор
+ * тут же покидает, чтобы посмотреть строку копии.
+ */
+export default function Backlog({
+  writeFor = null,
+  onStarted,
+}: {
+  writeFor?: string | null
+  onStarted?: (copy: string) => void
+} = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [filter, setFilter] = useState<string | null>(writeFor)
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
+  // Запись, которую берут в работу
+  const [starting, setStarting] = useState<Started | null>(null)
+  // Копии всех баз: по ним видно, есть ли у проекта записи куда запускать. null — ещё не прочитаны.
+  const [copies, setCopies] = useState<WorkspaceRow[] | null>(null)
   // Записи, добавленные из панели, ключом «база|номер»: отмечены новыми до следующего «Обновить».
   const [fresh, setFresh] = useState<Set<string>>(() => new Set())
-  // Закрытое окно возвращает фокус записи, с которой его открыли: клавиатура остаётся на месте в списке.
+  // Закрытое окно возвращает фокус кнопке, с которой его открыли: клавиатура остаётся на месте в списке.
   const opener = useRef<HTMLButtonElement | null>(null)
+
+  const focusOpener = useCallback(() => opener.current?.focus(), [])
 
   const closeEntry = useCallback(() => {
     setOpened(null)
-    opener.current?.focus()
-  }, [])
+    focusOpener()
+  }, [focusOpener])
 
   const loadBacklogs = useCallback(() => {
     fetch('/api/backlog')
@@ -61,14 +83,26 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
       )
   }, [])
 
-  // Бэклог читается при открытии раздела и кнопкой «Обновить», без опроса по таймеру.
+  // Занятость копий нужна одной кнопке записи, поэтому сбой чтения раздел не показывает: кнопки просто гаснут.
+  const loadCopies = useCallback(() => {
+    fetch('/api/workspaces')
+      .then((response) => (response.ok ? (response.json() as Promise<WorkspaceRow[]>) : Promise.reject()))
+      .then(
+        (rows) => setCopies(rows),
+        () => setCopies([]),
+      )
+  }, [])
+
+  // Бэклог и копии читаются при открытии раздела и кнопкой «Обновить», без опроса по таймеру.
   useEffect(loadBacklogs, [loadBacklogs])
+  useEffect(loadCopies, [loadCopies])
 
   const refresh = useCallback(() => {
     setLoad({ kind: 'loading' })
     setFresh(new Set())
     loadBacklogs()
-  }, [loadBacklogs])
+    loadCopies()
+  }, [loadBacklogs, loadCopies])
 
   const markWritten = useCallback(
     (base: string, numbers: string[]) => {
@@ -147,22 +181,40 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
                 {backlog.entries.map((entry, index) => {
                   const isFresh = entry.number !== null && fresh.has(`${backlog.base}|${entry.number}`)
                   return (
-                    <button
-                      type="button"
-                      className={`entry ${isFresh ? 'entry-fresh' : ''}`}
-                      key={entry.number ?? `${backlog.base}-${index}`}
-                      onClick={(e) => {
-                        opener.current = e.currentTarget
-                        setOpened(entry)
-                      }}
-                    >
-                      {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
-                      {entry.number && <span className="entry-num">{entry.number}</span>}{' '}
-                      <EntryFields entry={entry} />{' '}
-                      <InlineMarkdown className="entry-title" text={entry.title} />
-                      {isFresh && <span className="entry-fresh-badge">новая</span>}
-                      <ChevronIcon />
-                    </button>
+                    <div className={`entry-row ${isFresh ? 'entry-fresh' : ''}`} key={entry.number ?? `${backlog.base}-${index}`}>
+                      <button
+                        type="button"
+                        className="entry"
+                        onClick={(e) => {
+                          opener.current = e.currentTarget
+                          setOpened(entry)
+                        }}
+                      >
+                        {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
+                        {entry.number && <span className="entry-num">{entry.number}</span>}{' '}
+                        <EntryFields entry={entry} />{' '}
+                        <InlineMarkdown className="entry-title" text={entry.title} />
+                        {isFresh && <span className="entry-fresh-badge">новая</span>}
+                        <ChevronIcon />
+                      </button>
+                      {/* Запуск адресует запись номером, поэтому у записи без номера его нет вовсе */}
+                      {entry.number && (
+                        <button
+                          type="button"
+                          className="entry-start"
+                          // Копий ещё не прочитали или свободных не осталось — запускать некуда;
+                          // почему, кнопка не пишет — как приглушённые переходы строки копии.
+                          disabled={copies === null || freeCopies(copies, backlog.base).length === 0}
+                          onClick={(e) => {
+                            opener.current = e.currentTarget
+                            setStarting({ base: backlog.base, entry: { ...entry, number: entry.number! } })
+                          }}
+                        >
+                          <PlayIcon />
+                          Взять задачу
+                        </button>
+                      )}
+                    </div>
                   )
                 })}
               </section>
@@ -172,6 +224,25 @@ export default function Backlog({ writeFor = null }: { writeFor?: string | null 
       )}
 
       {opened && <EntryModal entry={opened} onClose={closeEntry} />}
+      {starting && (
+        <StartTaskModal
+          base={starting.base}
+          entry={starting.entry}
+          onClose={() => {
+            setStarting(null)
+            focusOpener()
+          }}
+          onStarted={(copy) => {
+            setStarting(null)
+            focusOpener()
+            onStarted?.(copy)
+            // Копия становится занятой сразу, а запись из бэклога убирает агент, когда до неё дойдёт:
+            // в этом чтении её обычно ещё видно.
+            loadBacklogs()
+            loadCopies()
+          }}
+        />
+      )}
       {writing && (
         <BacklogWriteModal
           bases={backlogs.map((b) => ({ base: b.base, project: b.project }))}

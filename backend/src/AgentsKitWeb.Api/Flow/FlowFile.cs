@@ -4,11 +4,36 @@ using System.Text.RegularExpressions;
 
 namespace AgentsKitWeb.Api.Flow;
 
+/// <summary>Возврат шага: при Condition работа идёт заново к шагу Step, который стоит во флоу раньше.</summary>
+public sealed record FlowReturn(string Condition, string Step);
+
 /// <summary>
 /// Шаг флоу проекта. Description — описание шага как в файле: абзацы, списки и пункты «N.1.»; панель его не показывает,
-/// а переносит при записи, меняя в пунктах номер шага.
+/// а переносит при записи, меняя в пунктах номер шага. Returns — возвраты шага, строка на каждый; Helpers — помощники,
+/// которых оркестратор зовёт внутри шага.
 /// </summary>
-public sealed record FlowStep(string Title, string Executor, string Output, string? Skip, string? Description);
+public sealed record FlowStep(
+    string Title,
+    string Executor,
+    string Output,
+    string? Skip,
+    string? Description,
+    IReadOnlyList<FlowReturn>? Returns = null,
+    IReadOnlyList<string>? Helpers = null)
+{
+    // Списки record сравнивает ссылками, поэтому два одинаковых шага вышли бы разными: равенство задано по значению.
+    public bool Equals(FlowStep? other) =>
+        other is not null
+        && Title == other.Title
+        && Executor == other.Executor
+        && Output == other.Output
+        && Skip == other.Skip
+        && Description == other.Description
+        && FlowFile.Returns(this).SequenceEqual(FlowFile.Returns(other))
+        && FlowFile.Helpers(this).SequenceEqual(FlowFile.Helpers(other));
+
+    public override int GetHashCode() => HashCode.Combine(Title, Executor, Output, Skip, Description);
+}
 
 /// <summary>Файл флоу: шапка до первого шага — как в файле, с HTML-комментарием, — и шаги по порядку.</summary>
 public sealed record FlowDocument(string Header, IReadOnlyList<FlowStep> Steps);
@@ -20,6 +45,12 @@ public enum FlowProblem
     EmptyOutput,
     /// <summary>В однострочном поле перевод строки: ключ шага в файле — одна строка.</summary>
     LineBreak,
+    /// <summary>Возврат без условия: по чему работа идёт назад, не сказано.</summary>
+    ReturnWithoutCondition,
+    /// <summary>Возврат ведёт на шаг, которого во флоу нет.</summary>
+    ReturnUnknownStep,
+    /// <summary>Возврат ведёт на шаг, который стоит не раньше этого: круга из него не выйдет.</summary>
+    ReturnStepNotEarlier,
 }
 
 /// <summary>Почему флоу не записан; Step — номер шага с единицы.</summary>
@@ -55,8 +86,12 @@ public static partial class FlowFile
     private static partial Regex StepHeading { get; }
 
     // Ключи шага — закрытый перечень кита.
-    [GeneratedRegex(@"^(?<key>исполнитель|выход|пропуск):\s*(?<value>.*)$")]
+    [GeneratedRegex(@"^(?<key>исполнитель|помощники|выход|пропуск|возврат):\s*(?<value>.*)$")]
     private static partial Regex KeyLine { get; }
+
+    // «есть замечания — шаг «Реализация»» → условие и название шага. Форма возврата задана китом.
+    [GeneratedRegex(@"^(?<condition>.*?)\s*—\s*шаг\s*«(?<step>[^»]*)»\s*$")]
+    private static partial Regex ReturnValue { get; }
 
     // Номер пункта описания: «3.2.1.» → номер шага «3» и хвост «.2.1.».
     [GeneratedRegex(@"^(?<indent>[ \t]*)\d+(?<rest>(?:\.\d+)+\.)", RegexOptions.Multiline)]
@@ -76,13 +111,19 @@ public static partial class FlowFile
         {
             var title = StepHeading.Match(lines[i++]).Groups["title"].Value.Trim();
             var keys = new Dictionary<string, string>();
+            var returns = new List<FlowReturn>();
 
             // Ключи идут подряд под заголовком; пустые строки перед ними пропускаются.
             while (i < lines.Length && lines[i].Trim().Length == 0)
                 i++;
             while (i < lines.Length && KeyLine.Match(lines[i]) is { Success: true } key)
             {
-                keys.TryAdd(key.Groups["key"].Value, key.Groups["value"].Value.Trim());
+                var value = key.Groups["value"].Value.Trim();
+                // Возврат — строка на каждый круг, поэтому он копится списком, а не ложится в словарь.
+                if (key.Groups["key"].Value == "возврат")
+                    returns.Add(ParseReturn(value));
+                else
+                    keys.TryAdd(key.Groups["key"].Value, value);
                 i++;
             }
 
@@ -95,11 +136,25 @@ public static partial class FlowFile
                 keys.GetValueOrDefault("исполнитель", ""),
                 keys.GetValueOrDefault("выход", ""),
                 keys.TryGetValue("пропуск", out var skip) && skip.Length > 0 ? skip : null,
-                Block(description)));
+                Block(description),
+                returns,
+                ParseHelpers(keys.GetValueOrDefault("помощники", ""))));
         }
 
         return new FlowDocument(Block(header) ?? "", steps);
     }
+
+    /// <summary>
+    /// Значение ключа «возврат». Строка не в форме кита целиком считается условием: панель её не теряет,
+    /// а показывает возврат без цели — такой флоу не записывается, пока оператор его не починит.
+    /// </summary>
+    private static FlowReturn ParseReturn(string value) =>
+        ReturnValue.Match(value) is { Success: true } match
+            ? new FlowReturn(match.Groups["condition"].Value.Trim(), match.Groups["step"].Value.Trim())
+            : new FlowReturn(value, "");
+
+    private static IReadOnlyList<string> ParseHelpers(string value) =>
+        value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
     /// <summary>Текст файла: шаги нумеруются подряд с единицы, пункты описания — вслед за номером шага.</summary>
     public static string Serialize(FlowDocument document, string eol = "\n")
@@ -115,9 +170,14 @@ public static partial class FlowFile
             var block = new StringBuilder();
             block.Append($"## {number}. {step.Title.Trim()}\n\n");
             block.Append($"исполнитель: {step.Executor.Trim()}\n");
+            // Порядок ключей — как в раскладке кита: помощники сразу за исполнителем, возвраты последними.
+            if (Helpers(step) is { Count: > 0 } helpers)
+                block.Append($"помощники: {string.Join(", ", helpers)}\n");
             block.Append($"выход: {step.Output.Trim()}");
             if (!string.IsNullOrWhiteSpace(step.Skip))
                 block.Append($"\nпропуск: {step.Skip.Trim()}");
+            foreach (var back in Returns(step))
+                block.Append($"\nвозврат: {back.Condition.Trim()} — шаг «{back.Step.Trim()}»");
             if (Block(step.Description?.Replace("\r\n", "\n").Split('\n') ?? []) is { } description)
                 block.Append("\n\n").Append(Renumber(description, number));
             parts.Add(block.ToString());
@@ -129,6 +189,13 @@ public static partial class FlowFile
     public static string Renumber(string description, int number) =>
         PointNumber.Replace(description, m => $"{m.Groups["indent"].Value}{number}{m.Groups["rest"].Value}");
 
+    /// <summary>Возвраты шага; null у шага без них.</summary>
+    public static IReadOnlyList<FlowReturn> Returns(FlowStep step) => step.Returns ?? [];
+
+    /// <summary>Помощники шага без пустых имён; null у шага без них.</summary>
+    public static IReadOnlyList<string> Helpers(FlowStep step) =>
+        (step.Helpers ?? []).Select(h => h.Trim()).Where(h => h.Length > 0).ToList();
+
     /// <summary>Первый шаг, который в файл в форме кита не записать; null — все годятся.</summary>
     public static FlowRejection? Validate(IReadOnlyList<FlowStep> steps)
     {
@@ -139,11 +206,40 @@ public static partial class FlowFile
                 string.IsNullOrWhiteSpace(step.Title) ? FlowProblem.EmptyTitle
                 : string.IsNullOrWhiteSpace(step.Executor) ? FlowProblem.EmptyExecutor
                 : string.IsNullOrWhiteSpace(step.Output) ? FlowProblem.EmptyOutput
-                : new[] { step.Title, step.Executor, step.Output, step.Skip ?? "" }.Any(v => v.Contains('\n') || v.Contains('\r'))
-                    ? FlowProblem.LineBreak
-                    : null;
+                : Lines(step).Any(v => v.Contains('\n') || v.Contains('\r')) ? FlowProblem.LineBreak
+                : ReturnProblem(steps, index);
             if (problem is { } found)
                 return new FlowRejection(index + 1, found);
+        }
+        return null;
+    }
+
+    // Однострочные поля шага: перевод строки в любом из них файл в форме кита не примет.
+    private static IEnumerable<string> Lines(FlowStep step) =>
+        new[] { step.Title, step.Executor, step.Output, step.Skip ?? "" }
+            .Concat(Helpers(step))
+            .Concat(Returns(step).SelectMany(back => new[] { back.Condition, back.Step }));
+
+    /// <summary>Возврат ведёт на шаг, стоящий раньше этого, и называет условие; иначе круга из него не выйдет.</summary>
+    private static FlowProblem? ReturnProblem(IReadOnlyList<FlowStep> steps, int index)
+    {
+        foreach (var back in Returns(steps[index]))
+        {
+            if (string.IsNullOrWhiteSpace(back.Condition))
+                return FlowProblem.ReturnWithoutCondition;
+
+            var target = -1;
+            for (var i = 0; i < steps.Count; i++)
+                if (steps[i].Title.Trim() == back.Step.Trim() && back.Step.Trim().Length > 0)
+                {
+                    target = i;
+                    break;
+                }
+
+            if (target < 0)
+                return FlowProblem.ReturnUnknownStep;
+            if (target >= index)
+                return FlowProblem.ReturnStepNotEarlier;
         }
         return null;
     }

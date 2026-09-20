@@ -78,4 +78,20 @@ describe('flowChanges', () => {
     expect(changes.map((c) => c.kind)).toEqual(['same', 'changed'])
     expect(changes[1].fields).toEqual([{ field: 'output', before: 'второй', after: 'второй, теперь с e2e' }])
   })
+
+  it('возврат и помощники шага видны правкой', () => {
+    const before = [step('Критерий'), step('Приёмка')]
+    const after = [
+      step('Критерий', { helpers: ['scout'] }),
+      step('Приёмка', { returns: [{ condition: 'есть замечания', step: 'Критерий' }] }),
+    ]
+
+    const changes = flowChanges(before, after)
+
+    expect(changes.map((c) => c.kind)).toEqual(['changed', 'changed'])
+    expect(changes[0].fields).toEqual([{ field: 'helpers', before: null, after: 'scout' }])
+    expect(changes[1].fields).toEqual([
+      { field: 'returns', before: null, after: 'есть замечания → Критерий' },
+    ])
+  })
 })

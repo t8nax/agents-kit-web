@@ -152,10 +152,6 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void write(text)
                 }}
               />
-              <p className="write-note">
-                {AGENT_NAME} разложит текст на записи, найдёт подробности в базе и коде и выдаст номера. Ctrl+Enter —
-                добавить.
-              </p>
             </>
           )}
 
@@ -221,10 +217,6 @@ export default function BacklogWriteModal({ bases, initialBase, onClose, onEntri
         </div>
 
         <div className="modal-footer ask-footer">
-          <span className="ask-hint">
-            <LockIcon />
-            {AGENT_NAME} меняет в базе только backlog.md и сам его коммитит
-          </span>
           <div className="footer-right">
             {phase === 'idle' && (
               <button
@@ -339,15 +331,6 @@ function CheckIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <polyline points="20 6 9 17 4 12" />
-    </svg>
-  )
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   )
 }

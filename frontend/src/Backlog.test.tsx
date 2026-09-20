@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
+import type { WorkspaceRow } from './App'
 import Backlog, { type BaseBacklog } from './Backlog'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -26,12 +27,50 @@ const backlogs: BaseBacklog[] = [
   },
 ]
 
+const copy = (base: string, path: string, status: WorkspaceRow['status']): WorkspaceRow => ({
+  project: 'Проект',
+  base,
+  path,
+  branch: 'dev',
+  task: null,
+  flowStep: null,
+  progress: null,
+  status,
+  error: null,
+})
+
+const copies: WorkspaceRow[] = [
+  copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+  copy('D:\\Projects\\nota-knowledge', 'D:\\Projects\\nota-copy', 'free'),
+]
+
+/**
+ * Отвечает бэклогом по очереди на каждое чтение, копиями — списком `rows`, а запуск задачи
+ * принимает с `taskReply` и собирает его тела: иначе тест не увидит, с чем раздел его позвал.
+ */
 function stubFetch(...responses: BaseBacklog[][]) {
-  const fetchMock = vi.fn()
-  for (const backlog of responses)
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(backlog), { status: 200 }))
+  const queue = [...responses]
+  const posts: unknown[] = []
+  let rows = copies
+  let taskReply: Response | null = null
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url === '/api/tasks') {
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(taskReply ?? Response.json({ session: '7339dced' }))
+    }
+    if (url === '/api/workspaces') return Promise.resolve(Response.json(rows))
+    expect(url).toBe('/api/backlog')
+    return Promise.resolve(Response.json(queue.length > 1 ? queue.shift()! : queue[0]))
+  })
   vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
+  return Object.assign(fetchMock, {
+    posts,
+    /** Сколько раз читали бэклог: копии раздел читает своим запросом. */
+    backlogReads: () => fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length,
+    setCopies: (next: WorkspaceRow[]) => {
+      rows = next
+    },
+  })
 }
 
 test('показывает записи бэклога группами по проектам, без текста', async () => {
@@ -201,7 +240,7 @@ test('«Обновить» перечитывает бэклог', async () => {
 
   expect(await screen.findByText('B-17')).toBeInTheDocument()
   expect(screen.queryByText('B-1')).not.toBeInTheDocument()
-  expect(fetchMock).toHaveBeenCalledTimes(2)
+  expect(fetchMock.backlogReads()).toBe(2)
 })
 
 test('фильтр сбрасывается, когда его базы больше нет', async () => {
@@ -295,4 +334,67 @@ test('без баз добавлять некуда', async () => {
   await screen.findByText(/Нет отслеживаемых баз/)
 
   expect(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' })).toBeDisabled()
+})
+
+test('«Взять задачу» запускает свою запись в выбранную копию и возвращает фокус кнопке', async () => {
+  const fetchMock = stubFetch(backlogs)
+  const onStarted = vi.fn()
+
+  render(<Backlog onStarted={onStarted} />)
+  // Берут запись второго проекта: с ней в запуск должны уйти её база и её номер
+  const row = (await screen.findByRole('button', { name: /B-2 Экспорт заметок/ })).closest('.entry-row')!
+  const start = within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })
+  fireEvent.click(start)
+
+  // Окно берёт запись из строки, а копию спрашивает
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  expect(dialog).toHaveTextContent('Экспорт заметок')
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /nota-copy/ }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(onStarted).toHaveBeenCalledWith('nota-copy'))
+  expect(fetchMock.posts).toEqual([
+    { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota-copy', number: 'B-2' },
+  ])
+  expect(screen.queryByRole('dialog', { name: 'Взять задачу в работу' })).not.toBeInTheDocument()
+  // Фокус возвращается кнопке запуска — клавиатура остаётся на месте в списке
+  expect(start).toHaveFocus()
+  // Копия занята, а запись убирает агент, когда до неё дойдёт: раздел перечитывает и то и другое
+  await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
+})
+
+test('закрытое окно запуска возвращает фокус кнопке записи', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest(
+    '.entry-row',
+  )!
+  const start = within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })
+  fireEvent.click(start)
+  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+
+  expect(screen.queryByRole('dialog', { name: 'Взять задачу в работу' })).not.toBeInTheDocument()
+  expect(start).toHaveFocus()
+})
+
+test('у проекта без свободной копии кнопка записи погашена', async () => {
+  const fetchMock = stubFetch(backlogs)
+  fetchMock.setCopies([copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'in-work')])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest(
+    '.entry-row',
+  )!
+
+  await waitFor(() => expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled())
+})
+
+test('у записи без номера запуска нет: запуск адресует её номером', async () => {
+  stubFetch([{ ...backlogs[0], entries: [{ number: null, title: 'Дописана руками', text: null }] }])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: 'Дописана руками' })).closest('.entry-row')!
+
+  expect(within(row as HTMLElement).queryByRole('button', { name: 'Взять задачу' })).not.toBeInTheDocument()
 })

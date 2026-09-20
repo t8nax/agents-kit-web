@@ -59,10 +59,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(unnumbered.nth(1)).toHaveText('—')
     await expect(unnumbered.nth(2)).toHaveText('Задача не из бэклога')
 
-    // У свободной копии задачи нет, и на её месте стоит кнопка запуска
+    // У свободной копии задачи нет, и на её месте прочерк: задачу берут в разделе «Бэклог»
     const free = bodyRows.nth(2).getByRole('cell')
     await expect(free.nth(1)).toHaveText('—')
-    await expect(free.nth(2).getByRole('button', { name: 'Взять задачу' })).toBeVisible()
+    await expect(free.nth(2)).toHaveText('—')
   })
 }
 
@@ -159,16 +159,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(empty).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(empty).toHaveCSS('border-top-width', '1px')
 
-    // Легенда стоит под таблицей и называет все четыре состояния словами
-    const legend = page.locator('.session-legend')
-    await expect(legend).toBeVisible()
-    for (const label of ['работает', 'ждёт вас в терминале', 'стоит без дела', 'сессии нет']) {
-      await expect(legend.getByText(label, { exact: true })).toBeVisible()
+    // Легенды под таблицей нет — слова состояния держит подсказка самой точки
+    await expect(page.locator('.session-legend')).toHaveCount(0)
+    for (const [index, state] of states.entries()) {
+      await expect(bodyRows.nth(index).getByRole('img', { name: state })).toHaveAttribute('title', state)
     }
-    const [tableBox, legendBox] = await Promise.all([
-      page.getByRole('table').boundingBox(),
-      legend.boundingBox(),
-    ])
-    expect(legendBox!.y).toBeGreaterThanOrEqual(tableBox!.y + tableBox!.height)
   })
 }

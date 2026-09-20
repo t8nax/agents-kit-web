@@ -241,6 +241,36 @@ $target = Join-Path (Split-Path $Path -Parent) $branch
 git -C $Path worktree add -b $branch $target --quiet 2>&1 | Out-Null
 "Копия заведена: $target, ветка $branch"
 '@
+
+    Write-Utf8 (Join-Path $scripts 'worktree-remove.ps1') @'
+# Заглушка кита: копию убирает настоящим git worktree, но отказы проверяет свои и попроще —
+# проверяется, как панель зовёт кит и показывает его отказ. Ветку заглушка, как и кит, оставляет.
+param([Parameter(Mandatory)][string]$Path)
+
+$ErrorActionPreference = 'Stop'
+if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "каталога «$Path» не существует — удалять нечего" }
+
+$tree = (git -C $Path rev-parse --show-toplevel 2>$null)
+if (-not $tree) { throw "«$Path» не под git — это не рабочая копия проекта под китом" }
+$tree = $tree.Replace('/', '\')
+$main = (git -C $Path rev-parse --path-format=absolute --git-common-dir).Trim().Replace('/', '\')
+if ($tree -ieq (Split-Path $main -Parent)) {
+    throw "«$tree» — основная копия проекта, а не заведённая рядом: убирать её киту нечем"
+}
+
+$dirty = @(git -C $tree status --porcelain --untracked-files=all 2>$null | Where-Object { $_ })
+if ($dirty.Count) {
+    $named = (@($dirty | Select-Object -First 3) | ForEach-Object { $_.Substring(3) }) -join ', '
+    if ($dirty.Count -gt 3) { $named += " и ещё $($dirty.Count - 3)" }
+    throw "в копии «$tree» незакоммиченное: $named — сначала закоммитить"
+}
+
+$branch = (git -C $tree rev-parse --abbrev-ref HEAD 2>$null)
+$out = git -C (Split-Path $main -Parent) worktree remove $tree 2>&1
+if ($LASTEXITCODE -ne 0) { throw "git не убрал копию «$tree»: $(($out | Out-String).Trim())" }
+"Рабочая копия удалена: $tree"
+if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $branch" }
+'@
 }
 
 # --- подставной агент --------------------------------------------------------------------
@@ -304,12 +334,14 @@ if (-not $mode) { $mode = 'ok' }
 # Аргументы приходят от обёртки claude.exe переменной окружения: в командной строке
 # многострочный системный промпт пришлось бы экранировать.
 $arguments = if ($env:AKW_CLAUDE_ARGS) { @($env:AKW_CLAUDE_ARGS -split [char]1) } else { @($args) }
+# Разговор по базе идёт живым процессом: реплики приходят строками, и весь ввод разом не читается.
+$chat = $arguments -contains '--input-format'
 # Текст оператора приходит в stdin в UTF-8: читаем поток сами, иначе консоль отдаст его
 # в кодировке по умолчанию и русские буквы приедут мусором.
-$stdin = if ([Console]::IsInputRedirected) {
-    $reader = [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false))
-    $reader.ReadToEnd()
-} else { '' }
+$stdinReader = if ([Console]::IsInputRedirected) {
+    [IO.StreamReader]::new([Console]::OpenStandardInput(), [Text.UTF8Encoding]::new($false))
+} else { $null }
+$stdin = if ($stdinReader -and -not $chat) { $stdinReader.ReadToEnd() } else { '' }
 
 function Get-Argument([string]$Name) {
     for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
@@ -421,13 +453,32 @@ if ($baseDir) {
     exit 0
 }
 
-# Вопрос по базе: агент работает в каталоге базы и только читает.
+# Разговор по базе: агент работает в каталоге базы, только читает и отвечает на каждую реплику,
+# пока панель не закроет ввод. Реплика приходит строкой stream-json.
 $product = Join-Path (Get-Location).Path 'product.md'
-Write-Step 'Read' @{ file_path = $product }
-Write-Step 'Grep' @{ pattern = 'песочница' }
-if ($mode -eq 'truncated') { exit 0 }
-$question = $stdin.Trim()
-Write-Result "Подставной агент песочницы отвечает на «$question»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+if (-not $chat) {
+    Write-Step 'Read' @{ file_path = $product }
+    Write-Step 'Grep' @{ pattern = 'песочница' }
+    if ($mode -eq 'truncated') { exit 0 }
+    Write-Result "Подставной агент песочницы отвечает на «$($stdin.Trim())»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+    exit 0
+}
+
+$said = @()
+while ($null -ne ($line = $stdinReader.ReadLine())) {
+    if (-not $line.Trim()) { continue }
+    $text = try { ([string]($line | ConvertFrom-Json).message.content[0].text).Trim() } catch { $line.Trim() }
+    $said += $text
+    Write-Step 'Read' @{ file_path = $product }
+    Write-Step 'Grep' @{ pattern = 'песочница' }
+    if ($mode -eq 'truncated') { exit 0 }
+    $answer = if ($said.Count -eq 1) {
+        "Подставной агент песочницы отвечает на «$text»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+    } else {
+        "Реплика $($said.Count) — «$text». Прошлые реплики я помню: $($said[0..($said.Count - 2)] -join ' · ')."
+    }
+    Write-Result $answer
+}
 exit 0
 '@
 }
@@ -456,24 +507,40 @@ function New-Flow([string]$Path) {
 ## 3. Реализация
 
 исполнитель: оркестратор
+помощники: house-reviewer, reviewer
 выход: sha коммитов ветки и зелёные прогоны проверок в памяти
 
 3.1. Вести работу шагами, каждый со своей проверкой.
 
-## 4. Приёмка
+## 4. Ревью
+
+исполнитель: house-reviewer
+выход: вердикт по sha проверенного коммита
+пропуск: правка не трогает код
+
+4.1. Дать ревьюеру ветку задачи и базу сравнения.
+
+## 5. Сборка
+
+исполнитель: reviewer
+выход: зелёная сборка в памяти
+
+5.1. Собрать то, что правили.
+
+## 6. Приёмка
 
 исполнитель: оператор
 выход: ответ оператора в памяти — «принято» или список замечаний
 пропуск: правка не меняет ни вида, ни поведения панели
 
-4.1. Показать оператору, что смотреть.
+6.1. Показать оператору, что смотреть.
 
-## 5. Мерж
+## 7. Мерж
 
 исполнитель: оркестратор
 выход: «смержено и запушено: <sha в dev>, ветка удалена» в памяти
 
-5.1. Мержить только после «принято».
+7.1. Мержить только после «принято».
 '@
 }
 
@@ -718,6 +785,37 @@ $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
     [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
     [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
     [pscustomobject]@{ severity = 'WARN'; file = 'flow.md'; message = 'флоу не в истории git' }) })
+
+# Исполнители профиля: файл у каждого один на машину, а проекту он принадлежит приставкой в имени.
+# Последний заведён «оператором» мимо панели — приставки у него нет, и в разделе его быть не должно.
+$agentsDir = Join-Path $claudeDir 'agents'
+New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
+Write-Utf8 (Join-Path $agentsDir 'house-reviewer.md') @"
+---
+name: house-reviewer
+description: Вычитывает дифф ветки задачи и возвращает замечания.
+tools: Read, Grep, Glob
+model: opus
+---
+
+Ты читаешь дифф ветки целиком и возвращаешь замечания списком.
+"@
+Write-Utf8 (Join-Path $agentsDir 'quirks-spec-writer.md') @"
+---
+name: quirks-spec-writer
+description: Пишет спеку экрана по разговору с оператором.
+---
+
+Ты пишешь спеку экрана.
+"@
+Write-Utf8 (Join-Path $agentsDir 'statusline-setup.md') @"
+---
+name: statusline-setup
+description: Настраивает строку состояния — заведён мимо панели, приставки проекта нет.
+---
+
+Ты настраиваешь строку состояния.
+"@
 
 # Кит без скриптов: путь к нему панель не примет, и это видно в «Настройках».
 $brokenKit = Join-Path $claudeDir 'skills\agents-kit-broken'

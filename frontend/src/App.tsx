@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import './App.css'
 import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
+import DeleteWorkspaceModal, { TrashIcon } from './DeleteWorkspaceModal'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { useCollapsedGroups } from './collapsedGroups'
 import AgentBar from './AgentBar'
@@ -21,7 +22,7 @@ import ReplyModal from './ReplyModal'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
-import StartTaskModal, { PlayIcon } from './StartTaskModal'
+import { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
 import { TerminalIcon } from './TerminalIcon'
@@ -71,32 +72,12 @@ const sessionLabels: Record<SessionState, string> = {
 const noSessionLabel = 'сессии нет'
 
 /**
- * Точка состояния сессии у имени копии: цвет читается по легенде под таблицей, слова — подсказкой.
+ * Точка состояния сессии у имени копии: слова читаются подсказкой при наведении.
  * Подпись идёт меткой, а не скрытым текстом: скрытый текст попал бы в содержимое ячейки с именем копии.
  */
 function SessionDot({ state }: { state: SessionState | null }) {
   const label = state ? sessionLabels[state] : noSessionLabel
   return <span className={`session-dot session-${state ?? 'none'}`} role="img" aria-label={label} title={label} />
-}
-
-/** Легенда точек: без неё цвет у имени копии ничего не говорит, пока на него не наведёшь мышь. */
-function SessionLegend() {
-  return (
-    <div className="session-legend">
-      <span className="text-ter">Точка у имени копии:</span>
-      {/* Точки легенды подписаны рядом словами, и диктору читать их второй раз незачем */}
-      {(Object.keys(sessionLabels) as SessionState[]).map((state) => (
-        <span key={state} className="session-legend-item">
-          <span className={`session-dot session-${state}`} aria-hidden="true" />
-          {sessionLabels[state].replace('сессия ', '')}
-        </span>
-      ))}
-      <span className="session-legend-item">
-        <span className="session-dot session-none" aria-hidden="true" />
-        {noSessionLabel}
-      </span>
-    </div>
-  )
 }
 
 /** Только что заведённая копия: её строка отмечена, пока висит уведомление. */
@@ -146,9 +127,11 @@ function App() {
   // Просьба, к которой оператор вернулся из шапки: раздел с её окном открывается заново, с её базой.
   const [openRequest, setOpenRequest] = useState<{ kind: AgentKind; base: string; at: number } | null>(null)
   const [creating, setCreating] = useState(false)
-  // Копия, в которой оператор запускает задачу, и сообщение о запущенной
-  const [starting, setStarting] = useState<WorkspaceRow | null>(null)
+  // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
   const [started, setStarted] = useState<string | null>(null)
+  // Копия, которую оператор убирает, и сообщение об убранной
+  const [removing, setRemoving] = useState<WorkspaceRow | null>(null)
+  const [removed, setRemoved] = useState<string | null>(null)
   const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
@@ -197,9 +180,22 @@ function App() {
     }
   }, [loadRows])
 
+  // Раздел, выбранный в сайдбаре, забывает возврат к просьбе: иначе он каждый раз встаёт с её окном — B-73
+  const chooseSection = useCallback((next: Section) => {
+    setSection(next)
+    setOpenRequest(null)
+  }, [])
+
   const closeReply = useCallback(() => setReplyTo(null), [])
   const closeAsk = useCallback(() => setAsking(false), [])
   const closeCreate = useCallback(() => setCreating(false), [])
+
+  // Сообщение о запущенной задаче гаснет само — решение оператора на приёмке B-40
+  useEffect(() => {
+    if (!started) return
+    const timer = setTimeout(() => setStarted(null), startedMs)
+    return () => clearTimeout(timer)
+  }, [started])
 
   useEffect(() => {
     if (!fresh) return
@@ -207,12 +203,11 @@ function App() {
     return () => clearTimeout(timer)
   }, [fresh])
 
-  // Сообщение о запущенной задаче гаснет само, как и сообщение о заведённой копии
   useEffect(() => {
-    if (!started) return
-    const timer = setTimeout(() => setStarted(null), startedMs)
+    if (!removed) return
+    const timer = setTimeout(() => setRemoved(null), startedMs)
     return () => clearTimeout(timer)
-  }, [started])
+  }, [removed])
 
   return (
     <>
@@ -250,7 +245,7 @@ function App() {
         <Sidebar
           section={section}
           waiting={state.rows?.filter((row) => row.status === 'waiting').length ?? 0}
-          onSection={setSection}
+          onSection={chooseSection}
         />
         <main className={`content ${section === 'flow' ? 'content-fixed' : ''}`}>
           {section === 'workspaces' ? (
@@ -273,7 +268,7 @@ function App() {
                   rows={state.rows}
                   fresh={fresh}
                   onReply={setReplyTo}
-                  onStart={setStarting}
+                  onRemove={setRemoving}
                   onProblems={() => setSection('problems')}
                   onSettings={() => setSection('settings')}
                 />
@@ -289,6 +284,11 @@ function App() {
             <Backlog
               key={openRequest?.kind === 'backlog' ? openRequest.at : 'backlog'}
               writeFor={openRequest?.kind === 'backlog' ? openRequest.base : null}
+              onStarted={(copy) => {
+                setStarted(copy)
+                // Копия станет занятой, когда агент заведёт память задачи; опрос покажет это сам
+                loadRows()
+              }}
             />
           ) : section === 'flow' ? (
             <Flow
@@ -315,22 +315,34 @@ function App() {
       </div>
       {replyTo && <ReplyModal base={replyTo.base} copy={replyTo.path} onClose={closeReply} onAnswered={loadRows} />}
       {asking && <AskModal onClose={closeAsk} />}
-      {starting && (
-        <StartTaskModal
-          row={starting}
-          onClose={() => setStarting(null)}
-          onStarted={() => {
-            setStarted(copyName(starting.path))
-            setStarting(null)
-            // Копия станет занятой, когда агент заведёт память задачи; опрос покажет это сам
-            loadRows()
-          }}
-        />
-      )}
       {started && (
         <div className="nw-toast" role="status">
           <PlayIcon />
           <span>Задача запущена в {started}</span>
+        </div>
+      )}
+      {removing && (
+        <DeleteWorkspaceModal
+          row={removing}
+          onClose={() => setRemoving(null)}
+          onRemoved={() => {
+            setRemoved(copyName(removing.path))
+            setRemoving(null)
+            // Копию убрал кит — ближайший опрос и так её потеряет, но ждать его незачем
+            loadRows()
+          }}
+          onSettings={() => {
+            setRemoving(null)
+            setSection('settings')
+          }}
+        />
+      )}
+      {removed && (
+        <div className="nw-toast nw-toast-plain" role="status">
+          <TrashIcon />
+          <span>
+            Копия <span className="mono">{removed}</span> удалена
+          </span>
         </div>
       )}
       {creating && state.rows && (
@@ -598,13 +610,13 @@ function BellOffIcon() {
 }
 
 // Номер записи бэклога стоит своей колонкой перед заголовком: в тексте задачи он терялся
-function TaskCells({ task, start }: { task: string | null; start?: ReactNode }) {
+function TaskCells({ task }: { task: string | null }) {
   if (task === null) {
+    // Задачу берут в разделе «Бэклог», а у свободной копии здесь стоит прочерк — решение оператора на B-86
     return (
       <>
         <td className="num-col text-ter">—</td>
-        {/* У свободной копии на месте задачи стоит её запуск — решение оператора на приёмке */}
-        <td className={`task-col ${start ? '' : 'text-ter'}`}>{start ?? '—'}</td>
+        <td className="task-col text-ter">—</td>
       </>
     )
   }
@@ -623,14 +635,14 @@ function WorkspacesTable({
   rows,
   fresh,
   onReply,
-  onStart,
+  onRemove,
   onProblems,
   onSettings,
 }: {
   rows: WorkspaceRow[]
   fresh: Fresh | null
   onReply: (row: WorkspaceRow) => void
-  onStart: (row: WorkspaceRow) => void
+  onRemove: (row: WorkspaceRow) => void
   onProblems: () => void
   onSettings: () => void
 }) {
@@ -758,17 +770,7 @@ function WorkspacesTable({
                 </td>
               ) : (
                 <>
-                  <TaskCells
-                    task={row.task}
-                    start={
-                      row.status === 'free' ? (
-                        <button type="button" className="action-btn-start" onClick={() => onStart(row)}>
-                          <PlayIcon />
-                          Взять задачу
-                        </button>
-                      ) : undefined
-                    }
-                  />
+                  <TaskCells task={row.task} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
                     {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
@@ -795,6 +797,7 @@ function WorkspacesTable({
                       busy={opening === row.path}
                       onTerminal={() => void openInTerminal(row)}
                       onVsCode={() => void openInVsCode(row)}
+                      onRemove={() => onRemove(row)}
                     />
                   )}
                 </div>
@@ -805,7 +808,6 @@ function WorkspacesTable({
           )
         })}
       </table>
-      <SessionLegend />
     </>
   )
 }
@@ -813,17 +815,21 @@ function WorkspacesTable({
 /**
  * Действия строки: переходов стало два, и они собраны в меню — решение оператора. Без фоновой сессии
  * пункт терминала виден, но не нажимается: подписи о причине у него нет — оператор убрал её на приёмке.
+ * Удаление копии стоит там же, за разделителем: у основной копии проекта его нет вовсе — её кит
+ * не удаляет и от неё заводит новые, — а у копии с задачей пункт приглушён.
  */
 function RowActionsMenu({
   row,
   busy,
   onTerminal,
   onVsCode,
+  onRemove,
 }: {
   row: WorkspaceRow
   busy: boolean
   onTerminal: () => void
   onVsCode: () => void
+  onRemove: () => void
 }) {
   return (
     <RowMenu label={`Действия с ${copyName(row.path)}`} disabled={busy}>
@@ -854,6 +860,24 @@ function RowActionsMenu({
             <VsCodeIcon />
             Открыть в VS Code
           </button>
+          {!row.copiesDir && (
+            <>
+              <div className="row-menu-sep" />
+              <button
+                type="button"
+                role="menuitem"
+                className="row-menu-item row-menu-item-danger"
+                disabled={row.status !== 'free'}
+                onClick={() => {
+                  close()
+                  onRemove()
+                }}
+              >
+                <TrashIcon />
+                Удалить копию
+              </button>
+            </>
+          )}
         </>
       )}
     </RowMenu>

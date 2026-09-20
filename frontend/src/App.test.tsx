@@ -1,11 +1,19 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
+import { type AgentKind, type AgentRequestSummary } from './agentRequest'
 import { applyChosenTheme } from './theme'
 
 // Индикатор просьб к агенту опрашивает панель сам и проверяется своим тестом: здесь он молчит,
-// иначе его опрос путался бы со счётом опросов таблицы копий.
-vi.mock('./AgentBar', () => ({ default: () => null }))
+// иначе его опрос путался бы со счётом опросов таблицы копий. Возврат к просьбе зовут сами тесты —
+// мок отдаёт им обработчик отметки в шапке.
+let openRequest: ((request: AgentRequestSummary) => void) | null = null
+vi.mock('./AgentBar', () => ({
+  default: ({ onOpen }: { onOpen: (request: AgentRequestSummary) => void }) => {
+    openRequest = onOpen
+    return null
+  },
+}))
 
 let visibility: DocumentVisibilityState = 'visible'
 Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility })
@@ -131,9 +139,9 @@ test('точка у имени копии говорит, что делает е
   // Подпись точки — метка, а не текст: содержимое ячейки остаётся именем копии и её веткой
   expect(within(tableRows[1]).getAllByRole('cell')[0]).toHaveTextContent(/^appfeat\/table$/)
 
-  // Цвет точки сам по себе ничего не говорит — под таблицей стоит легенда
-  expect(screen.getByText('Точка у имени копии:')).toBeInTheDocument()
-  expect(screen.getByText('ждёт вас в терминале')).toBeInTheDocument()
+  // Слова состояния держит подсказка точки, отдельной легенды под таблицей нет
+  expect(within(tableRows[1]).getByRole('img')).toHaveAttribute('title', 'сессия стоит без дела')
+  expect(screen.queryByText('Точка у имени копии:')).not.toBeInTheDocument()
 })
 
 test('сессия, ждущая оператора в терминале, отмечена своей точкой', async () => {
@@ -244,7 +252,7 @@ test('номер задачи из бэклога стоит своей коло
   expect(within(tableRows[1]).getByText('B-24')).toHaveClass('num-chip')
   expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'Задача не из бэклога'])
   // У свободной копии задачи нет, и на её месте стоит запуск
-  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', 'Взять задачу'])
+  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', '—'])
   // Строка с ошибкой накрывает и колонку номера: ячеек в ней столько же, сколько колонок
   expect(within(tableRows[4]).getAllByRole('cell')[1]).toHaveAttribute('colspan', '5')
 })
@@ -335,45 +343,74 @@ test('терминал не открылся — панель говорит о�
   expect(await screen.findByText('Сессия в app уже не идёт в фоне')).toBeInTheDocument()
 })
 
-test('«Взять задачу» стоит только у свободных копий и запускает выбранную запись', async () => {
-  const backlog = [
-    {
-      base: 'D:\\Projects\\app-knowledge',
-      project: 'app-knowledge',
-      entries: [{ number: 'B-7', title: 'Панель показывает задачу сразу', text: null }],
-      error: null,
-    },
-  ]
-  const fetchMock = vi.fn(async (url: string) => {
-    if (url === '/api/tasks') return Response.json({ session: '7339dced' })
-    if (url === '/api/backlog') return Response.json(backlog)
-    return Response.json(rows)
-  })
+test('«Удалить копию» стоит у свободной копии, приглушён у занятой и не стоит у основной', async () => {
+  // Основная копия проекта — та, от которой кит заводит новые: её строку выдаёт copiesDir
+  const main: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\app-main', status: 'free', copiesDir: 'D:\\Projects' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, main]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  const free = await openRowMenu(tableRows[2])
+  expect(within(free).getByRole('menuitem', { name: 'Удалить копию' })).toBeEnabled()
+
+  // В копии идёт задача: её память живёт в базе, и панель копию не убирает
+  const busy = await openRowMenu(tableRows[1])
+  expect(within(busy).getByRole('menuitem', { name: 'Удалить копию' })).toBeDisabled()
+
+  const mainMenu = await openRowMenu(tableRows[4])
+  expect(within(mainMenu).queryByRole('menuitem', { name: 'Удалить копию' })).not.toBeInTheDocument()
+})
+
+test('удаление копии открывает окно, а после удачи таблица перечитывается и гаснет сообщение', async () => {
+  fakeInterval()
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/workspace/remove'
+      ? new Response(null, { status: 204 })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
   vi.stubGlobal('fetch', fetchMock)
 
   render(<App />)
   const tableRows = await findTableRows()
 
-  // Ждущая ответа и нечитаемая копии задачу не принимают
-  expect(within(tableRows[1]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
-  expect(within(tableRows[3]).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
-  // Кнопка стоит на месте задачи, а не в колонке действий — решение оператора на приёмке
-  const taskCell = within(tableRows[2]).getAllByRole('cell')[2]
-  fireEvent.click(within(taskCell).getByRole('button', { name: 'Взять задачу' }))
-
-  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
-  fireEvent.click(await within(dialog).findByRole('radio', { name: /B-7/ }))
+  const menu = await openRowMenu(tableRows[2])
   await act(async () => {
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Удалить копию' }))
   })
 
-  expect(screen.queryByRole('dialog')).toBeNull()
-  expect(await screen.findByRole('status')).toHaveTextContent('Задача запущена в app-wt')
-  expect(fetchMock).toHaveBeenCalledWith('/api/tasks', {
+  const dialog = await screen.findByRole('dialog', { name: 'Удалить рабочую копию' })
+  expect(dialog).toHaveTextContent('D:\\Projects\\app-wt')
+  const polls = fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces').length
+
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Удалить копию' }))
+  })
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspace/remove', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt', number: 'B-7' }),
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' }),
   })
+  expect(screen.queryByRole('dialog', { name: 'Удалить рабочую копию' })).not.toBeInTheDocument()
+  // Опрос не ждут: таблица перечитывается сразу
+  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces').length).toBeGreaterThan(polls)
+
+  // Сообщение гаснет своим таймером — тем же, что у сообщения о запущенной задаче
+  expect(await screen.findByRole('status')).toHaveTextContent('Копия app-wt удалена')
+})
+
+test('задачу из таблицы копий не берут: запуск живёт в разделе «Бэклог»', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(rows)))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  // Кнопки нет ни у свободной копии, ни у занятой — решение оператора на B-86
+  expect(screen.queryByRole('button', { name: 'Взять задачу' })).toBeNull()
+  // На её месте у свободной копии прочерк, остальная строка прежняя
+  const taskCell = within(tableRows[2]).getAllByRole('cell')[2]
+  expect(taskCell).toHaveTextContent('—')
 })
 
 test('запущенная задача стоит в строке копии до памяти: номер, заголовок и «Запускается»', async () => {
@@ -393,8 +430,6 @@ test('запущенная задача стоит в строке копии д
   // Номер с заголовком записи — всё, что панель знает о задаче; шага флоу и прогресса ещё нет
   expect(cells.slice(1, 6)).toEqual(['B-7', 'Панель показывает задачу сразу', '—', '—', 'Запускается'])
   expect(within(row).getByText('Запускается')).toHaveClass('status-starting')
-  // Вторую задачу в занятую копию не запустить, и кнопки у неё нет
-  expect(within(row).queryByRole('button', { name: 'Взять задачу' })).toBeNull()
 })
 
 test('«Новая копия» открывает окно, заведённая копия отмечена в таблице и уведомлением', async () => {
@@ -899,4 +934,133 @@ test('опрос не закрывает окно ответа и не сбра�
   expect(fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces')).toHaveLength(4)
   expect(screen.getByRole('dialog')).toBe(dialog)
   expect(within(dialog).getByRole('textbox')).toHaveValue('три секунды')
+})
+
+
+const backlogs = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    entries: [{ number: 'B-1', title: 'Запись своего проекта', text: null }],
+    error: null,
+  },
+  {
+    base: 'D:\\Projects\\nota-knowledge',
+    project: 'Nota',
+    entries: [{ number: 'B-2', title: 'Запись соседнего проекта', text: null }],
+    error: null,
+  },
+]
+
+const flows = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    steps: [],
+    activeTasks: 0,
+    version: 'v1',
+    error: null,
+    icons: {},
+  },
+]
+
+const performers = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    copies: [{ path: 'D:\\Projects\\app', name: 'app', branch: 'master', main: true }],
+    performers: [],
+    error: null,
+  },
+]
+
+// Разделы, к которым ведёт возврат к просьбе, читают каждый своё; окна просьб — /api/agent/requests
+function stubSections() {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/backlog') return new Response(JSON.stringify(backlogs), { status: 200 })
+    if (url === '/api/flow') return new Response(JSON.stringify(flows), { status: 200 })
+    if (url === '/api/performers') return new Response(JSON.stringify(performers), { status: 200 })
+    if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
+    return new Response(JSON.stringify([]), { status: 200 })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+// Оператор вернулся к просьбе отметкой в шапке: панель открывает её раздел с её окном
+function returnToRequest(kind: AgentKind, base: string) {
+  act(() => {
+    openRequest?.({ kind, id: 'r1', base, project: 'app-knowledge', text: 'запиши', elapsedMs: 0, state: 'running' })
+  })
+}
+
+function sidebarButtons() {
+  return within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+}
+
+test('«Бэклог» из сайдбара открывается списком, а не окном записи после возврата к просьбе', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Бэклог/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Запись в бэклог' })).not.toBeInTheDocument()
+  // Фильтр по проекту забыт вместе с окном: в списке снова все проекты
+  expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
+})
+
+test('«Флоу» из сайдбара открывается схемой, а не окном переписывания после возврата к просьбе', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('flow', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Переписать флоу' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Флоу/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Переписать флоу' })).not.toBeInTheDocument()
+})
+
+test('«Исполнители» из сайдбара открываются списком, а не окном заведения после возврата к просьбе', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('performer', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Новый исполнитель' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Исполнители/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Исполнители' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Новый исполнитель' })).not.toBeInTheDocument()
+})
+
+test('возврат к просьбе из шапки открывает раздел с окном на её базе сколько угодно раз', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+
+  fireEvent.click(sidebarButtons().getByRole('button', { name: /Рабочие копии/ }))
+  await screen.findByRole('table')
+
+  returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  // Раздел встал на базе просьбы: записи соседнего проекта список не показывает
+  expect(screen.queryByText('Запись соседнего проекта')).not.toBeInTheDocument()
 })

@@ -44,7 +44,7 @@ public static class PanelEndpoints
             if (installed.Read() is not { } published)
                 return Results.NotFound();
             var update = await PanelUpdates.ReadAsync(
-                published.Repository, Channel(channels, published), published.Sha, published.Version, cancellationToken);
+                published.Repository, Channel(channels, published), published.Sha, cancellationToken);
             return update is null ? Results.NotFound() : Results.Ok(update);
         });
 

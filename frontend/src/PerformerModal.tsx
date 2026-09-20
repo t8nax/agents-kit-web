@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { useAgentRequest } from './agentRequest'
-import type { Performer, PerformerCopy } from './Performers'
+import type { BasePerformers, Performer } from './Performers'
 import './PerformerModal.css'
 
 /** Модель исполнителя: пусто — он идёт на модели сессии, которая его позвала. */
@@ -31,8 +31,9 @@ const examples = [
 ]
 
 type Props = {
-  base: string
-  copies: PerformerCopy[]
+  /** Проекты панели: из них выбирают, чей исполнитель заводится, — от проекта зависит приставка имени. */
+  bases: BasePerformers[]
+  initial: string
   /** Правится заведённый — поля заполнены им, а имя уже задано; null — заводится новый. */
   editing: Performer | null
   onClose: () => void
@@ -41,7 +42,8 @@ type Props = {
 
 type Failure = { text: string; git: boolean }
 
-export default function PerformerModal({ base, copies, editing, onClose, onSaved }: Props) {
+export default function PerformerModal({ bases, initial, editing, onClose, onSaved }: Props) {
+  const [base, setBase] = useState(initial)
   const [name, setName] = useState(editing?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
   const [model, setModel] = useState(editing?.model ?? '')
@@ -82,9 +84,12 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
   }, [outcome])
 
   const trimmed = name.trim()
-  // Исполнитель — про проект целиком: файл ложится в основную копию, и копию для этого не выбирают.
-  const main = copies.find((c) => c.main) ?? null
-  const file = main && trimmed ? `${main.path}\\.claude\\agents\\${trimmed}.md` : null
+  const chosen = bases.find((b) => b.base === base) ?? bases[0]
+  // Файл у исполнителя один на машину, и имя в нём — с приставкой проекта: её ставит панель сама.
+  const file = chosen && trimmed ? `${chosen.directory}\\${chosen.prefix}-${trimmed}.md` : null
+  // Имя занято другим исполнителем проекта: сохранение переписало бы его.
+  const occupied =
+    trimmed.length > 0 && trimmed !== editing?.name && (chosen?.performers ?? []).some((p) => p.name === trimmed)
   const draftError =
     draft.failure ?? (draft.outcome?.type === 'error' ? draft.outcome.text : null)
   const draftOutput = draft.outcome?.type === 'error' ? (draft.outcome.output ?? null) : null
@@ -99,7 +104,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
   const ask = useCallback(
     async (text: string) => {
-      if (!text.trim() || !main) return
+      if (!text.trim()) return
       taken.current = false
       const current = editing
         ? { name, description, model, tools, prompt }
@@ -118,7 +123,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
             : 'Панель не приняла просьбу',
       )
     },
-    [base, main, draft, editing, name, description, model, tools, prompt],
+    [base, draft, editing, name, description, model, tools, prompt],
   )
 
   /** Забывает просьбу и возвращает полосу к набору: текст просьбы остаётся, чтобы переспросить. */
@@ -142,7 +147,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (busy || !main || !trimmed) return
+    if (busy || !trimmed || occupied) return
     setBusy(true)
     setFailure(null)
     try {
@@ -156,6 +161,7 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
           model: model || null,
           tools: tools.trim() || null,
           prompt,
+          editing: editing?.name ?? null,
         }),
       })
       if (response.ok) {
@@ -168,10 +174,13 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
           git: false,
         })
       } else if (response.status === 409) {
-        const body = (await response.json()) as { detail: string | null }
+        const body = (await response.json()) as { problem: string }
         setFailure({
-          text: body.detail ?? 'git не объяснил причину.',
-          git: true,
+          text:
+            body.problem === 'name-taken'
+              ? 'Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или откройте его правку.'
+              : 'Название проекта не записать латиницей, а без него имя исполнителя слилось бы с чужими.',
+          git: false,
         })
       } else if (response.status === 404) {
         setFailure({ text: 'Этой базы больше нет в списке панели.', git: false })
@@ -203,6 +212,28 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
         </div>
 
         <div className="pf-body">
+          {/* Проект задаёт приставку имени, и его же код читает Чудо-Юдо: заведённому он уже задан. */}
+          {bases.length > 1 && (
+            <div className="pf-field">
+              <label className="pf-label" htmlFor="pf-base">
+                Проект
+              </label>
+              <select
+                id="pf-base"
+                className="pf-input"
+                value={base}
+                disabled={locked || editing !== null}
+                onChange={(event) => setBase(event.target.value)}
+              >
+                {bases.map((b) => (
+                  <option key={b.base} value={b.base}>
+                    {b.project}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Просьба — первое поле формы: отдельного окна у исполнителя нет — решение оператора на B-69. */}
           <div className="pf-field">
             <label className="pf-label" htmlFor="pf-wish">
@@ -255,9 +286,6 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
                     ))}
                   </ol>
                 )}
-                <p className="pf-note">
-                  Окно можно закрыть: просьба останется в шапке панели, и открытое заново окно покажет её ход с начала.
-                </p>
               </>
             )}
 
@@ -299,8 +327,16 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
                 autoComplete="off"
                 spellCheck={false}
                 disabled={locked}
+                aria-invalid={occupied}
                 onChange={(event) => setName(event.target.value)}
               />
+              {/* Набор исполнителей один на машину: имя, занятое у проекта, панель бережёт. */}
+              {occupied && (
+                <span className="pf-taken" role="status">
+                  Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или закройте
+                  окно и откройте его правку.
+                </span>
+              )}
             </div>
             <div className="pf-field">
               <label className="pf-label" htmlFor="pf-model">
@@ -388,10 +424,9 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
         </div>
 
         <div className="pf-footer">
-          {/* Файл ложится в основную копию проекта, и панель его там коммитит: рядом идёт чужая работа. */}
+          {/* Копию в окне не выбирают: исполнитель лежит в наборе этой машины, и путь к нему один. */}
           <span className="pf-file">
             <span className="mono text-ter">{file ?? 'путь появится, когда задано имя'}</span>
-            <span className="text-ter pf-file-note">Ложится в основную копию; в остальные — кнопкой «Синхронизировать» в списке.</span>
           </span>
           <div className="pf-footer-end">
             <button type="button" className="bases-btn" disabled={busy} onClick={onClose}>
@@ -402,13 +437,13 @@ export default function PerformerModal({ base, copies, editing, onClose, onSaved
               <button
                 type="button"
                 className="bases-btn"
-                disabled={busy || !main || !wish.trim()}
+                disabled={busy || !wish.trim()}
                 onClick={() => void ask(wish)}
               >
                 {phase === 'failed' ? 'Попросить снова' : askLabel}
               </button>
             )}
-            <button type="submit" className="bases-btn bases-btn-primary" disabled={locked || !main || !trimmed}>
+            <button type="submit" className="bases-btn bases-btn-primary" disabled={locked || !trimmed || occupied}>
               {busy ? 'Сохраняется…' : 'Сохранить'}
             </button>
           </div>

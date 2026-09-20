@@ -389,7 +389,7 @@ td.num-col {
   margin-left: 17px;
 }
 
-/* Состояние сессии агента в копии: точка у имени, подписи — в легенде под таблицей */
+/* Состояние сессии агента в копии: точка у имени, слова — подсказкой при наведении */
 .session-dot {
   display: inline-block;
   width: 8px;
@@ -414,23 +414,6 @@ td.num-col {
 
 .session-none {
   border: 1px solid var(--border-strong);
-}
-
-.session-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 24px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.session-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
 }
 
 .progress-container {
@@ -680,6 +663,22 @@ td.num-col {
   color: var(--text-tertiary);
 }
 
+/* Разделитель отделяет необратимое от переходов, и красный цвет в меню несёт только удаление */
+.row-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle);
+}
+
+.row-menu-item-danger:not(:disabled),
+.row-menu-item-danger:not(:disabled) svg {
+  color: var(--accent-error-text);
+}
+
+.row-menu-item-danger:hover:not(:disabled) {
+  background: var(--accent-error-bg);
+}
+
 /* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе со значком. */
 .action-btn-code {
   display: inline-flex;
@@ -759,29 +758,6 @@ td.num-col {
 }
 
 /* Запуск задачи в свободной копии */
-.action-btn-start {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-base);
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.action-btn-start:hover {
-  background: var(--bg-surface-hover);
-}
-
-.action-btn-start:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
-}
 
 /* Чипы-фильтр над списком раздела — в бэклоге по проектам, в сессиях по копиям */
 .filter-bar {

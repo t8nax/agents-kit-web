@@ -1,6 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Step = { title: string; executor: string; output: string; skip: string | null; description: string | null }
+type Step = {
+  title: string
+  executor: string
+  output: string
+  skip: string | null
+  description: string | null
+  returns?: { condition: string; step: string }[]
+  helpers?: string[]
+}
 
 const steps: Step[] = [
   {
@@ -9,19 +17,32 @@ const steps: Step[] = [
     output: 'критерий закрытия в памяти',
     skip: null,
     description: '1.1. Написать критерий.',
+    returns: [],
+    helpers: [],
   },
   {
     title: 'Ревью',
-    executor: 'reviewer',
+    // Шаг зовёт исполнителя полным именем — тем же, каким назван его файл на диске
+    executor: 'agents-kit-web-reviewer',
     output: 'вердикт по sha',
     skip: 'правка только в текстах',
     description: '2.1. Собрать дифф.',
+    returns: [],
+    helpers: [],
   },
-  { title: 'Приёмка', executor: 'оператор', output: 'ответ оператора «принято»', skip: null, description: null },
+  {
+    title: 'Приёмка',
+    executor: 'оператор',
+    output: 'ответ оператора «принято»',
+    skip: null,
+    description: null,
+    returns: [],
+    helpers: [],
+  },
 ]
 
 // /api подменяется: прогон работает с живыми базами оператора, и запись флоу или пресета попала бы в них.
-async function mockApi(page: Page, activeTasks = 0) {
+async function mockApi(page: Page, activeTasks = 0, flow: Step[] = steps) {
   const calls: { flow: unknown[]; presets: unknown[]; open: unknown[] } = { flow: [], presets: [], open: [] }
   let presets: (Step & { id: string })[] = []
 
@@ -36,7 +57,7 @@ async function mockApi(page: Page, activeTasks = 0) {
         {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
-          steps,
+          steps: flow,
           activeTasks,
           version: 'v1',
           error: null,
@@ -65,7 +86,8 @@ async function mockApi(page: Page, activeTasks = 0) {
         {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
-          copies: [],
+          prefix: 'agents-kit-web',
+          directory: 'C:\\Users\\me\\.claude\\agents',
           performers: [
             {
               name: 'reviewer',
@@ -73,12 +95,7 @@ async function mockApi(page: Page, activeTasks = 0) {
               model: null,
               tools: null,
               prompt: '',
-              path: 'D:\\Projects\\agents-kit-web\\.claude\\agents\\reviewer.md',
-              source: 'copy',
-              copy: 'D:\\Projects\\agents-kit-web',
-              in: ['D:\\Projects\\agents-kit-web'],
-              differs: [],
-              everywhere: true,
+              path: 'C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md',
             },
           ],
           error: null,
@@ -233,7 +250,8 @@ test('шаг сохраняется как пресет из сайдбара и
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
-  expect(calls.presets).toEqual([{ ...steps[1], id: 'p1' }])
+  // В пресете приставки проекта нет: список пресетов общий для всех проектов
+  expect(calls.presets).toEqual([{ ...steps[1], executor: 'reviewer', id: 'p1' }])
   expect((calls.flow[0] as { steps: Step[] }).steps[3]).toEqual({ ...steps[1], description: '4.1. Собрать дифф.' })
 })
 
@@ -281,9 +299,10 @@ test('исполнитель шага выбирается из заведённ
   await mockApi(page)
   const region = await openFlow(page)
 
-  // Шага с reviewer на схеме не отмечено: такой исполнитель заведён
+  // Шаг зовёт исполнителя полным именем, и пометки на схеме нет: такой исполнитель заведён
   const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
   await expect(review.locator('.flow-node-missing')).toHaveCount(0)
+  await expect(review).toContainText('субагент reviewer')
 
   await review.click()
   const drawer = page.getByRole('complementary')
@@ -296,4 +315,53 @@ test('исполнитель шага выбирается из заведённ
   await expect(review.locator('.flow-node-missing')).toBeVisible()
   await expect(drawer.getByRole('status')).toContainText('на диске не найден')
   await expect(drawer.getByRole('button', { name: 'Завести исполнителя' })).toBeVisible()
+})
+
+test('имя без приставки объяснено причиной, и приставка дописывается нажатием', async ({ page }) => {
+  // В файле осталось короткое имя — так панель писала до починки
+  const bare: Step[] = [steps[0], { ...steps[1], executor: 'reviewer' }, steps[2]]
+  const calls = await mockApi(page, 0, bare)
+  const region = await openFlow(page)
+
+  const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
+  await expect(review.locator('.flow-node-missing')).toBeVisible()
+
+  await review.click()
+  const drawer = page.getByRole('complementary')
+  await expect(drawer.getByRole('status')).toContainText('без приставки проекта')
+  const fix = drawer.getByRole('button', { name: 'Дописать приставку' })
+  await expect(fix).toBeVisible()
+
+  await fix.click()
+  await expect(review.locator('.flow-node-missing')).toHaveCount(0)
+  await expect(drawer.getByRole('status')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
+  await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
+  expect((calls.flow[0] as { steps: Step[] }).steps[1].executor).toBe('agents-kit-web-reviewer')
+})
+
+test('возвраты видны на схеме дугами, у открытого шага дуга подсвечена и подписана', async ({ page }) => {
+  const withReturns: Step[] = [
+    steps[0],
+    steps[1],
+    { ...steps[2], returns: [{ condition: 'есть замечания', step: 'Ревью' }] },
+  ]
+  await mockApi(page, 0, withReturns)
+  const region = await openFlow(page)
+
+  // Круг виден, не открывая шаг: дуга идёт слева от ленты
+  const arc = region.locator('.flow-arc').first()
+  await expect(arc).toBeVisible()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+
+  await expect(async () => {
+    const line = await arc.boundingBox()
+    const node = await region.getByRole('button', { name: /^Шаг 2: Ревью/ }).boundingBox()
+    expect(line && node && line.x + line.width).toBeLessThanOrEqual((node?.x ?? 0) + 2)
+  }).toPass()
+
+  await region.getByRole('button', { name: /^Шаг 3: Приёмка/ }).click()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(1)
+  await expect(region.getByText('есть замечания')).toBeVisible()
 })

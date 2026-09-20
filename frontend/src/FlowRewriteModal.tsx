@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { useAgentRequest } from './agentRequest'
 import type { FlowStep } from './Flow'
 import { flowChanges, type FlowChange, type FlowFieldName } from './flowChanges'
+import { shownName } from './performerName'
 import './AskModal.css'
 import './FlowRewriteModal.css'
 
@@ -14,6 +15,8 @@ export type RewriteEvent =
 type Props = {
   base: string
   project: string
+  /** Приставка проекта: имена исполнителей и здесь видны без неё — как на схеме рядом. */
+  prefix: string
   /** Шаги флоу, какими их сейчас видит раздел: с ними сравнивается переписанное. */
   steps: FlowStep[]
   /** Отпечаток файла, с которого читал раздел: агент переписывал его же. */
@@ -33,6 +36,8 @@ const fieldLabels: Record<FlowFieldName, string> = {
   output: 'выход',
   skip: 'пропуск',
   description: 'описание',
+  returns: 'возврат',
+  helpers: 'помощники',
 }
 
 const kindLabels: Record<FlowChange['kind'], string> = {
@@ -43,7 +48,7 @@ const kindLabels: Record<FlowChange['kind'], string> = {
   same: 'без правок',
 }
 
-export default function FlowRewriteModal({ base, project, steps, version, onApply, onClose }: Props) {
+export default function FlowRewriteModal({ base, project, prefix, steps, version, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
   // Описание шага читается своим окном поверх разбора: в строке шага стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
@@ -151,10 +156,6 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish)
                 }}
               />
-              <p className="write-note">
-                {AGENT_NAME} прочитает флоу проекта и правила кита о форме шага и вернёт переписанный флоу. Файл базы он
-                не трогает. Ctrl+Enter — переписать.
-              </p>
               {!wish && (
                 <div className="ask-examples">
                   <div className="ask-examples-title">Например</div>
@@ -198,7 +199,12 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
             <div className="rewrite-changes" aria-label="Что изменилось во флоу">
               {changed.length === 0 && <p className="modal-message">Флоу не изменился: переписанный совпал с прежним.</p>}
               {changed.map((change) => (
-                <Change key={`${change.kind}-${change.title}-${change.at}-${change.from}`} change={change} onDescription={setDescription} />
+                <Change
+                  key={`${change.kind}-${change.title}-${change.at}-${change.from}`}
+                  change={change}
+                  prefix={prefix}
+                  onDescription={setDescription}
+                />
               ))}
               {untouched.length > 0 && (
                 <div className="rewrite-untouched">
@@ -224,12 +230,13 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
         </div>
 
         <div className="modal-footer ask-footer">
-          <span className="ask-hint">
-            <LockIcon />
-            {phase === 'rewritten'
-              ? 'Флоу базы не записан: правки лягут в схему, сохранит их кнопка «Сохранить»'
-              : `${AGENT_NAME} только читает базу: флоу запишет панель и только с вашего согласия`}
-          </span>
+          {/* Не подсказка, а состояние: пока правки не сохранены, флоу базы прежний. */}
+          {phase === 'rewritten' && (
+            <span className="ask-hint">
+              <LockIcon />
+              Флоу базы не записан: правки лягут в схему, сохранит их кнопка «Сохранить»
+            </span>
+          )}
           <div className="footer-right">
             {phase === 'idle' && (
               <button type="button" className="btn btn-primary" disabled={!wish.trim()} onClick={() => void rewrite(wish)}>
@@ -301,9 +308,11 @@ export default function FlowRewriteModal({ base, project, steps, version, onAppl
 
 function Change({
   change,
+  prefix,
   onDescription,
 }: {
   change: FlowChange
+  prefix: string
   onDescription: (description: { title: string; text: string }) => void
 }) {
   const step = change.step
@@ -322,7 +331,7 @@ function Change({
       {change.kind === 'added' && step && (
         <dl className="rewrite-fields">
           <dt>исполнитель</dt>
-          <dd>{step.executor}</dd>
+          <dd>{shownName(prefix, step.executor)}</dd>
           <dt>выход</dt>
           <dd>{step.output}</dd>
           {step.skip && (
@@ -331,6 +340,20 @@ function Change({
               <dd>{step.skip}</dd>
             </>
           )}
+          {step.helpers && step.helpers.length > 0 && (
+            <>
+              <dt>помощники</dt>
+              <dd>{step.helpers.map((name) => shownName(prefix, name)).join(', ')}</dd>
+            </>
+          )}
+          {step.returns?.map((back) => (
+            <Fragment key={`${back.condition}-${back.step}`}>
+              <dt>возврат</dt>
+              <dd>
+                {back.condition} → {back.step}
+              </dd>
+            </Fragment>
+          ))}
           {step.description && (
             <>
               <dt>описание</dt>
