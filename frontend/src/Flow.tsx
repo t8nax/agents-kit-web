@@ -111,6 +111,9 @@ function stepErrors(draft: DraftStep, steps: DraftStep[] = [], index = -1, known
   if (draft.kind === 'субагент' && !draft.agent.trim()) errors.push('не указано имя субагента')
   // Исполнителя, которого нет в базе, агент не позовёт: с таким именем флоу не сохраняется.
   if (missingPerformer(draft, known)) errors.push('исполнителя нет в базе')
+  // То же и с помощниками: их зовёт оркестратор внутри своего шага, и незаведённого он не найдёт.
+  if (known !== null && draft.helpers.some((name) => name.trim() && !known.includes(name.trim())))
+    errors.push('помощника нет в базе')
   if (!draft.output.trim()) errors.push('не указан выход')
   for (const back of draft.returns) {
     if (!back.condition.trim()) errors.push('в возврате не указано условие')

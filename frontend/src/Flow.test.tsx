@@ -676,6 +676,18 @@ test('помощники есть только у шага оркестрато�
   expect(drawer.queryByText('scout')).not.toBeInTheDocument()
 })
 
+test('помощник, которого нет в базе, сохранить флоу не даёт', async () => {
+  const withHelpers = withPerformers([{ ...criterion, helpers: ['doc-writer'] }, review, acceptance])
+  stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['reviewer', 'scout'])) }))
+  const region = await renderFlow()
+  const drawer = await openStep(region, 'Шаг 1: Критерий')
+
+  // Помощника зовёт оркестратор внутри своего шага — незаведённого он не найдёт так же, как исполнителя
+  expect(await drawer.findByTitle('Исполнителя doc-writer нет в базе')).toBeInTheDocument()
+  expect(screen.getByText(/Не сохранить: шаг 1/)).toHaveTextContent('помощника нет в базе')
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
 test('помощник, которого нет в базе, отмечен в сайдбаре янтарём', async () => {
   const withHelpers = withPerformers([{ ...criterion, helpers: ['scout'] }, review, acceptance])
   stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
