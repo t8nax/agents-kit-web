@@ -1,5 +1,6 @@
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
+using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Performers;
@@ -62,6 +63,7 @@ public static class PerformersEndpoints
         app.MapPost("/api/performers", async (
             SavePerformerRequest request,
             BasesStore bases,
+            HealthMonitor health,
             CancellationToken cancellationToken) =>
         {
             // Пишется только в базу из списка панели: путь к файлу панель собирает сама.
@@ -132,6 +134,9 @@ public static class PerformersEndpoints
                 return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
             }
 
+            // Записанного исполнителя развозит по копиям фоновая проверка баз — её просят начать
+            // сразу, чтобы он доехал к следующей сессии, а не через круг ожидания.
+            health.RequestCheck();
             return Results.Ok(new PerformerSavedResponse(file));
         });
     }
