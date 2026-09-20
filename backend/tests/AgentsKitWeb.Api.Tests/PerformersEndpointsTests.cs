@@ -203,6 +203,46 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.False(File.Exists(Path.Combine(basePath, "agents", "reviewer.md")));
     }
 
+    [Fact]
+    public async Task Performers_CommitRefusedByHook_RestoresTheFileAndLeavesNothingStaged()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое тело.\n");
+        TestGit.Run(basePath, "add", "--", "agents/reviewer.md");
+        TestGit.Run(basePath, "commit", "-m", "исполнитель");
+        File.WriteAllText(Path.Combine(basePath, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: база не приняла' >&2\nexit 1\n");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var rejected = (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!;
+        Assert.Equal("not-committed", rejected.Problem);
+        Assert.Contains("сверка: база не приняла", rejected.Detail);
+
+        // Правимый исполнитель остался в базе, каким был, и отказанная правка не ждёт в индексе.
+        Assert.Equal("Первое тело.", PerformerFile.Parse(File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md"))).Prompt);
+        Assert.Empty(Status(basePath));
+    }
+
+    [Fact]
+    public async Task Performers_KeepsTheLineEndingsOfTheFileItRewrites()
+    {
+        var basePath = CreateBase("app-knowledge");
+        // Пишется как есть, без приведения к LF: тест как раз про перевод строк прежнего файла.
+        Directory.CreateDirectory(Path.Combine(basePath, "agents"));
+        File.WriteAllText(Path.Combine(basePath, "agents", "reviewer.md"), "---\r\nname: reviewer\r\n---\r\n\r\nПервое тело.\r\n");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // Файл лежит в чужой базе под git: смена перевода строк дала бы коммит «изменился весь файл».
+        var text = File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md"));
+        Assert.Contains("\r\n", text);
+        Assert.DoesNotContain("\n", text.Replace("\r\n", ""));
+    }
+
     private static void Performer(string basePath, string name, string text)
     {
         var directory = Path.Combine(basePath, "agents");

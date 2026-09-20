@@ -43,6 +43,17 @@ public static class BaseGit
         return run.ExitCode == 0 ? new CommitResult(true, null) : new CommitResult(false, run.Output);
     }
 
+    /// <summary>
+    /// Снимает пути с индекса базы. Зовётся, когда коммит не прошёл: оставленное в индексе заберёт
+    /// следующий коммит соседней сессии, и отказанная правка уедет вместе с её работой.
+    /// </summary>
+    public static async Task ResetFilesAsync(
+        string basePath, IReadOnlyList<string> files, CancellationToken cancellationToken)
+    {
+        string[] args = ["reset", "-q", "--", .. files];
+        await GitRunner.RunAsync(basePath, Timeout, cancellationToken, args);
+    }
+
     /// <summary>Файл базы изменён и не закоммичен. null — git не ответил.</summary>
     public static async Task<bool?> IsDirtyAsync(string basePath, string file, CancellationToken cancellationToken)
     {

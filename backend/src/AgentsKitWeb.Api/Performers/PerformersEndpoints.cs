@@ -98,14 +98,15 @@ public static class PerformersEndpoints
                 request.Prompt?.Trim() ?? "");
 
             var was = renaming ? System.IO.Path.Combine(directory, PerformerFile.FileName(editing!)) : null;
-            var kept = was is not null && File.Exists(was)
-                ? await File.ReadAllTextAsync(was, cancellationToken)
-                : null;
+            // Прежнее содержимое того, что переписывается: отказ коммита возвращает файлы как были,
+            // иначе правка заведённого исполнителя стёрла бы его из базы вместе с отказом.
+            var kept = await KeptAsync(was ?? file, cancellationToken);
+            var newline = kept is null ? "\n" : Newline(kept);
 
             try
             {
                 System.IO.Directory.CreateDirectory(directory);
-                await File.WriteAllTextAsync(file, PerformerFile.Serialize(fields), cancellationToken);
+                await File.WriteAllTextAsync(file, PerformerFile.Serialize(fields, newline), cancellationToken);
                 // Правка сменила имя — прежний файл уходит тем же коммитом, что приносит новый.
                 if (was is not null)
                     Remove(was);
@@ -129,8 +130,9 @@ public static class PerformersEndpoints
                 // Иначе база осталась бы с незакоммиченным исполнителем, а он уехал бы в чужой
                 // коммит соседней сессии: вернуть всё как было и показать, что сказал git.
                 Remove(file);
-                if (was is not null && kept is not null)
-                    await File.WriteAllTextAsync(was, kept, cancellationToken);
+                if (kept is not null)
+                    await File.WriteAllTextAsync(was ?? file, kept, cancellationToken);
+                await BaseGit.ResetFilesAsync(basePath, paths, cancellationToken);
                 return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
             }
 
@@ -151,6 +153,25 @@ public static class PerformersEndpoints
 
         return new BasePerformers(basePath, project, directory, PerformerList.OfProject(basePath), null);
     }
+
+    /// <summary>Прежнее содержимое файла базы; файла нет — null, и откат просто уберёт написанное.</summary>
+    private static async Task<string?> KeptAsync(string file, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return File.Exists(file) ? await File.ReadAllTextAsync(file, cancellationToken) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Перевод строк прежнего файла: файл лежит в чужой базе под git, и смена перевода строк дала бы
+    /// коммит, где изменился весь файл.
+    /// </summary>
+    private static string Newline(string text) => text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
 
     /// <summary>Путь файла от корня базы — таким его берут git add и git commit.</summary>
     private static string Relative(string file) => "agents/" + System.IO.Path.GetFileName(file);
