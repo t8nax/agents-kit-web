@@ -192,6 +192,39 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Performers_RefusesToOverwriteAFileWhoseNameIsWrittenInside()
+    {
+        var basePath = CreateBase("app-knowledge");
+        // Файл назван reviewer.md, а зовут его исполнителя иначе: имя записано внутри файла.
+        Performer(basePath, "reviewer", "---\nname: code-reviewer\n---\n\nЧужая работа.\n");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Тело", null));
+
+        // Иначе чужая работа молча ушла бы в историю базы под чужим именем.
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("name-taken", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.Contains("Чужая работа.", File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md")));
+    }
+
+    [Fact]
+    public async Task Performers_EditingRefusesWhenTheTargetFileBelongsToAnother()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "foo", "---\nname: reviewer\n---\n\nПравимый.\n");
+        Performer(basePath, "reviewer", "---\nname: code-reviewer\n---\n\nЧужая работа.\n");
+
+        // Правят reviewer, имени не меняя, — но файл reviewer.md принадлежит другому исполнителю.
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Тело", "reviewer"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("name-taken", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.Contains("Чужая работа.", File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md")));
+        Assert.Contains("Правимый.", File.ReadAllText(Path.Combine(basePath, "agents", "foo.md")));
+    }
+
+    [Fact]
     public async Task Performers_RenamingLeavesOnlyTheNewFile()
     {
         var basePath = CreateBase("app-knowledge");

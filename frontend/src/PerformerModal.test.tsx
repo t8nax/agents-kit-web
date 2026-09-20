@@ -79,7 +79,7 @@ test('имя, занятое у проекта, окно бережёт и не 
 
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
 
-  // Набор исполнителей один на машину: молча переписать заведённого нельзя.
+  // Набор исполнителей свой у базы проекта: молча переписать заведённого в ней нельзя.
   expect(screen.getByRole('status')).toHaveTextContent('уже есть')
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
@@ -91,7 +91,7 @@ test('копию в окне не выбирают: файл лежит в ба�
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
 
   expect(screen.queryByLabelText('Копия')).not.toBeInTheDocument()
-  // Путь к файлу один на машину, и окно показывает его же — выбирать между копиями нечего.
+  // Путь к файлу один: он ведёт в базу проекта, и выбирать между копиями нечего.
   expect(screen.getByText(/e2e-runner\.md/)).toBeInTheDocument()
 })
 
@@ -159,6 +159,17 @@ test('отказ базы принять коммит показан её сло
   expect(alert).toHaveTextContent('сверка: база не приняла')
   expect(onSaved).not.toHaveBeenCalled()
   expect(screen.getByLabelText('Имя')).toHaveValue('e2e-runner')
+})
+
+test('незнакомый отказ API назван своим именем, а не чужой причиной', async () => {
+  stubFetch(new Response(JSON.stringify({ problem: 'что-то-новое' }), { status: 409 }))
+  open()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'linter' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  // Иначе новый отказ API показывался бы прежним текстом, и причина была бы неверной
+  expect(await screen.findByRole('alert')).toHaveTextContent('панель не поняла отказ «что-то-новое»')
 })
 
 test('без связи с API окно говорит об этом и не закрывается', async () => {

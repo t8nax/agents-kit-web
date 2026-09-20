@@ -91,9 +91,10 @@ public static class PerformersEndpoints
             if (!editingSame && known.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal)))
                 return Results.Conflict(new PerformerRejectedResponse("name-taken"));
 
-            // Файл с таким именем есть, а правят не его: так бывает, когда у файла базы имя внутри
-            // разошлось с именем файла. Переписать его — потерять чужую работу в чужом репозитории.
-            if (File.Exists(file) && was is not null && !string.Equals(file, was, StringComparison.OrdinalIgnoreCase))
+            // Файл с таким именем есть, а правят не его — или не правят вовсе: так бывает, когда
+            // у файла базы имя внутри разошлось с именем файла. Переписать его — потерять чужую
+            // работу в чужом репозитории, поэтому отказ стоит и на заведении, и на правке.
+            if (File.Exists(file) && !string.Equals(file, was ?? "", StringComparison.OrdinalIgnoreCase))
                 return Results.Conflict(new PerformerRejectedResponse("name-taken"));
 
             // Имя занято файлом самого проекта: такой файл кит не трогает, и в копию исполнитель

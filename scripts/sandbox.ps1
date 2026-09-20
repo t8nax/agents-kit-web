@@ -818,8 +818,8 @@ $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
     [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
     [pscustomobject]@{ severity = 'WARN'; file = 'flow.md'; message = 'флоу не в истории git' }) })
 
-# Исполнитель, заведённый «оператором» прямо в базе, мимо панели и мимо её коммита: в разделе
-# он виден наравне с остальными, а сверка кита показывает базу с незакоммиченной правкой.
+# Исполнитель, заведённый «оператором» прямо в базе и мимо панели: в разделе он виден наравне
+# с остальными, хотя панель его не заводила.
 Write-Utf8 (Join-Path $quirksBase 'agents\spec-writer.md') @"
 ---
 name: spec-writer
