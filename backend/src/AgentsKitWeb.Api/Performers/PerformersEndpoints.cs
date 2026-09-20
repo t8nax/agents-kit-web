@@ -76,13 +76,21 @@ public static class PerformersEndpoints
 
             var editing = request.Editing?.Trim();
             var editingSame = string.Equals(editing, name, StringComparison.Ordinal);
-            var renaming = editing is { Length: > 0 } && !editingSame;
             var directory = PerformerList.Directory(basePath);
             var file = System.IO.Path.Combine(directory, PerformerFile.FileName(name!));
 
+            // Имена считаются по списку базы — так же, как их зовёт шаг флоу: у заведённого руками
+            // файла имя может быть записано внутри, и тогда имя файла с ним расходится.
+            var known = PerformerList.OfProject(basePath);
+            var was = editing is { Length: > 0 }
+                ? known.FirstOrDefault(p => string.Equals(p.Name, editing, StringComparison.Ordinal))?.Path
+                : null;
+
             // Имя в базе занято: молча переписать чужого исполнителя панель не станет. Своего же,
             // которого сейчас правят, она переписывает — за этим правку и открыли.
-            if (File.Exists(file) && !editingSame)
+            var taken = known.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal))
+                || (File.Exists(file) && !string.Equals(file, was, StringComparison.OrdinalIgnoreCase));
+            if (taken && !editingSame)
                 return Results.Conflict(new PerformerRejectedResponse("name-taken"));
 
             // Имя занято файлом самого проекта: такой файл кит не трогает, и в копию исполнитель
@@ -97,10 +105,12 @@ public static class PerformersEndpoints
                 Trimmed(request.Tools),
                 request.Prompt?.Trim() ?? "");
 
-            var was = renaming ? System.IO.Path.Combine(directory, PerformerFile.FileName(editing!)) : null;
+            // Прежний файл правимого исполнителя, когда он лежит не там, куда пишут: имя сменили или
+            // файл был назван иначе, чем поле имени внутри него. Такой уходит тем же коммитом.
+            var prior = was is not null && !string.Equals(was, file, StringComparison.OrdinalIgnoreCase) ? was : null;
             // Прежнее содержимое того, что переписывается: отказ коммита возвращает файлы как были,
             // иначе правка заведённого исполнителя стёрла бы его из базы вместе с отказом.
-            var kept = await KeptAsync(was ?? file, cancellationToken);
+            var kept = await KeptAsync(prior ?? file, cancellationToken);
             var newline = kept is null ? "\n" : Newline(kept);
 
             try
@@ -108,21 +118,23 @@ public static class PerformersEndpoints
                 System.IO.Directory.CreateDirectory(directory);
                 await File.WriteAllTextAsync(file, PerformerFile.Serialize(fields, newline), cancellationToken);
                 // Правка сменила имя — прежний файл уходит тем же коммитом, что приносит новый.
-                if (was is not null)
-                    Remove(was);
+                if (prior is not null)
+                    Remove(prior);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
                 return Results.Problem("Файл исполнителя не записан", statusCode: StatusCodes.Status500InternalServerError);
             }
 
-            var paths = was is null
-                ? new List<string> { Relative(file) }
-                : [Relative(file), Relative(was)];
+            var paths = new List<string> { Relative(file) };
+            // Прежний файл идёт в коммит, только если git его знал: снятое из рабочего дерева
+            // неотслеживаемое коммитить нечем, а `git commit -- путь` на таком отказывается вовсе.
+            if (prior is not null && await BaseGit.TrackedAsync(basePath, Relative(prior), cancellationToken))
+                paths.Add(Relative(prior));
 
             var added = await BaseGit.AddFileAsync(basePath, paths[0], cancellationToken);
             var commit = added.Done
-                ? await BaseGit.CommitFilesAsync(basePath, paths, Message(name!, was is not null), cancellationToken)
+                ? await BaseGit.CommitFilesAsync(basePath, paths, Message(name!, prior is not null), cancellationToken)
                 : added;
 
             if (!commit.Done)
@@ -131,7 +143,7 @@ public static class PerformersEndpoints
                 // коммит соседней сессии: вернуть всё как было и показать, что сказал git.
                 Remove(file);
                 if (kept is not null)
-                    await File.WriteAllTextAsync(was ?? file, kept, cancellationToken);
+                    await File.WriteAllTextAsync(prior ?? file, kept, cancellationToken);
                 await BaseGit.ResetFilesAsync(basePath, paths, cancellationToken);
                 return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
             }

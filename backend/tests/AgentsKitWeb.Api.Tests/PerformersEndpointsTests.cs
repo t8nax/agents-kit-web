@@ -162,6 +162,36 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Performers_EditingOneNamedInsideTheFileLeavesOneFile()
+    {
+        var basePath = CreateBase("app-knowledge");
+        // Заведён в базе руками: файл назван одним, а имя, которым его зовёт шаг флоу, записано внутри.
+        Performer(basePath, "foo", "---\nname: reviewer\n---\n\nПервое тело.\n");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // Иначе в базе оказались бы два файла с одним именем, и в копию уехали бы оба.
+        Assert.Equal(["reviewer.md"], Directory.GetFiles(Path.Combine(basePath, "agents")).Select(Path.GetFileName));
+        Assert.Empty(Status(basePath));
+    }
+
+    [Fact]
+    public async Task Performers_RefusesNameWrittenInsideAnotherFile()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "foo", "---\nname: reviewer\n---\n\nПервое тело.\n");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Другой исполнитель", null, null, "Тело", null));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("name-taken", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.False(File.Exists(Path.Combine(basePath, "agents", "reviewer.md")));
+    }
+
+    [Fact]
     public async Task Performers_RenamingLeavesOnlyTheNewFile()
     {
         var basePath = CreateBase("app-knowledge");

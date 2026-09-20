@@ -43,6 +43,13 @@ public static class BaseGit
         return run.ExitCode == 0 ? new CommitResult(true, null) : new CommitResult(false, run.Output);
     }
 
+    /// <summary>Git уже знает этот файл базы. Нет — коммитить его удаление нечего.</summary>
+    public static async Task<bool> TrackedAsync(string basePath, string file, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(basePath, Timeout, cancellationToken, "ls-files", "--", file);
+        return run.ExitCode == 0 && run.Output.Length > 0;
+    }
+
     /// <summary>
     /// Снимает пути с индекса базы. Зовётся, когда коммит не прошёл: оставленное в индексе заберёт
     /// следующий коммит соседней сессии, и отказанная правка уедет вместе с её работой.
