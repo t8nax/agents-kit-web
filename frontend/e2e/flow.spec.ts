@@ -317,6 +317,30 @@ test('исполнитель шага выбирается из заведённ
   await expect(drawer.getByRole('button', { name: 'Завести исполнителя' })).toBeVisible()
 })
 
+test('имя без приставки объяснено причиной, и приставка дописывается нажатием', async ({ page }) => {
+  // В файле осталось короткое имя — так панель писала до починки
+  const bare: Step[] = [steps[0], { ...steps[1], executor: 'reviewer' }, steps[2]]
+  const calls = await mockApi(page, 0, bare)
+  const region = await openFlow(page)
+
+  const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
+  await expect(review.locator('.flow-node-missing')).toBeVisible()
+
+  await review.click()
+  const drawer = page.getByRole('complementary')
+  await expect(drawer.getByRole('status')).toContainText('без приставки проекта')
+  const fix = drawer.getByRole('button', { name: 'Дописать приставку' })
+  await expect(fix).toBeVisible()
+
+  await fix.click()
+  await expect(review.locator('.flow-node-missing')).toHaveCount(0)
+  await expect(drawer.getByRole('status')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
+  await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
+  expect((calls.flow[0] as { steps: Step[] }).steps[1].executor).toBe('agents-kit-web-reviewer')
+})
+
 test('возвраты видны на схеме дугами, у открытого шага дуга подсвечена и подписана', async ({ page }) => {
   const withReturns: Step[] = [
     steps[0],

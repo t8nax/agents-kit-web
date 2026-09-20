@@ -514,6 +514,7 @@ export default function Flow({
                     key={step.key}
                     step={step}
                     missing={missingPerformer(step, known, prefix)}
+                    bare={unprefixed(step.agent, known, prefix)}
                     prefix={prefix}
                     invalid={stepErrors(step, draft, index).length > 0}
                     number={index + 1}
@@ -702,6 +703,7 @@ function ReturnArcs({ steps, opened }: { steps: DraftStep[]; opened: number }) {
 function StepNode({
   step,
   missing,
+  bare,
   prefix,
   invalid,
   number,
@@ -713,6 +715,7 @@ function StepNode({
 }: {
   step: DraftStep
   missing: boolean
+  bare: boolean
   prefix: string
   invalid: boolean
   number: number
@@ -775,7 +778,11 @@ function StepNode({
         {missing && (
           <span
             className="flow-node-missing"
-            aria-label={`Исполнителя ${shownName(prefix, step.agent.trim())} нет на диске`}
+            aria-label={
+              bare
+                ? `Имя ${shownName(prefix, step.agent.trim())} записано без приставки проекта`
+                : `Исполнителя ${shownName(prefix, step.agent.trim())} нет на диске`
+            }
           >
             <MissingIcon />
           </span>
@@ -846,7 +853,7 @@ function PerformerField({
         {missing && (
           <MissingNote
             agent={shown}
-            unprefixed={bare}
+            bare={bare}
             onFix={() => onChange({ agent: fullName(prefix, agent) })}
             onPerformers={onPerformers}
           />
@@ -875,7 +882,11 @@ function PerformerField({
         }}
       >
         {agent === '' && <option value="">выберите исполнителя</option>}
-        {missing && <option value={MISSING_AGENT}>{shown} — на диске нет</option>}
+        {missing && (
+          <option value={MISSING_AGENT}>
+            {shown} — {bare ? 'без приставки проекта' : 'на диске нет'}
+          </option>
+        )}
         {known.map((name) => (
           <option key={name} value={name}>
             {name}
@@ -886,7 +897,7 @@ function PerformerField({
       {missing && (
         <MissingNote
           agent={shown}
-          unprefixed={bare}
+          bare={bare}
           onFix={() => onChange({ agent: fullName(prefix, agent) })}
           onPerformers={onPerformers}
         />
@@ -911,20 +922,20 @@ const MISSING_AGENT = '__missing__'
  */
 function MissingNote({
   agent,
-  unprefixed = false,
+  bare = false,
   onFix,
   onPerformers,
 }: {
   agent: string
-  unprefixed?: boolean
+  bare?: boolean
   onFix?: () => void
   onPerformers?: () => void
 }) {
-  if (unprefixed)
+  if (bare)
     return (
       <p className="flow-missing" role="status">
-        Имя <span className="mono">{agent}</span> записано во флоу без приставки проекта: под ним агент
-        исполнителя не найдёт, хотя такой исполнитель заведён.
+        Имя <span className="mono">{agent}</span> — без приставки проекта: под ним агент исполнителя
+        не найдёт, хотя такой исполнитель заведён.
         {onFix && (
           <button type="button" className="flow-link" onClick={onFix}>
             Дописать приставку
@@ -977,12 +988,18 @@ function HelpersField({
   const free = known.filter((name) => !taken.includes(name))
   // Помощники, записанные без приставки: такие панель писала прежде, и на вид они как правильные.
   const bare = step.helpers.filter((name) => unprefixed(name, known, prefix))
-  const addPrefix = () =>
-    onChange({
-      helpers: step.helpers.map((name) =>
-        unprefixed(name, known, prefix) ? fullName(prefix, name.trim()) : name,
-      ),
-    })
+  /**
+   * Приставка дописывается разом, и одинаковые имена сливаются: у шага мог стоять и правильный
+   * помощник, и он же без приставки, а два одинаковых имени уехали бы в файл базы.
+   */
+  const addPrefix = () => {
+    const fixed: string[] = []
+    for (const name of step.helpers) {
+      const full = unprefixed(name, known, prefix) ? fullName(prefix, name.trim()) : name
+      if (!fixed.includes(full)) fixed.push(full)
+    }
+    onChange({ helpers: fixed })
+  }
 
   return (
     <div className="flow-field">
@@ -996,7 +1013,9 @@ function HelpersField({
               title={
                 knownPerformer(prefix, known, name)
                   ? undefined
-                  : `Исполнителя ${shownName(prefix, name.trim())} нет на диске`
+                  : unprefixed(name, known, prefix)
+                    ? `Имя ${shownName(prefix, name.trim())} записано без приставки проекта`
+                    : `Исполнителя ${shownName(prefix, name.trim())} нет на диске`
               }
             >
               {shownName(prefix, name.trim())}
@@ -1016,8 +1035,9 @@ function HelpersField({
         <p className="flow-missing" role="status">
           {bare.length === 1 ? 'Помощник ' : 'Помощники '}
           <span className="mono">{bare.map((name) => shownName(prefix, name.trim())).join(', ')}</span>
-          {bare.length === 1 ? ' записан' : ' записаны'} во флоу без приставки проекта: под такими именами
-          агент исполнителей не найдёт, хотя они заведены.
+          {bare.length === 1
+            ? ' назван без приставки проекта: под этим именем агент исполнителя не найдёт, хотя он заведён.'
+            : ' названы без приставки проекта: под этими именами агент исполнителей не найдёт, хотя они заведены.'}
           <button type="button" className="flow-link" onClick={addPrefix}>
             Дописать приставку
           </button>
@@ -1028,9 +1048,11 @@ function HelpersField({
           className="flow-input mono"
           aria-label="Добавить помощника"
           value=""
-          onChange={(event) =>
-            event.target.value && onChange({ helpers: [...step.helpers, fullName(prefix, event.target.value)] })
-          }
+          onChange={(event) => {
+            if (!event.target.value) return
+            const added = fullName(prefix, event.target.value)
+            if (!step.helpers.includes(added)) onChange({ helpers: [...step.helpers, added] })
+          }}
         >
           <option value="">добавить исполнителя…</option>
           {free.map((name) => (
