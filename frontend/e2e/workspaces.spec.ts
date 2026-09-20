@@ -189,9 +189,33 @@ for (const colorScheme of ['light', 'dark'] as const) {
     })
     expect(color).not.toBe(background)
 
-    // Плашка стоит в одной ячейке с именем копии, правее него
-    const [nameBox, tagBox] = await Promise.all([bodyRows.nth(0).getByRole('cell').first().boundingBox(), tag.boundingBox()])
-    expect(tagBox!.x).toBeGreaterThan(nameBox!.x)
-    expect(tagBox!.x + tagBox!.width).toBeLessThanOrEqual(nameBox!.x + nameBox!.width)
+    // Плашка приглушённая: её заливка не та, которой отмечают только что заведённую копию
+    const freshBackground = await tag.evaluate((node) => {
+      const probe = node.ownerDocument.createElement('span')
+      probe.className = 'new-tag'
+      node.parentElement!.append(probe)
+      const value = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return value
+    })
+    expect(background).not.toBe(freshBackground)
+
+    // Плашка стоит в одной ячейке с именем копии, правее самого имени.
+    // Замер повторяется: первая отрисовка идёт запасной гарнитурой, и границы потом сдвигаются
+    const cell = bodyRows.nth(0).getByRole('cell').first()
+    await expect(async () => {
+      const [cellBox, tagBox, nameRight] = await Promise.all([
+        cell.boundingBox(),
+        tag.boundingBox(),
+        cell.evaluate((node) => {
+          const name = [...node.querySelector('.proj')!.childNodes].find((child) => child.nodeType === Node.TEXT_NODE)!
+          const range = node.ownerDocument.createRange()
+          range.selectNode(name)
+          return range.getBoundingClientRect().right
+        }),
+      ])
+      expect(tagBox!.x).toBeGreaterThanOrEqual(nameRight)
+      expect(tagBox!.x + tagBox!.width).toBeLessThanOrEqual(cellBox!.x + cellBox!.width)
+    }).toPass()
   })
 }
