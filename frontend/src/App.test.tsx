@@ -362,6 +362,17 @@ test('«Удалить копию» стоит у свободной копии,
   expect(within(mainMenu).queryByRole('menuitem', { name: 'Удалить копию' })).not.toBeInTheDocument()
 })
 
+test('плашка «Основная» стоит у основной копии проекта и только у неё', async () => {
+  const main: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\app-main', status: 'free', copiesDir: 'D:\\Projects' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, main]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  expect(within(tableRows[4]).getByText('Основная')).toBeInTheDocument()
+  expect(within(tableRows[2]).queryByText('Основная')).toBeNull()
+})
+
 test('удаление копии открывает окно, а после удачи таблица перечитывается и гаснет сообщение', async () => {
   fakeInterval()
   const fetchMock = vi.fn(async (url: string) =>
