@@ -374,7 +374,7 @@ export default function Flow({
           {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
           {firstBad >= 0 && (
             <span className="flow-blocked">
-              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad).join(', ')}
+              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad, known).join(', ')}
             </span>
           )}
           <button

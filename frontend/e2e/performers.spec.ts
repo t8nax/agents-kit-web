@@ -9,8 +9,7 @@ type Performer = {
   path: string
 }
 
-const agents = 'C:\\Users\\me\\.claude\\agents'
-const prefix = 'agents-kit-web'
+const agents = 'D:\\Projects\\app-knowledge\\agents'
 
 const reviewer: Performer = {
   name: 'reviewer',
@@ -18,7 +17,7 @@ const reviewer: Performer = {
   model: 'opus',
   tools: 'Read, Glob, Grep',
   prompt: 'Ты читаешь дифф ветки целиком.',
-  path: `${agents}\\${prefix}-reviewer.md`,
+  path: `${agents}\\reviewer.md`,
 }
 
 /**
@@ -45,18 +44,16 @@ async function mockApi(page: Page, options: { taken?: boolean } = {}) {
           model: request.model,
           tools: request.tools,
           prompt: request.prompt,
-          // Приставку проекта панель ставит сама: оператор её не набирает.
-          path: `${agents}\\${prefix}-${request.name}.md`,
+          path: `${agents}\\${request.name}.md`,
         },
       ]
-      return route.fulfill({ json: { path: `${agents}\\${prefix}-${request.name}.md` } })
+      return route.fulfill({ json: { path: `${agents}\\${request.name}.md` } })
     }
     return route.fulfill({
       json: [
         {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
-          prefix,
           directory: agents,
           performers,
           error: null,
@@ -80,12 +77,12 @@ test('раздел показывает исполнителей проекта,
   await expect(page.getByText('reviewer', { exact: true })).toBeVisible()
   await expect(page.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeVisible()
   // Приставка видна только в пути к файлу.
-  await expect(page.getByText(`${agents}\\${prefix}-reviewer.md`)).toBeVisible()
+  await expect(page.getByText(`${agents}\\reviewer.md`)).toBeVisible()
 
   await expect(page.getByRole('button', { name: 'Править' })).toBeEnabled()
 })
 
-test('исполнитель заводится окном и ложится в набор машины', async ({ page }) => {
+test('исполнитель заводится окном и ложится в базу проекта', async ({ page }) => {
   const { saved } = await mockApi(page)
   await openPerformers(page)
 
@@ -95,9 +92,9 @@ test('исполнитель заводится окном и ложится в 
   await modal.getByLabel(/Описание/).fill('Прогоняет e2e затронутых экранов.')
   await modal.getByLabel('Задание').fill('Поднимаешь панель и прогоняешь e2e.')
 
-  // Копию в окне не выбирают: путь файла виден до сохранения и ведёт в набор машины.
+  // Копию в окне не выбирают: путь файла виден до сохранения и ведёт в базу проекта.
   await expect(modal.getByLabel('Копия')).toHaveCount(0)
-  await expect(modal.getByText(`${agents}\\${prefix}-e2e-runner.md`)).toBeVisible()
+  await expect(modal.getByText(`${agents}\\e2e-runner.md`)).toBeVisible()
 
   await modal.getByRole('button', { name: 'Сохранить' }).click()
 

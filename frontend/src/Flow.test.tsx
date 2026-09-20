@@ -69,8 +69,9 @@ function stubApi(handlers: Record<string, Handler>) {
 const api = (flows: BaseFlow[], presets: StepPreset[] = [], extra: Record<string, Handler> = {}) => ({
   'GET /api/flow': () => json(flows),
   'GET /api/presets': () => json(presets),
-  // Раздел спрашивает заведённых исполнителей: из них шагу выбирают субагента.
-  'GET /api/performers': () => json([]),
+  // Раздел спрашивает заведённых в базе исполнителей: из них шагу выбирают субагента, и флоу,
+  // зовущий незаведённого, не сохраняется — поэтому по умолчанию заведены все, кого зовут шаги.
+  'GET /api/performers': () => json(performers(['reviewer', 'scout', 'check-runner', 'e2e-runner'])),
   // Окно переписывания спрашивает панель, не идёт ли уже такая просьба.
   'GET /api/agent/requests': () => json([]),
   ...extra,
@@ -134,7 +135,7 @@ test('клик по блоку открывает сайдбар с выходо
 
   expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Шаг 2: Ревью')
   expect(drawer.getByRole('textbox', { name: 'Название шага' })).toHaveValue('Ревью')
-  expect(drawer.getByRole('textbox', { name: 'Имя субагента' })).toHaveValue('reviewer')
+  expect(drawer.getByRole('combobox', { name: 'Имя субагента' })).toHaveValue('reviewer')
   expect(drawer.getByRole('textbox', { name: 'Выход шага' })).toHaveValue('вердикт по sha')
   expect(drawer.getByRole('textbox', { name: 'Пропуск шага' })).toHaveValue('правка только в текстах')
   // Описание правится своим окном, а не полем сайдбара
@@ -308,7 +309,7 @@ test('шаг без выхода или без имени субагента н�
   const drawer = await openStep(region, 'Шаг 2: Ревью')
 
   fireEvent.change(drawer.getByRole('textbox', { name: 'Выход шага' }), { target: { value: ' ' } })
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Имя субагента' }), { target: { value: '' } })
+  fireEvent.change(drawer.getByRole('combobox', { name: 'Имя субагента' }), { target: { value: '' } })
 
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   expect(screen.getByText('Не сохранить: шаг 2 — не указано имя субагента, не указан выход')).toBeInTheDocument()
@@ -473,40 +474,32 @@ test('со своими несохранёнными правками переп
   expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeDisabled()
 })
 
-/** Приставка имён исполнителей проекта: её панель дописывает сама, и в файле флоу имя стоит с ней. */
-const PREFIX = 'agents-kit-web'
-
 /**
- * Заведённые исполнители проекта: ровно из них шагу выбирают субагента. Имена здесь короткие, а
- * приставка лежит рядом — так их и отдаёт API, и ровно поэтому имя из флоу, где оно стоит
- * с приставкой, нельзя сверять со списком напрямую.
+ * Заведённые в базе проекта исполнители: ровно из них шагу выбирают субагента. Имена во флоу и
+ * в списке одни и те же — приставки проекта у них больше нет.
  */
 const performers = (names: string[]) => [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
-    prefix: PREFIX,
-    directory: 'C:\\Users\\Boris\\.claude\\agents',
+    directory: 'D:\\Projects\\app-knowledge\\agents',
     performers: names.map((name) => ({
       name,
       description: null,
       model: null,
       tools: null,
       prompt: '',
-      path: `C:\\Users\\Boris\\.claude\\agents\\${PREFIX}-${name}.md`,
+      path: `D:\\Projects\\app-knowledge\\agents\\${name}.md`,
     })),
     error: null,
   },
 ]
 
-/** Шаг субагента так, как он стоит в файле флоу: имя с приставкой проекта. */
-const reviewFull: FlowStep = { ...review, executor: `${PREFIX}-reviewer` }
+const withPerformers = (steps: FlowStep[] = [criterion, review, acceptance]) => ({ ...app, steps })
 
-const withFullNames = (steps: FlowStep[] = [criterion, reviewFull, acceptance]) => ({ ...app, steps })
-
-test('исполнитель шага выбирается из заведённых, а в файл уходит имя с приставкой', async () => {
+test('исполнитель шага выбирается из заведённых в базе', async () => {
   const fetchMock = stubApi(
-    api([withFullNames()], [], {
+    api([withPerformers()], [], {
       'GET /api/performers': () => json(performers(['reviewer', 'e2e-runner'])),
       'POST /api/flow': () => json({ version: 'v2' }),
     }),
@@ -514,7 +507,7 @@ test('исполнитель шага выбирается из заведённ
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 2: Ревью')
 
-  // Шаг зовёт исполнителя полным именем, а оператор видит его без приставки
+  // Имя в файле и имя в списке — одно и то же: сверять их можно напрямую
   const picker = await drawer.findByRole('combobox', { name: 'Имя субагента' })
   expect(picker).toHaveValue('reviewer')
   expect(within(nodes(region)[1]).getByText('субагент reviewer')).toBeInTheDocument()
@@ -525,11 +518,11 @@ test('исполнитель шага выбирается из заведённ
   expect(within(nodes(region)[1]).getByText('субагент e2e-runner')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('agents-kit-web-e2e-runner')
+  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('e2e-runner')
 })
 
-test('шаг с полным именем заведённого исполнителя пропавшим не помечен', async () => {
-  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
+test('шаг с заведённым в базе исполнителем незнакомым не помечен', async () => {
+  stubApi(api([withPerformers()], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
   const region = await renderFlow()
 
   const drawer = await openStep(region, 'Шаг 2: Ревью')
@@ -539,125 +532,65 @@ test('шаг с полным именем заведённого исполни�
   expect(drawer.queryByRole('status')).not.toBeInTheDocument()
 })
 
-test('шаг, где в файле осталось имя без приставки, помечен как незнакомый', async () => {
-  const fetchMock = stubApi(
-    api([app], [], {
-      'GET /api/performers': () => json(performers(['reviewer'])),
+test('шаг с именем, которого нет в базе, сохранить флоу не даёт', async () => {
+  stubApi(
+    api([withPerformers()], [], {
+      'GET /api/performers': () => json(performers(['e2e-runner'])),
       'POST /api/flow': () => json({ version: 'v2' }),
     }),
   )
   const region = await renderFlow(true, { onPerformers: vi.fn() })
 
-  expect(
-    await within(nodes(region)[1]).findByLabelText('Имя reviewer записано без приставки проекта'),
-  ).toBeInTheDocument()
+  // Незнакомое имя видно на схеме, не открывая шаг
+  expect(await within(nodes(region)[1]).findByLabelText('Исполнителя reviewer нет в базе')).toBeInTheDocument()
 
-  // Причина названа: имя без приставки на вид не отличить от правильного
+  // Такого исполнителя агент не позовёт, поэтому флоу с ним не записывается
+  expect(screen.getByText(/Не сохранить: шаг 2/)).toHaveTextContent('исполнителя нет в базе')
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+
   const drawer = await openStep(region, 'Шаг 2: Ревью')
-  expect(await drawer.findByRole('status')).toHaveTextContent(
-    'без приставки проекта: под ним агент исполнителя не найдёт',
-  )
-  expect(drawer.queryByRole('button', { name: 'Завести исполнителя' })).not.toBeInTheDocument()
-  // Пункт списка не спорит с надписью рядом: причина у него та же
-  expect(drawer.getByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue(
-    'reviewer — без приставки проекта',
-  )
+  expect(await drawer.findByRole('status')).toHaveTextContent('Выберите исполнителя из заведённых')
+  // Имя остаётся в списке, чтобы шаг не потерял исполнителя молча
+  expect(drawer.getByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue('reviewer — в базе нет')
 
-  // Чинится одним нажатием
-  fireEvent.click(drawer.getByRole('button', { name: 'Дописать приставку' }))
-
-  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
-  expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('agents-kit-web-reviewer')
+  // Заменили заведённым — и флоу снова записывается
+  fireEvent.change(drawer.getByRole('combobox', { name: 'Имя субагента' }), { target: { value: 'e2e-runner' } })
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
 })
 
-test('помощник, выписанный без приставки, вторым чипом не добавляется', async () => {
-  const withHelpers = withFullNames([{ ...criterion, helpers: ['scout'] }, reviewFull, acceptance])
+test('помощник, уже стоящий у шага, второй раз не предлагается', async () => {
+  const withHelpers = withPerformers([{ ...criterion, helpers: ['scout'] }, review, acceptance])
   stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['scout'])) }))
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 1: Критерий')
 
-  // Помощник в файле назван коротко и потому помечен, но занятым он всё равно считается
-  expect(await drawer.findByTitle('Имя scout записано без приставки проекта')).toBeInTheDocument()
+  expect(await drawer.findByText('scout')).toBeInTheDocument()
   expect(drawer.queryByRole('combobox', { name: 'Добавить помощника' })).not.toBeInTheDocument()
 })
 
-test('помощникам без приставки названа причина, и приставка дописывается одним нажатием', async () => {
-  const steps = [
-    { ...criterion, helpers: ['scout', 'agents-kit-web-check-runner'] },
-    reviewFull,
-    acceptance,
-  ]
-  const fetchMock = stubApi(
-    api([withFullNames(steps)], [], {
-      'GET /api/performers': () => json(performers(['scout', 'check-runner'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  expect(await drawer.findByRole('status')).toHaveTextContent(
-    'Помощник scout назван без приставки проекта: под этим именем агент исполнителя не найдёт',
-  )
-  expect(drawer.getByTitle('Имя scout записано без приставки проекта')).toBeInTheDocument()
-
-  fireEvent.click(drawer.getByRole('button', { name: 'Дописать приставку' }))
-
-  // Починка правит только то, чему приставки не хватало
-  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual([
-    'agents-kit-web-scout',
-    'agents-kit-web-check-runner',
-  ])
-})
-
-test('шаг, чьего исполнителя нет на диске, отмечен на схеме и объяснён в сайдбаре', async () => {
-  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
+test('от шага с незнакомым исполнителем есть переход в раздел «Исполнители»', async () => {
+  stubApi(api([withPerformers()], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
   const onPerformers = vi.fn()
   const region = await renderFlow(true, { onPerformers })
 
-  // Ненайденного видно на схеме, не открывая шаг
-  const node = await within(nodes(region)[1]).findByLabelText('Исполнителя reviewer нет на диске')
-  expect(node).toBeInTheDocument()
-
   const drawer = await openStep(region, 'Шаг 2: Ревью')
-  expect(drawer.getByRole('status')).toHaveTextContent('Сессия дойдёт до шага и спросит вас')
-  expect(drawer.queryByRole('button', { name: 'Дописать приставку' })).not.toBeInTheDocument()
-  // Имя остаётся в списке, чтобы шаг не потерял исполнителя молча
-  expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue(
-    'reviewer — на диске нет',
-  )
+  expect(await drawer.findByRole('status')).toHaveTextContent('нет в базе проекта')
+
   fireEvent.click(drawer.getByRole('button', { name: 'Завести исполнителя' }))
   expect(onPerformers).toHaveBeenCalled()
 })
 
-test('«вписать имя…» возвращает поле для чужого имени', async () => {
-  const fetchMock = stubApi(
-    api([withFullNames()], [], {
-      'GET /api/performers': () => json(performers(['reviewer'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
+test('имя субагента руками не вписывается: выбор только из заведённых', async () => {
+  stubApi(api([withPerformers()], [], { 'GET /api/performers': () => json(performers(['reviewer', 'e2e-runner'])) }))
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 2: Ревью')
 
-  fireEvent.change(await drawer.findByRole('combobox', { name: 'Имя субагента' }), {
-    target: { value: '__custom__' },
-  })
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Имя субагента' }), { target: { value: 'doc-writer' } })
-
-  expect(within(nodes(region)[1]).getByText('субагент doc-writer')).toBeInTheDocument()
-  expect(drawer.getByRole('status')).toHaveTextContent('на диске не найден')
-
-  // Вписанное руками панель не переделывает: в файл уходит набранное
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('doc-writer')
+  const picker = await drawer.findByRole('combobox', { name: 'Имя субагента' })
+  expect(within(picker).getAllByRole('option').map((option) => option.textContent)).toEqual([
+    'reviewer',
+    'e2e-runner',
+  ])
+  expect(drawer.queryByRole('textbox', { name: 'Имя субагента' })).not.toBeInTheDocument()
 })
 
 test('возврат шага правится в сайдбаре: условие и шаг, к которому работа идёт заново', async () => {
@@ -700,29 +633,26 @@ test('возврат без цели не даёт сохранить флоу, 
 })
 
 test('помощники есть только у шага оркестратора и стираются при смене исполнителя', async () => {
-  const withHelpers = withFullNames([{ ...criterion, helpers: ['agents-kit-web-scout'] }, reviewFull, acceptance])
+  const withHelpers = withPerformers([{ ...criterion, helpers: ['scout'] }, review, acceptance])
   const fetchMock = stubApi(
     api([withHelpers], [], {
-      'GET /api/performers': () => json(performers(['scout', 'check-runner'])),
+      'GET /api/performers': () => json(performers(['reviewer', 'scout', 'check-runner'])),
       'POST /api/flow': () => json({ version: 'v2' }),
     }),
   )
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 1: Критерий')
 
-  // Помощник, выписанный во флоу полным именем, стоит обычным чипом и назван коротко
+  // Помощник, заведённый в базе, стоит обычным чипом
   expect(await drawer.findByText('scout')).toBeInTheDocument()
-  expect(drawer.queryByTitle(/нет на диске/)).not.toBeInTheDocument()
+  expect(drawer.queryByTitle(/нет в базе/)).not.toBeInTheDocument()
 
   fireEvent.change(drawer.getByRole('combobox', { name: 'Добавить помощника' }), {
     target: { value: 'check-runner' },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual([
-    'agents-kit-web-scout',
-    'agents-kit-web-check-runner',
-  ])
+  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual(['scout', 'check-runner'])
 
   // У шага оператора помощников не бывает: поле исчезает вместе с ними
   fireEvent.change(drawer.getByRole('combobox', { name: 'Исполнитель шага' }), { target: { value: 'оператор' } })
@@ -730,17 +660,17 @@ test('помощники есть только у шага оркестрато�
   expect(drawer.queryByText('scout')).not.toBeInTheDocument()
 })
 
-test('помощник, которого нет на диске, отмечен в сайдбаре янтарём', async () => {
-  const withHelpers = withFullNames([{ ...criterion, helpers: ['agents-kit-web-scout'] }, reviewFull, acceptance])
+test('помощник, которого нет в базе, отмечен в сайдбаре янтарём', async () => {
+  const withHelpers = withPerformers([{ ...criterion, helpers: ['scout'] }, review, acceptance])
   stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
   const region = await renderFlow()
   const drawer = await openStep(region, 'Шаг 1: Критерий')
 
-  expect(await drawer.findByTitle('Исполнителя scout нет на диске')).toBeInTheDocument()
+  expect(await drawer.findByTitle('Исполнителя scout нет в базе')).toBeInTheDocument()
 })
 
 test('в сохранённый шаг возврат и помощники не уходят', async () => {
-  const steps = [{ ...criterion, helpers: ['agents-kit-web-scout'], returns: [] }, review, acceptance]
+  const steps = [{ ...criterion, helpers: ['scout'], returns: [] }, review, acceptance]
   const fetchMock = stubApi(
     api([{ ...app, steps }], [], {
       'GET /api/performers': () => json(performers(['scout'])),
@@ -755,10 +685,10 @@ test('в сохранённый шаг возврат и помощники не
   expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ helpers: [], returns: [] })
 })
 
-test('пресет живёт без приставки, а шаг из него получает приставку своего проекта', async () => {
+test('пресет и шаг из него зовут исполнителя тем же именем', async () => {
   const saved: StepPreset = { ...review, executor: 'reviewer', id: 'p2' }
   const fetchMock = stubApi(
-    api([withFullNames()], [], {
+    api([withPerformers()], [], {
       'GET /api/performers': () => json(performers(['reviewer'])),
       'POST /api/presets': () => json(saved),
       'POST /api/flow': () => json({ version: 'v2' }),
@@ -770,7 +700,6 @@ test('пресет живёт без приставки, а шаг из него
   await drawer.findByRole('combobox', { name: 'Имя субагента' })
   fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
 
-  // Список пресетов общий для всех проектов, поэтому приставки в пресете нет
   expect(body(fetchMock, 'POST /api/presets').executor).toBe('reviewer')
   await screen.findByRole('button', { name: 'Шаг в пресетах' })
 
@@ -782,58 +711,7 @@ test('пресет живёт без приставки, а шаг из него
   expect(within(nodes(region)[3]).getByText('субагент reviewer')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[3].executor).toBe('agents-kit-web-reviewer')
-})
-
-test('о двух помощниках без приставки сказано во множественном числе', async () => {
-  const steps = [{ ...criterion, helpers: ['scout', 'check-runner'] }, reviewFull, acceptance]
-  stubApi(
-    api([withFullNames(steps)], [], { 'GET /api/performers': () => json(performers(['scout', 'check-runner'])) }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  expect(await drawer.findByRole('status')).toHaveTextContent(
-    'Помощники scout, check-runner названы без приставки проекта: под этими именами агент исполнителей не найдёт',
-  )
-})
-
-test('починка помощников не оставляет одного исполнителя дважды', async () => {
-  const steps = [{ ...criterion, helpers: ['agents-kit-web-scout', 'scout'] }, reviewFull, acceptance]
-  const fetchMock = stubApi(
-    api([withFullNames(steps)], [], {
-      'GET /api/performers': () => json(performers(['scout'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  fireEvent.click(await drawer.findByRole('button', { name: 'Дописать приставку' }))
-
-  // Оба чипа звали одного исполнителя: в файл уходит одно имя
-  expect(drawer.getAllByText('scout')).toHaveLength(1)
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual(['agents-kit-web-scout'])
-})
-
-test('пресет шага с ненайденным исполнителем приставку не теряет', async () => {
-  const ghost = { ...review, executor: 'agents-kit-web-ghost' }
-  const fetchMock = stubApi(
-    api([withFullNames([criterion, ghost, acceptance])], [], {
-      'GET /api/performers': () => json(performers(['reviewer'])),
-      'POST /api/presets': () => json({ ...ghost, id: 'p3' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-
-  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
-
-  // Приставку такому имени вернуть неоткуда: в пресет оно уходит целиком
-  await screen.findByRole('button', { name: 'Шаг в пресетах' })
-  expect(body(fetchMock, 'POST /api/presets').executor).toBe('agents-kit-web-ghost')
+  expect(body(fetchMock, 'POST /api/flow').steps[3].executor).toBe('reviewer')
 })
 
 test('возвраты нарисованы дугами: у открытого шага дуга подсвечена и подписана условием', async () => {

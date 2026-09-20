@@ -28,6 +28,22 @@ async function mockApi(page: Page) {
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/presets', (route) => route.fulfill({ json: [] }))
+  // Исполнители базы: без них шаг, зовущий субагента, числился бы незаведённым и флоу не сохранился бы.
+  await page.route('**/api/performers', (route) =>
+    route.fulfill({
+      json: [
+        {
+          base: flowBase,
+          project: 'Agents Kit Web',
+          directory: `${flowBase}\\agents`,
+          performers: [
+            { name: 'reviewer', description: null, model: null, tools: null, prompt: '', path: `${flowBase}\\agents\\reviewer.md` },
+          ],
+          error: null,
+        },
+      ],
+    }),
+  )
   await page.route('**/api/flow', (route) => {
     if (route.request().method() === 'POST') {
       calls.save.push(route.request().postDataJSON())

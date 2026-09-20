@@ -8,8 +8,7 @@ const bases: BasePerformers[] = [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
-    prefix: 'agents-kit-web',
-    directory: 'C:\\Users\\me\\.claude\\agents',
+    directory: 'D:\\Projects\\app-knowledge\\agents',
     performers: [
       {
         name: 'reviewer',
@@ -25,8 +24,7 @@ const bases: BasePerformers[] = [
   {
     base: 'D:\\Projects\\nota-knowledge',
     project: 'Nota',
-    prefix: 'nota',
-    directory: 'C:\\Users\\me\\.claude\\agents',
+    directory: 'D:\\Projects\\nota-knowledge\\agents',
     performers: [
       {
         name: 'spec-writer',

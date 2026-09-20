@@ -19,8 +19,7 @@ const bases: BasePerformers[] = [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
-    prefix: 'agents-kit-web',
-    directory: 'C:\\Users\\me\\.claude\\agents',
+    directory: 'D:\\Projects\\app-knowledge\\agents',
     performers: [reviewer],
     error: null,
   },
@@ -48,7 +47,7 @@ function stubFetch(response: Response) {
   return fetchMock
 }
 
-test('заводит исполнителя в набор машины и показывает путь его файла', async () => {
+test('заводит исполнителя в базу проекта и показывает путь его файла', async () => {
   const fetchMock = stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
   const onSaved = open()
 
@@ -56,8 +55,8 @@ test('заводит исполнителя в набор машины и пок
   fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'Гоняет e2e.' } })
   fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Ты гоняешь e2e.' } })
 
-  // Путь виден до сохранения, и приставка проекта в нём уже стоит — набирать её не нужно.
-  expect(screen.getByText('C:\\Users\\me\\.claude\\agents\\agents-kit-web-e2e-runner.md')).toBeInTheDocument()
+  // Путь виден до сохранения и ведёт в базу проекта, а не в профиль.
+  expect(screen.getByText('D:\\Projects\\app-knowledge\\agents\\e2e-runner.md')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
