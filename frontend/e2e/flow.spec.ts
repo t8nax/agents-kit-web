@@ -250,7 +250,8 @@ test('шаг сохраняется как пресет из сайдбара и
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
-  expect(calls.presets).toEqual([{ ...steps[1], id: 'p1' }])
+  // В пресете приставки проекта нет: список пресетов общий для всех проектов
+  expect(calls.presets).toEqual([{ ...steps[1], executor: 'reviewer', id: 'p1' }])
   expect((calls.flow[0] as { steps: Step[] }).steps[3]).toEqual({ ...steps[1], description: '4.1. Собрать дифф.' })
 })
 
