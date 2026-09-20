@@ -12,15 +12,14 @@ const reviewer: Performer = {
   model: 'opus',
   tools: 'Read, Glob, Grep',
   prompt: 'Ты читаешь дифф ветки целиком.',
-  path: 'C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md',
+  path: 'D:\\Projects\\app-knowledge\\agents\\reviewer.md',
 }
 
 const bases: BasePerformers[] = [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
-    prefix: 'agents-kit-web',
-    directory: 'C:\\Users\\me\\.claude\\agents',
+    directory: 'D:\\Projects\\app-knowledge\\agents',
     performers: [reviewer],
     error: null,
   },
@@ -48,7 +47,7 @@ function stubFetch(response: Response) {
   return fetchMock
 }
 
-test('заводит исполнителя в набор машины и показывает путь его файла', async () => {
+test('заводит исполнителя в базу проекта и показывает путь его файла', async () => {
   const fetchMock = stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
   const onSaved = open()
 
@@ -56,8 +55,8 @@ test('заводит исполнителя в набор машины и пок
   fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'Гоняет e2e.' } })
   fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Ты гоняешь e2e.' } })
 
-  // Путь виден до сохранения, и приставка проекта в нём уже стоит — набирать её не нужно.
-  expect(screen.getByText('C:\\Users\\me\\.claude\\agents\\agents-kit-web-e2e-runner.md')).toBeInTheDocument()
+  // Путь виден до сохранения и ведёт в базу проекта, а не в профиль.
+  expect(screen.getByText('D:\\Projects\\app-knowledge\\agents\\e2e-runner.md')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
@@ -80,19 +79,19 @@ test('имя, занятое у проекта, окно бережёт и не 
 
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
 
-  // Набор исполнителей один на машину: молча переписать заведённого нельзя.
+  // Набор исполнителей свой у базы проекта: молча переписать заведённого в ней нельзя.
   expect(screen.getByRole('status')).toHaveTextContent('уже есть')
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
-test('копию в окне не выбирают: файл лежит в наборе машины', () => {
+test('копию в окне не выбирают: файл лежит в базе проекта', () => {
   stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
   open()
 
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
 
   expect(screen.queryByLabelText('Копия')).not.toBeInTheDocument()
-  // Путь к файлу один на машину, и окно показывает его же — выбирать между копиями нечего.
+  // Путь к файлу один: он ведёт в базу проекта, и выбирать между копиями нечего.
   expect(screen.getByText(/e2e-runner\.md/)).toBeInTheDocument()
 })
 
@@ -128,6 +127,49 @@ test('занятое имя, о котором сказал API, объясне�
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('уже есть')
+})
+
+test('имя, занятое файлом самого проекта, названо вместе с копией', async () => {
+  stubFetch(
+    new Response(JSON.stringify({ problem: 'name-in-project', detail: 'D:\\Projects\\app' }), { status: 409 }),
+  )
+  open()
+
+  // Такой файл ведёт команда проекта, кит его не трогает — исполнитель в эту копию не приедет
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'linter' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('уже есть в копии D:\\Projects\\app')
+  expect(alert).toHaveTextContent('Выберите другое имя')
+})
+
+test('отказ базы принять коммит показан её словами', async () => {
+  stubFetch(
+    new Response(JSON.stringify({ problem: 'not-committed', detail: 'сверка: база не приняла' }), { status: 409 }),
+  )
+  const onSaved = open()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  // Что сказала база, оператор читает дословно, а окно остаётся с набранным
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('База не приняла исполнителя')
+  expect(alert).toHaveTextContent('сверка: база не приняла')
+  expect(onSaved).not.toHaveBeenCalled()
+  expect(screen.getByLabelText('Имя')).toHaveValue('e2e-runner')
+})
+
+test('незнакомый отказ API назван своим именем, а не чужой причиной', async () => {
+  stubFetch(new Response(JSON.stringify({ problem: 'что-то-новое' }), { status: 409 }))
+  open()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'linter' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  // Иначе новый отказ API показывался бы прежним текстом, и причина была бы неверной
+  expect(await screen.findByRole('alert')).toHaveTextContent('панель не поняла отказ «что-то-новое»')
 })
 
 test('без связи с API окно говорит об этом и не закрывается', async () => {

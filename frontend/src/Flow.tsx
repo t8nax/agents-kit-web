@@ -4,7 +4,6 @@ import './Backlog.css'
 import './Flow.css'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
 import type { BasePerformers } from './Performers'
-import { fullName, knownPerformer, shortName, shownName } from './performerName'
 import { plural } from './plural'
 import { VsCodeIcon } from './VsCodeIcon'
 
@@ -106,10 +105,17 @@ function toIcons(draft: DraftStep[]): Record<string, string> {
  * Что мешает записать шаг в форме кита; пустой список — шаг годится. Возврату нужны соседи:
  * он ведёт на шаг, который стоит раньше, поэтому проверяется вся лента.
  */
-function stepErrors(draft: DraftStep, steps: DraftStep[] = [], index = -1) {
+function stepErrors(draft: DraftStep, steps: DraftStep[] = [], index = -1, known: string[] | null = null) {
   const errors: string[] = []
   if (!draft.title.trim()) errors.push('нет названия')
   if (draft.kind === 'субагент' && !draft.agent.trim()) errors.push('не указано имя субагента')
+  // Исполнителя, которого нет в базе, агент не позовёт: с таким именем флоу не сохраняется.
+  if (missingPerformer(draft, known)) errors.push('исполнителя нет в базе')
+  // То же и с помощниками: их зовёт оркестратор внутри своего шага, и незаведённого он не найдёт.
+  // Только у него: у прочих шагов поля помощников нет, и убрать выписанного руками было бы негде.
+  if (draft.kind === 'оркестратор' && known !== null
+      && draft.helpers.some((name) => name.trim() && !known.includes(name.trim())))
+    errors.push('помощника нет в базе')
   if (!draft.output.trim()) errors.push('не указан выход')
   for (const back of draft.returns) {
     if (!back.condition.trim()) errors.push('в возврате не указано условие')
@@ -171,41 +177,18 @@ const changed = (flow: BaseFlow, draft: DraftStep[]) => {
 }
 
 /**
- * Шаг зовёт субагента, которого на диске нет: пока имя пустое, это просто незаполненный шаг.
- * Во флоу стоит полное имя, а список исполнителей отдаёт короткие — сверять их напрямую нельзя.
+ * Шаг зовёт субагента, которого нет в базе проекта: пока имя пустое, это просто незаполненный шаг.
+ * known === null — список исполнителей ещё не прочитан, и помечать нечего: иначе при открытии
+ * раздела все шаги разом выглядели бы сломанными.
  */
-const missingPerformer = (step: DraftStep, known: string[], prefix: string) =>
+const missingPerformer = (step: DraftStep, known: string[] | null) =>
+  known !== null &&
   step.kind === 'субагент' &&
   step.agent.trim().length > 0 &&
-  !knownPerformer(prefix, known, step.agent)
+  !known.includes(step.agent.trim())
 
-/**
- * Имя записано без приставки проекта, а исполнитель с таким именем заведён: так писала панель до того,
- * как научилась дописывать приставку. На вид имя не отличить от правильного — разница только в файле,
- * поэтому панель называет её сама.
- */
-const unprefixed = (name: string, known: string[], prefix: string) => {
-  const trimmed = name.trim()
-  return prefix.length > 0 && shortName(prefix, trimmed) === null && known.includes(trimmed)
-}
-
-/**
- * Пресет общий для всех проектов, поэтому приставки он не держит: с чужой приставкой шаг, добавленный
- * в другом проекте, сразу оказался бы без исполнителя.
- */
-const presetStep = (step: FlowStep, prefix: string, known: string[]): FlowStep => ({
-  ...plainStep(step),
-  // Чужое и ненайденное имя ложится в пресет целиком: приставку ему вернуть будет неоткуда.
-  executor: knownPerformer(prefix, known, step.executor)
-    ? (shortName(prefix, step.executor.trim()) ?? step.executor)
-    : step.executor,
-})
-
-/** Шаг из пресета зовёт исполнителя того проекта, куда его добавляют: приставку ставит панель. */
-const stepFromPreset = (step: FlowStep, prefix: string, known: string[]): FlowStep =>
-  known.includes(step.executor.trim())
-    ? { ...step, executor: fullName(prefix, step.executor.trim()) }
-    : step
+/** Пресет общий для всех проектов и хранит имя исполнителя как есть: приставок у имён больше нет. */
+const presetStep = (step: FlowStep): FlowStep => plainStep(step)
 
 const invalidLabels: Record<string, string> = {
   'empty-title': 'нет названия',
@@ -228,8 +211,10 @@ export default function Flow({
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [selected, setSelected] = useState<string | null>(rewriteFor)
   const [presets, setPresets] = useState<StepPreset[]>([])
-  // Заведённые исполнители: из них шагу выбирают субагента, и по ним видно, кого на диске нет.
-  const [performers, setPerformers] = useState<BasePerformers[]>([])
+  // Заведённые в базах исполнители: из них шагу и выбирают субагента. null — ещё не прочитаны.
+  const [performers, setPerformers] = useState<BasePerformers[] | null>(null)
+  // Список не прочитан: шаги не метятся и запись не запирается, но сказать об этом оператору надо.
+  const [performersFailed, setPerformersFailed] = useState(false)
   // Правки поверх прочитанного файла: ключ — база и её отпечаток, поэтому правки чужого
   // или перечитанного флоу не всплывают.
   const [edits, setEdits] = useState<{ key: string; steps: DraftStep[] } | null>(null)
@@ -270,20 +255,23 @@ export default function Flow({
       .then(setPresets, () => setPresets([]))
   }, [])
 
+  // Не прочитали список — оставляем null: пустой список пометил бы незаведёнными все шаги разом
+  // и запер бы сохранение флоу из-за временного отказа API.
   useEffect(() => {
     fetch('/api/performers')
-      .then((response) => (response.ok ? (response.json() as Promise<BasePerformers[]>) : []))
-      .then(setPerformers, () => setPerformers([]))
+      .then((response) => (response.ok ? (response.json() as Promise<BasePerformers[]>) : null))
+      .then(
+        (bases) => (bases === null ? setPerformersFailed(true) : setPerformers(bases)),
+        () => setPerformersFailed(true),
+      )
   }, [])
 
   const flows = load.kind === 'loaded' ? load.flows : []
   const flow = flows.find((f) => f.base === selected) ?? null
-  // Шаг зовёт исполнителя именем; здесь — ровно те, кого раздел «Исполнители» показывает у проекта:
-  // файл у исполнителя один на машину, и выбирать из чего-то ещё шагу незачем. Имена короткие,
-  // а во флоу они стоят с приставкой проекта — она и лежит рядом со списком.
-  const project = flow ? (performers.find((p) => p.base === flow.base) ?? null) : null
-  const known = project?.performers.map((p) => p.name) ?? []
-  const prefix = project?.prefix ?? ''
+  // Шаг зовёт исполнителя именем; здесь — ровно те, кто лежит в базе проекта: выбирать из чего-то
+  // ещё шагу незачем, а того, кого в базе нет, агент всё равно не позовёт.
+  const project = flow && performers ? (performers.find((p) => p.base === flow.base) ?? null) : null
+  const known = performers === null ? null : (project?.performers.map((p) => p.name) ?? [])
 
   // Шаги базы кладутся в форму: править их можно сразу, отдельного режима правки нет.
   const flowKey = flow ? `${flow.base}@${flow.version ?? ''}` : ''
@@ -386,7 +374,7 @@ export default function Flow({
   }
 
   const openedIndex = draft.findIndex((step) => step.key === opened)
-  const firstBad = draft.findIndex((step, index) => stepErrors(step, draft, index).length > 0)
+  const firstBad = draft.findIndex((step, index) => stepErrors(step, draft, index, known).length > 0)
   const editable = flow !== null && !flow.error
 
   return (
@@ -398,7 +386,7 @@ export default function Flow({
           {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
           {firstBad >= 0 && (
             <span className="flow-blocked">
-              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad).join(', ')}
+              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad, known).join(', ')}
             </span>
           )}
           <button
@@ -469,6 +457,12 @@ export default function Flow({
           {notice.text}
         </p>
       )}
+      {/* Без списка исполнителей шаги не помечаются и запись не запирается — сказать, отчего так. */}
+      {performersFailed && (
+        <p className="message warning-text" role="status">
+          Список исполнителей не прочитан: имена шагов панель не проверяет, пока раздел не откроют заново.
+        </p>
+      )}
 
       {load.kind === 'loaded' && flows.length === 0 && (
         <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>
@@ -516,10 +510,8 @@ export default function Flow({
                   <StepNode
                     key={step.key}
                     step={step}
-                    missing={missingPerformer(step, known, prefix)}
-                    bare={unprefixed(step.agent, known, prefix)}
-                    prefix={prefix}
-                    invalid={stepErrors(step, draft, index).length > 0}
+                    missing={missingPerformer(step, known)}
+                    invalid={stepErrors(step, draft, index, known).length > 0}
                     number={index + 1}
                     opened={step.key === opened}
                     onOpen={() => setOpened(step.key)}
@@ -546,15 +538,12 @@ export default function Flow({
                   steps={draft}
                   index={openedIndex}
                   known={known}
-                  prefix={prefix}
                   onPerformers={onPerformers}
                   number={openedIndex + 1}
-                  isPreset={presets.some((preset) =>
-                    sameStep(preset, presetStep(toStep(draft[openedIndex]), prefix, known)),
-                  )}
+                  isPreset={presets.some((preset) => sameStep(preset, presetStep(toStep(draft[openedIndex]))))}
                   onChange={(patch) => update(openedIndex, patch)}
                   onClose={() => setOpened(null)}
-                  onSaveAsPreset={() => void saveAsPreset(presetStep(toStep(draft[openedIndex]), prefix, known))}
+                  onSaveAsPreset={() => void saveAsPreset(presetStep(toStep(draft[openedIndex])))}
                   onEditDescription={() => setModal('description')}
                   onDelete={() => {
                     setDraft(renumbered(draft.filter((_, i) => i !== openedIndex)))
@@ -579,7 +568,6 @@ export default function Flow({
                 <FlowRewriteModal
                   base={flow.base}
                   project={flow.project}
-                  prefix={prefix}
                   steps={flow.steps}
                   version={flow.version}
                   onClose={() => setModal(null)}
@@ -598,7 +586,7 @@ export default function Flow({
                   presets={presets}
                   onCancel={() => setModal(null)}
                   onAdd={(step) => {
-                    const added = toDraft(stepFromPreset(step, prefix, known))
+                    const added = toDraft(step)
                     setDraft(renumbered([...draft, added]))
                     setOpened(added.key)
                     setModal(null)
@@ -629,9 +617,9 @@ function saveError(status: number, body: { problem?: string; step?: number; deta
   return 'Флоу не сохранён'
 }
 
-/** Исполнитель на блоке: оператор видит имя без приставки — так же, как в разделе «Исполнители». */
-const executorOf = (step: DraftStep, prefix: string) =>
-  step.kind === 'субагент' ? `субагент ${shownName(prefix, step.agent.trim())}`.trim() : step.kind
+/** Исполнитель на блоке: то же имя, каким его зовёт шаг и каким назван его файл в базе. */
+const executorOf = (step: DraftStep) =>
+  step.kind === 'субагент' ? `субагент ${step.agent.trim()}`.trim() : step.kind
 
 const executorKind = (step: DraftStep) =>
   step.kind === 'оркестратор' ? 'orchestrator' : step.kind === 'оператор' ? 'operator' : 'agent'
@@ -709,8 +697,6 @@ function ReturnArcs({ steps, opened }: { steps: DraftStep[]; opened: number }) {
 function StepNode({
   step,
   missing,
-  bare,
-  prefix,
   invalid,
   number,
   index,
@@ -721,8 +707,6 @@ function StepNode({
 }: {
   step: DraftStep
   missing: boolean
-  bare: boolean
-  prefix: string
   invalid: boolean
   number: number
   index: number
@@ -780,16 +764,9 @@ function StepNode({
             <SkipIcon />
           </span>
         )}
-        {/* Исполнителя шагу не хватает: сессия дойдёт до него и спросит оператора. */}
+        {/* Исполнителя нет в базе: с таким именем флоу не сохранится, пока его не заменили. */}
         {missing && (
-          <span
-            className="flow-node-missing"
-            aria-label={
-              bare
-                ? `Имя ${shownName(prefix, step.agent.trim())} записано без приставки проекта`
-                : `Исполнителя ${shownName(prefix, step.agent.trim())} нет на диске`
-            }
-          >
+          <span className="flow-node-missing" aria-label={`Исполнителя ${step.agent.trim()} нет в базе`}>
             <MissingIcon />
           </span>
         )}
@@ -797,7 +774,7 @@ function StepNode({
           <StepIcon icon={step.icon} kind={executorKind(step)} />
         </span>
         <span className="flow-node-title">{step.title.trim() || 'без названия'}</span>
-        <span className="flow-node-executor">{executorOf(step, prefix) || 'субагент'}</span>
+        <span className="flow-node-executor">{executorOf(step) || 'субагент'}</span>
       </button>
       {/* Клавиатурой шаг двигается кнопками: перетаскивание ей недоступно. */}
       <span className="flow-node-keys">
@@ -814,59 +791,25 @@ function StepNode({
 }
 
 /**
- * Имя субагента: выбор из заведённых, потому что шаг зовёт его именно по имени. Чужое имя
- * вписывается пунктом «вписать имя…» — флоу правят и руками, и панель не должна этому мешать.
+ * Имя субагента: выбор из заведённых в базе проекта. Того, кого в базе нет, агент не позовёт,
+ * поэтому вписать имя руками панель не даёт — и с таким именем флоу не сохраняется.
  */
 function PerformerField({
   step,
   known,
-  prefix,
   onChange,
   onPerformers,
 }: {
   step: DraftStep
-  known: string[]
-  prefix: string
+  known: string[] | null
   onChange: (patch: Partial<DraftStep>) => void
   onPerformers?: () => void
 }) {
   const agent = step.agent.trim()
-  const missing = missingPerformer(step, known, prefix)
-  // В файле стоит полное имя, оператор же видит имя без приставки — своё короткое, чужое целиком.
-  const shown = shownName(prefix, agent)
-  const picked = shortName(prefix, agent) ?? ''
-  const bare = unprefixed(agent, known, prefix)
-  // Ручной ввод включает сам оператор; список исполнителей приезжает после первого показа сайдбара.
-  const [typing, setTyping] = useState(false)
-
-  if (typing || known.length === 0) {
-    return (
-      <div className="flow-field">
-        <span>имя субагента</span>
-        <input
-          className="flow-input mono"
-          aria-label="Имя субагента"
-          placeholder="имя субагента"
-          aria-invalid={!agent}
-          value={step.agent}
-          onChange={(event) => onChange({ agent: event.target.value })}
-        />
-        {known.length > 0 && (
-          <button type="button" className="flow-link" onClick={() => setTyping(false)}>
-            выбрать из заведённых
-          </button>
-        )}
-        {missing && (
-          <MissingNote
-            agent={shown}
-            bare={bare}
-            onFix={() => onChange({ agent: fullName(prefix, agent) })}
-            onPerformers={onPerformers}
-          />
-        )}
-      </div>
-    )
-  }
+  const missing = missingPerformer(step, known)
+  // Список не прочитан — выбирать не из чего, но имя из файла показать надо: иначе поле пустое,
+  // а на схеме исполнитель есть.
+  const unread = known === null && agent.length > 0
 
   return (
     <div className="flow-field">
@@ -874,46 +817,27 @@ function PerformerField({
       <select
         className="flow-input mono"
         aria-label="Имя субагента"
-        aria-invalid={!agent}
-        value={missing ? MISSING_AGENT : picked}
+        aria-invalid={!agent || missing}
+        value={missing ? MISSING_AGENT : agent}
         onChange={(event) => {
-          if (event.target.value === CUSTOM_AGENT) {
-            setTyping(true)
-            return
-          }
           // Пункт ненайденного исполнителя — не выбор: он только показывает, что стоит в файле.
           if (event.target.value === MISSING_AGENT) return
-          // Во флоу уходит полное имя: им шаг и зовёт исполнителя, им же назван его файл.
-          onChange({ agent: fullName(prefix, event.target.value) })
+          onChange({ agent: event.target.value })
         }}
       >
         {agent === '' && <option value="">выберите исполнителя</option>}
-        {missing && (
-          <option value={MISSING_AGENT}>
-            {shown} — {bare ? 'без приставки проекта' : 'на диске нет'}
-          </option>
-        )}
-        {known.map((name) => (
+        {unread && <option value={agent}>{agent}</option>}
+        {missing && <option value={MISSING_AGENT}>{agent} — в базе нет</option>}
+        {(known ?? []).map((name) => (
           <option key={name} value={name}>
             {name}
           </option>
         ))}
-        <option value={CUSTOM_AGENT}>вписать имя…</option>
       </select>
-      {missing && (
-        <MissingNote
-          agent={shown}
-          bare={bare}
-          onFix={() => onChange({ agent: fullName(prefix, agent) })}
-          onPerformers={onPerformers}
-        />
-      )}
+      {missing && <MissingNote agent={agent} onPerformers={onPerformers} />}
     </div>
   )
 }
-
-/** Пункт «вписать имя…»: именем субагента такая строка быть не может — только строчная латиница. */
-const CUSTOM_AGENT = '__custom__'
 
 /**
  * Пункт ненайденного исполнителя: своё значение, а не имя из файла. С именем он спорил бы за выбор
@@ -922,38 +846,14 @@ const CUSTOM_AGENT = '__custom__'
 const MISSING_AGENT = '__missing__'
 
 /**
- * Исполнитель, которого шагу не хватает, — не ошибка файла: сессия дойдёт до шага и спросит оператора.
- * Имя без приставки — случай особый: исполнитель заведён, и разницу с правильным именем видно только
- * в файле, поэтому причина названа, а починка стоит рядом — решение оператора на приёмке B-114.
+ * Имя, которого нет в базе проекта: под ним агент исполнителя не найдёт, поэтому флоу с таким шагом
+ * не сохраняется. Имена вписывают не руками — выбирают из заведённых, а недостающего заводят рядом.
  */
-function MissingNote({
-  agent,
-  bare = false,
-  onFix,
-  onPerformers,
-}: {
-  agent: string
-  bare?: boolean
-  onFix?: () => void
-  onPerformers?: () => void
-}) {
-  if (bare)
-    return (
-      <p className="flow-missing" role="status">
-        Имя <span className="mono">{agent}</span> — без приставки проекта: под ним агент исполнителя
-        не найдёт, хотя такой исполнитель заведён.
-        {onFix && (
-          <button type="button" className="flow-link" onClick={onFix}>
-            Дописать приставку
-          </button>
-        )}
-      </p>
-    )
-
+function MissingNote({ agent, onPerformers }: { agent: string; onPerformers?: () => void }) {
   return (
     <p className="flow-missing" role="status">
-      Исполнитель <span className="mono">{agent}</span> на диске не найден. Сессия дойдёт до шага
-      и спросит вас, а сама за него работать не станет.
+      Исполнителя <span className="mono">{agent}</span> нет в базе проекта. Выберите исполнителя
+      из заведённых.
       {onPerformers && (
         <button type="button" className="flow-link" onClick={onPerformers}>
           Завести исполнителя
@@ -976,36 +876,20 @@ function FlowArrow() {
 
 /**
  * Помощники шага: исполнители проекта, которых оркестратор зовёт внутри своего шага. Выбираются из
- * заведённых — как исполнитель шага; вписанного руками, которого на диске нет, чип показывает янтарём.
+ * заведённых — как исполнитель шага; оставшегося в файле, кого в базе нет, чип показывает янтарём.
  */
 function HelpersField({
   step,
   known,
-  prefix,
   onChange,
 }: {
   step: DraftStep
-  known: string[]
-  prefix: string
+  known: string[] | null
   onChange: (patch: Partial<DraftStep>) => void
 }) {
-  // Помощники в файле названы полными именами, а выбирают их и видят короткими.
-  const taken = step.helpers.map((name) => shortName(prefix, name.trim()) ?? name.trim())
-  const free = known.filter((name) => !taken.includes(name))
-  // Помощники, записанные без приставки: такие панель писала прежде, и на вид они как правильные.
-  const bare = step.helpers.filter((name) => unprefixed(name, known, prefix))
-  /**
-   * Приставка дописывается разом, и одинаковые имена сливаются: у шага мог стоять и правильный
-   * помощник, и он же без приставки, а два одинаковых имени уехали бы в файл базы.
-   */
-  const addPrefix = () => {
-    const fixed: string[] = []
-    for (const name of step.helpers) {
-      const full = unprefixed(name, known, prefix) ? fullName(prefix, name.trim()) : name
-      if (!fixed.includes(full)) fixed.push(full)
-    }
-    onChange({ helpers: fixed })
-  }
+  const taken = step.helpers.map((name) => name.trim())
+  const free = (known ?? []).filter((name) => !taken.includes(name))
+  const missing = (name: string) => known !== null && !known.includes(name.trim())
 
   return (
     <div className="flow-field">
@@ -1015,20 +899,14 @@ function HelpersField({
           {step.helpers.map((name) => (
             <span
               key={name}
-              className={`flow-chip mono ${knownPerformer(prefix, known, name) ? '' : 'flow-chip-missing'}`}
-              title={
-                knownPerformer(prefix, known, name)
-                  ? undefined
-                  : unprefixed(name, known, prefix)
-                    ? `Имя ${shownName(prefix, name.trim())} записано без приставки проекта`
-                    : `Исполнителя ${shownName(prefix, name.trim())} нет на диске`
-              }
+              className={`flow-chip mono ${missing(name) ? 'flow-chip-missing' : ''}`}
+              title={missing(name) ? `Исполнителя ${name.trim()} нет в базе` : undefined}
             >
-              {shownName(prefix, name.trim())}
+              {name.trim()}
               <button
                 type="button"
                 className="flow-chip-remove"
-                aria-label={`Убрать помощника ${shownName(prefix, name.trim())}`}
+                aria-label={`Убрать помощника ${name.trim()}`}
                 onClick={() => onChange({ helpers: step.helpers.filter((helper) => helper !== name) })}
               >
                 <CloseIcon />
@@ -1037,26 +915,12 @@ function HelpersField({
           ))}
         </div>
       )}
-      {bare.length > 0 && (
-        <p className="flow-missing" role="status">
-          {bare.length === 1 ? 'Помощник ' : 'Помощники '}
-          <span className="mono">{bare.map((name) => shownName(prefix, name.trim())).join(', ')}</span>
-          {bare.length === 1
-            ? ' назван без приставки проекта: под этим именем агент исполнителя не найдёт, хотя он заведён.'
-            : ' названы без приставки проекта: под этими именами агент исполнителей не найдёт, хотя они заведены.'}
-          <button type="button" className="flow-link" onClick={addPrefix}>
-            Дописать приставку
-          </button>
-        </p>
-      )}
       {free.length > 0 && (
         <select
           className="flow-input mono"
           aria-label="Добавить помощника"
           value=""
-          onChange={(event) =>
-            event.target.value && onChange({ helpers: [...step.helpers, fullName(prefix, event.target.value)] })
-          }
+          onChange={(event) => event.target.value && onChange({ helpers: [...step.helpers, event.target.value] })}
         >
           <option value="">добавить исполнителя…</option>
           {free.map((name) => (
@@ -1146,7 +1010,6 @@ function StepDrawer({
   steps,
   index,
   known,
-  prefix,
   onPerformers,
   number,
   isPreset,
@@ -1159,8 +1022,7 @@ function StepDrawer({
   step: DraftStep
   steps: DraftStep[]
   index: number
-  known: string[]
-  prefix: string
+  known: string[] | null
   onPerformers?: () => void
   number: number
   isPreset: boolean
@@ -1170,7 +1032,7 @@ function StepDrawer({
   onEditDescription: () => void
   onDelete: () => void
 }) {
-  const errors = stepErrors(step, steps, index)
+  const errors = stepErrors(step, steps, index, known)
   const title = step.title.trim() || 'без названия'
   const earlier = earlierSteps(steps, index)
 
@@ -1186,7 +1048,7 @@ function StepDrawer({
         </span>
         <div className="flow-drawer-name">
           <h3>{title}</h3>
-          <span className="flow-node-executor">{executorOf(step, prefix) || 'субагент'}</span>
+          <span className="flow-node-executor">{executorOf(step) || 'субагент'}</span>
         </div>
         <IconButton label="Закрыть сайдбар" onClick={onClose}>
           <CloseIcon />
@@ -1232,18 +1094,12 @@ function StepDrawer({
         </label>
 
         {step.kind === 'субагент' && (
-          <PerformerField
-            step={step}
-            known={known}
-            prefix={prefix}
-            onChange={onChange}
-            onPerformers={onPerformers}
-          />
+          <PerformerField step={step} known={known} onChange={onChange} onPerformers={onPerformers} />
         )}
 
         {/* Помощников зовёт только оркестратор: у прочих шагов поля нет — форма кита. */}
         {step.kind === 'оркестратор' && (
-          <HelpersField step={step} known={known} prefix={prefix} onChange={onChange} />
+          <HelpersField step={step} known={known} onChange={onChange} />
         )}
 
         <label className="flow-field">

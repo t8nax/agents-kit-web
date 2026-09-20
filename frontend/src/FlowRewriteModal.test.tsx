@@ -32,7 +32,6 @@ function renderModal(version: string | null = 'abc123') {
     <FlowRewriteModal
       base={base}
       project="Agents Kit Web"
-      prefix="agents-kit-web"
       steps={current}
       version={version}
       onApply={onApply}

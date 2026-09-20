@@ -27,6 +27,10 @@ public sealed class PwshKitChecks : IKitChecks
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
 
+    // Перед сверкой исполнители базы развозятся по копиям скриптом кита: оператор про это не знает
+    // и руками ничего не запускает, а сверка потом не показывает недовоз, который сама же и устранила.
+    // Отказ довоза глотается: копия с оборванной связью — это находка сверки, она приедет следом.
+    // Вывод скрипта гасится целиком: он печатает итог в хост, и эти строки встали бы перед JSON ответа.
     // Сверка зовётся от каждой копии базы: разбор своей памяти кит делает только для той копии,
     // от которой смотрит, а сессия каждой копии видит на старте свою. Совпадающие находки схлопываются.
     // git внутри кита оставляет ненулевой код выхода на каталоге вне репозитория, поэтому exit 0 явно.
@@ -39,6 +43,12 @@ public sealed class PwshKitChecks : IKitChecks
         $in = $env:AKW_KIT_CHECK | ConvertFrom-Json
         . (Join-Path $in.kit 'scripts\base-check.ps1')
         $copies = @($in.copies | Where-Object { $_ })
+        $deploy = Join-Path $in.kit 'scripts\agents-deploy.ps1'
+        if (Test-Path -LiteralPath $deploy) {
+            foreach ($c in $copies) {
+                try { & $deploy -Path $c *> $null } catch { }
+            }
+        }
         $worktrees = if ($copies.Count) { $copies } else { @('') }
         $seen = @{}
         $findings = [Collections.Generic.List[object]]::new()

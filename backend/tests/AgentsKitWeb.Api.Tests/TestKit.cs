@@ -11,7 +11,8 @@ internal static class TestKit
         string baseCheck = "",
         string linkState = "",
         string? worktreeAdd = null,
-        string? worktreeRemove = null)
+        string? worktreeRemove = null,
+        string? agentsDeploy = null)
     {
         var scripts = Directory.CreateDirectory(Path.Combine(path, "scripts")).FullName;
         File.WriteAllText(Path.Combine(scripts, "base-check.ps1"), ". (Join-Path $PSScriptRoot 'link-state.ps1')\n" + baseCheck);
@@ -20,6 +21,8 @@ internal static class TestKit
             File.WriteAllText(Path.Combine(scripts, "worktree-add.ps1"), worktreeAdd);
         if (worktreeRemove is not null)
             File.WriteAllText(Path.Combine(scripts, "worktree-remove.ps1"), worktreeRemove);
+        if (agentsDeploy is not null)
+            File.WriteAllText(Path.Combine(scripts, "agents-deploy.ps1"), agentsDeploy);
         return path;
     }
 }

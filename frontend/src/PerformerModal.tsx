@@ -31,7 +31,7 @@ const examples = [
 ]
 
 type Props = {
-  /** Проекты панели: из них выбирают, чей исполнитель заводится, — от проекта зависит приставка имени. */
+  /** Проекты панели: из них выбирают, в чью базу ляжет исполнитель. */
   bases: BasePerformers[]
   initial: string
   /** Правится заведённый — поля заполнены им, а имя уже задано; null — заводится новый. */
@@ -85,8 +85,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
 
   const trimmed = name.trim()
   const chosen = bases.find((b) => b.base === base) ?? bases[0]
-  // Файл у исполнителя один на машину, и имя в нём — с приставкой проекта: её ставит панель сама.
-  const file = chosen && trimmed ? `${chosen.directory}\\${chosen.prefix}-${trimmed}.md` : null
+  // Файл исполнителя лежит в базе проекта — оттуда панель развозит его по рабочим копиям.
+  const file = chosen && trimmed ? `${chosen.directory}\\${trimmed}.md` : null
   // Имя занято другим исполнителем проекта: сохранение переписало бы его.
   const occupied =
     trimmed.length > 0 && trimmed !== editing?.name && (chosen?.performers ?? []).some((p) => p.name === trimmed)
@@ -174,14 +174,25 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           git: false,
         })
       } else if (response.status === 409) {
-        const body = (await response.json()) as { problem: string }
-        setFailure({
-          text:
-            body.problem === 'name-taken'
-              ? 'Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или откройте его правку.'
-              : 'Название проекта не записать латиницей, а без него имя исполнителя слилось бы с чужими.',
-          git: false,
-        })
+        const body = (await response.json()) as { problem: string; detail?: string | null }
+        if (body.problem === 'not-committed') {
+          setFailure({ text: body.detail ?? 'База не приняла коммит.', git: true })
+        } else if (body.problem === 'name-taken') {
+          setFailure({
+            text: 'Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или откройте его правку.',
+            git: false,
+          })
+        } else if (body.problem === 'name-in-project') {
+          // Путь копии приходит в detail: без него оператору негде посмотреть, с чем разводить имена.
+          setFailure({
+            text: body.detail
+              ? `Исполнитель с таким именем уже есть в копии ${body.detail}. Выберите другое имя.`
+              : 'Исполнитель уже есть в копии проекта. Выберите другое имя.',
+            git: false,
+          })
+        } else {
+          setFailure({ text: `Исполнитель не записан: панель не поняла отказ «${body.problem}».`, git: false })
+        }
       } else if (response.status === 404) {
         setFailure({ text: 'Этой базы больше нет в списке панели.', git: false })
       } else {
@@ -212,7 +223,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         </div>
 
         <div className="pf-body">
-          {/* Проект задаёт приставку имени, и его же код читает Чудо-Юдо: заведённому он уже задан. */}
+          {/* Проект задаёт базу, куда ляжет файл, и его же код читает Чудо-Юдо: заведённому он уже задан. */}
           {bases.length > 1 && (
             <div className="pf-field">
               <label className="pf-label" htmlFor="pf-base">
@@ -330,7 +341,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                 aria-invalid={occupied}
                 onChange={(event) => setName(event.target.value)}
               />
-              {/* Набор исполнителей один на машину: имя, занятое у проекта, панель бережёт. */}
+              {/* Имя, уже занятое в базе проекта, панель бережёт: молча переписать чужого нельзя. */}
               {occupied && (
                 <span className="pf-taken" role="status">
                   Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или закройте
@@ -417,14 +428,14 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
 
           {failure && (
             <div className="pf-error" role="alert">
-              <span className="pf-error-title">{failure.git ? 'Файл записан, но не закоммичен' : 'Исполнитель не записан'}</span>
+              <span className="pf-error-title">{failure.git ? 'База не приняла исполнителя' : 'Исполнитель не записан'}</span>
               <p className={failure.git ? 'mono pf-error-text' : 'pf-error-text'}>{failure.text}</p>
             </div>
           )}
         </div>
 
         <div className="pf-footer">
-          {/* Копию в окне не выбирают: исполнитель лежит в наборе этой машины, и путь к нему один. */}
+          {/* Копию в окне не выбирают: исполнитель лежит в базе проекта, и путь к нему один. */}
           <span className="pf-file">
             <span className="mono text-ter">{file ?? 'путь появится, когда задано имя'}</span>
           </span>
