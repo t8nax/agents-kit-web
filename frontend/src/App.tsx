@@ -758,6 +758,7 @@ function WorkspacesTable({
                   {!row.error && <SessionDot state={row.sessionState ?? null} />}
                   {copyName(row.path)}
                   {isFresh(row, fresh) && <span className="new-tag">новая</span>}
+                  {row.copiesDir && <span className="main-tag">Основная</span>}
                 </div>
                 {row.branch && <div className="mono text-sec sub">{row.branch}</div>}
               </td>
