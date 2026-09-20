@@ -111,3 +111,49 @@ test('без кита окно объясняет и ведёт в «Настр�
   await expect(dialog).toBeHidden()
   await expect(page.getByRole('heading', { name: 'Настройки', level: 2 })).toBeVisible()
 })
+
+test('у копии, которая и основная, и только что заведена, плашки стоят подряд', async ({ page }) => {
+  let created = false
+  await page.route('**/api/workspaces', async (route) => {
+    if (route.request().method() === 'POST') {
+      created = true
+      await route.fulfill({ status: 200, json: { name: 'quiet-cedar' } })
+      return
+    }
+    // Заведённой копии дан признак основной: только так обе плашки встают в одной строке разом.
+    // У источника его в этом ответе нет: двух основных копий у проекта не бывает
+    await route.fulfill({
+      json: created ? [{ ...row, copiesDir: null }, { ...createdRow, copiesDir: 'D:\\Projects' }] : [row],
+    })
+  })
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Новая копия' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Новая рабочая копия' })
+  await dialog.getByLabel(/Имя копии/).fill('quiet-cedar')
+  await dialog.getByRole('button', { name: 'Завести копию' }).click()
+
+  const fresh = page.getByRole('table').locator('tbody tr.row-fresh')
+  const cell = fresh.getByRole('cell').first()
+  await expect(cell.getByText('новая')).toBeVisible()
+  await expect(cell.getByText('Основная')).toBeVisible()
+
+  // Плашки стоят подряд и не наезжают: просвет между ними тот же, что между именем копии и первой.
+  // Замер повторяется: первая отрисовка идёт запасной гарнитурой, и границы потом сдвигаются
+  await expect(async () => {
+    const [nameRight, newBox, mainBox] = await Promise.all([
+      cell.evaluate((node) => {
+        const name = [...node.querySelector('.proj')!.childNodes].find((child) => child.nodeType === Node.TEXT_NODE)!
+        const range = node.ownerDocument.createRange()
+        range.selectNode(name)
+        return range.getBoundingClientRect().right
+      }),
+      cell.getByText('новая').boundingBox(),
+      cell.getByText('Основная').boundingBox(),
+    ])
+    const beforeFirst = newBox!.x - nameRight
+    const between = mainBox!.x - (newBox!.x + newBox!.width)
+    expect(between).toBeGreaterThan(0)
+    expect(between).toBeCloseTo(beforeFirst, 0)
+  }).toPass()
+})

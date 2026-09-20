@@ -166,3 +166,56 @@ for (const colorScheme of ['light', 'dark'] as const) {
     }
   })
 }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`основная копия проекта отмечена плашкой, и только она (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    const main = { ...rows[2], path: 'D:\\Projects\\agents-kit-web', copiesDir: 'D:\\Projects' }
+    await page.route('**/api/workspaces', (route) => route.fulfill({ json: [main, rows[1]] }))
+    await page.goto('/')
+
+    const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
+    await expect(bodyRows).toHaveCount(2)
+    const tag = bodyRows.nth(0).getByText('Основная')
+    await expect(tag).toBeVisible()
+    await expect(bodyRows.nth(1).getByText('Основная')).toHaveCount(0)
+
+    // Плашка читается в обеих темах: своя заливка, рамка и цвет текста, отличный от фона
+    await expect(tag).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(tag).toHaveCSS('border-top-width', '1px')
+    const [color, background] = await tag.evaluate((node) => {
+      const style = getComputedStyle(node)
+      return [style.color, style.backgroundColor]
+    })
+    expect(color).not.toBe(background)
+
+    // Плашка приглушённая: её заливка не та, которой отмечают только что заведённую копию
+    const freshBackground = await tag.evaluate((node) => {
+      const probe = node.ownerDocument.createElement('span')
+      probe.className = 'new-tag'
+      node.parentElement!.append(probe)
+      const value = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return value
+    })
+    expect(background).not.toBe(freshBackground)
+
+    // Плашка стоит в одной ячейке с именем копии, правее самого имени.
+    // Замер повторяется: первая отрисовка идёт запасной гарнитурой, и границы потом сдвигаются
+    const cell = bodyRows.nth(0).getByRole('cell').first()
+    await expect(async () => {
+      const [cellBox, tagBox, nameRight] = await Promise.all([
+        cell.boundingBox(),
+        tag.boundingBox(),
+        cell.evaluate((node) => {
+          const name = [...node.querySelector('.proj')!.childNodes].find((child) => child.nodeType === Node.TEXT_NODE)!
+          const range = node.ownerDocument.createRange()
+          range.selectNode(name)
+          return range.getBoundingClientRect().right
+        }),
+      ])
+      expect(tagBox!.x).toBeGreaterThanOrEqual(nameRight)
+      expect(tagBox!.x + tagBox!.width).toBeLessThanOrEqual(cellBox!.x + cellBox!.width)
+    }).toPass()
+  })
+}
