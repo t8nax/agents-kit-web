@@ -3,7 +3,6 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { useAgentRequest } from './agentRequest'
 import type { FlowStep } from './Flow'
 import { flowChanges, type FlowChange, type FlowFieldName } from './flowChanges'
-import { shownName } from './performerName'
 import './AskModal.css'
 import './FlowRewriteModal.css'
 
@@ -16,7 +15,6 @@ type Props = {
   base: string
   project: string
   /** Приставка проекта: имена исполнителей и здесь видны без неё — как на схеме рядом. */
-  prefix: string
   /** Шаги флоу, какими их сейчас видит раздел: с ними сравнивается переписанное. */
   steps: FlowStep[]
   /** Отпечаток файла, с которого читал раздел: агент переписывал его же. */
@@ -48,7 +46,7 @@ const kindLabels: Record<FlowChange['kind'], string> = {
   same: 'без правок',
 }
 
-export default function FlowRewriteModal({ base, project, prefix, steps, version, onApply, onClose }: Props) {
+export default function FlowRewriteModal({ base, project, steps, version, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
   // Описание шага читается своим окном поверх разбора: в строке шага стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
@@ -202,7 +200,6 @@ export default function FlowRewriteModal({ base, project, prefix, steps, version
                 <Change
                   key={`${change.kind}-${change.title}-${change.at}-${change.from}`}
                   change={change}
-                  prefix={prefix}
                   onDescription={setDescription}
                 />
               ))}
@@ -308,11 +305,9 @@ export default function FlowRewriteModal({ base, project, prefix, steps, version
 
 function Change({
   change,
-  prefix,
   onDescription,
 }: {
   change: FlowChange
-  prefix: string
   onDescription: (description: { title: string; text: string }) => void
 }) {
   const step = change.step
@@ -331,7 +326,7 @@ function Change({
       {change.kind === 'added' && step && (
         <dl className="rewrite-fields">
           <dt>исполнитель</dt>
-          <dd>{shownName(prefix, step.executor)}</dd>
+          <dd>{step.executor}</dd>
           <dt>выход</dt>
           <dd>{step.output}</dd>
           {step.skip && (
@@ -343,7 +338,7 @@ function Change({
           {step.helpers && step.helpers.length > 0 && (
             <>
               <dt>помощники</dt>
-              <dd>{step.helpers.map((name) => shownName(prefix, name)).join(', ')}</dd>
+              <dd>{step.helpers.join(', ')}</dd>
             </>
           )}
           {step.returns?.map((back) => (

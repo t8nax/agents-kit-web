@@ -3,8 +3,8 @@ import PerformerModal from './PerformerModal'
 import './Performers.css'
 
 /**
- * Исполнитель — субагент Claude Code. Файл у него один на машину, поэтому ни копий, ни расхождений
- * между ними в строке нет. path — файл, из которого взяты поля.
+ * Исполнитель — субагент проекта: файл в его базе знаний. По рабочим копиям его развозит панель
+ * сама, поэтому состояния копий в строке нет. path — файл базы, из которого взяты поля.
  */
 export type Performer = {
   name: string
@@ -15,11 +15,10 @@ export type Performer = {
   path: string
 }
 
-/** Исполнители одного проекта: prefix — приставка его имён, directory — каталог их файлов. */
+/** Исполнители одного проекта: directory — каталог их файлов в базе. */
 export type BasePerformers = {
   base: string
   project: string
-  prefix: string
   directory: string
   performers: Performer[]
   error: string | null
@@ -31,8 +30,8 @@ type Load =
   | { kind: 'loaded'; bases: BasePerformers[] }
 
 /**
- * Раздел «Исполнители»: субагенты проектов панели. Файл у исполнителя один на машину, и проекту он
- * принадлежит приставкой в имени — по ней же его и фильтруют чипы, где рядом стоит «Все».
+ * Раздел «Исполнители»: субагенты проектов панели. Строка — файл базы, поэтому в списке видны и те,
+ * кого завели в базе помимо панели; проекты фильтруют чипы, где рядом стоит «Все».
  * draftFor — база просьбы, к которой вернулся оператор: окно исполнителя открывается сразу на ней.
  */
 export default function Performers({ draftFor = null }: { draftFor?: string | null } = {}) {
@@ -42,6 +41,8 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
   const [editing, setEditing] = useState<{ performer: Performer | null; base: BasePerformers | undefined } | null>(null)
   // Только что записанные, именем: отмечены в списке до следующего чтения раздела.
   const [fresh, setFresh] = useState<Set<string>>(() => new Set())
+  // Последний записанный: о нём раздел говорит строкой — звать его можно со следующей сессии.
+  const [saved, setSaved] = useState<string | null>(null)
   // Окно просьбы открывается само один раз: оператор вернулся к ней из шапки, а не открыл раздел.
   const opened = useRef(false)
 
@@ -108,7 +109,7 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
 
       {bases.length > 1 && (
         <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
-          {/* Исполнитель принадлежит машине, а проекту — приставкой в имени: «Все» показывает их разом. */}
+          {/* Исполнитель принадлежит проекту своей базой: «Все» показывает исполнителей всех баз. */}
           <button
             type="button"
             className={`chip ${project === null ? 'active' : ''}`}
@@ -129,6 +130,12 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
             </button>
           ))}
         </div>
+      )}
+
+      {saved && (
+        <p className="message performer-saved" role="status">
+          {saved} записан. Звать его можно со следующей сессии.
+        </p>
       )}
 
       {load.kind === 'loaded' && bases.length > 0 && (
@@ -166,6 +173,7 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
           onSaved={(name) => {
             setEditing(null)
             setFresh((prev) => new Set([...prev, name]))
+            setSaved(name)
             loadPerformers()
           }}
         />
@@ -193,7 +201,7 @@ function PerformerRow({
       <div className="performer-body">
         <div className="performer-title">
           <span className="performer-name">{performer.name}</span>
-          {/* Проект у строки — это приставка в имени файла; саму приставку панель не показывает. */}
+          {/* Проект у строки — та база, в которой лежит файл исполнителя. */}
           <span className="performer-source">{project}</span>
           {fresh && <span className="performer-fresh-mark">записан</span>}
         </div>
