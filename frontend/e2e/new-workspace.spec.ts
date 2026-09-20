@@ -120,8 +120,11 @@ test('у копии, которая и основная, и только что 
       await route.fulfill({ status: 200, json: { name: 'quiet-cedar' } })
       return
     }
-    // Заведённой копии дан признак основной: только так обе плашки встают в одной строке разом
-    await route.fulfill({ json: created ? [row, { ...createdRow, copiesDir: 'D:\\Projects' }] : [row] })
+    // Заведённой копии дан признак основной: только так обе плашки встают в одной строке разом.
+    // У источника его в этом ответе нет: двух основных копий у проекта не бывает
+    await route.fulfill({
+      json: created ? [{ ...row, copiesDir: null }, { ...createdRow, copiesDir: 'D:\\Projects' }] : [row],
+    })
   })
   await page.goto('/')
 
