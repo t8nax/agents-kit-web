@@ -364,13 +364,16 @@ test('«Удалить копию» стоит у свободной копии,
 
 test('плашка «Основная» стоит у основной копии проекта и только у неё', async () => {
   const main: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\app-main', status: 'free', copiesDir: 'D:\\Projects' }
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, main]), { status: 200 })))
+  // У второго проекта копия одна, и она же основная: плашка стоит и там — решение оператора на B-133
+  const lone: WorkspaceRow = { ...otherBase, copiesDir: 'D:\\Projects' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, main, lone]), { status: 200 })))
 
   render(<App />)
   const tableRows = await findTableRows()
 
   expect(within(tableRows[4]).getByText('Основная')).toBeInTheDocument()
   expect(within(tableRows[2]).queryByText('Основная')).toBeNull()
+  expect(within(tableRows[5]).getByText('Основная')).toBeInTheDocument()
 })
 
 test('удаление копии открывает окно, а после удачи таблица перечитывается и гаснет сообщение', async () => {
