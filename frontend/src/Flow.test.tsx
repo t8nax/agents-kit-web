@@ -544,7 +544,20 @@ test('отказ чтения исполнителей не метит шаги 
   // Список не прочитан — судить о шагах не по чему, и сохранение запирать нечем
   const drawer = await openStep(region, 'Шаг 2: Ревью')
   expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
-  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+
+  // Причина названа, а имя из файла видно: выбирать не из чего, но шаг не выглядит пустым
+  expect(await screen.findByText(/Список исполнителей не прочитан/)).toBeInTheDocument()
+  expect(drawer.getByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue('reviewer')
+})
+
+test('помощник, выписанный не у оркестратора, сохранению не мешает', async () => {
+  // Кит такого не ждёт вовсе, и поля помощников у такого шага в панели нет — убрать его было бы негде
+  const steps = [criterion, { ...review, helpers: ['doc-writer'] }, acceptance]
+  stubApi(api([withPerformers(steps)], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
+  const region = await renderFlow()
+  await openStep(region, 'Шаг 2: Ревью')
+
   expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
 })
 

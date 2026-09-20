@@ -112,7 +112,9 @@ function stepErrors(draft: DraftStep, steps: DraftStep[] = [], index = -1, known
   // Исполнителя, которого нет в базе, агент не позовёт: с таким именем флоу не сохраняется.
   if (missingPerformer(draft, known)) errors.push('исполнителя нет в базе')
   // То же и с помощниками: их зовёт оркестратор внутри своего шага, и незаведённого он не найдёт.
-  if (known !== null && draft.helpers.some((name) => name.trim() && !known.includes(name.trim())))
+  // Только у него: у прочих шагов поля помощников нет, и убрать выписанного руками было бы негде.
+  if (draft.kind === 'оркестратор' && known !== null
+      && draft.helpers.some((name) => name.trim() && !known.includes(name.trim())))
     errors.push('помощника нет в базе')
   if (!draft.output.trim()) errors.push('не указан выход')
   for (const back of draft.returns) {
@@ -211,6 +213,8 @@ export default function Flow({
   const [presets, setPresets] = useState<StepPreset[]>([])
   // Заведённые в базах исполнители: из них шагу и выбирают субагента. null — ещё не прочитаны.
   const [performers, setPerformers] = useState<BasePerformers[] | null>(null)
+  // Список не прочитан: шаги не метятся и запись не запирается, но сказать об этом оператору надо.
+  const [performersFailed, setPerformersFailed] = useState(false)
   // Правки поверх прочитанного файла: ключ — база и её отпечаток, поэтому правки чужого
   // или перечитанного флоу не всплывают.
   const [edits, setEdits] = useState<{ key: string; steps: DraftStep[] } | null>(null)
@@ -257,8 +261,8 @@ export default function Flow({
     fetch('/api/performers')
       .then((response) => (response.ok ? (response.json() as Promise<BasePerformers[]>) : null))
       .then(
-        (bases) => bases !== null && setPerformers(bases),
-        () => {},
+        (bases) => (bases === null ? setPerformersFailed(true) : setPerformers(bases)),
+        () => setPerformersFailed(true),
       )
   }, [])
 
@@ -451,6 +455,12 @@ export default function Flow({
       {notice && (
         <p className={`message ${notice.kind === 'done' ? 'flow-done' : 'warning-text'}`} role="status">
           {notice.text}
+        </p>
+      )}
+      {/* Без списка исполнителей шаги не помечаются и запись не запирается — сказать, отчего так. */}
+      {performersFailed && (
+        <p className="message warning-text" role="status">
+          Список исполнителей не прочитан: имена шагов панель не проверяет, пока раздел не откроют заново.
         </p>
       )}
 
@@ -797,6 +807,9 @@ function PerformerField({
 }) {
   const agent = step.agent.trim()
   const missing = missingPerformer(step, known)
+  // Список не прочитан — выбирать не из чего, но имя из файла показать надо: иначе поле пустое,
+  // а на схеме исполнитель есть.
+  const unread = known === null && agent.length > 0
 
   return (
     <div className="flow-field">
@@ -813,6 +826,7 @@ function PerformerField({
         }}
       >
         {agent === '' && <option value="">выберите исполнителя</option>}
+        {unread && <option value={agent}>{agent}</option>}
         {missing && <option value={MISSING_AGENT}>{agent} — в базе нет</option>}
         {(known ?? []).map((name) => (
           <option key={name} value={name}>

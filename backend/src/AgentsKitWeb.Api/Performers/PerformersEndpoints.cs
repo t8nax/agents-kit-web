@@ -88,9 +88,12 @@ public static class PerformersEndpoints
 
             // Имя в базе занято: молча переписать чужого исполнителя панель не станет. Своего же,
             // которого сейчас правят, она переписывает — за этим правку и открыли.
-            var taken = known.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal))
-                || (File.Exists(file) && !string.Equals(file, was, StringComparison.OrdinalIgnoreCase));
-            if (taken && !editingSame)
+            if (!editingSame && known.Any(p => string.Equals(p.Name, name, StringComparison.Ordinal)))
+                return Results.Conflict(new PerformerRejectedResponse("name-taken"));
+
+            // Файл с таким именем есть, а правят не его: так бывает, когда у файла базы имя внутри
+            // разошлось с именем файла. Переписать его — потерять чужую работу в чужом репозитории.
+            if (File.Exists(file) && was is not null && !string.Equals(file, was, StringComparison.OrdinalIgnoreCase))
                 return Results.Conflict(new PerformerRejectedResponse("name-taken"));
 
             // Имя занято файлом самого проекта: такой файл кит не трогает, и в копию исполнитель
@@ -142,8 +145,7 @@ public static class PerformersEndpoints
                 // Иначе база осталась бы с незакоммиченным исполнителем, а он уехал бы в чужой
                 // коммит соседней сессии: вернуть всё как было и показать, что сказал git.
                 Remove(file);
-                if (kept is not null)
-                    await File.WriteAllTextAsync(prior ?? file, kept, cancellationToken);
+                await RestoreAsync(prior ?? file, kept, cancellationToken);
                 await BaseGit.ResetFilesAsync(basePath, paths, cancellationToken);
                 return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
             }
@@ -164,6 +166,21 @@ public static class PerformersEndpoints
             return new BasePerformers(basePath, project, directory, [], "База не найдена на диске");
 
         return new BasePerformers(basePath, project, directory, PerformerList.OfProject(basePath), null);
+    }
+
+    /// <summary>Возвращает прежнее содержимое на место; не вышло — файла нет, и об этом скажет сверка базы.</summary>
+    private static async Task RestoreAsync(string file, string? kept, CancellationToken cancellationToken)
+    {
+        if (kept is null)
+            return;
+        try
+        {
+            await File.WriteAllTextAsync(file, kept, cancellationToken);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // Отказ записи при откате: показать оператору нужно всё равно то, что сказал git.
+        }
     }
 
     /// <summary>Прежнее содержимое файла базы; файла нет — null, и откат просто уберёт написанное.</summary>
