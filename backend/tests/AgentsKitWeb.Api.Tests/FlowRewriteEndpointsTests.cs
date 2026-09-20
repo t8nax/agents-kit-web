@@ -139,7 +139,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
             исполнитель: оркестратор
             выход: sha в dev
-            возврат: проверки красные — шаг «Критерий»
+            возврат: проверки красные — стадия «Критерий»
 
             """;
         _agent.Lines = [Result(answer.ReplaceLineEndings("\n"))];
