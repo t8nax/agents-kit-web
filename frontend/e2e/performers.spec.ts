@@ -20,33 +20,37 @@ const reviewer: Performer = {
   path: `${agents}\\reviewer.md`,
 }
 
+/** Ещё трое: четырёх хватает, чтобы увидеть, что карточки стоят по три в ряд. */
+const others: Performer[] = ['designer', 'test-runner', 'code-reader'].map((name) => ({
+  name,
+  description: `${name} делает своё дело.`,
+  model: null,
+  tools: null,
+  prompt: `Ты ${name}.`,
+  path: `${agents}\\${name}.md`,
+}))
+
 /**
- * /api подменяется: прогон работает с живыми базами оператора, и заведение исполнителя записало бы
- * файл в живую базу знаний и закоммитило бы его туда.
+ * /api подменяется: прогон работает с живыми базами оператора, и запись исполнителя положила бы
+ * файл в живую базу знаний и закоммитила бы его туда.
  */
 async function mockApi(page: Page, options: { taken?: boolean } = {}) {
   const saved: unknown[] = []
-  let performers: Performer[] = [reviewer]
+  let performers: Performer[] = [reviewer, ...others]
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/agent/requests', (route) => route.fulfill({ json: [] }))
 
   await page.route('**/api/performers', (route) => {
     if (route.request().method() === 'POST') {
-      const request = route.request().postDataJSON() as Performer
-      if (options.taken)
-        return route.fulfill({ status: 409, json: { problem: 'name-taken' } })
+      const request = route.request().postDataJSON() as Performer & { editing: string | null }
+      if (options.taken) return route.fulfill({ status: 409, json: { problem: 'name-taken' } })
       saved.push(request)
-      performers = [
-        ...performers,
-        {
-          name: request.name,
-          description: request.description,
-          model: request.model,
-          tools: request.tools,
-          prompt: request.prompt,
-          path: `${agents}\\${request.name}.md`,
-        },
-      ]
+      performers = performers.map((p) =>
+        p.name === request.editing
+          ? { ...p, description: request.description, model: request.model, tools: request.tools, prompt: request.prompt }
+          : p,
+      )
       return route.fulfill({ json: { path: `${agents}\\${request.name}.md` } })
     }
     return route.fulfill({
@@ -70,74 +74,86 @@ async function openPerformers(page: Page) {
   await expect(page.getByRole('heading', { name: 'Исполнители', level: 2 })).toBeVisible()
 }
 
-test('раздел показывает исполнителей проекта, и править даёт каждого', async ({ page }) => {
+const card = (page: Page, name: string) => page.getByRole('button', { name: `${name}, Agents Kit Web` })
+
+test('исполнители стоят карточками по три в ряд, без пути, инструментов и «Править»', async ({ page }) => {
   await mockApi(page)
   await openPerformers(page)
 
-  await expect(page.getByText('reviewer', { exact: true })).toBeVisible()
-  await expect(page.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeVisible()
-  await expect(page.getByText(`${agents}\\reviewer.md`)).toBeVisible()
+  await expect(card(page, 'reviewer')).toBeVisible()
+  await expect(card(page, 'reviewer')).toContainText('Читает дифф ветки задачи и возвращает вердикт.')
+  await expect(card(page, 'reviewer')).toContainText('opus')
+  await expect(page.getByText(`${agents}\\reviewer.md`)).toHaveCount(0)
+  await expect(page.getByText('Read, Glob, Grep')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Править' })).toHaveCount(0)
 
-  await expect(page.getByRole('button', { name: 'Править' })).toBeEnabled()
+  // Первые три карточки — один ряд, четвёртая уходит на следующий. Замер повторяется, пока грузится шрифт.
+  await expect(async () => {
+    const [a, b, c, d] = await Promise.all(
+      ['reviewer', 'designer', 'test-runner', 'code-reader'].map(async (name) => (await card(page, name).boundingBox())!.y),
+    )
+    expect(b).toBe(a)
+    expect(c).toBe(a)
+    expect(d).toBeGreaterThan(a)
+  }).toPass()
 })
 
-test('исполнитель заводится окном и ложится в базу проекта', async ({ page }) => {
+test('клик по карточке открывает окно, где правятся модель и инструменты', async ({ page }) => {
   const { saved } = await mockApi(page)
   await openPerformers(page)
 
-  await page.getByRole('button', { name: 'Новый исполнитель' }).click()
-  const modal = page.getByRole('dialog')
-  await modal.getByLabel('Имя').fill('e2e-runner')
-  await modal.getByLabel(/Описание/).fill('Прогоняет e2e затронутых экранов.')
-  await modal.getByLabel('Задание').fill('Поднимаешь панель и прогоняешь e2e.')
+  await card(page, 'reviewer').click()
+  const modal = page.getByRole('dialog', { name: 'reviewer' })
+  await expect(modal).toBeVisible()
+  await expect(modal.getByLabel('Описание')).toHaveText('Читает дифф ветки задачи и возвращает вердикт.')
 
-  // Копию в окне не выбирают: путь файла виден до сохранения и ведёт в базу проекта.
-  await expect(modal.getByLabel('Копия')).toHaveCount(0)
-  await expect(modal.getByText(`${agents}\\e2e-runner.md`)).toBeVisible()
-
+  await modal.getByLabel('Модель').selectOption('haiku')
+  await modal.getByRole('button', { name: 'Только чтение' }).click()
   await modal.getByRole('button', { name: 'Сохранить' }).click()
 
   await expect(page.getByRole('dialog')).toHaveCount(0)
-  await expect(page.getByText('e2e-runner', { exact: true })).toBeVisible()
-  await expect(page.getByText('записан', { exact: true })).toBeVisible()
   // Про перенос по копиям панель молчит: единственное, что она говорит, — с какой сессии звать
-  await expect(page.getByText('e2e-runner записан. Звать его можно со следующей сессии.')).toBeVisible()
+  await expect(page.getByText('reviewer записан. Звать его можно со следующей сессии.')).toBeVisible()
+  await expect(card(page, 'reviewer')).toContainText('записан')
   expect(saved).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
-      name: 'e2e-runner',
-      description: 'Прогоняет e2e затронутых экранов.',
-      model: null,
+      name: 'reviewer',
+      description: 'Читает дифф ветки задачи и возвращает вердикт.',
+      model: 'haiku',
       tools: null,
-      prompt: 'Поднимаешь панель и прогоняешь e2e.',
-      editing: null,
+      prompt: 'Ты читаешь дифф ветки целиком.',
+      editing: 'reviewer',
     },
   ])
 })
 
-test('занятое имя названо до записи, и сохранить его нельзя', async ({ page }) => {
+test('задание открывается своим окном только для чтения', async ({ page }) => {
   await mockApi(page)
   await openPerformers(page)
 
-  await page.getByRole('button', { name: 'Новый исполнитель' }).click()
-  const modal = page.getByRole('dialog')
-  await modal.getByLabel('Имя').fill('reviewer')
+  await card(page, 'reviewer').click()
+  await page.getByRole('dialog', { name: 'reviewer' }).getByRole('button', { name: 'Показать задание' }).click()
 
-  await expect(modal.getByRole('status')).toContainText('уже есть')
-  await expect(modal.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  const task = page.getByRole('dialog', { name: /Задание/ })
+  await expect(task.getByText('Ты читаешь дифф ветки целиком.')).toBeVisible()
+  await expect(task.getByRole('textbox')).toHaveCount(0)
+
+  // Escape закрывает верхнее окно, а окно исполнителя остаётся.
+  await page.keyboard.press('Escape')
+  await expect(task).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'reviewer' })).toBeVisible()
 })
 
-test('отказ записи виден дословно, а набранное остаётся в окне', async ({ page }) => {
+test('отказ записи виден словами, а окно остаётся открытым', async ({ page }) => {
   await mockApi(page, { taken: true })
   await openPerformers(page)
 
-  await page.getByRole('button', { name: 'Новый исполнитель' }).click()
-  const modal = page.getByRole('dialog')
-  await modal.getByLabel('Имя').fill('e2e-runner')
-  await modal.getByLabel('Задание').fill('Поднимаешь панель.')
+  await card(page, 'reviewer').click()
+  const modal = page.getByRole('dialog', { name: 'reviewer' })
+  await modal.getByLabel('Модель').selectOption('sonnet')
   await modal.getByRole('button', { name: 'Сохранить' }).click()
 
   await expect(modal.getByRole('alert')).toContainText('уже есть')
-  await expect(modal.getByLabel('Имя')).toHaveValue('e2e-runner')
-  await expect(modal.getByLabel('Задание')).toHaveValue('Поднимаешь панель.')
+  await expect(modal.getByLabel('Модель')).toHaveValue('sonnet')
 })
