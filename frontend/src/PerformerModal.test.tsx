@@ -160,6 +160,20 @@ test('правка модели и инструментов записывает
   })
 })
 
+test('у заведённого с пустым заданием модель и инструменты всё равно сохраняются', async () => {
+  const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
+  const onSaved = open({ ...reviewer, description: null, prompt: '' })
+
+  // Файл завели в базе руками, без тела: основа видна прочерками, а сохранение не заперто.
+  expect(screen.getByLabelText('Описание')).toHaveTextContent('—')
+  expect(screen.queryByRole('button', { name: 'Показать задание' })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'sonnet' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('reviewer'))
+  expect(saved(fetchMock)).toMatchObject({ model: 'sonnet', prompt: '', description: null })
+})
+
 test('задание открывается кнопкой в окне только для чтения', () => {
   stubSave(() => Response.json({ path: 'x' }))
   open(reviewer)

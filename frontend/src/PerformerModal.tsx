@@ -114,8 +114,9 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         ? 'taken'
         : 'idle'
   const asked = draft.asked || wish.trim()
-  // Основа есть, когда её написал агент или исполнитель уже заведён: без задания исполнителя не записать.
-  const hasBasis = prompt.trim().length > 0
+  // Основа есть, когда её написал агент или исполнитель уже заведён. Нового без задания не записать,
+  // а у заведённого модель и инструменты правятся, даже если задание в его файле пустое.
+  const hasBasis = editing !== null || prompt.trim().length > 0
 
   const ask = useCallback(
     async (text: string) => {
@@ -392,10 +393,14 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               </div>
               <div className="pf-row">
                 <span className="pf-label">Задание</span>
-                <button type="button" className="btn pf-small" onClick={() => setReading(true)}>
-                  <FileIcon />
-                  Показать задание
-                </button>
+                {prompt.trim() ? (
+                  <button type="button" className="btn pf-small" onClick={() => setReading(true)}>
+                    <FileIcon />
+                    Показать задание
+                  </button>
+                ) : (
+                  <span className="pf-text">—</span>
+                )}
               </div>
             </div>
           )}
