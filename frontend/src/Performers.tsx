@@ -139,7 +139,7 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
       )}
 
       {load.kind === 'loaded' && bases.length > 0 && (
-        <div className="performer-list">
+        <>
           {errors.map((base) => (
             <p className="message warning-text" key={base.base} role="alert">
               {base.project}: {base.error}
@@ -152,16 +152,20 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
                 : `У проекта «${shown[0]?.project ?? ''}» исполнителей нет. Заводятся кнопкой «Новый исполнитель».`}
             </p>
           )}
-          {rows.map(({ base, performer }) => (
-            <PerformerRow
-              key={`${base.base}|${performer.name}`}
-              performer={performer}
-              project={base.project}
-              fresh={fresh.has(performer.name)}
-              onEdit={() => setEditing({ performer, base })}
-            />
-          ))}
-        </div>
+          {rows.length > 0 && (
+            <div className="performer-grid">
+              {rows.map(({ base, performer }) => (
+                <PerformerCard
+                  key={`${base.base}|${performer.name}`}
+                  performer={performer}
+                  project={base.project}
+                  fresh={fresh.has(performer.name)}
+                  onEdit={() => setEditing({ performer, base })}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {editing && editing.base && (
@@ -182,7 +186,11 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
   )
 }
 
-function PerformerRow({
+/**
+ * Карточка исполнителя: имя, проект, описание в две строки и модель — остальное живёт в окне,
+ * которое открывает клик по карточке (B-80: в прежней строке было слишком много всего).
+ */
+function PerformerCard({
   performer,
   project,
   fresh,
@@ -194,28 +202,26 @@ function PerformerRow({
   onEdit: () => void
 }) {
   return (
-    <div className={`performer ${fresh ? 'performer-fresh' : ''}`}>
-      <span className="performer-mark" aria-hidden="true">
-        <PerformerIcon />
+    <button
+      type="button"
+      className={`performer-card ${fresh ? 'performer-fresh' : ''}`}
+      aria-label={`${performer.name}, ${project}`}
+      onClick={onEdit}
+    >
+      <span className="performer-top">
+        <span className="performer-mark" aria-hidden="true">
+          <PerformerIcon />
+        </span>
+        <span className="performer-name">{performer.name}</span>
+        {/* Проект у карточки — та база, в которой лежит файл исполнителя. */}
+        <span className="performer-source">{project}</span>
       </span>
-      <div className="performer-body">
-        <div className="performer-title">
-          <span className="performer-name">{performer.name}</span>
-          {/* Проект у строки — та база, в которой лежит файл исполнителя. */}
-          <span className="performer-source">{project}</span>
-          {fresh && <span className="performer-fresh-mark">записан</span>}
-        </div>
-        {performer.description && <p className="performer-desc">{performer.description}</p>}
-        <span className="performer-path">{performer.path}</span>
-      </div>
-      <div className="performer-end">
+      {performer.description && <span className="performer-desc">{performer.description}</span>}
+      <span className="performer-foot">
         {performer.model && <span className="performer-badge">{performer.model}</span>}
-        <span className="performer-badge">{performer.tools ?? 'все инструменты'}</span>
-        <button type="button" className="bases-btn" onClick={onEdit}>
-          Править
-        </button>
-      </div>
-    </div>
+        {fresh && <span className="performer-fresh-mark">записан</span>}
+      </span>
+    </button>
   )
 }
 

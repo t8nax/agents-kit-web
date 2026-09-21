@@ -47,7 +47,7 @@ function stubFetch(...responses: BasePerformers[][]) {
   return fetchMock
 }
 
-test('показывает исполнителя именем, описанием и путём файла в базе', async () => {
+test('карточка показывает имя, описание и модель, а путь файла и инструменты — нет', async () => {
   const fetchMock = stubFetch(bases)
 
   render(<Performers />)
@@ -55,9 +55,11 @@ test('показывает исполнителя именем, описание
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/api/performers')
   expect(screen.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeInTheDocument()
-  expect(screen.getByText('D:\\Projects\\app-knowledge\\agents\\reviewer.md')).toBeInTheDocument()
   expect(screen.getByText('opus')).toBeInTheDocument()
-  expect(screen.getByText('Read, Glob, Grep')).toBeInTheDocument()
+  // Путь и инструменты живут в окне исполнителя: в карточке их нет (B-80).
+  expect(screen.queryByText('D:\\Projects\\app-knowledge\\agents\\reviewer.md')).not.toBeInTheDocument()
+  expect(screen.queryByText('Read, Glob, Grep')).not.toBeInTheDocument()
+  expect(screen.queryByText('все инструменты')).not.toBeInTheDocument()
 })
 
 test('«Все» показывает исполнителей всех проектов, и каждый назван своим', async () => {
@@ -74,14 +76,19 @@ test('«Все» показывает исполнителей всех прое
   expect(screen.getByRole('button', { name: 'Все' })).toHaveAttribute('aria-pressed', 'true')
 })
 
-test('править панель даёт каждого исполнителя списка', async () => {
-  stubFetch(bases)
+test('кнопки «Править» нет: окно исполнителя открывает клик по карточке', async () => {
+  // Открытое окно само спрашивает API о просьбах к агенту: им хватает пустого списка.
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
 
   render(<Performers />)
 
-  const buttons = await screen.findAllByRole('button', { name: 'Править' })
-  expect(buttons).toHaveLength(2)
-  for (const button of buttons) expect(button).toBeEnabled()
+  const card = await screen.findByRole('button', { name: 'spec-writer, Nota' })
+  expect(screen.getByRole('button', { name: 'reviewer, Agents Kit Web' })).toBeEnabled()
+  expect(screen.queryByRole('button', { name: 'Править' })).not.toBeInTheDocument()
+
+  fireEvent.click(card)
+
+  expect(await screen.findByRole('dialog')).toHaveTextContent('spec-writer')
 })
 
 test('чипы переключают проект, и список меняется', async () => {
