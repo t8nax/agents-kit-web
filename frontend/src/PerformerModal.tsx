@@ -540,7 +540,14 @@ function TaskView({ name, prompt, onClose }: { name: string; prompt: string; onC
           <div className="ask-title">
             <FileIcon />
             <h2 id="pf-task-title">
-              Задание <span className="pf-title-name">{name}</span>
+              {/* Имя нового могли стереть в поле: заголовок тогда говорит просто о задании исполнителя. */}
+              {name ? (
+                <>
+                  Задание <span className="pf-title-name">{name}</span>
+                </>
+              ) : (
+                'Задание исполнителя'
+              )}
             </h2>
             <button type="button" className="btn btn-icon" aria-label="Закрыть задание" onClick={onClose}>
               <svg viewBox="0 0 24 24" aria-hidden="true">

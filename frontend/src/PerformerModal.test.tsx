@@ -291,6 +291,17 @@ test('модель и инструменты, выбранные до ответ
   expect(screen.getByRole('button', { name: 'Только чтение' })).toHaveAttribute('aria-pressed', 'true')
 })
 
+test('окно задания нового со стёртым именем озаглавлено без пустого места', async () => {
+  const { stream } = stubSave(() => Response.json({ path: 'x' }))
+  open()
+  await drafted(stream)
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: '' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+
+  expect(screen.getByRole('dialog', { name: 'Задание исполнителя' })).toBeInTheDocument()
+})
+
 test('имя, занятое у проекта, окно бережёт и не даёт сохранить', async () => {
   const { stream } = stubSave(() => Response.json({ path: 'x' }))
   open()
