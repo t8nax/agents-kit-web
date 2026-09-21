@@ -5,6 +5,7 @@ import './Flow.css'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
 import type { BasePerformers } from './Performers'
 import { plural } from './plural'
+import RowMenu from './RowMenu'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /** Возврат шага: при condition работа идёт заново к шагу step, который стоит во флоу раньше. */
@@ -389,36 +390,8 @@ export default function Flow({
               Не сохранить: стадия {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad, known).join(', ')}
             </span>
           )}
-          <button
-            type="button"
-            className="bases-btn"
-            onClick={refresh}
-            // Обновление перечитает файл базы: незаписанные правки оно бы стёрло молча.
-            disabled={load.kind === 'loading' || dirty}
-          >
-            <RefreshIcon />
-            Обновить
-          </button>
           {editable && (
             <>
-              <button
-                type="button"
-                className="bases-btn"
-                // Пока правки не сохранены, переписывать нечего: агент работает с файлом базы.
-                disabled={dirty}
-                title={dirty ? 'Сначала сохраните или отмените свои правки' : undefined}
-                onClick={() => {
-                  setNotice(null)
-                  setModal('rewrite')
-                }}
-              >
-                <RewriteIcon />
-                Переписать с {AGENT_NAME}
-              </button>
-              <button type="button" className="btn-code" onClick={() => void openInVsCode(flow.base)}>
-                <VsCodeIcon />
-                Открыть в VS Code
-              </button>
               {dirty && (
                 <button
                   type="button"
@@ -443,6 +416,60 @@ export default function Flow({
               </button>
             </>
           )}
+          {/* Редкие действия — в меню «…»: рядом с надписью «Не сохранить: …» пять кнопок сжимали её
+              в столбик — решение оператора на B-132. */}
+          <RowMenu label="Ещё действия" title="Ещё действия" buttonClassName="bases-btn head-more">
+            {(close) => (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="row-menu-item"
+                  // Обновление перечитает файл базы: незаписанные правки оно бы стёрло молча.
+                  disabled={load.kind === 'loading' || dirty}
+                  onClick={() => {
+                    close()
+                    refresh()
+                  }}
+                >
+                  <RefreshIcon />
+                  Обновить
+                </button>
+                {editable && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="row-menu-item"
+                      // Пока правки не сохранены, переписывать нечего: агент работает с файлом базы.
+                      disabled={dirty}
+                      title={dirty ? 'Сначала сохраните или отмените свои правки' : undefined}
+                      onClick={() => {
+                        close()
+                        setNotice(null)
+                        setModal('rewrite')
+                      }}
+                    >
+                      <RewriteIcon />
+                      Переписать с {AGENT_NAME}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="row-menu-item"
+                      onClick={() => {
+                        close()
+                        void openInVsCode(flow.base)
+                      }}
+                    >
+                      <VsCodeIcon />
+                      Открыть в VS Code
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </RowMenu>
         </div>
       </div>
 

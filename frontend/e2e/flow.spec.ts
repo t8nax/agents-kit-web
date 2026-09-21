@@ -145,10 +145,9 @@ test('флоу открывается схемой блоков: без номе
   expect(Math.abs(block!.x + block!.width / 2 - (arrow!.x + arrow!.width / 2))).toBeLessThan(1)
   expect(Math.abs(block!.x + block!.width / 2 - (add!.x + add!.width / 2))).toBeLessThan(1)
 
-  const vsCode = page.getByRole('button', { name: 'Открыть в VS Code' })
-  // Синий VS Code, как у кнопки перехода в окне ответа
-  await expect(vsCode).toHaveCSS('color', 'rgb(0, 152, 255)')
-  await vsCode.click()
+  // Редкие действия раздела — в меню «…» шапки, как действия строки в таблице копий
+  await page.getByRole('button', { name: 'Ещё действия' }).click()
+  await page.getByRole('menuitem', { name: 'Открыть в VS Code' }).click()
   await expect.poll(() => calls.open).toEqual([{ base: 'D:\\Projects\\app-knowledge' }])
 
   await page.getByRole('button', { name: 'Nota', exact: true }).click()
@@ -219,7 +218,7 @@ test('раздел держится в экране: прокручиваетс�
 
   // Прокрутилась только схема: шапка раздела и сайдбар шага целиком в окне
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toBeInViewport({ ratio: 1 })
-  await expect(page.getByRole('button', { name: 'Открыть в VS Code' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Ещё действия' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('complementary')).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('button', { name: 'Удалить стадию' })).toBeInViewport({ ratio: 1 })
 })
@@ -320,7 +319,14 @@ test('шаг с именем, которого нет в базе, сохран�
 
   const review = region.getByRole('button', { name: 'Стадия 2: Ревью' })
   await expect(review.locator('.flow-node-missing')).toBeVisible()
-  await expect(page.getByText('Не сохранить: стадия 2')).toContainText('исполнителя нет в базе')
+  const blocked = page.getByText('Не сохранить: стадия 2')
+  await expect(blocked).toContainText('исполнителя нет в базе')
+  // Шапка не тесна: надпись стоит одной строкой, а не сжата кнопками в столбик. Шрифт грузится
+  // после первой отрисовки, поэтому замер повторяется до совпадения.
+  await expect(async () => {
+    const fontSize = await blocked.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+    expect((await blocked.boundingBox())!.height).toBeLessThan(fontSize * 2)
+  }).toPass()
   await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled()
 
   await review.click()

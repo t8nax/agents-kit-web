@@ -96,6 +96,13 @@ async function openStep(region: ReturnType<typeof within>, name: string | RegExp
   return within(await screen.findByRole('complementary'))
 }
 
+/** Пункт меню «…» шапки: редкие действия раздела живут в нём, меню открывается по требованию. */
+function moreItem(name: string) {
+  const more = screen.getByRole('button', { name: 'Ещё действия' })
+  if (more.getAttribute('aria-expanded') !== 'true') fireEvent.click(more)
+  return screen.getByRole('menuitem', { name })
+}
+
 const nodes = (region: ReturnType<typeof within>): HTMLElement[] =>
   region
     .getAllByRole('button')
@@ -185,20 +192,22 @@ test('проект выбирается чипами, база без шагов
 })
 
 test('база без файла флоу названа словами, и править её нечего', async () => {
-  stubApi(api([{ ...app, steps: [], version: null, error: 'В базе нет flow.md' }]))
+  stubApi(api([{ ...app, steps: [], icons: {}, version: null, error: 'В базе нет flow.md' }]))
 
   const region = await renderFlow(false)
 
   expect(region.getByText(/В базе нет файла флоу/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Открыть в VS Code' })).not.toBeInTheDocument()
+  // В меню «…» остаётся одно «Обновить»: переписывать и открывать нечего.
+  expect(moreItem('Обновить')).toBeEnabled()
+  expect(screen.getAllByRole('menuitem')).toHaveLength(1)
 })
 
 test('«Открыть в VS Code» просит API открыть флоу этой базы', async () => {
   const fetchMock = stubApi(api([app], [], { 'POST /api/flow/open': () => new Response(null, { status: 204 }) }))
   await renderFlow(false)
 
-  fireEvent.click(screen.getByRole('button', { name: 'Открыть в VS Code' }))
+  fireEvent.click(moreItem('Открыть в VS Code'))
 
   await vi.waitFor(() => expect(body(fetchMock, 'POST /api/flow/open')).toEqual({ base: app.base }))
 })
@@ -214,7 +223,8 @@ test('шаг правится в сайдбаре сразу, без режим�
   expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
   expect(nodes(region)[0]).toHaveTextContent(/^Критерий закрытия/)
   // Пока правки не записаны, флоу другого проекта не откроешь и файл базы не перечитаешь
-  expect(screen.getByRole('button', { name: 'Обновить' })).toBeDisabled()
+  expect(moreItem('Обновить')).toBeDisabled()
+  expect(moreItem('Открыть в VS Code')).toBeEnabled()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
@@ -447,7 +457,7 @@ test('переписанный агентом флоу ложится в схе�
   )
   const region = await renderFlow()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
+  fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
   fireEvent.change(await screen.findByLabelText('Что поменять во флоу'), {
     target: { value: 'Ревью смотрит дифф всей ветки' },
   })
@@ -471,7 +481,7 @@ test('со своими несохранёнными правками переп
   const drawer = await openStep(region, /^Стадия 1: /)
   fireEvent.change(drawer.getByLabelText('выход'), { target: { value: 'критерий и ответ оператора' } })
 
-  expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeDisabled()
+  expect(moreItem('Переписать с Чудо-Юдо')).toBeDisabled()
 })
 
 /**

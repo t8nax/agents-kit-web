@@ -92,7 +92,8 @@ test('оператор просит переписать флоу словами
   )
 
   const region = await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
+  await page.getByRole('button', { name: 'Ещё действия' }).click()
+  await page.getByRole('menuitem', { name: 'Переписать с Чудо-Юдо' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь шаг ревью перед мержем')
@@ -137,7 +138,8 @@ test('отказ оставляет флоу как был, а неудачу а
   )
 
   const region = await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
+  await page.getByRole('button', { name: 'Ещё действия' }).click()
+  await page.getByRole('menuitem', { name: 'Переписать с Чудо-Юдо' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь ревью')
@@ -161,7 +163,8 @@ test('пока агент переписывает, идёт счётчик, а 
   const calls = await mockApi(page)
 
   await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
+  await page.getByRole('button', { name: 'Ещё действия' }).click()
+  await page.getByRole('menuitem', { name: 'Переписать с Чудо-Юдо' }).click()
 
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь ревью')
@@ -180,7 +183,8 @@ test('закрытое окно не останавливает агента: р
   const calls = await mockApi(page)
 
   await openFlow(page)
-  await page.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
+  await page.getByRole('button', { name: 'Ещё действия' }).click()
+  await page.getByRole('menuitem', { name: 'Переписать с Чудо-Юдо' }).click()
   const dialog = page.getByRole('dialog', { name: 'Переписать флоу' })
   await dialog.getByLabel('Что поменять во флоу').fill('Добавь ревью')
   await dialog.getByRole('button', { name: 'Переписать' }).click()
