@@ -119,7 +119,7 @@ async function openFlow(page: Page) {
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Флоу' }).click()
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toBeVisible()
   const region = page.getByRole('region', { name: 'Agents Kit Web' })
-  await expect(region.getByRole('button', { name: 'Шаг 1: Критерий' })).toBeVisible()
+  await expect(region.getByRole('button', { name: 'Стадия 1: Критерий' })).toBeVisible()
   return region
 }
 
@@ -129,7 +129,7 @@ test('флоу открывается схемой блоков: без номе
   const calls = await mockApi(page, 2)
   const region = await openFlow(page)
 
-  const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
+  const review = region.getByRole('button', { name: 'Стадия 2: Ревью' })
   await expect(review).toHaveText(/^Ревьюсубагент reviewer$/)
   // Флажок стоит у шага с условием пропуска; выход и описание — только в сайдбаре
   await expect(review.locator('.flow-node-skip')).toBeVisible()
@@ -139,9 +139,9 @@ test('флоу открывается схемой блоков: без номе
   await expect(page.getByRole('main').getByText('Agents Kit Web', { exact: true })).toHaveCount(1)
 
   // Стрелки идут по центру блоков: кнопки перестановки стоят за краем и центр не сдвигают
-  const block = await region.getByRole('button', { name: 'Шаг 1: Критерий' }).boundingBox()
+  const block = await region.getByRole('button', { name: 'Стадия 1: Критерий' }).boundingBox()
   const arrow = await region.locator('.flow-arrow').first().boundingBox()
-  const add = await page.getByRole('button', { name: 'Добавить шаг' }).boundingBox()
+  const add = await page.getByRole('button', { name: 'Добавить стадию' }).boundingBox()
   expect(Math.abs(block!.x + block!.width / 2 - (arrow!.x + arrow!.width / 2))).toBeLessThan(1)
   expect(Math.abs(block!.x + block!.width / 2 - (add!.x + add!.width / 2))).toBeLessThan(1)
 
@@ -159,17 +159,17 @@ test('блок открывает сайдбар, шаг правится в н�
   const calls = await mockApi(page)
   const region = await openFlow(page)
 
-  await region.getByRole('button', { name: 'Шаг 3: Приёмка' }).click()
+  await region.getByRole('button', { name: 'Стадия 3: Приёмка' }).click()
   const drawer = page.getByRole('complementary')
-  await expect(drawer.getByRole('textbox', { name: 'Выход шага' })).toHaveValue('ответ оператора «принято»')
+  await expect(drawer.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('ответ оператора «принято»')
   await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled()
 
-  await drawer.getByRole('textbox', { name: 'Пропуск шага' }).fill('правка не меняет вида панели')
-  await expect(region.getByRole('button', { name: 'Шаг 3: Приёмка' }).locator('.flow-node-skip')).toBeVisible()
+  await drawer.getByRole('textbox', { name: 'Пропуск стадии' }).fill('правка не меняет вида панели')
+  await expect(region.getByRole('button', { name: 'Стадия 3: Приёмка' }).locator('.flow-node-skip')).toBeVisible()
   await expect(page.getByText('есть несохранённые правки')).toBeVisible()
 
-  await drawer.getByRole('button', { name: 'Значок шага' }).click()
-  const icons = page.getByRole('group', { name: 'Значки шага' })
+  await drawer.getByRole('button', { name: 'Значок стадии' }).click()
+  const icons = page.getByRole('group', { name: 'Значки стадии' })
   // В списке сами значки, а не их названия
   await expect(icons.getByRole('button')).toHaveCount(6)
   await expect(icons.getByRole('button', { name: 'Значок «проверка»' })).toHaveText('')
@@ -192,8 +192,8 @@ test('блок перетаскивается мышью, при задачах 
   const calls = await mockApi(page, 2)
   const region = await openFlow(page)
 
-  await region.getByRole('button', { name: 'Шаг 3: Приёмка' }).dragTo(region.getByRole('button', { name: 'Шаг 1: Критерий' }))
-  await expect(region.getByRole('button', { name: 'Шаг 1: Приёмка' })).toBeVisible()
+  await region.getByRole('button', { name: 'Стадия 3: Приёмка' }).dragTo(region.getByRole('button', { name: 'Стадия 1: Критерий' }))
+  await expect(region.getByRole('button', { name: 'Стадия 1: Приёмка' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Сохранить флоу Agents Kit Web?' })
@@ -211,7 +211,7 @@ test('раздел держится в экране: прокручиваетс�
   await mockApi(page)
   await page.setViewportSize({ width: 1100, height: 600 })
   const region = await openFlow(page)
-  await region.getByRole('button', { name: 'Шаг 1: Критерий' }).click()
+  await region.getByRole('button', { name: 'Стадия 1: Критерий' }).click()
 
   const scroll = region.locator('.flow-scroll')
   await expect.poll(async () => scroll.evaluate((box) => box.scrollHeight > box.clientHeight)).toBe(true)
@@ -221,29 +221,29 @@ test('раздел держится в экране: прокручиваетс�
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('button', { name: 'Открыть в VS Code' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('complementary')).toBeInViewport({ ratio: 1 })
-  await expect(page.getByRole('button', { name: 'Удалить шаг' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Удалить стадию' })).toBeInViewport({ ratio: 1 })
 })
 
 test('шаг сохраняется как пресет из сайдбара и добавляется блоком «Добавить шаг»', async ({ page }) => {
   const calls = await mockApi(page)
   const region = await openFlow(page)
 
-  await page.getByRole('button', { name: 'Добавить шаг' }).click()
-  const adding = page.getByRole('dialog', { name: 'Добавить шаг' })
+  await page.getByRole('button', { name: 'Добавить стадию' }).click()
+  const adding = page.getByRole('dialog', { name: 'Добавить стадию' })
   await expect(adding.getByText(/Пресетов пока нет/)).toBeVisible()
   // Шаги в окне выделены карточками, а не идут сплошным списком
-  await expect(adding.getByRole('button', { name: /^Пустой шаг/ })).toHaveCSS('border-top-style', 'solid')
+  await expect(adding.getByRole('button', { name: /^Пустая стадия/ })).toHaveCSS('border-top-style', 'solid')
   await adding.getByRole('button', { name: 'Отмена' }).click()
   await expect(adding).toHaveCount(0)
 
-  await region.getByRole('button', { name: 'Шаг 2: Ревью' }).click()
+  await region.getByRole('button', { name: 'Стадия 2: Ревью' }).click()
   await page.getByRole('complementary').getByRole('button', { name: 'В пресеты' }).click()
-  await expect(page.getByRole('button', { name: 'Шаг в пресетах' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Стадия в пресетах' })).toBeDisabled()
 
-  await page.getByRole('button', { name: 'Добавить шаг' }).click()
-  await page.getByRole('dialog', { name: 'Добавить шаг' }).getByRole('button', { name: /^Ревью/ }).click()
+  await page.getByRole('button', { name: 'Добавить стадию' }).click()
+  await page.getByRole('dialog', { name: 'Добавить стадию' }).getByRole('button', { name: /^Ревью/ }).click()
   const drawer = page.getByRole('complementary')
-  await expect(drawer.getByRole('textbox', { name: 'Название шага' })).toHaveValue('Ревью')
+  await expect(drawer.getByRole('textbox', { name: 'Название стадии' })).toHaveValue('Ревью')
   // Имя субагента теперь выбирается из заведённых, поэтому поле — список, а не строка
   await expect(drawer.getByLabel('Имя субагента')).toHaveValue('reviewer')
 
@@ -258,10 +258,10 @@ test('описание шага правится в окне по кнопке �
   const calls = await mockApi(page)
   const region = await openFlow(page)
 
-  await region.getByRole('button', { name: 'Шаг 1: Критерий' }).click()
+  await region.getByRole('button', { name: 'Стадия 1: Критерий' }).click()
   await page.getByRole('complementary').getByRole('button', { name: /Редактировать описание/ }).click()
-  const dialog = page.getByRole('dialog', { name: 'Описание шага «Критерий»' })
-  const text = dialog.getByRole('textbox', { name: 'Описание шага' })
+  const dialog = page.getByRole('dialog', { name: 'Описание стадии «Критерий»' })
+  const text = dialog.getByRole('textbox', { name: 'Описание стадии' })
   await expect(text).toBeFocused()
   await expect(text).toHaveValue('1.1. Написать критерий.')
 
@@ -279,10 +279,10 @@ test('описание шага правится в окне по кнопке �
   await expect(dialog).toHaveCount(0)
 
   // Шаг переставлен: меняется только номер пункта «N.M.»
-  await region.getByRole('button', { name: 'Шаг 1 ниже' }).click()
-  await region.getByRole('button', { name: 'Шаг 2: Критерий' }).click()
+  await region.getByRole('button', { name: 'Стадия 1 ниже' }).click()
+  await region.getByRole('button', { name: 'Стадия 2: Критерий' }).click()
   await page.getByRole('complementary').getByRole('button', { name: /Редактировать описание/ }).click()
-  await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Описание шага' })).toHaveValue(
+  await expect(page.getByRole('dialog').getByRole('textbox', { name: 'Описание стадии' })).toHaveValue(
     'Критерий пишется до кода.\n\n- проверяемый;\n1. с макетом.\n\n2.1. Написать критерий.',
   )
   await page.getByRole('dialog').getByRole('button', { name: 'Отмена' }).click()
@@ -299,7 +299,7 @@ test('исполнитель шага выбирается из заведённ
   const region = await openFlow(page)
 
   // Шаг зовёт заведённого в базе исполнителя, поэтому пометки на схеме нет
-  const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
+  const review = region.getByRole('button', { name: 'Стадия 2: Ревью' })
   await expect(review.locator('.flow-node-missing')).toHaveCount(0)
   await expect(review).toContainText('субагент reviewer')
 
@@ -318,9 +318,9 @@ test('шаг с именем, которого нет в базе, сохран�
   await mockApi(page, 0, unknown)
   const region = await openFlow(page)
 
-  const review = region.getByRole('button', { name: 'Шаг 2: Ревью' })
+  const review = region.getByRole('button', { name: 'Стадия 2: Ревью' })
   await expect(review.locator('.flow-node-missing')).toBeVisible()
-  await expect(page.getByText('Не сохранить: шаг 2')).toContainText('исполнителя нет в базе')
+  await expect(page.getByText('Не сохранить: стадия 2')).toContainText('исполнителя нет в базе')
   await expect(page.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled()
 
   await review.click()
@@ -350,11 +350,11 @@ test('возвраты видны на схеме дугами, у открыт�
 
   await expect(async () => {
     const line = await arc.boundingBox()
-    const node = await region.getByRole('button', { name: /^Шаг 2: Ревью/ }).boundingBox()
+    const node = await region.getByRole('button', { name: /^Стадия 2: Ревью/ }).boundingBox()
     expect(line && node && line.x + line.width).toBeLessThanOrEqual((node?.x ?? 0) + 2)
   }).toPass()
 
-  await region.getByRole('button', { name: /^Шаг 3: Приёмка/ }).click()
+  await region.getByRole('button', { name: /^Стадия 3: Приёмка/ }).click()
   await expect(region.locator('.flow-arc-open')).toHaveCount(1)
   await expect(region.getByText('есть замечания')).toBeVisible()
 })

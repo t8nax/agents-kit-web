@@ -170,7 +170,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
       }
       if (response.status === 400) {
         setFailure({
-          text: 'Имя не годится: строчная латиница, цифры и дефис — так исполнителя зовёт шаг флоу.',
+          text: 'Имя не годится: строчная латиница, цифры и дефис — так исполнителя зовёт стадия флоу.',
           git: false,
         })
       } else if (response.status === 409) {
