@@ -86,6 +86,19 @@ public class UsageJournalTests
             """)!.Id);
         Assert.Null(UsageJournal.Parse(Answer)!.Id);
     }
+
+    [Fact]
+    public void Parse_GeoOtherThanUsGivesNoSurcharge()
+    {
+        // В живых журналах стоит «not_available» — надбавки за вывод в США у него нет
+        var record = UsageJournal.Parse("""
+            {"timestamp":"2026-09-18T10:00:00.000Z","message":{"model":"claude-opus-5","usage":{"output_tokens":10,"inference_geo":"not_available","speed":"standard"}}}
+            """);
+
+        Assert.NotNull(record);
+        Assert.False(record.UsOnly);
+        Assert.False(record.Fast);
+    }
 }
 
 public class UsagePricesTests
@@ -146,19 +159,6 @@ public class UsagePricesTests
         var record = new UsageRecord(DateTimeOffset.UnixEpoch, "claude-sonnet-5", 1_000_000, 1_000_000, 0, 0, Fast: true);
 
         Assert.Equal(12, sonnet.Cost(record), 5);
-    }
-
-    [Fact]
-    public void Parse_GeoOtherThanUsGivesNoSurcharge()
-    {
-        // В живых журналах стоит «not_available» — надбавки за вывод в США у него нет
-        var record = UsageJournal.Parse("""
-            {"timestamp":"2026-09-18T10:00:00.000Z","message":{"model":"claude-opus-5","usage":{"output_tokens":10,"inference_geo":"not_available","speed":"standard"}}}
-            """);
-
-        Assert.NotNull(record);
-        Assert.False(record.UsOnly);
-        Assert.False(record.Fast);
     }
 
     [Theory]
@@ -407,6 +407,18 @@ public class UsageScannerTests : IDisposable
         var totals = UsageMath.Sum(new UsageScanner(_directory, _time).Collect(), _time.GetUtcNow());
 
         Assert.Equal(107, totals.FiveHours.Tokens);
+    }
+
+    [Fact]
+    public void Collect_TakesTheFullestLineOfAnAnswer()
+    {
+        // Ранняя строка ответа может быть записана недосчитанной — берётся самая полная, где бы она ни стояла
+        var at = _time.GetUtcNow().AddHours(-1);
+        Journal("D--Projects-nota/one.jsonl", Part(at, "a", 40), Part(at, "a", 100), Part(at, "a", 60));
+
+        var totals = UsageMath.Sum(new UsageScanner(_directory, _time).Collect(), _time.GetUtcNow());
+
+        Assert.Equal(100, totals.FiveHours.Tokens);
     }
 
     [Fact]

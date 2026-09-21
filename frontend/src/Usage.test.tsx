@@ -174,6 +174,22 @@ test('называет модели, посчитанные ценой лине�
   )
 })
 
+test('суммы до $10 — с центами, от $10 — целыми, и граница считается по округлённому', async () => {
+  stubUsage({
+    ...withPercents,
+    fiveHours: { ...withPercents.fiveHours, cost: 9.996 },
+    week: { ...withPercents.week, cost: 9.994 },
+  })
+
+  render(<Usage />)
+
+  const five = (await screen.findByRole('heading', { name: 'Пятичасовое окно' })).closest('section')!
+  expect(five.querySelector('.usage-window-foot')!.textContent).toContain('≈ $10')
+  expect(five.querySelector('.usage-window-foot')!.textContent).not.toContain('$10,00')
+  const week = screen.getByRole('heading', { name: 'Недельное окно' }).closest('section')!
+  expect(week.querySelector('.usage-window-foot')!.textContent).toContain('≈ $9,99')
+})
+
 test('пустые журналы — не ошибка, а строка на месте таблицы', async () => {
   stubUsage({
     ...withPercents,
