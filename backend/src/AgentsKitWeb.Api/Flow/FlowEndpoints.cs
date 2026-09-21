@@ -33,8 +33,8 @@ public sealed record SaveFlowRequest(
 public sealed record FlowSavedResponse(string Version);
 
 /// <summary>
-/// Problem: changed · not-committed · unread · проблема из FlowFolder.Validate; Flow и Stage — где она, Detail — вывод git
-/// или первая непонятая строка.
+/// Problem: changed · not-written · not-committed · not-restored · unread · проблема из FlowFolder.Validate; Flow и Stage —
+/// где она, Detail — что сказали запись или git, или первая строка, которую панель не сохранит.
 /// </summary>
 public sealed record FlowRejectedResponse(string Problem, string? Flow = null, string? Stage = null, string? Detail = null);
 
@@ -78,10 +78,9 @@ public static class FlowEndpoints
             if (writes.Count == 0)
                 return Results.Ok(new FlowSavedResponse(request.Version));
 
-            var committed = await CommitAsync(basePath, writes, cancellationToken);
-            if (committed is not null)
+            if (await CommitAsync(basePath, writes, cancellationToken) is { } failure)
                 return Results.Json(
-                    new FlowRejectedResponse("not-committed", Detail: committed),
+                    new FlowRejectedResponse(failure.Problem, Detail: failure.Detail),
                     statusCode: StatusCodes.Status502BadGateway);
 
             return Results.Ok(new FlowSavedResponse(FlowFolder.Fingerprint(Files(basePath).Select(f => (f.Path, f.Bytes)))));
@@ -242,11 +241,15 @@ public static class FlowEndpoints
         return writes;
     }
 
+    /// <summary>Почему запись не прошла: Problem — not-written · not-committed · not-restored, Detail — что сказали.</summary>
+    private sealed record CommitFailure(string Problem, string Detail);
+
     /// <summary>
     /// Пишет файлы и коммитит их одним коммитом; null — прошло. Не прошло — все файлы возвращаются как были, а новые
-    /// снимаются с индекса: незакоммиченный флоу прихватил бы чужой коммит соседней сессии.
+    /// снимаются с индекса: незакоммиченный флоу прихватил бы чужой коммит соседней сессии. Начавшись, запись
+    /// отменой запроса не рвётся: оборванная посередине, она оставила бы в базе половину правки.
     /// </summary>
-    private static async Task<string?> CommitAsync(string basePath, List<FileWrite> writes, CancellationToken cancellationToken)
+    private static async Task<CommitFailure?> CommitAsync(string basePath, List<FileWrite> writes, CancellationToken cancellationToken)
     {
         var fresh = writes.Where(w => w.Before is null).Select(w => w.Path).ToList();
         // Удалённый файл, которого git не знал, коммитить нечего: git commit -- путь отказал бы на нём.
@@ -255,33 +258,35 @@ public static class FlowEndpoints
             if (write.Bytes is not null || await BaseGit.TrackedAsync(basePath, write.Path, cancellationToken))
                 paths.Add(write.Path);
 
-        string? error = null;
+        CommitFailure? failure = null;
         // Файлов несколько: сорвалась запись одного — уже записанные возвращаются, как и при отказе коммита.
         try
         {
             foreach (var write in writes)
-                await WriteAsync(Path.Combine(basePath, write.Path), write.Bytes, cancellationToken);
+                await WriteAsync(Path.Combine(basePath, write.Path), write.Bytes, CancellationToken.None);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            error = $"файл флоу не записан: {e.Message}";
+            failure = new CommitFailure("not-written", e.Message);
         }
 
-        foreach (var path in error is null ? fresh : [])
-            if ((await BaseGit.AddFileAsync(basePath, path, cancellationToken)).Error is { } added)
+        foreach (var path in failure is null ? fresh : [])
+            if ((await BaseGit.AddFileAsync(basePath, path, CancellationToken.None)).Error is { } added)
             {
-                error = added;
+                failure = new CommitFailure("not-committed", added);
                 break;
             }
 
-        if (error is null && paths.Count > 0)
-            error = (await BaseGit.CommitFilesAsync(basePath, paths, CommitMessage, cancellationToken)).Error;
+        if (failure is null && paths.Count > 0
+            && (await BaseGit.CommitFilesAsync(basePath, paths, CommitMessage, CancellationToken.None)).Error is { } refused)
+            failure = new CommitFailure("not-committed", refused);
 
-        if (error is null)
+        if (failure is null)
             return null;
 
         if (fresh.Count > 0)
             await BaseGit.ResetFilesAsync(basePath, fresh, CancellationToken.None);
+        var stuck = new List<string>();
         foreach (var write in writes)
         {
             try
@@ -290,10 +295,17 @@ public static class FlowEndpoints
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // Файл, который не дал себя записать, и вернуть не выйдет — он остался прежним.
+                // Файл, который не дал себя записать, остался прежним; а вот записанный и не вернувшийся — нет.
+                var file = Path.Combine(basePath, write.Path);
+                var back = write.Before is null
+                    ? !File.Exists(file)
+                    : File.Exists(file) && File.ReadAllBytes(file).AsSpan().SequenceEqual(write.Before);
+                if (!back)
+                    stuck.Add(write.Path);
             }
         }
-        return error;
+        // Вернуть удалось не всё: оператору нельзя сказать «оставлены как были».
+        return stuck.Count > 0 ? new CommitFailure("not-restored", $"{failure.Detail} Не вернулись: {string.Join(", ", stuck)}.") : failure;
     }
 
     private static string Eol(string text) => text.Contains("\r\n") ? "\r\n" : "\n";
@@ -318,15 +330,16 @@ public static class FlowEndpoints
 
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         var temp = file + ".panel-tmp";
-        await File.WriteAllBytesAsync(temp, bytes, cancellationToken);
         try
         {
+            await File.WriteAllBytesAsync(temp, bytes, cancellationToken);
             File.Move(temp, file, overwrite: true);
         }
         catch
         {
             // Временный файл рядом не оставляется: база увидела бы в нём чужой незакоммиченный файл.
-            File.Delete(temp);
+            if (File.Exists(temp))
+                File.Delete(temp);
             throw;
         }
     }

@@ -774,6 +774,7 @@ type RejectedBody = { problem?: string; flow?: string | null; stage?: string | n
 function saveError(status: number, body: RejectedBody | null) {
   if (status === 409)
     return 'Флоу не сохранён: флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
+  // Страховка: при том же отпечатке такие строки уже пришли с флоу, и «Сохранить» заперта раньше, чем дойдёт до API.
   if (status === 400 && body?.problem === 'unread')
     return `Флоу не сохранён: в файлах флоу есть строка, которую панель не сохранит, — ${body.detail ?? ''}`.trim()
   if (status === 400 && body?.problem) {
@@ -782,6 +783,10 @@ function saveError(status: number, body: RejectedBody | null) {
       .join(', ')
     return `Флоу не сохранён: ${where ? `${where} — ` : ''}${invalidLabels[body.problem] ?? 'не в форме кита'}`
   }
+  if (status === 502 && body?.problem === 'not-written')
+    return `Флоу не сохранён: файл флоу не записался, файлы возвращены как были.${body.detail ? ` ${body.detail}` : ''}`
+  if (status === 502 && body?.problem === 'not-restored')
+    return `Флоу не сохранён, и не все файлы удалось вернуть — проверьте flow/ базы.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 502 && body?.problem === 'not-committed')
     return `Флоу не сохранён: коммит в базу не прошёл, файлы оставлены как были.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 404) return 'Флоу не сохранён: база не найдена'

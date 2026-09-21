@@ -795,3 +795,15 @@ test('скобки и кавычки в названии стадии не пу�
 
   expect(screen.getByText(/^Не сохранить: стадия «Запас \[черновик\]» — в названии скобки \[ \] или кавычки « »/)).toBeInTheDocument()
 })
+
+test('сорванная запись файла названа своим текстом, а не отказом коммита', async () => {
+  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'not-written', detail: 'Файл занят.' }, 502) }))
+  await renderFlow()
+  fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  expect(
+    await screen.findByText('Флоу не сохранён: файл флоу не записался, файлы возвращены как были. Файл занят.'),
+  ).toBeInTheDocument()
+})

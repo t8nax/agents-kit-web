@@ -252,7 +252,7 @@ public sealed class FlowEndpointsTests : IDisposable
                 [flow.Flows[0] with { When = "большая правка" }, flow.Flows[1]]);
 
             Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
-            Assert.StartsWith("файл флоу не записан", (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!.Detail);
+            Assert.Equal("not-written", (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!.Problem);
             Assert.Equal(Criterion.ReplaceLineEndings("\n"), File.ReadAllText(Stage("criterion")));
             Assert.Equal(List.ReplaceLineEndings("\n"), File.ReadAllText(_listPath));
             Assert.Equal("", Git("status", "--porcelain"));
