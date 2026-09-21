@@ -7,6 +7,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Путь к реплике берётся от каталога вызова: ниже скрипт уходит в клон кита.
+$PromptFile = (Resolve-Path -LiteralPath $PromptFile).Path
 $OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 
 $role = @'
