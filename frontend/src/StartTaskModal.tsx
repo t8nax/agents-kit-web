@@ -94,9 +94,14 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
       .then(
         (all) => {
           if (!alive) return
-          const own = all.find((f) => f.base === base)?.flows ?? []
-          setFlows({ kind: 'loaded', flows: own })
-          setFlow(own[0]?.name ?? null)
+          const own = all.find((f) => f.base === base)
+          // Флоу базы не прочитан — это отказ чтения, а не «флоу нет»: запуск остаётся, флоу спросит сессия.
+          if (own?.error) {
+            setFlows({ kind: 'failed', message: `Флоу не прочитан: ${own.error}` })
+            return
+          }
+          setFlows({ kind: 'loaded', flows: own?.flows ?? [] })
+          setFlow(own?.flows[0]?.name ?? null)
         },
         (e: unknown) => {
           if (!alive) return

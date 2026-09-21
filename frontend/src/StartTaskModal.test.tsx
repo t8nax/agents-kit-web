@@ -212,3 +212,13 @@ test('флоу не прочитались: задачу можно начать
   await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
   expect(posts).toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'B-8', flow: null }])
 })
+
+test('флоу базы не прочитан: это отказ чтения, а не «флоу нет» — запуск остаётся', async () => {
+  stub(Response.json({ session: 'x' }), rows, [{ ...flows[0], flows: [], error: 'Флоу базы не прочитан' }])
+  renderModal()
+
+  expect(await screen.findByText('Флоу не прочитан: Флоу базы не прочитан. Сессия спросит флоу у вас сама.')).toBeInTheDocument()
+  expect(screen.queryByText(/У проекта нет флоу/)).not.toBeInTheDocument()
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeEnabled()
+})
