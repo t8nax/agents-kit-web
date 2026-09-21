@@ -85,8 +85,8 @@ const kinds: DraftStage['kind'][] = ['оркестратор', 'оператор
 
 let nextKey = 1
 
-/** Название стадии и имя флоу кит сравнивает без регистра и пробелов по краям. */
-const norm = (name: string) => name.trim().toLowerCase()
+/** Название стадии и имя флоу как адрес — как у сверки кита: подряд идущие пробелы — один, регистр не важен. */
+const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
 
 function stageDraft(stage: FlowStage, icon = ''): DraftStage {
   const executor = stage.executor.trim()

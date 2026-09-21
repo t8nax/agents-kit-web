@@ -235,6 +235,13 @@ public sealed class FlowFolderTests
     }
 
     [Fact]
+    public void Key_LikeKitCheck_CollapsesSpacesAndIgnoresCase()
+    {
+        Assert.Equal(FlowFolder.Key("код ревью"), FlowFolder.Key(" Код   ревью "));
+        Assert.NotEqual(FlowFolder.Key("код ревью"), FlowFolder.Key("кодревью"));
+    }
+
+    [Fact]
     public void NewSlug_TransliteratesAndAvoidsTaken()
     {
         Assert.Equal("fiksatsiya-znaniya", FlowFolder.NewSlug("Фиксация знания", []));

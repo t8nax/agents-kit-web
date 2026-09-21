@@ -300,8 +300,11 @@ public static partial class FlowFolder
         : Helpers(stage).Count > 0 && stage.Executor.Trim() != "оркестратор" ? "helpers-not-orchestrator"
         : null;
 
-    /// <summary>Название стадии и имя флоу кит сравнивает без регистра и пробелов по краям.</summary>
-    public static string Key(string name) => name.Trim().ToLowerInvariant();
+    /// <summary>
+    /// Название стадии и имя флоу как адрес — как у сверки кита (base-check.ps1): подряд идущие пробелы — один,
+    /// по краям их нет, регистр не важен.
+    /// </summary>
+    public static string Key(string name) => Regex.Replace(name, @"\s+", " ").Trim().ToLowerInvariant();
 
     public static IReadOnlyList<StageReturn> Returns(FlowEntry entry) => entry.Returns ?? [];
 
