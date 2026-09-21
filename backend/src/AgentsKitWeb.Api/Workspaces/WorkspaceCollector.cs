@@ -19,6 +19,7 @@ public static class WorkspaceStatus
 /// CopiesDir стоит у копии из agents-kit.json, от которой панель заводит новые: каталог, куда кит их кладёт.
 /// SessionState — что делает сессия агента в копии (значения — SessionState), null — живой сессии в ней нет.
 /// BackgroundSession — в копии идёт фоновая сессия агента, и в неё есть переход из терминала.
+/// Letters — буквы номеров проекта (Backlog.Letters): по ним фронт отделяет номер задачи от её заголовка.
 /// </summary>
 public sealed record WorkspaceRow(
     string Project,
@@ -35,7 +36,8 @@ public sealed record WorkspaceRow(
     string? CopiesDir = null,
     int? BaseProblems = null,
     string? SessionState = null,
-    bool BackgroundSession = false);
+    bool BackgroundSession = false,
+    string? Letters = null);
 
 public static class WorkspaceCollector
 {
@@ -61,6 +63,7 @@ public static class WorkspaceCollector
             return [Unavailable(project, basePath, basePath, "Не прочитан agents-kit.json базы")];
 
         var memories = ReadMemories(basePath);
+        var letters = Backlog.ReadLetters(basePath);
         var source = NewCopySource(copies);
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var rows = new List<WorkspaceRow>();
@@ -99,6 +102,7 @@ public static class WorkspaceCollector
                 var row = memories.TryGetValue(key, out var memory)
                     ? FromMemory(project, basePath, path, worktree.Branch, memory)
                     : new WorkspaceRow(project, basePath, path, worktree.Branch, null, null, null, WorkspaceStatus.Free, null);
+                row = row with { Letters = letters };
                 // Кит кладёт новую копию рядом с корнем основного дерева, а git называет основное дерево первым.
                 if (source is not null && string.Equals(key, Normalize(source), StringComparison.OrdinalIgnoreCase))
                     row = row with { CopiesDir = Path.GetDirectoryName(Normalize(worktrees[0].Path)) };
@@ -110,7 +114,7 @@ public static class WorkspaceCollector
         foreach (var (key, memory) in memories)
         {
             if (claimed.Add(key))
-                rows.Add(FromMemory(project, basePath, memory.Copy!, memory.Branch, memory));
+                rows.Add(FromMemory(project, basePath, memory.Copy!, memory.Branch, memory) with { Letters = letters });
         }
 
         return rows;

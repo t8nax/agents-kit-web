@@ -2,12 +2,16 @@ using AgentsKitWeb.Api.Bases;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
-/// <summary>Бэклог одной базы. Error задан — записей панель не прочитала.</summary>
+/// <summary>
+/// Бэклог одной базы. Error задан — записей панель не прочитала. Letters — буквы номеров проекта
+/// (Backlog.Letters): запись с другими буквами задачей не запускается; null — букв панель не знает.
+/// </summary>
 public sealed record BaseBacklog(
     string Base,
     string Project,
     IReadOnlyList<BacklogEntry> Entries,
-    string? Error);
+    string? Error,
+    string? Letters = null);
 
 public static class BacklogEndpoints
 {
@@ -30,7 +34,8 @@ public static class BacklogEndpoints
 
         try
         {
-            return new BaseBacklog(basePath, project, Backlog.Parse(File.ReadAllText(file)), null);
+            var text = File.ReadAllText(file);
+            return new BaseBacklog(basePath, project, Backlog.Parse(text), null, Backlog.Letters(text));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

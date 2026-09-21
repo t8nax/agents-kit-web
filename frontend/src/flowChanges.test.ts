@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { FlowStep } from './Flow'
+import type { FlowStep } from './flowChanges'
 import { flowChanges } from './flowChanges'
 
 const step = (title: string, patch: Partial<FlowStep> = {}): FlowStep => ({

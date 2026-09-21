@@ -8,8 +8,7 @@ const bases: BasePerformers[] = [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
-    prefix: 'agents-kit-web',
-    directory: 'C:\\Users\\me\\.claude\\agents',
+    directory: 'D:\\Projects\\app-knowledge\\agents',
     performers: [
       {
         name: 'reviewer',
@@ -17,7 +16,7 @@ const bases: BasePerformers[] = [
         model: 'opus',
         tools: 'Read, Glob, Grep',
         prompt: 'Ты читаешь дифф ветки целиком.',
-        path: 'C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md',
+        path: 'D:\\Projects\\app-knowledge\\agents\\reviewer.md',
       },
     ],
     error: null,
@@ -25,8 +24,7 @@ const bases: BasePerformers[] = [
   {
     base: 'D:\\Projects\\nota-knowledge',
     project: 'Nota',
-    prefix: 'nota',
-    directory: 'C:\\Users\\me\\.claude\\agents',
+    directory: 'D:\\Projects\\nota-knowledge\\agents',
     performers: [
       {
         name: 'spec-writer',
@@ -34,7 +32,7 @@ const bases: BasePerformers[] = [
         model: null,
         tools: null,
         prompt: 'Тело.',
-        path: 'C:\\Users\\me\\.claude\\agents\\nota-spec-writer.md',
+        path: 'D:\\Projects\\nota-knowledge\\agents\\spec-writer.md',
       },
     ],
     error: null,
@@ -49,7 +47,7 @@ function stubFetch(...responses: BasePerformers[][]) {
   return fetchMock
 }
 
-test('показывает исполнителя именем без приставки, описанием и путём файла', async () => {
+test('показывает исполнителя именем, описанием и путём файла в базе', async () => {
   const fetchMock = stubFetch(bases)
 
   render(<Performers />)
@@ -57,8 +55,7 @@ test('показывает исполнителя именем без прист
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/api/performers')
   expect(screen.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeInTheDocument()
-  // Приставка видна только в пути к файлу: в имени её панель не показывает.
-  expect(screen.getByText('C:\\Users\\me\\.claude\\agents\\agents-kit-web-reviewer.md')).toBeInTheDocument()
+  expect(screen.getByText('D:\\Projects\\app-knowledge\\agents\\reviewer.md')).toBeInTheDocument()
   expect(screen.getByText('opus')).toBeInTheDocument()
   expect(screen.getByText('Read, Glob, Grep')).toBeInTheDocument()
 })
@@ -68,7 +65,7 @@ test('«Все» показывает исполнителей всех прое
 
   render(<Performers />)
 
-  // Раздел открывается на «Всех»: исполнитель принадлежит машине, а проекту — приставкой в имени.
+  // Раздел открывается на «Всех»: исполнитель принадлежит проекту той базой, где лежит его файл.
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(screen.getByText('spec-writer')).toBeInTheDocument()
   // Название проекта стоит и чипом фильтра, и у строки исполнителя: по ней видно, чей он.

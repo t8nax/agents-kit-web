@@ -107,6 +107,16 @@
   cursor: default;
 }
 
+/* Колонка номера одной ширины на весь список проекта (--entry-num-width ставит раздел по самому длинному
+   номеру): у короткого номера и у записи без номера плашки и заголовок стоят на той же вертикали. */
+.entry-num-slot {
+  display: inline-flex;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  width: calc(var(--entry-num-width, 0ch) + 12px);
+}
+
 .entry-num {
   font-family: var(--font-mono);
   font-size: 13px;

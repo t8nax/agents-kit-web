@@ -19,6 +19,7 @@ const busy = {
   path: 'D:\\Projects\\noble-keen-walrus',
   branch: 'feat/delete-workspace',
   task: 'B-55 Оператор удаляет рабочую копию из панели',
+  letters: 'B',
   flowStep: 'Реализация',
   progress: 45,
   status: 'in-work',

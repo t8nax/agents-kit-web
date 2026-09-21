@@ -227,6 +227,14 @@ function Get-KitProjectName([string]$BaseDir) {
 }
 '@
 
+    Write-Utf8 (Join-Path $scripts 'agents-deploy.ps1') @'
+# Заглушка кита. Настоящий довоз кладёт исполнителей базы в копию и прячет их от её git;
+# песочнице хватает того, что прогон есть, что-то печатает и ничего не ломает.
+param([string]$Path = (Get-Location).Path)
+Write-Host "Рабочая копия: $Path"
+Write-Host 'Довезено: 0, обновлено: 0, убрано: 0'
+'@
+
     Write-Utf8 (Join-Path $scripts 'worktree-add.ps1') @'
 # Заглушка кита: копию заводит настоящим git worktree, но рядом с копией песочницы и без
 # связи с базой — проверяется, как панель зовёт кит и показывает его вывод.
@@ -437,19 +445,20 @@ if ($baseDir) {
     if ($mode -eq 'truncated') { exit 0 }
 
     $text = [IO.File]::ReadAllText($backlog)
-    $number = if ($text -match '(?m)^следующий номер:\s*B-(\d+)\s*$') { [int]$Matches[1] } else { 1 }
+    # Буквы номеров у каждой базы свои: их держит счётчик, как у кита.
+    $letters, $number = if ($text -match '(?m)^следующий номер:\s*([A-Z][A-Z0-9]*)-(\d+)\s*$') { $Matches[1], [int]$Matches[2] } else { 'B', 1 }
     # Панель шлёт агенту вызов навыка кита с текстом оператора: заголовок записи — сам текст.
     $said = ($stdin -replace '(?m)^\s*/[\w:-]+\s*', '').Trim()
     if (-not $said) { $said = 'Оператор ничего не сказал.' }
     $title = ($said -split "`n")[0]
     if ($title.Length -gt 70) { $title = $title.Substring(0, 70) }
-    $text = $text -replace "(?m)^следующий номер:\s*B-\d+\s*$", "следующий номер: B-$($number + 1)"
-    $text = $text.TrimEnd() + "`n`n## B-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом песочницы`n"
+    $text = $text -replace "(?m)^следующий номер:\s*[A-Z][A-Z0-9]*-\d+\s*$", "следующий номер: $letters-$($number + 1)"
+    $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом песочницы`n"
     [IO.File]::WriteAllText($backlog, $text, [Text.UTF8Encoding]::new($false))
 
     Write-Step 'Edit' @{ file_path = $backlog }
     git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md
-    Write-Result "Записал B-$number."
+    Write-Result "Записал $letters-$number."
     exit 0
 }
 
@@ -485,66 +494,168 @@ exit 0
 
 # --- содержимое баз ----------------------------------------------------------------------
 
+# Исполнители базы: их зовёт флоу песочницы, и оттуда же кит развозит их по копиям. Кладутся
+# в каждую базу до первого коммита — в живой базе они тоже лежат в истории.
+function New-Agents([string]$Path) {
+    Write-Utf8 (Join-Path $Path 'agents\reviewer.md') @"
+---
+name: reviewer
+description: Вычитывает дифф ветки задачи и возвращает замечания.
+tools: Read, Grep, Glob
+model: opus
+---
+
+Ты читаешь дифф ветки целиком и возвращаешь замечания списком.
+"@
+    Write-Utf8 (Join-Path $Path 'agents\doc-writer.md') @"
+---
+name: doc-writer
+description: Пишет документацию по коду.
+---
+
+Ты пишешь документацию по коду.
+"@
+}
+
+# Флоу в форме кита: список флоу в flow\flow.md и стадии по файлу в flow\stages. Флоу два — «полный»
+# и «мелкий» из общих стадий: на них видно, что стадия правится один раз, а возвраты у каждого флоу свои.
 function New-Flow([string]$Path) {
-    Write-Utf8 (Join-Path $Path 'flow.md') @'
+    Write-Utf8 (Join-Path $Path 'flow\flow.md') @'
 # Песочница — флоу
 
-## 1. Критерий
+Задачу из бэклога без слов оператора брать по наименьшему номеру.
+
+## полный
+когда: новая возможность или правка в нескольких местах
+1. [Критерий](stages/criterion.md)
+2. [Ветка](stages/branch.md)
+3. [Реализация](stages/implementation.md)
+4. [Ревью](stages/review.md)
+   - возврат: блокер или мажор — стадия «Реализация»
+5. [Сборка](stages/build.md)
+6. [Приёмка](stages/acceptance.md)
+   - возврат: замечания — стадия «Реализация»
+7. [Мерж](stages/merge.md)
+
+## мелкий
+когда: правка в одном месте, без новых решений
+1. [Ветка](stages/branch.md)
+2. [Реализация](stages/implementation.md)
+3. [Приёмка](stages/acceptance.md)
+4. [Мерж](stages/merge.md)
+'@
+    $stages = [ordered]@{
+        criterion      = @'
+# Критерий
 
 исполнитель: оркестратор
 выход: критерий закрытия в памяти и ответ оператора, что критерий подтверждён
 
-1.1. Написать критерий до первой строчки кода.
-1.2. Вынести его оператору строкой «Оператору:» в памяти.
-
-## 2. Ветка
+1. Написать критерий до первой строчки кода.
+2. Вынести его оператору вопросом в памяти.
+'@
+        branch         = @'
+# Ветка
 
 исполнитель: оркестратор
 выход: имя ветки в строке «ветка» памяти
 
-2.1. Завести ветку задачи от обновлённого dev.
-
-## 3. Реализация
+- Завести ветку задачи от обновлённого dev.
+'@
+        implementation = @'
+# Реализация
 
 исполнитель: оркестратор
-помощники: house-reviewer, reviewer
+помощники: reviewer, doc-writer
 выход: sha коммитов ветки и зелёные прогоны проверок в памяти
 
-3.1. Вести работу шагами, каждый со своей проверкой.
+- Вести работу шагами, каждый со своей проверкой.
+'@
+        review         = @'
+# Ревью
 
-## 4. Ревью
-
-исполнитель: house-reviewer
+исполнитель: reviewer
 выход: вердикт по sha проверенного коммита
 пропуск: правка не трогает код
 
-4.1. Дать ревьюеру ветку задачи и базу сравнения.
+- Дать ревьюеру ветку задачи и базу сравнения.
+'@
+        build          = @'
+# Сборка
 
-## 5. Сборка
-
-исполнитель: reviewer
+исполнитель: builder
 выход: зелёная сборка в памяти
 
-5.1. Собрать то, что правили.
-
-## 6. Приёмка
+- Собрать то, что правили.
+'@
+        acceptance     = @'
+# Приёмка
 
 исполнитель: оператор
 выход: ответ оператора в памяти — «принято» или список замечаний
 пропуск: правка не меняет ни вида, ни поведения панели
 
-6.1. Показать оператору, что смотреть.
-
-## 7. Мерж
+- Показать оператору, что смотреть.
+'@
+        merge          = @'
+# Мерж
 
 исполнитель: оркестратор
 выход: «смержено и запушено: <sha в dev>, ветка удалена» в памяти
 
-7.1. Мержить только после «принято».
+- Мержить только после «принято».
 '@
+    }
+    foreach ($slug in $stages.Keys) {
+        Write-Utf8 (Join-Path $Path "flow\stages\$slug.md") $stages[$slug]
+    }
 }
 
-function New-Backlog([string]$Path) {
+# Бэклог базы. Буквы номеров у проекта свои: $Orders даёт бэклог с буквами «ORD» — с записью
+# чужими буквами, которую кит перенумерует, и с записью без номера.
+function New-Backlog([string]$Path, [switch]$Orders) {
+    if ($Orders) {
+        Write-Utf8 (Join-Path $Path 'backlog.md') @'
+# Заказы — бэклог
+
+следующий номер: ORD-18
+поля: приоритет, тип
+
+## ORD-15 Повторная оплата создаёт второй заказ
+
+приоритет: блокер
+тип: баг
+
+Покупатель жмёт «Оплатить» второй раз, пока первая оплата идёт, и заказов становится два.
+
+## ORD-14 Выгрузка заказов за период в CSV
+
+приоритет: высокий
+тип: фича
+
+Бухгалтерии нужна выгрузка за месяц, сейчас её собирают руками.
+
+## ORD-17 Фильтр списка заказов по статусу доставки
+
+приоритет: средний
+тип: фича
+
+## B-7 Таймаут платёжного шлюза не попадает в лог
+
+приоритет: низкий
+тип: баг
+
+Запись перенесли из другого проекта вместе с его номером: кит её перенумерует.
+
+## Разобраться с часовыми поясами в отчётах
+
+приоритет: низкий
+тип: фича
+
+Дописано руками, без номера.
+'@
+        return
+    }
     Write-Utf8 (Join-Path $Path 'backlog.md') @'
 # Песочница — бэклог
 
@@ -566,7 +677,8 @@ function New-Backlog([string]$Path) {
 '@
 }
 
-function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf, [switch]$NoAnswerKey, [switch]$TwoQuestions) {
+function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf, [switch]$NoAnswerKey, [switch]$TwoQuestions,
+    [string]$Task = 'B-7 Опрос копий не должен мешать работе') {
     $question = @'
 
 ## Оператору
@@ -595,10 +707,11 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
     }
 
     $text = @"
-# B-7 Опрос копий не должен мешать работе
+# $Task
 
 рабочая копия: $Copy
 ветка: $Branch
+флоу: мелкий
 Решения: нет
 
 ## Критерии закрытия
@@ -622,11 +735,10 @@ $question
 - Опрос идёт раз в три секунды.
 
 ### Флоу
-- [x] 1. Критерий — выход: критерий записан выше
-- [x] 2. Ветка — выход: feat/polling от dev
-- [ ] 3. Реализация
-- [ ] 4. Приёмка
-- [ ] 5. Мерж
+- [x] 1. Ветка — выход: feat/polling от dev
+- [ ] 2. Реализация
+- [ ] 3. Приёмка
+- [ ] 4. Мерж
 
 ### Шаги
 - [x] Замерить, сколько длится опрос — результат: 40 мс на копию — проверен: вывод прогона
@@ -636,7 +748,8 @@ $question
 }
 
 # Выдуманная база знаний: та же раскладка, что у настоящей, — панель читает её теми же правилами.
-function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted) {
+function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
+    [switch]$Orders) {
     New-Repo $Path
     if (-not $NoProduct) {
         Write-Utf8 (Join-Path $Path 'product.md') @"
@@ -655,11 +768,12 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
         Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; workspaces = $Copies })
     }
     if (-not $FlowUncommitted) { New-Flow $Path }
-    New-Backlog $Path
+    New-Agents $Path
+    New-Backlog $Path -Orders:$Orders
     New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
     Write-Utf8 (Join-Path $Path '.gitignore') "local/`n"
     Add-Commit $Path 'Каркас базы песочницы'
-    # Флоу, которого нет в истории: панель коммитит правку без git add, и такой файл ей не закоммитить.
+    # Флоу, которого нет в истории: список флоу панель коммитит без git add, и такой файл ей не закоммитить.
     if ($FlowUncommitted) { New-Flow $Path }
 }
 
@@ -719,6 +833,30 @@ foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
     $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $goodBase })
 }
 $findings.Add([pscustomobject]@{ base = $goodBase; findings = @() })
+
+# Проект со своими буквами номеров — «ORD», а не «B»: панель узнаёт номер по буквам проекта.
+# В одной копии идёт задача ORD-12, в другой — задача не из бэклога, чей заголовок начат словом
+# «UTF-8»: номером оно не становится. Третья копия свободна — в неё берут записи бэклога.
+$ordersCopy = Join-Path $copiesDir 'orders'
+$ordersBase = Join-Path $basesDir 'orders-knowledge'
+New-Repo $ordersCopy
+Write-Utf8 (Join-Path $ordersCopy 'README.md') "# Заказы`n`nВыдуманный проект песочницы.`n"
+Add-Commit $ordersCopy 'Первый коммит'
+$ordersTask = Join-Path $copiesDir 'orders-export'
+git -C $ordersCopy worktree add -b feat/ord-12-export $ordersTask --quiet
+$ordersUtf = Join-Path $copiesDir 'orders-utf'
+git -C $ordersCopy worktree add -b fix/utf-names $ordersUtf --quiet
+
+New-Base $ordersBase 'Заказы' @($ordersCopy) -Orders
+New-Memory (Join-Path $ordersBase 'work\orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период'
+New-Memory (Join-Path $ordersBase 'work\orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку'
+Add-Commit $ordersBase 'Памяти задач'
+$bases.Add($ordersBase)
+foreach ($copy in @($ordersCopy, $ordersTask, $ordersUtf)) {
+    $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $ordersBase })
+}
+$findings.Add([pscustomobject]@{ base = $ordersBase; findings = @(
+    [pscustomobject]@{ severity = 'FAIL'; file = 'backlog.md'; message = 'номер чужими буквами: B-7' }) })
 
 # --- сломанный набор ---------------------------------------------------------------------
 
@@ -784,37 +922,17 @@ $links.Add([pscustomobject]@{ path = (Join-Path $copiesDir 'dotted'); status = '
 $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
     [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
     [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
-    [pscustomobject]@{ severity = 'WARN'; file = 'flow.md'; message = 'флоу не в истории git' }) })
+    [pscustomobject]@{ severity = 'WARN'; file = 'flow/flow.md'; message = 'флоу не в истории git' }) })
 
-# Исполнители профиля: файл у каждого один на машину, а проекту он принадлежит приставкой в имени.
-# Последний заведён «оператором» мимо панели — приставки у него нет, и в разделе его быть не должно.
-$agentsDir = Join-Path $claudeDir 'agents'
-New-Item -ItemType Directory -Path $agentsDir -Force | Out-Null
-Write-Utf8 (Join-Path $agentsDir 'house-reviewer.md') @"
+# Исполнитель, заведённый «оператором» прямо в базе и мимо панели: в разделе он виден наравне
+# с остальными, хотя панель его не заводила.
+Write-Utf8 (Join-Path $quirksBase 'agents\spec-writer.md') @"
 ---
-name: house-reviewer
-description: Вычитывает дифф ветки задачи и возвращает замечания.
-tools: Read, Grep, Glob
-model: opus
----
-
-Ты читаешь дифф ветки целиком и возвращаешь замечания списком.
-"@
-Write-Utf8 (Join-Path $agentsDir 'quirks-spec-writer.md') @"
----
-name: quirks-spec-writer
+name: spec-writer
 description: Пишет спеку экрана по разговору с оператором.
 ---
 
 Ты пишешь спеку экрана.
-"@
-Write-Utf8 (Join-Path $agentsDir 'statusline-setup.md') @"
----
-name: statusline-setup
-description: Настраивает строку состояния — заведён мимо панели, приставки проекта нет.
----
-
-Ты настраиваешь строку состояния.
 "@
 
 # Кит без скриптов: путь к нему панель не примет, и это видно в «Настройках».

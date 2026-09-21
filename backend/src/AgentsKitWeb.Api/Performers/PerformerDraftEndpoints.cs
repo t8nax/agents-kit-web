@@ -145,15 +145,26 @@ public static class PerformerDraftEndpoints
     }
 
     /// <summary>
-    /// Флоу базы уходит агенту текстом: по нему видно, какие у проекта шаги и кто их сейчас делает.
-    /// Флоу нет — просьба всё равно идёт: исполнителя заводят и до того, как проект написал флоу.
+    /// Флоу базы уходит агенту текстом — flow/flow.md и файлы стадий: по нему видно, какие у проекта стадии
+    /// и кто их сейчас делает. Флоу нет — просьба всё равно идёт: исполнителя заводят и до того, как проект
+    /// написал флоу.
     /// </summary>
     private static async Task<string?> FlowAsync(string basePath, CancellationToken cancellationToken)
     {
         try
         {
-            var file = Path.Combine(basePath, FlowFile.FileName);
-            return File.Exists(file) ? await File.ReadAllTextAsync(file, cancellationToken) : null;
+            var list = Path.Combine(basePath, FlowFolder.ListFile);
+            if (!File.Exists(list))
+                return null;
+
+            var text = new System.Text.StringBuilder()
+                .Append(FlowFolder.ListFile).Append(":\n").Append(await File.ReadAllTextAsync(list, cancellationToken));
+            var stages = Path.Combine(basePath, FlowFolder.StagesFolder);
+            if (Directory.Exists(stages))
+                foreach (var file in Directory.EnumerateFiles(stages, "*.md").Order(StringComparer.Ordinal))
+                    text.Append("\n\n").Append(FlowFolder.StagesFolder).Append('/').Append(Path.GetFileName(file)).Append(":\n")
+                        .Append(await File.ReadAllTextAsync(file, cancellationToken));
+            return text.ToString();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -169,13 +180,13 @@ public static class PerformerDraftEndpoints
     {
         var task = editing
             ? "Оператор правит заведённого исполнителя: его нынешний файл придёт там же. Меняй только то, о чём просит оператор, остальное оставь слово в слово."
-            : "Посмотри, кто уже заведён в .claude/agents копии, и не повторяй ни их имён, ни их работы.";
+            : "Посмотри, кто уже заведён в каталоге agents базы знаний, и не повторяй ни их имён, ни их работы.";
 
         var systemPrompt = $"""
             Ты придумываешь исполнителя — субагента Claude Code — для проекта «{project}» по просьбе оператора
             из веб-панели; спросить оператора нельзя.
             Текущий каталог — рабочая копия проекта: читай её код, чтобы понять, чем проект сделан и чем
-            проверяется работа. База знаний проекта лежит в {basePath}: там флоу проекта и его решения.
+            проверяется работа. База знаний проекта лежит в {basePath}: там флоу проекта — flow/flow.md и стадии в flow/stages/ — и его решения.
             Просьба оператора придёт одним сообщением вместе с флоу базы.
             {task}
             Ответом верни файл субагента целиком и ничего больше: ни пояснений, ни разговора. Текст можно
@@ -213,7 +224,7 @@ public static class PerformerDraftEndpoints
             .Append("Просьба оператора:\n")
             .Append(wish);
         if (flow is not null)
-            text.Append("\n\nФлоу проекта, ").Append(FlowFile.FileName).Append(" базы:\n").Append(flow);
+            text.Append("\n\nФлоу проекта, файлы flow/ базы:\n").Append(flow);
         if (current is not null)
             text.Append("\n\nНынешний исполнитель:\n").Append(PerformerFile.Serialize(
                 new PerformerFields(current.Name, current.Description, current.Model, current.Tools, current.Prompt)));

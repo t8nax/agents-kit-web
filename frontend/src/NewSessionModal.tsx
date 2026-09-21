@@ -148,7 +148,7 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
                         <span className="ns-copy-head">
                           <span className="ns-copy-name">{copyName(row.path)}</span>
                           {/* В плашке только номер: заголовок задачи длинный, и целиком он в предупреждении ниже */}
-                          {row.task && <span className="ns-task">идёт задача {splitTask(row.task).number ?? row.task}</span>}
+                          {row.task && <span className="ns-task">идёт задача {splitTask(row.task, row.letters).number ?? row.task}</span>}
                         </span>
                         <span className="ns-copy-sub text-ter">{subtitle(row, sessions)}</span>
                       </span>

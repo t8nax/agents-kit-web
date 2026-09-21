@@ -1,9 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { useAgentRequest } from './agentRequest'
-import type { FlowStep } from './Flow'
-import { flowChanges, type FlowChange, type FlowFieldName } from './flowChanges'
-import { shownName } from './performerName'
+import { flowChanges, type FlowChange, type FlowFieldName, type FlowStep } from './flowChanges'
 import './AskModal.css'
 import './FlowRewriteModal.css'
 
@@ -15,8 +13,6 @@ export type RewriteEvent =
 type Props = {
   base: string
   project: string
-  /** Приставка проекта: имена исполнителей и здесь видны без неё — как на схеме рядом. */
-  prefix: string
   /** Шаги флоу, какими их сейчас видит раздел: с ними сравнивается переписанное. */
   steps: FlowStep[]
   /** Отпечаток файла, с которого читал раздел: агент переписывал его же. */
@@ -41,14 +37,14 @@ const fieldLabels: Record<FlowFieldName, string> = {
 }
 
 const kindLabels: Record<FlowChange['kind'], string> = {
-  added: 'добавлен',
-  changed: 'изменён',
-  moved: 'переставлен',
-  removed: 'удалён',
+  added: 'добавлена',
+  changed: 'изменена',
+  moved: 'переставлена',
+  removed: 'удалена',
   same: 'без правок',
 }
 
-export default function FlowRewriteModal({ base, project, prefix, steps, version, onApply, onClose }: Props) {
+export default function FlowRewriteModal({ base, project, steps, version, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
   // Описание шага читается своим окном поверх разбора: в строке шага стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
@@ -150,7 +146,7 @@ export default function FlowRewriteModal({ base, project, prefix, steps, version
                 className="custom-textarea ask-textarea"
                 autoFocus
                 value={wish}
-                placeholder="Скажите своими словами, что поменять во флоу: добавить шаг, убрать его, переписать выход или условие пропуска"
+                placeholder="Скажите своими словами, что поменять во флоу: добавить стадию, убрать её, переписать выход или условие пропуска"
                 onChange={(e) => setWish(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish)
@@ -202,7 +198,6 @@ export default function FlowRewriteModal({ base, project, prefix, steps, version
                 <Change
                   key={`${change.kind}-${change.title}-${change.at}-${change.from}`}
                   change={change}
-                  prefix={prefix}
                   onDescription={setDescription}
                 />
               ))}
@@ -290,9 +285,9 @@ export default function FlowRewriteModal({ base, project, prefix, steps, version
             className="flow-confirm flow-description"
             role="dialog"
             aria-modal="true"
-            aria-label={`Описание шага «${description.title}»`}
+            aria-label={`Описание стадии «${description.title}»`}
           >
-            <h3>Описание шага «{description.title}»</h3>
+            <h3>Описание стадии «{description.title}»</h3>
             <pre className="rewrite-description-text">{description.text}</pre>
             <div className="flow-confirm-actions">
               <button type="button" className="bases-btn" onClick={() => setDescription(null)}>
@@ -308,11 +303,9 @@ export default function FlowRewriteModal({ base, project, prefix, steps, version
 
 function Change({
   change,
-  prefix,
   onDescription,
 }: {
   change: FlowChange
-  prefix: string
   onDescription: (description: { title: string; text: string }) => void
 }) {
   const step = change.step
@@ -324,14 +317,14 @@ function Change({
       <div className="rewrite-change-head">
         <span className="rewrite-mark">{kindLabels[change.kind]}</span>
         <span className="rewrite-change-title">{change.title}</span>
-        {change.kind === 'moved' && <span className="rewrite-place">был {change.from + 1}-м, стал {change.at + 1}-м</span>}
-        {change.kind === 'removed' && <span className="rewrite-place">был {change.from + 1}-м</span>}
+        {change.kind === 'moved' && <span className="rewrite-place">была {change.from + 1}-й, стала {change.at + 1}-й</span>}
+        {change.kind === 'removed' && <span className="rewrite-place">была {change.from + 1}-й</span>}
       </div>
 
       {change.kind === 'added' && step && (
         <dl className="rewrite-fields">
           <dt>исполнитель</dt>
-          <dd>{shownName(prefix, step.executor)}</dd>
+          <dd>{step.executor}</dd>
           <dt>выход</dt>
           <dd>{step.output}</dd>
           {step.skip && (
@@ -343,7 +336,7 @@ function Change({
           {step.helpers && step.helpers.length > 0 && (
             <>
               <dt>помощники</dt>
-              <dd>{step.helpers.map((name) => shownName(prefix, name)).join(', ')}</dd>
+              <dd>{step.helpers.join(', ')}</dd>
             </>
           )}
           {step.returns?.map((back) => (

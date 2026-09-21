@@ -13,9 +13,6 @@ public sealed class KitLocator(string claudeDir)
     public static string DefaultClaudeDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
 
-    /// <summary>Профиль Claude Code оператора: в нём же лежат его собственные субагенты.</summary>
-    public string ClaudeDir => claudeDir;
-
     public IReadOnlyList<string> Find()
     {
         var found = new List<string>();

@@ -119,11 +119,11 @@ public static class FlowRewriteEndpoints
     {
         var document = FlowFile.Parse(Unfence(answer.Text));
         if (document.Steps.Count == 0)
-            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} вернул не флоу: шагов в его ответе нет", Output: Shorten(answer.Text));
+            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} вернул не флоу: стадий в его ответе нет", Output: Shorten(answer.Text));
         if (FlowFile.Validate(document.Steps) is { } rejection)
             return new FlowRewriteEvent(
                 "error",
-                $"Шаг {rejection.Step} вернулся не в форме кита: {Problem(rejection.Problem)}",
+                $"Стадия {rejection.Step} вернулась не в форме кита: {Problem(rejection.Problem)}",
                 Output: Shorten(answer.Text),
                 Step: rejection.Step);
 
@@ -153,8 +153,8 @@ public static class FlowRewriteEndpoints
             по просьбе оператора из веб-панели; спросить оператора нельзя.
             Текущий флоу и просьба придут одним сообщением. Ответом верни новый {FlowFile.FileName} целиком
             и ничего больше: ни пояснений, ни разговора. Текст можно завернуть в ``` — панель ограду снимет.
-            Меняй только то, о чём просит оператор: остальные шаги, их ключи, описания и шапку файла оставь
-            слово в слово. Номера шагов расставит панель.
+            Меняй только то, о чём просит оператор: остальные стадии, их ключи, описания и шапку файла оставь
+            слово в слово. Номера стадий расставит панель.
             Файлы базы читать можно, чтобы понять проект; менять их нельзя — флоу запишет панель.
             Ниже правила кита о форме флоу; им новый текст и должен отвечать.
 
@@ -217,9 +217,9 @@ public static class FlowRewriteEndpoints
         FlowProblem.EmptyExecutor => "не указан исполнитель",
         FlowProblem.EmptyOutput => "не указан выход",
         FlowProblem.ReturnWithoutCondition => "в возврате не указано условие",
-        FlowProblem.ReturnUnknownStep => "возврат ведёт на шаг, которого во флоу нет",
-        FlowProblem.ReturnStepNotEarlier => "возврат ведёт на шаг, который стоит не раньше",
-        _ => "перевод строки в ключе шага",
+        FlowProblem.ReturnUnknownStep => "возврат ведёт на стадию, которой во флоу нет",
+        FlowProblem.ReturnStepNotEarlier => "возврат ведёт на стадию, которая стоит не раньше",
+        _ => "перевод строки в ключе стадии",
     };
 
 }

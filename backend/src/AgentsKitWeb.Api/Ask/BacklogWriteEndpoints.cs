@@ -112,7 +112,7 @@ public static class BacklogWriteEndpoints
     private static async Task<BacklogWriteEvent> Outcome(
         string basePath, HashSet<string> before, BacklogWriteEvent? failure, AskEvent? answer = null)
     {
-        var added = ReadEntries(basePath)?.Where(e => e.Number is { } n && !before.Contains(Latin(n))).ToList() ?? [];
+        var added = ReadEntries(basePath)?.Where(e => e.Number is { } n && !before.Contains(n)).ToList() ?? [];
         var output = answer?.Text is { Length: > 0 } said ? said : null;
 
         if (failure is not null)
@@ -176,8 +176,9 @@ public static class BacklogWriteEndpoints
             Output: output.Length > 0 ? output : $"код выхода {exit.ExitCode}");
     }
 
+    // Номера разбор бэклога отдаёт в виде кита: «В-7», набранный руками, — тот же «B-7» (Workspaces/BacklogNumber).
     private static HashSet<string>? ReadNumbers(string basePath) =>
-        ReadEntries(basePath)?.Select(e => e.Number).OfType<string>().Select(Latin).ToHashSet();
+        ReadEntries(basePath)?.Select(e => e.Number).OfType<string>().ToHashSet();
 
     private static IReadOnlyList<BacklogEntry>? ReadEntries(string basePath)
     {
@@ -190,8 +191,4 @@ public static class BacklogWriteEndpoints
             return null;
         }
     }
-
-    // Кириллическая «В-7» — тот же номер, что «B-7».
-    private static string Latin(string number) => number.Replace('В', 'B');
-
 }

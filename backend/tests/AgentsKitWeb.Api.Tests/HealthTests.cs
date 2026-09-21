@@ -99,6 +99,33 @@ public sealed class HealthTests : IDisposable
     }
 
     [Fact]
+    public async Task Health_BeforeCheckingItRunsTheKitDeployForEveryCopy()
+    {
+        var log = Path.Combine(_root, "deployed.txt");
+        var kit = TestKit.Create(Path.Combine(_root, "agents-kit"),
+            baseCheck: "function Get-KitBaseFindings { }",
+            linkState: $$"""
+                function Get-KitLinkState([string]$Dir) { [pscustomobject]@{ status = 'Linked'; base = '{{_base}}' } }
+                """,
+            agentsDeploy: $"""
+                param([string]$Path)
+                Add-Content -LiteralPath '{log}' -Value $Path
+                Write-Host "Рабочая копия: $Path"
+                Write-Host 'Довезено: 1, обновлено: 0'
+                """);
+        await WaitFor(s => !s.Pending);
+
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+        await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status == BaseHealthStatus.Checked));
+
+        // Исполнителей по копиям развозит сама панель: оператор об этом не знает и ничего не запускает.
+        // Скрипт кита печатает свой итог — он не должен попасть в ответ сверки и сломать его разбор.
+        Assert.Equal(
+            [_main, _worktree],
+            File.ReadAllLines(log).Select(l => l.Trim()).Where(l => l.Length > 0).Distinct().Order());
+    }
+
+    [Fact]
     public async Task Health_KitScriptFails_BaseIsFailedWithReason()
     {
         var kit = TestKit.Create(Path.Combine(_root, "agents-kit"),

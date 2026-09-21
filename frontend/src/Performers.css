@@ -181,3 +181,8 @@
   background: var(--accent-waiting-bg);
   color: var(--accent-waiting-text);
 }
+
+/* Записанный исполнитель: строка держится до следующей записи и говорит, с какой сессии его звать. */
+.performer-saved {
+  color: var(--accent-active-text);
+}

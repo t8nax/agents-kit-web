@@ -380,6 +380,21 @@ td.num-col {
   font-weight: 500;
 }
 
+/* Основная копия проекта: та, от которой заводят новые копии */
+.main-tag {
+  display: inline-flex;
+  align-items: center;
+  /* Тот же отступ, что у «новой»: вместе с gap контейнера просвет у обеих плашек выходит один */
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
 .sub {
   margin-top: 2px;
 }

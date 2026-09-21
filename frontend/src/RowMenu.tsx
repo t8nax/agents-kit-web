@@ -8,10 +8,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 export default function RowMenu({
   label,
   disabled = false,
+  buttonClassName = 'action-btn-menu',
+  title = 'Действия',
   children,
 }: {
   label: string
   disabled?: boolean
+  /** Вид кнопки-точек: в шапке раздела она стоит рядом с кнопками шапки и их размера. */
+  buttonClassName?: string
+  title?: string
   children: (close: () => void) => ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -38,11 +43,11 @@ export default function RowMenu({
     <div className="row-menu" ref={host}>
       <button
         type="button"
-        className="action-btn-menu"
+        className={buttonClassName}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={label}
-        title="Действия"
+        title={title}
         disabled={disabled}
         onClick={() => setOpen((was) => !was)}
       >

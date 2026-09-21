@@ -1,4 +1,18 @@
-import type { FlowStep } from './Flow'
+/**
+ * Шаг флоу прежней формы — одним файлом flow.md со стадиями по номерам. Его разбирает и переписывает окно
+ * «Переписать с Чудо-Юдо»; из раздела «Флоу» оно убрано, пока переписывание не переведут на новую форму (B-179).
+ */
+export type FlowReturn = { condition: string; step: string }
+
+export type FlowStep = {
+  title: string
+  executor: string
+  output: string
+  skip: string | null
+  description: string | null
+  returns?: FlowReturn[]
+  helpers?: string[]
+}
 
 export type FlowFieldName = 'executor' | 'output' | 'skip' | 'description' | 'returns' | 'helpers'
 

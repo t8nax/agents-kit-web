@@ -89,8 +89,9 @@ public static partial class FlowFile
     [GeneratedRegex(@"^(?<key>исполнитель|помощники|выход|пропуск|возврат):\s*(?<value>.*)$")]
     private static partial Regex KeyLine { get; }
 
-    // «есть замечания — шаг «Реализация»» → условие и название шага. Форма возврата задана китом.
-    [GeneratedRegex(@"^(?<condition>.*?)\s*—\s*шаг\s*«(?<step>[^»]*)»\s*$")]
+    // «есть замечания — стадия «Реализация»» → условие и название стадии. Форма возврата задана китом;
+    // прежняя запись «— шаг «…»» панелью не принимается — решение оператора на B-132.
+    [GeneratedRegex(@"^(?<condition>.*?)\s*—\s*стадия\s*«(?<step>[^»]*)»\s*$")]
     private static partial Regex ReturnValue { get; }
 
     // Номер пункта описания: «3.2.1.» → номер шага «3» и хвост «.2.1.».
@@ -177,7 +178,7 @@ public static partial class FlowFile
             if (!string.IsNullOrWhiteSpace(step.Skip))
                 block.Append($"\nпропуск: {step.Skip.Trim()}");
             foreach (var back in Returns(step))
-                block.Append($"\nвозврат: {back.Condition.Trim()} — шаг «{back.Step.Trim()}»");
+                block.Append($"\nвозврат: {back.Condition.Trim()} — стадия «{back.Step.Trim()}»");
             if (Block(step.Description?.Replace("\r\n", "\n").Split('\n') ?? []) is { } description)
                 block.Append("\n\n").Append(Renumber(description, number));
             parts.Add(block.ToString());

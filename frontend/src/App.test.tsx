@@ -236,8 +236,8 @@ test('группа сворачивается кликом по любому м�
 })
 
 test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
-  const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой' }
-  const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога' }
+  const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой', letters: 'B' }
+  const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога', letters: 'B' }
   const table = [numbered, unnumbered, rows[1], rows[2]]
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(table), { status: 200 })))
 
@@ -255,6 +255,20 @@ test('номер задачи из бэклога стоит своей коло
   expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', '—'])
   // Строка с ошибкой накрывает и колонку номера: ячеек в ней столько же, сколько колонок
   expect(within(tableRows[4]).getAllByRole('cell')[1]).toHaveAttribute('colspan', '5')
+})
+
+test('номер задачи отделяется по буквам её проекта, слово с другими буквами номером не становится', async () => {
+  const orders: WorkspaceRow = { ...rows[0], task: 'ORD-12 Выгрузка заказов за период', letters: 'ORD' }
+  const utf: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\orders-2', task: 'UTF-8 в именах файлов ломает выгрузку', letters: 'ORD' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([orders, utf])))
+
+  render(<App />)
+
+  const tableRows = await findTableRows()
+  const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((cell) => cell.textContent)
+  expect(cells(tableRows[1]).slice(1, 3)).toEqual(['ORD-12', 'Выгрузка заказов за период'])
+  expect(within(tableRows[1]).getByText('ORD-12')).toHaveClass('num-chip')
+  expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'UTF-8 в именах файлов ломает выгрузку'])
 })
 
 // Меню действий строки: кнопка «⋯» открывает его, пункт — действие над копией этой строки
@@ -362,6 +376,20 @@ test('«Удалить копию» стоит у свободной копии,
   expect(within(mainMenu).queryByRole('menuitem', { name: 'Удалить копию' })).not.toBeInTheDocument()
 })
 
+test('плашка «Основная» стоит у основной копии проекта и только у неё', async () => {
+  const main: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\app-main', status: 'free', copiesDir: 'D:\\Projects' }
+  // У второго проекта копия одна, и она же основная: плашка стоит и там — решение оператора на B-133
+  const lone: WorkspaceRow = { ...otherBase, copiesDir: 'D:\\Projects' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, main, lone]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  expect(within(tableRows[4]).getByText('Основная')).toBeInTheDocument()
+  expect(within(tableRows[2]).queryByText('Основная')).toBeNull()
+  expect(within(tableRows[5]).getByText('Основная')).toBeInTheDocument()
+})
+
 test('удаление копии открывает окно, а после удачи таблица перечитывается и гаснет сообщение', async () => {
   fakeInterval()
   const fetchMock = vi.fn(async (url: string) =>
@@ -417,6 +445,7 @@ test('запущенная задача стоит в строке копии д
   const starting: WorkspaceRow = {
     ...rows[1],
     task: 'B-7 Панель показывает задачу сразу',
+    letters: 'B',
     status: 'starting',
     sessionState: 'working',
     backgroundSession: true,
@@ -956,7 +985,8 @@ const flows = [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'app-knowledge',
-    steps: [],
+    stages: [],
+    flows: [],
     activeTasks: 0,
     version: 'v1',
     error: null,
@@ -1016,17 +1046,12 @@ test('«Бэклог» из сайдбара открывается списко
   expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
 })
 
-test('«Флоу» из сайдбара открывается схемой, а не окном переписывания после возврата к просьбе', async () => {
+test('возврат к просьбе о флоу открывает раздел «Флоу»: переписывания в нём до B-179 нет', async () => {
   stubSections()
   render(<App />)
   await screen.findByRole('table')
 
   returnToRequest('flow', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Переписать флоу' })).toBeInTheDocument()
-
-  const sidebar = sidebarButtons()
-  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
-  fireEvent.click(sidebar.getByRole('button', { name: /Флоу/ }))
 
   expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Переписать флоу' })).not.toBeInTheDocument()

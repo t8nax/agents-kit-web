@@ -139,7 +139,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
             исполнитель: оркестратор
             выход: sha в dev
-            возврат: проверки красные — шаг «Критерий»
+            возврат: проверки красные — стадия «Критерий»
 
             """;
         _agent.Lines = [Result(answer.ReplaceLineEndings("\n"))];
@@ -200,8 +200,36 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
         var error = Assert.Single(events);
         Assert.Equal("error", error.Type);
-        Assert.Equal("Чудо-Юдо вернул не флоу: шагов в его ответе нет", error.Text);
+        Assert.Equal("Чудо-Юдо вернул не флоу: стадий в его ответе нет", error.Text);
         Assert.Equal("Готово, я добавил шаг ревью.", error.Output);
+    }
+
+    [Fact]
+    public async Task Rewrite_RejectsReturnInOldStepWord()
+    {
+        var answer = """
+            # App — флоу
+
+            ## 1. Критерий
+
+            исполнитель: оркестратор
+            выход: критерий закрытия в памяти
+
+            ## 2. Мерж
+
+            исполнитель: оркестратор
+            выход: sha в dev
+            возврат: проверки красные — шаг «Критерий»
+
+            """;
+        _agent.Lines = [Result(answer.ReplaceLineEndings("\n"))];
+        var client = await Client();
+
+        var events = await Rewrite(client, _base, "Опиши круг работы в «Мерже»");
+
+        var error = Assert.Single(events);
+        Assert.Equal("Стадия 2 вернулась не в форме кита: возврат ведёт на стадию, которой во флоу нет", error.Text);
+        Assert.Equal(2, error.Step);
     }
 
     [Fact]

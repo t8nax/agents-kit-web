@@ -1,41 +1,63 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import Flow, { type BaseFlow, type FlowStep, type StepPreset } from './Flow'
+import Flow, { type BaseFlow, type FlowStage, type NamedFlow, type StagePreset } from './Flow'
 
 afterEach(() => vi.unstubAllGlobals())
 
-const criterion: FlowStep = {
+const criterion: FlowStage = {
   title: 'Критерий',
   executor: 'оркестратор',
   output: 'критерий закрытия в памяти',
   skip: null,
-  description: '1.1. Написать критерий до первой строчки кода.',
-  returns: [],
+  description: '- Написать критерий до первой строчки кода.',
   helpers: [],
+  slug: 'criterion',
 }
-const review: FlowStep = {
+const review: FlowStage = {
   title: 'Ревью',
   executor: 'reviewer',
   output: 'вердикт по sha',
   skip: 'правка только в текстах',
-  description: '2.1. Собрать дифф всей ветки.',
-  returns: [],
+  description: '1. Собрать дифф всей ветки.',
   helpers: [],
+  slug: 'review',
 }
-const acceptance: FlowStep = {
+const acceptance: FlowStage = {
   title: 'Приёмка',
   executor: 'оператор',
   output: 'ответ оператора «принято»',
   skip: null,
   description: null,
-  returns: [],
   helpers: [],
+  slug: 'acceptance',
+}
+// Стадия базы, которая не стоит ни в одном флоу: кит её допускает, и видна она на вкладке «Стадии».
+const spare: FlowStage = {
+  title: 'Запас',
+  executor: 'оператор',
+  output: 'ничего',
+  skip: null,
+  description: null,
+  helpers: [],
+  slug: 'spare',
+}
+
+const full: NamedFlow = {
+  name: 'полный',
+  when: 'новая возможность',
+  entries: [{ stage: 'Критерий' }, { stage: 'Ревью' }, { stage: 'Приёмка', returns: [] }],
+}
+const small: NamedFlow = {
+  name: 'мелкий',
+  when: 'правка в одном месте',
+  entries: [{ stage: 'Ревью', returns: [] }, { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Ревью' }] }],
 }
 
 const app: BaseFlow = {
   base: 'D:\\Projects\\app-knowledge',
   project: 'Agents Kit Web',
-  steps: [criterion, review, acceptance],
+  stages: [criterion, review, acceptance, spare],
+  flows: [full, small],
   activeTasks: 0,
   version: 'v1',
   error: null,
@@ -44,7 +66,8 @@ const app: BaseFlow = {
 const nota: BaseFlow = {
   base: 'D:\\Projects\\nota-knowledge',
   project: 'Nota',
-  steps: [],
+  stages: [],
+  flows: [],
   activeTasks: 0,
   version: 'v2',
   error: null,
@@ -66,33 +89,67 @@ function stubApi(handlers: Record<string, Handler>) {
   return fetchMock
 }
 
-const api = (flows: BaseFlow[], presets: StepPreset[] = [], extra: Record<string, Handler> = {}) => ({
+/**
+ * Заведённые в базе проекта исполнители: ровно из них стадии выбирают субагента. Имя во флоу и имя
+ * в списке — одно и то же, поэтому сверяются они напрямую.
+ */
+const performers = (names: string[]) => [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'Agents Kit Web',
+    directory: 'D:\\Projects\\app-knowledge\\agents',
+    performers: names.map((name) => ({
+      name,
+      description: null,
+      model: null,
+      tools: null,
+      prompt: '',
+      path: `D:\\Projects\\app-knowledge\\agents\\${name}.md`,
+    })),
+    error: null,
+  },
+]
+
+const api = (flows: BaseFlow[], presets: StagePreset[] = [], extra: Record<string, Handler> = {}) => ({
   'GET /api/flow': () => json(flows),
   'GET /api/presets': () => json(presets),
-  // Раздел спрашивает заведённых исполнителей: из них шагу выбирают субагента.
-  'GET /api/performers': () => json([]),
-  // Окно переписывания спрашивает панель, не идёт ли уже такая просьба.
-  'GET /api/agent/requests': () => json([]),
+  // Флоу, зовущий незаведённого исполнителя, не сохраняется — поэтому по умолчанию заведены все, кого зовут стадии.
+  'GET /api/performers': () => json(performers(['reviewer', 'scout', 'check-runner', 'e2e-runner'])),
   ...extra,
 })
+
+const saved = () => ({ 'POST /api/flow': () => json({ version: 'v3' }) })
 
 const body = (fetchMock: ReturnType<typeof stubApi>, key: string) => {
   const call = fetchMock.mock.calls.find(([url, init]) => `${init?.method ?? 'GET'} ${url}` === key)
   return call ? JSON.parse(String(call[1]?.body)) : undefined
 }
 
-async function renderFlow(withSteps = true, props: { onPerformers?: () => void } = {}) {
+/** Раздел открывается вкладкой «Флоу» на первом флоу базы. */
+async function renderFlow(props: { onPerformers?: () => void } = {}, flowName = 'полный') {
   render(<Flow {...props} />)
-  const region = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
-  // Шаги базы кладутся в форму после отрисовки раздела: без них блоков на схеме ещё нет.
-  if (withSteps) await screen.findByRole('button', { name: /^Шаг 1: / })
+  const region = within(await screen.findByRole('region', { name: `Флоу «${flowName}»` }))
   return region
 }
 
-/** Сайдбар шага: открывается кликом по блоку схемы. */
-async function openStep(region: ReturnType<typeof within>, name: string | RegExp) {
+/** Сайдбар стадии или флоу: открывается кликом по блоку схемы. */
+async function open(region: ReturnType<typeof within>, name: string | RegExp) {
   fireEvent.click(region.getByRole('button', { name }))
   return within(await screen.findByRole('complementary'))
+}
+
+/** Вкладка «Стадии» с выбранной стадией. */
+async function stagesTab(title?: string) {
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  if (title) fireEvent.click(within(screen.getByRole('list', { name: 'Стадии базы' })).getByRole('button', { name: new RegExp(`^${title}`) }))
+  return within(await screen.findByRole('region', { name: title ? `Стадия «${title}»` : /^Стадия «/ }))
+}
+
+/** Пункт меню «…» шапки: редкие действия раздела живут в нём, меню открывается по требованию. */
+function moreItem(name: string) {
+  const more = screen.getByRole('button', { name: 'Ещё действия' })
+  if (more.getAttribute('aria-expanded') !== 'true') fireEvent.click(more)
+  return screen.getByRole('menuitem', { name })
 }
 
 const nodes = (region: ReturnType<typeof within>): HTMLElement[] =>
@@ -103,164 +160,164 @@ const nodes = (region: ReturnType<typeof within>): HTMLElement[] =>
         button.classList.contains('flow-node') && !button.classList.contains('flow-node-add'),
     )
 
-test('шаги показаны блоками схемы: значок, название и исполнитель, без номера', async () => {
-  stubApi(api([{ ...app, activeTasks: 2 }, nota]))
+const labels = (region: ReturnType<typeof within>) => nodes(region).map((node) => node.getAttribute('aria-label'))
+
+async function saveAndRead(fetchMock: ReturnType<typeof stubApi>) {
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByText('Флоу сохранён и закоммичен в базу')
+  return body(fetchMock, 'POST /api/flow')
+}
+
+test('вкладка «Флоу»: узел старта с именем флоу и стадии блоками — значок, название и исполнитель, без номера', async () => {
+  stubApi(api([app, nota]))
 
   const region = await renderFlow()
 
-  const steps = nodes(region)
-  expect(steps.map((step: HTMLElement) => step.getAttribute('aria-label'))).toEqual([
-    'Шаг 1: Критерий',
-    'Шаг 2: Ревью',
-    'Шаг 3: Приёмка',
-  ])
-  expect(within(steps[1]).getByText('субагент reviewer')).toBeInTheDocument()
-  // Номера шага на блоке нет, как и выхода с пропуском — они в сайдбаре
-  expect(steps[0]).toHaveTextContent(/^Критерий/)
+  expect(screen.getByRole('tab', { name: 'Флоу' })).toHaveAttribute('aria-selected', 'true')
+  expect(region.getByRole('button', { name: 'Флоу «полный»: название и «когда»' })).toHaveTextContent('полный')
+  const stages = nodes(region)
+  expect(labels(region)).toEqual(['Стадия 1: Критерий', 'Стадия 2: Ревью', 'Стадия 3: Приёмка'])
+  expect(within(stages[1]).getByText('субагент reviewer')).toBeInTheDocument()
+  expect(stages[0]).toHaveTextContent(/^Критерий/)
   expect(region.queryByText('вердикт по sha')).not.toBeInTheDocument()
-  // Флажок стоит у шага с условием пропуска
-  expect(steps[1].querySelector('.flow-node-skip')).not.toBeNull()
-  expect(steps[0].querySelector('.flow-node-skip')).toBeNull()
-  // Значок шага — выбранный оператором, у остальных — по исполнителю
-  expect(steps[0].querySelector('.flow-mark-orchestrator')).not.toBeNull()
-  expect(steps[2].querySelector('.flow-mark-operator')).not.toBeNull()
+  // Флажок стоит у стадии с условием пропуска
+  expect(stages[1].querySelector('.flow-node-skip')).not.toBeNull()
+  expect(stages[0].querySelector('.flow-node-skip')).toBeNull()
+  expect(stages[2].querySelector('.flow-mark-operator')).not.toBeNull()
+  // Сохранять нечего — полосы сохранения нет
+  expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
 })
 
-test('клик по блоку открывает сайдбар с выходом, пропуском и описанием шага', async () => {
+test('флоу выбирается списком в углу холста: в списке только названия', async () => {
+  stubApi(api([app]))
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  const list = within(screen.getByRole('listbox', { name: 'Флоу' }))
+  expect(list.getAllByRole('option').map((option) => option.textContent)).toEqual(['полный', 'мелкий'])
+  expect(list.getByRole('option', { name: 'полный' })).toHaveAttribute('aria-selected', 'true')
+  fireEvent.click(list.getByRole('option', { name: 'мелкий' }))
+
+  const region = within(screen.getByRole('region', { name: 'Флоу «мелкий»' }))
+  expect(labels(region)).toEqual(['Стадия 1: Ревью', 'Стадия 2: Приёмка, возврат к стадии Ревью'])
+})
+
+test('узел старта открывает сайдбар флоу: название и «когда» правятся, флоу удаляется', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  const region = await renderFlow()
+
+  const drawer = await open(region, 'Флоу «полный»: название и «когда»')
+  expect(drawer.getByRole('textbox', { name: 'Название флоу' })).toHaveValue('полный')
+  expect(drawer.getByRole('textbox', { name: 'Когда брать флоу' })).toHaveValue('новая возможность')
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Название флоу' }), { target: { value: 'большой' } })
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать флоу' }), { target: { value: 'правка в нескольких местах' } })
+
+  expect(screen.getByRole('region', { name: 'Флоу «большой»' })).toBeInTheDocument()
+  expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows[0]).toMatchObject({ name: 'большой', when: 'правка в нескольких местах' })
+
+  const renamed = within(screen.getByRole('region', { name: 'Флоу «большой»' }))
+  fireEvent.click((await open(renamed, /^Флоу «большой»/)).getByRole('button', { name: 'Удалить флоу' }))
+  expect(await screen.findByRole('region', { name: 'Флоу «мелкий»' })).toBeInTheDocument()
+})
+
+test('новый флоу заводится у списка флоу и открыт в сайдбаре; пустой не сохранить', async () => {
+  stubApi(api([app]))
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новый флоу' }))
+
+  const region = within(await screen.findByRole('region', { name: 'Флоу «новый флоу»' }))
+  expect(nodes(region)).toHaveLength(0)
+  expect(within(screen.getByRole('complementary')).getByRole('textbox', { name: 'Название флоу' })).toHaveValue('новый флоу')
+  expect(screen.getByText(/Не сохранить: флоу «новый флоу» — не указано «когда», во флоу нет стадий/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('при двух флоу у каждого нужно «когда», при одном — нет', async () => {
+  stubApi(api([{ ...app, flows: [{ ...full, when: null }] }]))
+  const region = await renderFlow()
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новый флоу' }))
+  expect(screen.getByText(/Не сохранить: флоу «полный» — не указано «когда»/)).toBeInTheDocument()
+  expect(region).toBeDefined()
+})
+
+test('стадия во флоу открывает сайдбар с её возвратами в этом флоу, а название ведёт к её правке', async () => {
   stubApi(api([app]))
   const region = await renderFlow()
 
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  const drawer = await open(region, 'Стадия 2: Ревью')
 
-  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Шаг 2: Ревью')
-  expect(drawer.getByRole('textbox', { name: 'Название шага' })).toHaveValue('Ревью')
-  expect(drawer.getByRole('textbox', { name: 'Имя субагента' })).toHaveValue('reviewer')
-  expect(drawer.getByRole('textbox', { name: 'Выход шага' })).toHaveValue('вердикт по sha')
-  expect(drawer.getByRole('textbox', { name: 'Пропуск шага' })).toHaveValue('правка только в текстах')
-  // Описание правится своим окном, а не полем сайдбара
-  expect(drawer.queryByRole('textbox', { name: 'Описание шага' })).not.toBeInTheDocument()
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 2: Ревью')
+  // Поля самой стадии правятся на вкладке «Стадии», а не здесь
+  expect(drawer.queryByRole('textbox', { name: 'Выход стадии' })).not.toBeInTheDocument()
+  expect(drawer.getByRole('button', { name: 'Добавить возврат' })).toBeInTheDocument()
 
-  fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
-  expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  fireEvent.click(drawer.getByRole('button', { name: 'Править стадию «Ревью»' }))
+
+  expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
+  const edit = within(screen.getByRole('region', { name: 'Стадия «Ревью»' }))
+  expect(edit.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт по sha')
 })
 
-test('описание шага правится в окне по кнопке, у шага без описания кнопка приглушена', async () => {
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v3' }) }))
+test('возврат правится у стадии в своём флоу: цель — только стадии этого флоу, стоящие раньше', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
+  const drawer = await open(region, 'Стадия 3: Приёмка')
 
-  const empty = (await openStep(region, 'Шаг 3: Приёмка')).getByRole('button', { name: /Редактировать описание/ })
-  expect(empty).toHaveClass('flow-description-empty')
-  expect(empty).toHaveAttribute('title', 'Описания нет — добавить')
-
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-  const button = drawer.getByRole('button', { name: /Редактировать описание/ })
-  expect(button).not.toHaveClass('flow-description-empty')
-  fireEvent.click(button)
-
-  const dialog = within(screen.getByRole('dialog', { name: 'Описание шага «Ревью»' }))
-  const text = dialog.getByRole('textbox', { name: 'Описание шага' })
-  expect(text).toHaveValue('2.1. Собрать дифф всей ветки.')
-  fireEvent.change(text, { target: { value: 'Ревью по диффу.\n\n2.1. Собрать дифф всей ветки.' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Готово' }))
-
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[1].description).toBe(
-    'Ревью по диффу.\n\n2.1. Собрать дифф всей ветки.',
-  )
-})
-
-test('проект выбирается чипами, база без шагов названа словами', async () => {
-  stubApi(api([app, nota]))
-  await renderFlow()
-
-
-  fireEvent.click(screen.getByRole('button', { name: 'Nota' }))
-
-  const region = within(screen.getByRole('region', { name: 'Nota' }))
-  expect(region.getByText(/Во флоу пока нет шагов/)).toBeInTheDocument()
-  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
-})
-
-test('база без файла флоу названа словами, и править её нечего', async () => {
-  stubApi(api([{ ...app, steps: [], version: null, error: 'В базе нет flow.md' }]))
-
-  const region = await renderFlow(false)
-
-  expect(region.getByText(/В базе нет файла флоу/)).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Открыть в VS Code' })).not.toBeInTheDocument()
-})
-
-test('«Открыть в VS Code» просит API открыть флоу этой базы', async () => {
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow/open': () => new Response(null, { status: 204 }) }))
-  await renderFlow(false)
-
-  fireEvent.click(screen.getByRole('button', { name: 'Открыть в VS Code' }))
-
-  await vi.waitFor(() => expect(body(fetchMock, 'POST /api/flow/open')).toEqual({ base: app.base }))
-})
-
-test('шаг правится в сайдбаре сразу, без режима правки: появляются «Сохранить» и «Отменить правки»', async () => {
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v3' }) }))
-  const region = await renderFlow()
-  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
-
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Название шага' }), { target: { value: 'Критерий закрытия' } })
-
-  expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
-  expect(nodes(region)[0]).toHaveTextContent(/^Критерий закрытия/)
-  // Пока правки не записаны, флоу другого проекта не откроешь и файл базы не перечитаешь
-  expect(screen.getByRole('button', { name: 'Обновить' })).toBeDisabled()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  expect(await screen.findByText('Флоу сохранён и закоммичен в базу')).toBeInTheDocument()
-  expect(body(fetchMock, 'POST /api/flow')).toEqual({
-    base: app.base,
-    version: 'v1',
-    steps: [{ ...criterion, title: 'Критерий закрытия' }, review, acceptance],
-    // Значок остаётся у шага: переименование в панели его не теряет
-    icons: { 'Критерий закрытия': 'target' },
+  fireEvent.click(drawer.getByRole('button', { name: 'Добавить возврат' }))
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Условие возврата 1' }), { target: { value: 'есть замечания' } })
+  const target = drawer.getByRole('combobox', { name: 'Стадия возврата 1' })
+  expect(within(target).getAllByRole('option').map((option) => option.textContent)).toEqual([
+    'стадия…',
+    'Критерий',
+    'Ревью',
+  ])
+  fireEvent.change(target, {
+    target: { value: within(target).getByRole('option', { name: 'Критерий' }).getAttribute('value') },
   })
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows[0].entries[2].returns).toEqual([{ condition: 'есть замечания', stage: 'Критерий' }])
+  // У той же стадии во флоу «мелкий» возврат свой и не тронут
+  expect(sent.flows[1].entries[1].returns).toEqual([{ condition: 'замечания', stage: 'Ревью' }])
 })
 
-test('«Отменить правки» возвращает шаги базы', async () => {
-  const fetchMock = stubApi(api([app]))
+test('возврат без цели не даёт сохранить флоу, и сказано, где чинить', async () => {
+  stubApi(api([{ ...app, flows: [{ ...full, entries: [...full.entries.slice(0, 2), { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Сборка' }] }] }] }]))
   const region = await renderFlow()
 
-  const drawer = await openStep(region, 'Шаг 3: Приёмка')
-  fireEvent.click(drawer.getByRole('button', { name: 'Удалить шаг' }))
-  expect(nodes(region)).toHaveLength(2)
+  expect(screen.getByText(/Не сохранить: флоу «полный», стадия «Приёмка»/)).toHaveTextContent(
+    'возврат ведёт на стадию, которой во флоу нет',
+  )
+  expect(nodes(region)[2]).toHaveClass('invalid')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Отменить правки' }))
-
-  expect(nodes(region)).toHaveLength(3)
-  expect(screen.queryByText('есть несохранённые правки')).not.toBeInTheDocument()
-  expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
+  const drawer = await open(region, /^Стадия 3: Приёмка/)
+  fireEvent.click(drawer.getByRole('button', { name: 'Убрать возврат 1' }))
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
 })
 
-test('значок шага выбирается из списка значков и уходит в запись', async () => {
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v3' }) }))
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 3: Приёмка')
+test('возвраты нарисованы дугами: у открытой стадии дуга подсвечена и подписана условием', async () => {
+  stubApi(api([app]))
+  await renderFlow()
+  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
+  const region = within(screen.getByRole('region', { name: 'Флоу «мелкий»' }))
 
-  fireEvent.click(drawer.getByRole('button', { name: 'Значок шага' }))
-  const menu = within(screen.getByRole('group', { name: 'Значки шага' }))
-  // В списке сами значки, а не их названия
-  expect(menu.getAllByRole('button').map((button) => button.textContent)).toEqual(['', '', '', '', '', ''])
-  fireEvent.click(menu.getByRole('button', { name: 'Значок «проверка»' }))
+  expect(document.querySelectorAll('.flow-arc')).toHaveLength(1)
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
 
-  expect(screen.queryByRole('group', { name: 'Значки шага' })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').icons).toEqual({ Критерий: 'target', Приёмка: 'check' })
+  await open(region, /^Стадия 2: Приёмка/)
+
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(1)
+  expect(document.querySelector('.flow-arc-label')).toHaveTextContent('замечания')
 })
 
-test('шаг переставляется перетаскиванием блока, номера пунктов описания идут за шагом', async () => {
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v3' }) }))
+test('стадии флоу переставляются перетаскиванием и кнопками с клавиатуры', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
   const [first, , third] = nodes(region)
   const data: Record<string, string> = {}
@@ -273,64 +330,271 @@ test('шаг переставляется перетаскиванием бло�
   fireEvent.dragStart(third, { dataTransfer })
   fireEvent.dragOver(first, { dataTransfer })
   fireEvent.drop(first, { dataTransfer })
+  expect(labels(region)).toEqual(['Стадия 1: Приёмка', 'Стадия 2: Критерий', 'Стадия 3: Ревью'])
 
-  expect(nodes(region).map((node: HTMLElement) => node.getAttribute('aria-label'))).toEqual([
-    'Шаг 1: Приёмка',
-    'Шаг 2: Критерий',
-    'Шаг 3: Ревью',
-  ])
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  const steps: FlowStep[] = body(fetchMock, 'POST /api/flow').steps
-  expect(steps.map((step) => step.title)).toEqual(['Приёмка', 'Критерий', 'Ревью'])
-  expect(steps[1].description).toBe('2.1. Написать критерий до первой строчки кода.')
-  expect(steps[2].description).toBe('3.1. Собрать дифф всей ветки.')
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  expect(labels(region)).toEqual(['Стадия 1: Приёмка', 'Стадия 2: Ревью', 'Стадия 3: Критерий'])
+  expect(region.getByRole('button', { name: 'Стадия 1 выше' })).toBeDisabled()
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows[0].entries.map((entry: { stage: string }) => entry.stage)).toEqual(['Приёмка', 'Ревью', 'Критерий'])
+  // Стадии базы не переписаны: поменялся только порядок во флоу
+  expect(sent.stages).toEqual(app.stages)
 })
 
-test('шаг двигается кнопками с клавиатуры', async () => {
-  stubApi(api([app]))
+test('стадия убирается из флоу, а в базе остаётся', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
 
-  fireEvent.click(region.getByRole('button', { name: 'Шаг 2 выше' }))
+  fireEvent.click((await open(region, 'Стадия 1: Критерий')).getByRole('button', { name: 'Убрать из флоу' }))
 
-  expect(nodes(region).map((node: HTMLElement) => node.getAttribute('aria-label'))).toEqual([
-    'Шаг 1: Ревью',
-    'Шаг 2: Критерий',
-    'Шаг 3: Приёмка',
-  ])
-  expect(region.getByRole('button', { name: 'Шаг 1 выше' })).toBeDisabled()
-  expect(region.getByRole('button', { name: 'Шаг 3 ниже' })).toBeDisabled()
+  expect(labels(region)).toEqual(['Стадия 1: Ревью', 'Стадия 2: Приёмка'])
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.stages.map((stage: FlowStage) => stage.title)).toContain('Критерий')
 })
 
-test('шаг без выхода или без имени субагента не сохранить, и сказано почему', async () => {
+test('вкладка «Стадии»: все стадии базы, и правка стадии видна во всех флоу, где она стоит', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  await renderFlow()
+
+  const edit = await stagesTab('Ревью')
+  const list = within(screen.getByRole('list', { name: 'Стадии базы' }))
+  // Список — все стадии базы, в том числе не стоящая ни в одном флоу
+  expect(list.getAllByRole('button').map((item) => item.textContent)).toEqual([
+    'Критерийоркестратор',
+    'Ревьюсубагент reviewer',
+    'Приёмкаоператор',
+    'Запасоператор',
+  ])
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Вычитка' } })
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  expect(labels(within(screen.getByRole('region', { name: 'Флоу «полный»' })))).toContain('Стадия 2: Вычитка')
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.stages[1]).toEqual({ ...review, title: 'Вычитка', output: 'вердикт' })
+  // Пункты и возвраты обоих флоу идут за новым названием
+  expect(sent.flows[0].entries[1].stage).toBe('Вычитка')
+  expect(sent.flows[1].entries[1].returns).toEqual([{ condition: 'замечания', stage: 'Вычитка' }])
+  expect(sent.icons).toEqual({ Критерий: 'target' })
+})
+
+test('стадию, стоящую во флоу, не удалить; стоящую вне флоу — удалить', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  await renderFlow()
+
+  const used = await stagesTab('Ревью')
+  expect(used.getByRole('button', { name: 'Удалить стадию' })).toBeDisabled()
+
+  const free = await stagesTab('Запас')
+  fireEvent.click(free.getByRole('button', { name: 'Удалить стадию' }))
+
+  expect(within(screen.getByRole('list', { name: 'Стадии базы' })).queryByText('Запас')).not.toBeInTheDocument()
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.stages.map((stage: FlowStage) => stage.title)).toEqual(['Критерий', 'Ревью', 'Приёмка'])
+})
+
+test('новая стадия заводится на вкладке «Стадии» и без названия и выхода не сохраняется', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  await renderFlow()
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая стадия' }))
+
+  const edit = within(screen.getByRole('region', { name: 'Стадия «без названия»' }))
+  expect(screen.getByText('Не сохранить: стадия «без названия» — нет названия, не указан выход')).toBeInTheDocument()
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Мерж' } })
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'sha в dev' } })
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.stages[4]).toEqual({
+    title: 'Мерж',
+    executor: 'оркестратор',
+    output: 'sha в dev',
+    skip: null,
+    description: null,
+    helpers: [],
+    slug: null,
+  })
+})
+
+test('две стадии с одним названием не сохранить', async () => {
   stubApi(api([app]))
+  await renderFlow()
+
+  const edit = await stagesTab('Запас')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'ревью ' } })
+
+  expect(screen.getByText(/^Не сохранить: стадия «Ревью» — стадия с таким названием уже есть/)).toBeInTheDocument()
+})
+
+test('описание стадии правится в окне по кнопке, у стадии без описания кнопка приглушена', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  await renderFlow()
+
+  const empty = (await stagesTab('Приёмка')).getByRole('button', { name: /Редактировать описание/ })
+  expect(empty).toHaveClass('flow-description-empty')
+
+  const edit = await stagesTab('Ревью')
+  fireEvent.click(edit.getByRole('button', { name: /Редактировать описание/ }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Описание стадии «Ревью»' }))
+  const text = dialog.getByRole('textbox', { name: 'Описание стадии' })
+  expect(text).toHaveValue('1. Собрать дифф всей ветки.')
+  fireEvent.change(text, { target: { value: 'Ревью по диффу.\n\n1. Собрать дифф.' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Готово' }))
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect((await saveAndRead(fetchMock)).stages[1].description).toBe('Ревью по диффу.\n\n1. Собрать дифф.')
+})
+
+test('значок стадии выбирается из списка значков и уходит в запись', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  await renderFlow()
+  const edit = await stagesTab('Приёмка')
+
+  fireEvent.click(edit.getByRole('button', { name: 'Значок стадии' }))
+  const menu = within(screen.getByRole('group', { name: 'Значки стадии' }))
+  // В списке сами значки, а не их названия
+  expect(menu.getAllByRole('button').map((button) => button.textContent)).toEqual(['', '', '', '', '', ''])
+  fireEvent.click(menu.getByRole('button', { name: 'Значок «проверка»' }))
+
+  expect((await saveAndRead(fetchMock)).icons).toEqual({ Критерий: 'target', Приёмка: 'check' })
+})
+
+test('в окне добавления — новая стадия, стадии базы, которых во флоу нет, и пресеты', async () => {
+  const fetchMock = stubApi(api([app], [{ ...spare, title: 'Мерж', output: 'sha в dev', slug: null, id: 'p1' }], saved()))
   const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
+  await open(region, 'Флоу «полный»: название и «когда»')
+  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
 
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Выход шага' }), { target: { value: ' ' } })
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Имя субагента' }), { target: { value: '' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию во флоу «мелкий»' }))
+  const own = within(dialog.getByRole('group', { name: 'Стадии базы' }))
+  expect(own.getAllByRole('button').map((button) => button.querySelector('.flow-preset-title')?.textContent)).toEqual([
+    'Критерий',
+    'Запас',
+  ])
+  fireEvent.click(own.getByRole('button', { name: /^Критерий/ }))
 
-  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
-  expect(screen.getByText('Не сохранить: шаг 2 — не указано имя субагента, не указан выход')).toBeInTheDocument()
-  expect(nodes(region)[1]).toHaveClass('invalid')
+  const small = within(screen.getByRole('region', { name: 'Флоу «мелкий»' }))
+  expect(labels(small)).toContain('Стадия 3: Критерий')
+  // Добавленная стадия сразу открыта в сайдбаре
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 3: Критерий')
 
-  fireEvent.change(drawer.getByRole('combobox', { name: 'Исполнитель шага' }), { target: { value: 'оператор' } })
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Выход шага' }), { target: { value: 'вердикт' } })
-  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.click(within(screen.getByRole('group', { name: 'Пресеты стадий' })).getByRole('button', { name: /^Мерж/ }))
+  expect(labels(small)).toContain('Стадия 4: Мерж')
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows[1].entries.map((entry: { stage: string }) => entry.stage)).toEqual(['Ревью', 'Приёмка', 'Критерий', 'Мерж'])
+  // Стадия из пресета заводится в базе новой, стадия базы — нет
+  expect(sent.stages.map((stage: FlowStage) => stage.title)).toEqual(['Критерий', 'Ревью', 'Приёмка', 'Запас', 'Мерж'])
+  expect(sent.stages[4].slug).toBeNull()
+})
+
+test('«Новая стадия» из окна добавления ставится во флоу и открывается на вкладке «Стадии»', async () => {
+  stubApi(api([app]))
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию во флоу «полный»' }))
+  expect(dialog.getByText('Пресетов пока нет.')).toBeInTheDocument()
+  fireEvent.click(dialog.getByRole('button', { name: /^Новая стадия/ }))
+
+  expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('region', { name: 'Стадия «без названия»' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  expect(labels(within(screen.getByRole('region', { name: 'Флоу «полный»' })))).toContain('Стадия 4: без названия')
+})
+
+test('пресет сохраняется со вкладки «Стадии» без помощников и удаляется из окна добавления', async () => {
+  const fetchMock = stubApi(
+    api([{ ...app, stages: [{ ...criterion, helpers: ['scout'] }, review, acceptance, spare] }], [], {
+      'POST /api/presets': () => json({ ...criterion, helpers: [], slug: null, id: 'p1' }),
+      'DELETE /api/presets': () => new Response(null, { status: 204 }),
+    }),
+  )
+  await renderFlow()
+  const edit = await stagesTab('Критерий')
+
+  fireEvent.click(edit.getByRole('button', { name: 'В пресеты' }))
+
+  expect(await screen.findByRole('button', { name: 'Стадия в пресетах' })).toBeDisabled()
+  expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ title: 'Критерий', helpers: [], slug: null })
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Критерий' }))
+  await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Критерий' })).not.toBeInTheDocument())
+})
+
+test('исполнитель стадии выбирается из заведённых, незаведённый не даёт сохранить флоу', async () => {
+  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
+  const onPerformers = vi.fn()
+  const region = await renderFlow({ onPerformers })
+
+  // Незнакомое имя видно на схеме, не открывая стадию
+  expect(await within(nodes(region)[1]).findByLabelText('Исполнителя reviewer нет в базе')).toBeInTheDocument()
+  expect(screen.getByText(/Не сохранить: стадия «Ревью»/)).toHaveTextContent('исполнителя нет в базе')
+
+  const edit = await stagesTab('Ревью')
+  expect(await edit.findByRole('status')).toHaveTextContent('Выберите исполнителя из заведённых')
+  const picker = edit.getByRole('combobox', { name: 'Имя субагента' })
+  expect(picker).toHaveDisplayValue('reviewer — в базе нет')
+  expect(edit.queryByRole('textbox', { name: 'Имя субагента' })).not.toBeInTheDocument()
+
+  fireEvent.click(edit.getByRole('button', { name: 'Завести исполнителя' }))
+  expect(onPerformers).toHaveBeenCalled()
+
+  fireEvent.change(picker, { target: { value: 'e2e-runner' } })
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+})
+
+test('отказ чтения исполнителей не метит стадии незаведёнными', async () => {
+  stubApi(api([app], [], { 'GET /api/performers': () => new Response('', { status: 500 }) }))
+  const region = await renderFlow()
+
+  expect(await screen.findByText(/Список исполнителей не прочитан/)).toBeInTheDocument()
+  expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+  expect((await stagesTab('Ревью')).getByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue('reviewer')
+})
+
+test('помощники есть только у стадии оркестратора и стираются при смене исполнителя', async () => {
+  const fetchMock = stubApi(api([{ ...app, stages: [{ ...criterion, helpers: ['scout'] }, review, acceptance, spare] }], [], saved()))
+  await renderFlow()
+  const edit = await stagesTab('Критерий')
+
+  expect(edit.getByText('scout')).toBeInTheDocument()
+  fireEvent.change(edit.getByRole('combobox', { name: 'Добавить помощника' }), { target: { value: 'check-runner' } })
+  expect((await saveAndRead(fetchMock)).stages[0].helpers).toEqual(['scout', 'check-runner'])
+
+  fireEvent.change(edit.getByRole('combobox', { name: 'Исполнитель стадии' }), { target: { value: 'оператор' } })
+  expect(edit.queryByRole('combobox', { name: 'Добавить помощника' })).not.toBeInTheDocument()
+  expect(edit.queryByText('scout')).not.toBeInTheDocument()
+})
+
+test('помощник, которого нет в базе, отмечен янтарём и сохранить флоу не даёт', async () => {
+  stubApi(api([{ ...app, stages: [{ ...criterion, helpers: ['doc-writer'] }, review, acceptance, spare] }]))
+  await renderFlow()
+  const edit = await stagesTab('Критерий')
+
+  expect(await edit.findByTitle('Исполнителя doc-writer нет в базе')).toBeInTheDocument()
+  expect(screen.getByText(/Не сохранить: стадия «Критерий»/)).toHaveTextContent('помощника нет в базе')
 })
 
 test('при задачах в работе сохранение спрашивает подтверждение и говорит, сколько их', async () => {
-  const fetchMock = stubApi(api([{ ...app, activeTasks: 2 }], [], { 'POST /api/flow': () => json({ version: 'v3' }) }))
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Выход шага' }), { target: { value: 'критерий в памяти' } })
+  const fetchMock = stubApi(api([{ ...app, activeTasks: 2 }], [], saved()))
+  await renderFlow()
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий в памяти' } })
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   const dialog = within(screen.getByRole('dialog', { name: 'Сохранить флоу Agents Kit Web?' }))
-  expect(dialog.getByText(/На проекте 2 задачи в работе\. Они дойдут по старым шагам/)).toBeInTheDocument()
-
+  expect(dialog.getByText(/На проекте 2 задачи в работе\. Они дойдут по старым стадиям/)).toBeInTheDocument()
   fireEvent.click(dialog.getByRole('button', { name: 'Отмена' }))
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
@@ -338,527 +602,208 @@ test('при задачах в работе сохранение спрашив�
   expect(await screen.findByText('Флоу сохранён и закоммичен в базу')).toBeInTheDocument()
 })
 
-test('отказы записи названы словами, а правки остаются на схеме', async () => {
-  stubApi(
-    api([app], [], {
-      'POST /api/flow': () => json({ problem: 'not-committed', detail: 'сверка: флоу не прошёл' }, 502),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Название шага' }), { target: { value: 'Критерий закрытия' } })
+test('запись уходит целиком: база, отпечаток, стадии, флоу и значки', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  await renderFlow()
+  const edit = await stagesTab('Приёмка')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Пропуск стадии' }), { target: { value: 'правка без вида' } })
 
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  expect(
-    await screen.findByText('Флоу не сохранён: коммит в базу не прошёл, файл оставлен как был. сверка: флоу не прошёл'),
-  ).toBeInTheDocument()
-  expect(nodes(region)[0]).toHaveTextContent(/^Критерий закрытия/)
-})
-
-test('флоу, изменённый в базе во время правки, не перезаписывается молча', async () => {
-  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'changed' }, 409) }))
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Название шага' }), { target: { value: 'Критерий закрытия' } })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  expect(await screen.findByText(/файл флоу изменился в базе, пока вы его правили/)).toBeInTheDocument()
-})
-
-test('пресеты: список начинается пустым, шаг сохраняется из сайдбара и добавляется блоком «Добавить шаг»', async () => {
-  const saved: StepPreset = { ...review, id: 'p1' }
-  const fetchMock = stubApi(
-    api([app], [], {
-      'POST /api/presets': () => json(saved),
-      'POST /api/flow': () => json({ version: 'v3' }),
-    }),
-  )
-  const region = await renderFlow()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить шаг' }))
-  // Шаг выбирается своим окном, а не списком под блоком
-  const adding = within(screen.getByRole('dialog', { name: 'Добавить шаг' }))
-  expect(adding.getByText(/Пресетов пока нет/)).toBeInTheDocument()
-  fireEvent.click(adding.getByRole('button', { name: 'Отмена' }))
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
-  expect(await screen.findByRole('button', { name: 'Шаг в пресетах' })).toBeDisabled()
-  expect(body(fetchMock, 'POST /api/presets')).toEqual(review)
-
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить шаг' }))
-  fireEvent.click(within(screen.getByRole('group', { name: 'Пресеты шагов' })).getByRole('button', { name: /^Ревью/ }))
-
-  // Добавленный шаг сразу открыт в сайдбаре
-  expect(within(screen.getByRole('complementary')).getByRole('textbox', { name: 'Название шага' })).toHaveValue('Ревью')
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[3]).toEqual({ ...review, description: '4.1. Собрать дифф всей ветки.' })
-})
-
-test('пустой шаг добавляется в конец, пресет удаляется из списка', async () => {
-  const fetchMock = stubApi(
-    api([app], [{ ...acceptance, id: 'p9' }], { 'DELETE /api/presets': () => new Response(null, { status: 204 }) }),
-  )
-  const region = await renderFlow()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить шаг' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Приёмка' }))
-  await vi.waitFor(() =>
-    expect(fetchMock.mock.calls.some(([url, init]) => url === '/api/presets/p9' && init?.method === 'DELETE')).toBe(true),
-  )
-  await vi.waitFor(() =>
-    expect(screen.queryByRole('button', { name: 'Удалить пресет Приёмка' })).not.toBeInTheDocument(),
-  )
-
-  fireEvent.click(screen.getByRole('button', { name: /^Пустой шаг/ }))
-
-  expect(nodes(region)[3]).toHaveTextContent(/^без названия/)
-  expect(screen.getByText('Не сохранить: шаг 4 — нет названия, не указан выход')).toBeInTheDocument()
-})
-
-test('переписанный агентом флоу ложится в схему правками, а не записью в базу', async () => {
-  const rewritten: FlowStep[] = [criterion, { ...review, output: 'вердикт по sha всей ветки' }, acceptance]
-  const stream = new Response(
-    new TextEncoder().encode(
-      JSON.stringify({ type: 'rewritten', text: '', steps: rewritten, version: 'v1', durationMs: 12000 }) + '\n',
-    ),
-    { headers: { 'Content-Type': 'application/x-ndjson' } },
-  )
-  const summary = {
-    kind: 'flow',
-    id: 'r1',
+  expect(await saveAndRead(fetchMock)).toEqual({
     base: app.base,
-    project: app.project,
-    text: 'Ревью смотрит дифф всей ветки',
-    elapsedMs: 0,
-    state: 'running',
-  }
-  const fetchMock = stubApi(
-    api([app], [], {
-      'POST /api/flow/rewrite': () => json(summary),
-      'GET /api/agent/flow/stream?id=r1&from=0': () => stream,
-      'DELETE /api/agent/flow': () => new Response(null, { status: 204 }),
-    }),
-  )
-  const region = await renderFlow()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
-  fireEvent.change(await screen.findByLabelText('Что поменять во флоу'), {
-    target: { value: 'Ревью смотрит дифф всей ветки' },
+    version: 'v1',
+    stages: [criterion, review, { ...acceptance, skip: 'правка без вида' }, spare],
+    flows: [
+      { ...full, entries: full.entries.map((entry) => ({ stage: entry.stage, returns: [] })) },
+      small,
+    ],
+    icons: { Критерий: 'target' },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Взять правки в схему' }))
+})
 
-  // Итог просьбы забирается вместе с правками, поэтому схема их получает следующим ходом.
-  expect(await screen.findByText('Правки Чудо-Юдо в схеме — их ещё нужно сохранить')).toBeInTheDocument()
-  expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
-  // Флоу базы записывает не окно, а прежняя кнопка «Сохранить».
+test('«Отменить правки» возвращает флоу базы и убирает полосу сохранения', async () => {
+  const fetchMock = stubApi(api([app]))
+  const region = await renderFlow()
+
+  fireEvent.click((await open(region, 'Стадия 3: Приёмка')).getByRole('button', { name: 'Убрать из флоу' }))
+  expect(nodes(region)).toHaveLength(2)
+  // Пока правки не записаны, проект не переключить и базу не перечитать
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
+  expect(moreItem('Обновить')).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отменить правки' }))
+
+  expect(nodes(region)).toHaveLength(3)
+  expect(screen.queryByText('есть несохранённые правки')).not.toBeInTheDocument()
   expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
-
-  const drawer = await openStep(region, /^Шаг 2: /)
-  expect(drawer.getByLabelText('выход')).toHaveValue('вердикт по sha всей ветки')
 })
 
-test('со своими несохранёнными правками переписывать нельзя: агент читает файл базы', async () => {
-  stubApi(api([app]))
-  const region = await renderFlow()
+test('отказы записи названы словами, а правки остаются', async () => {
+  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'not-committed', detail: 'сверка: флоу не прошёл' }, 502) }))
+  await renderFlow()
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Критерий закрытия' } })
 
-  const drawer = await openStep(region, /^Шаг 1: /)
-  fireEvent.change(drawer.getByLabelText('выход'), { target: { value: 'критерий и ответ оператора' } })
-
-  expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeDisabled()
-})
-
-/** Приставка имён исполнителей проекта: её панель дописывает сама, и в файле флоу имя стоит с ней. */
-const PREFIX = 'agents-kit-web'
-
-/**
- * Заведённые исполнители проекта: ровно из них шагу выбирают субагента. Имена здесь короткие, а
- * приставка лежит рядом — так их и отдаёт API, и ровно поэтому имя из флоу, где оно стоит
- * с приставкой, нельзя сверять со списком напрямую.
- */
-const performers = (names: string[]) => [
-  {
-    base: 'D:\\Projects\\app-knowledge',
-    project: 'Agents Kit Web',
-    prefix: PREFIX,
-    directory: 'C:\\Users\\Boris\\.claude\\agents',
-    performers: names.map((name) => ({
-      name,
-      description: null,
-      model: null,
-      tools: null,
-      prompt: '',
-      path: `C:\\Users\\Boris\\.claude\\agents\\${PREFIX}-${name}.md`,
-    })),
-    error: null,
-  },
-]
-
-/** Шаг субагента так, как он стоит в файле флоу: имя с приставкой проекта. */
-const reviewFull: FlowStep = { ...review, executor: `${PREFIX}-reviewer` }
-
-const withFullNames = (steps: FlowStep[] = [criterion, reviewFull, acceptance]) => ({ ...app, steps })
-
-test('исполнитель шага выбирается из заведённых, а в файл уходит имя с приставкой', async () => {
-  const fetchMock = stubApi(
-    api([withFullNames()], [], {
-      'GET /api/performers': () => json(performers(['reviewer', 'e2e-runner'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-
-  // Шаг зовёт исполнителя полным именем, а оператор видит его без приставки
-  const picker = await drawer.findByRole('combobox', { name: 'Имя субагента' })
-  expect(picker).toHaveValue('reviewer')
-  expect(within(nodes(region)[1]).getByText('субагент reviewer')).toBeInTheDocument()
-  expect(drawer.queryByRole('textbox', { name: 'Имя субагента' })).not.toBeInTheDocument()
-
-  fireEvent.change(picker, { target: { value: 'e2e-runner' } })
-
-  expect(within(nodes(region)[1]).getByText('субагент e2e-runner')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('agents-kit-web-e2e-runner')
-})
-
-test('шаг с полным именем заведённого исполнителя пропавшим не помечен', async () => {
-  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['reviewer'])) }))
-  const region = await renderFlow()
-
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-  await drawer.findByRole('combobox', { name: 'Имя субагента' })
-
-  expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
-  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
-})
-
-test('шаг, где в файле осталось имя без приставки, помечен как незнакомый', async () => {
-  const fetchMock = stubApi(
-    api([app], [], {
-      'GET /api/performers': () => json(performers(['reviewer'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow(true, { onPerformers: vi.fn() })
 
   expect(
-    await within(nodes(region)[1]).findByLabelText('Имя reviewer записано без приставки проекта'),
+    await screen.findByText('Флоу не сохранён: коммит в базу не прошёл, файлы оставлены как были. сверка: флоу не прошёл'),
+  ).toBeInTheDocument()
+  expect(edit.getByRole('textbox', { name: 'Название стадии' })).toHaveValue('Критерий закрытия')
+})
+
+test('отказ API по форме кита назван с флоу и стадией; изменённый в базе флоу не перезаписан молча', async () => {
+  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'stage-twice', flow: 'мелкий', stage: 'Ревью' }, 400) }))
+  await renderFlow()
+  fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  expect(
+    await screen.findByText('Флоу не сохранён: флоу «мелкий», стадия «Ревью» — стадия дважды в одном флоу'),
   ).toBeInTheDocument()
 
-  // Причина названа: имя без приставки на вид не отличить от правильного
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-  expect(await drawer.findByRole('status')).toHaveTextContent(
-    'без приставки проекта: под ним агент исполнителя не найдёт',
-  )
-  expect(drawer.queryByRole('button', { name: 'Завести исполнителя' })).not.toBeInTheDocument()
-  // Пункт списка не спорит с надписью рядом: причина у него та же
-  expect(drawer.getByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue(
-    'reviewer — без приставки проекта',
-  )
-
-  // Чинится одним нажатием
-  fireEvent.click(drawer.getByRole('button', { name: 'Дописать приставку' }))
-
-  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
-  expect(nodes(region)[1].querySelector('.flow-node-missing')).toBeNull()
+  vi.unstubAllGlobals()
+  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'changed' }, 409) }))
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('agents-kit-web-reviewer')
+  expect(await screen.findByText(/флоу изменился в базе, пока вы его правили/)).toBeInTheDocument()
 })
 
-test('помощник, выписанный без приставки, вторым чипом не добавляется', async () => {
-  const withHelpers = withFullNames([{ ...criterion, helpers: ['scout'] }, reviewFull, acceptance])
-  stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['scout'])) }))
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
+test('проект без флоу — пустое состояние с одной кнопкой «Создать первый флоу»', async () => {
+  stubApi(api([nota]))
+  render(<Flow />)
 
-  // Помощник в файле назван коротко и потому помечен, но занятым он всё равно считается
-  expect(await drawer.findByTitle('Имя scout записано без приставки проекта')).toBeInTheDocument()
-  expect(drawer.queryByRole('combobox', { name: 'Добавить помощника' })).not.toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
+  expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+  // Открывать в VS Code нечего: в меню одно «Обновить»
+  expect(moreItem('Обновить')).toBeEnabled()
+  expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Создать первый флоу' }))
+
+  expect(await screen.findByRole('region', { name: 'Флоу «новый флоу»' })).toBeInTheDocument()
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Флоу «новый флоу»')
+  // Одному флоу «когда» не нужно, но стадия нужна
+  expect(screen.getByText('Не сохранить: флоу «новый флоу» — во флоу нет стадий')).toBeInTheDocument()
 })
 
-test('помощникам без приставки названа причина, и приставка дописывается одним нажатием', async () => {
-  const steps = [
-    { ...criterion, helpers: ['scout', 'agents-kit-web-check-runner'] },
-    reviewFull,
-    acceptance,
-  ]
-  const fetchMock = stubApi(
-    api([withFullNames(steps)], [], {
-      'GET /api/performers': () => json(performers(['scout', 'check-runner'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
+test('база, которую панель не прочитала, названа словами', async () => {
+  stubApi(api([{ ...nota, version: null, error: 'База не найдена на диске' }]))
+  render(<Flow />)
 
-  expect(await drawer.findByRole('status')).toHaveTextContent(
-    'Помощник scout назван без приставки проекта: под этим именем агент исполнителя не найдёт',
-  )
-  expect(drawer.getByTitle('Имя scout записано без приставки проекта')).toBeInTheDocument()
-
-  fireEvent.click(drawer.getByRole('button', { name: 'Дописать приставку' }))
-
-  // Починка правит только то, чему приставки не хватало
-  expect(drawer.queryByRole('status')).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual([
-    'agents-kit-web-scout',
-    'agents-kit-web-check-runner',
-  ])
+  expect(await screen.findByText('База не найдена на диске')).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'В этом проекте нет флоу' })).not.toBeInTheDocument()
 })
 
-test('шаг, чьего исполнителя нет на диске, отмечен на схеме и объяснён в сайдбаре', async () => {
-  stubApi(api([withFullNames()], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
-  const onPerformers = vi.fn()
-  const region = await renderFlow(true, { onPerformers })
-
-  // Ненайденного видно на схеме, не открывая шаг
-  const node = await within(nodes(region)[1]).findByLabelText('Исполнителя reviewer нет на диске')
-  expect(node).toBeInTheDocument()
-
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-  expect(drawer.getByRole('status')).toHaveTextContent('Сессия дойдёт до шага и спросит вас')
-  expect(drawer.queryByRole('button', { name: 'Дописать приставку' })).not.toBeInTheDocument()
-  // Имя остаётся в списке, чтобы шаг не потерял исполнителя молча
-  expect(await drawer.findByRole('combobox', { name: 'Имя субагента' })).toHaveDisplayValue(
-    'reviewer — на диске нет',
-  )
-  fireEvent.click(drawer.getByRole('button', { name: 'Завести исполнителя' }))
-  expect(onPerformers).toHaveBeenCalled()
-})
-
-test('«вписать имя…» возвращает поле для чужого имени', async () => {
-  const fetchMock = stubApi(
-    api([withFullNames()], [], {
-      'GET /api/performers': () => json(performers(['reviewer'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-
-  fireEvent.change(await drawer.findByRole('combobox', { name: 'Имя субагента' }), {
-    target: { value: '__custom__' },
-  })
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Имя субагента' }), { target: { value: 'doc-writer' } })
-
-  expect(within(nodes(region)[1]).getByText('субагент doc-writer')).toBeInTheDocument()
-  expect(drawer.getByRole('status')).toHaveTextContent('на диске не найден')
-
-  // Вписанное руками панель не переделывает: в файл уходит набранное
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[1].executor).toBe('doc-writer')
-})
-
-test('возврат шага правится в сайдбаре: условие и шаг, к которому работа идёт заново', async () => {
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow': () => json({ version: 'v2' }) }))
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 3: Приёмка')
-
-  fireEvent.click(drawer.getByRole('button', { name: 'Добавить возврат' }))
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Условие возврата 1' }), {
-    target: { value: 'есть замечания' },
-  })
-  const target = drawer.getByRole('combobox', { name: 'Шаг возврата 1' })
-  // Вернуться можно только на шаг, стоящий раньше: свой и следующие в списке не предлагаются
-  expect(within(target).getAllByRole('option').map((option) => option.textContent)).toEqual([
-    'шаг…',
-    'Критерий',
-    'Ревью',
-  ])
-  fireEvent.change(target, { target: { value: 'Ревью' } })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[2].returns).toEqual([
-    { condition: 'есть замечания', step: 'Ревью' },
-  ])
-})
-
-test('возврат без цели не даёт сохранить флоу, и сказано, какой шаг чинить', async () => {
-  const withReturn = { ...app, steps: [criterion, review, { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Сборка' }] }] }
-  stubApi(api([withReturn]))
-  const region = await renderFlow()
-
-  expect(screen.getByText(/Не сохранить: шаг 3/)).toHaveTextContent('возврат ведёт на шаг, которого во флоу нет')
-  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
-
-  // Возврат убирается там же, где правится, — и флоу снова записывается
-  const drawer = await openStep(region, /^Шаг 3: Приёмка/)
-  fireEvent.click(drawer.getByRole('button', { name: 'Убрать возврат 1' }))
-  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
-})
-
-test('помощники есть только у шага оркестратора и стираются при смене исполнителя', async () => {
-  const withHelpers = withFullNames([{ ...criterion, helpers: ['agents-kit-web-scout'] }, reviewFull, acceptance])
-  const fetchMock = stubApi(
-    api([withHelpers], [], {
-      'GET /api/performers': () => json(performers(['scout', 'check-runner'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  // Помощник, выписанный во флоу полным именем, стоит обычным чипом и назван коротко
-  expect(await drawer.findByText('scout')).toBeInTheDocument()
-  expect(drawer.queryByTitle(/нет на диске/)).not.toBeInTheDocument()
-
-  fireEvent.change(drawer.getByRole('combobox', { name: 'Добавить помощника' }), {
-    target: { value: 'check-runner' },
-  })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual([
-    'agents-kit-web-scout',
-    'agents-kit-web-check-runner',
-  ])
-
-  // У шага оператора помощников не бывает: поле исчезает вместе с ними
-  fireEvent.change(drawer.getByRole('combobox', { name: 'Исполнитель шага' }), { target: { value: 'оператор' } })
-  expect(drawer.queryByRole('combobox', { name: 'Добавить помощника' })).not.toBeInTheDocument()
-  expect(drawer.queryByText('scout')).not.toBeInTheDocument()
-})
-
-test('помощник, которого нет на диске, отмечен в сайдбаре янтарём', async () => {
-  const withHelpers = withFullNames([{ ...criterion, helpers: ['agents-kit-web-scout'] }, reviewFull, acceptance])
-  stubApi(api([withHelpers], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  expect(await drawer.findByTitle('Исполнителя scout нет на диске')).toBeInTheDocument()
-})
-
-test('в сохранённый шаг возврат и помощники не уходят', async () => {
-  const steps = [{ ...criterion, helpers: ['agents-kit-web-scout'], returns: [] }, review, acceptance]
-  const fetchMock = stubApi(
-    api([{ ...app, steps }], [], {
-      'GET /api/performers': () => json(performers(['scout'])),
-      'POST /api/presets': () => json({ id: 'p1', ...criterion }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
-  await screen.findByRole('button', { name: 'Шаг в пресетах' })
-  expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ helpers: [], returns: [] })
-})
-
-test('пресет живёт без приставки, а шаг из него получает приставку своего проекта', async () => {
-  const saved: StepPreset = { ...review, executor: 'reviewer', id: 'p2' }
-  const fetchMock = stubApi(
-    api([withFullNames()], [], {
-      'GET /api/performers': () => json(performers(['reviewer'])),
-      'POST /api/presets': () => json(saved),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-  await drawer.findByRole('combobox', { name: 'Имя субагента' })
-  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
-
-  // Список пресетов общий для всех проектов, поэтому приставки в пресете нет
-  expect(body(fetchMock, 'POST /api/presets').executor).toBe('reviewer')
-  await screen.findByRole('button', { name: 'Шаг в пресетах' })
-
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить шаг' }))
-  fireEvent.click(
-    within(screen.getByRole('group', { name: 'Пресеты шагов' })).getByRole('button', { name: /^Ревью/ }),
-  )
-
-  expect(within(nodes(region)[3]).getByText('субагент reviewer')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[3].executor).toBe('agents-kit-web-reviewer')
-})
-
-test('о двух помощниках без приставки сказано во множественном числе', async () => {
-  const steps = [{ ...criterion, helpers: ['scout', 'check-runner'] }, reviewFull, acceptance]
-  stubApi(
-    api([withFullNames(steps)], [], { 'GET /api/performers': () => json(performers(['scout', 'check-runner'])) }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  expect(await drawer.findByRole('status')).toHaveTextContent(
-    'Помощники scout, check-runner названы без приставки проекта: под этими именами агент исполнителей не найдёт',
-  )
-})
-
-test('починка помощников не оставляет одного исполнителя дважды', async () => {
-  const steps = [{ ...criterion, helpers: ['agents-kit-web-scout', 'scout'] }, reviewFull, acceptance]
-  const fetchMock = stubApi(
-    api([withFullNames(steps)], [], {
-      'GET /api/performers': () => json(performers(['scout'])),
-      'POST /api/flow': () => json({ version: 'v2' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 1: Критерий')
-
-  fireEvent.click(await drawer.findByRole('button', { name: 'Дописать приставку' }))
-
-  // Оба чипа звали одного исполнителя: в файл уходит одно имя
-  expect(drawer.getAllByText('scout')).toHaveLength(1)
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await screen.findByText('Флоу сохранён и закоммичен в базу')
-  expect(body(fetchMock, 'POST /api/flow').steps[0].helpers).toEqual(['agents-kit-web-scout'])
-})
-
-test('пресет шага с ненайденным исполнителем приставку не теряет', async () => {
-  const ghost = { ...review, executor: 'agents-kit-web-ghost' }
-  const fetchMock = stubApi(
-    api([withFullNames([criterion, ghost, acceptance])], [], {
-      'GET /api/performers': () => json(performers(['reviewer'])),
-      'POST /api/presets': () => json({ ...ghost, id: 'p3' }),
-    }),
-  )
-  const region = await renderFlow()
-  const drawer = await openStep(region, 'Шаг 2: Ревью')
-
-  fireEvent.click(drawer.getByRole('button', { name: 'В пресеты' }))
-
-  // Приставку такому имени вернуть неоткуда: в пресет оно уходит целиком
-  await screen.findByRole('button', { name: 'Шаг в пресетах' })
-  expect(body(fetchMock, 'POST /api/presets').executor).toBe('agents-kit-web-ghost')
-})
-
-test('возвраты нарисованы дугами: у открытого шага дуга подсвечена и подписана условием', async () => {
-  const steps = [
-    criterion,
-    review,
-    { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Ревью' }] },
-  ]
-  stubApi(api([{ ...app, steps }]))
-  const region = await renderFlow()
-
-  // Круг виден и без открытого шага, только приглушённо
-  expect(document.querySelectorAll('.flow-arc')).toHaveLength(1)
-  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
-
-  await openStep(region, /^Шаг 3: Приёмка/)
-
-  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(1)
-  expect(document.querySelector('.flow-arc-label')).toHaveTextContent('есть замечания')
-})
-
-test('возврат, которому некуда вести, дугой не рисуется', async () => {
-  const steps = [criterion, review, { ...acceptance, returns: [{ condition: 'есть замечания', step: 'Сборка' }] }]
-  stubApi(api([{ ...app, steps }]))
+test('проект выбирается списком в шапке; «Переписать с Чудо-Юдо» в меню нет', async () => {
+  stubApi(api([app, nota]))
   await renderFlow()
 
-  expect(document.querySelectorAll('.flow-arc')).toHaveLength(0)
+  expect(moreItem('Открыть в VS Code')).toBeEnabled()
+  expect(screen.queryByRole('menuitem', { name: /Переписать/ })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Проект: Agents Kit Web' }))
+  fireEvent.click(within(screen.getByRole('listbox', { name: 'Проект' })).getByRole('option', { name: 'Nota' }))
+
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
+})
+
+test('«Открыть в VS Code» просит API открыть флоу этой базы', async () => {
+  const fetchMock = stubApi(api([app], [], { 'POST /api/flow/open': () => new Response(null, { status: 204 }) }))
+  await renderFlow()
+
+  fireEvent.click(moreItem('Открыть в VS Code'))
+
+  await vi.waitFor(() => expect(body(fetchMock, 'POST /api/flow/open')).toEqual({ base: app.base }))
+})
+
+test('список стадий идёт в порядке флоу, а не по именам файлов; стадии вне флоу — в конце', async () => {
+  stubApi(api([{ ...app, stages: [spare, acceptance, criterion, review] }]))
+  await renderFlow()
+
+  await stagesTab()
+
+  const list = within(screen.getByRole('list', { name: 'Стадии базы' }))
+  expect(list.getAllByRole('button').map((item) => item.querySelector('.flow-stage-item-title')?.textContent)).toEqual([
+    'Критерий',
+    'Ревью',
+    'Приёмка',
+    'Запас',
+  ])
+  // Открыта первая по ходу работы
+  expect(screen.getByRole('region', { name: 'Стадия «Критерий»' })).toBeInTheDocument()
+})
+
+test('удалённый единственный флоу сохраняется или отменяется из полосы внизу пустого состояния', async () => {
+  const fetchMock = stubApi(api([{ ...app, flows: [full] }], [], saved()))
+  const region = await renderFlow()
+
+  fireEvent.click((await open(region, /^Флоу «полный»/)).getByRole('button', { name: 'Удалить флоу' }))
+
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
+  expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Отменить правки' }))
+  expect(await screen.findByRole('region', { name: 'Флоу «полный»' })).toBeInTheDocument()
+
+  fireEvent.click((await open(within(screen.getByRole('region', { name: 'Флоу «полный»' })), /^Флоу «полный»/)).getByRole('button', { name: 'Удалить флоу' }))
+  expect((await saveAndRead(fetchMock)).flows).toEqual([])
+})
+
+test('строки файлов флоу, которые панель не сохранит, названы в полосе и запирают запись', async () => {
+  stubApi(api([{ ...app, unread: ['flow/flow.md, строка 14: «3. Мерж»'] }]))
+  await renderFlow()
+
+  expect(
+    screen.getByText(
+      'Не сохранить: в файлах флоу есть строка, которую панель не сохранит, — flow/flow.md, строка 14: «3. Мерж». Поправьте её в файле: «…» → «Открыть в VS Code»',
+    ),
+  ).toBeInTheDocument()
+  // Правки в форме не отпирают запись: строку чинят в самом файле
+  fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('после сохранения выбранные флоу и стадия остаются выбранными', async () => {
+  let version = 1
+  const fetchMock = stubApi({
+    ...api([app]),
+    // Записанный флоу перечитывается с новым отпечатком и собирается в форму заново
+    'GET /api/flow': () => json([{ ...app, version: `v${version}` }]),
+    'POST /api/flow': () => {
+      version++
+      return json({ version: `v${version}` })
+    },
+  })
+  await renderFlow()
+  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
+  const edit = await stagesTab('Ревью')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
+
+  await saveAndRead(fetchMock)
+  await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/flow').length).toBe(3))
+
+  expect(await screen.findByRole('region', { name: 'Стадия «Ревью»' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  expect(screen.getByRole('region', { name: 'Флоу «мелкий»' })).toBeInTheDocument()
+})
+
+test('скобки и кавычки в названии стадии не пускаются: ими пишется ссылка и возврат', async () => {
+  stubApi(api([app]))
+  await renderFlow()
+
+  const edit = await stagesTab('Запас')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Запас [черновик]' } })
+
+  expect(screen.getByText(/^Не сохранить: стадия «Запас \[черновик\]» — в названии скобки \[ \] или кавычки « »/)).toBeInTheDocument()
+})
+
+test('сорванная запись файла названа своим текстом, а не отказом коммита', async () => {
+  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'not-written', detail: 'Файл занят.' }, 502) }))
+  await renderFlow()
+  fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  expect(
+    await screen.findByText('Флоу не сохранён: файл флоу не записался, файлы возвращены как были. Файл занят.'),
+  ).toBeInTheDocument()
 })

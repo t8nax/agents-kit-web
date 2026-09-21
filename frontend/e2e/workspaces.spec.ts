@@ -9,7 +9,7 @@ test('страница показывает таблицу рабочих коп
   await expect(page.getByRole('banner').getByRole('heading', { name: 'Agents Kit Web' })).toBeVisible()
 
   const table = page.getByRole('table')
-  for (const column of ['Копия', '№', 'Задача', 'Шаг флоу', 'Прогресс', 'Статус', 'Проблемы']) {
+  for (const column of ['Копия', '№', 'Задача', 'Стадия флоу', 'Прогресс', 'Статус', 'Проблемы']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible()
   }
   await expect(table.locator('tbody tr:not(.group-row)')).toHaveCount(rows.length)
@@ -23,6 +23,7 @@ const row = {
   path: 'D:\\Projects\\agents-kit-web',
   branch: 'feat/task-number-column',
   task: 'B-24 Номер задачи и её заголовок — отдельные колонки таблицы',
+  letters: 'B',
   flowStep: 'Реализация',
   progress: 45,
   status: 'in-work',
@@ -66,6 +67,28 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+test('номер задачи отделяется по буквам её проекта, слово с другими буквами номером не становится', async ({ page }) => {
+  const orders = { ...row, project: 'Orders', base: 'D:\\Projects\\orders-knowledge', letters: 'ORD' }
+  await page.route('**/api/workspaces', (route) =>
+    route.fulfill({
+      json: [
+        { ...orders, path: 'D:\\Projects\\orders-export', task: 'ORD-12 Выгрузка заказов за период' },
+        { ...orders, path: 'D:\\Projects\\orders-utf', task: 'UTF-8 в именах файлов ломает выгрузку' },
+      ],
+    }),
+  )
+  await page.goto('/')
+
+  const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
+  await expect(bodyRows).toHaveCount(2)
+  const own = bodyRows.nth(0).getByRole('cell')
+  await expect(own.nth(1).locator('.num-chip')).toHaveText('ORD-12')
+  await expect(own.nth(2)).toHaveText('Выгрузка заказов за период')
+  const utf = bodyRows.nth(1).getByRole('cell')
+  await expect(utf.nth(1)).toHaveText('—')
+  await expect(utf.nth(2)).toHaveText('UTF-8 в именах файлов ломает выгрузку')
+})
+
 const nota = {
   ...row,
   project: 'Nota',
@@ -73,6 +96,7 @@ const nota = {
   path: 'D:\\Projects\\nota',
   branch: 'main',
   task: 'B-4 Экспорт заметок',
+  letters: 'B',
   status: 'waiting',
   problemsState: 'checked',
   baseProblems: 2,
@@ -164,5 +188,58 @@ for (const colorScheme of ['light', 'dark'] as const) {
     for (const [index, state] of states.entries()) {
       await expect(bodyRows.nth(index).getByRole('img', { name: state })).toHaveAttribute('title', state)
     }
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`основная копия проекта отмечена плашкой, и только она (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    const main = { ...rows[2], path: 'D:\\Projects\\agents-kit-web', copiesDir: 'D:\\Projects' }
+    await page.route('**/api/workspaces', (route) => route.fulfill({ json: [main, rows[1]] }))
+    await page.goto('/')
+
+    const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
+    await expect(bodyRows).toHaveCount(2)
+    const tag = bodyRows.nth(0).getByText('Основная')
+    await expect(tag).toBeVisible()
+    await expect(bodyRows.nth(1).getByText('Основная')).toHaveCount(0)
+
+    // Плашка читается в обеих темах: своя заливка, рамка и цвет текста, отличный от фона
+    await expect(tag).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(tag).toHaveCSS('border-top-width', '1px')
+    const [color, background] = await tag.evaluate((node) => {
+      const style = getComputedStyle(node)
+      return [style.color, style.backgroundColor]
+    })
+    expect(color).not.toBe(background)
+
+    // Плашка приглушённая: её заливка не та, которой отмечают только что заведённую копию
+    const freshBackground = await tag.evaluate((node) => {
+      const probe = node.ownerDocument.createElement('span')
+      probe.className = 'new-tag'
+      node.parentElement!.append(probe)
+      const value = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return value
+    })
+    expect(background).not.toBe(freshBackground)
+
+    // Плашка стоит в одной ячейке с именем копии, правее самого имени.
+    // Замер повторяется: первая отрисовка идёт запасной гарнитурой, и границы потом сдвигаются
+    const cell = bodyRows.nth(0).getByRole('cell').first()
+    await expect(async () => {
+      const [cellBox, tagBox, nameRight] = await Promise.all([
+        cell.boundingBox(),
+        tag.boundingBox(),
+        cell.evaluate((node) => {
+          const name = [...node.querySelector('.proj')!.childNodes].find((child) => child.nodeType === Node.TEXT_NODE)!
+          const range = node.ownerDocument.createRange()
+          range.selectNode(name)
+          return range.getBoundingClientRect().right
+        }),
+      ])
+      expect(tagBox!.x).toBeGreaterThanOrEqual(nameRight)
+      expect(tagBox!.x + tagBox!.width).toBeLessThanOrEqual(cellBox!.x + cellBox!.width)
+    }).toPass()
   })
 }

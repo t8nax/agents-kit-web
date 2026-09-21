@@ -4,38 +4,35 @@ namespace AgentsKitWeb.Api.Performers;
 internal sealed record FoundPerformer(string Name, PerformerFields Fields, string Path);
 
 /// <summary>
-/// Что панель нашла в наборе исполнителей Claude Code и как из этого складывается список раздела.
-/// Файл у исполнителя один на машину, поэтому строка списка — это файл, и сверять копии не с чем.
+/// Что панель нашла в каталоге исполнителей базы и как из этого складывается список раздела.
+/// Файл исполнителя живёт в базе проекта, а по рабочим копиям его развозит кит, поэтому строка
+/// списка — это файл базы, и заведённые в базе помимо панели видны наравне с её собственными.
 /// </summary>
 internal static class PerformerList
 {
     /// <summary>
-    /// Исполнители проекта: те файлы профиля, чьё имя начинается приставкой этого проекта. Имя
-    /// в списке — без приставки: её ставит панель, и оператору она не показывается.
+    /// Исполнители проекта — все файлы каталога `agents` его базы. Имя — то, которым зовёт
+    /// исполнителя шаг флоу: строка `name` файла, а её нет — имя самого файла.
     /// </summary>
-    public static List<Performer> OfProject(string claudeDir, string prefix)
+    public static List<Performer> OfProject(string basePath)
     {
         var performers = new List<Performer>();
-        if (prefix.Length == 0)
-            return performers;
-
-        foreach (var file in Read(Directory(claudeDir)))
-            if (PerformerName.Short(prefix, file.Name) is { } name)
-                performers.Add(new Performer(
-                    name,
-                    file.Fields.Description,
-                    file.Fields.Model,
-                    file.Fields.Tools,
-                    file.Fields.Prompt,
-                    file.Path));
+        foreach (var file in Read(Directory(basePath)))
+            performers.Add(new Performer(
+                file.Name,
+                file.Fields.Description,
+                file.Fields.Model,
+                file.Fields.Tools,
+                file.Fields.Prompt,
+                file.Path));
 
         return performers.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>Каталог субагентов профиля — тот, где их ищет Claude Code из любой рабочей копии.</summary>
-    public static string Directory(string claudeDir) => System.IO.Path.Combine(claudeDir, "agents");
+    /// <summary>Каталог исполнителей базы — тот, откуда кит развозит их по рабочим копиям.</summary>
+    public static string Directory(string basePath) => System.IO.Path.Combine(basePath, "agents");
 
-    /// <summary>Файлы каталога субагентов. Каталога нет или он не читается — исполнителей нет.</summary>
+    /// <summary>Файлы каталога исполнителей. Каталога нет или он не читается — исполнителей нет.</summary>
     public static List<FoundPerformer> Read(string directory)
     {
         var found = new List<FoundPerformer>();

@@ -96,6 +96,80 @@ public sealed class TaskEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_NamesChosenFlowToSessionAsItStandsInBase()
+    {
+        WriteFlows();
+        _agent.Lines = ["backgrounded · abc123"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7", " МЕЛКИЙ"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // Сессия берёт названный флоу и о нём не спрашивает: навык кита принимает флоу, названный словами.
+        Assert.Equal("/agents-kit:drive B-7 флоу «мелкий»", _agent.StartInfo!.ArgumentList[^1]);
+    }
+
+    [Fact]
+    public async Task Start_RejectsFlowBaseDoesNotHave()
+    {
+        WriteFlows();
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7", "срочный"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("flow-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    private void WriteFlows()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "flow"));
+        File.WriteAllText(Path.Combine(_base, "flow", "flow.md"), """
+            # App — флоу
+
+            ## полный
+            когда: новая возможность
+            1. [Ветка](stages/branch.md)
+
+            ## мелкий
+            когда: правка в одном месте
+            1. [Ветка](stages/branch.md)
+            """);
+    }
+
+    [Fact]
+    public async Task Start_TakesNumberWithTheProjectsOwnLetters()
+    {
+        WriteBacklog("следующий номер: ORD-13\n\n## ORD-12 Выгрузка заказов\n");
+        _agent.Lines = ["backgrounded · abc123"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "ord-12"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("/agents-kit:drive ORD-12", _agent.StartInfo!.ArgumentList[^1]);
+    }
+
+    /// <summary>Запись чужими буквами кит считает ошибкой и перенумерует: задачей панель её не запускает.</summary>
+    [Fact]
+    public async Task Start_RejectsRecordWithForeignLetters()
+    {
+        WriteBacklog("следующий номер: ORD-13\n\n## ORD-12 Выгрузка заказов\n\n## B-7 Чужими буквами\n");
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("record-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task CopyRow_CarriesTheProjectsLetters()
+    {
+        WriteBacklog("следующий номер: ORD-13\n\n## ORD-12 Выгрузка заказов\n");
+
+        Assert.Equal("ORD", (await Row(Client())).Letters);
+    }
+
+    [Fact]
     public async Task Start_RejectsCopyThatAlreadyHasTaskMemory()
     {
         File.WriteAllText(Path.Combine(_base, "work", "app.md"), $"""
@@ -310,6 +384,8 @@ public sealed class TaskEndpointsTests : IDisposable
         var rows = await client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
         return Assert.Single(rows!, row => row.Path == _copy);
     }
+
+    private void WriteBacklog(string text) => File.WriteAllText(Path.Combine(_base, "backlog.md"), text);
 
     /// <summary>Память задачи, какой её завёл агент: копия занята, и строка идёт уже из неё.</summary>
     private void WriteMemory(string task) =>

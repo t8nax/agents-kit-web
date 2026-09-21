@@ -20,8 +20,8 @@ async function mockApi(page: Page, akw: Entry[] = entries.akw) {
   await page.route('**/api/backlog', (route) =>
     route.fulfill({
       json: [
-        { base: 'D:\\Projects\\app-knowledge', project: 'Agents Kit Web', entries: akw, error: null },
-        { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: entries.nota, error: null },
+        { base: 'D:\\Projects\\app-knowledge', project: 'Agents Kit Web', entries: akw, error: null, letters: 'B' },
+        { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: entries.nota, error: null, letters: 'B' },
       ],
     }),
   )
@@ -122,3 +122,55 @@ test('«Обновить» показывает то, что в файле се�
   await expect(page.getByText('B-17')).toBeVisible()
   await expect(page.getByText('B-1', { exact: true })).toHaveCount(0)
 })
+
+// Проект со своими буквами номеров: номер чужими буквами виден, но не запускается, а номер, плашки и
+// заголовок стоят столбцами при номерах разной ширины и у записи без номера — макет B-185.
+const orders = {
+  base: 'D:\\Projects\\orders-knowledge',
+  project: 'Orders',
+  entries: [
+    { number: 'ORD-15', title: 'Повторная оплата создаёт второй заказ', text: null, priority: 'блокер', type: 'баг' },
+    { number: 'B-7', title: 'Таймаут платёжного шлюза не попадает в лог', text: null, priority: 'низкий', type: 'баг' },
+    { number: null, title: 'Разобраться с часовыми поясами в отчётах', text: null, priority: 'низкий', type: 'фича' },
+  ],
+  error: null,
+  letters: 'ORD',
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`номер, плашки и заголовок записей стоят столбцами, чужие буквы не запускаются (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    const copy = {
+      project: 'Orders',
+      base: orders.base,
+      path: 'D:\\Projects\\orders',
+      branch: 'main',
+      task: null,
+      flowStep: null,
+      progress: null,
+      status: 'free',
+      error: null,
+      letters: 'ORD',
+    }
+    await page.route('**/api/workspaces', (route) => route.fulfill({ json: [copy] }))
+    await page.route('**/api/backlog', (route) => route.fulfill({ json: [orders] }))
+    await page.goto('/')
+    await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+    const rows = page.locator('.entry-row')
+    await expect(rows).toHaveCount(3)
+    // Шрифт грузится после первой отрисовки: замер повторяется, пока не сойдётся (decisions/tests.md)
+    await expect(async () => {
+      for (const part of ['.entry-type', '.entry-prio', '.entry-title']) {
+        const lefts = await rows.locator(part).evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().left)))
+        expect(lefts).toHaveLength(3)
+        expect(new Set(lefts).size).toBe(1)
+      }
+    }).toPass()
+
+    await expect(rows.nth(0).getByRole('button', { name: 'Взять задачу' })).toBeEnabled()
+    await expect(rows.nth(1).locator('.entry-num')).toHaveText('B-7')
+    await expect(rows.nth(1).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+    await expect(rows.nth(2).getByRole('button', { name: 'Взять задачу' })).toHaveCount(0)
+  })
+}

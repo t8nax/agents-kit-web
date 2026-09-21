@@ -14,10 +14,12 @@ public static partial class Backlog
     private const string FieldsDeclaration = "поля:";
     private const string PriorityField = "приоритет";
     private const string TypeField = "тип";
+    private const string CounterLine = "следующий номер:";
 
-    // «B-8 Панель показывает бэклог базы» → («B-8», «Панель показывает бэклог базы»).
-    // Кириллическая «В-8» — тот же номер: в заголовке она встречается, когда запись писали руками.
-    [GeneratedRegex(@"^(?<number>[BВ]-\d+)\s+(?<title>.+)$")]
+    // «ORD-8 Панель показывает бэклог базы» → («ORD-8», «Панель показывает бэклог базы»). Первое слово
+    // заголовка — номер, только если оно номер по правилу кита (BacklogNumber): запись, написанную руками
+    // кириллицей или строчными, панель узнаёт тем же номером.
+    [GeneratedRegex(@"^(?<number>\S+)\s+(?<title>.+)$")]
     private static partial Regex NumberedTitle { get; }
 
     // Поле записи: «приоритет: высокий». Имя поля — до двоеточия, значение — после.
@@ -44,8 +46,8 @@ public static partial class Backlog
             if (title is null)
                 return;
             var match = NumberedTitle.Match(title);
-            var number = match.Success ? match.Groups["number"].Value : null;
-            var entryTitle = match.Success ? match.Groups["title"].Value.Trim() : title;
+            var number = match.Success ? BacklogNumber.Normalize(match.Groups["number"].Value) : null;
+            var entryTitle = number is not null ? match.Groups["title"].Value.Trim() : title;
             entries.Add(new BacklogEntry(
                 number,
                 entryTitle,
@@ -91,6 +93,42 @@ public static partial class Backlog
 
         Close();
         return entries;
+    }
+
+    /// <summary>
+    /// Буквы номеров проекта. Их держит счётчик «следующий номер:» в шапке файла. Счётчика нет — буквы те,
+    /// что чаще всего у номеров записей, а при равенстве — у наибольшего номера: заголовок, начатый словом вида
+    /// номера («HTTP-500 на оплате»), не перебивает буквы проекта. Номеров нет вовсе — букв панель не знает.
+    /// </summary>
+    public static string? Letters(string text)
+    {
+        foreach (var line in MemoryText.Lines(text).Select(l => l.Text))
+        {
+            if (line.StartsWith("## "))
+                break;
+            if (line.StartsWith(CounterLine) && BacklogNumber.Normalize(line[CounterLine.Length..]) is { } counter)
+                return BacklogNumber.Letters(counter);
+        }
+        return Parse(text)
+            .Select(e => e.Number)
+            .OfType<string>()
+            .GroupBy(BacklogNumber.Letters)
+            .OrderByDescending(g => g.Count())
+            .ThenByDescending(g => g.Max(BacklogNumber.Value))
+            .FirstOrDefault()?.Key;
+    }
+
+    /// <summary>Буквы номеров проекта из backlog.md базы; файла нет или он не прочитан — null.</summary>
+    public static string? ReadLetters(string basePath)
+    {
+        try
+        {
+            return Letters(File.ReadAllText(Path.Combine(basePath, "backlog.md")));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     /// <summary>Поля, объявленные строкой «поля:» шапки файла — до первой записи. Строки нет — полей нет.</summary>
