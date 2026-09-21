@@ -444,3 +444,12 @@ test('колонка номера одной ширины на весь прое
   // Место номера есть и у записи без номера: плашки и заголовок стоят на той же вертикали
   expect(section.querySelectorAll('.entry-num-slot')).toHaveLength(3)
 })
+
+test('у проекта без номеров колонки номера нет', async () => {
+  stubFetch([{ ...backlogs[0], entries: [{ number: null, title: 'Дописана руками', text: null }] }])
+
+  render(<Backlog />)
+  const section = await screen.findByRole('region', { name: 'Agents Kit Web' })
+
+  expect(section.querySelector('.entry-num-slot')).toBeNull()
+})

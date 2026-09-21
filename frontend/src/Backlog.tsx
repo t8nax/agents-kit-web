@@ -200,9 +200,11 @@ export default function Backlog({
                         }}
                       >
                         {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
-                        <span className="entry-num-slot">
-                          {entry.number && <span className="entry-num">{entry.number}</span>}
-                        </span>{' '}
+                        {numberWidth(backlog.entries) > 0 && (
+                          <span className="entry-num-slot">
+                            {entry.number && <span className="entry-num">{entry.number}</span>}
+                          </span>
+                        )}{' '}
                         <EntryFields entry={entry} />{' '}
                         <InlineMarkdown className="entry-title" text={entry.title} />
                         {isFresh && <span className="entry-fresh-badge">новая</span>}
@@ -331,12 +333,12 @@ const PRIORITY_CLASS: Record<string, string> = {
 
 const TYPE_CLASS: Record<string, string> = { баг: 'entry-type-bug', фича: 'entry-type-feature' }
 
-/** Тип и приоритет записи: тип — значок со словом, приоритет — плашка, цвет которой растёт со срочностью. */
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */
 function numberWidth(entries: BacklogEntry[]): number {
   return Math.max(0, ...entries.map((entry) => entry.number?.length ?? 0))
 }
 
+/** Тип и приоритет записи: тип — значок со словом, приоритет — плашка, цвет которой растёт со срочностью. */
 function EntryFields({ entry }: { entry: BacklogEntry }) {
   return (
     <>
