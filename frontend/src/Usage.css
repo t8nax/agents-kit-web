@@ -32,9 +32,10 @@
   margin: 0 24px 16px;
 }
 
+/* Сутки — третьей карточкой поуже: справка к недельному окну, а не третье окно лимита (B-131) */
 @media (min-width: 720px) {
   .usage-windows {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 0.8fr;
   }
 }
 
@@ -83,6 +84,11 @@
 
 .usage-window.failed .usage-percent {
   color: var(--text-tertiary);
+}
+
+/* Полосы у суток нет, и подвал опускается на её место — вровень с подвалами окон */
+.usage-window.day .usage-window-foot {
+  margin-top: 30px;
 }
 
 .usage-of {

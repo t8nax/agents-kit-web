@@ -12,6 +12,17 @@ export type UsageWindow = {
   resetsAt: string | null
 }
 
+/** Последние сутки как часть недели: процента за сутки Anthropic не даёт, поэтому percent — оценка. */
+export type UsageDay = {
+  since: string
+  tokens: number
+  answers: number
+  /** Доля суток в израсходованном за неделю с весами моделей, от нуля до единицы. */
+  share: number
+  /** Доля, умноженная на процент недели; null — процента недели нет. */
+  percent: number | null
+}
+
 export type ModelUsage = {
   model: string
   answers: number
@@ -25,6 +36,7 @@ export type ModelUsage = {
 export type UsageView = {
   fiveHours: UsageWindow
   week: UsageWindow
+  day: UsageDay
   models: ModelUsage[]
   /** Почему нет процентов; null — проценты пришли. */
   limitsProblem: string | null
@@ -102,6 +114,7 @@ export default function Usage() {
           <div className="usage-windows">
             <Window title="Пятичасовое окно" window={view.fiveHours} reset={formatTime} />
             <Window title="Недельное окно" window={view.week} reset={formatDateTime} />
+            <Day day={view.day} week={view.week} now={view.fetchedAt} />
           </div>
 
           <p className="usage-source">
@@ -195,6 +208,52 @@ function Window({
       </div>
     </section>
   )
+}
+
+/**
+ * Последние сутки — карточка без полосы: у суток нет своего лимита, к которому её мерить.
+ * Выбор оператора по макету B-131 против выделенного куска недельной полосы и строки под ней.
+ */
+function Day({ day, week, now }: { day: UsageDay; week: UsageWindow; now: string }) {
+  const estimate =
+    day.percent === null || week.percent === null
+      ? undefined
+      : `Оценка: ${formatShare(day.share)} недельного расхода × ${week.percent}% лимита недели`
+  return (
+    <section className={`usage-window day ${day.percent === null ? 'failed' : ''}`}>
+      <div className="usage-window-head">
+        <h3>24 часа</h3>
+        <span className="usage-when">{firstHour(day.since, now)}</span>
+      </div>
+      <div className="usage-share-line">
+        <span className="usage-percent" title={estimate}>
+          {day.percent === null ? '—' : `≈${formatShare(day.percent / 100)}`}
+        </span>
+        <span className="usage-of">лимита недели</span>
+      </div>
+      <div className="usage-window-foot">
+        <span>
+          <b>{shortTokens(day.tokens)} токенов</b>
+        </span>
+        <span>
+          <b>{formatShare(day.share)}</b> недельного расхода
+        </span>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Расход лежит часовыми порциями, и порция, на которую край суток лёг серединой, не считается —
+ * поэтому счёт идёт с первого целого часа после края.
+ */
+function firstHour(since: string, now: string) {
+  const start = new Date(since)
+  if (start.getUTCMinutes() || start.getUTCSeconds() || start.getUTCMilliseconds()) {
+    start.setUTCMinutes(60, 0, 0)
+  }
+  const today = start.toDateString() === new Date(now).toDateString()
+  return `с ${formatTime(start.toISOString())} ${today ? 'сегодня' : 'вчера'}`
 }
 
 /** Токенов бывают миллиарды, и в разделе важен порядок величины, а не единицы. */
