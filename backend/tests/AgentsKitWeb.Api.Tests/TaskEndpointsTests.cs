@@ -344,9 +344,9 @@ public sealed class TaskEndpointsTests : IDisposable
         return Assert.Single(rows!, row => row.Path == _copy);
     }
 
-    /// <summary>Память задачи, какой её завёл агент: копия занята, и строка идёт уже из неё.</summary>
     private void WriteBacklog(string text) => File.WriteAllText(Path.Combine(_base, "backlog.md"), text);
 
+    /// <summary>Память задачи, какой её завёл агент: копия занята, и строка идёт уже из неё.</summary>
     private void WriteMemory(string task) =>
         File.WriteAllText(Path.Combine(_base, "work", "app.md"), string.Join('\n', [
             "# " + task,
