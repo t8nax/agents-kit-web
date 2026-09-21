@@ -6,7 +6,8 @@ namespace AgentsKitWeb.Api.Usage;
 /// Расход одного ответа агента: когда он получен, какой моделью и сколько токенов стоил.
 /// Формат журнала чужой — панель его только читает и на неизвестные поля не опирается.
 /// CacheWrite1h — часть записи кэша на час: она дороже пятиминутной. Fast — быстрый режим,
-/// UsOnly — вывод только в США; оба меняют цену ответа.
+/// UsOnly — вывод только в США; оба меняют цену ответа. Id — чей это ответ: Claude Code пишет
+/// один ответ несколькими строками с одним и тем же расходом, и считать его надо один раз.
 /// </summary>
 public sealed record UsageRecord(
     DateTimeOffset At,
@@ -17,7 +18,8 @@ public sealed record UsageRecord(
     long CacheRead,
     long CacheWrite1h = 0,
     bool Fast = false,
-    bool UsOnly = false)
+    bool UsOnly = false,
+    string? Id = null)
 {
     public long Tokens => Input + Output + CacheWrite + CacheRead;
 }
@@ -83,12 +85,14 @@ public static class UsageJournal
                 Number(usage, "cache_read_input_tokens"),
                 cacheWrite1h,
                 Text(usage, "speed") == "fast",
-                Text(usage, "inference_geo") == "us");
+                Text(usage, "inference_geo") == "us",
+                // Часть ответа — размышление, текст, вызов инструмента — идёт своей строкой с тем же id.
+                Text(message, "id") ?? Text(root, "requestId"));
         }
     }
 
-    private static string? Text(JsonElement usage, string name) =>
-        usage.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    private static string? Text(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     /// <summary>Целое поле usage; нет поля или оно не число — ноль: чужой формат может его и не писать.</summary>
     private static long Number(JsonElement usage, string name) =>

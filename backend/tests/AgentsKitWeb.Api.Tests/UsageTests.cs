@@ -74,6 +74,18 @@ public class UsageJournalTests
         Assert.False(record.Fast);
         Assert.False(record.UsOnly);
     }
+
+    [Fact]
+    public void Parse_NamesTheAnswerByMessageIdOrElseRequestId()
+    {
+        Assert.Equal("msg_1", UsageJournal.Parse("""
+            {"timestamp":"2026-09-18T10:00:00.000Z","requestId":"req_1","message":{"id":"msg_1","usage":{"output_tokens":10}}}
+            """)!.Id);
+        Assert.Equal("req_1", UsageJournal.Parse("""
+            {"timestamp":"2026-09-18T10:00:00.000Z","requestId":"req_1","message":{"usage":{"output_tokens":10}}}
+            """)!.Id);
+        Assert.Null(UsageJournal.Parse(Answer)!.Id);
+    }
 }
 
 public class UsagePricesTests
@@ -378,6 +390,36 @@ public class UsageScannerTests : IDisposable
 
         Assert.Equal(300, totals.FiveHours.Tokens);
         Assert.Equal(2, totals.Models.Count);
+    }
+
+    private static string Part(DateTimeOffset at, string id, long output) =>
+        "{\"type\":\"assistant\",\"timestamp\":\"" + at.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ") +
+        "\",\"requestId\":\"req_" + id + "\",\"message\":{\"model\":\"claude-sonnet-5\",\"id\":\"msg_" + id +
+        "\",\"usage\":{\"output_tokens\":" + output + "}}}";
+
+    [Fact]
+    public void Collect_CountsAnswerWrittenInSeveralLinesOnce()
+    {
+        // Размышление, текст и вызов инструмента одного ответа — три строки с одним расходом
+        var at = _time.GetUtcNow().AddHours(-1);
+        Journal("D--Projects-nota/one.jsonl", Part(at, "a", 100), Part(at, "a", 100), Part(at, "a", 100), Part(at, "b", 7));
+
+        var totals = UsageMath.Sum(new UsageScanner(_directory, _time).Collect(), _time.GetUtcNow());
+
+        Assert.Equal(107, totals.FiveHours.Tokens);
+    }
+
+    [Fact]
+    public void Collect_CountsAnswerCarriedIntoContinuedSessionOnce()
+    {
+        // Продолженная сессия начинает новый журнал с ответов прошлой
+        var at = _time.GetUtcNow().AddHours(-2);
+        Journal("D--Projects-nota/first.jsonl", Part(at, "a", 100));
+        Journal("D--Projects-nota/second.jsonl", Part(at, "a", 100), Part(_time.GetUtcNow().AddHours(-1), "c", 5));
+
+        var totals = UsageMath.Sum(new UsageScanner(_directory, _time).Collect(), _time.GetUtcNow());
+
+        Assert.Equal(105, totals.FiveHours.Tokens);
     }
 
     [Fact]

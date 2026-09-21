@@ -50,12 +50,45 @@ public sealed class UsageScanner(string directory, TimeProvider? time = null)
         lock (_lock)
         {
             Scan(since);
-            return _files.Values
-                .SelectMany(progress => progress.Buckets.Values)
-                .Where(bucket => bucket.Hour >= since.AddHours(-1))
-                .ToList();
+            var records = _files.Values
+                .SelectMany(progress => progress.Records)
+                .Where(record => Hour(record) >= since.AddHours(-1));
+
+            var buckets = new Dictionary<(DateTimeOffset Hour, string Model), UsageBucket>();
+            foreach (var record in Once(records))
+            {
+                var key = (Hour(record), record.Model);
+                if (!buckets.TryGetValue(key, out var bucket))
+                    buckets[key] = bucket = new UsageBucket(key.Item1, record.Model);
+                bucket.Add(record);
+            }
+
+            return buckets.Values.ToList();
         }
     }
+
+    /// <summary>
+    /// Каждый ответ — один раз. Claude Code пишет ответ строкой на каждую его часть, все с одним расходом,
+    /// а продолженная сессия переносит прошлые ответы в новый журнал: без этого расход завышен в разы.
+    /// Из строк одного ответа берётся самая полная — на случай, если ранняя записана недосчитанной.
+    /// </summary>
+    private static IEnumerable<UsageRecord> Once(IEnumerable<UsageRecord> records)
+    {
+        var byId = new Dictionary<string, UsageRecord>();
+        foreach (var record in records)
+        {
+            if (record.Id is null)
+                yield return record;
+            else if (!byId.TryGetValue(record.Id, out var known) || record.Tokens > known.Tokens)
+                byId[record.Id] = record;
+        }
+
+        foreach (var record in byId.Values)
+            yield return record;
+    }
+
+    private static DateTimeOffset Hour(UsageRecord record) =>
+        new DateTimeOffset(record.At.UtcDateTime.Date, TimeSpan.Zero).AddHours(record.At.UtcDateTime.Hour);
 
     private void Scan(DateTimeOffset since)
     {
@@ -140,37 +173,30 @@ public sealed class UsageScanner(string directory, TimeProvider? time = null)
         }
     }
 
-    /// <summary>До какого места прочитан журнал и что в нём насчитано.</summary>
+    /// <summary>
+    /// До какого места прочитан журнал и какие ответы в нём найдены. Хранятся ответы, а не суммы:
+    /// повтор одного ответа виден только при сборе по всем журналам сразу.
+    /// </summary>
     private sealed class FileProgress
     {
         public long Position { get; set; }
 
-        public Dictionary<(DateTimeOffset Hour, string Model), UsageBucket> Buckets { get; } = [];
+        public List<UsageRecord> Records { get; } = [];
 
         public void Reset()
         {
             Position = 0;
-            Buckets.Clear();
+            Records.Clear();
         }
 
         public void Take(string line)
         {
-            var record = UsageJournal.Parse(line);
-            if (record is null)
-                return;
-
-            var hour = new DateTimeOffset(record.At.UtcDateTime.Date, TimeSpan.Zero).AddHours(record.At.UtcDateTime.Hour);
-            var key = (hour, record.Model);
-            if (!Buckets.TryGetValue(key, out var bucket))
-                Buckets[key] = bucket = new UsageBucket(hour, record.Model);
-            bucket.Add(record);
+            if (UsageJournal.Parse(line) is { } record)
+                Records.Add(record);
         }
 
-        /// <summary>Корзины старше окна держать незачем: панель их больше не покажет.</summary>
-        public void Forget(DateTimeOffset since)
-        {
-            foreach (var key in Buckets.Where(pair => pair.Value.Hour < since.AddHours(-1)).Select(pair => pair.Key).ToList())
-                Buckets.Remove(key);
-        }
+        /// <summary>Ответы старше окна держать незачем: панель их больше не покажет.</summary>
+        public void Forget(DateTimeOffset since) =>
+            Records.RemoveAll(record => Hour(record) < since.AddHours(-1));
     }
 }
