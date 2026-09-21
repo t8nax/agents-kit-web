@@ -62,7 +62,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   const field = useRef<HTMLTextAreaElement>(null)
 
   // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
-  const draft = useAgentRequest<DraftEvent>('performer')
+  // Окно правки чужую просьбу не подхватывает: ответ про другого исполнителя переписал бы этого (B-80).
+  const draft = useAgentRequest<DraftEvent>('performer', { restore: editing === null })
   const [wish, setWish] = useState('')
   // Поля, какими они были до ответа агента: «Вернуть как было» ставит их обратно.
   const [before, setBefore] = useState<DraftFields | null>(null)
@@ -85,7 +86,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     if (outcome?.type !== 'drafted' || taken.current) return
     taken.current = true
     setBefore({ name, description, model, tools, prompt })
-    setName(outcome.fields.name ?? '')
+    // Имя заведённого не меняется: по нему его зовут шаги флоу, а другое имя бэкенд счёл бы переименованием.
+    if (!editing) setName(outcome.fields.name ?? '')
     setDescription(outcome.fields.description ?? '')
     setModel(outcome.fields.model ?? '')
     setTools(outcome.fields.tools ?? '')
@@ -94,7 +96,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outcome])
 
-  const trimmed = name.trim()
+  // В правке имя — всегда прежнее: поля имени в ней нет, и записывается тот, кого открыли.
+  const trimmed = editing ? editing.name : name.trim()
   const chosen = bases.find((b) => b.base === base) ?? bases[0]
   // Имя занято другим исполнителем проекта: сохранение переписало бы его.
   const occupied =

@@ -277,6 +277,47 @@ test('«Вернуть как было» возвращает то, что ст�
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
 })
 
+test('правка не меняет имя, даже если агент вернул другое', async () => {
+  const { stream, fetchMock } = stubSave(() => Response.json({ path: 'x' }))
+  const onSaved = open(reviewer)
+
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Пусть ещё сверяет' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  await screen.findByRole('status')
+  stream.send({
+    type: 'drafted',
+    text: '---',
+    fields: { name: 'diff-judge', description: 'Судит дифф.', model: 'opus', tools: null, prompt: 'Новое задание.' },
+  })
+  stream.close()
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Судит дифф.'))
+
+  expect(screen.getByRole('heading', { name: 'reviewer' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  // Другое имя бэкенд счёл бы переименованием: записал бы новый файл и удалил reviewer.
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('reviewer'))
+  expect(saved(fetchMock)).toMatchObject({ name: 'reviewer', editing: 'reviewer', prompt: 'Новое задание.' })
+})
+
+test('окно правки не подхватывает чужую просьбу, которая ждёт в панели', async () => {
+  const stream = controlledStream<DraftEvent>()
+  const panel = stubPanel('performer', stream, {
+    running: runningRequest('performer', 'Ревьюер ветки', 'D:\\Projects\\app-knowledge', 'Agents Kit Web'),
+  })
+  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
+  open(reviewer)
+  stream.send({ type: 'drafted', text: '---', fields: runner })
+  stream.close()
+
+  // Ответ про другого исполнителя в окно reviewer не ложится и просьбу не забирает.
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
+  expect(screen.queryByText('Основу написал Чудо-Юдо')).not.toBeInTheDocument()
+  expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain('/api/agent/requests')
+  expect(panel.deletes).toEqual([])
+})
+
 test('нынешние поля уходят агенту, когда исполнителя правят', async () => {
   const stream = controlledStream<DraftEvent>()
   const panel = stubPanel('performer', stream)

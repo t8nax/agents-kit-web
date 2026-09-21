@@ -22,8 +22,10 @@ export type Started = { ok: true } | { ok: false; status: number | null }
  * Просьба живёт в панели, а не в окне: окно её только показывает. Открытое заново, оно читает ход просьбы
  * с начала — вместе с тем, что пришло без него, — и ждёт продолжения. Закрытие окна агента не трогает:
  * останавливает его «Отменить», то есть cancel.
+ * restore: false — окно не подхватывает просьбу, которую завело не оно: так окно правки исполнителя не берёт
+ * ответ, написанный про другого (B-80).
  */
-export function useAgentRequest<E extends AgentEvent>(kind: AgentKind) {
+export function useAgentRequest<E extends AgentEvent>(kind: AgentKind, { restore = true }: { restore?: boolean } = {}) {
   const [asked, setAsked] = useState('')
   const [base, setBase] = useState<string | null>(null)
   const [steps, setSteps] = useState<string[]>([])
@@ -31,7 +33,8 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind) {
   const [running, setRunning] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const [restoring, setRestoring] = useState(true)
+  // Без подхвата восстанавливать нечего: окно сразу готово к просьбе.
+  const [restoring, setRestoring] = useState(restore)
   const reading = useRef<AbortController | null>(null)
 
   const follow = useCallback(
@@ -111,6 +114,10 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind) {
 
   // Окно открылось: идущая или дождавшаяся просьба этого вида подхватывается с начала.
   useEffect(() => {
+    if (!restore) {
+      // Своё окно всё равно перестаёт читать поток при закрытии: просьбу это не трогает.
+      return () => reading.current?.abort()
+    }
     let alive = true
     fetch('/api/agent/requests')
       .then((response) => (response.ok ? (response.json() as Promise<AgentRequestSummary[]>) : []))
@@ -128,7 +135,7 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind) {
       // Закрытое окно перестаёт читать поток, но просьбу не трогает: агент работает дальше.
       reading.current?.abort()
     }
-  }, [kind, follow])
+  }, [kind, follow, restore])
 
   const start = useCallback(
     async (url: string, body: unknown): Promise<Started> => {
