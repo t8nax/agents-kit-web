@@ -9,7 +9,7 @@ test('страница показывает таблицу рабочих коп
   await expect(page.getByRole('banner').getByRole('heading', { name: 'Agents Kit Web' })).toBeVisible()
 
   const table = page.getByRole('table')
-  for (const column of ['Копия', '№', 'Задача', 'Шаг флоу', 'Прогресс', 'Статус', 'Проблемы']) {
+  for (const column of ['Копия', '№', 'Задача', 'Стадия флоу', 'Прогресс', 'Статус', 'Проблемы']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible()
   }
   await expect(table.locator('tbody tr:not(.group-row)')).toHaveCount(rows.length)

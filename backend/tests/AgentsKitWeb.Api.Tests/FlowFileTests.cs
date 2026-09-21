@@ -193,7 +193,7 @@ public sealed class FlowFileTests
         исполнитель: оркестратор
         помощники: scout, check-runner
         выход: sha коммитов и зелёные прогоны
-        возврат: развилка вскрыта — шаг «Обсуждение»
+        возврат: развилка вскрыта — стадия «Обсуждение»
 
         2.1. Вести работу шагами.
 
@@ -202,8 +202,8 @@ public sealed class FlowFileTests
         исполнитель: оператор
         выход: ответ оператора «принято»
         пропуск: правка не меняет вида панели
-        возврат: есть замечания — шаг «Реализация»
-        возврат: панель не поднялась — шаг «Обсуждение»
+        возврат: есть замечания — стадия «Реализация»
+        возврат: панель не поднялась — стадия «Обсуждение»
 
         """;
 
@@ -235,6 +235,18 @@ public sealed class FlowFileTests
         var text = "# App\n\n## 1. Шаг\n\nисполнитель: оркестратор\nвыход: коммит\nвозврат: назад к обсуждению\n";
 
         Assert.Equal([new FlowReturn("назад к обсуждению", "")], FlowFile.Parse(text).Steps[0].Returns);
+    }
+
+    [Fact]
+    public void Parse_ReturnInOldStepWord_HasNoTarget()
+    {
+        // Прежнюю запись «— шаг «…»» кит больше не пишет, и панель её не принимает: возврат остаётся без цели.
+        var text = "# App\n\n## 1. Обсуждение\n\nисполнитель: оркестратор\nвыход: ответы\n\n"
+            + "## 2. Реализация\n\nисполнитель: оркестратор\nвыход: коммит\nвозврат: развилка — шаг «Обсуждение»\n";
+        var steps = FlowFile.Parse(text).Steps;
+
+        Assert.Equal([new FlowReturn("развилка — шаг «Обсуждение»", "")], steps[1].Returns);
+        Assert.Equal(new FlowRejection(2, FlowProblem.ReturnUnknownStep), FlowFile.Validate(steps));
     }
 
     [Theory]

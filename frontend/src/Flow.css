@@ -10,6 +10,16 @@
   height: 16px;
 }
 
+/* Кнопка «…» шапки: того же вида, что соседние кнопки, но без подписи. */
+.head-more {
+  padding: 6px 8px;
+}
+
+.head-more[aria-expanded='true'] {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
 .flow-done {
   color: var(--accent-active-text);
 }

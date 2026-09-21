@@ -5,6 +5,7 @@ import './Flow.css'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
 import type { BasePerformers } from './Performers'
 import { plural } from './plural'
+import RowMenu from './RowMenu'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /** Возврат шага: при condition работа идёт заново к шагу step, который стоит во флоу раньше. */
@@ -120,8 +121,8 @@ function stepErrors(draft: DraftStep, steps: DraftStep[] = [], index = -1, known
   for (const back of draft.returns) {
     if (!back.condition.trim()) errors.push('в возврате не указано условие')
     const target = steps.findIndex((step) => step.title.trim() === back.step.trim() && back.step.trim())
-    if (target < 0) errors.push('возврат ведёт на шаг, которого во флоу нет')
-    else if (index >= 0 && target >= index) errors.push('возврат ведёт на шаг, который стоит не раньше')
+    if (target < 0) errors.push('возврат ведёт на стадию, которой во флоу нет')
+    else if (index >= 0 && target >= index) errors.push('возврат ведёт на стадию, которая стоит не раньше')
   }
   return errors
 }
@@ -196,8 +197,8 @@ const invalidLabels: Record<string, string> = {
   'empty-output': 'не указан выход',
   'line-break': 'перевод строки в поле',
   'return-without-condition': 'в возврате не указано условие',
-  'return-unknown-step': 'возврат ведёт на шаг, которого во флоу нет',
-  'return-step-not-earlier': 'возврат ведёт на шаг, который стоит не раньше',
+  'return-unknown-step': 'возврат ведёт на стадию, которой во флоу нет',
+  'return-step-not-earlier': 'возврат ведёт на стадию, которая стоит не раньше',
 }
 
 /**
@@ -386,39 +387,11 @@ export default function Flow({
           {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
           {firstBad >= 0 && (
             <span className="flow-blocked">
-              Не сохранить: шаг {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad, known).join(', ')}
+              Не сохранить: стадия {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad, known).join(', ')}
             </span>
           )}
-          <button
-            type="button"
-            className="bases-btn"
-            onClick={refresh}
-            // Обновление перечитает файл базы: незаписанные правки оно бы стёрло молча.
-            disabled={load.kind === 'loading' || dirty}
-          >
-            <RefreshIcon />
-            Обновить
-          </button>
           {editable && (
             <>
-              <button
-                type="button"
-                className="bases-btn"
-                // Пока правки не сохранены, переписывать нечего: агент работает с файлом базы.
-                disabled={dirty}
-                title={dirty ? 'Сначала сохраните или отмените свои правки' : undefined}
-                onClick={() => {
-                  setNotice(null)
-                  setModal('rewrite')
-                }}
-              >
-                <RewriteIcon />
-                Переписать с {AGENT_NAME}
-              </button>
-              <button type="button" className="btn-code" onClick={() => void openInVsCode(flow.base)}>
-                <VsCodeIcon />
-                Открыть в VS Code
-              </button>
               {dirty && (
                 <button
                   type="button"
@@ -443,6 +416,60 @@ export default function Flow({
               </button>
             </>
           )}
+          {/* Редкие действия — в меню «…»: рядом с надписью «Не сохранить: …» пять кнопок сжимали её
+              в столбик — решение оператора на B-132. */}
+          <RowMenu label="Ещё действия" title="Ещё действия" buttonClassName="bases-btn head-more">
+            {(close) => (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="row-menu-item"
+                  // Обновление перечитает файл базы: незаписанные правки оно бы стёрло молча.
+                  disabled={load.kind === 'loading' || dirty}
+                  onClick={() => {
+                    close()
+                    refresh()
+                  }}
+                >
+                  <RefreshIcon />
+                  Обновить
+                </button>
+                {editable && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="row-menu-item"
+                      // Пока правки не сохранены, переписывать нечего: агент работает с файлом базы.
+                      disabled={dirty}
+                      title={dirty ? 'Сначала сохраните или отмените свои правки' : undefined}
+                      onClick={() => {
+                        close()
+                        setNotice(null)
+                        setModal('rewrite')
+                      }}
+                    >
+                      <RewriteIcon />
+                      Переписать с {AGENT_NAME}
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="row-menu-item"
+                      onClick={() => {
+                        close()
+                        void openInVsCode(flow.base)
+                      }}
+                    >
+                      <VsCodeIcon />
+                      Открыть в VS Code
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </RowMenu>
         </div>
       </div>
 
@@ -460,7 +487,7 @@ export default function Flow({
       {/* Без списка исполнителей шаги не помечаются и запись не запирается — сказать, отчего так. */}
       {performersFailed && (
         <p className="message warning-text" role="status">
-          Список исполнителей не прочитан: имена шагов панель не проверяет, пока раздел не откроют заново.
+          Список исполнителей не прочитан: имена стадий панель не проверяет, пока раздел не откроют заново.
         </p>
       )}
 
@@ -503,7 +530,7 @@ export default function Flow({
                 <ReturnArcs steps={draft} opened={openedIndex} />
                 {draft.length === 0 && (
                   <p className="backlog-note text-sec">
-                    Во флоу пока нет шагов. Агент не начнёт задачу на этом проекте, пока шаги не записаны.
+                    Во флоу пока нет стадий. Агент не начнёт задачу на этом проекте, пока стадии не записаны.
                   </p>
                 )}
                 {draft.map((step, index) => (
@@ -527,7 +554,7 @@ export default function Flow({
                   onClick={() => setModal('add')}
                 >
                   <PlusIcon />
-                  <span className="flow-node-title">Добавить шаг</span>
+                  <span className="flow-node-title">Добавить стадию</span>
                 </button>
               </div>
               </div>
@@ -610,7 +637,7 @@ function saveError(status: number, body: { problem?: string; step?: number; deta
   if (status === 409)
     return 'Флоу не сохранён: файл флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
   if (status === 400 && body?.step)
-    return `Флоу не сохранён: шаг ${body.step} — ${invalidLabels[body.detail ?? ''] ?? 'не в форме кита'}`
+    return `Флоу не сохранён: стадия ${body.step} — ${invalidLabels[body.detail ?? ''] ?? 'не в форме кита'}`
   if (status === 502 && body?.problem === 'not-committed')
     return `Флоу не сохранён: коммит в базу не прошёл, файл оставлен как был.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 404) return 'Флоу не сохранён: файл флоу базы не найден'
@@ -728,9 +755,9 @@ function StepNode({
           invalid ? 'invalid' : ''
         }`}
         // Возврат нарисован дугой, а не текстом: программе чтения экрана он называется здесь.
-        aria-label={`Шаг ${number}: ${step.title.trim() || 'без названия'}${step.returns
+        aria-label={`Стадия ${number}: ${step.title.trim() || 'без названия'}${step.returns
           .filter((back) => back.step.trim())
-          .map((back) => `, возврат к шагу ${back.step.trim()}`)
+          .map((back) => `, возврат к стадии ${back.step.trim()}`)
           .join('')}`}
         aria-current={opened}
         draggable
@@ -778,10 +805,10 @@ function StepNode({
       </button>
       {/* Клавиатурой шаг двигается кнопками: перетаскивание ей недоступно. */}
       <span className="flow-node-keys">
-        <IconButton label={`Шаг ${number} выше`} disabled={number === 1} onClick={() => onMove(index, index - 1)}>
+        <IconButton label={`Стадия ${number} выше`} disabled={number === 1} onClick={() => onMove(index, index - 1)}>
           <ChevronUpIcon />
         </IconButton>
-        <IconButton label={`Шаг ${number} ниже`} disabled={last} onClick={() => onMove(index, index + 1)}>
+        <IconButton label={`Стадия ${number} ниже`} disabled={last} onClick={() => onMove(index, index + 1)}>
           <ChevronDownIcon />
         </IconButton>
       </span>
@@ -968,12 +995,12 @@ function ReturnsField({
           </span>
           <select
             className="flow-input flow-return-step"
-            aria-label={`Шаг возврата ${index + 1}`}
+            aria-label={`Стадия возврата ${index + 1}`}
             aria-invalid={!earlier.includes(back.step.trim())}
             value={back.step}
             onChange={(event) => set(index, { step: event.target.value })}
           >
-            <option value="">шаг…</option>
+            <option value="">стадия…</option>
             {/* Шаг, которого среди стоящих раньше нет, остаётся в списке: иначе правка чужого флоу пропала бы молча. */}
             {(earlier.includes(back.step.trim()) || !back.step.trim() ? earlier : [back.step, ...earlier]).map(
               (title) => (
@@ -1039,7 +1066,7 @@ function StepDrawer({
   return (
     <aside
       className="flow-drawer"
-      aria-label={`Шаг ${number}: ${title}`}
+      aria-label={`Стадия ${number}: ${title}`}
       onKeyDown={(event) => event.key === 'Escape' && onClose()}
     >
       <div className="flow-drawer-head">
@@ -1060,8 +1087,8 @@ function StepDrawer({
           <span>название</span>
           <input
             className="flow-input"
-            aria-label="Название шага"
-            placeholder="Название шага"
+            aria-label="Название стадии"
+            placeholder="Название стадии"
             aria-invalid={!step.title.trim()}
             value={step.title}
             onChange={(event) => onChange({ title: event.target.value })}
@@ -1077,7 +1104,7 @@ function StepDrawer({
           <span>исполнитель</span>
           <select
             className="flow-input"
-            aria-label="Исполнитель шага"
+            aria-label="Исполнитель стадии"
             value={step.kind}
             onChange={(event) => {
               const kind = event.target.value as DraftStep['kind']
@@ -1106,7 +1133,7 @@ function StepDrawer({
           <span>выход</span>
           <textarea
             className="flow-input"
-            aria-label="Выход шага"
+            aria-label="Выход стадии"
             placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
             aria-invalid={!step.output.trim()}
             rows={3}
@@ -1119,8 +1146,8 @@ function StepDrawer({
           <span>пропуск</span>
           <input
             className="flow-input"
-            aria-label="Пропуск шага"
-            placeholder="нет — шаг проходится всегда"
+            aria-label="Пропуск стадии"
+            placeholder="нет — стадия проходится всегда"
             value={step.skip}
             onChange={(event) => onChange({ skip: event.target.value })}
           />
@@ -1142,7 +1169,7 @@ function StepDrawer({
           </button>
         </div>
 
-        {errors.length > 0 && <p className="flow-step-error">Шаг не сохранить: {errors.join(', ')}.</p>}
+        {errors.length > 0 && <p className="flow-step-error">Стадию не сохранить: {errors.join(', ')}.</p>}
       </div>
 
       <div className="flow-drawer-foot">
@@ -1154,11 +1181,11 @@ function StepDrawer({
           onClick={onSaveAsPreset}
         >
           <BookmarkIcon />
-          {isPreset ? 'Шаг в пресетах' : 'В пресеты'}
+          {isPreset ? 'Стадия в пресетах' : 'В пресеты'}
         </button>
         <button type="button" className="bases-btn bases-btn-danger flow-drawer-delete" onClick={onDelete}>
           <TrashIcon />
-          Удалить шаг
+          Удалить стадию
         </button>
       </div>
     </aside>
@@ -1190,11 +1217,11 @@ function DescriptionEditor({
         aria-labelledby="flow-description-title"
         onKeyDown={(event) => event.key === 'Escape' && onCancel()}
       >
-        <h3 id="flow-description-title">Описание шага «{title.trim() || 'без названия'}»</h3>
+        <h3 id="flow-description-title">Описание стадии «{title.trim() || 'без названия'}»</h3>
         <textarea
           ref={field}
           className="flow-input flow-description-text"
-          aria-label="Описание шага"
+          aria-label="Описание стадии"
           rows={16}
           spellCheck={false}
           value={text}
@@ -1256,7 +1283,7 @@ function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) 
       <button
         type="button"
         className="flow-icon-toggle"
-        aria-label="Значок шага"
+        aria-label="Значок стадии"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
@@ -1266,7 +1293,7 @@ function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) 
         <ChevronDownIcon />
       </button>
       {open && (
-        <div className="flow-icon-menu" role="group" aria-label="Значки шага">
+        <div className="flow-icon-menu" role="group" aria-label="Значки стадии">
           <button
             type="button"
             className="flow-icon-btn"
@@ -1327,16 +1354,16 @@ function AddStep({
         aria-labelledby="flow-add-title"
         onKeyDown={(event) => event.key === 'Escape' && onCancel()}
       >
-        <h3 id="flow-add-title">Добавить шаг</h3>
-        <div className="flow-presets" role="group" aria-label="Пресеты шагов">
+        <h3 id="flow-add-title">Добавить стадию</h3>
+        <div className="flow-presets" role="group" aria-label="Пресеты стадий">
           <button type="button" className="flow-preset" onClick={() => onAdd(emptyStep)}>
-            <span className="flow-preset-title">Пустой шаг</span>
+            <span className="flow-preset-title">Пустая стадия</span>
             <span className="text-sec">всё заполнить самому</span>
           </button>
           <div className="flow-presets-label">Пресеты</div>
           {presets.length === 0 && (
             <p className="flow-presets-empty text-ter">
-              Пресетов пока нет. Шаг сохраняется в пресеты кнопкой в сайдбаре шага.
+              Пресетов пока нет. Стадия сохраняется в пресеты кнопкой в сайдбаре стадии.
             </p>
           )}
           {presets.map((preset) => (
@@ -1395,7 +1422,7 @@ function ConfirmSave({ flow, onCancel, onConfirm }: { flow: BaseFlow; onCancel: 
           новому флоу.
         </p>
         <p className="flow-confirm-warning">
-          На проекте {plural(flow.activeTasks, 'задача', 'задачи', 'задач')} в работе. Они дойдут по старым шагам —
+          На проекте {plural(flow.activeTasks, 'задача', 'задачи', 'задач')} в работе. Они дойдут по старым стадиям —
           новый флоу их не меняет.
         </p>
         <div className="flow-confirm-actions">

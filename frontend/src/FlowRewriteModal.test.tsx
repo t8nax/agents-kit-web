@@ -69,10 +69,10 @@ test('просьба уходит в базу раздела, ход агент�
   stream.send({ type: 'rewritten', text: '', steps: rewritten, version: 'abc123', durationMs: 18000 })
 
   const changes = await screen.findByLabelText('Что изменилось во флоу')
-  expect(within(changes).getByText('добавлен')).toBeInTheDocument()
+  expect(within(changes).getByText('добавлена')).toBeInTheDocument()
   expect(within(changes).getByText('Ревью')).toBeInTheDocument()
   expect(within(changes).getByText('reviewer')).toBeInTheDocument()
-  expect(within(changes).getByText('изменён')).toBeInTheDocument()
+  expect(within(changes).getByText('изменена')).toBeInTheDocument()
   expect(within(changes).getByText('sha в dev')).toBeInTheDocument()
   expect(within(changes).getByText('sha в dev после вердикта ревью')).toBeInTheDocument()
   // Шаг без правок стоит одной строкой, а не карточкой.
@@ -102,11 +102,11 @@ test('описание шага не пересказывается: его от
 
   fireEvent.click(open)
 
-  const window_ = await screen.findByRole('dialog', { name: 'Описание шага «Ревью»' })
+  const window_ = await screen.findByRole('dialog', { name: 'Описание стадии «Ревью»' })
   expect(within(window_).getByText('3.1. Собрать дифф всей ветки.')).toBeInTheDocument()
 
   fireEvent.click(within(window_).getByRole('button', { name: 'Закрыть' }))
-  expect(screen.queryByRole('dialog', { name: 'Описание шага «Ревью»' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Описание стадии «Ревью»' })).not.toBeInTheDocument()
 })
 
 test('флоу, разошедшийся с разделом, в схему не подставляется', async () => {
@@ -128,7 +128,7 @@ test('неудача агента названа словами, а просьб
   renderModal()
 
   await ask('Добавь ревью')
-  stream.send({ type: 'error', text: 'Агент вернул не флоу: шагов в его ответе нет', output: 'Готово!' })
+  stream.send({ type: 'error', text: 'Агент вернул не флоу: стадий в его ответе нет', output: 'Готово!' })
 
   expect(await screen.findByText(/Агент вернул не флоу/)).toBeInTheDocument()
   expect(screen.getByText('Готово!')).toBeInTheDocument()
@@ -172,7 +172,7 @@ test('открытое заново окно показывает перепис
   stream.send({ type: 'rewritten', text: '', steps: rewritten, version: 'abc123' })
 
   const changes = await screen.findByLabelText('Что изменилось во флоу')
-  expect(within(changes).getByText('добавлен')).toBeInTheDocument()
+  expect(within(changes).getByText('добавлена')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Взять правки в схему' }))
   await waitFor(() => expect(onApply).toHaveBeenCalledWith(rewritten))
   expect(posts).toEqual([])

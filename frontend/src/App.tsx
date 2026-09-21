@@ -710,7 +710,7 @@ function WorkspacesTable({
             <th>Копия</th>
             <th className="num-col">№</th>
             <th>Задача</th>
-            <th>Шаг флоу</th>
+            <th>Стадия флоу</th>
             <th>Прогресс</th>
             <th>Статус</th>
             <th>Проблемы</th>
