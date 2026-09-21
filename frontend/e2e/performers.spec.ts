@@ -139,10 +139,20 @@ test('задание открывается своим окном только �
   await expect(task.getByText('Ты читаешь дифф ветки целиком.')).toBeVisible()
   await expect(task.getByRole('textbox')).toHaveCount(0)
 
-  // Escape закрывает верхнее окно, а окно исполнителя остаётся.
+  // Окно задания сверху: фокус в нём.
+  await expect(task.getByRole('button', { name: 'Закрыть', exact: true })).toBeFocused()
+
+  // Escape закрывает верхнее окно, а окно исполнителя остаётся, и фокус возвращается на кнопку задания.
   await page.keyboard.press('Escape')
   await expect(task).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: 'reviewer' })).toBeVisible()
+  const modal = page.getByRole('dialog', { name: 'reviewer' })
+  await expect(modal).toBeVisible()
+  await expect(modal.getByRole('button', { name: 'Показать задание' })).toBeFocused()
+
+  // То же — кнопкой «Закрыть».
+  await modal.getByRole('button', { name: 'Показать задание' }).click()
+  await task.getByRole('button', { name: 'Закрыть', exact: true }).click()
+  await expect(modal.getByRole('button', { name: 'Показать задание' })).toBeFocused()
 })
 
 test('отказ записи виден словами, а окно остаётся открытым', async ({ page }) => {

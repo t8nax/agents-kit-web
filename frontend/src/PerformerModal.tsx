@@ -69,12 +69,15 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   // Задание открыто для чтения своим окном поверх этого.
   const [reading, setReading] = useState(false)
   const field = useRef<HTMLTextAreaElement>(null)
-  // Закрытое окно задания возвращает фокус на кнопку, которой его открыли.
+  // Закрытое окно задания возвращает фокус на кнопку, которой его открыли, — после перерисовки:
+  // пока окно задания открыто, окно исполнителя inert, и фокус в него не встаёт.
   const taskButton = useRef<HTMLButtonElement>(null)
-  const closeTask = useCallback(() => {
-    setReading(false)
-    taskButton.current?.focus()
-  }, [])
+  const wasReading = useRef(false)
+  const closeTask = useCallback(() => setReading(false), [])
+  useEffect(() => {
+    if (wasReading.current && !reading) taskButton.current?.focus()
+    wasReading.current = reading
+  }, [reading])
 
   // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
   // Окно правки чужую просьбу не подхватывает: ответ про другого исполнителя переписал бы этого (B-80).
