@@ -11,6 +11,12 @@ const models = ['', 'opus', 'sonnet', 'haiku']
 /** Набор «только чтение»; пусто — все инструменты сессии, иначе список, как его понимает Claude Code. */
 const READ_ONLY = 'Read, Glob, Grep'
 
+/** Инструменты файла — переключатель «Только чтение» и свой список: набор чтения списком не считается. */
+function splitTools(tools: string | null) {
+  const readOnly = (tools ?? '').trim() === READ_ONLY
+  return { readOnly, custom: readOnly ? '' : (tools ?? '') }
+}
+
 /** Поля исполнителя, как их возвращает Чудо-Юдо: те же, что в окне, кроме копии. */
 export type DraftFields = {
   name: string | null
@@ -53,7 +59,10 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   const [name, setName] = useState(editing?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
   const [model, setModel] = useState(editing?.model ?? '')
-  const [tools, setTools] = useState(editing?.tools ?? '')
+  // Переключатель держит своё состояние, а свой список помнится, пока он включён: переключение его не стирает.
+  const [readOnly, setReadOnly] = useState(() => splitTools(editing?.tools ?? null).readOnly)
+  const [tools, setTools] = useState(() => splitTools(editing?.tools ?? null).custom)
+  const chosenTools = readOnly ? READ_ONLY : tools
   const [prompt, setPrompt] = useState(editing?.prompt ?? '')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<Failure | null>(null)
@@ -93,12 +102,16 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   useEffect(() => {
     if (outcome?.type !== 'drafted' || taken.current) return
     taken.current = true
-    setBefore({ name, description, model, tools, prompt })
+    setBefore({ name, description, model, tools: chosenTools, prompt })
     // Имя заведённого не меняется: по нему его зовут шаги флоу, а другое имя бэкенд счёл бы переименованием.
     if (!editing) setName(outcome.fields.name ?? '')
     setDescription(outcome.fields.description ?? '')
     if (!chose.current.model) setModel(outcome.fields.model ?? '')
-    if (!chose.current.tools) setTools(outcome.fields.tools ?? '')
+    if (!chose.current.tools) {
+      const drafted = splitTools(outcome.fields.tools)
+      setReadOnly(drafted.readOnly)
+      setTools(drafted.custom)
+    }
     setPrompt(outcome.fields.prompt)
     // Основа берётся из ответа: оператор же и попросил её написать. Модель и инструменты — только невыбранные.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,7 +141,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     async (text: string) => {
       if (!text.trim()) return
       taken.current = false
-      const current = editing ? { name, description, model, tools, prompt } : null
+      const current = editing ? { name, description, model, tools: chosenTools, prompt } : null
       const started = await draft.start('/api/performers/draft', {
         base,
         wish: text.trim(),
@@ -143,7 +156,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
             : 'Панель не приняла просьбу',
       )
     },
-    [base, draft, editing, name, description, model, tools, prompt],
+    [base, draft, editing, name, description, model, chosenTools, prompt],
   )
 
   /** Забывает просьбу и возвращает поле к набору: текст просьбы остаётся, чтобы переспросить. */
@@ -158,7 +171,9 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
       setName(before.name ?? '')
       setDescription(before.description ?? '')
       setModel(before.model ?? '')
-      setTools(before.tools ?? '')
+      const prior = splitTools(before.tools)
+      setReadOnly(prior.readOnly)
+      setTools(prior.custom)
       setPrompt(before.prompt)
     }
     setBefore(null)
@@ -179,7 +194,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           name: trimmed,
           description: description.trim() || null,
           model: model || null,
-          tools: tools.trim() || null,
+          tools: chosenTools.trim() || null,
           prompt,
           editing: editing?.name ?? null,
         }),
@@ -228,7 +243,6 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
 
   const locked = busy || phase === 'running'
   const askLabel = editing ? `Переписать с помощью ${AGENT_NAME}` : `Завести с помощью ${AGENT_NAME}`
-  const readOnly = tools.trim() === READ_ONLY
   const project = chosen?.project ?? ''
 
   return (
@@ -450,7 +464,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                   disabled={locked}
                   onClick={() => {
                     chose.current.tools = true
-                    setTools(readOnly ? '' : READ_ONLY)
+                    setReadOnly(!readOnly)
                   }}
                 >
                   <span className="pf-toggle-box" aria-hidden="true">

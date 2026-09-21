@@ -141,6 +141,25 @@ test('«Только чтение» — переключатель: включё
   expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Bash')
 })
 
+test('переключатель помнит свой список и не включается от набранного текста', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open({ ...reviewer, tools: 'Read, Bash' })
+
+  const toggle = screen.getByRole('button', { name: 'Только чтение' })
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Bash')
+
+  // Включить и выключить — свой список возвращается, а не стирается во «все инструменты».
+  fireEvent.click(toggle)
+  fireEvent.click(toggle)
+  expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Bash')
+
+  // Набранный руками набор чтения переключатель сам не включает: поле под курсором не пропадает.
+  fireEvent.change(screen.getByLabelText('Инструменты'), { target: { value: 'Read, Glob, Grep' } })
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Glob, Grep')
+})
+
 test('правка модели и инструментов записывает прежние описание и задание', async () => {
   const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   const onSaved = open(reviewer)
