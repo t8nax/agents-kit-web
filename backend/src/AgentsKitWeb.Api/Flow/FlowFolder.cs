@@ -133,7 +133,7 @@ public static partial class FlowFolder
             flows.Add(new NamedFlow(name, Nullable(when ?? ""), entries.Select(e => new FlowEntry(e.Stage, e.Returns)).ToList()));
         }
 
-        return new FlowList(Block(intro) ?? "", flows, unread);
+        return new FlowList(Raw(intro), flows, unread);
     }
 
     /// <summary>Флоу базы по её flow/flow.md — только имена, «когда» и названия пунктов. Флоу нет или файл не прочитан — пусто.</summary>
@@ -369,6 +369,14 @@ public static partial class FlowFolder
         value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
     private static string? Nullable(string value) => value.Trim().Length > 0 ? value.Trim() : null;
+
+    // Вступление как в файле, строка в строку, с пробелами в концах строк: в markdown два пробела — перенос.
+    // Срезаются только пустые строки по краям — между вступлением и флоу запись ставит одну свою.
+    private static string Raw(List<string> lines)
+    {
+        var first = lines.FindIndex(l => l.Trim().Length > 0);
+        return first < 0 ? "" : string.Join("\n", lines[first..(lines.FindLastIndex(l => l.Trim().Length > 0) + 1)]);
+    }
 
     // Строки как в файле, без пустых по краям; null — текста нет.
     private static string? Block(IEnumerable<string> lines)

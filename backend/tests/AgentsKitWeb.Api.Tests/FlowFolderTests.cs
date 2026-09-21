@@ -104,6 +104,15 @@ public sealed class FlowFolderTests
     }
 
     [Fact]
+    public void SerializeList_KeepsIntroAsInFileWithTrailingSpaces()
+    {
+        const string text = "# App — флоу\n\nПервая строка  \nс переносом.\n\n## полный\n1. [Ветка](stages/branch.md)\n";
+        var (intro, flows, _) = FlowFolder.ParseList(text, Titles);
+
+        Assert.Equal(text, FlowFolder.SerializeList(intro, flows, new Dictionary<string, string> { ["ветка"] = "branch" }));
+    }
+
+    [Fact]
     public void SerializeList_SingleFlowWithoutWhen_HasNoWhenLine()
     {
         var text = FlowFolder.SerializeList(
