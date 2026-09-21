@@ -1,8 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { useAgentRequest } from './agentRequest'
-import type { FlowStep } from './Flow'
-import { flowChanges, type FlowChange, type FlowFieldName } from './flowChanges'
+import { flowChanges, type FlowChange, type FlowFieldName, type FlowStep } from './flowChanges'
 import './AskModal.css'
 import './FlowRewriteModal.css'
 

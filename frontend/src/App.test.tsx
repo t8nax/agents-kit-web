@@ -970,7 +970,8 @@ const flows = [
   {
     base: 'D:\\Projects\\app-knowledge',
     project: 'app-knowledge',
-    steps: [],
+    stages: [],
+    flows: [],
     activeTasks: 0,
     version: 'v1',
     error: null,
@@ -1030,17 +1031,12 @@ test('«Бэклог» из сайдбара открывается списко
   expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
 })
 
-test('«Флоу» из сайдбара открывается схемой, а не окном переписывания после возврата к просьбе', async () => {
+test('возврат к просьбе о флоу открывает раздел «Флоу»: переписывания в нём до B-179 нет', async () => {
   stubSections()
   render(<App />)
   await screen.findByRole('table')
 
   returnToRequest('flow', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Переписать флоу' })).toBeInTheDocument()
-
-  const sidebar = sidebarButtons()
-  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
-  fireEvent.click(sidebar.getByRole('button', { name: /Флоу/ }))
 
   expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Переписать флоу' })).not.toBeInTheDocument()

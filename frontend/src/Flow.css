@@ -799,3 +799,474 @@ textarea.flow-input {
   font-size: 12px;
   dominant-baseline: middle;
 }
+
+/* Верх раздела: заголовок и вкладки одной строкой, проект и «…» справа — вариант оператора. */
+.vc-head {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 0 24px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.vc-head h2 {
+  align-self: center;
+  margin: 0 12px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.vc-head .head-end {
+  margin-left: auto;
+  align-self: center;
+}
+
+.vc-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.flow-tab {
+  font-size: 14px;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 14px 12px 9px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.flow-tab:hover {
+  color: var(--text-primary);
+}
+
+.flow-tab.is-on {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+  font-weight: 500;
+}
+
+.flow-tab:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+/* Полоса сохранения внизу раздела: видна, только пока есть правки. */
+.save-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  box-shadow: 0 -14px 28px -24px var(--shadow-color);
+}
+
+.save-bar-state {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.save-bar .flow-dirty {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.save-bar .flow-dirty::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-waiting-text);
+}
+
+/* Выбор из списка: проект в шапке и флоу в углу холста. */
+.flow-pick {
+  position: relative;
+}
+
+.flow-pick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.flow-pick-btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.flow-pick-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.flow-pick-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.flow-pick-btn svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+}
+
+.flow-pick-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px -8px var(--shadow-color);
+}
+
+.head-end .flow-pick-menu {
+  left: auto;
+  right: 0;
+}
+
+.flow-pick-menu li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.flow-pick-menu li:hover,
+.flow-pick-menu li:focus-visible {
+  background: var(--bg-surface-hover);
+  outline: none;
+}
+
+.flow-pick-menu li[aria-selected='true'] {
+  background: var(--bg-surface-hover);
+  font-weight: 500;
+}
+
+.flow-pick-check {
+  margin-left: auto;
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+
+.flow-pick-check svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Вкладка «Стадии»: список стадий базы и правка выбранной на всю оставшуюся ширину. */
+.flow-stages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.flow-stage-list {
+  width: 320px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.flow-stage-list-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.flow-stage-list-head svg {
+  width: 14px;
+  height: 14px;
+}
+
+.flow-stage-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.flow-stage-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px 9px 14px;
+  background: none;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.flow-stage-item:hover {
+  background: var(--bg-surface-hover);
+}
+
+.flow-stage-item:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.flow-stage-item.is-on {
+  background: var(--bg-surface-hover);
+  border-left-color: var(--accent-done-text);
+}
+
+.flow-stage-item.invalid .flow-stage-item-title {
+  color: var(--accent-error-text);
+}
+
+.flow-stage-item .flow-node-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.flow-stage-item .flow-node-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.flow-stage-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.flow-stage-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.flow-stage-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+}
+
+.flow-stage-edit .flow-drawer-body {
+  padding: 18px 24px;
+}
+
+.flow-stage-edit .flow-drawer-head,
+.flow-stage-edit .flow-drawer-foot {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+/* Вкладка «Флоу»: выбор флоу в углу холста, над схемой пусто. */
+.flow-canvas {
+  position: relative;
+}
+
+.flow-canvas-pick {
+  position: absolute;
+  top: 16px;
+  left: 24px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.flow-canvas-pick .bases-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Узел старта — первым на ленте: круг со значком флоу и название под ним. Высота повторена в Flow.tsx. */
+.flow-start {
+  height: 96px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0;
+  color: var(--text-primary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.flow-start-dot {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-strong);
+}
+
+.flow-start-dot svg {
+  width: 24px;
+  height: 24px;
+}
+
+.flow-start:hover .flow-start-dot,
+.flow-start.opened .flow-start-dot {
+  border-color: var(--accent-done-text);
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.flow-start.invalid .flow-start-dot {
+  border-color: var(--accent-error-text);
+}
+
+.flow-start:focus-visible {
+  outline: none;
+}
+
+.flow-start:focus-visible .flow-start-dot {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.flow-start-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.flow-mark-flow {
+  color: var(--text-secondary);
+  background: var(--bg-base);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* Название стадии в сайдбаре флоу ведёт к её правке на вкладке «Стадии». */
+.flow-name-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  text-align: left;
+}
+
+.flow-name-link:hover {
+  text-decoration-color: var(--text-primary);
+}
+
+.flow-name-link svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.flow-presets-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Проект без флоу: по центру раздела под строкой заголовка. */
+.flow-empty {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  background-image: radial-gradient(circle at 50% 50%, var(--bg-surface) 0, transparent 320px);
+}
+
+.flow-empty-mark {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  border: 1.5px dashed var(--border-strong);
+}
+
+.flow-empty-mark svg {
+  width: 30px;
+  height: 30px;
+  stroke-width: 1.75;
+}
+
+.flow-empty h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.flow-empty p {
+  margin: 0 0 28px;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-wrap: balance;
+}
+
+.flow-empty .bases-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+  box-shadow: 0 8px 20px -10px var(--shadow-color);
+}
+
+.flow-empty .bases-btn svg {
+  width: 16px;
+  height: 16px;
+}
