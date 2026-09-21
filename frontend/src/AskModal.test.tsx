@@ -297,9 +297,7 @@ test('оборванный поток окно дочитывает само: р
   first.close()
 
   // Ответ пришёл в дочитанный поток: окно его показывает, а сбоя не случилось.
-  await vi.waitFor(() => next.send({ type: 'answer', text: 'Ответ после обрыва', files: [], durationMs: 1000 }), {
-    timeout: 3000,
-  })
+  await vi.waitFor(() => next.send({ type: 'answer', text: 'Ответ после обрыва', files: [], durationMs: 1000 }))
   expect(await screen.findByText('Ответ после обрыва')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
