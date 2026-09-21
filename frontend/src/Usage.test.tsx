@@ -65,7 +65,9 @@ test('показывает последние сутки оценкой проц
   const day = (await screen.findByRole('heading', { name: '24 часа' })).closest('section')!
   const estimate = within(day).getByText('≈19%')
   // Процента за сутки Anthropic не даёт — как посчитана оценка, видно при наведении
-  expect(estimate.getAttribute('title')).toBe('Оценка: 23% недельного расхода × 82% лимита недели')
+  expect(estimate.getAttribute('title')).toBe(
+    'Оценка: часть расхода с последнего сброса недели, пришедшаяся на сутки, × 82% лимита недели',
+  )
   expect(within(day).getByText('41,0 млн токенов')).toBeTruthy()
   expect(within(day).getByText('23%').parentElement!.textContent).toBe('23% недельного расхода')
   // Своего лимита у суток нет, и полосы тоже

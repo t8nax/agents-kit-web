@@ -19,7 +19,7 @@ export type UsageDay = {
   answers: number
   /** Доля суток в израсходованном за неделю с весами моделей, от нуля до единицы. */
   share: number
-  /** Доля, умноженная на процент недели; null — процента недели нет. */
+  /** Оценка из процента недели по расходу с её сброса; null — процента недели нет. */
   percent: number | null
 }
 
@@ -218,7 +218,7 @@ function Day({ day, week, now }: { day: UsageDay; week: UsageWindow; now: string
   const estimate =
     day.percent === null || week.percent === null
       ? undefined
-      : `Оценка: ${formatShare(day.share)} недельного расхода × ${week.percent}% лимита недели`
+      : `Оценка: часть расхода с последнего сброса недели, пришедшаяся на сутки, × ${week.percent}% лимита недели`
   return (
     <section className={`usage-window day ${day.percent === null ? 'failed' : ''}`}>
       <div className="usage-window-head">
