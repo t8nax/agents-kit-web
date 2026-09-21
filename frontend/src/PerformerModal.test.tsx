@@ -184,9 +184,14 @@ test('задание открывается кнопкой в окне толь�
   expect(within(task).getByText('Ты читаешь дифф ветки целиком.')).toBeInTheDocument()
   expect(within(task).queryByRole('textbox')).not.toBeInTheDocument()
 
+  // Окно задания сверху: фокус в нём, а окно исполнителя под ним недоступно.
+  expect(within(task).getByRole('button', { name: 'Закрыть' })).toHaveFocus()
+  expect(screen.getByRole('dialog', { name: 'reviewer', hidden: true })).toHaveAttribute('inert')
+
   fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
   expect(screen.queryByRole('dialog', { name: /Задание/ })).not.toBeInTheDocument()
   expect(screen.getByRole('dialog', { name: 'reviewer' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Показать задание' })).toHaveFocus()
 })
 
 test('просьба к Чудо-Юдо идёт из окна, а его ответ становится основой', async () => {

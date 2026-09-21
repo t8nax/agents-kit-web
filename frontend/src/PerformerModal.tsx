@@ -60,6 +60,12 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   // Задание открыто для чтения своим окном поверх этого.
   const [reading, setReading] = useState(false)
   const field = useRef<HTMLTextAreaElement>(null)
+  // Закрытое окно задания возвращает фокус на кнопку, которой его открыли.
+  const taskButton = useRef<HTMLButtonElement>(null)
+  const closeTask = useCallback(() => {
+    setReading(false)
+    taskButton.current?.focus()
+  }, [])
 
   // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
   // Окно правки чужую просьбу не подхватывает: ответ про другого исполнителя переписал бы этого (B-80).
@@ -75,12 +81,12 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || busy) return
       // Escape закрывает верхнее окно: сначала задание, потом само окно исполнителя.
-      if (reading) setReading(false)
+      if (reading) closeTask()
       else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onClose, reading])
+  }, [busy, onClose, reading, closeTask])
 
   // Итог просьбы становится основой исполнителя — один раз: ответ не перетирает поправленное оператором.
   const outcome = draft.outcome
@@ -233,8 +239,10 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
       <form
         className="modal-wizard pf-modal"
         role="dialog"
-        aria-modal="true"
+        aria-modal={!reading}
         aria-labelledby="pf-title"
+        // Пока открыто задание, окно исполнителя под ним недоступно: Tab и программа чтения — только в задании.
+        inert={reading}
         onSubmit={save}
         noValidate
       >
@@ -394,7 +402,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               <div className="pf-row">
                 <span className="pf-label">Задание</span>
                 {prompt.trim() ? (
-                  <button type="button" className="btn pf-small" onClick={() => setReading(true)}>
+                  <button type="button" ref={taskButton} className="btn pf-small" onClick={() => setReading(true)}>
                     <FileIcon />
                     Показать задание
                   </button>
@@ -496,13 +504,16 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         </div>
       </form>
 
-      {reading && <TaskView name={trimmed} prompt={prompt} onClose={() => setReading(false)} />}
+      {reading && <TaskView name={trimmed} prompt={prompt} onClose={closeTask} />}
     </div>
   )
 }
 
 /** Задание исполнителя — только для чтения: переписывает его Чудо-Юдо по просьбе. */
 function TaskView({ name, prompt, onClose }: { name: string; prompt: string; onClose: () => void }) {
+  // Открытое окно задания забирает фокус: иначе он остался бы на кнопке под подложкой.
+  const close = useRef<HTMLButtonElement>(null)
+  useEffect(() => close.current?.focus(), [])
   return (
     <div className="modal-overlay pf-task-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="modal-wizard pf-task" role="dialog" aria-modal="true" aria-labelledby="pf-task-title">
@@ -525,7 +536,7 @@ function TaskView({ name, prompt, onClose }: { name: string; prompt: string; onC
         </div>
         <div className="modal-footer ask-footer">
           <div className="footer-right">
-            <button type="button" className="btn" onClick={onClose}>
+            <button type="button" ref={close} className="btn" onClick={onClose}>
               Закрыть
             </button>
           </div>
