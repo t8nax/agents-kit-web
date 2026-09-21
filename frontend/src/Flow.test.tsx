@@ -746,3 +746,17 @@ test('удалённый единственный флоу сохраняетс�
   fireEvent.click((await open(within(screen.getByRole('region', { name: 'Флоу «полный»' })), /^Флоу «полный»/)).getByRole('button', { name: 'Удалить флоу' }))
   expect((await saveAndRead(fetchMock)).flows).toEqual([])
 })
+
+test('строки файлов флоу не по форме кита названы в полосе и запирают запись', async () => {
+  stubApi(api([{ ...app, unread: ['flow/flow.md, строка 14: «3. Мерж»'] }]))
+  await renderFlow()
+
+  expect(
+    screen.getByText(
+      'Не сохранить: в файлах флоу строка не по форме кита — flow/flow.md, строка 14: «3. Мерж». Поправьте её в файле: «…» → «Открыть в VS Code»',
+    ),
+  ).toBeInTheDocument()
+  // Правки в форме не отпирают запись: строку чинят в самом файле
+  fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})

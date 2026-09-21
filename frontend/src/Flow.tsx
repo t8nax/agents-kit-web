@@ -40,6 +40,11 @@ export type BaseFlow = {
   error: string | null
   /** Значки стадий, выбранные оператором: название стадии — значок. Их помнит панель, а не база. */
   icons: Record<string, string>
+  /**
+   * Строки файлов флоу не по форме кита, которых панель не понимает: «flow/flow.md, строка 7: «…»». Пока они
+   * есть, флоу не пишется — запись стёрла бы их из базы; правят их руками.
+   */
+  unread?: string[]
 }
 
 export type StagePreset = FlowStage & { id: string }
@@ -382,7 +387,11 @@ export default function Flow({
   const savedApi = useMemo(() => JSON.stringify(toApi(saved)), [saved])
   const dirty =
     flow !== null && (JSON.stringify(toApi(draft)) !== savedApi || !sameIcons(toIcons(draft), flow.icons ?? {}))
-  const problem = firstProblem(draft, known)
+  const unread = flow?.unread ?? []
+  const problem =
+    unread.length > 0
+      ? `в файлах флоу строка не по форме кита — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
+      : firstProblem(draft, known)
 
   const currentFlow = draft.flows.find((f) => f.key === flowKey) ?? draft.flows[0] ?? null
   const currentStage = draft.stages.find((s) => s.key === stageKey) ?? stagesInOrder(draft)[0] ?? null
@@ -748,6 +757,8 @@ type RejectedBody = { problem?: string; flow?: string | null; stage?: string | n
 function saveError(status: number, body: RejectedBody | null) {
   if (status === 409)
     return 'Флоу не сохранён: флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
+  if (status === 400 && body?.problem === 'unread')
+    return `Флоу не сохранён: в файлах флоу строка не по форме кита — ${body.detail ?? ''}`.trim()
   if (status === 400 && body?.problem) {
     const where = [body.flow ? `флоу «${body.flow}»` : '', body.stage ? `стадия «${body.stage}»` : '']
       .filter(Boolean)

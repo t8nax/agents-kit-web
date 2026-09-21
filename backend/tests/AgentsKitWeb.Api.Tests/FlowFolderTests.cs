@@ -33,9 +33,10 @@ public sealed class FlowFolderTests
     [Fact]
     public void ParseList_ReadsIntroFlowsWhenStagesAndReturnsPerFlow()
     {
-        var (intro, flows) = FlowFolder.ParseList(List, Titles);
+        var (intro, flows, unread) = FlowFolder.ParseList(List, Titles);
 
         Assert.Equal("# App — флоу\n\nЗадачу из бэклога брать по наименьшему номеру.", intro);
+        Assert.Empty(unread);
         Assert.Equal(["полный", "мелкий"], flows.Select(f => f.Name));
         Assert.Equal("новая возможность", flows[0].When);
         Assert.Equal(["Ветка", "Реализация", "Ревью"], flows[0].Entries.Select(e => e.Stage));
@@ -47,15 +48,56 @@ public sealed class FlowFolderTests
     [Fact]
     public void ParseList_TakesStageTitleFromItsFileNotFromLinkText()
     {
-        var (_, flows) = FlowFolder.ParseList("## полный\n1. [Старое имя](stages/review.md)\n2. [Нет файла](stages/gone.md)\n", Titles);
+        var (_, flows, _) = FlowFolder.ParseList("## полный\n1. [Старое имя](stages/review.md)\n2. [Нет файла](stages/gone.md)\n", Titles);
 
         Assert.Equal(["Ревью", "Нет файла"], flows[0].Entries.Select(e => e.Stage));
     }
 
     [Fact]
+    public void ParseList_NamesLinesNotInKitFormInsteadOfDroppingThem()
+    {
+        var (_, flows, unread) = FlowFolder.ParseList("""
+            ## полный
+            когда: новая возможность
+            1. [Ветка](stages/branch.md)
+            2. Ревью
+            - возврат: замечания — стадия «Ветка»
+            3. [Сборка](build.md)
+            Просто заметка.
+            """, Titles);
+
+        Assert.Equal(["Ветка"], flows[0].Entries.Select(e => e.Stage));
+        Assert.Equal(
+            ["строка 4: «2. Ревью»", "строка 5: «- возврат: замечания — стадия «Ветка»»", "строка 6: «3. [Сборка](build.md)»", "строка 7: «Просто заметка.»"],
+            unread);
+    }
+
+    [Fact]
+    public void ReadStage_NamesTextBeforeHeadingKeyOutsideListAndRepeatedKey()
+    {
+        var (stage, unread) = FlowFolder.ReadStage("""
+            заметка сверху
+            # Ревью
+            исполнитель: reviewer
+            выход: вердикт
+            выход: второй
+            возврат: замечания — стадия «Реализация»
+
+            Описание.
+            """, "review");
+
+        Assert.Equal("вердикт", stage.Output);
+        Assert.Equal(
+            ["строка 1: «заметка сверху»", "строка 5: ключ «выход» второй раз", "строка 6: ключ вне перечня «возврат: замечания — стадия «Реализация»»"],
+            unread);
+        Assert.Equal(["нет заголовка «# Название»"], FlowFolder.ReadStage("", "x").Unread);
+        Assert.Empty(FlowFolder.ReadStage("# Ветка\n\nисполнитель: оркестратор\nвыход: ветка\n\nОписание.\n", "branch").Unread);
+    }
+
+    [Fact]
     public void SerializeList_RoundTripsKitForm()
     {
-        var (intro, flows) = FlowFolder.ParseList(List, Titles);
+        var (intro, flows, unread) = FlowFolder.ParseList(List, Titles);
         var slugs = Titles.ToDictionary(p => FlowFolder.Key(p.Value), p => p.Key);
 
         Assert.Equal(List.ReplaceLineEndings("\n"), FlowFolder.SerializeList(intro, flows, slugs));

@@ -8,6 +8,8 @@ namespace AgentsKitWeb.Api.Flow;
 /// принимается только поверх того, что оператор видел. У базы без flow/flow.md — и когда флоу в ней ещё старой
 /// формы — флоу и стадий нет. ActiveTasks — задачи в работе: памяти work/*.md базы. Error задан — флоу панель
 /// не прочитала. Icons — выбранные оператором значки стадий, они живут в настройках панели, а не в базе.
+/// Unread — строки файлов флоу не по форме кита, которых панель не понимает («flow/flow.md, строка 7: «…»»):
+/// пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
 /// </summary>
 public sealed record BaseFlow(
     string Base,
@@ -17,7 +19,8 @@ public sealed record BaseFlow(
     int ActiveTasks,
     string? Version,
     string? Error,
-    IReadOnlyDictionary<string, string> Icons);
+    IReadOnlyDictionary<string, string> Icons,
+    IReadOnlyList<string>? Unread = null);
 
 /// <summary>Стадии и флоу базы целиком: стадия без слага заведена в панели, стадии, которой нет в списке, удаляются.</summary>
 public sealed record SaveFlowRequest(
@@ -29,7 +32,10 @@ public sealed record SaveFlowRequest(
 
 public sealed record FlowSavedResponse(string Version);
 
-/// <summary>Problem: changed · not-committed · проблема из FlowFolder.Validate; Flow и Stage — где она, Detail — вывод git.</summary>
+/// <summary>
+/// Problem: changed · not-committed · unread · проблема из FlowFolder.Validate; Flow и Stage — где она, Detail — вывод git
+/// или первая непонятая строка.
+/// </summary>
 public sealed record FlowRejectedResponse(string Problem, string? Flow = null, string? Stage = null, string? Detail = null);
 
 public sealed record OpenFlowRequest(string Base);
@@ -57,6 +63,10 @@ public static class FlowEndpoints
             var files = Files(basePath);
             if (FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))) != request.Version)
                 return Results.Conflict(new FlowRejectedResponse("changed"));
+
+            // Строки не по форме кита запись стёрла бы молча: пока их не поправили руками, флоу не пишется.
+            if (Unread(files).FirstOrDefault() is { } unread)
+                return Results.BadRequest(new FlowRejectedResponse("unread", Detail: unread));
 
             if (FlowFolder.Validate(request.Stages, request.Flows) is { } rejection)
                 return Results.BadRequest(new FlowRejectedResponse(rejection.Problem, rejection.Flow, rejection.Stage));
@@ -152,7 +162,8 @@ public static class FlowEndpoints
                 WorkspaceCollector.MemoryFiles(basePath).Count,
                 FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))),
                 null,
-                icons.Of(basePath));
+                icons.Of(basePath),
+                Unread(files));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -165,6 +176,20 @@ public static class FlowEndpoints
             .Select(f => FlowFolder.ParseStage(Text(f.Bytes), System.IO.Path.GetFileNameWithoutExtension(f.Path)))
             .OrderBy(s => s.Slug, StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>Непонятые строки всех файлов флоу — с путём файла, чтобы их было где поправить.</summary>
+    private static List<string> Unread(List<FlowFileBytes> files)
+    {
+        var unread = new List<string>();
+        foreach (var file in files)
+        {
+            var lines = file.Path == FlowFolder.ListFile
+                ? FlowFolder.ParseList(Text(file.Bytes), new Dictionary<string, string>()).Unread
+                : FlowFolder.ReadStage(Text(file.Bytes), System.IO.Path.GetFileNameWithoutExtension(file.Path)).Unread;
+            unread.AddRange(lines.Select(line => $"{file.Path}, {line}"));
+        }
+        return unread;
+    }
 
     private static Dictionary<string, string> Titles(IEnumerable<FlowStage> stages) =>
         stages.Where(s => s.Slug is not null).ToDictionary(s => s.Slug!, s => s.Title);

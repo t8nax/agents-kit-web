@@ -253,6 +253,28 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Flow_WithLinesNotInKitForm_NamesThemAndIsNotWritten()
+    {
+        File.AppendAllText(_listPath, "3. Мерж\n");
+        File.WriteAllText(Stage("criterion"), Criterion.ReplaceLineEndings("\n").Replace("выход:", "возврат: замечания — стадия «Ревью»\nвыход:"));
+        TestGit.Run(_base, "commit", "-am", "руками");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+
+        Assert.Equal(
+            ["flow/flow.md, строка 14: «3. Мерж»", "flow/stages/criterion.md, строка 4: ключ вне перечня «возврат: замечания — стадия «Ревью»»"],
+            flow.Unread);
+
+        var response = await Save(client, flow, flow.Stages);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            new FlowRejectedResponse("unread", Detail: "flow/flow.md, строка 14: «3. Мерж»"),
+            await response.Content.ReadFromJsonAsync<FlowRejectedResponse>());
+        Assert.Equal("руками", Git("log", "-1", "--format=%s"));
+    }
+
+    [Fact]
     public async Task Save_CommitRefusedByHook_RestoresEveryFileAndIndex()
     {
         File.WriteAllText(Path.Combine(_base, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: флоу не прошёл' >&2\nexit 1\n");

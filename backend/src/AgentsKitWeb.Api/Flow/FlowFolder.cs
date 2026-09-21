@@ -52,6 +52,12 @@ public sealed record NamedFlow(string Name, string? When, IReadOnlyList<FlowEntr
     public override int GetHashCode() => HashCode.Combine(Name, When);
 }
 
+/// <summary>
+/// flow.md, разобранный целиком. Unread — строки, которые кит счёл бы красной находкой и которых панель не понимает:
+/// «строка N: «текст»». Молча их не выбросить — при записи они пропали бы из базы, — поэтому с ними флоу не пишется.
+/// </summary>
+public sealed record FlowList(string Intro, IReadOnlyList<NamedFlow> Flows, IReadOnlyList<string> Unread);
+
 /// <summary>Почему флоу не записан. Flow и Stage — где нашлось: имя флоу и название стадии.</summary>
 public sealed record FlowFolderRejection(string Problem, string? Flow = null, string? Stage = null);
 
@@ -85,12 +91,13 @@ public static partial class FlowFolder
     [GeneratedRegex(@"^(?<key>исполнитель|помощники|выход|пропуск):\s*(?<value>.*)$")]
     private static partial Regex KeyLine { get; }
 
-    /// <summary>Файл flow.md: вступление до первого флоу как в файле и флоу по порядку.</summary>
-    public static (string Intro, IReadOnlyList<NamedFlow> Flows) ParseList(string text, IReadOnlyDictionary<string, string> titlesBySlug)
+    /// <summary>Файл flow.md: вступление до первого флоу как в файле, флоу по порядку и непонятые строки.</summary>
+    public static FlowList ParseList(string text, IReadOnlyDictionary<string, string> titlesBySlug)
     {
         var lines = text.Replace("\r\n", "\n").Split('\n');
         var intro = new List<string>();
         var flows = new List<NamedFlow>();
+        var unread = new List<string>();
         var i = 0;
 
         while (i < lines.Length && !lines[i].StartsWith("## "))
@@ -104,26 +111,29 @@ public static partial class FlowFolder
 
             while (i < lines.Length && !lines[i].StartsWith("## "))
             {
+                var number = i + 1;
                 var line = lines[i++];
-                if (WhenLine.Match(line) is { Success: true } whenMatch && entries.Count == 0)
-                    when = Nullable(whenMatch.Groups["value"].Value);
-                else if (EntryLine.Match(line) is { Success: true } entry)
+                if (line.Trim().Length == 0)
+                    continue;
+                if (WhenLine.Match(line) is { Success: true } whenMatch && entries.Count == 0 && when is null)
+                    when = Nullable(whenMatch.Groups["value"].Value) ?? "";
+                else if (EntryLine.Match(line) is { Success: true } entry
+                         && SlugOf(entry.Groups["href"].Value.Trim()) is { } slug)
                 {
                     // Пункт адресует файл стадии; название берётся из заголовка файла, а нет файла — из текста ссылки.
-                    var slug = SlugOf(entry.Groups["href"].Value.Trim());
-                    var title = slug is not null && titlesBySlug.TryGetValue(slug, out var known)
-                        ? known
-                        : entry.Groups["title"].Value.Trim();
+                    var title = titlesBySlug.TryGetValue(slug, out var known) ? known : entry.Groups["title"].Value.Trim();
                     entries.Add((title, []));
                 }
                 else if (ReturnLine.Match(line) is { Success: true } back && entries.Count > 0)
                     entries[^1].Returns.Add(ParseReturn(back.Groups["value"].Value.Trim()));
+                else
+                    unread.Add($"строка {number}: «{line.Trim()}»");
             }
 
-            flows.Add(new NamedFlow(name, when, entries.Select(e => new FlowEntry(e.Stage, e.Returns)).ToList()));
+            flows.Add(new NamedFlow(name, Nullable(when ?? ""), entries.Select(e => new FlowEntry(e.Stage, e.Returns)).ToList()));
         }
 
-        return (Block(intro) ?? "", flows);
+        return new FlowList(Block(intro) ?? "", flows, unread);
     }
 
     /// <summary>Флоу базы по её flow/flow.md — только имена, «когда» и названия пунктов. Флоу нет или файл не прочитан — пусто.</summary>
@@ -141,12 +151,25 @@ public static partial class FlowFolder
     }
 
     /// <summary>Файл стадии: заголовок «# Название», ключи под ним и описание после пустой строки.</summary>
-    public static FlowStage ParseStage(string text, string slug)
+    public static FlowStage ParseStage(string text, string slug) => ReadStage(text, slug).Stage;
+
+    /// <summary>
+    /// Стадия и непонятые строки её файла — те, что кит счёл бы красной находкой: текст до заголовка, файл без
+    /// заголовка, ключ вне перечня и повтор ключа. При записи стадии они пропали бы, поэтому с ними флоу не пишется.
+    /// </summary>
+    public static (FlowStage Stage, IReadOnlyList<string> Unread) ReadStage(string text, string slug)
     {
         var lines = text.Replace("\r\n", "\n").Split('\n');
+        var unread = new List<string>();
         var i = 0;
         while (i < lines.Length && !lines[i].StartsWith("# "))
+        {
+            if (lines[i].Trim().Length > 0)
+                unread.Add($"строка {i + 1}: «{lines[i].Trim()}»");
             i++;
+        }
+        if (i == lines.Length)
+            unread.Add("нет заголовка «# Название»");
         var title = i < lines.Length ? lines[i++][2..].Trim() : "";
 
         while (i < lines.Length && lines[i].Trim().Length == 0)
@@ -154,11 +177,15 @@ public static partial class FlowFolder
         var keys = new Dictionary<string, string>();
         while (i < lines.Length && KeyLine.Match(lines[i]) is { Success: true } key)
         {
-            keys.TryAdd(key.Groups["key"].Value, key.Groups["value"].Value.Trim());
+            if (!keys.TryAdd(key.Groups["key"].Value, key.Groups["value"].Value.Trim()))
+                unread.Add($"строка {i + 1}: ключ «{key.Groups["key"].Value}» второй раз");
             i++;
         }
+        // Описание идёт после пустой строки: непустая строка сразу за ключами — ключ вне перечня кита.
+        if (keys.Count > 0 && i < lines.Length && lines[i].Trim().Length > 0)
+            unread.Add($"строка {i + 1}: ключ вне перечня «{lines[i].Trim()}»");
 
-        return new FlowStage(
+        var stage = new FlowStage(
             title,
             keys.GetValueOrDefault("исполнитель", ""),
             keys.GetValueOrDefault("выход", ""),
@@ -166,6 +193,7 @@ public static partial class FlowFolder
             Block(lines[i..]),
             ParseHelpers(keys.GetValueOrDefault("помощники", "")),
             slug);
+        return (stage, unread);
     }
 
     /// <summary>Текст flow.md: вступление как было, флоу с пунктами подряд с единицы.</summary>
