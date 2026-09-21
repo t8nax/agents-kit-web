@@ -23,12 +23,12 @@ public sealed class PresetsStore(string file)
             return Read();
     }
 
-    /// <summary>Сохраняет шаг как пресет; такой же шаг уже в списке — отдаёт его, второй раз не пишет.</summary>
-    public StepPreset Add(FlowStage step)
+    /// <summary>Сохраняет стадию как пресет; такая же стадия уже в списке — отдаёт её, второй раз не пишет.</summary>
+    public StepPreset Add(FlowStage stage)
     {
-        var skip = string.IsNullOrWhiteSpace(step.Skip) ? null : step.Skip.Trim();
-        var description = string.IsNullOrWhiteSpace(step.Description) ? null : step.Description.Replace("\r\n", "\n").Trim('\n');
-        var preset = new StepPreset(Guid.NewGuid().ToString("N"), step.Title.Trim(), step.Executor.Trim(), step.Output.Trim(), skip, description);
+        var skip = string.IsNullOrWhiteSpace(stage.Skip) ? null : stage.Skip.Trim();
+        var description = string.IsNullOrWhiteSpace(stage.Description) ? null : stage.Description.Replace("\r\n", "\n").Trim('\n');
+        var preset = new StepPreset(Guid.NewGuid().ToString("N"), stage.Title.Trim(), stage.Executor.Trim(), stage.Output.Trim(), skip, description);
 
         lock (_lock)
         {
