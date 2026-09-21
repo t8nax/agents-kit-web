@@ -53,8 +53,9 @@ public sealed record NamedFlow(string Name, string? When, IReadOnlyList<FlowEntr
 }
 
 /// <summary>
-/// flow.md, разобранный целиком. Unread — строки, которые кит счёл бы красной находкой и которых панель не понимает:
-/// «строка N: «текст»». Молча их не выбросить — при записи они пропали бы из базы, — поэтому с ними флоу не пишется.
+/// flow.md, разобранный целиком. Unread — строки, которые панель не сохранит: запись флоу их не воспроизводит
+/// («строка N: «текст»»). Молча их не выбросить — при записи они пропали бы из базы, — поэтому с ними флоу не пишется.
+/// Читается флоу так же, как его читает сверка кита (base-check.ps1, Get-KitFlowList).
 /// </summary>
 public sealed record FlowList(string Intro, IReadOnlyList<NamedFlow> Flows, IReadOnlyList<string> Unread);
 
@@ -77,19 +78,26 @@ public static partial class FlowFolder
     [GeneratedRegex(@"^\s*\d+\.\s*\[(?<title>[^\]]*)\]\((?<href>[^)]*)\)\s*$")]
     private static partial Regex EntryLine { get; }
 
-    [GeneratedRegex(@"^\s+-\s*возврат:\s*(?<value>.*)$")]
+    // Возврат и «когда» — в той же записи, что принимает сверка кита: с отступами и пробелом перед двоеточием.
+    [GeneratedRegex(@"^\s+-\s+возврат\s*:\s*(?<value>.*)$")]
     private static partial Regex ReturnLine { get; }
 
-    [GeneratedRegex(@"^когда:\s*(?<value>.*)$")]
+    [GeneratedRegex(@"^\s*когда\s*:\s*(?<value>.*)$")]
     private static partial Regex WhenLine { get; }
 
     // «замечания — стадия «Реализация»» → условие и название стадии.
     [GeneratedRegex(@"^(?<condition>.*?)\s*—\s*стадия\s*«(?<stage>[^»]*)»\s*$")]
     private static partial Regex ReturnValue { get; }
 
-    // Ключи стадии — закрытый перечень кита; возврат пишет флоу, а не стадия.
-    [GeneratedRegex(@"^(?<key>исполнитель|помощники|выход|пропуск):\s*(?<value>.*)$")]
+    // Пара «ключ: значение» под заголовком стадии — как её видит сверка кита (Read-KitStage); пункт «1.» ключом не бывает.
+    [GeneratedRegex(@"^(?<key>[^\s:][^:]*?)\s*:\s*(?<value>.*?)\s*$")]
     private static partial Regex KeyLine { get; }
+
+    [GeneratedRegex(@"^\s*\d+(\.\d+)*\.\s")]
+    private static partial Regex PointLine { get; }
+
+    // Ключи стадии — закрытый перечень кита; возврат пишет флоу, а не стадия.
+    private static readonly string[] StageKeys = ["исполнитель", "помощники", "выход", "пропуск"];
 
     /// <summary>Файл flow.md: вступление до первого флоу как в файле, флоу по порядку и непонятые строки.</summary>
     public static FlowList ParseList(string text, IReadOnlyDictionary<string, string> titlesBySlug)
@@ -154,8 +162,9 @@ public static partial class FlowFolder
     public static FlowStage ParseStage(string text, string slug) => ReadStage(text, slug).Stage;
 
     /// <summary>
-    /// Стадия и непонятые строки её файла — те, что кит счёл бы красной находкой: текст до заголовка, файл без
-    /// заголовка, ключ вне перечня и повтор ключа. При записи стадии они пропали бы, поэтому с ними флоу не пишется.
+    /// Стадия и строки её файла, которые панель не сохранит: текст до заголовка, файл без заголовка, ключ вне перечня
+    /// кита, повтор ключа. При записи стадии они пропали бы, поэтому с ними флоу не пишется. Читается стадия так же,
+    /// как её читает сверка кита (base-check.ps1, Read-KitStage): ключи идут под заголовком до пустой строки.
     /// </summary>
     public static (FlowStage Stage, IReadOnlyList<string> Unread) ReadStage(string text, string slug)
     {
@@ -172,18 +181,32 @@ public static partial class FlowFolder
             unread.Add("нет заголовка «# Название»");
         var title = i < lines.Length ? lines[i++][2..].Trim() : "";
 
-        while (i < lines.Length && lines[i].Trim().Length == 0)
-            i++;
         var keys = new Dictionary<string, string>();
-        while (i < lines.Length && KeyLine.Match(lines[i]) is { Success: true } key)
+        var paired = false;
+        while (i < lines.Length)
         {
-            if (!keys.TryAdd(key.Groups["key"].Value, key.Groups["value"].Value.Trim()))
-                unread.Add($"строка {i + 1}: ключ «{key.Groups["key"].Value}» второй раз");
+            if (lines[i].Trim().Length == 0)
+            {
+                if (paired)
+                    break;
+                i++;
+                continue;
+            }
+            if (PointLine.IsMatch(lines[i]) || KeyLine.Match(lines[i]) is not { Success: true } key)
+                break;
+
+            var name = key.Groups["key"].Value;
+            if (!StageKeys.Contains(name))
+                unread.Add($"строка {i + 1}: ключ вне перечня «{lines[i].Trim()}»");
+            // Повтор ключа кит берёт последним, а запись оставит одну строку: прежняя пропала бы.
+            else if (!keys.TryAdd(name, key.Groups["value"].Value))
+            {
+                keys[name] = key.Groups["value"].Value;
+                unread.Add($"строка {i + 1}: ключ «{name}» второй раз");
+            }
+            paired = true;
             i++;
         }
-        // Описание идёт после пустой строки: непустая строка сразу за ключами — ключ вне перечня кита.
-        if (keys.Count > 0 && i < lines.Length && lines[i].Trim().Length > 0)
-            unread.Add($"строка {i + 1}: ключ вне перечня «{lines[i].Trim()}»");
 
         var stage = new FlowStage(
             title,

@@ -73,6 +73,31 @@ public sealed class FlowFolderTests
     }
 
     [Fact]
+    public void ParseList_AcceptsWhatKitCheckAccepts()
+    {
+        var (_, flows, unread) = FlowFolder.ParseList("""
+            ## полный
+              когда : новая возможность
+            1. [Ветка](stages/branch.md)
+            2. [Ревью](stages/review.md)
+               - возврат : замечания — стадия «Ветка»
+            """, Titles);
+
+        Assert.Empty(unread);
+        Assert.Equal("новая возможность", flows[0].When);
+        Assert.Equal(new StageReturn("замечания", "Ветка"), Assert.Single(flows[0].Entries[1].Returns!));
+    }
+
+    [Fact]
+    public void ReadStage_UnknownKeyRightUnderHeadingIsNamedAndKeysAfterItAreRead()
+    {
+        var (stage, unread) = FlowFolder.ReadStage("# X\n\nавтор: y\nисполнитель: z\nвыход : w\n\nОписание: с двоеточием.\n", "x");
+
+        Assert.Equal(["строка 3: ключ вне перечня «автор: y»"], unread);
+        Assert.Equal(("z", "w", "Описание: с двоеточием."), (stage.Executor, stage.Output, stage.Description));
+    }
+
+    [Fact]
     public void ReadStage_NamesTextBeforeHeadingKeyOutsideListAndRepeatedKey()
     {
         var (stage, unread) = FlowFolder.ReadStage("""
@@ -86,7 +111,8 @@ public sealed class FlowFolderTests
             Описание.
             """, "review");
 
-        Assert.Equal("вердикт", stage.Output);
+        // Повтор ключа кит берёт последним — так и панель, но запись оставит одну строку.
+        Assert.Equal("второй", stage.Output);
         Assert.Equal(
             ["строка 1: «заметка сверху»", "строка 5: ключ «выход» второй раз", "строка 6: ключ вне перечня «возврат: замечания — стадия «Реализация»»"],
             unread);
