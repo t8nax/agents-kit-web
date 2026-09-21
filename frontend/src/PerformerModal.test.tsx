@@ -240,6 +240,18 @@ test('имя нового, предложенное агентом, можно �
   })
 })
 
+test('модель и инструменты, выбранные до ответа, ответ агента не перетирает', async () => {
+  const { stream } = stubSave(() => Response.json({ path: 'x' }))
+  open()
+
+  fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'haiku' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Только чтение' }))
+  await drafted(stream, { ...runner, model: 'opus', tools: 'Read, Bash' })
+
+  expect(screen.getByLabelText('Модель')).toHaveValue('haiku')
+  expect(screen.getByRole('button', { name: 'Только чтение' })).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('имя, занятое у проекта, окно бережёт и не даёт сохранить', async () => {
   const { stream } = stubSave(() => Response.json({ path: 'x' }))
   open()

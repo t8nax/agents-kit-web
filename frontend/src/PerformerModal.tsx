@@ -68,6 +68,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   // Поля, какими они были до ответа агента: «Вернуть как было» ставит их обратно.
   const [before, setBefore] = useState<DraftFields | null>(null)
   const taken = useRef(false)
+  // Модель и инструменты, которые оператор выбрал сам: ответ агента их не перетирает.
+  const chose = useRef({ model: false, tools: false })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -89,10 +91,10 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     // Имя заведённого не меняется: по нему его зовут шаги флоу, а другое имя бэкенд счёл бы переименованием.
     if (!editing) setName(outcome.fields.name ?? '')
     setDescription(outcome.fields.description ?? '')
-    setModel(outcome.fields.model ?? '')
-    setTools(outcome.fields.tools ?? '')
+    if (!chose.current.model) setModel(outcome.fields.model ?? '')
+    if (!chose.current.tools) setTools(outcome.fields.tools ?? '')
     setPrompt(outcome.fields.prompt)
-    // Поля берутся из ответа, а не из того, что стояло до него: оператор же и попросил их написать.
+    // Основа берётся из ответа: оператор же и попросил её написать. Модель и инструменты — только невыбранные.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [outcome])
 
@@ -403,7 +405,15 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               <label className="pf-label pf-label-set" htmlFor="pf-model">
                 Модель
               </label>
-              <Select id="pf-model" value={model} disabled={locked} onChange={setModel}>
+              <Select
+                id="pf-model"
+                value={model}
+                disabled={locked}
+                onChange={(value) => {
+                  chose.current.model = true
+                  setModel(value)
+                }}
+              >
                 {(models.includes(model) ? models : [...models, model]).map((value) => (
                   <option key={value || 'inherit'} value={value}>
                     {value || 'как у сессии'}
@@ -420,7 +430,10 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                   className="pf-toggle"
                   aria-pressed={readOnly}
                   disabled={locked}
-                  onClick={() => setTools(readOnly ? '' : READ_ONLY)}
+                  onClick={() => {
+                    chose.current.tools = true
+                    setTools(readOnly ? '' : READ_ONLY)
+                  }}
                 >
                   <span className="pf-toggle-box" aria-hidden="true">
                     <svg viewBox="0 0 24 24">
@@ -441,7 +454,10 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                     autoComplete="off"
                     spellCheck={false}
                     disabled={locked}
-                    onChange={(event) => setTools(event.target.value)}
+                    onChange={(event) => {
+                      chose.current.tools = true
+                      setTools(event.target.value)
+                    }}
                   />
                 )}
               </div>
