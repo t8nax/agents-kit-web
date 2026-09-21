@@ -271,7 +271,7 @@ test('поток оборвался, а разговора в панели не 
   gone = true
   stream.close()
 
-  expect(await screen.findByRole('alert', {}, { timeout: 3000 })).toHaveTextContent('Ответ оборвался')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Ответ оборвался')
 })
 
 test('оборванный поток окно дочитывает само: разговор в панели цел', async () => {
