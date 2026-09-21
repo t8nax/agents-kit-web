@@ -96,8 +96,9 @@ public static partial class Backlog
     }
 
     /// <summary>
-    /// Буквы номеров проекта. Их держит счётчик «следующий номер:» в шапке файла; счётчика нет — кит ставит его
-    /// за наибольшим номером, и буквы берутся у него. Номеров нет вовсе — букв панель не знает.
+    /// Буквы номеров проекта. Их держит счётчик «следующий номер:» в шапке файла. Счётчика нет — буквы те,
+    /// что чаще всего у номеров записей, а при равенстве — у наибольшего номера: заголовок, начатый словом вида
+    /// номера («HTTP-500 на оплате»), не перебивает буквы проекта. Номеров нет вовсе — букв панель не знает.
     /// </summary>
     public static string? Letters(string text)
     {
@@ -111,9 +112,10 @@ public static partial class Backlog
         return Parse(text)
             .Select(e => e.Number)
             .OfType<string>()
-            .MaxBy(BacklogNumber.Value) is { } highest
-            ? BacklogNumber.Letters(highest)
-            : null;
+            .GroupBy(BacklogNumber.Letters)
+            .OrderByDescending(g => g.Count())
+            .ThenByDescending(g => g.Max(BacklogNumber.Value))
+            .FirstOrDefault()?.Key;
     }
 
     /// <summary>Буквы номеров проекта из backlog.md базы; файла нет или он не прочитан — null.</summary>

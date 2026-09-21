@@ -113,6 +113,12 @@ public class BacklogTests
     }
 
     [Fact]
+    public void Letters_WithoutCounterAreNotTakenFromWordLikeNumber()
+    {
+        Assert.Equal("ORD", Backlog.Letters("## ORD-3 Своими\n\n## ORD-4 Своими\n\n## HTTP-500 на оплате\n"));
+    }
+
+    [Fact]
     public void Letters_AreUnknownWithoutNumbers()
     {
         Assert.Null(Backlog.Letters("# Проект — бэклог\n\n## Без номера\n"));
