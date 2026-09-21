@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { plural } from './plural'
 import './Usage.css'
 
 /** Окно лимита: свой счёт панели по журналам и процент лимита из учётной записи. */
 export type UsageWindow = {
   since: string
   tokens: number
-  answers: number
+  /** Сколько это стоило бы по API-тарифу, в долларах. */
+  cost: number
   /** null — проценты получить не удалось; счёт токенов при этом остаётся. */
   percent: number | null
   resetsAt: string | null
@@ -16,15 +16,18 @@ export type UsageWindow = {
 export type UsageDay = {
   since: string
   tokens: number
-  answers: number
+  cost: number
   /** Оценка из процента недели по расходу с её сброса; null — процента недели нет. */
   percent: number | null
 }
 
 export type ModelUsage = {
   model: string
-  answers: number
   tokens: number
+  /** Доллары по API-тарифу; null — цены у модели нет даже по её линейке. */
+  cost: number | null
+  /** Чьей ценой посчитана модель, которой нет в прейскуранте; null — своей. */
+  pricedAs: string | null
   /** Во сколько раз модель тратит лимит быстрее Sonnet. */
   weight: number
   /** Доля израсходованного за неделю, от нуля до единицы. */
@@ -39,11 +42,14 @@ export type UsageView = {
   /** Почему нет процентов; null — проценты пришли. */
   limitsProblem: string | null
   fetchedAt: string
+  /** На какую дату взяты цены — ГГГГ-ММ-ДД. */
+  pricesDate: string
 }
 
 /**
  * Раздел «Расход»: сколько лимита подписки израсходовано. Проценты приходят из учётной записи
- * оператора, токены панель считает сама по журналам Claude Code на диске.
+ * оператора, токены панель считает сама по журналам Claude Code на диске, а доллары — по своему
+ * прейскуранту API с датой цен: сколько стоила бы та же работа без подписки.
  */
 export default function Usage() {
   const [view, setView] = useState<UsageView | null>(null)
@@ -115,16 +121,11 @@ export default function Usage() {
             <Day day={view.day} week={view.week} now={view.fetchedAt} />
           </div>
 
-          <p className="usage-source">
-            Проценты — <b>из вашей учётной записи Anthropic</b>, те же, что показывает <code>/usage</code> в
-            Claude Code; обновлены в {formatTime(view.fetchedAt)}. Ключ доступа берётся из профиля Claude Code
-            только на время запроса: в браузер он не уходит и в журналы не пишется. Токены ниже панель считает
-            сама, по журналам сессий на диске.
-          </p>
+          <p className="usage-prices">{pricesLine(view.pricesDate)}</p>
 
           <section className="usage-card">
             <div className="usage-card-head">
-              <h3>Кто съедает лимит</h3>
+              <h3>Расход по моделям</h3>
               <span className="sub">за неделю, по журналам</span>
             </div>
             {view.models.length === 0 ? (
@@ -135,8 +136,8 @@ export default function Usage() {
                   <thead>
                     <tr>
                       <th>Модель</th>
-                      <th className="num">Ответов</th>
                       <th className="num">Токенов</th>
+                      <th className="num">По ценам API</th>
                       <th className="num">Вес</th>
                       <th className="num">Доля израсходованного</th>
                     </tr>
@@ -145,8 +146,8 @@ export default function Usage() {
                     {view.models.map((model) => (
                       <tr key={model.model}>
                         <td className="mono">{model.model}</td>
-                        <td className="num muted">{model.answers.toLocaleString('ru-RU')}</td>
                         <td className="num muted">{shortTokens(model.tokens)}</td>
+                        <td className="num">{model.cost === null ? '—' : dollars(model.cost)}</td>
                         <td className="num muted">×{formatWeight(model.weight)}</td>
                         <td className="num">
                           <span className="usage-share">
@@ -160,6 +161,20 @@ export default function Usage() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {view.models.length > 0 && (
+              <div className="usage-card-foot">
+                {pricesLine(view.pricesDate)}
+                {view.models
+                  .filter((model) => model.pricedAs !== null || model.cost === null)
+                  .map((model) => (
+                    <span key={model.model}>
+                      {' · '}
+                      <span className="mono">{model.model}</span>{' '}
+                      {model.cost === null ? 'не посчитана: цены нет' : `посчитана по ценам ${model.pricedAs}`}
+                    </span>
+                  ))}
               </div>
             )}
           </section>
@@ -197,12 +212,7 @@ function Window({
         />
       </div>
       <div className="usage-window-foot">
-        <span>
-          панель насчитала <b>{shortTokens(window.tokens)} токенов</b>
-        </span>
-        <span>
-          <b>{plural(window.answers, 'ответ', 'ответа', 'ответов')} агента</b>
-        </span>
+        <Spent tokens={window.tokens} cost={window.cost} />
       </div>
     </section>
   )
@@ -231,11 +241,18 @@ function Day({ day, week, now }: { day: UsageDay; week: UsageWindow; now: string
         <span className="usage-of">лимита недели</span>
       </div>
       <div className="usage-window-foot">
-        <span>
-          <b>{shortTokens(day.tokens)} токенов</b>
-        </span>
+        <Spent tokens={day.tokens} cost={day.cost} />
       </div>
     </section>
+  )
+}
+
+/** Низ карточки: токены по журналам и сколько они стоили бы по API-тарифу. */
+function Spent({ tokens, cost }: { tokens: number; cost: number }) {
+  return (
+    <span>
+      <b>{shortTokens(tokens)} токенов</b> · <b>{dollars(cost)}</b>
+    </span>
   )
 }
 
@@ -258,6 +275,21 @@ function shortTokens(value: number) {
   if (value >= 1e6) return `${(value / 1e6).toFixed(1).replace('.', ',')} млн`
   if (value >= 1e3) return `${Math.round(value / 1e3)} тыс.`
   return String(value)
+}
+
+/** Доллары примерные — по прейскуранту панели, поэтому крупные суммы без центов. */
+function dollars(value: number) {
+  // Сравнивать уже округлённое: иначе $9,996 вышло бы «≈ $10,00», а не «≈ $10»
+  const cents = Math.round(value * 100) / 100
+  if (cents >= 10) return `≈ $${Math.round(cents).toLocaleString('ru-RU')}`
+  return `≈ $${cents.toFixed(2).replace('.', ',')}`
+}
+
+/** Дата цен видна рядом с суммами: так устаревший прейскурант заметен, а не врёт молча. */
+function pricesLine(date: string) {
+  const [year, month, day] = date.split('-').map(Number)
+  const when = new Date(year, month - 1, day).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+  return `цены API на ${when} ${year}`
 }
 
 function formatWeight(weight: number) {

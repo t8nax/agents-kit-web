@@ -7,7 +7,7 @@ namespace AgentsKitWeb.Api.Usage;
 public sealed record UsageWindowView(
     DateTimeOffset Since,
     long Tokens,
-    long Answers,
+    double Cost,
     int? Percent,
     DateTimeOffset? ResetsAt);
 
@@ -18,17 +18,21 @@ public sealed record UsageWindowView(
 public sealed record UsageDayView(
     DateTimeOffset Since,
     long Tokens,
-    long Answers,
+    double Cost,
     double? Percent);
 
-/// <summary>Ответ раздела «Расход». LimitsProblem — почему нет процентов; ключа доступа в нём не бывает.</summary>
+/// <summary>
+/// Ответ раздела «Расход». LimitsProblem — почему нет процентов; ключа доступа в нём не бывает.
+/// PricesDate — на какую дату взяты цены, по которым посчитаны доллары.
+/// </summary>
 public sealed record UsageView(
     UsageWindowView FiveHours,
     UsageWindowView Week,
     UsageDayView Day,
     IReadOnlyList<ModelUsage> Models,
     string? LimitsProblem,
-    DateTimeOffset FetchedAt);
+    DateTimeOffset FetchedAt,
+    DateOnly PricesDate);
 
 public static class UsageEndpoints
 {
@@ -49,13 +53,14 @@ public static class UsageEndpoints
                 Day(totals.Day, UsageMath.DayPercent(buckets, now, snapshot.Week)),
                 totals.Models,
                 snapshot.Problem,
-                now);
+                now,
+                UsagePrices.Date);
         });
     }
 
     private static UsageWindowView Window(UsageWindow window, WindowLimit? limit) =>
-        new(window.Since, window.Tokens, window.Answers, limit?.Percent, limit?.ResetsAt);
+        new(window.Since, window.Tokens, window.Cost, limit?.Percent, limit?.ResetsAt);
 
     private static UsageDayView Day(UsageWindow day, double? percent) =>
-        new(day.Since, day.Tokens, day.Answers, percent);
+        new(day.Since, day.Tokens, day.Cost, percent);
 }

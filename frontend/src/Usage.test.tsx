@@ -16,44 +16,48 @@ const withPercents: UsageView = {
   fiveHours: {
     since: '2026-09-18T11:30:00+00:00',
     tokens: 31_500_000,
-    answers: 420,
+    cost: 93.4,
     percent: 46,
     resetsAt: '2026-09-18T18:40:00+00:00',
   },
   week: {
     since: '2026-09-11T16:30:00+00:00',
     tokens: 164_500_000,
-    answers: 2100,
+    cost: 480.2,
     percent: 82,
     resetsAt: '2026-09-21T11:00:00+00:00',
   },
   day: {
     since: '2026-09-17T16:30:00+00:00',
     tokens: 41_000_000,
-    answers: 610,
+    cost: 120.6,
     percent: 18.86,
   },
   models: [
-    { model: 'claude-opus-5', answers: 900, tokens: 120_000_000, weight: 5, share: 0.83 },
-    { model: 'claude-haiku-4-5', answers: 1200, tokens: 44_500_000, weight: 0.33, share: 0.17 },
+    { model: 'claude-opus-5', tokens: 120_000_000, cost: 450, pricedAs: null, weight: 5, share: 0.83 },
+    { model: 'claude-haiku-4-5', tokens: 44_500_000, cost: 4.56, pricedAs: null, weight: 0.33, share: 0.17 },
   ],
   limitsProblem: null,
   fetchedAt: '2026-09-18T16:30:00+00:00',
+  pricesDate: '2026-09-21',
 }
 
-test('показывает проценты окон, их сброс и свой счёт токенов', async () => {
+test('показывает проценты окон, их сброс, токены и доллары', async () => {
   stubUsage(withPercents)
 
   render(<Usage />)
 
   const five = (await screen.findByRole('heading', { name: 'Пятичасовое окно' })).closest('section')!
   expect(within(five).getByText('46%')).toBeTruthy()
-  expect(within(five).getByText(/панель насчитала/).textContent).toContain('31,5 млн токенов')
+  expect(five.querySelector('.usage-window-foot')!.textContent).toBe('31,5 млн токенов · ≈ $93')
   expect(within(five).getByText(/сбросится/)).toBeTruthy()
 
   const week = screen.getByRole('heading', { name: 'Недельное окно' }).closest('section')!
   expect(within(week).getByText('82%')).toBeTruthy()
-  expect(within(week).getByText(/2100 ответов агента/)).toBeTruthy()
+  expect(week.querySelector('.usage-window-foot')!.textContent).toBe('164,5 млн токенов · ≈ $480')
+  // Лишнее оператор убрал на макете: ни «панель насчитала», ни ответов агента
+  expect(screen.queryByText(/панель насчитала/)).toBeNull()
+  expect(screen.queryByText(/ответ(а|ов)? агента/)).toBeNull()
 })
 
 test('показывает последние сутки оценкой процента недели и токенами', async () => {
@@ -67,7 +71,7 @@ test('показывает последние сутки оценкой проц
   expect(estimate.getAttribute('title')).toBe(
     'Оценка: часть расхода с последнего сброса недели, пришедшаяся на сутки, × 82% лимита недели',
   )
-  expect(within(day).getByText('41,0 млн токенов')).toBeTruthy()
+  expect(day.querySelector('.usage-window-foot')!.textContent).toBe('41,0 млн токенов · ≈ $121')
   // Долю суток в недельном расходе оператор убрал на приёмке
   expect(within(day).queryByText(/недельного расхода/)).toBeNull()
   // Своего лимита у суток нет, и полосы тоже
@@ -108,6 +112,13 @@ test('разбирает модели по долям израсходованн
   expect(within(row).getByText('83%')).toBeTruthy()
   expect(within(row).getByText('×5')).toBeTruthy()
   expect(within(row).getByText('120,0 млн')).toBeTruthy()
+  expect(within(row).getByText('≈ $450')).toBeTruthy()
+  // Мелкие суммы — с центами
+  const haiku = screen.getByText('claude-haiku-4-5').closest('tr')!
+  expect(within(haiku).getByText('≈ $4,56')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Расход по моделям' })).toBeTruthy()
+  expect(screen.queryByRole('columnheader', { name: 'Ответов' })).toBeNull()
+  expect(screen.getByRole('columnheader', { name: 'По ценам API' })).toBeTruthy()
 })
 
 test('говорит словами, когда процентов нет, и оставляет счёт токенов', async () => {
@@ -128,24 +139,62 @@ test('говорит словами, когда процентов нет, и о
   // Свой счёт панели остаётся на месте — и у окон, и у суток
   expect(screen.getByText(/31,5 млн токенов/)).toBeTruthy()
   const day = screen.getByRole('heading', { name: '24 часа' }).closest('section')!
-  expect(within(day).getByText('41,0 млн токенов')).toBeTruthy()
+  expect(day.querySelector('.usage-window-foot')!.textContent).toContain('41,0 млн токенов')
   expect(within(day).getByText('—').getAttribute('title')).toBeNull()
 })
 
-test('объясняет, откуда числа и что ключ не уходит в браузер', async () => {
+test('называет дату цен под карточками и под таблицей', async () => {
   stubUsage(withPercents)
+
+  const { container } = render(<Usage />)
+
+  // Под карточками и под таблицей
+  expect((await screen.findAllByText('цены API на 21 сентября 2026')).length).toBe(2)
+  expect(container.querySelector('.usage-card-foot')!.textContent).toBe('цены API на 21 сентября 2026')
+  // Абзац об источнике процентов оператор убрал на макете
+  expect(screen.queryByText(/из вашей учётной записи Anthropic/)).toBeNull()
+})
+
+test('называет модели, посчитанные ценой линейки или не посчитанные вовсе', async () => {
+  stubUsage({
+    ...withPercents,
+    models: [
+      ...withPercents.models,
+      { model: 'claude-opus-5-2', tokens: 1_000_000, cost: 25, pricedAs: 'Opus 5', weight: 5, share: 0 },
+      { model: 'нечто', tokens: 1_000, cost: null, pricedAs: null, weight: 1, share: 0 },
+    ],
+  })
+
+  const { container } = render(<Usage />)
+
+  const row = await screen.findByRole('row', { name: /нечто/ })
+  expect(within(row).getByText('—')).toBeTruthy()
+  expect(container.querySelector('.usage-card-foot')!.textContent).toBe(
+    'цены API на 21 сентября 2026 · claude-opus-5-2 посчитана по ценам Opus 5 · нечто не посчитана: цены нет',
+  )
+})
+
+test('суммы до $10 — с центами, от $10 — целыми, и граница считается по округлённому', async () => {
+  stubUsage({
+    ...withPercents,
+    fiveHours: { ...withPercents.fiveHours, cost: 9.996 },
+    week: { ...withPercents.week, cost: 9.994 },
+  })
 
   render(<Usage />)
 
-  const source = (await screen.findByText(/из вашей учётной записи Anthropic/)).closest('p')!
-  expect(source.textContent).toContain('в браузер он не уходит и в журналы не пишется')
+  const five = (await screen.findByRole('heading', { name: 'Пятичасовое окно' })).closest('section')!
+  expect(five.querySelector('.usage-window-foot')!.textContent).toContain('≈ $10')
+  expect(five.querySelector('.usage-window-foot')!.textContent).not.toContain('$10,00')
+  const week = screen.getByRole('heading', { name: 'Недельное окно' }).closest('section')!
+  expect(week.querySelector('.usage-window-foot')!.textContent).toContain('≈ $9,99')
 })
 
 test('пустые журналы — не ошибка, а строка на месте таблицы', async () => {
   stubUsage({
     ...withPercents,
-    fiveHours: { ...withPercents.fiveHours, tokens: 0, answers: 0 },
-    week: { ...withPercents.week, tokens: 0, answers: 0 },
+    fiveHours: { ...withPercents.fiveHours, tokens: 0, cost: 0 },
+    week: { ...withPercents.week, tokens: 0, cost: 0 },
     models: [],
   })
 
