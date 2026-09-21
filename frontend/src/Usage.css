@@ -129,23 +129,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Откуда взялись числа — строка текста, а не карточка: её читают один раз */
-.usage-source {
-  margin: 0 24px 16px;
-  padding: 10px 14px;
-  border-left: 2px solid var(--border-strong);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.5;
+/* На какую дату цены — мелко под суммами: заметить устаревший прейскурант, но не читать его каждый раз */
+.usage-prices {
+  margin: -8px 24px 16px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
-.usage-source b {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.usage-source code,
 .usage-failure code {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -193,6 +183,18 @@
 
 .usage-table-wrap {
   overflow-x: auto;
+}
+
+/* Дата цен и модели, посчитанные не своей ценой, — под таблицей, к которой они относятся */
+.usage-card-foot {
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.usage-card-foot .mono {
+  color: var(--text-secondary);
 }
 
 .usage td {
