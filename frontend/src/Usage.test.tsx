@@ -31,7 +31,6 @@ const withPercents: UsageView = {
     since: '2026-09-17T16:30:00+00:00',
     tokens: 41_000_000,
     answers: 610,
-    share: 0.23,
     percent: 18.86,
   },
   models: [
@@ -57,7 +56,7 @@ test('показывает проценты окон, их сброс и сво�
   expect(within(week).getByText(/2100 ответов агента/)).toBeTruthy()
 })
 
-test('показывает последние сутки оценкой процента недели, токенами и долей в неделе', async () => {
+test('показывает последние сутки оценкой процента недели и токенами', async () => {
   stubUsage(withPercents)
 
   render(<Usage />)
@@ -69,7 +68,8 @@ test('показывает последние сутки оценкой проц
     'Оценка: часть расхода с последнего сброса недели, пришедшаяся на сутки, × 82% лимита недели',
   )
   expect(within(day).getByText('41,0 млн токенов')).toBeTruthy()
-  expect(within(day).getByText('23%').parentElement!.textContent).toBe('23% недельного расхода')
+  // Долю суток в недельном расходе оператор убрал на приёмке
+  expect(within(day).queryByText(/недельного расхода/)).toBeNull()
   // Своего лимита у суток нет, и полосы тоже
   expect(day.querySelector('.usage-track')).toBeNull()
 })
@@ -129,7 +129,6 @@ test('говорит словами, когда процентов нет, и о
   expect(screen.getByText(/31,5 млн токенов/)).toBeTruthy()
   const day = screen.getByRole('heading', { name: '24 часа' }).closest('section')!
   expect(within(day).getByText('41,0 млн токенов')).toBeTruthy()
-  expect(within(day).getByText('23%')).toBeTruthy()
   expect(within(day).getByText('—').getAttribute('title')).toBeNull()
 })
 

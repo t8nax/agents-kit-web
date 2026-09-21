@@ -12,13 +12,11 @@ export type UsageWindow = {
   resetsAt: string | null
 }
 
-/** Последние сутки как часть недели: процента за сутки Anthropic не даёт, поэтому percent — оценка. */
+/** Последние сутки: процента за сутки Anthropic не даёт, поэтому percent — оценка. */
 export type UsageDay = {
   since: string
   tokens: number
   answers: number
-  /** Доля суток в израсходованном за неделю с весами моделей, от нуля до единицы. */
-  share: number
   /** Оценка из процента недели по расходу с её сброса; null — процента недели нет. */
   percent: number | null
 }
@@ -212,7 +210,8 @@ function Window({
 
 /**
  * Последние сутки — карточка без полосы: у суток нет своего лимита, к которому её мерить.
- * Выбор оператора по макету B-131 против выделенного куска недельной полосы и строки под ней.
+ * Выбор оператора по макету B-131 против выделенного куска недельной полосы и строки под ней;
+ * долю суток в недельном расходе он убрал на приёмке — подпись к ней не читалась без объяснения.
  */
 function Day({ day, week, now }: { day: UsageDay; week: UsageWindow; now: string }) {
   const estimate =
@@ -234,9 +233,6 @@ function Day({ day, week, now }: { day: UsageDay; week: UsageWindow; now: string
       <div className="usage-window-foot">
         <span>
           <b>{shortTokens(day.tokens)} токенов</b>
-        </span>
-        <span>
-          <b>{formatShare(day.share)}</b> недельного расхода
         </span>
       </div>
     </section>

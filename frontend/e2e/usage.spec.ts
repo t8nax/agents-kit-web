@@ -21,7 +21,6 @@ const withPercents = {
     since: '2026-09-17T16:30:00Z',
     tokens: 41_000_000,
     answers: 610,
-    share: 0.23,
     percent: 18.86,
   },
   models: [
@@ -54,7 +53,7 @@ test('раздел показывает доли лимита обоих око�
   const day = page.locator('section').filter({ has: page.getByRole('heading', { name: '24 часа' }) })
   await expect(day).toContainText('≈19%')
   await expect(day).toContainText('41,0 млн токенов')
-  await expect(day).toContainText('23% недельного расхода')
+  await expect(day).not.toContainText('недельного расхода')
   await expect(day.locator('.usage-track')).toHaveCount(0)
   const weekBox = (await week.boundingBox())!
   const dayBox = (await day.boundingBox())!
@@ -86,10 +85,9 @@ test('отказ Anthropic назван словами, а счёт токено
   await expect(page.getByText('Проценты лимита сейчас недоступны.')).toBeVisible()
   await expect(page.getByText('Anthropic не ответил: 401.')).toBeVisible()
   await expect(page.locator('section').filter({ hasText: 'Пятичасовое окно' })).toContainText('31,5 млн токенов')
-  // Без процента недели оценки за сутки нет, а токены и доля остаются
+  // Без процента недели оценки за сутки нет, а токены остаются
   const day = page.locator('section').filter({ has: page.getByRole('heading', { name: '24 часа' }) })
   await expect(day).toContainText('—')
   await expect(day).not.toContainText('≈')
   await expect(day).toContainText('41,0 млн токенов')
-  await expect(day).toContainText('23% недельного расхода')
 })

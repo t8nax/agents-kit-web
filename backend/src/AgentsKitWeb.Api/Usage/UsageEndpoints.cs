@@ -19,7 +19,6 @@ public sealed record UsageDayView(
     DateTimeOffset Since,
     long Tokens,
     long Answers,
-    double Share,
     double? Percent);
 
 /// <summary>Ответ раздела «Расход». LimitsProblem — почему нет процентов; ключа доступа в нём не бывает.</summary>
@@ -57,6 +56,6 @@ public static class UsageEndpoints
     private static UsageWindowView Window(UsageWindow window, WindowLimit? limit) =>
         new(window.Since, window.Tokens, window.Answers, limit?.Percent, limit?.ResetsAt);
 
-    private static UsageDayView Day(UsageDay day, double? percent) =>
-        new(day.Since, day.Tokens, day.Answers, day.Share, percent);
+    private static UsageDayView Day(UsageWindow day, double? percent) =>
+        new(day.Since, day.Tokens, day.Answers, percent);
 }

@@ -9,14 +9,8 @@ public sealed record UsageWindow(DateTimeOffset Since, long Tokens, long Answers
 /// </summary>
 public sealed record ModelUsage(string Model, long Answers, long Tokens, double Weight, double Share);
 
-/// <summary>
-/// Последние сутки как часть недели. Share — доля суток в израсходованном за неделю с весами моделей:
-/// лимит тратится по весу, и без него сутки на Opus выглядели бы дешевле, чем обошлись.
-/// </summary>
-public sealed record UsageDay(DateTimeOffset Since, long Tokens, long Answers, double Share);
-
 /// <summary>Счёт панели по журналам: два окна, последние сутки и разбивка недели по моделям.</summary>
-public sealed record UsageTotals(UsageWindow FiveHours, UsageWindow Week, UsageDay Day, IReadOnlyList<ModelUsage> Models);
+public sealed record UsageTotals(UsageWindow FiveHours, UsageWindow Week, UsageWindow Day, IReadOnlyList<ModelUsage> Models);
 
 public static class UsageWeights
 {
@@ -47,7 +41,8 @@ public static class UsageMath
         return new UsageTotals(
             Window(buckets, fiveHoursSince, now),
             Window(buckets, weekSince, now),
-            Day(buckets, daySince, weekSince, now),
+            // Сутки скользящие, а не календарные: число не обнуляется в полночь — выбор оператора на B-131.
+            Window(buckets, daySince, now),
             Models(buckets, weekSince, now));
     }
 
@@ -62,15 +57,6 @@ public static class UsageMath
     {
         var inside = In(buckets, since, now).ToList();
         return new UsageWindow(since, inside.Sum(bucket => bucket.Tokens), inside.Sum(bucket => bucket.Answers));
-    }
-
-    // Сутки скользящие, а не календарные: число не обнуляется в полночь — выбор оператора на B-131.
-    private static UsageDay Day(IReadOnlyList<UsageBucket> buckets, DateTimeOffset since, DateTimeOffset weekSince, DateTimeOffset now)
-    {
-        var window = Window(buckets, since, now);
-        var day = Weighted(In(buckets, since, now));
-        var week = Weighted(In(buckets, weekSince, now));
-        return new UsageDay(since, window.Tokens, window.Answers, week > 0 ? day / week : 0);
     }
 
     /// <summary>

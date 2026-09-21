@@ -134,7 +134,7 @@ public class UsageMathTests
     }
 
     [Fact]
-    public void Sum_CountsLastDayAsWeightedShareOfWeek()
+    public void Sum_CountsLastDay()
     {
         var buckets = new[]
         {
@@ -150,8 +150,6 @@ public class UsageMathTests
         Assert.Equal(Now.AddDays(-1), totals.Day.Since);
         Assert.Equal(1200, totals.Day.Tokens);
         Assert.Equal(2, totals.Day.Answers);
-        // С весами: сутки — 5000 + 200 из 10000, а не 1200 из 6000 голых токенов
-        Assert.Equal(0.52, totals.Day.Share, 5);
     }
 
     [Fact]
@@ -202,7 +200,6 @@ public class UsageMathTests
         Assert.Equal(0, totals.FiveHours.Tokens);
         Assert.Equal(0, totals.Week.Tokens);
         Assert.Equal(0, totals.Day.Tokens);
-        Assert.Equal(0, totals.Day.Share);
         Assert.Empty(totals.Models);
     }
 }
