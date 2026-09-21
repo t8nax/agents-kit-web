@@ -150,6 +150,23 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Write_FindsNewEntriesWithTheProjectsOwnLetters()
+    {
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: ORD-2\n\n## ORD-1 Старая запись\n");
+        TestGit.Run(_base, "commit", "-m", "orders", "--", "backlog.md");
+        _agent.Lines = ["""{"type":"result","subtype":"success","is_error":false,"result":"Коммит отклонён сверкой."}"""];
+        _agent.BeforeLine = _ =>
+        {
+            AppendEntries(next: "ORD-3", "## ORD-2 Новая запись");
+            return Task.CompletedTask;
+        };
+
+        var events = await Write(Client(_base), _base, "Мысль");
+
+        Assert.Equal([new BacklogEntry("ORD-2", "Новая запись", null)], Assert.Single(events).Entries);
+    }
+
+    [Fact]
     public async Task Write_ReportsAgentErrorWithItsText()
     {
         _agent.Lines = ["""{"type":"result","subtype":"success","is_error":true,"result":"Invalid API key · Please run /login"}"""];

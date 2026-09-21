@@ -23,6 +23,7 @@ const row = {
   path: 'D:\\Projects\\agents-kit-web',
   branch: 'feat/task-number-column',
   task: 'B-24 Номер задачи и её заголовок — отдельные колонки таблицы',
+  letters: 'B',
   flowStep: 'Реализация',
   progress: 45,
   status: 'in-work',
@@ -66,6 +67,28 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+test('номер задачи отделяется по буквам её проекта, слово с другими буквами номером не становится', async ({ page }) => {
+  const orders = { ...row, project: 'Orders', base: 'D:\\Projects\\orders-knowledge', letters: 'ORD' }
+  await page.route('**/api/workspaces', (route) =>
+    route.fulfill({
+      json: [
+        { ...orders, path: 'D:\\Projects\\orders-export', task: 'ORD-12 Выгрузка заказов за период' },
+        { ...orders, path: 'D:\\Projects\\orders-utf', task: 'UTF-8 в именах файлов ломает выгрузку' },
+      ],
+    }),
+  )
+  await page.goto('/')
+
+  const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
+  await expect(bodyRows).toHaveCount(2)
+  const own = bodyRows.nth(0).getByRole('cell')
+  await expect(own.nth(1).locator('.num-chip')).toHaveText('ORD-12')
+  await expect(own.nth(2)).toHaveText('Выгрузка заказов за период')
+  const utf = bodyRows.nth(1).getByRole('cell')
+  await expect(utf.nth(1)).toHaveText('—')
+  await expect(utf.nth(2)).toHaveText('UTF-8 в именах файлов ломает выгрузку')
+})
+
 const nota = {
   ...row,
   project: 'Nota',
@@ -73,6 +96,7 @@ const nota = {
   path: 'D:\\Projects\\nota',
   branch: 'main',
   task: 'B-4 Экспорт заметок',
+  letters: 'B',
   status: 'waiting',
   problemsState: 'checked',
   baseProblems: 2,

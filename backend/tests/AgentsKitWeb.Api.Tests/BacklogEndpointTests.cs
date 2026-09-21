@@ -50,6 +50,17 @@ public sealed class BacklogEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task Backlog_CarriesTheProjectsLettersAndForeignNumbers()
+    {
+        var basePath = CreateBase("orders-knowledge", "следующий номер: ORD-18\n\n## ORD-15 Повторная оплата\n\n## B-7 Чужими буквами\n");
+
+        var backlog = Assert.Single(await GetBacklogs(basePath));
+
+        Assert.Equal("ORD", backlog.Letters);
+        Assert.Equal(["ORD-15", "B-7"], backlog.Entries.Select(e => e.Number));
+    }
+
+    [Fact]
     public async Task Backlog_RereadsFileOnEachRequest()
     {
         var basePath = CreateBase("app-knowledge", "## B-1 Первая\n\nТекст.\n");

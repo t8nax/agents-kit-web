@@ -17,6 +17,7 @@ const busyRow = {
   path: 'D:\\Projects\\noble-keen-walrus',
   branch: 'feat/flow-edit',
   task: 'B-22 Правка флоу проекта из панели',
+  letters: 'B',
   flowStep: 'Реализация',
   progress: 45,
   status: 'in-work',
@@ -30,6 +31,7 @@ const backlog = [
       { number: 'B-8', title: 'Кнопка запуска задачи', text: null },
     ],
     error: null,
+    letters: 'B',
   },
 ]
 
@@ -44,6 +46,7 @@ const notaBacklog = {
   project: 'Nota',
   entries: [{ number: 'B-4', title: 'Экспорт заметок', text: null }],
   error: null,
+  letters: 'B',
 }
 
 async function routeApi(page: Page, reply: { status: number; json: unknown }, rows = [busyRow, freeRow]) {
@@ -134,6 +137,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 const startingRow = {
   ...freeRow,
   task: 'B-8 Кнопка запуска задачи',
+  letters: 'B',
   status: 'starting',
   sessionState: 'working',
   backgroundSession: true,

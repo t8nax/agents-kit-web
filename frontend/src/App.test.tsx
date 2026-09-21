@@ -236,8 +236,8 @@ test('группа сворачивается кликом по любому м�
 })
 
 test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
-  const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой' }
-  const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога' }
+  const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой', letters: 'B' }
+  const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога', letters: 'B' }
   const table = [numbered, unnumbered, rows[1], rows[2]]
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(table), { status: 200 })))
 
@@ -255,6 +255,20 @@ test('номер задачи из бэклога стоит своей коло
   expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', '—'])
   // Строка с ошибкой накрывает и колонку номера: ячеек в ней столько же, сколько колонок
   expect(within(tableRows[4]).getAllByRole('cell')[1]).toHaveAttribute('colspan', '5')
+})
+
+test('номер задачи отделяется по буквам её проекта, слово с другими буквами номером не становится', async () => {
+  const orders: WorkspaceRow = { ...rows[0], task: 'ORD-12 Выгрузка заказов за период', letters: 'ORD' }
+  const utf: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\orders-2', task: 'UTF-8 в именах файлов ломает выгрузку', letters: 'ORD' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([orders, utf])))
+
+  render(<App />)
+
+  const tableRows = await findTableRows()
+  const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((cell) => cell.textContent)
+  expect(cells(tableRows[1]).slice(1, 3)).toEqual(['ORD-12', 'Выгрузка заказов за период'])
+  expect(within(tableRows[1]).getByText('ORD-12')).toHaveClass('num-chip')
+  expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'UTF-8 в именах файлов ломает выгрузку'])
 })
 
 // Меню действий строки: кнопка «⋯» открывает его, пункт — действие над копией этой строки
@@ -431,6 +445,7 @@ test('запущенная задача стоит в строке копии д
   const starting: WorkspaceRow = {
     ...rows[1],
     task: 'B-7 Панель показывает задачу сразу',
+    letters: 'B',
     status: 'starting',
     sessionState: 'working',
     backgroundSession: true,

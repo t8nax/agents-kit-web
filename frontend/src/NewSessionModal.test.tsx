@@ -27,6 +27,7 @@ const busy: WorkspaceRow = {
   path: 'D:\\Projects\\noble-keen-walrus',
   branch: 'B-58',
   task: 'B-58 Панель зовёт кит',
+  letters: 'B',
   status: 'in-work',
 }
 

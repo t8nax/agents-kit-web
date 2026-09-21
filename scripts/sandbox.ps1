@@ -445,19 +445,20 @@ if ($baseDir) {
     if ($mode -eq 'truncated') { exit 0 }
 
     $text = [IO.File]::ReadAllText($backlog)
-    $number = if ($text -match '(?m)^следующий номер:\s*B-(\d+)\s*$') { [int]$Matches[1] } else { 1 }
+    # Буквы номеров у каждой базы свои: их держит счётчик, как у кита.
+    $letters, $number = if ($text -match '(?m)^следующий номер:\s*([A-Z][A-Z0-9]*)-(\d+)\s*$') { $Matches[1], [int]$Matches[2] } else { 'B', 1 }
     # Панель шлёт агенту вызов навыка кита с текстом оператора: заголовок записи — сам текст.
     $said = ($stdin -replace '(?m)^\s*/[\w:-]+\s*', '').Trim()
     if (-not $said) { $said = 'Оператор ничего не сказал.' }
     $title = ($said -split "`n")[0]
     if ($title.Length -gt 70) { $title = $title.Substring(0, 70) }
-    $text = $text -replace "(?m)^следующий номер:\s*B-\d+\s*$", "следующий номер: B-$($number + 1)"
-    $text = $text.TrimEnd() + "`n`n## B-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом песочницы`n"
+    $text = $text -replace "(?m)^следующий номер:\s*[A-Z][A-Z0-9]*-\d+\s*$", "следующий номер: $letters-$($number + 1)"
+    $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом песочницы`n"
     [IO.File]::WriteAllText($backlog, $text, [Text.UTF8Encoding]::new($false))
 
     Write-Step 'Edit' @{ file_path = $backlog }
     git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md
-    Write-Result "Записал B-$number."
+    Write-Result "Записал $letters-$number."
     exit 0
 }
 
@@ -610,7 +611,51 @@ function New-Flow([string]$Path) {
     }
 }
 
-function New-Backlog([string]$Path) {
+# Бэклог базы. Буквы номеров у проекта свои: $Orders даёт бэклог с буквами «ORD» — с записью
+# чужими буквами, которую кит перенумерует, и с записью без номера.
+function New-Backlog([string]$Path, [switch]$Orders) {
+    if ($Orders) {
+        Write-Utf8 (Join-Path $Path 'backlog.md') @'
+# Заказы — бэклог
+
+следующий номер: ORD-18
+поля: приоритет, тип
+
+## ORD-15 Повторная оплата создаёт второй заказ
+
+приоритет: блокер
+тип: баг
+
+Покупатель жмёт «Оплатить» второй раз, пока первая оплата идёт, и заказов становится два.
+
+## ORD-14 Выгрузка заказов за период в CSV
+
+приоритет: высокий
+тип: фича
+
+Бухгалтерии нужна выгрузка за месяц, сейчас её собирают руками.
+
+## ORD-17 Фильтр списка заказов по статусу доставки
+
+приоритет: средний
+тип: фича
+
+## B-7 Таймаут платёжного шлюза не попадает в лог
+
+приоритет: низкий
+тип: баг
+
+Запись перенесли из другого проекта вместе с его номером: кит её перенумерует.
+
+## Разобраться с часовыми поясами в отчётах
+
+приоритет: низкий
+тип: фича
+
+Дописано руками, без номера.
+'@
+        return
+    }
     Write-Utf8 (Join-Path $Path 'backlog.md') @'
 # Песочница — бэклог
 
@@ -632,7 +677,8 @@ function New-Backlog([string]$Path) {
 '@
 }
 
-function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf, [switch]$NoAnswerKey, [switch]$TwoQuestions) {
+function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf, [switch]$NoAnswerKey, [switch]$TwoQuestions,
+    [string]$Task = 'B-7 Опрос копий не должен мешать работе') {
     $question = @'
 
 ## Оператору
@@ -661,7 +707,7 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
     }
 
     $text = @"
-# B-7 Опрос копий не должен мешать работе
+# $Task
 
 рабочая копия: $Copy
 ветка: $Branch
@@ -702,7 +748,8 @@ $question
 }
 
 # Выдуманная база знаний: та же раскладка, что у настоящей, — панель читает её теми же правилами.
-function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted) {
+function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
+    [switch]$Orders) {
     New-Repo $Path
     if (-not $NoProduct) {
         Write-Utf8 (Join-Path $Path 'product.md') @"
@@ -722,7 +769,7 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
     }
     if (-not $FlowUncommitted) { New-Flow $Path }
     New-Agents $Path
-    New-Backlog $Path
+    New-Backlog $Path -Orders:$Orders
     New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
     Write-Utf8 (Join-Path $Path '.gitignore') "local/`n"
     Add-Commit $Path 'Каркас базы песочницы'
@@ -786,6 +833,30 @@ foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
     $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $goodBase })
 }
 $findings.Add([pscustomobject]@{ base = $goodBase; findings = @() })
+
+# Проект со своими буквами номеров — «ORD», а не «B»: панель узнаёт номер по буквам проекта.
+# В одной копии идёт задача ORD-12, в другой — задача не из бэклога, чей заголовок начат словом
+# «UTF-8»: номером оно не становится. Третья копия свободна — в неё берут записи бэклога.
+$ordersCopy = Join-Path $copiesDir 'orders'
+$ordersBase = Join-Path $basesDir 'orders-knowledge'
+New-Repo $ordersCopy
+Write-Utf8 (Join-Path $ordersCopy 'README.md') "# Заказы`n`nВыдуманный проект песочницы.`n"
+Add-Commit $ordersCopy 'Первый коммит'
+$ordersTask = Join-Path $copiesDir 'orders-export'
+git -C $ordersCopy worktree add -b feat/ord-12-export $ordersTask --quiet
+$ordersUtf = Join-Path $copiesDir 'orders-utf'
+git -C $ordersCopy worktree add -b fix/utf-names $ordersUtf --quiet
+
+New-Base $ordersBase 'Заказы' @($ordersCopy) -Orders
+New-Memory (Join-Path $ordersBase 'work\orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период'
+New-Memory (Join-Path $ordersBase 'work\orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку'
+Add-Commit $ordersBase 'Памяти задач'
+$bases.Add($ordersBase)
+foreach ($copy in @($ordersCopy, $ordersTask, $ordersUtf)) {
+    $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $ordersBase })
+}
+$findings.Add([pscustomobject]@{ base = $ordersBase; findings = @(
+    [pscustomobject]@{ severity = 'FAIL'; file = 'backlog.md'; message = 'номер чужими буквами: B-7' }) })
 
 # --- сломанный набор ---------------------------------------------------------------------
 

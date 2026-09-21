@@ -38,6 +38,7 @@ const waitingRow = {
   path: 'D:\\Projects\\agents-kit-web',
   branch: 'fix/sidebar-items-jump',
   task: 'B-42 Панель дёргается под мышью',
+  letters: 'B',
   flowStep: 'Реализация',
   progress: 45,
   status: 'waiting',
