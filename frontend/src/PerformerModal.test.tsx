@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import PerformerModal, { type DraftEvent } from './PerformerModal'
-import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
+import PerformerModal, { type DraftEvent, type DraftFields } from './PerformerModal'
+import { controlledStream, runningRequest, stubPanel, type PanelStub } from './agentPanelTesting'
 import type { BasePerformers, Performer } from './Performers'
 
 afterEach(() => vi.unstubAllGlobals())
@@ -25,177 +25,156 @@ const bases: BasePerformers[] = [
   },
 ]
 
-function open(editing: Performer | null = null, onSaved = vi.fn()) {
+const runner: DraftFields = {
+  name: 'e2e-runner',
+  description: 'Гоняет e2e.',
+  model: 'sonnet',
+  tools: null,
+  prompt: 'Ты гоняешь e2e.',
+}
+
+function open(editing: Performer | null = null, onSaved = vi.fn(), panelBases = bases) {
   render(
-    <PerformerModal bases={bases} initial={bases[0].base} editing={editing} onClose={vi.fn()} onSaved={onSaved} />,
+    <PerformerModal bases={panelBases} initial={panelBases[0].base} editing={editing} onClose={vi.fn()} onSaved={onSaved} />,
   )
   return onSaved
 }
 
-/** Тело запроса, которым панель записала исполнителя: до него окно спрашивает ещё и о своей просьбе. */
+/** Тело запроса, которым панель записала исполнителя. */
 function saved(fetchMock: ReturnType<typeof vi.fn>) {
   const call = fetchMock.mock.calls.find(([url]) => url === '/api/performers')!
   return JSON.parse(String((call[1] as RequestInit).body))
 }
 
-/** Окно спрашивает панель о своей просьбе при открытии: без просьбы ответом идёт пустой список. */
-function stubFetch(response: Response) {
-  const fetchMock = vi.fn((url: string) =>
-    Promise.resolve(url === '/api/agent/requests' ? Response.json([]) : response),
-  )
-  vi.stubGlobal('fetch', fetchMock)
-  return fetchMock
+/** Запись исполнителя отвечает заданным ответом; остальное — стенд панели с просьбой к агенту. */
+function stubSave(response: () => Response) {
+  const stream = controlledStream<DraftEvent>()
+  const others: PanelStub['others'] = (url) => (url === '/api/performers' ? response() : null)
+  const panel = stubPanel('performer', stream, { project: 'Agents Kit Web', others })
+  return { stream, panel, fetchMock: fetch as unknown as ReturnType<typeof vi.fn> }
 }
 
-test('заводит исполнителя в базу проекта и показывает путь его файла', async () => {
-  const fetchMock = stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
-  const onSaved = open()
+/** Новый исполнитель после ответа Чудо-Юдо: основу окну дал агент. */
+async function drafted(stream: ReturnType<typeof controlledStream<DraftEvent>>, fields: DraftFields = runner) {
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Гоняет e2e' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
+  await screen.findByRole('status')
+  stream.send({ type: 'drafted', text: '---', fields })
+  stream.close()
+  await screen.findByText('Основу написал Чудо-Юдо')
+}
 
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
-  fireEvent.change(screen.getByLabelText(/Описание/), { target: { value: 'Гоняет e2e.' } })
-  fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Ты гоняешь e2e.' } })
-
-  // Путь виден до сохранения и ведёт в базу проекта, а не в профиль.
-  expect(screen.getByText('D:\\Projects\\app-knowledge\\agents\\e2e-runner.md')).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('e2e-runner'))
-  expect(fetchMock).toHaveBeenCalledWith('/api/performers', expect.objectContaining({ method: 'POST' }))
-  expect(saved(fetchMock)).toEqual({
-    base: 'D:\\Projects\\app-knowledge',
-    name: 'e2e-runner',
-    description: 'Гоняет e2e.',
-    model: null,
-    tools: null,
-    prompt: 'Ты гоняешь e2e.',
-    editing: null,
-  })
-})
-
-test('имя, занятое у проекта, окно бережёт и не даёт сохранить', () => {
-  stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
+test('у нового до ответа Чудо-Юдо основы нет и сохранить нельзя', () => {
+  stubSave(() => Response.json({ path: 'x' }))
   open()
 
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
-
-  // Набор исполнителей свой у базы проекта: молча переписать заведённого в ней нельзя.
-  expect(screen.getByRole('status')).toHaveTextContent('уже есть')
+  expect(screen.getByRole('heading', { name: 'Новый исполнитель' })).toBeInTheDocument()
+  // Руками заводится только модель и инструменты: имени, описания и задания в окне нет.
+  expect(screen.queryByLabelText('Имя')).not.toBeInTheDocument()
+  expect(screen.queryByText('Описание')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Показать задание/ })).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Модель')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
-test('копию в окне не выбирают: файл лежит в базе проекта', () => {
-  stubFetch(new Response(JSON.stringify({ path: 'x' }), { status: 200 }))
-  open()
+test('окно закрывается крестиком, отдельной «Отмены» нет', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  const onClose = vi.fn()
+  render(<PerformerModal bases={bases} initial={bases[0].base} editing={null} onClose={onClose} onSaved={vi.fn()} />)
 
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
-
-  expect(screen.queryByLabelText('Копия')).not.toBeInTheDocument()
-  // Путь к файлу один: он ведёт в базу проекта, и выбирать между копиями нечего.
-  expect(screen.getByText(/e2e-runner\.md/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Отмена' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+  expect(onClose).toHaveBeenCalled()
 })
 
-test('правка заведённого открывает его поля', () => {
+test('у нового проект выбирается выпадающим списком в шапке', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  const two = [...bases, { ...bases[0], base: 'D:\\Projects\\nota-knowledge', project: 'Nota', performers: [] }]
+  open(null, vi.fn(), two)
+
+  const select = screen.getByLabelText('Проект')
+  expect(select.tagName).toBe('SELECT')
+  fireEvent.change(select, { target: { value: 'D:\\Projects\\nota-knowledge' } })
+  expect(select).toHaveValue('D:\\Projects\\nota-knowledge')
+})
+
+test('правка называет исполнителя в заголовке, и имя в окне не правится', () => {
+  stubSave(() => Response.json({ path: 'x' }))
   open(reviewer)
 
-  expect(screen.getByLabelText('Имя')).toHaveValue('reviewer')
-  expect(screen.getByLabelText(/Описание/)).toHaveValue('Читает дифф ветки задачи.')
-  expect(screen.getByLabelText('Задание')).toHaveValue('Ты читаешь дифф ветки целиком.')
+  const title = screen.getByRole('heading', { name: 'reviewer' })
+  expect(title).toBeInTheDocument()
+  expect(screen.getByText('Agents Kit Web')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Имя')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Проект')).not.toBeInTheDocument()
+})
+
+test('руками правятся только модель и инструменты: описание и задание только читаются', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
-  expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Glob, Grep')
+  expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
+  // Полей ввода описания и задания нет: их переписывает Чудо-Юдо по просьбе.
+  const inputs = screen.getAllByRole('textbox')
+  expect(inputs.map((input) => input.getAttribute('id') ?? input.getAttribute('aria-label'))).toEqual(['pf-wish'])
+  expect(screen.getByRole('combobox', { name: 'Модель' })).toBeEnabled()
 })
 
-test('негодное имя объясняется словами, а набранное остаётся', async () => {
-  stubFetch(new Response(JSON.stringify({ problem: 'invalid-name' }), { status: 400 }))
-  open()
+test('«Только чтение» — переключатель: включён — набор закреплён, выключен — поле своих инструментов', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
 
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'Ревью Диффа' } })
-  fireEvent.change(screen.getByLabelText('Задание'), { target: { value: 'Тело' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  const toggle = screen.getByRole('button', { name: 'Только чтение' })
+  expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByLabelText('Инструменты')).not.toBeInTheDocument()
+  expect(screen.getByText('Read, Glob, Grep')).toBeInTheDocument()
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('строчная латиница')
-  expect(screen.getByLabelText('Имя')).toHaveValue('Ревью Диффа')
-  expect(screen.getByLabelText('Задание')).toHaveValue('Тело')
-})
-
-test('занятое имя, о котором сказал API, объяснено словами', async () => {
-  stubFetch(new Response(JSON.stringify({ problem: 'name-taken' }), { status: 409 }))
-  open()
-
-  // Имя заняли, пока окно было открыто: список раздела о нём ещё не знает, а API уже знает.
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  expect(await screen.findByRole('alert')).toHaveTextContent('уже есть')
-})
-
-test('имя, занятое файлом самого проекта, названо вместе с копией', async () => {
-  stubFetch(
-    new Response(JSON.stringify({ problem: 'name-in-project', detail: 'D:\\Projects\\app' }), { status: 409 }),
-  )
-  open()
-
-  // Такой файл ведёт команда проекта, кит его не трогает — исполнитель в эту копию не приедет
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'linter' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  const alert = await screen.findByRole('alert')
-  expect(alert).toHaveTextContent('уже есть в копии D:\\Projects\\app')
-  expect(alert).toHaveTextContent('Выберите другое имя')
-})
-
-test('отказ базы принять коммит показан её словами', async () => {
-  stubFetch(
-    new Response(JSON.stringify({ problem: 'not-committed', detail: 'сверка: база не приняла' }), { status: 409 }),
-  )
-  const onSaved = open()
-
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  // Что сказала база, оператор читает дословно, а окно остаётся с набранным
-  const alert = await screen.findByRole('alert')
-  expect(alert).toHaveTextContent('База не приняла исполнителя')
-  expect(alert).toHaveTextContent('сверка: база не приняла')
-  expect(onSaved).not.toHaveBeenCalled()
-  expect(screen.getByLabelText('Имя')).toHaveValue('e2e-runner')
-})
-
-test('незнакомый отказ API назван своим именем, а не чужой причиной', async () => {
-  stubFetch(new Response(JSON.stringify({ problem: 'что-то-новое' }), { status: 409 }))
-  open()
-
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'linter' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  // Иначе новый отказ API показывался бы прежним текстом, и причина была бы неверной
-  expect(await screen.findByRole('alert')).toHaveTextContent('панель не поняла отказ «что-то-новое»')
-})
-
-test('без связи с API окно говорит об этом и не закрывается', async () => {
-  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('failed to fetch')))
-  const onSaved = open()
-
-  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e-runner' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  expect(await screen.findByRole('alert')).toHaveTextContent('нет связи с API')
-  expect(onSaved).not.toHaveBeenCalled()
-})
-
-test('кнопка «только чтение» ставит набор инструментов и снимает его', () => {
-  open()
-
-  fireEvent.click(screen.getByRole('button', { name: 'только чтение' }))
-  expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Glob, Grep')
-
-  fireEvent.click(screen.getByRole('button', { name: 'все инструменты' }))
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-pressed', 'false')
   expect(screen.getByLabelText('Инструменты')).toHaveValue('')
+
+  fireEvent.change(screen.getByLabelText('Инструменты'), { target: { value: 'Read, Bash' } })
+  expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Bash')
 })
 
-test('просьба к Чудо-Юдо идёт из окна и заполняет его поля', async () => {
-  const stream = controlledStream<DraftEvent>()
-  const panel = stubPanel('performer', stream, { project: 'Agents Kit Web' })
+test('правка модели и инструментов записывает прежние описание и задание', async () => {
+  const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
+  const onSaved = open(reviewer)
+
+  fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'haiku' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Только чтение' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('reviewer'))
+  expect(saved(fetchMock)).toEqual({
+    base: 'D:\\Projects\\app-knowledge',
+    name: 'reviewer',
+    description: 'Читает дифф ветки задачи.',
+    model: 'haiku',
+    tools: null,
+    prompt: 'Ты читаешь дифф ветки целиком.',
+    editing: 'reviewer',
+  })
+})
+
+test('задание открывается кнопкой в окне только для чтения', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  expect(within(task).getByText('Ты читаешь дифф ветки целиком.')).toBeInTheDocument()
+  expect(within(task).queryByRole('textbox')).not.toBeInTheDocument()
+
+  fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog', { name: /Задание/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: 'reviewer' })).toBeInTheDocument()
+})
+
+test('просьба к Чудо-Юдо идёт из окна, а его ответ становится основой', async () => {
+  const { stream, panel } = stubSave(() => Response.json({ path: 'x' }))
   open()
 
   fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), {
@@ -221,7 +200,7 @@ test('просьба к Чудо-Юдо идёт из окна и заполня
     type: 'drafted',
     text: '---',
     fields: {
-      name: 'reviewer',
+      name: 'reviewer-2',
       description: 'Читает дифф ветки задачи.',
       model: 'opus',
       tools: 'Read, Glob, Grep',
@@ -230,16 +209,48 @@ test('просьба к Чудо-Юдо идёт из окна и заполня
   })
   stream.close()
 
-  await waitFor(() => expect(screen.getByLabelText('Имя')).toHaveValue('reviewer'))
-  expect(screen.getByLabelText(/Описание/)).toHaveValue('Читает дифф ветки задачи.')
+  await waitFor(() => expect(screen.getByLabelText('Имя')).toHaveValue('reviewer-2'))
+  expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
-  expect(screen.getByLabelText('Инструменты')).toHaveValue('Read, Glob, Grep')
-  expect(screen.getByLabelText('Задание')).toHaveValue('Ты читаешь дифф ветки целиком.')
+  expect(screen.getByRole('button', { name: 'Только чтение' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
   // Файл ещё не записан: его пишет «Сохранить».
   expect(panel.posts.map((post) => post.url)).toEqual(['/api/performers/draft'])
 })
 
-test('«Вернуть как было» возвращает поля, какими они были до ответа агента', async () => {
+test('имя нового, предложенное агентом, можно поправить до записи', async () => {
+  const { stream, fetchMock } = stubSave(() => Response.json({ path: 'x' }))
+  const onSaved = open()
+  await drafted(stream)
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'e2e' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('e2e'))
+  expect(saved(fetchMock)).toEqual({
+    base: 'D:\\Projects\\app-knowledge',
+    name: 'e2e',
+    description: 'Гоняет e2e.',
+    model: 'sonnet',
+    tools: null,
+    prompt: 'Ты гоняешь e2e.',
+    editing: null,
+  })
+})
+
+test('имя, занятое у проекта, окно бережёт и не даёт сохранить', async () => {
+  const { stream } = stubSave(() => Response.json({ path: 'x' }))
+  open()
+  await drafted(stream)
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'reviewer' } })
+
+  // Набор исполнителей свой у базы проекта: молча переписать заведённого в ней нельзя.
+  expect(screen.getByText(/Исполнитель с таким именем у этого проекта уже есть/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('«Вернуть как было» возвращает то, что стояло до ответа агента', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream)
   open(reviewer)
@@ -252,16 +263,15 @@ test('«Вернуть как было» возвращает поля, каки
   stream.send({
     type: 'drafted',
     text: '---',
-    fields: { name: 'reviewer', description: null, model: null, tools: null, prompt: 'Новое задание.' },
+    fields: { name: 'reviewer', description: 'Новое описание.', model: null, tools: null, prompt: 'Новое задание.' },
   })
   stream.close()
 
-  await waitFor(() => expect(screen.getByLabelText('Задание')).toHaveValue('Новое задание.'))
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Новое описание.'))
 
   fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
 
-  await waitFor(() => expect(screen.getByLabelText('Задание')).toHaveValue('Ты читаешь дифф ветки целиком.'))
-  expect(screen.getByLabelText(/Описание/)).toHaveValue('Читает дифф ветки задачи.')
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.'))
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
 })
 
@@ -285,7 +295,7 @@ test('нынешние поля уходят агенту, когда испол
   })
 })
 
-test('неудача агента сказана словами, поля и просьба остаются', async () => {
+test('Чудо-Юдо недоступен — причина одной строкой, у нового сохранить нечего', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream)
   open()
@@ -293,14 +303,108 @@ test('неудача агента сказана словами, поля и п�
   fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
   fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
 
-  stream.send({ type: 'error', text: 'Чудо-Юдо вернул исполнителя без имени', output: 'Готово!' })
+  stream.send({ type: 'error', text: 'кончился лимит подписки', output: 'Готово!' })
   stream.close()
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Чудо-Юдо вернул исполнителя без имени')
-  expect(screen.getByText('Готово!')).toBeInTheDocument()
-  expect(screen.getByLabelText('Имя')).toHaveValue('')
+  const line = await screen.findByRole('alert')
+  expect(line).toHaveTextContent('Чудо-Юдо не ответил: кончился лимит подписки')
+  // Вывод агента читается подсказкой, а не второй строкой.
+  expect(line).toHaveAttribute('title', 'Готово!')
+  expect(screen.queryByText('Готово!')).not.toBeInTheDocument()
   expect(screen.getByLabelText(/Просьба к Чудо-Юдо/)).toHaveValue('Ревьюер ветки')
   expect(screen.getByRole('button', { name: 'Попросить снова' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('без Чудо-Юдо модель и инструменты правятся и сохраняются, основа остаётся прежней', async () => {
+  const stream = controlledStream<DraftEvent>()
+  const others: PanelStub['others'] = (url) => (url === '/api/performers' ? Response.json({ path: 'x' }) : null)
+  stubPanel('performer', stream, { others })
+  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
+  const onSaved = open(reviewer)
+
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Пусть ещё сверяет' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  stream.send({ type: 'error', text: 'кончился лимит подписки' })
+  stream.close()
+  await screen.findByRole('alert')
+
+  fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'sonnet' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('reviewer'))
+  expect(saved(fetchMock)).toMatchObject({
+    model: 'sonnet',
+    description: 'Читает дифф ветки задачи.',
+    prompt: 'Ты читаешь дифф ветки целиком.',
+  })
+})
+
+test('негодное имя объясняется словами, а набранное остаётся', async () => {
+  const { stream } = stubSave(() => Response.json({ problem: 'invalid-name' }, { status: 400 }))
+  open()
+  await drafted(stream)
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'Ревью Диффа' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await screen.findByText(/строчная латиница/)).toBeInTheDocument()
+  expect(screen.getByLabelText('Имя')).toHaveValue('Ревью Диффа')
+})
+
+test('занятое имя, о котором сказал API, объяснено словами', async () => {
+  stubSave(() => Response.json({ problem: 'name-taken' }, { status: 409 }))
+  open(reviewer)
+
+  // Имя заняли, пока окно было открыто: список раздела о нём ещё не знает, а API уже знает.
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('уже есть')
+})
+
+test('имя, занятое файлом самого проекта, названо вместе с копией', async () => {
+  stubSave(() => Response.json({ problem: 'name-in-project', detail: 'D:\\Projects\\app' }, { status: 409 }))
+  open(reviewer)
+
+  // Такой файл ведёт команда проекта, кит его не трогает — исполнитель в эту копию не приедет
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('уже есть в копии D:\\Projects\\app')
+  expect(alert).toHaveTextContent('Выберите другое имя')
+})
+
+test('отказ базы принять коммит показан её словами', async () => {
+  stubSave(() => Response.json({ problem: 'not-committed', detail: 'сверка: база не приняла' }, { status: 409 }))
+  const onSaved = open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  // Что сказала база, оператор читает дословно, а окно остаётся открытым
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('База не приняла исполнителя')
+  expect(alert).toHaveTextContent('сверка: база не приняла')
+  expect(onSaved).not.toHaveBeenCalled()
+})
+
+test('незнакомый отказ API назван своим именем, а не чужой причиной', async () => {
+  stubSave(() => Response.json({ problem: 'что-то-новое' }, { status: 409 }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  // Иначе новый отказ API показывался бы прежним текстом, и причина была бы неверной
+  expect(await screen.findByRole('alert')).toHaveTextContent('панель не поняла отказ «что-то-новое»')
+})
+
+test('без связи с API окно говорит об этом и не закрывается', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('failed to fetch')))
+  const onSaved = open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await screen.findByText(/нет связи с API/)).toBeInTheDocument()
+  expect(onSaved).not.toHaveBeenCalled()
 })
 
 test('«Отменить» убирает просьбу из панели', async () => {
