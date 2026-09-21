@@ -1,50 +1,63 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
-import { AGENT_NAME } from './BacklogWriteModal'
 import './Backlog.css'
 import './Flow.css'
-import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
 import type { BasePerformers } from './Performers'
 import { plural } from './plural'
 import RowMenu from './RowMenu'
 import { VsCodeIcon } from './VsCodeIcon'
 
-/** Возврат шага: при condition работа идёт заново к шагу step, который стоит во флоу раньше. */
-export type FlowReturn = { condition: string; step: string }
-
-export type FlowStep = {
+/**
+ * Стадия флоу — файл flow/stages/ базы, один на все флоу, где она стоит. slug — имя файла; у стадии,
+ * заведённой в панели и ещё не записанной, его нет.
+ */
+export type FlowStage = {
   title: string
   executor: string
   output: string
   skip: string | null
-  /** Описание шага пунктами — как в файле. Панель его не показывает, а переносит при записи. */
+  /** Описание стадии как в файле: правится текстом в окне описания. */
   description: string | null
-  /** Возвраты шага — круги работы; у шага их может быть несколько. Сохранённый шаг их не несёт. */
-  returns?: FlowReturn[]
-  /** Помощники: исполнители, которых оркестратор зовёт внутри своего шага. */
+  /** Помощники: исполнители, которых оркестратор зовёт внутри своей стадии. */
   helpers?: string[]
+  slug?: string | null
 }
+
+/** Возврат стадии во флоу: при condition работа идёт заново к стадии stage, стоящей в этом флоу раньше. */
+export type StageReturn = { condition: string; stage: string }
+
+/** Пункт флоу: стадия по названию и её возвраты — у той же стадии в другом флоу они свои. */
+export type FlowEntry = { stage: string; returns?: StageReturn[] }
+
+export type NamedFlow = { name: string; when: string | null; entries: FlowEntry[] }
 
 export type BaseFlow = {
   base: string
   project: string
-  steps: FlowStep[]
+  stages: FlowStage[]
+  flows: NamedFlow[]
   activeTasks: number
   version: string | null
   error: string | null
-  /** Значки шагов, выбранные оператором: название шага — значок. Их помнит панель, а не файл флоу. */
+  /** Значки стадий, выбранные оператором: название стадии — значок. Их помнит панель, а не база. */
   icons: Record<string, string>
+  /**
+   * Строки файлов флоу, которые панель не сохранит: «flow/flow.md, строка 7: «…»». Пока они есть, флоу не
+   * пишется — запись стёрла бы их из базы; правят их руками.
+   */
+  unread?: string[]
 }
 
-export type StepPreset = FlowStep & { id: string }
+export type StagePreset = FlowStage & { id: string }
 
 type Load =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
   | { kind: 'loaded'; flows: BaseFlow[] }
 
-// Шаг в форме: key держит шаг на месте при перестановке, исполнитель разложен на выбор и имя субагента.
-type DraftStep = {
+// Стадия в форме: key держит её, пока правится название, исполнитель разложен на выбор и имя субагента.
+type DraftStage = {
   key: number
+  slug: string | null
   title: string
   kind: 'оркестратор' | 'оператор' | 'субагент'
   agent: string
@@ -52,177 +65,271 @@ type DraftStep = {
   skip: string
   description: string | null
   icon: string
-  returns: FlowReturn[]
   helpers: string[]
 }
 
+// Пункты и возвраты ссылаются на стадию её key: переименование стадии не рвёт их. stage === null —
+// пункт ведёт на стадию, которой в базе нет, и title хранит, как он назван в файле.
+type DraftReturn = { condition: string; target: number | null }
+type DraftEntry = { key: number; stage: number | null; title: string; returns: DraftReturn[] }
+type DraftFlow = { key: number; name: string; when: string; entries: DraftEntry[] }
+type Draft = { stages: DraftStage[]; flows: DraftFlow[] }
+
+type Tab = 'stages' | 'flow'
+// Что открыто в сайдбаре вкладки «Флоу»: стадия — key пункта, а не место, место меняется перетаскиванием.
+type Opened = { kind: 'entry'; key: number } | { kind: 'flow' } | null
+
 type Notice = { kind: 'done' | 'error'; text: string } | null
 
-const kinds: DraftStep['kind'][] = ['оркестратор', 'оператор', 'субагент']
+const kinds: DraftStage['kind'][] = ['оркестратор', 'оператор', 'субагент']
 
 let nextKey = 1
 
-function toDraft(step: FlowStep, icon = ''): DraftStep {
-  const executor = step.executor.trim()
+/** Название стадии и имя флоу как адрес — как у сверки кита: подряд идущие пробелы — один, регистр не важен. */
+const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
+
+function stageDraft(stage: FlowStage, icon = ''): DraftStage {
+  const executor = stage.executor.trim()
   const known = executor === 'оркестратор' || executor === 'оператор'
   return {
     key: nextKey++,
-    title: step.title,
+    slug: stage.slug ?? null,
+    title: stage.title,
     kind: known ? executor : 'субагент',
     agent: known ? '' : executor,
-    output: step.output,
-    skip: step.skip ?? '',
-    description: step.description,
+    output: stage.output,
+    skip: stage.skip ?? '',
+    description: stage.description,
     icon,
-    returns: step.returns ?? [],
-    helpers: step.helpers ?? [],
+    helpers: stage.helpers ?? [],
   }
 }
 
-function toStep(draft: DraftStep): FlowStep {
+function toDraft(flow: BaseFlow): Draft {
+  const stages = flow.stages.map((stage) => stageDraft(stage, flow.icons?.[stage.title] ?? ''))
+  const keyOf = (title: string) => stages.find((stage) => norm(stage.title) === norm(title))?.key ?? null
+  return {
+    stages,
+    flows: flow.flows.map((f) => ({
+      key: nextKey++,
+      name: f.name,
+      when: f.when ?? '',
+      entries: f.entries.map((entry) => ({
+        key: nextKey++,
+        stage: keyOf(entry.stage),
+        title: entry.stage,
+        returns: (entry.returns ?? []).map((back) => ({ condition: back.condition, target: keyOf(back.stage) })),
+      })),
+    })),
+  }
+}
+
+function toStage(draft: DraftStage): FlowStage {
   return {
     title: draft.title.trim(),
     executor: draft.kind === 'субагент' ? draft.agent.trim() : draft.kind,
     output: draft.output.trim(),
     skip: draft.skip.trim() || null,
     description: draft.description,
-    returns: draft.returns.map((back) => ({ condition: back.condition.trim(), step: back.step.trim() })),
-    // Помощников зовёт только оркестратор: у шага оператора и у шага субагента их в файле не бывает.
+    // Помощников зовёт только оркестратор: у стадии оператора и у стадии субагента их в файле не бывает.
     helpers: draft.kind === 'оркестратор' ? draft.helpers.map((name) => name.trim()).filter(Boolean) : [],
+    slug: draft.slug,
   }
 }
 
-/** Значки шагов для записи: название шага — значок. Шаг без своего значка в запись не идёт. */
-function toIcons(draft: DraftStep[]): Record<string, string> {
+/** Стадии и флоу так, как их запишет API. */
+function toApi(draft: Draft): { stages: FlowStage[]; flows: NamedFlow[] } {
+  const titleOf = (key: number | null) => draft.stages.find((stage) => stage.key === key)?.title.trim() ?? ''
+  return {
+    stages: draft.stages.map(toStage),
+    flows: draft.flows.map((f) => ({
+      name: f.name.trim(),
+      when: f.when.trim() || null,
+      entries: f.entries.map((entry) => ({
+        stage: entry.stage === null ? entry.title : titleOf(entry.stage),
+        returns: entry.returns.map((back) => ({ condition: back.condition.trim(), stage: titleOf(back.target) })),
+      })),
+    })),
+  }
+}
+
+/** Значки стадий для записи: название стадии — значок. Стадия без своего значка в запись не идёт. */
+function toIcons(draft: Draft): Record<string, string> {
   const icons: Record<string, string> = {}
-  for (const step of draft) {
-    const title = step.title.trim()
-    if (title && step.icon) icons[title] = step.icon
+  for (const stage of draft.stages) {
+    const title = stage.title.trim()
+    if (title && stage.icon) icons[title] = stage.icon
   }
   return icons
 }
 
 /**
- * Что мешает записать шаг в форме кита; пустой список — шаг годится. Возврату нужны соседи:
- * он ведёт на шаг, который стоит раньше, поэтому проверяется вся лента.
+ * Стадия зовёт субагента, которого нет в базе проекта: пока имя пустое, это просто незаполненная стадия.
+ * known === null — список исполнителей ещё не прочитан, и помечать нечего: иначе при открытии
+ * раздела все стадии разом выглядели бы сломанными.
  */
-function stepErrors(draft: DraftStep, steps: DraftStep[] = [], index = -1, known: string[] | null = null) {
+const missingPerformer = (stage: DraftStage, known: string[] | null) =>
+  known !== null && stage.kind === 'субагент' && stage.agent.trim().length > 0 && !known.includes(stage.agent.trim())
+
+const breaks = (value: string) => /[\r\n]/.test(value)
+
+/** Что мешает записать стадию в форме кита; пустой список — стадия годится. */
+function stageErrors(stage: DraftStage, stages: DraftStage[], known: string[] | null) {
   const errors: string[] = []
-  if (!draft.title.trim()) errors.push('нет названия')
-  if (draft.kind === 'субагент' && !draft.agent.trim()) errors.push('не указано имя субагента')
+  if (!stage.title.trim()) errors.push('нет названия')
+  // Название стоит текстом ссылки во флоу и в кавычках возврата: скобки и кавычки его разорвут.
+  else if (/[[\]«»]/.test(stage.title)) errors.push('в названии скобки [ ] или кавычки « »')
+  else if (stages.some((other) => other.key !== stage.key && norm(other.title) === norm(stage.title)))
+    errors.push('стадия с таким названием уже есть')
+  if (stage.kind === 'субагент' && !stage.agent.trim()) errors.push('не указано имя субагента')
   // Исполнителя, которого нет в базе, агент не позовёт: с таким именем флоу не сохраняется.
-  if (missingPerformer(draft, known)) errors.push('исполнителя нет в базе')
-  // То же и с помощниками: их зовёт оркестратор внутри своего шага, и незаведённого он не найдёт.
-  // Только у него: у прочих шагов поля помощников нет, и убрать выписанного руками было бы негде.
-  if (draft.kind === 'оркестратор' && known !== null
-      && draft.helpers.some((name) => name.trim() && !known.includes(name.trim())))
+  if (missingPerformer(stage, known)) errors.push('исполнителя нет в базе')
+  // То же и с помощниками: их зовёт оркестратор внутри своей стадии, и незаведённого он не найдёт.
+  if (stage.kind === 'оркестратор' && known !== null
+      && stage.helpers.some((name) => name.trim() && !known.includes(name.trim())))
     errors.push('помощника нет в базе')
-  if (!draft.output.trim()) errors.push('не указан выход')
-  for (const back of draft.returns) {
+  if (!stage.output.trim()) errors.push('не указан выход')
+  else if (breaks(stage.output.trim())) errors.push('выход — одна строка')
+  return errors
+}
+
+/** Что мешает записать пункт флоу: возврат ведёт только к стадии, стоящей в этом флоу раньше. */
+function entryErrors(flow: DraftFlow, index: number) {
+  const entry = flow.entries[index]
+  const errors: string[] = []
+  if (entry.stage === null) errors.push('стадии нет в базе')
+  else if (flow.entries.slice(0, index).some((other) => other.stage === entry.stage))
+    errors.push('стадия уже стоит в этом флоу')
+  for (const back of entry.returns) {
     if (!back.condition.trim()) errors.push('в возврате не указано условие')
-    const target = steps.findIndex((step) => step.title.trim() === back.step.trim() && back.step.trim())
+    const target = flow.entries.findIndex((other) => back.target !== null && other.stage === back.target)
     if (target < 0) errors.push('возврат ведёт на стадию, которой во флоу нет')
-    else if (index >= 0 && target >= index) errors.push('возврат ведёт на стадию, которая стоит не раньше')
+    else if (target >= index) errors.push('возврат ведёт на стадию, которая стоит не раньше')
   }
   return errors
 }
 
-/** Шаги, на которые шагу можно вернуться: только стоящие раньше и названные. */
-const earlierSteps = (steps: DraftStep[], index: number) =>
-  steps.slice(0, Math.max(index, 0)).map((step) => step.title.trim()).filter(Boolean)
-
-// Номер пункта описания «3.2.1.»: номер шага — первое число.
-const pointNumber = /^([ \t]*)\d+(?=(?:\.\d+)+\.)/gm
-
-/** Номер шага в пунктах описания — текущий: после перестановки файл запишет его так же. */
-function renumber(description: string, number: number) {
-  return description.replace(pointNumber, `$1${number}`)
+function flowErrors(flow: DraftFlow, flows: DraftFlow[]) {
+  const errors: string[] = []
+  if (!flow.name.trim()) errors.push('нет названия')
+  else if (flows.some((other) => other.key !== flow.key && norm(other.name) === norm(flow.name)))
+    errors.push('флоу с таким названием уже есть')
+  // «Когда брать» кит требует, как только флоу больше одного: иначе не из чего выбрать.
+  if (flows.length > 1 && !flow.when.trim()) errors.push('не указано «когда»')
+  else if (breaks(flow.when.trim())) errors.push('«когда» — одна строка')
+  if (flow.entries.length === 0) errors.push('во флоу нет стадий')
+  return errors
 }
 
-/** Перестановка, добавление и удаление сдвигают номера шагов — пункты их описаний идут следом. */
-function renumbered(draft: DraftStep[]): DraftStep[] {
-  return draft.map((step, index) => {
-    const description = step.description === null ? null : renumber(step.description, index + 1)
-    return description === step.description ? step : { ...step, description }
-  })
+const stageName = (stage: DraftStage) => stage.title.trim() || 'без названия'
+const flowName = (flow: DraftFlow) => flow.name.trim() || 'без названия'
+
+/** Первое, из-за чего правки не записать, — словами для полосы сохранения; null — всё годится. */
+function firstProblem(draft: Draft, known: string[] | null): string | null {
+  for (const stage of draft.stages) {
+    const errors = stageErrors(stage, draft.stages, known)
+    if (errors.length > 0) return `стадия «${stageName(stage)}» — ${errors.join(', ')}`
+  }
+  for (const flow of draft.flows) {
+    const errors = flowErrors(flow, draft.flows)
+    if (errors.length > 0) return `флоу «${flowName(flow)}» — ${errors.join(', ')}`
+    for (let index = 0; index < flow.entries.length; index++) {
+      const entryProblems = entryErrors(flow, index)
+      if (entryProblems.length > 0)
+        return `флоу «${flowName(flow)}», стадия «${entryTitle(draft, flow.entries[index])}» — ${entryProblems.join(', ')}`
+    }
+  }
+  return null
 }
 
-const sameReturns = (a: FlowReturn[] = [], b: FlowReturn[] = []) =>
-  a.length === b.length && a.every((back, i) => back.condition === b[i].condition && back.step === b[i].step)
+const entryTitle = (draft: Draft, entry: DraftEntry) => {
+  const stage = draft.stages.find((s) => s.key === entry.stage)
+  return stage ? stageName(stage) : entry.title
+}
 
-const sameStep = (a: FlowStep, b: FlowStep) =>
-  a.title === b.title &&
-  a.executor === b.executor &&
-  a.output === b.output &&
-  (a.skip ?? null) === (b.skip ?? null) &&
-  (a.description ?? null) === (b.description ?? null) &&
-  sameReturns(a.returns, b.returns) &&
-  (a.helpers ?? []).join(',') === (b.helpers ?? []).join(',')
-
-/** Шаг без возвратов и помощников: в сохранённые шаги они не уходят — решение оператора. */
-const plainStep = (step: FlowStep): FlowStep => ({ ...step, returns: [], helpers: [] })
+/**
+ * Стадии в порядке работы: как они идут во флоу базы — сначала первого, потом следующих, — а стоящие вне флоу
+ * в конце. Файлы стадий лежат по слагам, и в этом порядке список читался бы вразброс.
+ */
+function stagesInOrder(draft: Draft): DraftStage[] {
+  const keys: number[] = []
+  for (const flow of draft.flows)
+    for (const entry of flow.entries) if (entry.stage !== null && !keys.includes(entry.stage)) keys.push(entry.stage)
+  const placed = keys.map((key) => draft.stages.find((stage) => stage.key === key)).filter((s): s is DraftStage => !!s)
+  return [...placed, ...draft.stages.filter((stage) => !keys.includes(stage.key))]
+}
 
 const sameIcons = (a: Record<string, string>, b: Record<string, string>) => {
   const keys = Object.keys(a)
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
 }
 
-/** Правки, которых нет в файле базы: по ним видно, что флоу стоит сохранить. */
-const changed = (flow: BaseFlow, draft: DraftStep[]) => {
-  const steps = draft.map(toStep)
-  return (
-    steps.length !== flow.steps.length ||
-    steps.some((step, index) => !sameStep(step, flow.steps[index])) ||
-    !sameIcons(toIcons(draft), flow.icons ?? {})
-  )
+/** Стадия без помощников и слага: пресет общий для всех проектов, а помощники — исполнители своего. */
+const presetStage = (stage: FlowStage): FlowStage => ({ ...stage, helpers: [], slug: null })
+
+const samePreset = (a: FlowStage, b: FlowStage) =>
+  a.title === b.title &&
+  a.executor === b.executor &&
+  a.output === b.output &&
+  (a.skip ?? null) === (b.skip ?? null) &&
+  (a.description ?? null) === (b.description ?? null)
+
+/** Имя, которого нет среди флоу: «новый флоу», «новый флоу 2»… */
+function freeName(flows: DraftFlow[]) {
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? 'новый флоу' : `новый флоу ${n}`
+    if (!flows.some((flow) => norm(flow.name) === norm(name))) return name
+  }
 }
 
-/**
- * Шаг зовёт субагента, которого нет в базе проекта: пока имя пустое, это просто незаполненный шаг.
- * known === null — список исполнителей ещё не прочитан, и помечать нечего: иначе при открытии
- * раздела все шаги разом выглядели бы сломанными.
- */
-const missingPerformer = (step: DraftStep, known: string[] | null) =>
-  known !== null &&
-  step.kind === 'субагент' &&
-  step.agent.trim().length > 0 &&
-  !known.includes(step.agent.trim())
-
-/** Пресет общий для всех проектов и хранит имя исполнителя как есть: приставок у имён больше нет. */
-const presetStep = (step: FlowStep): FlowStep => plainStep(step)
+const emptyStage: FlowStage = { title: '', executor: 'оркестратор', output: '', skip: null, description: null }
 
 const invalidLabels: Record<string, string> = {
-  'empty-title': 'нет названия',
-  'empty-executor': 'не указан исполнитель',
-  'empty-output': 'не указан выход',
+  'stage-empty-title': 'у стадии нет названия',
+  'stage-duplicate-title': 'две стадии с одним названием',
+  'stage-bad-title': 'в названии стадии скобки [ ] или кавычки « »',
+  'stage-empty-executor': 'у стадии не указан исполнитель',
+  'stage-empty-output': 'у стадии не указан выход',
+  'helpers-not-orchestrator': 'помощники не у оркестратора',
   'line-break': 'перевод строки в поле',
+  'flow-empty-name': 'у флоу нет названия',
+  'flow-duplicate-name': 'два флоу с одним названием',
+  'flow-without-when': 'у флоу не указано «когда»',
+  'flow-without-stages': 'во флоу нет стадий',
+  'stage-unknown': 'стадии нет в базе',
+  'stage-twice': 'стадия дважды в одном флоу',
   'return-without-condition': 'в возврате не указано условие',
-  'return-unknown-step': 'возврат ведёт на стадию, которой во флоу нет',
-  'return-step-not-earlier': 'возврат ведёт на стадию, которая стоит не раньше',
+  'return-unknown-stage': 'возврат ведёт на стадию, которой во флоу нет',
+  'return-stage-not-earlier': 'возврат ведёт на стадию, которая стоит не раньше',
 }
 
 /**
- * rewriteFor — база просьбы, к которой вернулся оператор: окно переписывания открывается сразу на ней.
- * onPerformers — переход в раздел «Исполнители»: оттуда заводят того, кого шаг не нашёл.
+ * baseFor — база просьбы агента, к которой вернулся оператор: раздел открывается сразу на ней.
+ * onPerformers — переход в раздел «Исполнители»: оттуда заводят того, кого стадия не нашла.
  */
 export default function Flow({
-  rewriteFor = null,
+  baseFor = null,
   onPerformers,
-}: { rewriteFor?: string | null; onPerformers?: () => void } = {}) {
+}: { baseFor?: string | null; onPerformers?: () => void } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [selected, setSelected] = useState<string | null>(rewriteFor)
-  const [presets, setPresets] = useState<StepPreset[]>([])
-  // Заведённые в базах исполнители: из них шагу и выбирают субагента. null — ещё не прочитаны.
+  const [selected, setSelected] = useState<string | null>(baseFor)
+  const [presets, setPresets] = useState<StagePreset[]>([])
+  // Заведённые в базах исполнители: из них стадии и выбирают субагента. null — ещё не прочитаны.
   const [performers, setPerformers] = useState<BasePerformers[] | null>(null)
-  // Список не прочитан: шаги не метятся и запись не запирается, но сказать об этом оператору надо.
+  // Список не прочитан: стадии не метятся и запись не запирается, но сказать об этом оператору надо.
   const [performersFailed, setPerformersFailed] = useState(false)
-  // Правки поверх прочитанного файла: ключ — база и её отпечаток, поэтому правки чужого
+  // Правки поверх прочитанного флоу: ключ — база и её отпечаток, поэтому правки чужого
   // или перечитанного флоу не всплывают.
-  const [edits, setEdits] = useState<{ key: string; steps: DraftStep[] } | null>(null)
-  // Какой шаг открыт в сайдбаре: key шага, а не место — место меняется перетаскиванием.
-  const [opened, setOpened] = useState<number | null>(null)
-  // Какое окно открыто поверх схемы: описание шага, выбор нового шага или переписывание флоу агентом.
-  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(rewriteFor ? 'rewrite' : null)
+  const [edits, setEdits] = useState<{ key: string; draft: Draft } | null>(null)
+  const [tab, setTab] = useState<Tab>('flow')
+  // Выбранные стадия вкладки «Стадии» и флоу вкладки «Флоу» — по key, как в форме.
+  const [stageKey, setStageKey] = useState<number | null>(null)
+  const [flowKey, setFlowKey] = useState<number | null>(null)
+  const [opened, setOpened] = useState<Opened>(null)
+  // Выбор до записи — по именам: перечитанный флоу собирается в форму заново, с новыми key.
+  const [keep, setKeep] = useState<{ flow: string | null; stage: string | null } | null>(null)
+  // Какое окно открыто поверх раздела: описание стадии или выбор стадии во флоу.
+  const [modal, setModal] = useState<'description' | 'add' | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -247,16 +354,16 @@ export default function Flow({
       )
   }, [])
 
-  // Флоу читается при открытии раздела и кнопкой «Обновить», как бэклог.
+  // Флоу читается при открытии раздела и пунктом «Обновить», как бэклог.
   useEffect(loadFlows, [loadFlows])
 
   useEffect(() => {
     fetch('/api/presets')
-      .then((response) => (response.ok ? (response.json() as Promise<StepPreset[]>) : []))
+      .then((response) => (response.ok ? (response.json() as Promise<StagePreset[]>) : []))
       .then(setPresets, () => setPresets([]))
   }, [])
 
-  // Не прочитали список — оставляем null: пустой список пометил бы незаведёнными все шаги разом
+  // Не прочитали список — оставляем null: пустой список пометил бы незаведёнными все стадии разом
   // и запер бы сохранение флоу из-за временного отказа API.
   useEffect(() => {
     fetch('/api/performers')
@@ -269,27 +376,51 @@ export default function Flow({
 
   const flows = load.kind === 'loaded' ? load.flows : []
   const flow = flows.find((f) => f.base === selected) ?? null
-  // Шаг зовёт исполнителя именем; здесь — ровно те, кто лежит в базе проекта: выбирать из чего-то
-  // ещё шагу незачем, а того, кого в базе нет, агент всё равно не позовёт.
+  // Стадия зовёт исполнителя именем; здесь — ровно те, кто лежит в базе проекта.
   const project = flow && performers ? (performers.find((p) => p.base === flow.base) ?? null) : null
   const known = performers === null ? null : (project?.performers.map((p) => p.name) ?? [])
 
-  // Шаги базы кладутся в форму: править их можно сразу, отдельного режима правки нет.
-  const flowKey = flow ? `${flow.base}@${flow.version ?? ''}` : ''
+  // Флоу базы кладётся в форму: править его можно сразу, отдельного режима правки нет.
+  const baseKey = flow ? `${flow.base}@${flow.version ?? ''}` : ''
   const saved = useMemo(
-    () => (flow ? flow.steps.map((step) => toDraft(step, flow.icons?.[step.title] ?? '')) : []),
-    [flowKey], // eslint-disable-line react-hooks/exhaustive-deps
+    () => (flow ? toDraft(flow) : { stages: [], flows: [] }),
+    [baseKey], // eslint-disable-line react-hooks/exhaustive-deps
   )
-  const draft = edits?.key === flowKey ? edits.steps : saved
-  const setDraft = (steps: DraftStep[]) => setEdits({ key: flowKey, steps })
+  const draft = edits?.key === baseKey ? edits.draft : saved
+  const setDraft = (next: Draft) => setEdits({ key: baseKey, draft: next })
 
-  const dirty = flow !== null && changed(flow, draft)
+  const savedApi = useMemo(() => JSON.stringify(toApi(saved)), [saved])
+  const dirty =
+    flow !== null && (JSON.stringify(toApi(draft)) !== savedApi || !sameIcons(toIcons(draft), flow.icons ?? {}))
+  const unread = flow?.unread ?? []
+  const problem =
+    unread.length > 0
+      ? `в файлах флоу есть строка, которую панель не сохранит, — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
+      : firstProblem(draft, known)
+
+  // Записанный флоу перечитан с новыми key: выбор находится по именам, а не падает на первые флоу и стадию.
+  const currentFlow =
+    draft.flows.find((f) => f.key === flowKey) ??
+    draft.flows.find((f) => keep?.flow != null && norm(f.name) === norm(keep.flow)) ??
+    draft.flows[0] ??
+    null
+  const currentStage =
+    draft.stages.find((s) => s.key === stageKey) ??
+    draft.stages.find((s) => keep?.stage != null && norm(s.title) === norm(keep.stage)) ??
+    stagesInOrder(draft)[0] ??
+    null
 
   const refresh = useCallback(() => {
     setNotice(null)
     setLoad({ kind: 'loading' })
     loadFlows()
   }, [loadFlows])
+
+  const forget = () => {
+    setEdits(null)
+    setOpened(null)
+    setModal(null)
+  }
 
   async function openInVsCode(base: string) {
     setNotice(null)
@@ -305,7 +436,7 @@ export default function Flow({
     }
   }
 
-  async function save(target: BaseFlow, steps: DraftStep[]) {
+  async function save(target: BaseFlow, next: Draft) {
     setConfirming(false)
     setSaving(true)
     setNotice(null)
@@ -313,23 +444,16 @@ export default function Flow({
       const response = await fetch('/api/flow', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          base: target.base,
-          version: target.version,
-          steps: steps.map(toStep),
-          icons: toIcons(steps),
-        }),
+        body: JSON.stringify({ base: target.base, version: target.version, ...toApi(next), icons: toIcons(next) }),
       })
       if (response.ok) {
         setNotice({ kind: 'done', text: 'Флоу сохранён и закоммичен в базу' })
+        setKeep({ flow: currentFlow?.name ?? null, stage: currentStage?.title ?? null })
+        setOpened(null)
         loadFlows()
         return
       }
-      const body = (await response.json().catch(() => null)) as {
-        problem?: string
-        step?: number
-        detail?: string
-      } | null
+      const body = (await response.json().catch(() => null)) as RejectedBody | null
       setNotice({ kind: 'error', text: saveError(response.status, body) })
     } catch {
       setNotice({ kind: 'error', text: 'Флоу не сохранён: нет связи с API' })
@@ -338,22 +462,22 @@ export default function Flow({
     }
   }
 
-  async function saveAsPreset(step: FlowStep) {
+  async function saveAsPreset(stage: FlowStage) {
     try {
       const response = await fetch('/api/presets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(step),
+        body: JSON.stringify(stage),
       })
       if (!response.ok) throw new Error()
-      const preset = (await response.json()) as StepPreset
+      const preset = (await response.json()) as StagePreset
       setPresets((current) => (current.some((p) => p.id === preset.id) ? current : [...current, preset]))
     } catch {
       setNotice({ kind: 'error', text: 'Пресет не сохранён' })
     }
   }
 
-  async function removePreset(preset: StepPreset) {
+  async function removePreset(preset: StagePreset) {
     try {
       const response = await fetch(`/api/presets/${encodeURIComponent(preset.id)}`, { method: 'DELETE' })
       if (!response.ok && response.status !== 404) throw new Error()
@@ -363,61 +487,102 @@ export default function Flow({
     }
   }
 
-  const update = (index: number, patch: Partial<DraftStep>) =>
-    setDraft(draft.map((step, i) => (i === index ? { ...step, ...patch } : step)))
+  const updateStage = (key: number, patch: Partial<DraftStage>) =>
+    setDraft({ ...draft, stages: draft.stages.map((stage) => (stage.key === key ? { ...stage, ...patch } : stage)) })
 
-  const move = (from: number, to: number) => {
-    if (from === to || to < 0 || to >= draft.length) return
-    const next = [...draft]
-    const [step] = next.splice(from, 1)
-    next.splice(to, 0, step)
-    setDraft(renumbered(next))
+  const updateFlow = (key: number, change: (flow: DraftFlow) => DraftFlow) =>
+    setDraft({ ...draft, flows: draft.flows.map((f) => (f.key === key ? change(f) : f)) })
+
+  const addStage = (stage: FlowStage) => {
+    const added = stageDraft(stage)
+    return { added, stages: [...draft.stages, added] }
   }
 
-  const openedIndex = draft.findIndex((step) => step.key === opened)
-  const firstBad = draft.findIndex((step, index) => stepErrors(step, draft, index, known).length > 0)
+  // Новая стадия на вкладке «Стадии»: во флоу её ставят уже со вкладки «Флоу».
+  const newStage = () => {
+    const { added, stages } = addStage(emptyStage)
+    setDraft({ ...draft, stages })
+    setStageKey(added.key)
+  }
+
+  const newFlow = () => {
+    const created: DraftFlow = { key: nextKey++, name: freeName(draft.flows), when: '', entries: [] }
+    setDraft({ ...draft, flows: [...draft.flows, created] })
+    setFlowKey(created.key)
+    setTab('flow')
+    setOpened({ kind: 'flow' })
+  }
+
+  /** Стадия встаёт в конец флоу: своя стадия базы, новая пустая или из пресета — две последних заводятся в базе. */
+  const placeStage = (target: DraftFlow, choice: { stage: number } | { preset: FlowStage } | 'new') => {
+    const entry = (stage: number): DraftEntry => ({ key: nextKey++, stage, title: '', returns: [] })
+    const withEntry = (flowsOf: DraftFlow[], stage: number) =>
+      flowsOf.map((f) => (f.key === target.key ? { ...f, entries: [...f.entries, entry(stage)] } : f))
+
+    if (typeof choice === 'object' && 'stage' in choice) {
+      const placed = entry(choice.stage)
+      setDraft({ ...draft, flows: draft.flows.map((f) => (f.key === target.key ? { ...f, entries: [...f.entries, placed] } : f)) })
+      setOpened({ kind: 'entry', key: placed.key })
+    } else {
+      const { added, stages } = addStage(choice === 'new' ? emptyStage : choice.preset)
+      const next = { stages, flows: withEntry(draft.flows, added.key) }
+      setDraft(next)
+      if (choice === 'new') {
+        // Новую стадию ещё заполнять: её правка — на вкладке «Стадии».
+        setStageKey(added.key)
+        setTab('stages')
+      } else {
+        const placed = next.flows.find((f) => f.key === target.key)!.entries.at(-1)!
+        setOpened({ kind: 'entry', key: placed.key })
+      }
+    }
+    setModal(null)
+  }
+
   const editable = flow !== null && !flow.error
+  const empty = editable && draft.flows.length === 0
 
   return (
     <>
-      <div className="content-head">
-        {/* Название проекта стоит на чипе: над схемой его не повторяют — замечание оператора. */}
+      <div className="vc-head">
         <h2>Флоу</h2>
-        <div className="head-end flow-actions">
-          {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
-          {firstBad >= 0 && (
-            <span className="flow-blocked">
-              Не сохранить: стадия {firstBad + 1} — {stepErrors(draft[firstBad], draft, firstBad, known).join(', ')}
-            </span>
-          )}
-          {editable && (
-            <>
-              {dirty && (
-                <button
-                  type="button"
-                  className="bases-btn"
-                  disabled={saving}
-                  onClick={() => {
-                    setNotice(null)
-                    setEdits(null)
-                    setOpened(null)
-                  }}
-                >
-                  Отменить правки
-                </button>
-              )}
+        {editable && !empty && (
+          <div className="vc-tabs" role="tablist" aria-label="Части флоу">
+            {(['stages', 'flow'] as const).map((one) => (
               <button
+                key={one}
                 type="button"
-                className="bases-btn bases-btn-primary"
-                disabled={saving || !dirty || firstBad >= 0}
-                onClick={() => (flow.activeTasks > 0 ? setConfirming(true) : void save(flow, draft))}
+                role="tab"
+                className={`flow-tab ${tab === one ? 'is-on' : ''}`}
+                aria-selected={tab === one}
+                onClick={() => {
+                  setTab(one)
+                  setOpened(null)
+                }}
               >
-                {saving ? 'Сохранение…' : 'Сохранить'}
+                {one === 'stages' ? 'Стадии' : 'Флоу'}
               </button>
-            </>
+            ))}
+          </div>
+        )}
+        <div className="head-end flow-actions">
+          {flows.length > 0 && (
+            <PickMenu
+              label="Проект"
+              value={flow?.project ?? ''}
+              options={flows.map((f) => ({ id: f.base, label: f.project }))}
+              selected={selected}
+              // Правка идёт по флоу одной базы: пока она не записана, проект не переключается.
+              disabled={dirty}
+              onPick={(base) => {
+                setSelected(base)
+                setOpened(null)
+                setStageKey(null)
+                setFlowKey(null)
+                setKeep(null)
+              }}
+            />
           )}
-          {/* Редкие действия — в меню «…»: рядом с надписью «Не сохранить: …» пять кнопок сжимали её
-              в столбик — решение оператора на B-132. */}
           <RowMenu label="Ещё действия" title="Ещё действия" buttonClassName="bases-btn head-more">
             {(close) => (
               <>
@@ -425,7 +590,7 @@ export default function Flow({
                   type="button"
                   role="menuitem"
                   className="row-menu-item"
-                  // Обновление перечитает файл базы: незаписанные правки оно бы стёрло молча.
+                  // Обновление перечитает базу: незаписанные правки оно бы стёрло молча.
                   disabled={load.kind === 'loading' || dirty}
                   onClick={() => {
                     close()
@@ -435,37 +600,20 @@ export default function Flow({
                   <RefreshIcon />
                   Обновить
                 </button>
-                {editable && (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="row-menu-item"
-                      // Пока правки не сохранены, переписывать нечего: агент работает с файлом базы.
-                      disabled={dirty}
-                      title={dirty ? 'Сначала сохраните или отмените свои правки' : undefined}
-                      onClick={() => {
-                        close()
-                        setNotice(null)
-                        setModal('rewrite')
-                      }}
-                    >
-                      <RewriteIcon />
-                      Переписать с {AGENT_NAME}
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className="row-menu-item"
-                      onClick={() => {
-                        close()
-                        void openInVsCode(flow.base)
-                      }}
-                    >
-                      <VsCodeIcon />
-                      Открыть в VS Code
-                    </button>
-                  </>
+                {/* Открывать есть что, пока в базе лежит флоу или хоть одна стадия. */}
+                {editable && (flow.flows.length > 0 || flow.stages.length > 0) && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="row-menu-item"
+                    onClick={() => {
+                      close()
+                      void openInVsCode(flow.base)
+                    }}
+                  >
+                    <VsCodeIcon />
+                    Открыть в VS Code
+                  </button>
                 )}
               </>
             )}
@@ -484,7 +632,7 @@ export default function Flow({
           {notice.text}
         </p>
       )}
-      {/* Без списка исполнителей шаги не помечаются и запись не запирается — сказать, отчего так. */}
+      {/* Без списка исполнителей стадии не помечаются и запись не запирается — сказать, отчего так. */}
       {performersFailed && (
         <p className="message warning-text" role="status">
           Список исполнителей не прочитан: имена стадий панель не проверяет, пока раздел не откроют заново.
@@ -495,135 +643,123 @@ export default function Flow({
         <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>
       )}
 
-      {load.kind === 'loaded' && flows.length > 1 && (
-        <div className="filter-bar" role="group" aria-label="Проекты">
-          {flows.map((f) => (
-            <button
-              key={f.base}
-              type="button"
-              className={`chip ${f.base === selected ? 'active' : ''}`}
-              aria-pressed={f.base === selected}
-              // Правка идёт по флоу одной базы: пока она не записана, проект не переключается.
-              disabled={dirty}
-              onClick={() => setSelected(f.base)}
-            >
-              {f.project}
-            </button>
-          ))}
+      {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
+
+      {empty && (
+        <div className="flow-empty">
+          <span className="flow-empty-mark" aria-hidden="true">
+            <FlowIcon />
+          </span>
+          <h3>В этом проекте нет флоу</h3>
+          <p>Флоу — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
+          <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
+            <PlusIcon />
+            Создать первый флоу
+          </button>
         </div>
       )}
 
-      {flow && (
-        <section className="flow-canvas" aria-label={flow.project}>
-          {flow.error && (
-            <p className="backlog-note warning-text">
-              {flow.error === 'В базе нет flow.md'
-                ? 'В базе нет файла флоу. Агент не начнёт задачу на этом проекте, пока флоу не записан.'
-                : flow.error}
-            </p>
+      {editable && !empty && tab === 'stages' && (
+        <StagesTab
+          draft={draft}
+          current={currentStage}
+          known={known}
+          presets={presets}
+          onPerformers={onPerformers}
+          onSelect={setStageKey}
+          onNew={newStage}
+          onChange={(patch) => currentStage && updateStage(currentStage.key, patch)}
+          onEditDescription={() => setModal('description')}
+          onSaveAsPreset={() => currentStage && void saveAsPreset(presetStage(toStage(currentStage)))}
+          onDelete={() => {
+            if (!currentStage) return
+            setDraft({ ...draft, stages: draft.stages.filter((stage) => stage.key !== currentStage.key) })
+            setStageKey(null)
+          }}
+        />
+      )}
+
+      {editable && !empty && tab === 'flow' && currentFlow && (
+        <FlowTab
+          draft={draft}
+          flow={currentFlow}
+          opened={opened}
+          known={known}
+          onPick={(key) => {
+            setFlowKey(key)
+            setOpened(null)
+          }}
+          onNew={newFlow}
+          onOpen={setOpened}
+          onChange={(change) => updateFlow(currentFlow.key, change)}
+          onEditStage={(key) => {
+            setStageKey(key)
+            setTab('stages')
+            setOpened(null)
+          }}
+          onAdd={() => setModal('add')}
+          onDelete={() => {
+            setDraft({ ...draft, flows: draft.flows.filter((f) => f.key !== currentFlow.key) })
+            setFlowKey(null)
+            setOpened(null)
+          }}
+        />
+      )}
+
+      {modal === 'description' && currentStage && (
+        <DescriptionEditor
+          title={currentStage.title}
+          description={currentStage.description}
+          onCancel={() => setModal(null)}
+          onDone={(description) => {
+            updateStage(currentStage.key, { description })
+            setModal(null)
+          }}
+        />
+      )}
+
+      {modal === 'add' && currentFlow && (
+        <AddStage
+          flow={currentFlow}
+          stages={draft.stages.filter((stage) => !currentFlow.entries.some((entry) => entry.stage === stage.key))}
+          presets={presets}
+          onCancel={() => setModal(null)}
+          onPick={(choice) => placeStage(currentFlow, choice)}
+          onRemovePreset={(preset) => void removePreset(preset)}
+        />
+      )}
+
+      {/* Полоса сохранения стоит внизу раздела и видна при правках — вариант оператора, — а ещё когда флоу
+          в базе уже сломан: иначе не видно, почему его не сохранить. С правками она стоит и в пустом
+          состоянии: удалённый последний флоу иначе не сохранить и не отменить. */}
+      {editable && (dirty || (problem && !empty)) && (
+        <div className="save-bar">
+          <div className="save-bar-state">
+            {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
+            {problem && <span className="flow-blocked">Не сохранить: {problem}</span>}
+          </div>
+          {dirty && (
+            <button
+              type="button"
+              className="bases-btn"
+              disabled={saving}
+              onClick={() => {
+                setNotice(null)
+                forget()
+              }}
+            >
+              Отменить правки
+            </button>
           )}
-
-          {editable && (
-            <>
-              <div className="flow-scroll">
-              <div className="flow-chain">
-                <ReturnArcs steps={draft} opened={openedIndex} />
-                {draft.length === 0 && (
-                  <p className="backlog-note text-sec">
-                    Во флоу пока нет стадий. Агент не начнёт задачу на этом проекте, пока стадии не записаны.
-                  </p>
-                )}
-                {draft.map((step, index) => (
-                  <StepNode
-                    key={step.key}
-                    step={step}
-                    missing={missingPerformer(step, known)}
-                    invalid={stepErrors(step, draft, index, known).length > 0}
-                    number={index + 1}
-                    opened={step.key === opened}
-                    onOpen={() => setOpened(step.key)}
-                    onMove={move}
-                    index={index}
-                    last={index === draft.length - 1}
-                  />
-                ))}
-                {draft.length > 0 && <FlowArrow />}
-                <button
-                  type="button"
-                  className="flow-node flow-node-add"
-                  onClick={() => setModal('add')}
-                >
-                  <PlusIcon />
-                  <span className="flow-node-title">Добавить стадию</span>
-                </button>
-              </div>
-              </div>
-
-              {openedIndex >= 0 && (
-                <StepDrawer
-                  step={draft[openedIndex]}
-                  steps={draft}
-                  index={openedIndex}
-                  known={known}
-                  onPerformers={onPerformers}
-                  number={openedIndex + 1}
-                  isPreset={presets.some((preset) => sameStep(preset, presetStep(toStep(draft[openedIndex]))))}
-                  onChange={(patch) => update(openedIndex, patch)}
-                  onClose={() => setOpened(null)}
-                  onSaveAsPreset={() => void saveAsPreset(presetStep(toStep(draft[openedIndex])))}
-                  onEditDescription={() => setModal('description')}
-                  onDelete={() => {
-                    setDraft(renumbered(draft.filter((_, i) => i !== openedIndex)))
-                    setOpened(null)
-                  }}
-                />
-              )}
-
-              {modal === 'description' && openedIndex >= 0 && (
-                <DescriptionEditor
-                  title={draft[openedIndex].title}
-                  description={draft[openedIndex].description}
-                  onCancel={() => setModal(null)}
-                  onDone={(description) => {
-                    update(openedIndex, { description })
-                    setModal(null)
-                  }}
-                />
-              )}
-
-              {modal === 'rewrite' && (
-                <FlowRewriteModal
-                  base={flow.base}
-                  project={flow.project}
-                  steps={flow.steps}
-                  version={flow.version}
-                  onClose={() => setModal(null)}
-                  onApply={(steps) => {
-                    // Переписанное ложится в правки схемы: записывает его та же кнопка «Сохранить».
-                    setDraft(renumbered(steps.map((step) => toDraft(step, flow.icons?.[step.title] ?? ''))))
-                    setOpened(null)
-                    setModal(null)
-                    setNotice({ kind: 'done', text: `Правки ${AGENT_NAME} в схеме — их ещё нужно сохранить` })
-                  }}
-                />
-              )}
-
-              {modal === 'add' && (
-                <AddStep
-                  presets={presets}
-                  onCancel={() => setModal(null)}
-                  onAdd={(step) => {
-                    const added = toDraft(step)
-                    setDraft(renumbered([...draft, added]))
-                    setOpened(added.key)
-                    setModal(null)
-                  }}
-                  onRemovePreset={(preset) => void removePreset(preset)}
-                />
-              )}
-            </>
-          )}
-        </section>
+          <button
+            type="button"
+            className="bases-btn bases-btn-primary"
+            disabled={saving || !dirty || problem !== null}
+            onClick={() => (flow.activeTasks > 0 ? setConfirming(true) : void save(flow, draft))}
+          >
+            {saving ? 'Сохранение…' : 'Сохранить'}
+          </button>
+        </div>
       )}
 
       {confirming && flow && (
@@ -633,46 +769,462 @@ export default function Flow({
   )
 }
 
-function saveError(status: number, body: { problem?: string; step?: number; detail?: string } | null) {
+type RejectedBody = { problem?: string; flow?: string | null; stage?: string | null; detail?: string | null }
+
+function saveError(status: number, body: RejectedBody | null) {
   if (status === 409)
-    return 'Флоу не сохранён: файл флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
-  if (status === 400 && body?.step)
-    return `Флоу не сохранён: стадия ${body.step} — ${invalidLabels[body.detail ?? ''] ?? 'не в форме кита'}`
+    return 'Флоу не сохранён: флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
+  // Страховка: при том же отпечатке такие строки уже пришли с флоу, и «Сохранить» заперта раньше, чем дойдёт до API.
+  if (status === 400 && body?.problem === 'unread')
+    return `Флоу не сохранён: в файлах флоу есть строка, которую панель не сохранит, — ${body.detail ?? ''}`.trim()
+  if (status === 400 && body?.problem) {
+    const where = [body.flow ? `флоу «${body.flow}»` : '', body.stage ? `стадия «${body.stage}»` : '']
+      .filter(Boolean)
+      .join(', ')
+    return `Флоу не сохранён: ${where ? `${where} — ` : ''}${invalidLabels[body.problem] ?? 'не в форме кита'}`
+  }
+  if (status === 502 && body?.problem === 'not-written')
+    return `Флоу не сохранён: файл флоу не записался, файлы возвращены как были.${body.detail ? ` ${body.detail}` : ''}`
+  if (status === 502 && body?.problem === 'not-restored')
+    return `Флоу не сохранён, и не все файлы удалось вернуть — проверьте flow/ базы.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 502 && body?.problem === 'not-committed')
-    return `Флоу не сохранён: коммит в базу не прошёл, файл оставлен как был.${body.detail ? ` ${body.detail}` : ''}`
-  if (status === 404) return 'Флоу не сохранён: файл флоу базы не найден'
+    return `Флоу не сохранён: коммит в базу не прошёл, файлы оставлены как были.${body.detail ? ` ${body.detail}` : ''}`
+  if (status === 404) return 'Флоу не сохранён: база не найдена'
   return 'Флоу не сохранён'
 }
 
-/** Исполнитель на блоке: то же имя, каким его зовёт шаг и каким назван его файл в базе. */
-const executorOf = (step: DraftStep) =>
-  step.kind === 'субагент' ? `субагент ${step.agent.trim()}`.trim() : step.kind
+/** Исполнитель на блоке: то же имя, каким его зовёт стадия и каким назван его файл в базе. */
+const executorOf = (stage: DraftStage) =>
+  stage.kind === 'субагент' ? `субагент ${stage.agent.trim()}`.trim() : stage.kind
 
-const executorKind = (step: DraftStep) =>
-  step.kind === 'оркестратор' ? 'orchestrator' : step.kind === 'оператор' ? 'operator' : 'agent'
+const executorKind = (stage: DraftStage) =>
+  stage.kind === 'оркестратор' ? 'orchestrator' : stage.kind === 'оператор' ? 'operator' : 'agent'
 
 /**
- * Дуги возвратов рисуются по местам блоков, а не по замеру DOM: высота блока и промежуток между ними
- * заданы в Flow.css и здесь повторены числами — меняются они вместе.
+ * Выбор из списка кнопкой: проект в шапке раздела и флоу в углу холста. В раскрытом списке —
+ * только названия, у выбранного — галочка.
  */
+function PickMenu({
+  label,
+  value,
+  options,
+  selected,
+  disabled = false,
+  onPick,
+}: {
+  label: string
+  value: string
+  options: { id: string; label: string }[]
+  selected: string | null
+  disabled?: boolean
+  onPick: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onMouseDown = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [open])
+
+  return (
+    <div className="flow-pick" ref={box} onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}>
+      <button
+        type="button"
+        className="flow-pick-btn"
+        aria-label={`${label}: ${value}`}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen(!open)}
+      >
+        {value}
+        {open ? <ChevronUpIcon /> : <ChevronDownIcon />}
+      </button>
+      {open && (
+        <ul className="flow-pick-menu" role="listbox" aria-label={label}>
+          {options.map((option) => (
+            <li
+              key={option.id}
+              role="option"
+              aria-selected={option.id === selected}
+              tabIndex={0}
+              onClick={() => {
+                onPick(option.id)
+                setOpen(false)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                onPick(option.id)
+                setOpen(false)
+              }}
+            >
+              {option.label}
+              {option.id === selected && (
+                <span className="flow-pick-check">
+                  <TickIcon />
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** Вкладка «Стадии»: все стадии базы слева и правка выбранной — сразу для всех флоу, где она стоит. */
+function StagesTab({
+  draft,
+  current,
+  known,
+  presets,
+  onPerformers,
+  onSelect,
+  onNew,
+  onChange,
+  onEditDescription,
+  onSaveAsPreset,
+  onDelete,
+}: {
+  draft: Draft
+  current: DraftStage | null
+  known: string[] | null
+  presets: StagePreset[]
+  onPerformers?: () => void
+  onSelect: (key: number) => void
+  onNew: () => void
+  onChange: (patch: Partial<DraftStage>) => void
+  onEditDescription: () => void
+  onSaveAsPreset: () => void
+  onDelete: () => void
+}) {
+  // Стадию, которая стоит хоть в одном флоу, не удалить: сначала её убирают из флоу — ответ оператора.
+  const used = current !== null && draft.flows.some((f) => f.entries.some((entry) => entry.stage === current.key))
+  const errors = current ? stageErrors(current, draft.stages, known) : []
+  const isPreset = current !== null && presets.some((preset) => samePreset(preset, presetStage(toStage(current))))
+
+  return (
+    <div className="flow-stages">
+      <div className="flow-stage-list">
+        <div className="flow-stage-list-head">
+          <button type="button" className="bases-btn bases-btn-add bases-btn-small" onClick={onNew}>
+            <PlusIcon />
+            Новая стадия
+          </button>
+        </div>
+        <ul aria-label="Стадии базы">
+          {stagesInOrder(draft).map((stage) => (
+            <li key={stage.key}>
+              <button
+                type="button"
+                className={`flow-stage-item ${stage.key === current?.key ? 'is-on' : ''} ${
+                  stageErrors(stage, draft.stages, known).length > 0 ? 'invalid' : ''
+                }`}
+                aria-current={stage.key === current?.key}
+                onClick={() => onSelect(stage.key)}
+              >
+                <span className={`flow-node-mark flow-mark-${executorKind(stage)}`} aria-hidden="true">
+                  <StageIcon icon={stage.icon} kind={executorKind(stage)} />
+                </span>
+                <span className="flow-stage-item-text">
+                  <span className="flow-stage-item-title">{stageName(stage)}</span>
+                  <span className="flow-node-executor">{executorOf(stage) || 'субагент'}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {current && (
+        <section className="flow-stage-edit" aria-label={`Стадия «${stageName(current)}»`}>
+          <div className="flow-drawer-head">
+            <span className={`flow-node-mark flow-mark-${executorKind(current)}`} aria-hidden="true">
+              <StageIcon icon={current.icon} kind={executorKind(current)} />
+            </span>
+            <div className="flow-drawer-name">
+              <h3>{stageName(current)}</h3>
+              <span className="flow-node-executor">{executorOf(current) || 'субагент'}</span>
+            </div>
+          </div>
+
+          <div className="flow-drawer-body">
+            <label className="flow-field">
+              <span>название</span>
+              <input
+                className="flow-input"
+                aria-label="Название стадии"
+                placeholder="Название стадии"
+                aria-invalid={!current.title.trim()}
+                value={current.title}
+                onChange={(event) => onChange({ title: event.target.value })}
+              />
+            </label>
+
+            <div className="flow-field">
+              <span>значок</span>
+              <IconPicker stage={current} onPick={(icon) => onChange({ icon })} />
+            </div>
+
+            <label className="flow-field">
+              <span>исполнитель</span>
+              <select
+                className="flow-input"
+                aria-label="Исполнитель стадии"
+                value={current.kind}
+                onChange={(event) => {
+                  const kind = event.target.value as DraftStage['kind']
+                  // Помощники стираются на глазах: в файле у такой стадии их не бывает, и молча они бы пропали при записи.
+                  onChange({ kind, helpers: kind === 'оркестратор' ? current.helpers : [] })
+                }}
+              >
+                {kinds.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {kind}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {current.kind === 'субагент' && (
+              <PerformerField stage={current} known={known} onChange={onChange} onPerformers={onPerformers} />
+            )}
+
+            {/* Помощников зовёт только оркестратор: у прочих стадий поля нет — форма кита. */}
+            {current.kind === 'оркестратор' && <HelpersField stage={current} known={known} onChange={onChange} />}
+
+            <label className="flow-field">
+              <span>выход</span>
+              <textarea
+                className="flow-input"
+                aria-label="Выход стадии"
+                placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
+                aria-invalid={!current.output.trim()}
+                rows={3}
+                value={current.output}
+                onChange={(event) => onChange({ output: event.target.value })}
+              />
+            </label>
+
+            <label className="flow-field">
+              <span>пропуск</span>
+              <input
+                className="flow-input"
+                aria-label="Пропуск стадии"
+                placeholder="нет — стадия проходится всегда"
+                value={current.skip}
+                onChange={(event) => onChange({ skip: event.target.value })}
+              />
+            </label>
+
+            <div className="flow-field">
+              <span>описание</span>
+              {/* Кнопка показывает лишь наличие описания: без него та же надпись, но пунктиром. */}
+              <button
+                type="button"
+                className={`bases-btn flow-description-btn ${current.description ? '' : 'flow-description-empty'}`}
+                title={current.description ? 'Описание есть — править' : 'Описания нет — добавить'}
+                onClick={onEditDescription}
+              >
+                <FileTextIcon />
+                Редактировать описание
+              </button>
+            </div>
+
+            {errors.length > 0 && <p className="flow-step-error">Стадию не сохранить: {errors.join(', ')}.</p>}
+          </div>
+
+          <div className="flow-drawer-foot">
+            <button
+              type="button"
+              className="bases-btn"
+              disabled={errors.length > 0 || isPreset}
+              aria-pressed={isPreset}
+              onClick={onSaveAsPreset}
+            >
+              <BookmarkIcon />
+              {isPreset ? 'Стадия в пресетах' : 'В пресеты'}
+            </button>
+            <button
+              type="button"
+              className="bases-btn bases-btn-danger flow-drawer-delete"
+              disabled={used}
+              onClick={onDelete}
+            >
+              <TrashIcon />
+              Удалить стадию
+            </button>
+          </div>
+        </section>
+      )}
+    </div>
+  )
+}
+
+/** Вкладка «Флоу»: выбранный флоу схемой — узел старта, стадии блоками и возвраты дугами. */
+function FlowTab({
+  draft,
+  flow,
+  opened,
+  known,
+  onPick,
+  onNew,
+  onOpen,
+  onChange,
+  onEditStage,
+  onAdd,
+  onDelete,
+}: {
+  draft: Draft
+  flow: DraftFlow
+  opened: Opened
+  known: string[] | null
+  onPick: (key: number) => void
+  onNew: () => void
+  onOpen: (opened: Opened) => void
+  onChange: (change: (flow: DraftFlow) => DraftFlow) => void
+  onEditStage: (key: number) => void
+  onAdd: () => void
+  onDelete: () => void
+}) {
+  const stageOf = (entry: DraftEntry) => draft.stages.find((stage) => stage.key === entry.stage) ?? null
+  const openedIndex = opened?.kind === 'entry' ? flow.entries.findIndex((entry) => entry.key === opened.key) : -1
+
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= flow.entries.length) return
+    onChange((f) => {
+      const entries = [...f.entries]
+      const [entry] = entries.splice(from, 1)
+      entries.splice(to, 0, entry)
+      return { ...f, entries }
+    })
+  }
+
+  const setEntry = (key: number, patch: Partial<DraftEntry>) =>
+    onChange((f) => ({ ...f, entries: f.entries.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)) }))
+
+  return (
+    <section className="flow-canvas" aria-label={`Флоу «${flowName(flow)}»`}>
+      <div className="flow-canvas-pick">
+        <PickMenu
+          label="Флоу"
+          value={flowName(flow)}
+          options={draft.flows.map((f) => ({ id: String(f.key), label: flowName(f) }))}
+          selected={String(flow.key)}
+          onPick={(id) => onPick(Number(id))}
+        />
+        <button type="button" className="bases-btn bases-btn-small" onClick={onNew}>
+          <PlusIcon />
+          Новый флоу
+        </button>
+      </div>
+
+      <div className="flow-scroll">
+        <div className="flow-chain">
+          <ReturnArcs flow={flow} opened={openedIndex} />
+          <button
+            type="button"
+            className={`flow-start ${opened?.kind === 'flow' ? 'opened' : ''} ${
+              flowErrors(flow, draft.flows).length > 0 ? 'invalid' : ''
+            }`}
+            aria-label={`Флоу «${flowName(flow)}»: название и «когда»`}
+            aria-current={opened?.kind === 'flow'}
+            onClick={() => onOpen({ kind: 'flow' })}
+          >
+            <span className="flow-start-dot" aria-hidden="true">
+              <FlowIcon />
+            </span>
+            <span className="flow-start-name">{flowName(flow)}</span>
+          </button>
+          <FlowArrow />
+          {flow.entries.map((entry, index) => {
+            const stage = stageOf(entry)
+            return (
+              <StageNode
+                key={entry.key}
+                stage={stage}
+                title={entryTitle(draft, entry)}
+                returns={entry.returns.map((back) => draft.stages.find((s) => s.key === back.target)?.title.trim() ?? '')}
+                missing={stage !== null && missingPerformer(stage, known)}
+                invalid={
+                  entryErrors(flow, index).length > 0 ||
+                  (stage !== null && stageErrors(stage, draft.stages, known).length > 0)
+                }
+                number={index + 1}
+                index={index}
+                last={index === flow.entries.length - 1}
+                opened={entry.key === (opened?.kind === 'entry' ? opened.key : null)}
+                onOpen={() => onOpen({ kind: 'entry', key: entry.key })}
+                onMove={move}
+              />
+            )
+          })}
+          {flow.entries.length > 0 && <FlowArrow />}
+          <button type="button" className="flow-node flow-node-add" onClick={onAdd}>
+            <PlusIcon />
+            <span className="flow-node-title">Добавить стадию</span>
+          </button>
+        </div>
+      </div>
+
+      {openedIndex >= 0 && (
+        <EntryDrawer
+          draft={draft}
+          flow={flow}
+          index={openedIndex}
+          onChange={(patch) => setEntry(flow.entries[openedIndex].key, patch)}
+          onEditStage={onEditStage}
+          onClose={() => onOpen(null)}
+          onRemove={() => {
+            const key = flow.entries[openedIndex].key
+            onChange((f) => ({ ...f, entries: f.entries.filter((entry) => entry.key !== key) }))
+            onOpen(null)
+          }}
+        />
+      )}
+
+      {opened?.kind === 'flow' && (
+        <FlowDrawer
+          flow={flow}
+          errors={flowErrors(flow, draft.flows)}
+          onChange={(patch) => onChange((f) => ({ ...f, ...patch }))}
+          onClose={() => onOpen(null)}
+          onDelete={onDelete}
+        />
+      )}
+    </section>
+  )
+}
+
+/**
+ * Дуги возвратов рисуются по местам блоков, а не по замеру DOM: высоты узла старта и блока и промежуток
+ * между ними заданы в Flow.css и здесь повторены числами — меняются они вместе.
+ */
+const START_HEIGHT = 96
 const NODE_HEIGHT = 148
 const NODE_GAP = 32
 const ARC_LANE = 26
 const ARC_WIDTH = 150
 const ARC_ROUND = 12
+const CHAIN_PAD = 16
 
 type ReturnArc = { from: number; to: number; condition: string; lane: number }
 
 /**
- * Возвраты ленты дугами: у каждой своя дорожка, чтобы соседние круги не сливались в одну линию.
- * Возврат, которому некуда вести, не рисуется — он уже назван ошибкой шага.
+ * Возвраты флоу дугами: у каждой своя дорожка, чтобы соседние круги не сливались в одну линию.
+ * Возврат, которому некуда вести, не рисуется — он уже назван ошибкой стадии.
  */
-function returnArcs(steps: DraftStep[]): ReturnArc[] {
+function returnArcs(flow: DraftFlow): ReturnArc[] {
   const arcs: ReturnArc[] = []
-  steps.forEach((step, from) => {
-    for (const back of step.returns) {
-      const target = back.step.trim()
-      const to = steps.findIndex((s) => s.title.trim() === target && target)
+  flow.entries.forEach((entry, from) => {
+    for (const back of entry.returns) {
+      const to = flow.entries.findIndex((other) => back.target !== null && other.stage === back.target)
       if (to < 0 || to >= from) continue
       let lane = 0
       while (arcs.some((arc) => arc.lane === lane && arc.to <= from && to <= arc.from)) lane++
@@ -684,15 +1236,16 @@ function returnArcs(steps: DraftStep[]): ReturnArc[] {
 
 const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
 
-/** Круги работы слева от ленты: у шага, открытого в сайдбаре, его дуга подсвечена и подписана условием. */
-function ReturnArcs({ steps, opened }: { steps: DraftStep[]; opened: number }) {
-  const arcs = returnArcs(steps)
+/** Круги работы слева от ленты: у стадии, открытой в сайдбаре, её дуга подсвечена и подписана условием. */
+function ReturnArcs({ flow, opened }: { flow: DraftFlow; opened: number }) {
+  const arcs = returnArcs(flow)
   if (arcs.length === 0) return null
 
-  const height = steps.length * (NODE_HEIGHT + NODE_GAP)
+  const height = flow.entries.length * (NODE_HEIGHT + NODE_GAP)
 
   return (
-    <div className="flow-lines" aria-hidden="true">
+    // Первым в ленте стоит узел старта: дуги начинаются под ним.
+    <div className="flow-lines" style={{ top: CHAIN_PAD + START_HEIGHT + NODE_GAP }} aria-hidden="true">
       <svg className="flow-arcs" style={{ width: ARC_WIDTH, height }} viewBox={`0 0 ${ARC_WIDTH} ${height}`}>
         {arcs.map((arc) => {
           const lane = ARC_WIDTH - (arc.lane + 1) * ARC_LANE
@@ -720,9 +1273,11 @@ function ReturnArcs({ steps, opened }: { steps: DraftStep[]; opened: number }) {
   )
 }
 
-/** Блок шага на схеме: без номера — по решению оператора, — со значком, названием и исполнителем. */
-function StepNode({
-  step,
+/** Блок стадии на схеме: без номера — по решению оператора, — со значком, названием и исполнителем. */
+function StageNode({
+  stage,
+  title,
+  returns,
   missing,
   invalid,
   number,
@@ -732,7 +1287,9 @@ function StepNode({
   onOpen,
   onMove,
 }: {
-  step: DraftStep
+  stage: DraftStage | null
+  title: string
+  returns: string[]
   missing: boolean
   invalid: boolean
   number: number
@@ -744,76 +1301,225 @@ function StepNode({
 }) {
   const [dragging, setDragging] = useState(false)
   const [over, setOver] = useState(false)
+  const kind = stage ? executorKind(stage) : 'agent'
 
   return (
     <>
       {number > 1 && <FlowArrow />}
       <div className="flow-node-row">
-      <button
-        type="button"
-        className={`flow-node ${opened ? 'opened' : ''} ${dragging ? 'dragging' : ''} ${over ? 'drop-target' : ''} ${
-          invalid ? 'invalid' : ''
-        }`}
-        // Возврат нарисован дугой, а не текстом: программе чтения экрана он называется здесь.
-        aria-label={`Стадия ${number}: ${step.title.trim() || 'без названия'}${step.returns
-          .filter((back) => back.step.trim())
-          .map((back) => `, возврат к стадии ${back.step.trim()}`)
-          .join('')}`}
-        aria-current={opened}
-        draggable
-        onClick={onOpen}
-        onDragStart={(event: DragEvent) => {
-          event.dataTransfer.effectAllowed = 'move'
-          event.dataTransfer.setData('text/plain', String(index))
-          setDragging(true)
-        }}
-        onDragEnd={() => {
-          setDragging(false)
-          setOver(false)
-        }}
-        onDragOver={(event: DragEvent) => {
-          event.preventDefault()
-          setOver(true)
-        }}
-        onDragLeave={() => setOver(false)}
-        onDrop={(event: DragEvent) => {
-          event.preventDefault()
-          setOver(false)
-          const from = Number(event.dataTransfer.getData('text/plain'))
-          if (Number.isInteger(from)) onMove(from, index)
-        }}
-      >
-        <span className="flow-grip" aria-hidden="true">
-          <GripIcon />
-        </span>
-        {step.skip.trim() && (
-          <span className="flow-node-skip" title="есть условие пропуска" aria-hidden="true">
-            <SkipIcon />
+        <button
+          type="button"
+          className={`flow-node ${opened ? 'opened' : ''} ${dragging ? 'dragging' : ''} ${over ? 'drop-target' : ''} ${
+            invalid ? 'invalid' : ''
+          }`}
+          // Возврат нарисован дугой, а не текстом: программе чтения экрана он называется здесь.
+          aria-label={`Стадия ${number}: ${title}${returns
+            .filter(Boolean)
+            .map((target) => `, возврат к стадии ${target}`)
+            .join('')}`}
+          aria-current={opened}
+          draggable
+          onClick={onOpen}
+          onDragStart={(event: DragEvent) => {
+            event.dataTransfer.effectAllowed = 'move'
+            event.dataTransfer.setData('text/plain', String(index))
+            setDragging(true)
+          }}
+          onDragEnd={() => {
+            setDragging(false)
+            setOver(false)
+          }}
+          onDragOver={(event: DragEvent) => {
+            event.preventDefault()
+            setOver(true)
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(event: DragEvent) => {
+            event.preventDefault()
+            setOver(false)
+            const from = Number(event.dataTransfer.getData('text/plain'))
+            if (Number.isInteger(from)) onMove(from, index)
+          }}
+        >
+          <span className="flow-grip" aria-hidden="true">
+            <GripIcon />
           </span>
-        )}
-        {/* Исполнителя нет в базе: с таким именем флоу не сохранится, пока его не заменили. */}
-        {missing && (
-          <span className="flow-node-missing" aria-label={`Исполнителя ${step.agent.trim()} нет в базе`}>
-            <MissingIcon />
+          {stage?.skip.trim() && (
+            <span className="flow-node-skip" title="есть условие пропуска" aria-hidden="true">
+              <SkipIcon />
+            </span>
+          )}
+          {/* Исполнителя нет в базе: с таким именем флоу не сохранится, пока его не заменили. */}
+          {missing && stage && (
+            <span className="flow-node-missing" aria-label={`Исполнителя ${stage.agent.trim()} нет в базе`}>
+              <MissingIcon />
+            </span>
+          )}
+          <span className={`flow-node-mark flow-mark-${kind}`} aria-hidden="true">
+            {stage ? <StageIcon icon={stage.icon} kind={kind} /> : <MissingIcon />}
           </span>
-        )}
-        <span className={`flow-node-mark flow-mark-${executorKind(step)}`} aria-hidden="true">
-          <StepIcon icon={step.icon} kind={executorKind(step)} />
+          <span className="flow-node-title">{title}</span>
+          <span className="flow-node-executor">{stage ? executorOf(stage) || 'субагент' : 'стадии нет в базе'}</span>
+        </button>
+        {/* Клавиатурой стадия двигается кнопками: перетаскивание ей недоступно. */}
+        <span className="flow-node-keys">
+          <IconButton label={`Стадия ${number} выше`} disabled={number === 1} onClick={() => onMove(index, index - 1)}>
+            <ChevronUpIcon />
+          </IconButton>
+          <IconButton label={`Стадия ${number} ниже`} disabled={last} onClick={() => onMove(index, index + 1)}>
+            <ChevronDownIcon />
+          </IconButton>
         </span>
-        <span className="flow-node-title">{step.title.trim() || 'без названия'}</span>
-        <span className="flow-node-executor">{executorOf(step) || 'субагент'}</span>
-      </button>
-      {/* Клавиатурой шаг двигается кнопками: перетаскивание ей недоступно. */}
-      <span className="flow-node-keys">
-        <IconButton label={`Стадия ${number} выше`} disabled={number === 1} onClick={() => onMove(index, index - 1)}>
-          <ChevronUpIcon />
-        </IconButton>
-        <IconButton label={`Стадия ${number} ниже`} disabled={last} onClick={() => onMove(index, index + 1)}>
-          <ChevronDownIcon />
-        </IconButton>
-      </span>
       </div>
     </>
+  )
+}
+
+/**
+ * Сайдбар стадии во флоу: только то, что у неё своё в этом флоу, — возвраты. Правка самой стадии —
+ * на вкладке «Стадии»: туда ведёт её название в шапке.
+ */
+function EntryDrawer({
+  draft,
+  flow,
+  index,
+  onChange,
+  onEditStage,
+  onClose,
+  onRemove,
+}: {
+  draft: Draft
+  flow: DraftFlow
+  index: number
+  onChange: (patch: Partial<DraftEntry>) => void
+  onEditStage: (key: number) => void
+  onClose: () => void
+  onRemove: () => void
+}) {
+  const entry = flow.entries[index]
+  const stage = draft.stages.find((s) => s.key === entry.stage) ?? null
+  const title = entryTitle(draft, entry)
+  const kind = stage ? executorKind(stage) : 'agent'
+  const errors = entryErrors(flow, index)
+  // Вернуться можно только к стадиям, стоящим в этом флоу раньше.
+  const earlier = flow.entries
+    .slice(0, index)
+    .map((other) => draft.stages.find((s) => s.key === other.stage))
+    .filter((s): s is DraftStage => s !== undefined)
+
+  return (
+    <aside
+      className="flow-drawer"
+      aria-label={`Стадия ${index + 1}: ${title}`}
+      onKeyDown={(event) => event.key === 'Escape' && onClose()}
+    >
+      <div className="flow-drawer-head">
+        <span className={`flow-node-mark flow-mark-${kind}`} aria-hidden="true">
+          {stage ? <StageIcon icon={stage.icon} kind={kind} /> : <MissingIcon />}
+        </span>
+        <div className="flow-drawer-name">
+          <h3>
+            {stage ? (
+              <button
+                type="button"
+                className="flow-name-link"
+                aria-label={`Править стадию «${title}»`}
+                onClick={() => onEditStage(stage.key)}
+              >
+                {title}
+                <ExternalIcon />
+              </button>
+            ) : (
+              title
+            )}
+          </h3>
+          <span className="flow-node-executor">{stage ? executorOf(stage) || 'субагент' : 'стадии нет в базе'}</span>
+        </div>
+        <IconButton label="Закрыть сайдбар" onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </div>
+
+      <div className="flow-drawer-body">
+        <ReturnsField returns={entry.returns} earlier={earlier} onChange={(returns) => onChange({ returns })} />
+        {errors.length > 0 && <p className="flow-step-error">Флоу не сохранить: {errors.join(', ')}.</p>}
+      </div>
+
+      <div className="flow-drawer-foot">
+        <button type="button" className="bases-btn bases-btn-danger flow-drawer-delete" onClick={onRemove}>
+          <MinusIcon />
+          Убрать из флоу
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+/** Сайдбар флоу — по щелчку на узле старта: название, «когда» и удаление флоу. */
+function FlowDrawer({
+  flow,
+  errors,
+  onChange,
+  onClose,
+  onDelete,
+}: {
+  flow: DraftFlow
+  errors: string[]
+  onChange: (patch: Partial<DraftFlow>) => void
+  onClose: () => void
+  onDelete: () => void
+}) {
+  return (
+    <aside
+      className="flow-drawer"
+      aria-label={`Флоу «${flowName(flow)}»`}
+      onKeyDown={(event) => event.key === 'Escape' && onClose()}
+    >
+      <div className="flow-drawer-head">
+        <span className="flow-node-mark flow-mark-flow" aria-hidden="true">
+          <FlowIcon />
+        </span>
+        <div className="flow-drawer-name">
+          <h3>{flowName(flow)}</h3>
+          <span className="flow-node-executor">флоу базы</span>
+        </div>
+        <IconButton label="Закрыть сайдбар" onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </div>
+
+      <div className="flow-drawer-body">
+        <label className="flow-field">
+          <span>название</span>
+          <input
+            className="flow-input"
+            aria-label="Название флоу"
+            aria-invalid={!flow.name.trim()}
+            value={flow.name}
+            onChange={(event) => onChange({ name: event.target.value })}
+          />
+        </label>
+        <label className="flow-field">
+          <span>когда</span>
+          <textarea
+            className="flow-input"
+            aria-label="Когда брать флоу"
+            placeholder="какие задачи вести этим флоу"
+            rows={3}
+            value={flow.when}
+            onChange={(event) => onChange({ when: event.target.value })}
+          />
+        </label>
+        {errors.length > 0 && <p className="flow-step-error">Флоу не сохранить: {errors.join(', ')}.</p>}
+      </div>
+
+      <div className="flow-drawer-foot">
+        <button type="button" className="bases-btn bases-btn-danger flow-drawer-delete" onClick={onDelete}>
+          <TrashIcon />
+          Удалить флоу
+        </button>
+      </div>
+    </aside>
   )
 }
 
@@ -822,18 +1528,18 @@ function StepNode({
  * поэтому вписать имя руками панель не даёт — и с таким именем флоу не сохраняется.
  */
 function PerformerField({
-  step,
+  stage,
   known,
   onChange,
   onPerformers,
 }: {
-  step: DraftStep
+  stage: DraftStage
   known: string[] | null
-  onChange: (patch: Partial<DraftStep>) => void
+  onChange: (patch: Partial<DraftStage>) => void
   onPerformers?: () => void
 }) {
-  const agent = step.agent.trim()
-  const missing = missingPerformer(step, known)
+  const agent = stage.agent.trim()
+  const missing = missingPerformer(stage, known)
   // Список не прочитан — выбирать не из чего, но имя из файла показать надо: иначе поле пустое,
   // а на схеме исполнитель есть.
   const unread = known === null && agent.length > 0
@@ -868,12 +1574,12 @@ function PerformerField({
 
 /**
  * Пункт ненайденного исполнителя: своё значение, а не имя из файла. С именем он спорил бы за выбор
- * с одноимённым заведённым — тем самым, которым шаг и чинят.
+ * с одноимённым заведённым — тем самым, которым стадию и чинят.
  */
 const MISSING_AGENT = '__missing__'
 
 /**
- * Имя, которого нет в базе проекта: под ним агент исполнителя не найдёт, поэтому флоу с таким шагом
+ * Имя, которого нет в базе проекта: под ним агент исполнителя не найдёт, поэтому флоу с такой стадией
  * не сохраняется. Имена вписывают не руками — выбирают из заведённых, а недостающего заводят рядом.
  */
 function MissingNote({ agent, onPerformers }: { agent: string; onPerformers?: () => void }) {
@@ -902,28 +1608,28 @@ function FlowArrow() {
 }
 
 /**
- * Помощники шага: исполнители проекта, которых оркестратор зовёт внутри своего шага. Выбираются из
- * заведённых — как исполнитель шага; оставшегося в файле, кого в базе нет, чип показывает янтарём.
+ * Помощники стадии: исполнители проекта, которых оркестратор зовёт внутри своей стадии. Выбираются из
+ * заведённых — как исполнитель стадии; оставшегося в файле, кого в базе нет, чип показывает янтарём.
  */
 function HelpersField({
-  step,
+  stage,
   known,
   onChange,
 }: {
-  step: DraftStep
+  stage: DraftStage
   known: string[] | null
-  onChange: (patch: Partial<DraftStep>) => void
+  onChange: (patch: Partial<DraftStage>) => void
 }) {
-  const taken = step.helpers.map((name) => name.trim())
+  const taken = stage.helpers.map((name) => name.trim())
   const free = (known ?? []).filter((name) => !taken.includes(name))
   const missing = (name: string) => known !== null && !known.includes(name.trim())
 
   return (
     <div className="flow-field">
       <span>помощники</span>
-      {step.helpers.length > 0 && (
+      {stage.helpers.length > 0 && (
         <div className="flow-chips">
-          {step.helpers.map((name) => (
+          {stage.helpers.map((name) => (
             <span
               key={name}
               className={`flow-chip mono ${missing(name) ? 'flow-chip-missing' : ''}`}
@@ -934,7 +1640,7 @@ function HelpersField({
                 type="button"
                 className="flow-chip-remove"
                 aria-label={`Убрать помощника ${name.trim()}`}
-                onClick={() => onChange({ helpers: step.helpers.filter((helper) => helper !== name) })}
+                onClick={() => onChange({ helpers: stage.helpers.filter((helper) => helper !== name) })}
               >
                 <CloseIcon />
               </button>
@@ -947,7 +1653,7 @@ function HelpersField({
           className="flow-input mono"
           aria-label="Добавить помощника"
           value=""
-          onChange={(event) => event.target.value && onChange({ helpers: [...step.helpers, event.target.value] })}
+          onChange={(event) => event.target.value && onChange({ helpers: [...stage.helpers, event.target.value] })}
         >
           <option value="">добавить исполнителя…</option>
           {free.map((name) => (
@@ -962,67 +1668,64 @@ function HelpersField({
 }
 
 /**
- * Возвраты шага: условие и шаг, к которому работа идёт заново. Цель выбирается из шагов, стоящих раньше:
- * вперёд возврата не бывает, и набирать название руками оператору незачем.
+ * Возвраты стадии в этом флоу: условие и стадия, к которой работа идёт заново. Цель выбирается из стадий,
+ * стоящих раньше: вперёд возврата не бывает, и набирать название руками оператору незачем.
  */
 function ReturnsField({
-  step,
+  returns,
   earlier,
   onChange,
 }: {
-  step: DraftStep
-  earlier: string[]
-  onChange: (patch: Partial<DraftStep>) => void
+  returns: DraftReturn[]
+  earlier: DraftStage[]
+  onChange: (returns: DraftReturn[]) => void
 }) {
-  const set = (index: number, patch: Partial<FlowReturn>) =>
-    onChange({ returns: step.returns.map((back, i) => (i === index ? { ...back, ...patch } : back)) })
+  const set = (index: number, patch: Partial<DraftReturn>) =>
+    onChange(returns.map((back, i) => (i === index ? { ...back, ...patch } : back)))
 
   return (
     <div className="flow-field">
       <span>возврат</span>
-      {step.returns.map((back, index) => (
-        <div className="flow-return" key={index}>
-          <input
-            className="flow-input"
-            aria-label={`Условие возврата ${index + 1}`}
-            placeholder="условие"
-            aria-invalid={!back.condition.trim()}
-            value={back.condition}
-            onChange={(event) => set(index, { condition: event.target.value })}
-          />
-          <span className="flow-return-mark" aria-hidden="true">
-            <ReturnIcon />
-          </span>
-          <select
-            className="flow-input flow-return-step"
-            aria-label={`Стадия возврата ${index + 1}`}
-            aria-invalid={!earlier.includes(back.step.trim())}
-            value={back.step}
-            onChange={(event) => set(index, { step: event.target.value })}
-          >
-            <option value="">стадия…</option>
-            {/* Шаг, которого среди стоящих раньше нет, остаётся в списке: иначе правка чужого флоу пропала бы молча. */}
-            {(earlier.includes(back.step.trim()) || !back.step.trim() ? earlier : [back.step, ...earlier]).map(
-              (title) => (
-                <option key={title} value={title}>
-                  {title}
+      {returns.map((back, index) => {
+        const valid = earlier.some((stage) => stage.key === back.target)
+        return (
+          <div className="flow-return" key={index}>
+            <input
+              className="flow-input"
+              aria-label={`Условие возврата ${index + 1}`}
+              placeholder="условие"
+              aria-invalid={!back.condition.trim()}
+              value={back.condition}
+              onChange={(event) => set(index, { condition: event.target.value })}
+            />
+            <span className="flow-return-mark" aria-hidden="true">
+              <ReturnIcon />
+            </span>
+            <select
+              className="flow-input flow-return-step"
+              aria-label={`Стадия возврата ${index + 1}`}
+              aria-invalid={!valid}
+              value={valid ? String(back.target) : ''}
+              onChange={(event) => set(index, { target: event.target.value ? Number(event.target.value) : null })}
+            >
+              <option value="">стадия…</option>
+              {earlier.map((stage) => (
+                <option key={stage.key} value={stage.key}>
+                  {stageName(stage)}
                 </option>
-              ),
-            )}
-          </select>
-          <IconButton
-            label={`Убрать возврат ${index + 1}`}
-            onClick={() => onChange({ returns: step.returns.filter((_, i) => i !== index) })}
-          >
-            <CloseIcon />
-          </IconButton>
-        </div>
-      ))}
+              ))}
+            </select>
+            <IconButton label={`Убрать возврат ${index + 1}`} onClick={() => onChange(returns.filter((_, i) => i !== index))}>
+              <CloseIcon />
+            </IconButton>
+          </div>
+        )
+      })}
       {earlier.length > 0 && (
         <button
           type="button"
           className="flow-link"
-          onClick={() => onChange({ returns: [...step.returns, { condition: '', step: '' }] })}
+          onClick={() => onChange([...returns, { condition: '', target: null }])}
         >
           Добавить возврат
         </button>
@@ -1031,168 +1734,7 @@ function ReturnsField({
   )
 }
 
-/** Сайдбар шага: поля правятся сразу, а файл флоу записывается кнопкой «Сохранить» в шапке. */
-function StepDrawer({
-  step,
-  steps,
-  index,
-  known,
-  onPerformers,
-  number,
-  isPreset,
-  onChange,
-  onClose,
-  onSaveAsPreset,
-  onEditDescription,
-  onDelete,
-}: {
-  step: DraftStep
-  steps: DraftStep[]
-  index: number
-  known: string[] | null
-  onPerformers?: () => void
-  number: number
-  isPreset: boolean
-  onChange: (patch: Partial<DraftStep>) => void
-  onClose: () => void
-  onSaveAsPreset: () => void
-  onEditDescription: () => void
-  onDelete: () => void
-}) {
-  const errors = stepErrors(step, steps, index, known)
-  const title = step.title.trim() || 'без названия'
-  const earlier = earlierSteps(steps, index)
-
-  return (
-    <aside
-      className="flow-drawer"
-      aria-label={`Стадия ${number}: ${title}`}
-      onKeyDown={(event) => event.key === 'Escape' && onClose()}
-    >
-      <div className="flow-drawer-head">
-        <span className={`flow-node-mark flow-mark-${executorKind(step)}`} aria-hidden="true">
-          <StepIcon icon={step.icon} kind={executorKind(step)} />
-        </span>
-        <div className="flow-drawer-name">
-          <h3>{title}</h3>
-          <span className="flow-node-executor">{executorOf(step) || 'субагент'}</span>
-        </div>
-        <IconButton label="Закрыть сайдбар" onClick={onClose}>
-          <CloseIcon />
-        </IconButton>
-      </div>
-
-      <div className="flow-drawer-body">
-        <label className="flow-field">
-          <span>название</span>
-          <input
-            className="flow-input"
-            aria-label="Название стадии"
-            placeholder="Название стадии"
-            aria-invalid={!step.title.trim()}
-            value={step.title}
-            onChange={(event) => onChange({ title: event.target.value })}
-          />
-        </label>
-
-        <div className="flow-field">
-          <span>значок</span>
-          <IconPicker step={step} onPick={(icon) => onChange({ icon })} />
-        </div>
-
-        <label className="flow-field">
-          <span>исполнитель</span>
-          <select
-            className="flow-input"
-            aria-label="Исполнитель стадии"
-            value={step.kind}
-            onChange={(event) => {
-              const kind = event.target.value as DraftStep['kind']
-              // Помощники стираются на глазах: в файле у такого шага их не бывает, и молча они бы пропали при записи.
-              onChange({ kind, helpers: kind === 'оркестратор' ? step.helpers : [] })
-            }}
-          >
-            {kinds.map((kind) => (
-              <option key={kind} value={kind}>
-                {kind}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {step.kind === 'субагент' && (
-          <PerformerField step={step} known={known} onChange={onChange} onPerformers={onPerformers} />
-        )}
-
-        {/* Помощников зовёт только оркестратор: у прочих шагов поля нет — форма кита. */}
-        {step.kind === 'оркестратор' && (
-          <HelpersField step={step} known={known} onChange={onChange} />
-        )}
-
-        <label className="flow-field">
-          <span>выход</span>
-          <textarea
-            className="flow-input"
-            aria-label="Выход стадии"
-            placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
-            aria-invalid={!step.output.trim()}
-            rows={3}
-            value={step.output}
-            onChange={(event) => onChange({ output: event.target.value })}
-          />
-        </label>
-
-        <label className="flow-field">
-          <span>пропуск</span>
-          <input
-            className="flow-input"
-            aria-label="Пропуск стадии"
-            placeholder="нет — стадия проходится всегда"
-            value={step.skip}
-            onChange={(event) => onChange({ skip: event.target.value })}
-          />
-        </label>
-
-        <ReturnsField step={step} earlier={earlier} onChange={onChange} />
-
-        <div className="flow-field">
-          <span>описание</span>
-          {/* Кнопка показывает лишь наличие описания: без него та же надпись, но пунктиром. */}
-          <button
-            type="button"
-            className={`bases-btn flow-description-btn ${step.description ? '' : 'flow-description-empty'}`}
-            title={step.description ? 'Описание есть — править' : 'Описания нет — добавить'}
-            onClick={onEditDescription}
-          >
-            <FileTextIcon />
-            Редактировать описание
-          </button>
-        </div>
-
-        {errors.length > 0 && <p className="flow-step-error">Стадию не сохранить: {errors.join(', ')}.</p>}
-      </div>
-
-      <div className="flow-drawer-foot">
-        <button
-          type="button"
-          className="bases-btn"
-          disabled={errors.length > 0 || isPreset}
-          aria-pressed={isPreset}
-          onClick={onSaveAsPreset}
-        >
-          <BookmarkIcon />
-          {isPreset ? 'Стадия в пресетах' : 'В пресеты'}
-        </button>
-        <button type="button" className="bases-btn bases-btn-danger flow-drawer-delete" onClick={onDelete}>
-          <TrashIcon />
-          Удалить стадию
-        </button>
-      </div>
-    </aside>
-  )
-}
-
-/** Описание шага правится текстом в окне, а не полем сайдбара — решение оператора. */
+/** Описание стадии правится текстом в окне, а не полем — решение оператора. */
 function DescriptionEditor({
   title,
   description,
@@ -1245,7 +1787,7 @@ function DescriptionEditor({
 }
 
 /** Значки на выбор; те же имена знает API, и чужого значка он не запомнит. */
-const stepIcons: { id: string; label: string; icon: ReactNode }[] = [
+const stageIcons: { id: string; label: string; icon: ReactNode }[] = [
   { id: 'target', label: 'цель', icon: <TargetIcon /> },
   { id: 'branch', label: 'ветка', icon: <BranchIcon /> },
   { id: 'code', label: 'код', icon: <CodeIcon /> },
@@ -1253,14 +1795,14 @@ const stepIcons: { id: string; label: string; icon: ReactNode }[] = [
   { id: 'base', label: 'база', icon: <DatabaseIcon /> },
 ]
 
-function StepIcon({ icon, kind }: { icon: string; kind: string }) {
-  const chosen = stepIcons.find((one) => one.id === icon)
+function StageIcon({ icon, kind }: { icon: string; kind: string }) {
+  const chosen = stageIcons.find((one) => one.id === icon)
   if (chosen) return chosen.icon
   return kind === 'operator' ? <OperatorIcon /> : kind === 'agent' ? <AgentIcon /> : <OrchestratorIcon />
 }
 
 /** Список значков: в нём сами значки, а не их названия — решение оператора. */
-function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) => void }) {
+function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: string) => void }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
 
@@ -1287,8 +1829,8 @@ function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) 
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
-        <span className={`flow-node-mark flow-mark-${executorKind(step)}`} aria-hidden="true">
-          <StepIcon icon={step.icon} kind={executorKind(step)} />
+        <span className={`flow-node-mark flow-mark-${executorKind(stage)}`} aria-hidden="true">
+          <StageIcon icon={stage.icon} kind={executorKind(stage)} />
         </span>
         <ChevronDownIcon />
       </button>
@@ -1299,19 +1841,19 @@ function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) 
             className="flow-icon-btn"
             aria-label="Значок по исполнителю"
             title="по исполнителю"
-            aria-pressed={!step.icon}
+            aria-pressed={!stage.icon}
             onClick={() => pick('')}
           >
-            <StepIcon icon="" kind={executorKind(step)} />
+            <StageIcon icon="" kind={executorKind(stage)} />
           </button>
-          {stepIcons.map((one) => (
+          {stageIcons.map((one) => (
             <button
               key={one.id}
               type="button"
               className="flow-icon-btn"
               aria-label={`Значок «${one.label}»`}
               title={one.label}
-              aria-pressed={step.icon === one.id}
+              aria-pressed={stage.icon === one.id}
               onClick={() => pick(one.id)}
             >
               {one.icon}
@@ -1323,27 +1865,21 @@ function IconPicker({ step, onPick }: { step: DraftStep; onPick: (icon: string) 
   )
 }
 
-const emptyStep: FlowStep = {
-  title: '',
-  executor: 'оркестратор',
-  output: '',
-  skip: null,
-  description: null,
-  returns: [],
-  helpers: [],
-}
-
-/** Новый шаг выбирается своим окном: пустой шаг или шаг из пресетов оператора. */
-function AddStep({
+/** Стадия во флоу выбирается своим окном: новая, своя стадия базы, которой во флоу ещё нет, или пресет. */
+function AddStage({
+  flow,
+  stages,
   presets,
-  onAdd,
+  onPick,
   onCancel,
   onRemovePreset,
 }: {
-  presets: StepPreset[]
-  onAdd: (step: FlowStep) => void
+  flow: DraftFlow
+  stages: DraftStage[]
+  presets: StagePreset[]
+  onPick: (choice: { stage: number } | { preset: FlowStage } | 'new') => void
   onCancel: () => void
-  onRemovePreset: (preset: StepPreset) => void
+  onRemovePreset: (preset: StagePreset) => void
 }) {
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
@@ -1354,35 +1890,47 @@ function AddStep({
         aria-labelledby="flow-add-title"
         onKeyDown={(event) => event.key === 'Escape' && onCancel()}
       >
-        <h3 id="flow-add-title">Добавить стадию</h3>
-        <div className="flow-presets" role="group" aria-label="Пресеты стадий">
-          <button type="button" className="flow-preset" onClick={() => onAdd(emptyStep)}>
-            <span className="flow-preset-title">Пустая стадия</span>
+        <h3 id="flow-add-title">Добавить стадию во флоу «{flowName(flow)}»</h3>
+        <div className="flow-presets">
+          <button type="button" className="flow-preset" onClick={() => onPick('new')}>
+            <span className="flow-preset-title">Новая стадия</span>
             <span className="text-sec">всё заполнить самому</span>
           </button>
-          <div className="flow-presets-label">Пресеты</div>
-          {presets.length === 0 && (
-            <p className="flow-presets-empty text-ter">
-              Пресетов пока нет. Стадия сохраняется в пресеты кнопкой в сайдбаре стадии.
-            </p>
-          )}
-          {presets.map((preset) => (
-            <div className="flow-preset-row" key={preset.id}>
-              <button type="button" className="flow-preset" onClick={() => onAdd(preset)}>
-                <span className="flow-preset-head">
-                  <span className="flow-preset-title">{preset.title}</span>
-                  <ExecutorBadge executor={preset.executor} />
-                </span>
-                <span className="text-sec">
-                  выход: {preset.output}
-                  {preset.skip ? ` · пропуск: ${preset.skip}` : ''}
-                </span>
-              </button>
-              <IconButton label={`Удалить пресет ${preset.title}`} danger onClick={() => onRemovePreset(preset)}>
-                <CloseIcon />
-              </IconButton>
+          {stages.length > 0 && (
+            <div role="group" aria-label="Стадии базы" className="flow-presets-group">
+              <div className="flow-presets-label">Стадии базы</div>
+              {stages.map((stage) => (
+                <button key={stage.key} type="button" className="flow-preset" onClick={() => onPick({ stage: stage.key })}>
+                  <span className="flow-preset-head">
+                    <span className="flow-preset-title">{stageName(stage)}</span>
+                    <ExecutorBadge executor={toStage(stage).executor} />
+                  </span>
+                  <span className="text-sec">выход: {stage.output.trim()}</span>
+                </button>
+              ))}
             </div>
-          ))}
+          )}
+          <div role="group" aria-label="Пресеты стадий" className="flow-presets-group">
+            <div className="flow-presets-label">Пресеты</div>
+            {presets.length === 0 && <p className="flow-presets-empty text-ter">Пресетов пока нет.</p>}
+            {presets.map((preset) => (
+              <div className="flow-preset-row" key={preset.id}>
+                <button type="button" className="flow-preset" onClick={() => onPick({ preset })}>
+                  <span className="flow-preset-head">
+                    <span className="flow-preset-title">{preset.title}</span>
+                    <ExecutorBadge executor={preset.executor} />
+                  </span>
+                  <span className="text-sec">
+                    выход: {preset.output}
+                    {preset.skip ? ` · пропуск: ${preset.skip}` : ''}
+                  </span>
+                </button>
+                <IconButton label={`Удалить пресет ${preset.title}`} danger onClick={() => onRemovePreset(preset)}>
+                  <CloseIcon />
+                </IconButton>
+              </div>
+            ))}
+          </div>
         </div>
         <div className="flow-confirm-actions">
           <button type="button" className="bases-btn" onClick={onCancel}>
@@ -1418,8 +1966,8 @@ function ConfirmSave({ flow, onCancel, onConfirm }: { flow: BaseFlow; onCancel: 
       >
         <h3 id="flow-confirm-title">Сохранить флоу {flow.project}?</h3>
         <p className="text-sec">
-          Файл флоу в базе будет переписан и закоммичен отдельным коммитом. Следующая задача на проекте пойдёт уже по
-          новому флоу.
+          Флоу и стадии в базе будут переписаны и закоммичены одним коммитом. Следующая задача на проекте пойдёт уже
+          по новому флоу.
         </p>
         <p className="flow-confirm-warning">
           На проекте {plural(flow.activeTasks, 'задача', 'задачи', 'задач')} в работе. Они дойдут по старым стадиям —
@@ -1671,6 +2219,32 @@ export function FlowIcon() {
       <circle cx="18" cy="12" r="2" />
       <line x1="6" y1="7" x2="6" y2="17" />
       <path d="M6 12h10" />
+    </svg>
+  )
+}
+
+function TickIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+/** Значок перехода у названия стадии: оно ведёт к её правке на вкладке «Стадии». */
+function ExternalIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 17 17 7" />
+      <polyline points="8 7 17 7 17 16" />
+    </svg>
+  )
+}
+
+function MinusIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="5" y1="12" x2="19" y2="12" />
     </svg>
   )
 }

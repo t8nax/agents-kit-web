@@ -21,7 +21,13 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     private const string Flow = """
         # App — флоу
 
-        ## 1. Ревью
+        ## полный
+        1. [Ревью](stages/review.md)
+
+        """;
+
+    private const string Review = """
+        # Ревью
 
         исполнитель: reviewer
         выход: вердикт по sha
@@ -55,7 +61,9 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
             Path.Combine(_base, "agents-kit.json"),
             JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { _copy } }));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
-        File.WriteAllText(Path.Combine(_base, "flow.md"), Flow.ReplaceLineEndings("\n"));
+        Directory.CreateDirectory(Path.Combine(_base, "flow", "stages"));
+        File.WriteAllText(Path.Combine(_base, "flow", "flow.md"), Flow.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(_base, "flow", "stages", "review.md"), Review.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -100,7 +108,9 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         // И базу: её путь стоит в системном промпте, а флоу приходит текстом в stdin.
         Assert.Contains(_base, args[args.IndexOf("--append-system-prompt") + 1]);
         Assert.Contains("--help, ревьюер ветки", _agent.Input);
-        Assert.Contains("## 1. Ревью", _agent.Input);
+        // Флоу уходит агенту файлами новой формы: список флоу и каждая стадия.
+        Assert.Contains("flow/flow.md:\n# App — флоу", _agent.Input);
+        Assert.Contains("flow/stages/review.md:\n# Ревью", _agent.Input);
         Assert.DoesNotContain("Нынешний исполнитель", _agent.Input);
     }
 
@@ -129,13 +139,13 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
 
         Assert.Equal("drafted", events[^1].Type);
         Assert.False(Directory.Exists(Path.Combine(_copy, ".claude", "agents")));
-        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(_base, "flow.md")));
+        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(_base, "flow", "flow.md")));
     }
 
     [Fact]
     public async Task Draft_GoesOnWhenBaseHasNoFlow()
     {
-        File.Delete(Path.Combine(_base, "flow.md"));
+        Directory.Delete(Path.Combine(_base, "flow"), recursive: true);
         _agent.Lines = [Result(Drafted)];
 
         var events = await Draft(await Client(), "Ревьюер ветки");

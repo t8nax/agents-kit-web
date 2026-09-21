@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { FlowStep } from './Flow'
+import type { FlowStep } from './flowChanges'
 import FlowRewriteModal, { type RewriteEvent } from './FlowRewriteModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 

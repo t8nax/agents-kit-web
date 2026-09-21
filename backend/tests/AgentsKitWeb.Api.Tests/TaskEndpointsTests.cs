@@ -96,6 +96,47 @@ public sealed class TaskEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_NamesChosenFlowToSessionAsItStandsInBase()
+    {
+        WriteFlows();
+        _agent.Lines = ["backgrounded · abc123"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7", " МЕЛКИЙ"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // Сессия берёт названный флоу и о нём не спрашивает: навык кита принимает флоу, названный словами.
+        Assert.Equal("/agents-kit:drive B-7 флоу «мелкий»", _agent.StartInfo!.ArgumentList[^1]);
+    }
+
+    [Fact]
+    public async Task Start_RejectsFlowBaseDoesNotHave()
+    {
+        WriteFlows();
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7", "срочный"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("flow-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    private void WriteFlows()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "flow"));
+        File.WriteAllText(Path.Combine(_base, "flow", "flow.md"), """
+            # App — флоу
+
+            ## полный
+            когда: новая возможность
+            1. [Ветка](stages/branch.md)
+
+            ## мелкий
+            когда: правка в одном месте
+            1. [Ветка](stages/branch.md)
+            """);
+    }
+
+    [Fact]
     public async Task Start_RejectsCopyThatAlreadyHasTaskMemory()
     {
         File.WriteAllText(Path.Combine(_base, "work", "app.md"), $"""

@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace AgentsKitWeb.Api.Flow;
 
-/// <summary>Пресет шага флоу: готовый шаг, который оператор добавляет во флоу любого проекта.</summary>
+/// <summary>Пресет стадии флоу: готовая стадия, которую оператор добавляет во флоу любого проекта.</summary>
 public sealed record StepPreset(string Id, string Title, string Executor, string Output, string? Skip, string? Description);
 
 /// <summary>
@@ -23,12 +23,12 @@ public sealed class PresetsStore(string file)
             return Read();
     }
 
-    /// <summary>Сохраняет шаг как пресет; такой же шаг уже в списке — отдаёт его, второй раз не пишет.</summary>
-    public StepPreset Add(FlowStep step)
+    /// <summary>Сохраняет стадию как пресет; такая же стадия уже в списке — отдаёт её, второй раз не пишет.</summary>
+    public StepPreset Add(FlowStage stage)
     {
-        var skip = string.IsNullOrWhiteSpace(step.Skip) ? null : step.Skip.Trim();
-        var description = string.IsNullOrWhiteSpace(step.Description) ? null : step.Description.Replace("\r\n", "\n").Trim('\n');
-        var preset = new StepPreset(Guid.NewGuid().ToString("N"), step.Title.Trim(), step.Executor.Trim(), step.Output.Trim(), skip, description);
+        var skip = string.IsNullOrWhiteSpace(stage.Skip) ? null : stage.Skip.Trim();
+        var description = string.IsNullOrWhiteSpace(stage.Description) ? null : stage.Description.Replace("\r\n", "\n").Trim('\n');
+        var preset = new StepPreset(Guid.NewGuid().ToString("N"), stage.Title.Trim(), stage.Executor.Trim(), stage.Output.Trim(), skip, description);
 
         lock (_lock)
         {

@@ -2,12 +2,16 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Tasks;
 
-/// <summary>Запуск задачи: база и копия из списка панели, а не путь, и номер записи бэклога.</summary>
-public sealed record TaskStartRequest(string? Base, string? Copy, string? Number);
+/// <summary>
+/// Запуск задачи: база и копия из списка панели, а не путь, номер записи бэклога и флоу, которым её вести, —
+/// одно из имён флоу базы. Флоу не назван — выбирает его сама сессия, спросив оператора.
+/// </summary>
+public sealed record TaskStartRequest(string? Base, string? Copy, string? Number, string? Flow = null);
 
 /// <summary>Заведённая сессия: её короткий id — им оператор входит в неё из терминала.</summary>
 public sealed record TaskStartResponse(string Session);
@@ -41,6 +45,16 @@ public static partial class TaskEndpoints
             if (!NumberFormat.IsMatch(number))
                 return Results.BadRequest();
 
+            // Имя флоу уходит в просьбу сессии: берётся то, что стоит в файле базы, а не присланное.
+            string? flow = null;
+            if (!string.IsNullOrWhiteSpace(request.Flow))
+            {
+                flow = FlowFolder.ReadFlows(basePath)
+                    .FirstOrDefault(f => FlowFolder.Key(f.Name) == FlowFolder.Key(request.Flow))?.Name;
+                if (flow is null)
+                    return Results.BadRequest(new TaskStartProblem("flow-unknown"));
+            }
+
             var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
             var copy = request.Copy;
             var row = rows.FirstOrDefault(r => WorkspaceCollector.Normalize(r.Path)
@@ -60,7 +74,7 @@ public static partial class TaskEndpoints
             if (!Entries(basePath).TryGetValue(number, out var title))
                 return Results.BadRequest(new TaskStartProblem("record-unknown"));
 
-            var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number), cancellationToken);
+            var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow), cancellationToken);
             if (session is null)
                 return Results.BadRequest(new TaskStartProblem("agent", failure));
 
@@ -75,9 +89,10 @@ public static partial class TaskEndpoints
 
     /// <summary>
     /// Задачу берёт навык кита: правила взятия записи и заведения памяти держит кит, панель их не повторяет.
+    /// Флоу называется словами: названный оператором флоу навык берёт, не спрашивая.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string copyPath, string number) =>
-        BackgroundSession.StartInfo(copyPath, $"/agents-kit:drive {number}");
+    public static ProcessStartInfo StartInfo(string copyPath, string number, string? flow = null) =>
+        BackgroundSession.StartInfo(copyPath, flow is null ? $"/agents-kit:drive {number}" : $"/agents-kit:drive {number} флоу «{flow}»");
 
     /// <summary>Записи бэклога базы: номер — заголовок. Бэклога нет или он не прочитан — записей нет.</summary>
     private static Dictionary<string, string> Entries(string basePath)

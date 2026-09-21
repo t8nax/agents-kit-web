@@ -59,6 +59,16 @@ function stubFetch(...responses: BaseBacklog[][]) {
       return Promise.resolve(taskReply ?? Response.json({ session: '7339dced' }))
     }
     if (url === '/api/workspaces') return Promise.resolve(Response.json(rows))
+    // Окно запуска предлагает флоу базы записи: у каждой базы здесь флоу один.
+    if (url === '/api/flow')
+      return Promise.resolve(
+        Response.json(
+          ['D:\\Projects\\app-knowledge', 'D:\\Projects\\nota-knowledge'].map((base) => ({
+            base,
+            flows: [{ name: 'полный', when: null, entries: [{ stage: 'Ветка' }] }],
+          })),
+        ),
+      )
     expect(url).toBe('/api/backlog')
     return Promise.resolve(Response.json(queue.length > 1 ? queue.shift()! : queue[0]))
   })
@@ -354,7 +364,7 @@ test('«Взять задачу» запускает свою запись в в
 
   await waitFor(() => expect(onStarted).toHaveBeenCalledWith('nota-copy'))
   expect(fetchMock.posts).toEqual([
-    { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota-copy', number: 'B-2' },
+    { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota-copy', number: 'B-2', flow: 'полный' },
   ])
   expect(screen.queryByRole('dialog', { name: 'Взять задачу в работу' })).not.toBeInTheDocument()
   // Фокус возвращается кнопке запуска — клавиатура остаётся на месте в списке
