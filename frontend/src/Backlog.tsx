@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
+import { numberLetters } from './taskTitle'
 
 export type BacklogEntry = {
   number: string | null
@@ -20,6 +21,8 @@ export type BaseBacklog = {
   project: string
   entries: BacklogEntry[]
   error: string | null
+  /** Буквы номеров проекта: запись с другими буквами кит перенумерует, и задачей она не запускается. */
+  letters?: string | null
 }
 
 /** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
@@ -165,7 +168,13 @@ export default function Backlog({
 
           <div className="backlog-list">
             {shown.map((backlog) => (
-              <section key={backlog.base} aria-label={backlog.project}>
+              <section
+                key={backlog.base}
+                aria-label={backlog.project}
+                // Колонка номера одной ширины на весь список проекта — по самому длинному номеру:
+                // плашки и заголовки всех записей начинаются на одной вертикали (макет B-185)
+                style={{ '--entry-num-width': `${numberWidth(backlog.entries)}ch` } as CSSProperties}
+              >
                 <div className="base-head">
                   <h3>{backlog.project}</h3>
                 </div>
@@ -191,7 +200,9 @@ export default function Backlog({
                         }}
                       >
                         {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
-                        {entry.number && <span className="entry-num">{entry.number}</span>}{' '}
+                        <span className="entry-num-slot">
+                          {entry.number && <span className="entry-num">{entry.number}</span>}
+                        </span>{' '}
                         <EntryFields entry={entry} />{' '}
                         <InlineMarkdown className="entry-title" text={entry.title} />
                         {isFresh && <span className="entry-fresh-badge">новая</span>}
@@ -202,9 +213,14 @@ export default function Backlog({
                         <button
                           type="button"
                           className="entry-start"
-                          // Копий ещё не прочитали или свободных не осталось — запускать некуда;
-                          // почему, кнопка не пишет — как приглушённые переходы строки копии.
-                          disabled={copies === null || freeCopies(copies, backlog.base).length === 0}
+                          // Копий ещё не прочитали или свободных не осталось — запускать некуда; запись чужими
+                          // буквами кит перенумерует — запускать её рано. Почему, кнопка не пишет — как
+                          // приглушённые переходы строки копии.
+                          disabled={
+                            copies === null ||
+                            freeCopies(copies, backlog.base).length === 0 ||
+                            numberLetters(entry.number) !== backlog.letters
+                          }
                           onClick={(e) => {
                             opener.current = e.currentTarget
                             setStarting({ base: backlog.base, entry: { ...entry, number: entry.number! } })
@@ -316,6 +332,11 @@ const PRIORITY_CLASS: Record<string, string> = {
 const TYPE_CLASS: Record<string, string> = { баг: 'entry-type-bug', фича: 'entry-type-feature' }
 
 /** Тип и приоритет записи: тип — значок со словом, приоритет — плашка, цвет которой растёт со срочностью. */
+/** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */
+function numberWidth(entries: BacklogEntry[]): number {
+  return Math.max(0, ...entries.map((entry) => entry.number?.length ?? 0))
+}
+
 function EntryFields({ entry }: { entry: BacklogEntry }) {
   return (
     <>

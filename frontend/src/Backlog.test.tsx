@@ -18,12 +18,14 @@ const backlogs: BaseBacklog[] = [
       { number: 'B-13', title: 'У панели есть светлая тема', text: 'Панель сейчас только тёмная.' },
     ],
     error: null,
+    letters: 'B',
   },
   {
     base: 'D:\\Projects\\nota-knowledge',
     project: 'Nota',
     entries: [{ number: 'B-2', title: 'Экспорт заметок', text: 'Забрать заметки нечем.' }],
     error: null,
+    letters: 'B',
   },
 ]
 
@@ -397,4 +399,48 @@ test('у записи без номера запуска нет: запуск а
   const row = (await screen.findByRole('button', { name: 'Дописана руками' })).closest('.entry-row')!
 
   expect(within(row as HTMLElement).queryByRole('button', { name: 'Взять задачу' })).not.toBeInTheDocument()
+})
+
+test('записи с буквами своего проекта запускаются, а запись чужими буквами — нет', async () => {
+  const orders: BaseBacklog = {
+    base: 'D:\\Projects\\orders-knowledge',
+    project: 'Orders',
+    entries: [
+      { number: 'ORD-15', title: 'Повторная оплата создаёт второй заказ', text: null },
+      { number: 'B-7', title: 'Таймаут платёжного шлюза не попадает в лог', text: null },
+    ],
+    error: null,
+    letters: 'ORD',
+  }
+  const fetchMock = stubFetch([orders])
+  fetchMock.setCopies([copy(orders.base, 'D:\\Projects\\orders', 'free')])
+
+  render(<Backlog />)
+  const own = (await screen.findByRole('button', { name: /ORD-15 Повторная оплата/ })).closest('.entry-row')!
+  const foreign = screen.getByRole('button', { name: /B-7 Таймаут платёжного шлюза/ }).closest('.entry-row')!
+
+  await waitFor(() => expect(within(own as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  // Номер чужими буквами виден, чтобы не потерялся, но кит его перенумерует — запускать рано
+  expect(within(foreign as HTMLElement).getByText('B-7')).toHaveClass('entry-num')
+  expect(within(foreign as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+})
+
+test('колонка номера одной ширины на весь проект — по самому длинному номеру', async () => {
+  stubFetch([
+    {
+      ...backlogs[0],
+      entries: [
+        { number: 'B-7', title: 'Короткий номер', text: null },
+        { number: 'B-185', title: 'Длинный номер', text: null },
+        { number: null, title: 'Без номера', text: null },
+      ],
+    },
+  ])
+
+  render(<Backlog />)
+  const section = await screen.findByRole('region', { name: 'Agents Kit Web' })
+
+  expect(section.style.getPropertyValue('--entry-num-width')).toBe('5ch')
+  // Место номера есть и у записи без номера: плашки и заголовок стоят на той же вертикали
+  expect(section.querySelectorAll('.entry-num-slot')).toHaveLength(3)
 })
