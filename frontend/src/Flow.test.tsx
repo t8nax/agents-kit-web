@@ -760,3 +760,28 @@ test('строки файлов флоу не по форме кита назв�
   fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
+
+test('после сохранения выбранные флоу и стадия остаются выбранными', async () => {
+  let version = 1
+  const fetchMock = stubApi({
+    ...api([app]),
+    // Записанный флоу перечитывается с новым отпечатком и собирается в форму заново
+    'GET /api/flow': () => json([{ ...app, version: `v${version}` }]),
+    'POST /api/flow': () => {
+      version++
+      return json({ version: `v${version}` })
+    },
+  })
+  await renderFlow()
+  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
+  const edit = await stagesTab('Ревью')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
+
+  await saveAndRead(fetchMock)
+  await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/flow').length).toBe(3))
+
+  expect(await screen.findByRole('region', { name: 'Стадия «Ревью»' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  expect(screen.getByRole('region', { name: 'Флоу «мелкий»' })).toBeInTheDocument()
+})

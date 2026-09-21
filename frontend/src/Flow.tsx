@@ -323,6 +323,8 @@ export default function Flow({
   const [stageKey, setStageKey] = useState<number | null>(null)
   const [flowKey, setFlowKey] = useState<number | null>(null)
   const [opened, setOpened] = useState<Opened>(null)
+  // Выбор до записи — по именам: перечитанный флоу собирается в форму заново, с новыми key.
+  const [keep, setKeep] = useState<{ flow: string | null; stage: string | null } | null>(null)
   // Какое окно открыто поверх раздела: описание стадии или выбор стадии во флоу.
   const [modal, setModal] = useState<'description' | 'add' | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -393,6 +395,14 @@ export default function Flow({
       ? `в файлах флоу строка не по форме кита — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
       : firstProblem(draft, known)
 
+  // Записанный флоу перечитан: выбор находится по именам в новой форме, а не падает на первые флоу и стадию.
+  useEffect(() => {
+    if (!keep) return
+    setFlowKey(saved.flows.find((f) => keep.flow !== null && norm(f.name) === norm(keep.flow))?.key ?? null)
+    setStageKey(saved.stages.find((s) => keep.stage !== null && norm(s.title) === norm(keep.stage))?.key ?? null)
+    setKeep(null)
+  }, [saved]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const currentFlow = draft.flows.find((f) => f.key === flowKey) ?? draft.flows[0] ?? null
   const currentStage = draft.stages.find((s) => s.key === stageKey) ?? stagesInOrder(draft)[0] ?? null
 
@@ -434,6 +444,7 @@ export default function Flow({
       })
       if (response.ok) {
         setNotice({ kind: 'done', text: 'Флоу сохранён и закоммичен в базу' })
+        setKeep({ flow: currentFlow?.name ?? null, stage: currentStage?.title ?? null })
         setOpened(null)
         loadFlows()
         return
