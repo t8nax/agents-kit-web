@@ -30,8 +30,18 @@ const rows: WorkspaceRow[] = [
   { ...free('D:\\Projects\\nota-copy', 'dev'), base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
-/** Отвечает на GET /api/workspaces списком, на POST /api/tasks — переданным ответом; собирает тела POST. */
-function stub(post: Response | Promise<Response>, list: WorkspaceRow[] = rows) {
+const flow = (name: string, when: string | null) => ({ name, when, entries: [{ stage: 'Ветка' }] })
+
+const flows = [
+  { base, project: 'Agents Kit Web', flows: [flow('полный', 'новая возможность'), flow('мелкий', 'правка в одном месте')] },
+  { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', flows: [flow('чужой', null)] },
+]
+
+/**
+ * Отвечает на GET /api/workspaces списком копий, на GET /api/flow — флоу баз, на POST /api/tasks — переданным
+ * ответом; собирает тела POST.
+ */
+function stub(post: Response | Promise<Response>, list: WorkspaceRow[] = rows, baseFlows: unknown[] = flows) {
   const posts: unknown[] = []
   vi.stubGlobal(
     'fetch',
@@ -40,12 +50,15 @@ function stub(post: Response | Promise<Response>, list: WorkspaceRow[] = rows) {
         posts.push(JSON.parse(String(init.body)))
         return Promise.resolve(post)
       }
+      if (url === '/api/flow') return Promise.resolve(Response.json(baseFlows))
       expect(url).toBe('/api/workspaces')
       return Promise.resolve(Response.json(list))
     }),
   )
   return posts
 }
+
+const copies = () => within(screen.getByRole('group', { name: 'Рабочая копия' }))
 
 function renderModal() {
   const props = { onClose: vi.fn(), onStarted: vi.fn() }
@@ -61,8 +74,8 @@ test('окно показывает взятую запись и свободн�
   expect(within(dialog).getByText('B-8')).toBeInTheDocument()
   expect(dialog).toHaveTextContent('Кнопка запуска')
 
-  const copies = await screen.findAllByRole('radio')
-  expect(copies).toHaveLength(2)
+  await screen.findByRole('radio', { name: /rustic-silver-sparrow/ })
+  expect(copies().getAllByRole('radio')).toHaveLength(2)
   expect(dialog).toHaveTextContent('rustic-silver-sparrow')
   expect(dialog).toHaveTextContent('ветка dev')
   // Копия без ветки всё равно выбирается — ветку панель просто не знает
@@ -91,7 +104,7 @@ test('выбранная копия уходит в API с базой и ном�
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
   await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('noble-keen-walrus'))
-  expect(posts).toEqual([{ base, copy: 'D:\\Projects\\noble-keen-walrus', number: 'B-8' }])
+  expect(posts).toEqual([{ base, copy: 'D:\\Projects\\noble-keen-walrus', number: 'B-8', flow: 'полный' }])
 })
 
 test('копию успели занять: окно называет идущую в ней задачу и не закрывается', async () => {
@@ -136,4 +149,50 @@ test('свободных копий не осталось: окно говори
 
   expect(await screen.findByText('Свободной копии у проекта сейчас нет — все заняты задачами.')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+})
+
+test('выбор флоу виден всегда: у каждого его «когда», первым выбран первый флоу проекта', async () => {
+  stub(Response.json({ session: 'x' }), rows, [{ ...flows[0], flows: [flow('полный', null)] }])
+  renderModal()
+
+  const group = within(await screen.findByRole('group', { name: 'Флоу' }))
+  expect(await group.findByRole('radio', { name: /полный/ })).toBeChecked()
+  expect(group.getAllByRole('radio')).toHaveLength(1)
+})
+
+test('выбранный флоу уходит в API вместе с копией', async () => {
+  const posts = stub(Response.json({ session: '7339dced' }))
+  const props = renderModal()
+
+  const group = within(await screen.findByRole('group', { name: 'Флоу' }))
+  expect(await group.findByRole('radio', { name: /полный/ })).toBeChecked()
+  expect(group.getByText('когда: правка в одном месте')).toBeInTheDocument()
+  // Флоу соседнего проекта не предлагаются
+  expect(group.queryByRole('radio', { name: /чужой/ })).not.toBeInTheDocument()
+  fireEvent.click(group.getByRole('radio', { name: /мелкий/ }))
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
+  expect(posts).toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'B-8', flow: 'мелкий' }])
+})
+
+test('у проекта нет флоу: окно говорит, что задачу не начать, и запускать нечего', async () => {
+  stub(Response.json({ session: 'x' }), rows, [{ ...flows[0], flows: [] }])
+  renderModal()
+
+  expect(await screen.findByText('У проекта нет флоу — задачу не начать, пока его не завели.')).toBeInTheDocument()
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+})
+
+test('флоу успели переименовать: окно говорит, что его больше нет', async () => {
+  stub(Response.json({ problem: 'flow-unknown', message: null }, { status: 400 }))
+  renderModal()
+
+  await screen.findByRole('radio', { name: /полный/ })
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Этого флоу в базе больше нет')
 })
