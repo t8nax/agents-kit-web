@@ -62,6 +62,8 @@ async function drafted(stream: ReturnType<typeof controlledStream<DraftEvent>>, 
   stream.send({ type: 'drafted', text: '---', fields })
   stream.close()
   await screen.findByText('Основу написал Чудо-Юдо')
+  // Ответ становится основой эффектом, отдельным тиком после строки о нём: поле имени ждётся, а не берётся сразу.
+  await screen.findByLabelText('Имя')
 }
 
 test('у нового до ответа Чудо-Юдо основы нет и сохранить нельзя', () => {
