@@ -33,7 +33,7 @@ public sealed class PresetsEndpointsTests : IDisposable
     [Fact]
     public async Task Add_SavesStepWithDescriptionBesideBasesFile()
     {
-        var step = new FlowStep(" Ревью ", "reviewer", "вердикт по sha", "правка только в текстах", "2.1. Собрать дифф.\n   2.1.1. Всей ветки.");
+        var step = new FlowStage(" Ревью ", "reviewer", "вердикт по sha", "правка только в текстах", "2.1. Собрать дифф.\n   2.1.1. Всей ветки.");
 
         var response = await Client.PostAsJsonAsync("/api/presets", step);
 
@@ -48,7 +48,7 @@ public sealed class PresetsEndpointsTests : IDisposable
     [Fact]
     public async Task Add_SameStepTwice_KeepsOnePreset()
     {
-        var step = new FlowStep("Мерж", "оркестратор", "sha в dev", null, null);
+        var step = new FlowStage("Мерж", "оркестратор", "sha в dev", null, null);
 
         var first = await (await Client.PostAsJsonAsync("/api/presets", step)).Content.ReadFromJsonAsync<StepPreset>();
         var second = await (await Client.PostAsJsonAsync("/api/presets", step)).Content.ReadFromJsonAsync<StepPreset>();
@@ -60,7 +60,7 @@ public sealed class PresetsEndpointsTests : IDisposable
     [Fact]
     public async Task Add_StepBreakingKitForm_IsBadRequest()
     {
-        var response = await Client.PostAsJsonAsync("/api/presets", new FlowStep("Мерж", "оркестратор", "", null, null));
+        var response = await Client.PostAsJsonAsync("/api/presets", new FlowStage("Мерж", "оркестратор", "", null, null));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(await GetPresets());
@@ -69,9 +69,9 @@ public sealed class PresetsEndpointsTests : IDisposable
     [Fact]
     public async Task Remove_DeletesPresetAndUnknownIsNotFound()
     {
-        var kept = await (await Client.PostAsJsonAsync("/api/presets", new FlowStep("Ветка", "оркестратор", "имя ветки", null, null)))
+        var kept = await (await Client.PostAsJsonAsync("/api/presets", new FlowStage("Ветка", "оркестратор", "имя ветки", null, null)))
             .Content.ReadFromJsonAsync<StepPreset>();
-        var removed = await (await Client.PostAsJsonAsync("/api/presets", new FlowStep("Мерж", "оркестратор", "sha", null, null)))
+        var removed = await (await Client.PostAsJsonAsync("/api/presets", new FlowStage("Мерж", "оркестратор", "sha", null, null)))
             .Content.ReadFromJsonAsync<StepPreset>();
 
         Assert.Equal(HttpStatusCode.NoContent, (await Client.DeleteAsync($"/api/presets/{removed!.Id}")).StatusCode);

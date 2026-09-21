@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace AgentsKitWeb.Api.Flow;
 
-/// <summary>Пресет шага флоу: готовый шаг, который оператор добавляет во флоу любого проекта.</summary>
+/// <summary>Пресет стадии флоу: готовая стадия, которую оператор добавляет во флоу любого проекта.</summary>
 public sealed record StepPreset(string Id, string Title, string Executor, string Output, string? Skip, string? Description);
 
 /// <summary>
@@ -24,7 +24,7 @@ public sealed class PresetsStore(string file)
     }
 
     /// <summary>Сохраняет шаг как пресет; такой же шаг уже в списке — отдаёт его, второй раз не пишет.</summary>
-    public StepPreset Add(FlowStep step)
+    public StepPreset Add(FlowStage step)
     {
         var skip = string.IsNullOrWhiteSpace(step.Skip) ? null : step.Skip.Trim();
         var description = string.IsNullOrWhiteSpace(step.Description) ? null : step.Description.Replace("\r\n", "\n").Trim('\n');

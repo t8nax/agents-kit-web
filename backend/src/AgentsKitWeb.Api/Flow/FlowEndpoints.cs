@@ -4,29 +4,33 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Flow;
 
 /// <summary>
-/// Флоу одной базы. Version — отпечаток файла: запись принимается только поверх того, что оператор видел.
-/// ActiveTasks — задачи в работе: памяти work/*.md базы. Error задан — шагов панель не прочитала.
-/// Icons — выбранные оператором значки шагов, они живут в настройках панели, а не в файле флоу.
+/// Флоу одной базы: стадии flow/stages/ и флоу из flow/flow.md. Version — отпечаток всех этих файлов: запись
+/// принимается только поверх того, что оператор видел. У базы без flow/flow.md — и когда флоу в ней ещё старой
+/// формы — флоу и стадий нет. ActiveTasks — задачи в работе: памяти work/*.md базы. Error задан — флоу панель
+/// не прочитала. Icons — выбранные оператором значки стадий, они живут в настройках панели, а не в базе.
 /// </summary>
 public sealed record BaseFlow(
     string Base,
     string Project,
-    IReadOnlyList<FlowStep> Steps,
+    IReadOnlyList<FlowStage> Stages,
+    IReadOnlyList<NamedFlow> Flows,
     int ActiveTasks,
     string? Version,
     string? Error,
     IReadOnlyDictionary<string, string> Icons);
 
+/// <summary>Стадии и флоу базы целиком: стадия без слага заведена в панели, стадии, которой нет в списке, удаляются.</summary>
 public sealed record SaveFlowRequest(
     string Base,
     string Version,
-    IReadOnlyList<FlowStep> Steps,
+    IReadOnlyList<FlowStage> Stages,
+    IReadOnlyList<NamedFlow> Flows,
     IReadOnlyDictionary<string, string>? Icons = null);
 
 public sealed record FlowSavedResponse(string Version);
 
-/// <summary>Problem: changed · invalid · not-committed; Step и Detail — у invalid и not-committed.</summary>
-public sealed record FlowRejectedResponse(string Problem, int? Step = null, string? Detail = null);
+/// <summary>Problem: changed · not-committed · проблема из FlowFolder.Validate; Flow и Stage — где она, Detail — вывод git.</summary>
+public sealed record FlowRejectedResponse(string Problem, string? Flow = null, string? Stage = null, string? Detail = null);
 
 public sealed record OpenFlowRequest(string Base);
 
@@ -36,7 +40,7 @@ public static class FlowEndpoints
 
     public static void MapFlowEndpoints(this IEndpointRouteBuilder app)
     {
-        // Файл читается на каждый запрос: флоу правят и руками, и сессии агентов.
+        // Файлы читаются на каждый запрос: флоу правят и руками, и сессии агентов.
         app.MapGet("/api/flow", (BasesStore bases, FlowIconsStore icons) =>
             bases.List().Select(basePath => Read(basePath, icons)).ToList());
 
@@ -46,73 +50,84 @@ public static class FlowEndpoints
             FlowIconsStore icons,
             CancellationToken cancellationToken) =>
         {
-            // Пишется только flow.md базы из списка панели: путь к файлу панель собирает сама.
-            if (Configured(bases, request.Base) is not { } basePath || !File.Exists(Path.Combine(basePath, FlowFile.FileName)))
+            // Пишется только flow/ базы из списка панели: пути к файлам панель собирает сама.
+            if (Configured(bases, request.Base) is not { } basePath)
                 return Results.NotFound();
 
-            var file = Path.Combine(basePath, FlowFile.FileName);
-            var bytes = await File.ReadAllBytesAsync(file, cancellationToken);
-            if (FlowFile.Fingerprint(bytes) != request.Version)
+            var files = Files(basePath);
+            if (FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))) != request.Version)
                 return Results.Conflict(new FlowRejectedResponse("changed"));
 
-            if (FlowFile.Validate(request.Steps) is { } rejection)
-                return Results.BadRequest(new FlowRejectedResponse("invalid", rejection.Step, Problem(rejection.Problem)));
+            if (FlowFolder.Validate(request.Stages, request.Flows) is { } rejection)
+                return Results.BadRequest(new FlowRejectedResponse(rejection.Problem, rejection.Flow, rejection.Stage));
 
-            var (text, hasBom) = FlowFile.Decode(bytes);
-            var updated = FlowFile.Serialize(
-                FlowFile.Parse(text) with { Steps = request.Steps },
-                text.Contains("\r\n") ? "\r\n" : "\n");
-            var output = FlowFile.Encode(updated, hasBom);
-            // Значки живут в настройках панели: шаги могли не измениться, а значок шага — да.
+            var writes = Plan(basePath, files, request);
+            // Значки живут в настройках панели: файлы могли не измениться, а значок стадии — да.
             icons.Save(basePath, request.Icons);
 
-            if (output.AsSpan().SequenceEqual(bytes))
+            if (writes.Count == 0)
                 return Results.Ok(new FlowSavedResponse(request.Version));
 
-            await WriteAsync(file, output, cancellationToken);
-            var commit = await BaseGit.CommitFileAsync(basePath, FlowFile.FileName, CommitMessage, cancellationToken);
-            if (!commit.Done)
-            {
-                // Незакоммиченный флоу прихватил бы чужой коммит соседней сессии: файл возвращается как был.
-                await WriteAsync(file, bytes, CancellationToken.None);
+            var committed = await CommitAsync(basePath, writes, cancellationToken);
+            if (committed is not null)
                 return Results.Json(
-                    new FlowRejectedResponse("not-committed", Detail: commit.Error),
+                    new FlowRejectedResponse("not-committed", Detail: committed),
                     statusCode: StatusCodes.Status502BadGateway);
-            }
 
-            return Results.Ok(new FlowSavedResponse(FlowFile.Fingerprint(output)));
+            return Results.Ok(new FlowSavedResponse(FlowFolder.Fingerprint(Files(basePath).Select(f => (f.Path, f.Bytes)))));
         });
 
         app.MapGet("/api/presets", (PresetsStore presets) => presets.List());
 
-        // Пресет — шаг в форме кита: иначе выбранный из списка он не сохранится во флоу.
-        app.MapPost("/api/presets", (FlowStep step, PresetsStore presets) =>
+        // Пресет — стадия в форме кита: иначе выбранная из списка она не сохранится во флоу.
+        app.MapPost("/api/presets", (FlowStage stage, PresetsStore presets) =>
         {
-            // Возврат и помощники в сохранённый шаг не уходят: возврат зовёт шаг своего флоу, а помощники —
-            // исполнителей своего проекта, и в чужом флоу их нет — решение оператора.
-            var plain = step with { Returns = [], Helpers = [] };
-            return FlowFile.Validate([plain]) is { } rejection
-                ? Results.BadRequest(new FlowRejectedResponse("invalid", Detail: Problem(rejection.Problem)))
+            // Помощники в пресет не уходят: они исполнители своего проекта, и в чужом их нет — решение оператора.
+            var plain = stage with { Helpers = [], Slug = null };
+            return FlowFolder.StageProblem(plain) is { } problem
+                ? Results.BadRequest(new FlowRejectedResponse(problem))
                 : Results.Ok(presets.Add(plain));
         });
 
         app.MapDelete("/api/presets/{id}", (string id, PresetsStore presets) =>
             presets.Remove(id) ? Results.NoContent() : Results.NotFound());
 
-        // Описания шагов панель не показывает: их читают в VS Code, в окне на каталоге базы.
+        // Флоу целиком читают в VS Code, в окне на каталоге базы.
         app.MapPost("/api/flow/open", async (
             OpenFlowRequest request,
             BasesStore bases,
             IEditorWindows windows,
             CancellationToken cancellationToken) =>
         {
-            if (Configured(bases, request.Base) is not { } basePath || !File.Exists(Path.Combine(basePath, FlowFile.FileName)))
+            if (Configured(bases, request.Base) is not { } basePath || !File.Exists(Path.Combine(basePath, FlowFolder.ListFile)))
                 return Results.NotFound();
 
-            return await windows.OpenFileAsync(basePath, Path.Combine(basePath, FlowFile.FileName), cancellationToken)
+            var list = Path.GetFullPath(Path.Combine(basePath, FlowFolder.ListFile));
+            return await windows.OpenFileAsync(basePath, list, cancellationToken)
                 ? Results.NoContent()
                 : Results.StatusCode(StatusCodes.Status502BadGateway);
         });
+    }
+
+    /// <summary>Файл флоу базы: путь от корня базы через «/» и байты как на диске.</summary>
+    private sealed record FlowFileBytes(string Path, byte[] Bytes);
+
+    /// <summary>Правка одного файла: Bytes — что записать (null — удалить), Before — что было (null — файла не было).</summary>
+    private sealed record FileWrite(string Path, byte[]? Bytes, byte[]? Before);
+
+    /// <summary>flow/flow.md и файлы стадий. Без flow/flow.md стадии не читаются: флоу у базы нет.</summary>
+    private static List<FlowFileBytes> Files(string basePath)
+    {
+        var list = Path.Combine(basePath, FlowFolder.ListFile);
+        if (!File.Exists(list))
+            return [];
+
+        var files = new List<FlowFileBytes> { new(FlowFolder.ListFile, File.ReadAllBytes(list)) };
+        var stages = Path.Combine(basePath, FlowFolder.StagesFolder);
+        if (Directory.Exists(stages))
+            files.AddRange(Directory.EnumerateFiles(stages, "*.md")
+                .Select(f => new FlowFileBytes($"{FlowFolder.StagesFolder}/{Path.GetFileName(f)}", File.ReadAllBytes(f))));
+        return files;
     }
 
     private static BaseFlow Read(string basePath, FlowIconsStore icons)
@@ -120,29 +135,124 @@ public static class FlowEndpoints
         var project = ProjectName.Of(basePath);
 
         if (!Directory.Exists(basePath))
-            return new BaseFlow(basePath, project, [], 0, null, "База не найдена на диске", Empty);
-
-        var file = Path.Combine(basePath, FlowFile.FileName);
-        if (!File.Exists(file))
-            return new BaseFlow(basePath, project, [], 0, null, "В базе нет flow.md", Empty);
+            return new BaseFlow(basePath, project, [], [], 0, null, "База не найдена на диске", Empty);
 
         try
         {
-            var bytes = File.ReadAllBytes(file);
+            var files = Files(basePath);
+            var stages = Stages(files);
+            var flows = files.Count == 0
+                ? []
+                : FlowFolder.ParseList(Text(files[0].Bytes), Titles(stages)).Flows;
             return new BaseFlow(
                 basePath,
                 project,
-                FlowFile.Parse(FlowFile.Decode(bytes).Text).Steps,
+                stages,
+                flows,
                 WorkspaceCollector.MemoryFiles(basePath).Count,
-                FlowFile.Fingerprint(bytes),
+                FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))),
                 null,
                 icons.Of(basePath));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return new BaseFlow(basePath, project, [], 0, null, "Флоу базы не прочитан", Empty);
+            return new BaseFlow(basePath, project, [], [], 0, null, "Флоу базы не прочитан", Empty);
         }
     }
+
+    private static List<FlowStage> Stages(IEnumerable<FlowFileBytes> files) =>
+        files.Where(f => f.Path.StartsWith(FlowFolder.StagesFolder + "/"))
+            .Select(f => FlowFolder.ParseStage(Text(f.Bytes), System.IO.Path.GetFileNameWithoutExtension(f.Path)))
+            .OrderBy(s => s.Slug, StringComparer.Ordinal)
+            .ToList();
+
+    private static Dictionary<string, string> Titles(IEnumerable<FlowStage> stages) =>
+        stages.Where(s => s.Slug is not null).ToDictionary(s => s.Slug!, s => s.Title);
+
+    private static string Text(byte[] bytes) => FlowFolder.Decode(bytes).Text;
+
+    /// <summary>
+    /// Что записать. Стадия пишется, только если она изменилась: файлы стадий правят и руками, и нетронутую
+    /// панель переписала бы в свою разметку. Новая стадия получает слаг из названия; стадия, которой в списке
+    /// нет, удаляется. Файл пишется с переводами строк и BOM, какие у него были.
+    /// </summary>
+    private static List<FileWrite> Plan(string basePath, List<FlowFileBytes> files, SaveFlowRequest request)
+    {
+        var existing = files.Where(f => f.Path != FlowFolder.ListFile)
+            .ToDictionary(f => System.IO.Path.GetFileNameWithoutExtension(f.Path), f => f);
+        var taken = new HashSet<string>(existing.Keys, StringComparer.OrdinalIgnoreCase);
+        var slugs = new Dictionary<string, string>();
+        var writes = new List<FileWrite>();
+
+        foreach (var stage in request.Stages)
+        {
+            if (stage.Slug is { } slug && existing.TryGetValue(slug, out var file))
+            {
+                var (text, hasBom) = FlowFolder.Decode(file.Bytes);
+                if (FlowFolder.ParseStage(text, slug) != stage)
+                    writes.Add(new FileWrite(file.Path, FlowFolder.Encode(FlowFolder.SerializeStage(stage, Eol(text)), hasBom), file.Bytes));
+                slugs[FlowFolder.Key(stage.Title)] = slug;
+                continue;
+            }
+
+            var fresh = FlowFolder.NewSlug(stage.Title, taken);
+            taken.Add(fresh);
+            slugs[FlowFolder.Key(stage.Title)] = fresh;
+            writes.Add(new FileWrite($"{FlowFolder.StagesFolder}/{fresh}.md", FlowFolder.Encode(FlowFolder.SerializeStage(stage), false), null));
+        }
+
+        var kept = request.Stages.Select(s => s.Slug).OfType<string>().ToHashSet();
+        writes.AddRange(existing.Where(pair => !kept.Contains(pair.Key)).Select(pair => new FileWrite(pair.Value.Path, null, pair.Value.Bytes)));
+
+        // Вступление flow.md остаётся как было; у базы без него — заголовок, какой заводит кит.
+        var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
+        var (listText, listBom) = list is null ? ($"# {ProjectName.Of(basePath)} — флоу\n", false) : FlowFolder.Decode(list.Bytes);
+        var intro = FlowFolder.ParseList(listText, new Dictionary<string, string>()).Intro;
+        var output = FlowFolder.Encode(FlowFolder.SerializeList(intro, request.Flows, slugs, Eol(listText)), listBom);
+        if (list is null || !output.AsSpan().SequenceEqual(list.Bytes))
+            writes.Add(new FileWrite(FlowFolder.ListFile, output, list?.Bytes));
+
+        return writes;
+    }
+
+    /// <summary>
+    /// Пишет файлы и коммитит их одним коммитом; null — прошло. Не прошло — все файлы возвращаются как были, а новые
+    /// снимаются с индекса: незакоммиченный флоу прихватил бы чужой коммит соседней сессии.
+    /// </summary>
+    private static async Task<string?> CommitAsync(string basePath, List<FileWrite> writes, CancellationToken cancellationToken)
+    {
+        var fresh = writes.Where(w => w.Before is null).Select(w => w.Path).ToList();
+        // Удалённый файл, которого git не знал, коммитить нечего: git commit -- путь отказал бы на нём.
+        var paths = new List<string>();
+        foreach (var write in writes)
+            if (write.Bytes is not null || await BaseGit.TrackedAsync(basePath, write.Path, cancellationToken))
+                paths.Add(write.Path);
+
+        foreach (var write in writes)
+            await WriteAsync(Path.Combine(basePath, write.Path), write.Bytes, cancellationToken);
+
+        string? error = null;
+        foreach (var path in fresh)
+            if ((await BaseGit.AddFileAsync(basePath, path, cancellationToken)).Error is { } added)
+            {
+                error = added;
+                break;
+            }
+
+        if (error is null && paths.Count > 0)
+            error = (await BaseGit.CommitFilesAsync(basePath, paths, CommitMessage, cancellationToken)).Error;
+
+        if (error is null)
+            return null;
+
+        if (fresh.Count > 0)
+            await BaseGit.ResetFilesAsync(basePath, fresh, CancellationToken.None);
+        foreach (var write in writes)
+            await WriteAsync(Path.Combine(basePath, write.Path), write.Before, CancellationToken.None);
+        return error;
+    }
+
+    private static string Eol(string text) => text.Contains("\r\n") ? "\r\n" : "\n";
 
     private static readonly IReadOnlyDictionary<string, string> Empty = new Dictionary<string, string>();
 
@@ -152,21 +262,19 @@ public static class FlowEndpoints
         return configured is not null && Directory.Exists(configured) ? configured : null;
     }
 
-    private static async Task WriteAsync(string file, byte[] bytes, CancellationToken cancellationToken)
+    /// <summary>Пишет файл через временный рядом; null — удаляет.</summary>
+    private static async Task WriteAsync(string file, byte[]? bytes, CancellationToken cancellationToken)
     {
+        if (bytes is null)
+        {
+            if (File.Exists(file))
+                File.Delete(file);
+            return;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         var temp = file + ".panel-tmp";
         await File.WriteAllBytesAsync(temp, bytes, cancellationToken);
         File.Move(temp, file, overwrite: true);
     }
-
-    private static string Problem(FlowProblem problem) => problem switch
-    {
-        FlowProblem.EmptyTitle => "empty-title",
-        FlowProblem.EmptyExecutor => "empty-executor",
-        FlowProblem.EmptyOutput => "empty-output",
-        FlowProblem.ReturnWithoutCondition => "return-without-condition",
-        FlowProblem.ReturnUnknownStep => "return-unknown-step",
-        FlowProblem.ReturnStepNotEarlier => "return-step-not-earlier",
-        _ => "line-break",
-    };
 }
