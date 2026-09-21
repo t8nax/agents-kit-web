@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
@@ -15,12 +14,8 @@ public sealed record TaskStartResponse(string Session);
 /// <summary>Почему задача не запущена: problem — чем именно, message — что сказал запуск.</summary>
 public sealed record TaskStartProblem(string Problem, string? Message = null);
 
-public static partial class TaskEndpoints
+public static class TaskEndpoints
 {
-    // Номер записи бэклога; кириллическая «В-7» — тот же номер, что «B-7».
-    [GeneratedRegex(@"^[BВ]-\d+$")]
-    private static partial Regex NumberFormat { get; }
-
     public static void MapTaskEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/tasks", async (
@@ -37,8 +32,9 @@ public static partial class TaskEndpoints
             if (string.IsNullOrWhiteSpace(request.Copy) || string.IsNullOrWhiteSpace(request.Number))
                 return Results.BadRequest();
 
-            var number = Latin(request.Number.Trim());
-            if (!NumberFormat.IsMatch(number))
+            // Номер набран кириллицей или строчными — тот же номер (Workspaces/BacklogNumber).
+            var number = BacklogNumber.Normalize(request.Number);
+            if (number is null)
                 return Results.BadRequest();
 
             var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
@@ -79,15 +75,19 @@ public static partial class TaskEndpoints
     public static ProcessStartInfo StartInfo(string copyPath, string number) =>
         BackgroundSession.StartInfo(copyPath, $"/agents-kit:drive {number}");
 
-    /// <summary>Записи бэклога базы: номер — заголовок. Бэклога нет или он не прочитан — записей нет.</summary>
+    /// <summary>
+    /// Записи бэклога базы с буквами её проекта: номер — заголовок. Запись чужими буквами кит считает ошибкой
+    /// и перенумерует, поэтому задачей её панель не запускает. Бэклога нет или он не прочитан — записей нет.
+    /// </summary>
     private static Dictionary<string, string> Entries(string basePath)
     {
         try
         {
             var text = File.ReadAllText(Path.Combine(basePath, "backlog.md"));
+            var letters = Backlog.Letters(text);
             return Backlog.Parse(text)
-                .Where(e => e.Number is not null)
-                .GroupBy(e => Latin(e.Number!))
+                .Where(e => e.Number is not null && BacklogNumber.Letters(e.Number) == letters)
+                .GroupBy(e => e.Number!)
                 .ToDictionary(g => g.Key, g => g.First().Title);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or DirectoryNotFoundException)
@@ -95,6 +95,4 @@ public static partial class TaskEndpoints
             return [];
         }
     }
-
-    private static string Latin(string number) => number.Replace('В', 'B');
 }
