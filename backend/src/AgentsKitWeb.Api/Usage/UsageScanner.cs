@@ -8,7 +8,6 @@ public sealed record UsageBucket(DateTimeOffset Hour, string Model)
 {
     private readonly UsagePrice? _price = UsagePrices.Of(Model).Price;
 
-    public long Answers { get; private set; }
     public double Cost { get; private set; }
     public long Input { get; private set; }
     public long Output { get; private set; }
@@ -19,7 +18,6 @@ public sealed record UsageBucket(DateTimeOffset Hour, string Model)
 
     public void Add(UsageRecord record)
     {
-        Answers++;
         Input += record.Input;
         Output += record.Output;
         CacheWrite += record.CacheWrite;

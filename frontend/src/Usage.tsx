@@ -279,8 +279,10 @@ function shortTokens(value: number) {
 
 /** Доллары примерные — по прейскуранту панели, поэтому крупные суммы без центов. */
 function dollars(value: number) {
-  if (value >= 10) return `≈ $${Math.round(value).toLocaleString('ru-RU')}`
-  return `≈ $${value.toFixed(2).replace('.', ',')}`
+  // Сравнивать уже округлённое: иначе $9,996 вышло бы «≈ $10,00», а не «≈ $10»
+  const cents = Math.round(value * 100) / 100
+  if (cents >= 10) return `≈ $${Math.round(cents).toLocaleString('ru-RU')}`
+  return `≈ $${cents.toFixed(2).replace('.', ',')}`
 }
 
 /** Дата цен видна рядом с суммами: так устаревший прейскурант заметен, а не врёт молча. */

@@ -4,7 +4,7 @@ namespace AgentsKitWeb.Api.Usage;
 /// Сколько панель насчитала за окно по журналам. Cost — сколько это стоило бы по API-тарифу, в долларах.
 /// Процент лимита сюда не входит — он приходит от Anthropic.
 /// </summary>
-public sealed record UsageWindow(DateTimeOffset Since, long Tokens, long Answers, double Cost);
+public sealed record UsageWindow(DateTimeOffset Since, long Tokens, double Cost);
 
 /// <summary>
 /// Доля модели в израсходованном за неделю. Вес — во сколько раз модель тратит лимит быстрее Sonnet;
@@ -13,7 +13,7 @@ public sealed record UsageWindow(DateTimeOffset Since, long Tokens, long Answers
 /// модель, которой в прейскуранте нет; у модели со своей ценой пусто.
 /// </summary>
 public sealed record ModelUsage(
-    string Model, long Answers, long Tokens, double Weight, double Share, double? Cost = null, string? PricedAs = null);
+    string Model, long Tokens, double Weight, double Share, double? Cost = null, string? PricedAs = null);
 
 /// <summary>Счёт панели по журналам: два окна, последние сутки и разбивка недели по моделям.</summary>
 public sealed record UsageTotals(UsageWindow FiveHours, UsageWindow Week, UsageWindow Day, IReadOnlyList<ModelUsage> Models);
@@ -63,7 +63,7 @@ public static class UsageMath
     {
         var inside = In(buckets, since, now).ToList();
         return new UsageWindow(
-            since, inside.Sum(bucket => bucket.Tokens), inside.Sum(bucket => bucket.Answers), inside.Sum(bucket => bucket.Cost));
+            since, inside.Sum(bucket => bucket.Tokens), inside.Sum(bucket => bucket.Cost));
     }
 
     /// <summary>
@@ -96,7 +96,6 @@ public static class UsageMath
             .Select(group => new
             {
                 Model = group.Key,
-                Answers = group.Sum(bucket => bucket.Answers),
                 Tokens = group.Sum(bucket => bucket.Tokens),
                 Cost = group.Sum(bucket => bucket.Cost),
                 Pricing = UsagePrices.Of(group.Key),
@@ -110,7 +109,6 @@ public static class UsageMath
             .Where(model => model.Tokens > 0)
             .Select(model => new ModelUsage(
                 model.Model,
-                model.Answers,
                 model.Tokens,
                 model.Weight,
                 weighted > 0 ? model.Tokens * model.Weight / weighted : 0,

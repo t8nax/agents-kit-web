@@ -42,6 +42,7 @@ public static partial class UsagePrices
     /// <summary>День, когда цены сняты со страницы тарифов Anthropic.</summary>
     public static readonly DateOnly Date = new(2026, 9, 21);
 
+    // Чтение кэша у Fable 5.1 и Mythos 5.1 — 2,5% ввода, а не 10%, как у остальных: так в тарифах.
     private static readonly UsagePrice Fable51 = new("Fable 5.1", 10, 50, 0.25);
     private static readonly UsagePrice Mythos51 = new("Mythos 5.1", 10, 50, 0.25);
     private static readonly UsagePrice Opus5 = new("Opus 5", 5, 25, 0.5, Fast: 2);
@@ -89,7 +90,8 @@ public static partial class UsagePrices
     /// </summary>
     public static UsagePricing Of(string model)
     {
-        var match = Version().Match(model);
+        // Старые модели назывались наоборот — claude-3-5-haiku-20241022: номер перед линейкой.
+        var match = Version().Match(model) is { Success: true } current ? current : OldVersion().Match(model);
         if (match.Success)
         {
             var key = match.Groups["minor"].Success
@@ -106,7 +108,10 @@ public static partial class UsagePrices
         return new UsagePricing(null, false);
     }
 
-    // Младший номер — одна-две цифры; восемь цифр после версии — дата выпуска, а не номер.
-    [GeneratedRegex(@"(?<line>fable|mythos|opus|sonnet|haiku)-(?<major>\d+)(?:-(?<minor>\d{1,2}))?(?!\d)", RegexOptions.IgnoreCase)]
+    // Номер — одна-две цифры; восемь цифр после линейки — дата выпуска, а не номер.
+    [GeneratedRegex(@"(?<line>fable|mythos|opus|sonnet|haiku)-(?<major>\d{1,2})(?:-(?<minor>\d{1,2}))?(?!\d)", RegexOptions.IgnoreCase)]
     private static partial Regex Version();
+
+    [GeneratedRegex(@"claude-(?<major>\d)(?:-(?<minor>\d))?-(?<line>opus|sonnet|haiku)", RegexOptions.IgnoreCase)]
+    private static partial Regex OldVersion();
 }

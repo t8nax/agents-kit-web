@@ -7,7 +7,6 @@ namespace AgentsKitWeb.Api.Usage;
 public sealed record UsageWindowView(
     DateTimeOffset Since,
     long Tokens,
-    long Answers,
     double Cost,
     int? Percent,
     DateTimeOffset? ResetsAt);
@@ -19,7 +18,6 @@ public sealed record UsageWindowView(
 public sealed record UsageDayView(
     DateTimeOffset Since,
     long Tokens,
-    long Answers,
     double Cost,
     double? Percent);
 
@@ -61,8 +59,8 @@ public static class UsageEndpoints
     }
 
     private static UsageWindowView Window(UsageWindow window, WindowLimit? limit) =>
-        new(window.Since, window.Tokens, window.Answers, window.Cost, limit?.Percent, limit?.ResetsAt);
+        new(window.Since, window.Tokens, window.Cost, limit?.Percent, limit?.ResetsAt);
 
     private static UsageDayView Day(UsageWindow day, double? percent) =>
-        new(day.Since, day.Tokens, day.Answers, day.Cost, percent);
+        new(day.Since, day.Tokens, day.Cost, percent);
 }

@@ -125,6 +125,41 @@ public class UsagePricesTests
         Assert.Equal(93.5, opus.Cost(record with { Fast = true }), 5);
         Assert.Equal(51.425, opus.Cost(record with { UsOnly = true }), 5);
     }
+
+    [Fact]
+    public void Cost_FastModeRaisesOnlyModelsThatHaveIt()
+    {
+        // У Sonnet 5 быстрого режима нет: пометка в журнале цену не меняет — 2 + 10
+        var sonnet = UsagePrices.Of("claude-sonnet-5").Price!;
+        var record = new UsageRecord(DateTimeOffset.UnixEpoch, "claude-sonnet-5", 1_000_000, 1_000_000, 0, 0, Fast: true);
+
+        Assert.Equal(12, sonnet.Cost(record), 5);
+    }
+
+    [Fact]
+    public void Parse_GeoOtherThanUsGivesNoSurcharge()
+    {
+        // В живых журналах стоит «not_available» — надбавки за вывод в США у него нет
+        var record = UsageJournal.Parse("""
+            {"timestamp":"2026-09-18T10:00:00.000Z","message":{"model":"claude-opus-5","usage":{"output_tokens":10,"inference_geo":"not_available","speed":"standard"}}}
+            """);
+
+        Assert.NotNull(record);
+        Assert.False(record.UsOnly);
+        Assert.False(record.Fast);
+    }
+
+    [Theory]
+    [InlineData("claude-3-5-haiku-20241022", "Haiku 3.5", false)]
+    [InlineData("claude-3-5-sonnet-20241022", "Sonnet 5", true)]
+    public void Of_OldNamingReadsVersionBeforeLine(string model, string name, bool byLine)
+    {
+        // Дата выпуска после линейки — не номер версии
+        var pricing = UsagePrices.Of(model);
+
+        Assert.Equal(name, pricing.Price?.Name);
+        Assert.Equal(byLine, pricing.ByLine);
+    }
 }
 
 public class UsageWeightsTests
@@ -143,11 +178,10 @@ public class UsageMathTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 18, 16, 30, 0, TimeSpan.Zero);
 
-    private static UsageBucket Bucket(DateTimeOffset hour, string model, long tokens, long answers = 1)
+    private static UsageBucket Bucket(DateTimeOffset hour, string model, long tokens)
     {
         var bucket = new UsageBucket(hour, model);
-        for (var i = 0; i < answers; i++)
-            bucket.Add(new UsageRecord(hour, model, 0, tokens / answers, 0, 0));
+        bucket.Add(new UsageRecord(hour, model, 0, tokens, 0, 0));
         return bucket;
     }
 
@@ -168,8 +202,6 @@ public class UsageMathTests
 
         Assert.Equal(1500, totals.FiveHours.Tokens);
         Assert.Equal(1800, totals.Week.Tokens);
-        Assert.Equal(2, totals.FiveHours.Answers);
-        Assert.Equal(3, totals.Week.Answers);
     }
 
     [Fact]
@@ -253,7 +285,6 @@ public class UsageMathTests
 
         Assert.Equal(Now.AddDays(-1), totals.Day.Since);
         Assert.Equal(1200, totals.Day.Tokens);
-        Assert.Equal(2, totals.Day.Answers);
     }
 
     [Fact]
