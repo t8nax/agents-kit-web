@@ -395,16 +395,17 @@ export default function Flow({
       ? `в файлах флоу строка не по форме кита — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
       : firstProblem(draft, known)
 
-  // Записанный флоу перечитан: выбор находится по именам в новой форме, а не падает на первые флоу и стадию.
-  useEffect(() => {
-    if (!keep) return
-    setFlowKey(saved.flows.find((f) => keep.flow !== null && norm(f.name) === norm(keep.flow))?.key ?? null)
-    setStageKey(saved.stages.find((s) => keep.stage !== null && norm(s.title) === norm(keep.stage))?.key ?? null)
-    setKeep(null)
-  }, [saved]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const currentFlow = draft.flows.find((f) => f.key === flowKey) ?? draft.flows[0] ?? null
-  const currentStage = draft.stages.find((s) => s.key === stageKey) ?? stagesInOrder(draft)[0] ?? null
+  // Записанный флоу перечитан с новыми key: выбор находится по именам, а не падает на первые флоу и стадию.
+  const currentFlow =
+    draft.flows.find((f) => f.key === flowKey) ??
+    draft.flows.find((f) => keep?.flow != null && norm(f.name) === norm(keep.flow)) ??
+    draft.flows[0] ??
+    null
+  const currentStage =
+    draft.stages.find((s) => s.key === stageKey) ??
+    draft.stages.find((s) => keep?.stage != null && norm(s.title) === norm(keep.stage)) ??
+    stagesInOrder(draft)[0] ??
+    null
 
   const refresh = useCallback(() => {
     setNotice(null)
@@ -575,6 +576,7 @@ export default function Flow({
                 setOpened(null)
                 setStageKey(null)
                 setFlowKey(null)
+                setKeep(null)
               }}
             />
           )}
