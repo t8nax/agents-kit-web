@@ -731,3 +731,18 @@ test('список стадий идёт в порядке флоу, а не п�
   // Открыта первая по ходу работы
   expect(screen.getByRole('region', { name: 'Стадия «Критерий»' })).toBeInTheDocument()
 })
+
+test('удалённый единственный флоу сохраняется или отменяется из полосы внизу пустого состояния', async () => {
+  const fetchMock = stubApi(api([{ ...app, flows: [full] }], [], saved()))
+  const region = await renderFlow()
+
+  fireEvent.click((await open(region, /^Флоу «полный»/)).getByRole('button', { name: 'Удалить флоу' }))
+
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
+  expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Отменить правки' }))
+  expect(await screen.findByRole('region', { name: 'Флоу «полный»' })).toBeInTheDocument()
+
+  fireEvent.click((await open(within(screen.getByRole('region', { name: 'Флоу «полный»' })), /^Флоу «полный»/)).getByRole('button', { name: 'Удалить флоу' }))
+  expect((await saveAndRead(fetchMock)).flows).toEqual([])
+})
