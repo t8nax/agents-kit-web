@@ -73,6 +73,26 @@ public static class UsageMath
         return new UsageDay(since, window.Tokens, window.Answers, week > 0 ? day / week : 0);
     }
 
+    /// <summary>
+    /// Примерный процент недельного лимита за последние сутки. Процент недели Anthropic считает
+    /// от своего сброса, а не за скользящие семь суток, поэтому сутки делятся на расход с начала
+    /// той же недели: иначе сразу после сброса оценка занижена в разы. В счёт идёт только часть
+    /// суток после сброса — до него расход шёл из прошлой недели. Нет процента недели — нет оценки.
+    /// </summary>
+    public static double? DayPercent(IReadOnlyList<UsageBucket> buckets, DateTimeOffset now, WindowLimit? week)
+    {
+        if (week is null)
+            return null;
+
+        var weekSince = week.ResetsAt is { } resetsAt ? resetsAt - UsageScanner.LongestWindow : now - UsageScanner.LongestWindow;
+        var daySince = now - TimeSpan.FromDays(1);
+        var spent = Weighted(In(buckets, weekSince, now));
+        if (spent == 0)
+            return 0;
+        var day = Weighted(In(buckets, daySince > weekSince ? daySince : weekSince, now));
+        return week.Percent * day / spent;
+    }
+
     private static double Weighted(IEnumerable<UsageBucket> buckets) =>
         buckets.Sum(bucket => bucket.Tokens * UsageWeights.Of(bucket.Model));
 

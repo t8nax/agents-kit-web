@@ -12,8 +12,8 @@ public sealed record UsageWindowView(
     DateTimeOffset? ResetsAt);
 
 /// <summary>
-/// Последние сутки для панели. Процента за сутки Anthropic не присылает, поэтому Percent — оценка:
-/// доля суток в недельном расходе, умноженная на процент недели. Нет процента недели — нет и оценки.
+/// Последние сутки для панели. Процента за сутки Anthropic не присылает, поэтому Percent — оценка
+/// из процента недели (UsageMath.DayPercent). Нет процента недели — нет и оценки.
 /// </summary>
 public sealed record UsageDayView(
     DateTimeOffset Since,
@@ -40,13 +40,14 @@ public static class UsageEndpoints
         app.MapGet("/api/usage", async (UsageScanner scanner, ILimits limits, TimeProvider time, CancellationToken cancellationToken) =>
         {
             var now = time.GetUtcNow();
-            var totals = UsageMath.Sum(scanner.Collect(), now);
+            var buckets = scanner.Collect();
+            var totals = UsageMath.Sum(buckets, now);
             var snapshot = await limits.ReadAsync(cancellationToken);
 
             return new UsageView(
                 Window(totals.FiveHours, snapshot.FiveHours),
                 Window(totals.Week, snapshot.Week),
-                Day(totals.Day, snapshot.Week),
+                Day(totals.Day, UsageMath.DayPercent(buckets, now, snapshot.Week)),
                 totals.Models,
                 snapshot.Problem,
                 now);
@@ -56,6 +57,6 @@ public static class UsageEndpoints
     private static UsageWindowView Window(UsageWindow window, WindowLimit? limit) =>
         new(window.Since, window.Tokens, window.Answers, limit?.Percent, limit?.ResetsAt);
 
-    private static UsageDayView Day(UsageDay day, WindowLimit? week) =>
-        new(day.Since, day.Tokens, day.Answers, day.Share, day.Share * week?.Percent);
+    private static UsageDayView Day(UsageDay day, double? percent) =>
+        new(day.Since, day.Tokens, day.Answers, day.Share, percent);
 }
