@@ -65,7 +65,7 @@ test('раздел показывает доли лимита, токены с �
   expect(dayBox.y).toBe(weekBox.y)
   expect(dayBox.x).toBeGreaterThan(weekBox.x + weekBox.width)
 
-  const opus = page.getByRole('row', { name: /claude-opus-5/ })
+  const opus = page.getByRole('row', { name: /^claude-opus-5 / })
   await expect(opus).toContainText('83%')
   await expect(opus).toContainText('×5')
   await expect(opus).toContainText('≈ $450')
@@ -102,6 +102,7 @@ test('отказ Anthropic назван словами, а счёт токено
   // Без процента недели оценки за сутки нет, а токены остаются
   const day = page.locator('section').filter({ has: page.getByRole('heading', { name: '24 часа' }) })
   await expect(day).toContainText('—')
-  await expect(day).not.toContainText('≈')
+  // Оценки процента нет; знак «≈» остаётся только у долларов
+  await expect(day.locator('.usage-percent')).toHaveText('—')
   await expect(day).toContainText('41,0 млн токенов')
 })
