@@ -254,11 +254,19 @@ public static class FlowEndpoints
             if (write.Bytes is not null || await BaseGit.TrackedAsync(basePath, write.Path, cancellationToken))
                 paths.Add(write.Path);
 
-        foreach (var write in writes)
-            await WriteAsync(Path.Combine(basePath, write.Path), write.Bytes, cancellationToken);
-
         string? error = null;
-        foreach (var path in fresh)
+        // Файлов несколько: сорвалась запись одного — уже записанные возвращаются, как и при отказе коммита.
+        try
+        {
+            foreach (var write in writes)
+                await WriteAsync(Path.Combine(basePath, write.Path), write.Bytes, cancellationToken);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            error = $"файл флоу не записан: {e.Message}";
+        }
+
+        foreach (var path in error is null ? fresh : [])
             if ((await BaseGit.AddFileAsync(basePath, path, cancellationToken)).Error is { } added)
             {
                 error = added;
@@ -274,7 +282,16 @@ public static class FlowEndpoints
         if (fresh.Count > 0)
             await BaseGit.ResetFilesAsync(basePath, fresh, CancellationToken.None);
         foreach (var write in writes)
-            await WriteAsync(Path.Combine(basePath, write.Path), write.Before, CancellationToken.None);
+        {
+            try
+            {
+                await WriteAsync(Path.Combine(basePath, write.Path), write.Before, CancellationToken.None);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Файл, который не дал себя записать, и вернуть не выйдет — он остался прежним.
+            }
+        }
         return error;
     }
 
@@ -301,6 +318,15 @@ public static class FlowEndpoints
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
         var temp = file + ".panel-tmp";
         await File.WriteAllBytesAsync(temp, bytes, cancellationToken);
-        File.Move(temp, file, overwrite: true);
+        try
+        {
+            File.Move(temp, file, overwrite: true);
+        }
+        catch
+        {
+            // Временный файл рядом не оставляется: база увидела бы в нём чужой незакоммиченный файл.
+            File.Delete(temp);
+            throw;
+        }
     }
 }

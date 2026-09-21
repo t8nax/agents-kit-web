@@ -219,6 +219,51 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_ChangedListKeepsItsLineEndingsAndBom()
+    {
+        byte[] bom = [0xEF, 0xBB, 0xBF];
+        File.WriteAllBytes(_listPath, [.. bom, .. Encoding.UTF8.GetBytes(List.ReplaceLineEndings("\r\n"))]);
+        TestGit.Run(_base, "commit", "-am", "crlf");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+
+        await Save(client, flow, flow.Stages, [flow.Flows[0] with { When = "большая правка" }, flow.Flows[1]]);
+
+        var bytes = File.ReadAllBytes(_listPath);
+        Assert.True(bytes.AsSpan().StartsWith(bom));
+        Assert.Equal(
+            List.ReplaceLineEndings("\r\n").Replace("когда: новая возможность", "когда: большая правка"),
+            Encoding.UTF8.GetString(bytes[bom.Length..]));
+    }
+
+    [Fact]
+    public async Task Save_FileThatCannotBeWritten_BringsBackEveryWrittenFile()
+    {
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+        // Стадия пишется раньше списка флоу, а список занят только на чтение: запись срывается на нём.
+        File.SetAttributes(_listPath, FileAttributes.ReadOnly);
+        try
+        {
+            var response = await Save(
+                client,
+                flow,
+                flow.Stages.Select(s => s.Title == "Критерий" ? s with { Output = "критерий" } : s).ToList(),
+                [flow.Flows[0] with { When = "большая правка" }, flow.Flows[1]]);
+
+            Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+            Assert.StartsWith("файл флоу не записан", (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!.Detail);
+            Assert.Equal(Criterion.ReplaceLineEndings("\n"), File.ReadAllText(Stage("criterion")));
+            Assert.Equal(List.ReplaceLineEndings("\n"), File.ReadAllText(_listPath));
+            Assert.Equal("", Git("status", "--porcelain"));
+        }
+        finally
+        {
+            File.SetAttributes(_listPath, FileAttributes.Normal);
+        }
+    }
+
+    [Fact]
     public async Task Save_AnyFlowFileChangedSinceRead_IsRejectedAndFilesUntouched()
     {
         var client = Client(_base);
