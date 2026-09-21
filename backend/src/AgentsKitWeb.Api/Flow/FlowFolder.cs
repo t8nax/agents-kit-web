@@ -295,6 +295,8 @@ public static partial class FlowFolder
         : string.IsNullOrWhiteSpace(stage.Executor) ? "stage-empty-executor"
         : string.IsNullOrWhiteSpace(stage.Output) ? "stage-empty-output"
         : new[] { stage.Title, stage.Executor, stage.Output, stage.Skip ?? "" }.Concat(Helpers(stage)).Any(Breaks) ? "line-break"
+        // Название стоит текстом ссылки «[Название](…)» и в возврате «стадия «Название»»: скобки и кавычки его разорвут.
+        : stage.Title.IndexOfAny(['[', ']', '«', '»']) >= 0 ? "stage-bad-title"
         : Helpers(stage).Count > 0 && stage.Executor.Trim() != "оркестратор" ? "helpers-not-orchestrator"
         : null;
 

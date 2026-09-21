@@ -163,6 +163,7 @@ public sealed class FlowFolderTests
     public static TheoryData<string, string?, string?> Broken => new()
     {
         { "stage-empty-output", null, "Ревью" },
+        { "stage-bad-title", null, "Ревью [черновик]" },
         { "stage-duplicate-title", null, "ревью " },
         { "helpers-not-orchestrator", null, "Ревью" },
         { "flow-duplicate-name", " Полный", null },
@@ -192,6 +193,7 @@ public sealed class FlowFolderTests
         switch (problem)
         {
             case "stage-empty-output": stages[1] = stages[1] with { Output = " " }; break;
+            case "stage-bad-title": stages.Add(new FlowStage("Ревью [черновик]", "оператор", "ок", null, null)); break;
             case "stage-duplicate-title": stages.Add(new FlowStage("ревью ", "оператор", "ок", null, null)); break;
             case "helpers-not-orchestrator": stages[1] = stages[1] with { Helpers = ["scout"] }; break;
             case "flow-duplicate-name": flows.Add(full with { Name = " Полный" }); break;

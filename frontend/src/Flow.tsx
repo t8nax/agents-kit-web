@@ -177,6 +177,8 @@ const breaks = (value: string) => /[\r\n]/.test(value)
 function stageErrors(stage: DraftStage, stages: DraftStage[], known: string[] | null) {
   const errors: string[] = []
   if (!stage.title.trim()) errors.push('нет названия')
+  // Название стоит текстом ссылки во флоу и в кавычках возврата: скобки и кавычки его разорвут.
+  else if (/[[\]«»]/.test(stage.title)) errors.push('в названии скобки [ ] или кавычки « »')
   else if (stages.some((other) => other.key !== stage.key && norm(other.title) === norm(stage.title)))
     errors.push('стадия с таким названием уже есть')
   if (stage.kind === 'субагент' && !stage.agent.trim()) errors.push('не указано имя субагента')
@@ -285,6 +287,7 @@ const emptyStage: FlowStage = { title: '', executor: 'оркестратор', o
 const invalidLabels: Record<string, string> = {
   'stage-empty-title': 'у стадии нет названия',
   'stage-duplicate-title': 'две стадии с одним названием',
+  'stage-bad-title': 'в названии стадии скобки [ ] или кавычки « »',
   'stage-empty-executor': 'у стадии не указан исполнитель',
   'stage-empty-output': 'у стадии не указан выход',
   'helpers-not-orchestrator': 'помощники не у оркестратора',

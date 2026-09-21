@@ -785,3 +785,13 @@ test('после сохранения выбранные флоу и стади�
   fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
   expect(screen.getByRole('region', { name: 'Флоу «мелкий»' })).toBeInTheDocument()
 })
+
+test('скобки и кавычки в названии стадии не пускаются: ими пишется ссылка и возврат', async () => {
+  stubApi(api([app]))
+  await renderFlow()
+
+  const edit = await stagesTab('Запас')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Запас [черновик]' } })
+
+  expect(screen.getByText(/^Не сохранить: стадия «Запас \[черновик\]» — в названии скобки \[ \] или кавычки « »/)).toBeInTheDocument()
+})
