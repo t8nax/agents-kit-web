@@ -134,12 +134,35 @@ public class UsageMathTests
     }
 
     [Fact]
+    public void Sum_CountsLastDayAsWeightedShareOfWeek()
+    {
+        var buckets = new[]
+        {
+            Bucket(Now.AddHours(-2), "claude-opus-5", 1000),
+            // Ровно на краю суток — ещё внутри, как и у других окон
+            Bucket(Now.AddHours(-24), "claude-sonnet-5", 200),
+            // Вчера раньше края суток — только в неделе
+            Bucket(Now.AddHours(-25), "claude-sonnet-5", 4800),
+        };
+
+        var totals = UsageMath.Sum(buckets, Now);
+
+        Assert.Equal(Now.AddDays(-1), totals.Day.Since);
+        Assert.Equal(1200, totals.Day.Tokens);
+        Assert.Equal(2, totals.Day.Answers);
+        // С весами: сутки — 5000 + 200 из 10000, а не 1200 из 6000 голых токенов
+        Assert.Equal(0.52, totals.Day.Share, 5);
+    }
+
+    [Fact]
     public void Sum_EmptyJournalsGiveZeroes()
     {
         var totals = UsageMath.Sum([], Now);
 
         Assert.Equal(0, totals.FiveHours.Tokens);
         Assert.Equal(0, totals.Week.Tokens);
+        Assert.Equal(0, totals.Day.Tokens);
+        Assert.Equal(0, totals.Day.Share);
         Assert.Empty(totals.Models);
     }
 }

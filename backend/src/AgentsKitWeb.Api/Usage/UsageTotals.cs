@@ -9,8 +9,14 @@ public sealed record UsageWindow(DateTimeOffset Since, long Tokens, long Answers
 /// </summary>
 public sealed record ModelUsage(string Model, long Answers, long Tokens, double Weight, double Share);
 
-/// <summary>Счёт панели по журналам: два окна и разбивка недели по моделям.</summary>
-public sealed record UsageTotals(UsageWindow FiveHours, UsageWindow Week, IReadOnlyList<ModelUsage> Models);
+/// <summary>
+/// Последние сутки как часть недели. Share — доля суток в израсходованном за неделю с весами моделей:
+/// лимит тратится по весу, и без него сутки на Opus выглядели бы дешевле, чем обошлись.
+/// </summary>
+public sealed record UsageDay(DateTimeOffset Since, long Tokens, long Answers, double Share);
+
+/// <summary>Счёт панели по журналам: два окна, последние сутки и разбивка недели по моделям.</summary>
+public sealed record UsageTotals(UsageWindow FiveHours, UsageWindow Week, UsageDay Day, IReadOnlyList<ModelUsage> Models);
 
 public static class UsageWeights
 {
@@ -31,15 +37,17 @@ public static class UsageWeights
 
 public static class UsageMath
 {
-    /// <summary>Пятичасовое и недельное окна и доли моделей за неделю — из часовых корзин сканера.</summary>
+    /// <summary>Пятичасовое и недельное окна, последние сутки и доли моделей за неделю — из часовых корзин сканера.</summary>
     public static UsageTotals Sum(IReadOnlyList<UsageBucket> buckets, DateTimeOffset now)
     {
         var fiveHoursSince = now - TimeSpan.FromHours(5);
+        var daySince = now - TimeSpan.FromDays(1);
         var weekSince = now - UsageScanner.LongestWindow;
 
         return new UsageTotals(
             Window(buckets, fiveHoursSince, now),
             Window(buckets, weekSince, now),
+            Day(buckets, daySince, weekSince, now),
             Models(buckets, weekSince, now));
     }
 
@@ -55,6 +63,18 @@ public static class UsageMath
         var inside = In(buckets, since, now).ToList();
         return new UsageWindow(since, inside.Sum(bucket => bucket.Tokens), inside.Sum(bucket => bucket.Answers));
     }
+
+    // Сутки скользящие, а не календарные: число не обнуляется в полночь — выбор оператора на B-131.
+    private static UsageDay Day(IReadOnlyList<UsageBucket> buckets, DateTimeOffset since, DateTimeOffset weekSince, DateTimeOffset now)
+    {
+        var window = Window(buckets, since, now);
+        var day = Weighted(In(buckets, since, now));
+        var week = Weighted(In(buckets, weekSince, now));
+        return new UsageDay(since, window.Tokens, window.Answers, week > 0 ? day / week : 0);
+    }
+
+    private static double Weighted(IEnumerable<UsageBucket> buckets) =>
+        buckets.Sum(bucket => bucket.Tokens * UsageWeights.Of(bucket.Model));
 
     private static IReadOnlyList<ModelUsage> Models(IReadOnlyList<UsageBucket> buckets, DateTimeOffset since, DateTimeOffset now)
     {
