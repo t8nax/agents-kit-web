@@ -600,7 +600,8 @@ export default function Flow({
                   <RefreshIcon />
                   Обновить
                 </button>
-                {editable && flow.flows.length > 0 && (
+                {/* Открывать есть что, пока в базе лежит флоу или хоть одна стадия. */}
+                {editable && (flow.flows.length > 0 || flow.stages.length > 0) && (
                   <button
                     type="button"
                     role="menuitem"

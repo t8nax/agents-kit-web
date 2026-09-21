@@ -6,10 +6,10 @@ namespace AgentsKitWeb.Api.Flow;
 /// <summary>
 /// Флоу одной базы: стадии flow/stages/ и флоу из flow/flow.md. Version — отпечаток всех этих файлов: запись
 /// принимается только поверх того, что оператор видел. У базы без flow/flow.md — и когда флоу в ней ещё старой
-/// формы — флоу и стадий нет. ActiveTasks — задачи в работе: памяти work/*.md базы. Error задан — флоу панель
-/// не прочитала. Icons — выбранные оператором значки стадий, они живут в настройках панели, а не в базе.
-/// Unread — строки файлов флоу не по форме кита, которых панель не понимает («flow/flow.md, строка 7: «…»»):
-/// пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
+/// формы — флоу нет, а стадии, если они лежат в flow/stages/, читаются: первая запись не должна их стереть.
+/// ActiveTasks — задачи в работе: памяти work/*.md базы. Error задан — флоу панель не прочитала. Icons — выбранные
+/// оператором значки стадий, они живут в настройках панели, а не в базе. Unread — строки файлов флоу, которые панель
+/// не сохранит («flow/flow.md, строка 7: «…»»): пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
 /// </summary>
 public sealed record BaseFlow(
     string Base,
@@ -64,7 +64,7 @@ public static class FlowEndpoints
             if (FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))) != request.Version)
                 return Results.Conflict(new FlowRejectedResponse("changed"));
 
-            // Строки не по форме кита запись стёрла бы молча: пока их не поправили руками, флоу не пишется.
+            // Строки, которых панель не сохранит, запись стёрла бы молча: пока их не поправили руками, флоу не пишется.
             if (Unread(files).FirstOrDefault() is { } unread)
                 return Results.BadRequest(new FlowRejectedResponse("unread", Detail: unread));
 
@@ -102,18 +102,19 @@ public static class FlowEndpoints
         app.MapDelete("/api/presets/{id}", (string id, PresetsStore presets) =>
             presets.Remove(id) ? Results.NoContent() : Results.NotFound());
 
-        // Флоу целиком читают в VS Code, в окне на каталоге базы.
+        // Флоу целиком читают в VS Code, в окне на каталоге базы: список флоу, а без него — первую стадию,
+        // чтобы строку, которую панель не сохранит, было где поправить.
         app.MapPost("/api/flow/open", async (
             OpenFlowRequest request,
             BasesStore bases,
             IEditorWindows windows,
             CancellationToken cancellationToken) =>
         {
-            if (Configured(bases, request.Base) is not { } basePath || !File.Exists(Path.Combine(basePath, FlowFolder.ListFile)))
+            if (Configured(bases, request.Base) is not { } basePath || Files(basePath).FirstOrDefault() is not { } first)
                 return Results.NotFound();
 
-            var list = Path.GetFullPath(Path.Combine(basePath, FlowFolder.ListFile));
-            return await windows.OpenFileAsync(basePath, list, cancellationToken)
+            var file = Path.GetFullPath(Path.Combine(basePath, first.Path));
+            return await windows.OpenFileAsync(basePath, file, cancellationToken)
                 ? Results.NoContent()
                 : Results.StatusCode(StatusCodes.Status502BadGateway);
         });

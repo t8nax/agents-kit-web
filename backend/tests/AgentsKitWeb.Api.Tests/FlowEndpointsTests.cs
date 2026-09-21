@@ -453,6 +453,20 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Open_WithoutListOpensStageAndWithoutFlowFilesIsNotFound()
+    {
+        File.Delete(_listPath);
+        var bare = Knowledge("bare-knowledge");
+
+        var response = await Client(_base, bare).PostAsJsonAsync("/api/flow/open", new OpenFlowRequest(_base));
+        var nothing = await Client(_base, bare).PostAsJsonAsync("/api/flow/open", new OpenFlowRequest(bare));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal((_base, Stage("acceptance")), Assert.Single(_windows.OpenedFiles));
+        Assert.Equal(HttpStatusCode.NotFound, nothing.StatusCode);
+    }
+
+    [Fact]
     public async Task Open_EditorFailed_IsBadGateway()
     {
         _windows.Result = false;
