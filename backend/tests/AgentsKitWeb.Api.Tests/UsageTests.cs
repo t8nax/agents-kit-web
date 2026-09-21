@@ -49,6 +49,82 @@ public class UsageJournalTests
         Assert.Equal(UsageJournal.UnknownModel, record.Model);
         Assert.Equal(10, record.Tokens);
     }
+
+    [Fact]
+    public void Parse_ReadsHourCacheAndPriceModes()
+    {
+        var record = UsageJournal.Parse("""
+            {"timestamp":"2026-09-18T10:00:00.000Z","message":{"model":"claude-opus-5","usage":{"input_tokens":2,"output_tokens":10,"cache_creation_input_tokens":300,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_1h_input_tokens":200,"ephemeral_5m_input_tokens":100},"speed":"fast","inference_geo":"us"}}}
+            """);
+
+        Assert.NotNull(record);
+        Assert.Equal(300, record.CacheWrite);
+        Assert.Equal(200, record.CacheWrite1h);
+        Assert.True(record.Fast);
+        Assert.True(record.UsOnly);
+    }
+
+    [Fact]
+    public void Parse_WithoutCacheBreakdown_TakesAllCacheWriteAsFiveMinutes()
+    {
+        var record = UsageJournal.Parse(Answer);
+
+        Assert.NotNull(record);
+        Assert.Equal(0, record.CacheWrite1h);
+        Assert.False(record.Fast);
+        Assert.False(record.UsOnly);
+    }
+}
+
+public class UsagePricesTests
+{
+    [Theory]
+    [InlineData("claude-opus-5", "Opus 5")]
+    [InlineData("claude-opus-4-8", "Opus 4.8")]
+    [InlineData("claude-opus-4-20250514", "Opus 4")]
+    [InlineData("claude-sonnet-4-6", "Sonnet 4.6")]
+    [InlineData("claude-haiku-4-5-20251001", "Haiku 4.5")]
+    [InlineData("claude-fable-5-1", "Fable 5.1")]
+    public void Of_KnownVersionGetsItsOwnPrice(string model, string name)
+    {
+        var pricing = UsagePrices.Of(model);
+
+        Assert.Equal(name, pricing.Price?.Name);
+        Assert.False(pricing.ByLine);
+    }
+
+    [Theory]
+    [InlineData("claude-opus-5-2", "Opus 5")]
+    [InlineData("claude-sonnet-6", "Sonnet 5")]
+    [InlineData("claude-haiku-5", "Haiku 4.5")]
+    public void Of_NewVersionGetsPriceOfItsLine(string model, string name)
+    {
+        var pricing = UsagePrices.Of(model);
+
+        Assert.Equal(name, pricing.Price?.Name);
+        Assert.True(pricing.ByLine);
+    }
+
+    [Fact]
+    public void Of_ModelOutsideAnyLineHasNoPrice()
+    {
+        Assert.Null(UsagePrices.Of(UsageJournal.UnknownModel).Price);
+        Assert.Null(UsagePrices.Of("что-то-новое").Price);
+    }
+
+    [Fact]
+    public void Cost_PricesEachKindOfTokens()
+    {
+        var opus = UsagePrices.Of("claude-opus-5").Price!;
+        // По миллиону ввода, вывода и чтения кэша, два миллиона записи кэша — половина на час:
+        // 5 + 25 + 0,5 + 6,25 (5 мин, ввод ×1,25) + 10 (час, ввод ×2)
+        var record = new UsageRecord(DateTimeOffset.UnixEpoch, "claude-opus-5",
+            1_000_000, 1_000_000, 2_000_000, 1_000_000, CacheWrite1h: 1_000_000);
+
+        Assert.Equal(46.75, opus.Cost(record), 5);
+        Assert.Equal(93.5, opus.Cost(record with { Fast = true }), 5);
+        Assert.Equal(51.425, opus.Cost(record with { UsOnly = true }), 5);
+    }
 }
 
 public class UsageWeightsTests
@@ -131,6 +207,34 @@ public class UsageMathTests
         var totals = UsageMath.Sum(buckets, Now);
 
         Assert.Equal("claude-sonnet-5", Assert.Single(totals.Models).Model);
+    }
+
+    [Fact]
+    public void Sum_CountsDollarsInWindowsAndModels()
+    {
+        var buckets = new[]
+        {
+            // Миллион токенов вывода: Opus 5 — $25, Sonnet 5 — $10
+            Bucket(Now.AddHours(-1), "claude-opus-5", 1_000_000),
+            Bucket(Now.AddHours(-30), "claude-sonnet-5", 1_000_000),
+            // Новой версии в прейскуранте нет — по цене линейки, Opus 5
+            Bucket(Now.AddHours(-30), "claude-opus-5-2", 1_000_000),
+            Bucket(Now.AddHours(-30), UsageJournal.UnknownModel, 1_000_000),
+        };
+
+        var totals = UsageMath.Sum(buckets, Now);
+
+        Assert.Equal(25, totals.FiveHours.Cost, 5);
+        Assert.Equal(60, totals.Week.Cost, 5);
+        Assert.Equal(25, totals.Day.Cost, 5);
+        var opus = totals.Models.Single(model => model.Model == "claude-opus-5");
+        Assert.Equal(25, opus.Cost!.Value, 5);
+        Assert.Null(opus.PricedAs);
+        var next = totals.Models.Single(model => model.Model == "claude-opus-5-2");
+        Assert.Equal(25, next.Cost!.Value, 5);
+        Assert.Equal("Opus 5", next.PricedAs);
+        // Цены нет даже у линейки — доллары не выдумываются
+        Assert.Null(totals.Models.Single(model => model.Model == UsageJournal.UnknownModel).Cost);
     }
 
     [Fact]

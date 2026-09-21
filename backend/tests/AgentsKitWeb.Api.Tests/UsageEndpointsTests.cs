@@ -62,6 +62,24 @@ public sealed class UsageEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Usage_CountsDollarsAndNamesPricesDate()
+    {
+        Journal("D--Projects-nota/one.jsonl",
+            (Now.AddHours(-1), "claude-opus-5", 1_000_000),
+            (Now.AddDays(-2), "claude-sonnet-5", 1_000_000));
+
+        var view = await Client().GetFromJsonAsync<UsageView>("/api/usage");
+
+        Assert.NotNull(view);
+        // Миллион токенов вывода: Opus 5 — $25, Sonnet 5 — $10
+        Assert.Equal(25, view.FiveHours.Cost, 5);
+        Assert.Equal(35, view.Week.Cost, 5);
+        Assert.Equal(25, view.Day.Cost, 5);
+        Assert.Equal(10, view.Models.Single(model => model.Model == "claude-sonnet-5").Cost!.Value, 5);
+        Assert.Equal(UsagePrices.Date, view.PricesDate);
+    }
+
+    [Fact]
     public async Task Usage_EstimatesDayPercentFromWeekPercent()
     {
         Journal("D--Projects-nota/one.jsonl",

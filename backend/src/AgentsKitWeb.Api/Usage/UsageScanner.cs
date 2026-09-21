@@ -1,9 +1,15 @@
 namespace AgentsKitWeb.Api.Usage;
 
-/// <summary>Сколько израсходовано одной моделью за один час — в эти корзины складываются записи журналов.</summary>
+/// <summary>
+/// Сколько израсходовано одной моделью за один час — в эти корзины складываются записи журналов.
+/// Доллары считаются при сложении: цена ответа зависит от его режима, а в корзине режима уже нет.
+/// </summary>
 public sealed record UsageBucket(DateTimeOffset Hour, string Model)
 {
+    private readonly UsagePrice? _price = UsagePrices.Of(Model).Price;
+
     public long Answers { get; private set; }
+    public double Cost { get; private set; }
     public long Input { get; private set; }
     public long Output { get; private set; }
     public long CacheWrite { get; private set; }
@@ -18,6 +24,7 @@ public sealed record UsageBucket(DateTimeOffset Hour, string Model)
         Output += record.Output;
         CacheWrite += record.CacheWrite;
         CacheRead += record.CacheRead;
+        Cost += _price?.Cost(record) ?? 0;
     }
 }
 

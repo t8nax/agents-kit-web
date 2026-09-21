@@ -1,13 +1,19 @@
 namespace AgentsKitWeb.Api.Usage;
 
-/// <summary>Сколько панель насчитала за окно по журналам. Процент лимита сюда не входит — он приходит от Anthropic.</summary>
-public sealed record UsageWindow(DateTimeOffset Since, long Tokens, long Answers);
+/// <summary>
+/// Сколько панель насчитала за окно по журналам. Cost — сколько это стоило бы по API-тарифу, в долларах.
+/// Процент лимита сюда не входит — он приходит от Anthropic.
+/// </summary>
+public sealed record UsageWindow(DateTimeOffset Since, long Tokens, long Answers, double Cost);
 
 /// <summary>
 /// Доля модели в израсходованном за неделю. Вес — во сколько раз модель тратит лимит быстрее Sonnet;
 /// без него доли врут, потому что ответ Opus стоит лимита куда дороже такого же ответа Haiku.
+/// Cost — доллары по API-тарифу; null — цены нет даже у линейки. PricedAs — чьей ценой посчитана
+/// модель, которой в прейскуранте нет; у модели со своей ценой пусто.
 /// </summary>
-public sealed record ModelUsage(string Model, long Answers, long Tokens, double Weight, double Share);
+public sealed record ModelUsage(
+    string Model, long Answers, long Tokens, double Weight, double Share, double? Cost = null, string? PricedAs = null);
 
 /// <summary>Счёт панели по журналам: два окна, последние сутки и разбивка недели по моделям.</summary>
 public sealed record UsageTotals(UsageWindow FiveHours, UsageWindow Week, UsageWindow Day, IReadOnlyList<ModelUsage> Models);
@@ -56,7 +62,8 @@ public static class UsageMath
     private static UsageWindow Window(IReadOnlyList<UsageBucket> buckets, DateTimeOffset since, DateTimeOffset now)
     {
         var inside = In(buckets, since, now).ToList();
-        return new UsageWindow(since, inside.Sum(bucket => bucket.Tokens), inside.Sum(bucket => bucket.Answers));
+        return new UsageWindow(
+            since, inside.Sum(bucket => bucket.Tokens), inside.Sum(bucket => bucket.Answers), inside.Sum(bucket => bucket.Cost));
     }
 
     /// <summary>
@@ -91,6 +98,8 @@ public static class UsageMath
                 Model = group.Key,
                 Answers = group.Sum(bucket => bucket.Answers),
                 Tokens = group.Sum(bucket => bucket.Tokens),
+                Cost = group.Sum(bucket => bucket.Cost),
+                Pricing = UsagePrices.Of(group.Key),
                 Weight = UsageWeights.Of(group.Key),
             })
             .ToList();
@@ -104,7 +113,9 @@ public static class UsageMath
                 model.Answers,
                 model.Tokens,
                 model.Weight,
-                weighted > 0 ? model.Tokens * model.Weight / weighted : 0))
+                weighted > 0 ? model.Tokens * model.Weight / weighted : 0,
+                model.Pricing.Price is null ? null : model.Cost,
+                model.Pricing.ByLine ? model.Pricing.Price!.Name : null))
             .OrderByDescending(model => model.Share)
             .ToList();
     }
