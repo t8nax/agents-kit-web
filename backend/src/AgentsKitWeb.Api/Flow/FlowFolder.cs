@@ -126,6 +126,20 @@ public static partial class FlowFolder
         return (Block(intro) ?? "", flows);
     }
 
+    /// <summary>Флоу базы по её flow/flow.md — только имена, «когда» и названия пунктов. Флоу нет или файл не прочитан — пусто.</summary>
+    public static IReadOnlyList<NamedFlow> ReadFlows(string basePath)
+    {
+        try
+        {
+            var list = Path.Combine(basePath, ListFile);
+            return File.Exists(list) ? ParseList(Decode(File.ReadAllBytes(list)).Text, new Dictionary<string, string>()).Flows : [];
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>Файл стадии: заголовок «# Название», ключи под ним и описание после пустой строки.</summary>
     public static FlowStage ParseStage(string text, string slug)
     {
