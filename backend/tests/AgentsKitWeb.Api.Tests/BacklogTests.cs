@@ -70,8 +70,52 @@ public class BacklogTests
     {
         var entry = Backlog.Parse("## В-7 Запись руками оператора\n\nТекст.\n")[0];
 
-        Assert.Equal("В-7", entry.Number);
+        Assert.Equal("B-7", entry.Number);
         Assert.Equal("Запись руками оператора", entry.Title);
+    }
+
+    [Fact]
+    public void Parse_ReadsNumbersWithAnyProjectLetters()
+    {
+        var entries = Backlog.Parse("## ORD-12 Выгрузка заказов\n\n## ord-13 Строчными\n\n## ТЕХ-4 Кириллицей\n\n## A1-2 С цифрой\n");
+
+        Assert.Equal(["ORD-12", "ORD-13", "TEX-4", "A1-2"], entries.Select(e => e.Number));
+        Assert.Equal(["Выгрузка заказов", "Строчными", "Кириллицей", "С цифрой"], entries.Select(e => e.Title));
+    }
+
+    [Theory]
+    [InlineData("## Про B-24 и B-11")]
+    [InlineData("## B-24x Заголовок")]
+    [InlineData("## 1B-2 Цифра первой")]
+    [InlineData("## ABCDEFGHIJK-2 Букв больше десяти")]
+    [InlineData("## Заказ-2 Не латиница")]
+    public void Parse_KeepsWordThatIsNotNumberInTitle(string header)
+    {
+        var entry = Backlog.Parse(header + "\n")[0];
+
+        Assert.Null(entry.Number);
+        Assert.Equal(header[3..], entry.Title);
+    }
+
+    [Fact]
+    public void Letters_ComeFromCounter()
+    {
+        Assert.Equal("B", Backlog.Letters(File));
+        Assert.Equal("ORD", Backlog.Letters("следующий номер: ORD-13\n\n## B-7 Чужими буквами\n"));
+        // Счётчик, набранный руками кириллицей и строчными, — те же буквы.
+        Assert.Equal("TEX", Backlog.Letters("следующий номер: тех-5\n"));
+    }
+
+    [Fact]
+    public void Letters_WithoutCounterComeFromHighestNumber()
+    {
+        Assert.Equal("ORD", Backlog.Letters("## B-3 Чужими буквами\n\n## ORD-12 Своими\n\n## Без номера\n"));
+    }
+
+    [Fact]
+    public void Letters_AreUnknownWithoutNumbers()
+    {
+        Assert.Null(Backlog.Letters("# Проект — бэклог\n\n## Без номера\n"));
     }
 
     [Fact]
