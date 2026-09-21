@@ -113,10 +113,13 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
 
   const copies = load.kind === 'loaded' ? load.copies : []
   const chosen = copies.find((row) => row.path === path) ?? null
+  // Флоу не прочитались — задачу всё равно можно начать: сессия спросит флоу у оператора сама. Прочитались, а флоу
+  // у проекта нет, — не начать: кит без флоу работу не ведёт.
+  const flowReady = flow !== null || flows.kind === 'failed'
 
   async function start(event: FormEvent) {
     event.preventDefault()
-    if (!chosen || !flow || busy) return
+    if (!chosen || !flowReady || busy) return
     setBusy(true)
     setFailure(null)
     try {
@@ -175,14 +178,17 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
           <fieldset className="st-field">
             <legend className="st-label">Флоу</legend>
             {flows.kind === 'loading' && <p className="text-sec st-message">Флоу читаются…</p>}
-            {flows.kind === 'failed' && <p className="warning-text st-message">{flows.message}</p>}
+            {flows.kind === 'failed' && (
+              <p className="warning-text st-message">{flows.message}. Сессия спросит флоу у вас сама.</p>
+            )}
             {flows.kind === 'loaded' && flows.flows.length === 0 && (
               <p className="text-sec st-message">У проекта нет флоу — задачу не начать, пока его не завели.</p>
             )}
             {flows.kind === 'loaded' && flows.flows.length > 0 && (
               <ul className="st-list">
-                {flows.flows.map((one) => (
-                  <li key={one.name}>
+                {/* Два флоу с одним именем кит считает поломкой, но показать их надо оба — ключ по месту. */}
+                {flows.flows.map((one, index) => (
+                  <li key={index}>
                     <label className={`st-copy ${one.name === flow ? 'is-on' : ''}`}>
                       <input
                         type="radio"
@@ -251,7 +257,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
             <button type="button" className="btn" disabled={busy} onClick={onClose}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-primary" disabled={busy || !chosen || !flow}>
+            <button type="submit" className="btn btn-primary" disabled={busy || !chosen || !flowReady}>
               {busy ? 'Запускается…' : 'Взять в работу'}
             </button>
           </div>

@@ -50,13 +50,17 @@ function stub(post: Response | Promise<Response>, list: WorkspaceRow[] = rows, b
         posts.push(JSON.parse(String(init.body)))
         return Promise.resolve(post)
       }
-      if (url === '/api/flow') return Promise.resolve(Response.json(baseFlows))
+      if (url === '/api/flow')
+        return Promise.resolve(baseFlows === failedFlows ? new Response('', { status: 500 }) : Response.json(baseFlows))
       expect(url).toBe('/api/workspaces')
       return Promise.resolve(Response.json(list))
     }),
   )
   return posts
 }
+
+/** Отказ API на чтение флоу. */
+const failedFlows: unknown[] = []
 
 const copies = () => within(screen.getByRole('group', { name: 'Рабочая копия' }))
 
@@ -195,4 +199,16 @@ test('флоу успели переименовать: окно говорит,
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Этого флоу в базе больше нет')
+})
+
+test('флоу не прочитались: задачу можно начать без флоу — сессия спросит его сама', async () => {
+  const posts = stub(Response.json({ session: 'x' }), rows, failedFlows)
+  const props = renderModal()
+
+  expect(await screen.findByText('Флоу не загрузились: HTTP 500. Сессия спросит флоу у вас сама.')).toBeInTheDocument()
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
+  expect(posts).toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'B-8', flow: null }])
 })
