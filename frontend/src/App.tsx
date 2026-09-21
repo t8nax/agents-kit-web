@@ -54,6 +54,8 @@ export type WorkspaceRow = {
   sessionState?: SessionState | null
   /** В копии идёт фоновая сессия агента — в неё есть переход из терминала. */
   backgroundSession?: boolean
+  /** Буквы номеров проекта: по ним номер задачи отделяется от заголовка; null или нет поля — букв панель не знает. */
+  letters?: string | null
 }
 
 /** Состояния сессии агента в копии; отсутствие сессии состоянием не считается. */
@@ -610,7 +612,7 @@ function BellOffIcon() {
 }
 
 // Номер записи бэклога стоит своей колонкой перед заголовком: в тексте задачи он терялся
-function TaskCells({ task }: { task: string | null }) {
+function TaskCells({ task, letters }: { task: string | null; letters: string | null | undefined }) {
   if (task === null) {
     // Задачу берут в разделе «Бэклог», а у свободной копии здесь стоит прочерк — решение оператора на B-86
     return (
@@ -620,7 +622,7 @@ function TaskCells({ task }: { task: string | null }) {
       </>
     )
   }
-  const { number, title } = splitTask(task)
+  const { number, title } = splitTask(task, letters)
   return (
     <>
       <td className={`num-col ${number ? '' : 'text-ter'}`}>
@@ -772,7 +774,7 @@ function WorkspacesTable({
                 </td>
               ) : (
                 <>
-                  <TaskCells task={row.task} />
+                  <TaskCells task={row.task} letters={row.letters} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
                     {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
