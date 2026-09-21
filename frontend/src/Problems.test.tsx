@@ -156,7 +156,7 @@ test('«Проверить сейчас» запускает проверку и
   expect(await screen.findByRole('button', { name: 'Проверяется…' })).toBeDisabled()
   expect(fetchMock).toHaveBeenCalledWith('/api/health/check', { method: 'POST' })
 
-  expect(await screen.findByRole('button', { name: 'Проверить сейчас' }, { timeout: 3000 })).toBeEnabled()
+  expect(await screen.findByRole('button', { name: 'Проверить сейчас' })).toBeEnabled()
   expect(screen.queryByText('2 ошибки · 1 предупреждение')).not.toBeInTheDocument()
   expect(screen.getByText(`проверено в ${new Date(fixed.checkedAt!).toLocaleTimeString('ru-RU')}`)).toBeInTheDocument()
 })

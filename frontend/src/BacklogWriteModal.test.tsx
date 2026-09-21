@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import BacklogWriteModal, { type WriteBase, type WriteEvent } from './BacklogWriteModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
@@ -62,7 +62,7 @@ test('текст уходит в проект раздела, ход агент�
   expect(entries.getByText('B-32')).toBeInTheDocument()
   expect(entries.getByText('ждёт')).toHaveProperty('tagName', 'STRONG')
   expect(entries.getByText('Описания нет')).toBeInTheDocument()
-  expect(onEntries).toHaveBeenCalledWith('D:\\Projects\\nota-knowledge', ['B-32', 'B-33'])
+  await waitFor(() => expect(onEntries).toHaveBeenCalledWith('D:\\Projects\\nota-knowledge', ['B-32', 'B-33']))
 
   fireEvent.click(screen.getByRole('button', { name: 'Записать ещё' }))
   expect(screen.getByLabelText('Что записать')).toHaveValue('')
@@ -100,7 +100,7 @@ test('незакоммиченные записи показаны при оши
 
   await screen.findByRole('alert')
   expect(within(screen.getByRole('list', { name: 'Новые записи' })).getByText('B-40')).toBeInTheDocument()
-  expect(onEntries).toHaveBeenCalledWith('D:\\Projects\\app-knowledge', ['B-40'])
+  await waitFor(() => expect(onEntries).toHaveBeenCalledWith('D:\\Projects\\app-knowledge', ['B-40']))
 })
 
 test('оборванный без итога поток — сбой, а не вечное ожидание', async () => {
@@ -154,7 +154,7 @@ test('открытое заново окно показывает запись, 
   })
 
   expect(await screen.findByText('B-60')).toBeInTheDocument()
-  expect(onEntries).toHaveBeenCalledWith(bases[0].base, ['B-60'])
+  await waitFor(() => expect(onEntries).toHaveBeenCalledWith(bases[0].base, ['B-60']))
   expect(posts).toEqual([])
 })
 
