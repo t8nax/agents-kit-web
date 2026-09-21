@@ -125,14 +125,16 @@ public static class FlowEndpoints
     /// <summary>Правка одного файла: Bytes — что записать (null — удалить), Before — что было (null — файла не было).</summary>
     private sealed record FileWrite(string Path, byte[]? Bytes, byte[]? Before);
 
-    /// <summary>flow/flow.md и файлы стадий. Без flow/flow.md стадии не читаются: флоу у базы нет.</summary>
+    /// <summary>
+    /// flow/flow.md, если он есть, — всегда первым, — и файлы стадий. Стадии читаются и без flow/flow.md: они лежат
+    /// в базе, и первая запись флоу не должна ни занять их имена файлов, ни стереть их.
+    /// </summary>
     private static List<FlowFileBytes> Files(string basePath)
     {
         var list = Path.Combine(basePath, FlowFolder.ListFile);
-        if (!File.Exists(list))
-            return [];
-
-        var files = new List<FlowFileBytes> { new(FlowFolder.ListFile, File.ReadAllBytes(list)) };
+        var files = new List<FlowFileBytes>();
+        if (File.Exists(list))
+            files.Add(new(FlowFolder.ListFile, File.ReadAllBytes(list)));
         var stages = Path.Combine(basePath, FlowFolder.StagesFolder);
         if (Directory.Exists(stages))
             files.AddRange(Directory.EnumerateFiles(stages, "*.md")
@@ -151,9 +153,8 @@ public static class FlowEndpoints
         {
             var files = Files(basePath);
             var stages = Stages(files);
-            var flows = files.Count == 0
-                ? []
-                : FlowFolder.ParseList(Text(files[0].Bytes), Titles(stages)).Flows;
+            var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
+            var flows = list is null ? [] : FlowFolder.ParseList(Text(list.Bytes), Titles(stages)).Flows;
             return new BaseFlow(
                 basePath,
                 project,

@@ -334,6 +334,34 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_FirstFlowBesideStageFilesWithoutList_KeepsThemAndTakesFreeName()
+    {
+        var bare = Knowledge("bare-knowledge");
+        Directory.CreateDirectory(Path.Combine(bare, "flow", "stages"));
+        var own = Path.Combine(bare, "flow", "stages", "vetka.md");
+        File.WriteAllText(own, "# Ветка\n\nисполнитель: оператор\nвыход: своя ветка\n");
+        TestGit.Run(bare, "add", "flow");
+        TestGit.Run(bare, "commit", "-m", "стадия без флоу");
+        var client = Client(bare);
+        var flow = Assert.Single(await GetFlows(client));
+        // Флоу нет, а стадия в базе лежит — её и видно
+        Assert.Empty(flow.Flows);
+        Assert.Equal("vetka", Assert.Single(flow.Stages).Slug);
+
+        var response = await client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(
+            flow.Base,
+            flow.Version!,
+            [.. flow.Stages, new FlowStage("Ветка задачи", "оркестратор", "имя ветки", null, null), new FlowStage("vetka", "оператор", "ок", null, null)],
+            [new NamedFlow("полный", null, [new FlowEntry("Ветка"), new FlowEntry("Ветка задачи"), new FlowEntry("vetka")])]));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("# Ветка\n\nисполнитель: оператор\nвыход: своя ветка\n", File.ReadAllText(own));
+        // Новая стадия, чьё имя файла совпало бы с лежащим, получает свободное
+        Assert.True(File.Exists(Path.Combine(bare, "flow", "stages", "vetka-2.md")));
+        Assert.Equal("", GitIn(bare, "status", "--porcelain"));
+    }
+
+    [Fact]
     public async Task Save_BaseNotInList_IsNotFound()
     {
         var client = Client(Path.Combine(_root, "other-knowledge"));
