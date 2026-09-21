@@ -222,7 +222,7 @@ function PerformerCard({
       <span id={details} className="performer-details">
         {performer.description && <span className="performer-desc">{performer.description}</span>}
         <span className="performer-foot">
-        {performer.model && <span className="performer-badge">{performer.model}</span>}
+          {performer.model && <span className="performer-badge">{performer.model}</span>}
           {fresh && <span className="performer-fresh-mark">записан</span>}
         </span>
       </span>
