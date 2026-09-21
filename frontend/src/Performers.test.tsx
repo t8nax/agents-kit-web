@@ -84,6 +84,10 @@ test('кнопки «Править» нет: окно исполнителя о
 
   const card = await screen.findByRole('button', { name: 'spec-writer, Nota' })
   expect(screen.getByRole('button', { name: 'reviewer, Agents Kit Web' })).toBeEnabled()
+  // Описание и модель карточки программа чтения слышит её описанием, а не теряет за именем кнопки.
+  expect(screen.getByRole('button', { name: 'reviewer, Agents Kit Web' })).toHaveAccessibleDescription(
+    'Читает дифф ветки задачи и возвращает вердикт.opus',
+  )
   expect(screen.queryByRole('button', { name: 'Править' })).not.toBeInTheDocument()
 
   fireEvent.click(card)

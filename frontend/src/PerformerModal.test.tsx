@@ -116,7 +116,8 @@ test('руками правятся только модель и инструм�
   open(reviewer)
 
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
-  expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
+  // Подпись и значение основы связаны так, что их читает и программа для незрячих.
+  expect(screen.getByRole('definition', { name: 'Описание' })).toHaveTextContent('Читает дифф ветки задачи.')
   // Полей ввода описания и задания нет: их переписывает Чудо-Юдо по просьбе.
   const inputs = screen.getAllByRole('textbox')
   expect(inputs.map((input) => input.getAttribute('id') ?? input.getAttribute('aria-label'))).toEqual(['pf-wish'])

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import PerformerModal from './PerformerModal'
 import './Performers.css'
 
@@ -201,11 +201,14 @@ function PerformerCard({
   fresh: boolean
   onEdit: () => void
 }) {
+  // Имя кнопки — исполнитель и проект, а описание, модель и пометка читаются её описанием.
+  const details = useId()
   return (
     <button
       type="button"
       className={`performer-card ${fresh ? 'performer-fresh' : ''}`}
       aria-label={`${performer.name}, ${project}`}
+      aria-describedby={details}
       onClick={onEdit}
     >
       <span className="performer-top">
@@ -216,10 +219,12 @@ function PerformerCard({
         {/* Проект у карточки — та база, в которой лежит файл исполнителя. */}
         <span className="performer-source">{project}</span>
       </span>
-      {performer.description && <span className="performer-desc">{performer.description}</span>}
-      <span className="performer-foot">
+      <span id={details} className="performer-details">
+        {performer.description && <span className="performer-desc">{performer.description}</span>}
+        <span className="performer-foot">
         {performer.model && <span className="performer-badge">{performer.model}</span>}
-        {fresh && <span className="performer-fresh-mark">записан</span>}
+          {fresh && <span className="performer-fresh-mark">записан</span>}
+        </span>
       </span>
     </button>
   )

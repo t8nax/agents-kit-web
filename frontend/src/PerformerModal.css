@@ -144,6 +144,7 @@
 
 /* Основа от Чудо-Юдо — утопленная плашка только для чтения; та же сетка подписей, что у настроек. */
 .pf-basis {
+  margin: 0;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-subtle);
@@ -172,8 +173,13 @@
   color: var(--text-tertiary);
 }
 
+.pf-basis dd {
+  margin: 0;
+}
+
 .pf-cell {
   display: flex;
+  align-items: flex-start;
   flex-direction: column;
   gap: 8px;
   min-width: 0;

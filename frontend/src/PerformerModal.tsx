@@ -364,14 +364,15 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
             </p>
           )}
 
+          {/* Основа — список терминов: подпись и значение связаны так, что их читает и программа для незрячих. */}
           {hasBasis && (
-            <div className="pf-basis">
+            <dl className="pf-basis">
               {!editing && (
                 <div className="pf-row">
-                  <label className="pf-label" htmlFor="pf-name">
-                    Имя
-                  </label>
-                  <div className="pf-cell">
+                  <dt className="pf-label">
+                    <label htmlFor="pf-name">Имя</label>
+                  </dt>
+                  <dd className="pf-cell">
                     <input
                       id="pf-name"
                       className="pf-name-input"
@@ -390,27 +391,31 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                         окно и откройте его правку.
                       </span>
                     )}
-                  </div>
+                  </dd>
                 </div>
               )}
               <div className="pf-row">
-                <span className="pf-label">Описание</span>
-                <span className="pf-text" aria-label="Описание">
+                <dt className="pf-label" id="pf-description-label">
+                  Описание
+                </dt>
+                <dd className="pf-text" aria-labelledby="pf-description-label">
                   {description.trim() || '—'}
-                </span>
+                </dd>
               </div>
               <div className="pf-row">
-                <span className="pf-label">Задание</span>
-                {prompt.trim() ? (
-                  <button type="button" ref={taskButton} className="btn pf-small" onClick={() => setReading(true)}>
-                    <FileIcon />
-                    Показать задание
-                  </button>
-                ) : (
-                  <span className="pf-text">—</span>
-                )}
+                <dt className="pf-label">Задание</dt>
+                <dd className="pf-cell">
+                  {prompt.trim() ? (
+                    <button type="button" ref={taskButton} className="btn pf-small" onClick={() => setReading(true)}>
+                      <FileIcon />
+                      Показать задание
+                    </button>
+                  ) : (
+                    <span className="pf-text">—</span>
+                  )}
+                </dd>
               </div>
-            </div>
+            </dl>
           )}
 
           <div className="pf-settings">
