@@ -17,6 +17,12 @@ const withPercents = {
     percent: 82,
     resetsAt: '2026-09-21T11:00:00Z',
   },
+  day: {
+    since: '2026-09-17T16:30:00Z',
+    tokens: 41_000_000,
+    answers: 610,
+    percent: 18.86,
+  },
   models: [
     { model: 'claude-opus-5', answers: 900, tokens: 120_000_000, weight: 5, share: 0.83 },
     { model: 'claude-haiku-4-5', answers: 1200, tokens: 44_500_000, weight: 0.33, share: 0.17 },
@@ -43,6 +49,17 @@ test('раздел показывает доли лимита обоих око�
   const week = page.locator('section').filter({ hasText: 'Недельное окно' })
   await expect(week).toContainText('82%')
 
+  // Сутки — третьей карточкой в том же ряду, без своей полосы
+  const day = page.locator('section').filter({ has: page.getByRole('heading', { name: '24 часа' }) })
+  await expect(day).toContainText('≈19%')
+  await expect(day).toContainText('41,0 млн токенов')
+  await expect(day).not.toContainText('недельного расхода')
+  await expect(day.locator('.usage-track')).toHaveCount(0)
+  const weekBox = (await week.boundingBox())!
+  const dayBox = (await day.boundingBox())!
+  expect(dayBox.y).toBe(weekBox.y)
+  expect(dayBox.x).toBeGreaterThan(weekBox.x + weekBox.width)
+
   const opus = page.getByRole('row', { name: /claude-opus-5/ })
   await expect(opus).toContainText('83%')
   await expect(opus).toContainText('×5')
@@ -56,6 +73,7 @@ test('отказ Anthropic назван словами, а счёт токено
         ...withPercents,
         fiveHours: { ...withPercents.fiveHours, percent: null, resetsAt: null },
         week: { ...withPercents.week, percent: null, resetsAt: null },
+        day: { ...withPercents.day, percent: null },
         limitsProblem: 'Anthropic не ответил: 401.',
       },
     }),
@@ -67,4 +85,9 @@ test('отказ Anthropic назван словами, а счёт токено
   await expect(page.getByText('Проценты лимита сейчас недоступны.')).toBeVisible()
   await expect(page.getByText('Anthropic не ответил: 401.')).toBeVisible()
   await expect(page.locator('section').filter({ hasText: 'Пятичасовое окно' })).toContainText('31,5 млн токенов')
+  // Без процента недели оценки за сутки нет, а токены остаются
+  const day = page.locator('section').filter({ has: page.getByRole('heading', { name: '24 часа' }) })
+  await expect(day).toContainText('—')
+  await expect(day).not.toContainText('≈')
+  await expect(day).toContainText('41,0 млн токенов')
 })

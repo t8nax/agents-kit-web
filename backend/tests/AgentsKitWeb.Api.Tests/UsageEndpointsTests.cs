@@ -62,6 +62,22 @@ public sealed class UsageEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Usage_EstimatesDayPercentFromWeekPercent()
+    {
+        Journal("D--Projects-nota/one.jsonl",
+            (Now.AddHours(-1), "claude-opus-5", 100),
+            (Now.AddDays(-2), "claude-sonnet-5", 500));
+
+        var view = await Client().GetFromJsonAsync<UsageView>("/api/usage");
+
+        Assert.NotNull(view);
+        Assert.Equal(100, view.Day.Tokens);
+        // Процента за сутки Anthropic не даёт — оценка из процента недели: Opus весит впятеро,
+        // и сутки — 500 из 1000 взвешенных за неделю, половина от 62%
+        Assert.Equal(31, view.Day.Percent!.Value, 5);
+    }
+
+    [Fact]
     public async Task Usage_LimitsFailed_KeepsTokensAndNamesTheProblem()
     {
         Journal("D--Projects-nota/one.jsonl", (Now.AddHours(-1), "claude-opus-5", 100));
@@ -76,6 +92,9 @@ public sealed class UsageEndpointsTests : IDisposable
         // Свой счёт по журналам отказ Anthropic не отменяет
         Assert.Equal(100, view.FiveHours.Tokens);
         Assert.Equal(100, view.Week.Tokens);
+        // Без процента недели оценки за сутки нет, а токены остаются
+        Assert.Null(view.Day.Percent);
+        Assert.Equal(100, view.Day.Tokens);
     }
 
     [Fact]

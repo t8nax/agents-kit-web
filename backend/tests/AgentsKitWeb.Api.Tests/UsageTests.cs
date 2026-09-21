@@ -134,12 +134,72 @@ public class UsageMathTests
     }
 
     [Fact]
+    public void Sum_CountsLastDay()
+    {
+        var buckets = new[]
+        {
+            Bucket(Now.AddHours(-2), "claude-opus-5", 1000),
+            // Ровно на краю суток — ещё внутри, как и у других окон
+            Bucket(Now.AddHours(-24), "claude-sonnet-5", 200),
+            // Вчера раньше края суток — только в неделе
+            Bucket(Now.AddHours(-25), "claude-sonnet-5", 4800),
+        };
+
+        var totals = UsageMath.Sum(buckets, Now);
+
+        Assert.Equal(Now.AddDays(-1), totals.Day.Since);
+        Assert.Equal(1200, totals.Day.Tokens);
+        Assert.Equal(2, totals.Day.Answers);
+    }
+
+    [Fact]
+    public void DayPercent_DividesByWeekSinceAnthropicReset()
+    {
+        // Неделя Anthropic сбросилась сутки назад: весь её расход — эти сутки
+        var week = new WindowLimit(14, Now.AddDays(6));
+        var buckets = new[]
+        {
+            Bucket(Now.AddHours(-2), "claude-opus-5", 1000),
+            // До сброса — прошлая неделя, в делитель оценки не идёт
+            Bucket(Now.AddDays(-3), "claude-sonnet-5", 5000),
+        };
+
+        // По скользящей неделе вышло бы 14% × 5000 / 10000 = 7% — вдвое меньше правды
+        Assert.Equal(14, UsageMath.DayPercent(buckets, Now, week)!.Value, 5);
+    }
+
+    [Fact]
+    public void DayPercent_LeavesOutDayHoursBeforeReset()
+    {
+        // Сброс был пять часов назад: утро этих суток ушло из прошлой недели
+        var week = new WindowLimit(10, Now.AddDays(7).AddHours(-5));
+        var buckets = new[]
+        {
+            Bucket(Now.AddHours(-2), "claude-sonnet-5", 1000),
+            Bucket(Now.AddHours(-10), "claude-sonnet-5", 3000),
+        };
+
+        // Оценка за сутки не больше процента всей недели
+        Assert.Equal(10, UsageMath.DayPercent(buckets, Now, week)!.Value, 5);
+    }
+
+    [Fact]
+    public void DayPercent_NoWeekPercent_GivesNoEstimate()
+    {
+        var buckets = new[] { Bucket(Now.AddHours(-2), "claude-sonnet-5", 1000) };
+
+        Assert.Null(UsageMath.DayPercent(buckets, Now, null));
+        Assert.Equal(0, UsageMath.DayPercent([], Now, new WindowLimit(40, Now.AddDays(2))));
+    }
+
+    [Fact]
     public void Sum_EmptyJournalsGiveZeroes()
     {
         var totals = UsageMath.Sum([], Now);
 
         Assert.Equal(0, totals.FiveHours.Tokens);
         Assert.Equal(0, totals.Week.Tokens);
+        Assert.Equal(0, totals.Day.Tokens);
         Assert.Empty(totals.Models);
     }
 }
