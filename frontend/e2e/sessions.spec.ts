@@ -153,6 +153,7 @@ const busyCopy = {
   path: 'D:\\Projects\\noble-keen-walrus',
   branch: 'feat/flow-edit',
   task: 'B-22 Правка флоу проекта из панели',
+  letters: 'B',
   flowStep: 'Реализация',
   progress: 45,
   status: 'in-work',

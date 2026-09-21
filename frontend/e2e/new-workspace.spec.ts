@@ -18,6 +18,7 @@ const busyRow = {
   path: 'D:\\Projects\\noble-keen-walrus',
   branch: 'feat/workspace-from-panel',
   task: 'B-14 Создание новой рабочей копии из панели',
+  letters: 'B',
   flowStep: 'Реализация',
   progress: 45,
   status: 'in-work',

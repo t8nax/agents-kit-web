@@ -19,8 +19,8 @@ async function mockApi(page: Page) {
     reads++
     route.fulfill({
       json: [
-        { base: akwBase, project: 'Agents Kit Web', entries: reads === 1 ? old : [...old, ...added], error: null },
-        { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: null },
+        { base: akwBase, project: 'Agents Kit Web', entries: reads === 1 ? old : [...old, ...added], error: null, letters: 'B' },
+        { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: null, letters: 'B' },
       ],
     })
   })
