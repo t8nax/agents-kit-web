@@ -239,8 +239,10 @@ test('вкладка «Стадии»: стадии карточками по т
   const viewport = page.viewportSize()!
   expect(editBox!.width).toBeLessThanOrEqual(800)
   expect(Math.abs(editBox!.x + editBox!.width / 2 - viewport.width / 2)).toBeLessThan(2)
-  // Стадию, стоящую во флоу, не удалить
-  await expect(edit.getByRole('button', { name: 'Удалить стадию' })).toBeDisabled()
+  // Стадию, стоящую во флоу, не удалить; кнопка в покое контурная, не красная заливка
+  const remove = edit.getByRole('button', { name: 'Удалить стадию' })
+  await expect(remove).toBeDisabled()
+  await expect(remove).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   // «Готово» закрывает окно, фокус возвращается на карточку
   await edit.getByRole('button', { name: 'Готово' }).click()
   await expect(edit).toHaveCount(0)

@@ -956,7 +956,16 @@ function StagesTab({
                 <span className="flow-stage-item-title">{stageName(stage)}</span>
               </span>
               <span className="flow-stage-card-foot">
-                <span className="flow-stage-badge">{executorOf(stage) || 'субагент'}</span>
+                <span className="flow-stage-badge">
+                  {/* Имя субагента — моноширинным, как имя исполнителя в его карточке. */}
+                  {stage.kind === 'субагент' && stage.agent.trim() ? (
+                    <>
+                      субагент <span className="mono">{stage.agent.trim()}</span>
+                    </>
+                  ) : (
+                    executorOf(stage) || 'субагент'
+                  )}
+                </span>
               </span>
             </button>
           </li>
@@ -1665,7 +1674,7 @@ function PerformerField({
 
   return (
     <div className="flow-field">
-      <span>имя субагента</span>
+      <span>Имя субагента</span>
       <select
         className="flow-input mono"
         aria-label="Имя субагента"
@@ -1745,7 +1754,7 @@ function HelpersField({
 
   return (
     <div className="flow-field">
-      <span>помощники</span>
+      <span>Помощники</span>
       {stage.helpers.length > 0 && (
         <div className="flow-chips">
           {stage.helpers.map((name) => (

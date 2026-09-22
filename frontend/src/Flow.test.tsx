@@ -815,7 +815,9 @@ test('стадии стоят карточками в порядке флоу, �
     'Новая стадия',
   ])
   // На карточке — значок, название и исполнитель
-  expect(within(cards[1]).getByText('субагент reviewer')).toBeInTheDocument()
+  expect(cards[1].querySelector('.flow-stage-badge')).toHaveTextContent('субагент reviewer')
+  // Имя субагента — моноширинным, как в карточке исполнителя
+  expect(within(cards[1]).getByText('reviewer')).toHaveClass('mono')
   // Открыта первая по ходу работы
   expect(screen.getByRole('dialog', { name: 'Стадия «Критерий»' })).toBeInTheDocument()
 })

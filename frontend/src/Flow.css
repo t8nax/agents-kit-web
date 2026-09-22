@@ -346,7 +346,7 @@
   color: var(--accent-error-text);
 }
 
-.flow-drawer .btn-danger:hover:not(:disabled) {
+.flow-drawer .btn.btn-danger:hover:not(:disabled) {
   color: var(--accent-error-text);
   background: var(--accent-error-bg);
   border-color: var(--accent-error-border);
@@ -1430,6 +1430,15 @@ textarea.flow-input {
 .flow-stage-foot .btn {
   min-height: 42px;
   padding-block: 0;
+}
+
+/* Удаление в покое — контурное, как в макете: красная заливка общего `.btn.btn-danger` (Sessions.css) — для
+   необратимого, а здесь правку отменяет полоса сохранения. Красным кнопка становится под мышью. */
+.flow-stage-foot .btn.btn-danger,
+.flow-drawer .btn.btn-danger {
+  color: var(--text-primary);
+  background: transparent;
+  border-color: var(--border-strong);
 }
 
 .flow-stage-foot .btn-danger:hover:not(:disabled) {
