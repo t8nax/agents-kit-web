@@ -1,4 +1,4 @@
-/* Окно ответа — по согласованному макету design/reply.html */
+/* Окно ответа — по макету B-199 (вариант «две вкладки»): https://claude.ai/artifact/Y34Bn4MU5EuCoqLmbuYt5k */
 
 .modal-wizard {
   background: var(--bg-surface);
@@ -95,61 +95,79 @@
   color: var(--text-secondary);
 }
 
-.context-accordion {
+/* Полоса над вкладками: чей это вопрос и куда перейти к его сессии. */
+.task-strip {
   background: var(--bg-base);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
+  padding: 14px 18px 16px;
+  margin-bottom: 20px;
+}
+
+.strip-task {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.strip-meta {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.strip-project {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.strip-sep {
+  color: var(--text-tertiary);
+  margin: 0 6px;
+}
+
+.strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.reply-tabs {
+  display: flex;
+  gap: 28px;
+  border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 32px;
 }
 
-.context-accordion summary {
-  padding: 12px 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
+.reply-tab {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  padding: 0 0 12px;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
   color: var(--text-secondary);
-  font-weight: 500;
-  list-style: none;
+  cursor: pointer;
 }
 
-.context-accordion summary::-webkit-details-marker {
-  display: none;
-}
-
-.context-accordion summary svg {
-  transition: transform 0.15s;
-}
-
-.context-accordion[open] summary svg {
-  transform: rotate(180deg);
-}
-
-.acc-title {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.acc-task {
+.reply-tab:hover {
   color: var(--text-primary);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.context-accordion[open] .acc-task {
-  white-space: normal;
-}
-
-.acc-copy {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent-done-text);
-  font-weight: 400;
-  overflow-wrap: anywhere;
+.reply-tab[aria-selected='true'] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-waiting-fill);
 }
 
 /* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе с иконкой. */
@@ -191,14 +209,24 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: -24px 0 24px;
+  margin: 0 0 20px;
 }
 
-.accordion-content {
-  padding: 12px 16px 16px;
+/* Разделы вкладки «Контекст задачи» разведены линиями и воздухом: вместе они и наезжали. */
+.ctx-section {
+  padding: 18px 0 20px;
+}
+
+.ctx-section:first-child {
+  padding-top: 0;
+}
+
+.ctx-section:last-child {
+  padding-bottom: 0;
+}
+
+.ctx-section + .ctx-section {
   border-top: 1px solid var(--border-subtle);
-  max-height: 260px;
-  overflow-y: auto;
 }
 
 .acc-label {
@@ -206,15 +234,17 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-tertiary);
-  margin: 0 0 8px;
+  font-weight: 600;
+  margin: 0 0 12px;
 }
 
-.criteria {
+.criteria,
+.artifacts {
   margin: 0;
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .criterion-title,
@@ -222,31 +252,20 @@
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
-  margin-bottom: 2px;
+  line-height: 1.45;
 }
 
 /* текст критерия — размеченный markdown, структуру задаёт Markdown.css */
 .criterion-text {
+  margin-top: 4px;
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.out-of-scope-label,
-.artifacts-label {
-  margin-top: 16px;
-}
-
-.artifacts {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 10px;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .artifact-address {
   display: block;
+  margin-top: 4px;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
@@ -426,7 +445,7 @@ a.artifact-address:hover,
 
 .option-card:focus-visible,
 .step-indicator:focus-visible,
-.context-accordion summary:focus-visible {
+.reply-tab:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
 }
