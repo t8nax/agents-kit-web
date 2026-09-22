@@ -40,8 +40,9 @@ public sealed record WorkMemory(
     // Строки «Флоу» и «Шагов» размечены одинаково; у шага флоу впереди ещё и его номер.
     private static readonly Regex ChecklistItem = new(@"^- \[(?<done>[ xX])\]\s*(?:\d+\.\s*)?(?<name>.*)$");
 
-    // «- макет окна: https://…» — подпись до первого «: », адрес после; у «https://» и «D:\» пробела за двоеточием нет.
-    private static readonly Regex ArtifactItem = new(@"^- (?<label>.+?): (?<address>.+)$");
+    // «- макет окна: https://…» — адрес после последнего «: », подпись до него: в подписи двоеточие бывает,
+    // а у «https://» и «D:\» пробела за двоеточием нет. Строка без адреса артефактом не считается.
+    private static readonly Regex ArtifactItem = new(@"^- (?<label>.+): (?<address>\S.*?)\s*$");
 
     public static WorkMemory Parse(string text)
     {

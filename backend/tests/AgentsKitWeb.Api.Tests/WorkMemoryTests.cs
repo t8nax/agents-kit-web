@@ -33,6 +33,7 @@ public class WorkMemoryTests
         просто строка, не артефакт
         - спецификация: D:\Projects\app\spec.md
         - без адреса
+        - макет: окно ответа: https://claude.ai/artifact/XyZ789
 
         ## Оператору
 
@@ -98,8 +99,20 @@ public class WorkMemoryTests
             [
                 new TaskArtifact("макет таблицы", "https://claude.ai/artifact/AbC123"),
                 new TaskArtifact("спецификация", @"D:\Projects\app\spec.md"),
+                // двоеточие в подписи адрес не рвёт
+                new TaskArtifact("макет: окно ответа", "https://claude.ai/artifact/XyZ789"),
             ],
             memory.Artifacts);
+    }
+
+    [Fact]
+    public void Parse_ArtifactWithBlankAddress_IsSkipped()
+    {
+        // пробелы после двоеточия — адреса нет, и пустой строки под подписью окно не покажет
+        var memory = WorkMemory.Parse(Memory.Replace("- без адреса\n", "- без адреса\n- пустой адрес:  \n"));
+
+        Assert.DoesNotContain(memory.Artifacts, a => a.Label.Contains("пустой адрес"));
+        Assert.All(memory.Artifacts, a => Assert.NotEqual("", a.Address));
     }
 
     [Fact]
