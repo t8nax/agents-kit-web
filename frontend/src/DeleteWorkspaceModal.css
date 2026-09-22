@@ -1,4 +1,4 @@
-/* Окно удаления рабочей копии — по макету B-55; части те же, что у окна новой копии */
+/* Окно удаления рабочей копии — части по макету B-55, вид «Легче» по макету B-215, как у окна новой копии */
 
 .dw-modal {
   width: 600px;
@@ -17,14 +17,13 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 18px 20px 4px;
 }
 
 .dw-head h3 {
   margin: 0;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .dw-head-icon {
@@ -56,10 +55,10 @@
 .dw-body {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px 20px;
+  padding: 14px 20px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
 }
 
 .dw-lead {
@@ -76,8 +75,8 @@
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
   gap: 6px 12px;
-  padding: 10px 12px;
-  border: 1px dashed var(--border-strong);
+  padding: 12px 14px;
+  background: var(--bg-base);
   border-radius: 6px;
   font-size: 12px;
 }
@@ -101,8 +100,8 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--accent-error-border);
+  padding: 12px 14px;
+  border: 1px solid transparent;
   background: var(--accent-error-bg);
   border-radius: 6px;
 }
@@ -130,9 +129,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--footer-tint);
+  padding: 4px 20px 20px;
 }
 
 .dw-busy-note {
