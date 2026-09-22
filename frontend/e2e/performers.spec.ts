@@ -240,24 +240,49 @@ test('карточка добавления стоит последней в с�
   }).toPass()
 })
 
-test('окно задания стоит во весь рост экрана, и поле правки его заполняет', async ({ page }) => {
+test('окно задания стоит во весь рост экрана, а просмотр и поле правки заполняют его тело', async ({ page }) => {
   await mockApi(page)
   await openPerformers(page)
   await card(page, 'reviewer').click()
   await page.getByRole('dialog', { name: 'reviewer' }).getByRole('button', { name: 'Показать задание' }).click()
 
   const task = page.getByRole('dialog', { name: /Задание/ })
+  const body = task.locator('.ask-body')
   const viewport = page.viewportSize()!.height
+  /** Низ блока стоит у низа тела окна, за вычетом его нижнего отступа: блок растянут на всё тело. */
+  const fillsBody = async (block: ReturnType<typeof task.locator>) => {
+    const [inner, outer, padding] = await Promise.all([
+      block.boundingBox(),
+      body.boundingBox(),
+      body.evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom)),
+    ])
+    expect(Math.abs(inner!.y + inner!.height - (outer!.y + outer!.height - padding))).toBeLessThanOrEqual(1)
+  }
+
   // Короткое задание окно не сжимает: высота — девять десятых экрана (замечание оператора на приёмке B-198).
   await expect(async () => {
     const box = (await task.boundingBox())!
     expect(Math.abs(box.height - viewport * 0.9)).toBeLessThanOrEqual(1)
+    await fillsBody(task.locator('.pf-task-view'))
   }).toPass()
 
   await task.getByRole('button', { name: 'Редактировать' }).click()
-  const field = task.getByRole('textbox', { name: 'Задание' })
+  await expect(async () => fillsBody(task.getByRole('textbox', { name: 'Задание' }))).toPass()
+})
+
+test('длинное задание прокручивается в теле окна, а кнопки подвала остаются на месте', async ({ page }) => {
+  const long = Array.from({ length: 120 }, (_, i) => `Строка задания ${i + 1}.`).join('\n\n')
+  await mockApi(page, { performers: [{ ...reviewer, prompt: long }, ...others] })
+  await openPerformers(page)
+  await card(page, 'reviewer').click()
+  await page.getByRole('dialog', { name: 'reviewer' }).getByRole('button', { name: 'Показать задание' }).click()
+
+  const task = page.getByRole('dialog', { name: /Задание/ })
+  await expect(task.getByText('Строка задания 120.')).toBeAttached()
   await expect(async () => {
-    const box = (await field.boundingBox())!
-    expect(box.height).toBeGreaterThan(viewport * 0.6)
+    const scroll = await task.locator('.ask-body').evaluate((el) => el.scrollHeight - el.clientHeight)
+    expect(scroll).toBeGreaterThan(0)
+    const [box, edit] = await Promise.all([task.boundingBox(), task.getByRole('button', { name: 'Редактировать' }).boundingBox()])
+    expect(edit!.y + edit!.height).toBeLessThanOrEqual(box!.y + box!.height)
   }).toPass()
 })

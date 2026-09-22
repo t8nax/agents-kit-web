@@ -474,7 +474,7 @@
 
 .pf-task-edit {
   flex: 1;
-  min-height: 440px;
+  min-height: 160px;
   padding: 16px 20px;
   font-family: var(--font-mono);
   font-size: 13px;
