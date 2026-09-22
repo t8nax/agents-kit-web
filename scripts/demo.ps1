@@ -605,15 +605,23 @@ function Start-DemoSessions($Copies) {
         @{ cwd = $Copies.blog.'blog-authors'; extra = @{ status = 'idle' } }
         @{ cwd = $Copies.stock.'stock-import'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 's31d9c02'; status = 'busy'; name = 'drive SKL-31'; startedAt = $now - 15 * 60000 } }
     )
+    # Список запусков задач ведёт сама панель — в нём и задачи, запущенные оператором из демонстрации:
+    # свои записи скрипт обновляет, а чужие оставляет.
+    $file = Join-Path $panelDir 'task-sessions.json'
+    $known = if (Test-Path -LiteralPath $file) { try { @((Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).sessions) } catch { @() } } else { @() }
+    $ours = @($sessions | ForEach-Object { $_.extra.jobId } | Where-Object { $_ })
     $tasks = [Collections.Generic.List[object]]::new()
+    foreach ($task in $known) { if ($task -and $task.session -notin $ours) { $tasks.Add($task) } }
     foreach ($session in $sessions) {
+        # Копию оператор мог убрать из панели: сессии в каталоге, которого нет, не заводится.
+        if (-not (Test-Path -LiteralPath $session.cwd -PathType Container)) { continue }
         $id = Start-Dummy
         Write-Session $sessionsDir $id $session.cwd $session.extra
         if ($session.extra.jobId) { $tasks.Add([pscustomobject]@{ copy = $session.cwd; session = $session.extra.jobId }) }
     }
     # Сессию задачи строка таблицы показывает, только если её запустила панель: этот список запусков
     # панель ведёт сама, и без него фоновые сессии видны лишь в разделе «Сессии».
-    Write-Json (Join-Path $panelDir 'task-sessions.json') ([pscustomobject]@{ sessions = $tasks.ToArray() })
+    Write-Json $file ([pscustomobject]@{ sessions = $tasks.ToArray() })
 }
 
 # Журналы расхода за последнюю неделю в формате Claude Code. Пишутся заново на каждый запуск:
