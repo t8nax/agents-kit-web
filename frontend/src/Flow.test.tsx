@@ -645,7 +645,7 @@ test('открытое меню блока держит его возвраты 
 
   fireEvent.mouseEnter(acceptance)
   expect(lit().sort()).toEqual(['другое', 'замечания', 'нет критерия'])
-  // Подсвеченные дуги нарисованы после приглушённых: поверх них
+  // Выделены все три дуги: «Ревью» держит меню, «Приёмка» — под мышью
   const arcs = [...document.querySelectorAll('.flow-arc')]
   expect(arcs.every((arc) => arc.classList.contains('flow-arc-open'))).toBe(true)
 

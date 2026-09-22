@@ -292,7 +292,7 @@ test('меню стадии встаёт у курсора, окна возвр�
   await expect(block).toBeFocused()
 })
 
-test('возвраты блока подсвечены под мышью и под курсором клавиатуры, ведущие в него — нет (B-214)', async ({ page }) => {
+test('возвраты блока подсвечены под мышью и под курсором клавиатуры, ведущие в него — нет', async ({ page }) => {
   // У «Ревью» возврат к «Критерию», у «Приёмки» — к «Ревью» и к «Критерию»
   await mockApi(page, 0, {
     stages,
@@ -339,7 +339,11 @@ test('возвраты блока подсвечены под мышью и по
   await page.keyboard.press('Tab')
   await expect(region.getByRole('button', { name: 'Стадия 1: Критерий' })).toBeFocused()
   await expect(region.locator('.flow-arc-open')).toHaveCount(0)
-  while (!(await review.evaluate((el) => el === document.activeElement))) await page.keyboard.press('Tab')
+  // Между блоками — кнопка «ниже» первой стадии: «выше» у неё погашена
+  await page.keyboard.press('Tab')
+  await expect(region.getByRole('button', { name: 'Стадия 1 ниже' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(review).toBeFocused()
   await expect(labels).toHaveText(['нет критерия'])
   await page.keyboard.press('Tab')
   await expect(review).not.toBeFocused()
