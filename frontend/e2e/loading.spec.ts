@@ -15,16 +15,18 @@ const row = {
   error: null,
 }
 
-/** Таблица копий отвечает, только когда тест её отпустит: до этого раздел стоит заготовкой. */
-async function holdWorkspaces(page: Page) {
+/** Запрос отвечает, только когда тест его отпустит: до этого раздел стоит заготовкой. */
+async function hold(page: Page, url: string, json: unknown) {
   let release!: () => void
   const gate = new Promise<void>((resolve) => (release = resolve))
-  await page.route('**/api/workspaces', async (route) => {
+  await page.route(url, async (route) => {
     await gate
-    await route.fulfill({ json: [row] })
+    await route.fulfill({ json })
   })
   return release
 }
+
+const holdWorkspaces = (page: Page) => hold(page, '**/api/workspaces', [row])
 
 /** Имена анимаций, которые запускались на странице: проявление длится доли секунды, и снимок его не застаёт. */
 async function recordAnimations(page: Page) {
@@ -51,7 +53,8 @@ test('заготовка мерцает, содержимое проявляет
   await page.route('**/api/backlog', (route) => route.fulfill({ json: [] }))
   await page.goto('/')
 
-  await expect(skeleton(page)).toBeVisible()
+  // Полосы видны, когда загрузка затянулась: первые доли секунды они держат место невидимыми
+  await expect(page.locator('.sk').first()).toBeVisible()
   expect(await firstBar(page, 'animationName')).toBe('sk-wave')
 
   release()
@@ -71,10 +74,31 @@ test('заготовка мерцает, содержимое проявляет
   expect(await animations.names()).not.toContain('loaded-in')
 })
 
+test('быстрая загрузка не мигает: ни полос, ни проявления — таблица встаёт сразу', async ({ page }) => {
+  const animations = await recordAnimations(page)
+  // Каждый кадр отмечается, была ли видна хоть одна полоса: мигание длится доли секунды
+  await page.addInitScript(() => {
+    Object.assign(window, { barsSeen: false })
+    const tick = () => {
+      const bar = document.querySelector('.sk')
+      if (bar && getComputedStyle(bar).visibility === 'visible') Object.assign(window, { barsSeen: true })
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row] }))
+  await page.goto('/')
+
+  await expect(page.getByRole('button', { name: 'Свернуть agents-kit-web' })).toBeVisible()
+  await nextFrames(page)
+  expect(await page.evaluate(() => (window as unknown as { barsSeen: boolean }).barsSeen)).toBe(false)
+  expect(await animations.names()).not.toContain('loaded-in')
+})
+
 test('после выбора папки в «Настройках» список баз не проявляется заново', async ({ page }) => {
   const animations = await recordAnimations(page)
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
-  await page.route('**/api/bases', (route) => route.fulfill({ json: [{ path: 'D:\\Projects\\app-knowledge', copies: 2 }] }))
+  const release = await hold(page, '**/api/bases', [{ path: 'D:\\Projects\\app-knowledge', copies: 2 }])
   await page.route('**/api/kit', (route) => route.fulfill({ json: { path: null, found: false } }))
   await page.route('**/api/folders**', (route) =>
     route.fulfill({ json: { path: null, parent: null, folders: [{ name: 'D:\\', path: 'D:\\', isBase: false, copies: null }] } }),
@@ -83,6 +107,8 @@ test('после выбора папки в «Настройках» списо�
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Настройки' }).click()
 
   const bases = page.getByRole('region', { name: /^Базы знаний/ })
+  await expect(bases.locator('.sk').first()).toBeVisible()
+  release()
   await expect(bases.getByRole('list', { name: 'Базы знаний' })).toBeVisible()
   await expect.poll(animations.names).toContain('loaded-in')
   await expect(page.locator('.loaded')).toHaveCount(0)
