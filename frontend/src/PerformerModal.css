@@ -199,6 +199,37 @@
   overflow-wrap: anywhere;
 }
 
+/* Строка с многострочным полем: подпись стоит у первой строки поля, а не посередине. */
+.pf-basis .pf-row.pf-row-top {
+  align-items: start;
+}
+
+.pf-row-top .pf-label {
+  padding-top: 8px;
+}
+
+/* Описание — поле от четырёх строк, текст переносится по ширине (B-198). */
+.pf-desc {
+  display: block;
+  width: 100%;
+  min-height: calc(4 * 1.5em + 18px);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  outline: none;
+  resize: none;
+  overflow-wrap: anywhere;
+}
+
+.pf-desc:focus {
+  border-color: var(--text-secondary);
+}
+
 .pf-name-input {
   width: 100%;
   height: 34px;
@@ -414,25 +445,39 @@
   white-space: nowrap;
 }
 
-/* Окно задания — поверх окна исполнителя; текст как в файле, моноширинным, только для чтения. */
+/* Окно задания — поверх окна исполнителя: задание оформленным markdown, правка — полем с исходным текстом (B-198). */
 .pf-task-overlay {
   z-index: 1001;
 }
 
+/* Окно задания — во весь рост экрана: задание бывает на десятки строк — замечание оператора на приёмке B-198. */
 .pf-task {
-  max-height: min(680px, 90vh);
+  height: 90vh;
+  max-height: 90vh;
 }
 
-.pf-task-text {
-  margin: 0;
+.pf-task-view {
+  flex: 1;
   padding: 16px 20px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
   color: var(--text-primary);
   background: var(--bg-base);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
+}
+
+.pf-task-view code {
+  background: var(--bg-surface);
+}
+
+.pf-task-edit {
+  flex: 1;
+  min-height: 160px;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  border-color: var(--text-secondary);
 }
