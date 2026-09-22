@@ -3,6 +3,7 @@ import type { WorkspaceRow } from './App'
 import type { BacklogEntry } from './Backlog'
 import { copyName, freeCopies } from './copies'
 import type { BaseFlow, NamedFlow } from './Flow'
+import { readStartWords, saveStartWords } from './startWords'
 import './Modal.css'
 import './ReplyModal.css'
 import './StartTaskModal.css'
@@ -48,7 +49,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
   const [path, setPath] = useState<string | null>(null)
   const [flows, setFlows] = useState<Flows>({ kind: 'loading' })
   const [flow, setFlow] = useState<string | null>(null)
-  const [words, setWords] = useState('')
+  const [words, setWords] = useState(() => readStartWords(base, entry.number))
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -137,6 +138,8 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
         body: JSON.stringify({ base, copy: chosen.path, number: entry.number, flow, words: words.trim() === '' ? undefined : words }),
       })
       if (response.ok) {
+        // Задача запущена — слова ушли сессии, черновик больше не нужен; неудача его оставляет.
+        saveStartWords(base, entry.number, '')
         onStarted(copyName(chosen.path))
         return
       }
@@ -270,7 +273,10 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               value={words}
               disabled={busy}
               placeholder="На что обратить внимание, с чего начать, что уже решено"
-              onChange={(e) => setWords(e.target.value)}
+              onChange={(e) => {
+                setWords(e.target.value)
+                saveStartWords(base, entry.number, e.target.value)
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault()

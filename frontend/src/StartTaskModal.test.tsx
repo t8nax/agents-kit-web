@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
 import StartTaskModal from './StartTaskModal'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  localStorage.clear()
 })
 
 const base = 'D:\\Projects\\app-knowledge'
@@ -232,6 +233,41 @@ test('Enter в поле слов задачу не запускает, Ctrl+Ente
   fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
   await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('rustic-silver-sparrow'))
   expect(posts).toHaveLength(1)
+})
+
+test('набранные слова переживают закрытие окна — у каждой записи свои', async () => {
+  stub(Response.json({ session: '7339dced' }))
+  const first = render(<StartTaskModal base={base} entry={entry} onClose={vi.fn()} onStarted={vi.fn()} />)
+  fireEvent.change(screen.getByRole('textbox', { name: 'Начальные слова' }), { target: { value: 'Сначала тесты.' } })
+  first.unmount()
+
+  const other = render(
+    <StartTaskModal base={base} entry={{ ...entry, number: 'B-9' }} onClose={vi.fn()} onStarted={vi.fn()} />,
+  )
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('')
+  other.unmount()
+
+  renderModal()
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('Сначала тесты.')
+})
+
+test('после запуска слова забываются, а неудачный запуск их оставляет', async () => {
+  stub(Response.json({ problem: 'agent', message: 'сбой' }, { status: 400 }))
+  const failed = renderModal()
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Начальные слова' }), { target: { value: 'Слова' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+  expect(await screen.findByRole('alert')).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('Слова')
+  expect(failed.onStarted).not.toHaveBeenCalled()
+
+  stub(Response.json({ session: '7339dced' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+  await waitFor(() => expect(failed.onStarted).toHaveBeenCalled())
+  cleanup()
+
+  renderModal()
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('')
 })
 
 test('у проекта нет флоу: окно говорит, что задачу не начать, и запускать нечего', async () => {
