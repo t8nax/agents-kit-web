@@ -214,10 +214,11 @@ test('меню стадии встаёт у курсора, окна возвр�
     await expect(block).toBeFocused()
   }
 
-  // Повторный щелчок по блоку закрывает его меню
+  // Повторный щелчок по блоку закрывает его меню. Меню встаёт углом в точку щелчка, поэтому второй щелчок —
+  // выше и левее: в ту же точку он попал бы на край меню, а не на блок
   await block.click({ position: { x: 50, y: 30 } })
   await expect(page.getByRole('menu')).toHaveCount(1)
-  await block.click({ position: { x: 50, y: 30 } })
+  await block.click({ position: { x: 20, y: 12 } })
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   // Правый щелчок ставит меню у курсора
