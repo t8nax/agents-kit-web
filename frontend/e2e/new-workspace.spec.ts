@@ -74,6 +74,20 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(dialog).toContainText('У проекта уже есть свободная копия master')
     // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
     await expect(dialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    // Вид «Легче» (B-215): шапка и подвал без полос и подкраски, список проектов без рамки,
+    // превью на подложке без пунктира, напоминание — простая строка без рамки и фона
+    const transparent = 'rgba(0, 0, 0, 0)'
+    await expect(dialog.locator('.nw-head')).toHaveCSS('border-bottom-style', 'none')
+    await expect(dialog.locator('.nw-footer')).toHaveCSS('border-top-style', 'none')
+    await expect(dialog.locator('.nw-footer')).toHaveCSS('background-color', transparent)
+    await expect(dialog.locator('.nw-projects')).toHaveCSS('border-top-style', 'none')
+    await expect(preview).toHaveCSS('border-top-style', 'none')
+    const dialogBackground = await dialog.evaluate((node) => getComputedStyle(node).backgroundColor)
+    await expect(preview).not.toHaveCSS('background-color', transparent)
+    await expect(preview).not.toHaveCSS('background-color', dialogBackground)
+    const notice = dialog.locator('.nw-notice')
+    await expect(notice).toHaveCSS('border-top-style', 'none')
+    await expect(notice).toHaveCSS('background-color', transparent)
 
     await dialog.getByRole('button', { name: 'Завести копию' }).click()
 
