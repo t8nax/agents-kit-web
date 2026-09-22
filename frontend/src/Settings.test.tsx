@@ -91,6 +91,16 @@ test('раздел «Настройки» показывает список ба
   expect(within(list).getByRole('button', { name: 'Удалить D:\\Projects\\app-knowledge' })).toBeInTheDocument()
 })
 
+test('карточка «Уведомления» стоит в разделе последней, под «Панелью»', async () => {
+  stubApi(api())
+
+  await openSettings()
+
+  const cards = screen.getAllByRole('region').map((card) => card.getAttribute('aria-labelledby'))
+  expect(cards.slice(-2)).toEqual(['settings-panel', 'settings-notifications'])
+  expect(screen.getByRole('region', { name: 'Уведомления' })).toBeInTheDocument()
+})
+
 test('добавленная база появляется в списке', async () => {
   let posted: unknown = null
   stubApi(
