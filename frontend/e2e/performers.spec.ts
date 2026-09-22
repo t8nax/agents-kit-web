@@ -167,3 +167,32 @@ test('отказ записи виден словами, а окно остаё�
   await expect(modal.getByRole('alert')).toContainText('уже есть')
   await expect(modal.getByLabel('Модель')).toHaveValue('sonnet')
 })
+
+test('проект выбирается выпадающим списком над сеткой, а не чипами', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/agent/requests', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/performers', (route) =>
+    route.fulfill({
+      json: [
+        { base: 'D:\\Projects\\app-knowledge', project: 'Agents Kit Web', directory: agents, performers: [reviewer], error: null },
+        {
+          base: 'D:\\Projects\\nota-knowledge',
+          project: 'Nota',
+          directory: 'D:\\Projects\\nota-knowledge\\agents',
+          performers: [{ ...others[0], path: 'D:\\Projects\\nota-knowledge\\agents\\designer.md' }],
+          error: null,
+        },
+      ],
+    }),
+  )
+  await openPerformers(page)
+
+  const select = page.getByRole('combobox', { name: 'Проект' })
+  await expect(select).toHaveValue('')
+  await expect(page.getByRole('button', { name: 'Все' })).toHaveCount(0)
+  await expect(card(page, 'reviewer')).toBeVisible()
+
+  await select.selectOption({ label: 'Nota' })
+  await expect(card(page, 'reviewer')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'designer, Nota' })).toBeVisible()
+})

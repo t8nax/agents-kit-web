@@ -588,8 +588,8 @@ function TaskView({ name, prompt, onClose }: { name: string; prompt: string; onC
   )
 }
 
-/** Выпадающий список окна: стрелка лежит поверх правого края самого списка. */
-function Select({
+/** Выпадающий список исполнителей — в окне и над сеткой раздела: стрелка лежит поверх правого края самого списка. */
+export function Select({
   id,
   value,
   disabled,
@@ -599,7 +599,7 @@ function Select({
 }: {
   id: string
   value: string
-  disabled: boolean
+  disabled?: boolean
   onChange: (value: string) => void
   wide?: boolean
   children: ReactNode

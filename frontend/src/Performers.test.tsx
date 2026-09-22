@@ -70,10 +70,12 @@ test('«Все» показывает исполнителей всех прое
   // Раздел открывается на «Всех»: исполнитель принадлежит проекту той базой, где лежит его файл.
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(screen.getByText('spec-writer')).toBeInTheDocument()
-  // Название проекта стоит и чипом фильтра, и у строки исполнителя: по ней видно, чей он.
+  // Название проекта стоит и пунктом списка, и у карточки исполнителя: по ней видно, чей он.
   expect(screen.getAllByText('Agents Kit Web')).toHaveLength(2)
   expect(screen.getAllByText('Nota')).toHaveLength(2)
-  expect(screen.getByRole('button', { name: 'Все' })).toHaveAttribute('aria-pressed', 'true')
+  // Проект выбирается выпадающим списком, а не чипами; открывается раздел на «Всех».
+  expect(screen.getByRole('combobox', { name: 'Проект' })).toHaveDisplayValue('Все')
+  expect(screen.queryByRole('button', { name: 'Все' })).not.toBeInTheDocument()
 })
 
 test('кнопки «Править» нет: окно исполнителя открывает клик по карточке', async () => {
@@ -95,21 +97,24 @@ test('кнопки «Править» нет: окно исполнителя о
   expect(await screen.findByRole('dialog')).toHaveTextContent('spec-writer')
 })
 
-test('чипы переключают проект, и список меняется', async () => {
+test('выпадающий список переключает проект, и сетка меняется', async () => {
   stubFetch(bases)
 
   render(<Performers />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Nota' }))
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Проект' }), { target: { value: bases[1].base } })
 
   expect(screen.queryByText('reviewer')).not.toBeInTheDocument()
   expect(screen.getByText('spec-writer')).toBeInTheDocument()
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Проект' }), { target: { value: '' } })
+  expect(screen.getByText('reviewer')).toBeInTheDocument()
 })
 
 test('у проекта без исполнителей сказано, чем их заводят', async () => {
   stubFetch([bases[0], { ...bases[1], performers: [] }])
 
   render(<Performers />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Nota' }))
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Проект' }), { target: { value: bases[1].base } })
 
   expect(screen.getByText(/У проекта «Nota» исполнителей нет/)).toBeInTheDocument()
 })

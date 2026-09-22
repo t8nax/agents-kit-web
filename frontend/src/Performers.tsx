@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import PerformerModal from './PerformerModal'
+import PerformerModal, { Select } from './PerformerModal'
 import './Performers.css'
 
 /**
@@ -122,27 +122,20 @@ export default function Performers({
       )}
 
       {bases.length > 1 && (
-        <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
-          {/* Исполнитель принадлежит проекту своей базой: «Все» показывает исполнителей всех баз. */}
-          <button
-            type="button"
-            className={`chip ${project === null ? 'active' : ''}`}
-            aria-pressed={project === null}
-            onClick={() => setProject(null)}
-          >
-            Все
-          </button>
-          {bases.map((base) => (
-            <button
-              type="button"
-              key={base.base}
-              className={`chip ${base.base === project ? 'active' : ''}`}
-              aria-pressed={base.base === project}
-              onClick={() => setProject(base.base)}
-            >
-              {base.project}
-            </button>
-          ))}
+        <div className="filter-bar performer-filter">
+          {/* Проект выбирается выпадающим списком, как в окне исполнителя, — замечание оператора на приёмке B-80.
+              Исполнитель принадлежит проекту своей базой: «Все» показывает исполнителей всех баз. */}
+          <label className="performer-filter-label" htmlFor="performer-project">
+            Проект
+          </label>
+          <Select id="performer-project" value={project ?? ''} onChange={(value) => setProject(value || null)} wide>
+            <option value="">Все</option>
+            {bases.map((base) => (
+              <option key={base.base} value={base.base}>
+                {base.project}
+              </option>
+            ))}
+          </Select>
         </div>
       )}
 
