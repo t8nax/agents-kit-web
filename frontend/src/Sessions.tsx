@@ -174,7 +174,8 @@ export default function Sessions() {
     <>
       <div className="content-head">
         <h2>Сессии</h2>
-        {/* Кнопка стоит там же и выглядит так же, как «Новая копия» в таблице копий — решение оператора */}
+        {/* Кнопка выглядит так же, как «Новая копия» в таблице копий, но стоит у правого края: к заголовку
+            переехала только «Новая копия» — решения оператора, B-205 */}
         <button type="button" className="bases-btn bases-btn-add head-end" onClick={() => setStarting(true)}>
           <PlusIcon />
           Новая сессия
