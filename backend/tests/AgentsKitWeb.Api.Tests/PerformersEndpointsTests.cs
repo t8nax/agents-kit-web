@@ -253,6 +253,20 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Performers_RefusesDescriptionThatSpansLines()
+    {
+        // Описание — строка шапки файла: перевод строки в нём оборвал бы шапку.
+        var basePath = CreateBase("app-knowledge");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Читает дифф.\nname: чужой", null, null, "Тело", null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid-description", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.False(Directory.Exists(Path.Combine(basePath, "agents")));
+    }
+
+    [Fact]
     public async Task Performers_KeepsNothingWhenTheBaseRefusesTheCommit()
     {
         // База не под git: коммит не пройдёт, и незакоммиченный исполнитель уехал бы в чужой коммит.

@@ -44,7 +44,7 @@ public sealed record SavePerformerRequest(
 
 public sealed record PerformerSavedResponse(string Path);
 
-/// <summary>Problem: invalid-name · name-taken · name-in-project · not-committed.</summary>
+/// <summary>Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed.</summary>
 public sealed record PerformerRejectedResponse(string Problem, string? Detail = null);
 
 public static class PerformersEndpoints
@@ -73,6 +73,11 @@ public static class PerformersEndpoints
             var name = request.Name?.Trim();
             if (!PerformerFile.ValidName(name))
                 return Results.BadRequest(new PerformerRejectedResponse("invalid-name"));
+
+            // Описание стоит строкой шапки файла: перевод строки в нём оборвал бы шапку, и Claude Code
+            // прочёл бы остаток как новые ключи. Окно сводит описание в строку само, сюда такое не приходит.
+            if (request.Description is { } description && description.AsSpan().IndexOfAny('\r', '\n') >= 0)
+                return Results.BadRequest(new PerformerRejectedResponse("invalid-description"));
 
             var editing = request.Editing?.Trim();
             var editingSame = string.Equals(editing, name, StringComparison.Ordinal);
