@@ -272,9 +272,9 @@ test('контекст и артефакты — вкладками в шапк�
   expect(Math.abs(tablist.x + tablist.width - (actions.x + actions.width))).toBeLessThan(2)
 
   // содержимое вкладки — от края до края окна, без строки ответа и без окна поверх
-  const edgeToEdge = async () => {
+  const edgeToEdge = async (selector = '.tab-body li') => {
     const frame = (await dialog.boundingBox())!
-    const line = (await dialog.locator('.tab-body li').first().boundingBox())!
+    const line = (await dialog.locator(selector).first().boundingBox())!
     expect(Math.abs(line.x - frame.x)).toBeLessThan(2)
     expect(Math.abs(line.x + line.width - (frame.x + frame.width))).toBeLessThan(2)
   }
@@ -314,6 +314,9 @@ test('контекст и артефакты — вкладками в шапк�
   // файла нет — строка под артефактами, и переход по вкладкам её не снимает
   const alert = dialog.getByRole('alert')
   await expect(alert).toHaveText('Файла нет на диске: D:\\Projects\\app\\spec.md')
+  // строка ошибки — под списком и на всю ширину окна
+  expect((await alert.boundingBox())!.y).toBeGreaterThan((await dialog.locator('.artifacts').boundingBox())!.y)
+  await edgeToEdge('.tab-body .open-error')
   await dialog.getByRole('tab', { name: 'Переписка' }).click()
   await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю')
   await expect(dialog.getByLabel('Ответ')).toBeFocused()
@@ -322,6 +325,32 @@ test('контекст и артефакты — вкладками в шапк�
 
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
+})
+
+test('пустые «Контекст» и «Артефакты» — серая надпись по центру вкладки', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')])
+
+  await page.goto('/')
+  const dialog = await openReply(page)
+  await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
+
+  for (const [tab, text] of [['Контекст', 'Контекста нет'], ['Артефакты', 'Артефактов нет']]) {
+    await dialog.getByRole('tab', { name: tab }).click()
+    const label = dialog.getByText(text)
+    await expect(label).toHaveCSS('color', await label.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--text-secondary)'
+      document.body.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    }))
+    const panel = (await dialog.getByRole('tabpanel').boundingBox())!
+    const box = (await label.boundingBox())!
+    expect(Math.abs(box.x + box.width / 2 - (panel.x + panel.width / 2))).toBeLessThan(2)
+    expect(Math.abs(box.y + box.height / 2 - (panel.y + panel.height / 2))).toBeLessThan(2)
+  }
 })
 
 // Раньше шапка контекста была одной строкой, и длинный путь копии рвался на много строк рядом с кнопками перехода.
