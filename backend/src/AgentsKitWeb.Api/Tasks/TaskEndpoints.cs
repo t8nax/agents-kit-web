@@ -9,8 +9,9 @@ namespace AgentsKitWeb.Api.Tasks;
 /// <summary>
 /// Запуск задачи: база и копия из списка панели, а не путь, номер записи бэклога и флоу, которым её вести, —
 /// одно из имён флоу базы. Флоу не назван — выбирает его сама сессия, спросив оператора.
+/// Words — начальные слова оператора, с которыми сессия начнёт работу; пустые — запуск без них.
 /// </summary>
-public sealed record TaskStartRequest(string? Base, string? Copy, string? Number, string? Flow = null);
+public sealed record TaskStartRequest(string? Base, string? Copy, string? Number, string? Flow = null, string? Words = null);
 
 /// <summary>Заведённая сессия: её короткий id — им оператор входит в неё из терминала.</summary>
 public sealed record TaskStartResponse(string Session);
@@ -70,7 +71,7 @@ public static class TaskEndpoints
             if (!Entries(basePath).TryGetValue(number, out var title))
                 return Results.BadRequest(new TaskStartProblem("record-unknown"));
 
-            var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow), cancellationToken);
+            var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow, request.Words), cancellationToken);
             if (session is null)
                 return Results.BadRequest(new TaskStartProblem("agent", failure));
 
@@ -85,10 +86,16 @@ public static class TaskEndpoints
 
     /// <summary>
     /// Задачу берёт навык кита: правила взятия записи и заведения памяти держит кит, панель их не повторяет.
-    /// Флоу называется словами: названный оператором флоу навык берёт, не спрашивая.
+    /// Флоу называется словами: названный оператором флоу навык берёт, не спрашивая. Начальные слова оператора
+    /// идут той же просьбой, с новой строки: другого сообщения запущенной сессии панель не шлёт.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string copyPath, string number, string? flow = null) =>
-        BackgroundSession.StartInfo(copyPath, flow is null ? $"/agents-kit:drive {number}" : $"/agents-kit:drive {number} флоу «{flow}»");
+    public static ProcessStartInfo StartInfo(string copyPath, string number, string? flow = null, string? words = null)
+    {
+        var prompt = flow is null ? $"/agents-kit:drive {number}" : $"/agents-kit:drive {number} флоу «{flow}»";
+        if (!string.IsNullOrWhiteSpace(words))
+            prompt += "\n\n" + words.Trim();
+        return BackgroundSession.StartInfo(copyPath, prompt);
+    }
 
     /// <summary>
     /// Записи бэклога базы с буквами её проекта: номер — заголовок. Запись чужими буквами кит считает ошибкой
