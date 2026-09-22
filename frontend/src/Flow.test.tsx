@@ -384,6 +384,7 @@ test('вкладка «Стадии»: все стадии базы, и прав
     'Ревьюсубагент reviewer',
     'Приёмкаоператор',
     'Запасоператор',
+    'Новая стадия',
   ])
   fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Вычитка' } })
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
@@ -734,19 +735,23 @@ test('«Открыть в VS Code» просит API открыть флоу э�
   await vi.waitFor(() => expect(body(fetchMock, 'POST /api/flow/open')).toEqual({ base: app.base }))
 })
 
-test('список стадий идёт в порядке флоу, а не по именам файлов; стадии вне флоу — в конце', async () => {
+test('стадии стоят карточками в порядке флоу, а не по именам файлов; стадии вне флоу и «Новая стадия» — в конце', async () => {
   stubApi(api([{ ...app, stages: [spare, acceptance, criterion, review] }]))
   await renderFlow()
 
   await stagesTab()
 
   const list = within(screen.getByRole('list', { name: 'Стадии базы' }))
-  expect(list.getAllByRole('button').map((item) => item.querySelector('.flow-stage-item-title')?.textContent)).toEqual([
+  const cards = list.getAllByRole('button')
+  expect(cards.map((item) => item.querySelector('.flow-stage-item-title')?.textContent ?? item.textContent)).toEqual([
     'Критерий',
     'Ревью',
     'Приёмка',
     'Запас',
+    'Новая стадия',
   ])
+  // На карточке — значок, название и исполнитель
+  expect(within(cards[1]).getByText('субагент reviewer')).toBeInTheDocument()
   // Открыта первая по ходу работы
   expect(screen.getByRole('region', { name: 'Стадия «Критерий»' })).toBeInTheDocument()
 })

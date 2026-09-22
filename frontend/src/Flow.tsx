@@ -914,36 +914,37 @@ function StagesTab({
 
   return (
     <div className="flow-stages">
-      <div className="flow-stage-list">
-        <div className="flow-stage-list-head">
-          <button type="button" className="bases-btn bases-btn-add bases-btn-small" onClick={onNew}>
+      {/* Стадии сеткой карточек, как исполнители; новая — пунктирной карточкой последней (B-192). */}
+      <ul className="flow-stage-grid" aria-label="Стадии базы">
+        {stagesInOrder(draft).map((stage) => (
+          <li key={stage.key}>
+            <button
+              type="button"
+              className={`flow-stage-card ${stage.key === current?.key ? 'is-on' : ''} ${
+                stageErrors(stage, draft.stages, known).length > 0 ? 'invalid' : ''
+              }`}
+              aria-current={stage.key === current?.key}
+              onClick={() => onSelect(stage.key)}
+            >
+              <span className="flow-stage-card-top">
+                <span className={`flow-card-mark flow-mark-${executorKind(stage)}`} aria-hidden="true">
+                  <StageIcon icon={stage.icon} kind={executorKind(stage)} />
+                </span>
+                <span className="flow-stage-item-title">{stageName(stage)}</span>
+              </span>
+              <span className="flow-stage-card-foot">
+                <span className="flow-stage-badge">{executorOf(stage) || 'субагент'}</span>
+              </span>
+            </button>
+          </li>
+        ))}
+        <li>
+          <button type="button" className="flow-stage-card flow-stage-card-add" onClick={onNew}>
             <PlusIcon />
             Новая стадия
           </button>
-        </div>
-        <ul aria-label="Стадии базы">
-          {stagesInOrder(draft).map((stage) => (
-            <li key={stage.key}>
-              <button
-                type="button"
-                className={`flow-stage-item ${stage.key === current?.key ? 'is-on' : ''} ${
-                  stageErrors(stage, draft.stages, known).length > 0 ? 'invalid' : ''
-                }`}
-                aria-current={stage.key === current?.key}
-                onClick={() => onSelect(stage.key)}
-              >
-                <span className={`flow-node-mark flow-mark-${executorKind(stage)}`} aria-hidden="true">
-                  <StageIcon icon={stage.icon} kind={executorKind(stage)} />
-                </span>
-                <span className="flow-stage-item-text">
-                  <span className="flow-stage-item-title">{stageName(stage)}</span>
-                  <span className="flow-node-executor">{executorOf(stage) || 'субагент'}</span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+        </li>
+      </ul>
 
       {current && (
         <section className="flow-stage-edit" aria-label={`Стадия «${stageName(current)}»`}>

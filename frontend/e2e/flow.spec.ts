@@ -212,7 +212,7 @@ test('сайдбар стадии справа от схемы, дуги воз�
   ).toHaveValue('ответ оператора «принято»')
 })
 
-test('вкладка «Стадии»: список слева, правка стадии на всю ширину до него, значок из списка значков', async ({
+test('вкладка «Стадии»: стадии карточками по три в ряд, «Новая стадия» последней, значок из списка значков', async ({
   page,
 }) => {
   const calls = await mockApi(page)
@@ -220,14 +220,19 @@ test('вкладка «Стадии»: список слева, правка с�
   await page.getByRole('tab', { name: 'Стадии' }).click()
 
   const list = page.getByRole('list', { name: 'Стадии базы' })
-  await expect(list.getByRole('button')).toHaveCount(3)
+  const cards = list.getByRole('button')
+  await expect(cards).toHaveCount(4)
+  await expect(cards.last()).toHaveText('Новая стадия')
+  await expect(cards.last()).toHaveCSS('border-top-style', 'dashed')
+  // Три в ряд: первые три — одной строкой, четвёртая — под первой
+  const boxes = await Promise.all([0, 1, 2, 3].map((i) => cards.nth(i).boundingBox()))
+  expect(Math.abs(boxes[0]!.y - boxes[2]!.y)).toBeLessThan(2)
+  expect(boxes[1]!.x).toBeGreaterThan(boxes[0]!.x + boxes[0]!.width)
+  expect(Math.abs(boxes[3]!.x - boxes[0]!.x)).toBeLessThan(2)
+  expect(boxes[3]!.y).toBeGreaterThan(boxes[0]!.y + boxes[0]!.height)
+
+  await cards.first().click()
   const edit = page.getByRole('region', { name: 'Стадия «Критерий»' })
-  const listBox = await page.locator('.flow-stage-list').boundingBox()
-  const editBox = await edit.boundingBox()
-  const main = await page.getByRole('main').boundingBox()
-  // Правка стоит вплотную к списку и доходит до правого края раздела
-  expect(Math.abs(editBox!.x - (listBox!.x + listBox!.width))).toBeLessThan(2)
-  expect(Math.abs(editBox!.x + editBox!.width - (main!.x + main!.width))).toBeLessThan(2)
   // Стадию, стоящую во флоу, не удалить
   await expect(edit.getByRole('button', { name: 'Удалить стадию' })).toBeDisabled()
 
