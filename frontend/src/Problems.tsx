@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { plural } from './plural'
+import { Sk, Skeleton } from './Skeleton'
 import './Problems.css'
 
 export type HealthProblem = {
@@ -109,10 +110,10 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
       </div>
       {failed && <p className="message warning-text">Нет связи с API</p>}
       {checkError && <p className="message warning-text">{checkError}</p>}
-      {snapshot === null && !failed && <p className="empty-message">Загрузка…</p>}
+      {snapshot === null && !failed && <ProblemsSkeleton />}
       {snapshot?.pending && <p className="empty-message">Идёт первая проверка баз…</p>}
       {snapshot && !snapshot.pending && (
-        <>
+        <div className="loaded">
           {snapshot.kit !== 'ok' && <KitNotice kit={snapshot.kit} onSettings={onSettings} />}
           {snapshot.bases.length === 0 && (
             <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>
@@ -120,9 +121,61 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
           {snapshot.bases.map((base) => (
             <BaseCard key={base.base} base={base} />
           ))}
-        </>
+        </div>
       )}
     </div>
+  )
+}
+
+/** Проблемы, пока снимок сверки читается в первый раз: карточки баз полосами (макет B-201). */
+function ProblemsSkeleton() {
+  const item = (file: number, message: string) => (
+    <li className="problems-item" style={{ alignItems: 'center' }} key={`${file}-${message}`}>
+      <span>
+        <Sk w={76} h={20} />
+      </span>
+      <span>
+        <Sk w={file} h={10} />
+      </span>
+      <span>
+        <Sk w={message} h={12} />
+      </span>
+    </li>
+  )
+  const group = (title: number, items: ReactNode[]) => (
+    <div className="problems-group">
+      <div className="problems-group-title">
+        <Sk w={title} h={9} />
+      </div>
+      <ul className="problems-list">{items}</ul>
+    </div>
+  )
+  const card = (name: number, path: number, summary: number, groups: ReactNode = null) => (
+    <section className="problems-card sk-frame">
+      <div className="problems-card-head" style={{ alignItems: 'center' }}>
+        <Sk w={name} h={13} />
+        <Sk w={path} h={10} />
+        <span className="problems-summary">
+          <Sk w={summary} h={11} />
+        </span>
+      </div>
+      {groups}
+    </section>
+  )
+  return (
+    <Skeleton label="Загрузка проблем баз">
+      {card(
+        110,
+        250,
+        190,
+        <>
+          {group(40, [item(150, '62%'), item(120, '48%')])}
+          {group(170, [item(90, '54%')])}
+        </>,
+      )}
+      {card(80, 210, 90)}
+      {card(96, 230, 90)}
+    </Skeleton>
   )
 }
 

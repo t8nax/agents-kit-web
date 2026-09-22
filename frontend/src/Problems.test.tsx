@@ -104,6 +104,26 @@ test('кит не задан — раздел говорит об этом и в
   expect(onSettings).toHaveBeenCalled()
 })
 
+test('пока снимок читается в первый раз, на месте карточек баз заготовка, а «Проверить сейчас» уже на месте', async () => {
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(Response.json(checked))))),
+  )
+
+  render(<Problems onSettings={() => {}} />)
+
+  expect(screen.getByRole('status', { name: 'Загрузка проблем баз' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проверить сейчас' })).toBeInTheDocument()
+
+  await act(async () => answer())
+
+  expect(screen.queryByRole('status', { name: 'Загрузка проблем баз' })).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: checked.bases[0].project })).toBeInTheDocument()
+})
+
 test('пока идёт первая проверка, раздел так и говорит', async () => {
   stubHealth({ pending: true, kit: 'not-set', checkedAt: null, bases: [] })
 
