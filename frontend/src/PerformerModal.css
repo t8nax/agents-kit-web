@@ -445,7 +445,7 @@
   white-space: nowrap;
 }
 
-/* Окно задания — поверх окна исполнителя; текст как в файле, моноширинным, только для чтения. */
+/* Окно задания — поверх окна исполнителя: задание оформленным markdown, правка — полем с исходным текстом (B-198). */
 .pf-task-overlay {
   z-index: 1001;
 }
@@ -454,16 +454,26 @@
   max-height: min(680px, 90vh);
 }
 
-.pf-task-text {
-  margin: 0;
+.pf-task-view {
   padding: 16px 20px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
   color: var(--text-primary);
   background: var(--bg-base);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
+}
+
+.pf-task-view code {
+  background: var(--bg-surface);
+}
+
+.pf-task-edit {
+  min-height: 440px;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  border-color: var(--text-secondary);
 }

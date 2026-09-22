@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
+import { Markdown } from './Markdown'
 import { useAgentRequest } from './agentRequest'
 import { PerformerIcon, type BasePerformers, type Performer } from './Performers'
 import './AskModal.css'
@@ -447,13 +448,23 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               <div className="pf-row">
                 <dt className="pf-label">Задание</dt>
                 <dd className="pf-cell">
+                  {/* Пустое задание пишется сразу: окно задания встаёт в правке (B-198). */}
                   {prompt.trim() ? (
                     <button type="button" ref={taskButton} className="btn pf-small" onClick={() => setReading(true)}>
                       <FileIcon />
                       Показать задание
                     </button>
                   ) : (
-                    <span className="pf-text">—</span>
+                    <button
+                      type="button"
+                      ref={taskButton}
+                      className="btn pf-small"
+                      disabled={locked}
+                      onClick={() => setReading(true)}
+                    >
+                      <PencilIcon />
+                      Написать задание
+                    </button>
                   )}
                 </dd>
               </div>
@@ -560,16 +571,60 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         </div>
       </form>
 
-      {reading && <TaskView name={trimmed} prompt={prompt} onClose={closeTask} />}
+      {reading && (
+        <TaskView
+          name={trimmed}
+          prompt={prompt}
+          editable={!locked}
+          onDone={setPrompt}
+          onClose={closeTask}
+        />
+      )}
     </div>
   )
 }
 
-/** Задание исполнителя — только для чтения: переписывает его Чудо-Юдо по просьбе. */
-function TaskView({ name, prompt, onClose }: { name: string; prompt: string; onClose: () => void }) {
+/**
+ * Задание исполнителя: разметка markdown показана оформленной, «Редактировать» открывает поле с исходным текстом
+ * (B-198). «Готово» возвращает к просмотру с правкой, «Отменить» — без неё; в файл задание ложится кнопкой
+ * «Сохранить» окна исполнителя. Пустое задание открывается сразу в правке.
+ */
+function TaskView({
+  name,
+  prompt,
+  editable,
+  onDone,
+  onClose,
+}: {
+  name: string
+  prompt: string
+  editable: boolean
+  onDone: (prompt: string) => void
+  onClose: () => void
+}) {
+  const empty = !prompt.trim()
+  const [editing, setEditing] = useState(empty && editable)
+  const [text, setText] = useState(prompt)
   // Открытое окно задания забирает фокус: иначе он остался бы на кнопке под подложкой.
   const close = useRef<HTMLButtonElement>(null)
-  useEffect(() => close.current?.focus(), [])
+  const field = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => (editing ? field.current?.focus() : close.current?.focus()), [editing])
+
+  function cancel() {
+    // Пустое задание открывали, чтобы написать: без правки смотреть в нём нечего.
+    if (empty) onClose()
+    else {
+      setText(prompt)
+      setEditing(false)
+    }
+  }
+
+  function done() {
+    onDone(text)
+    if (text.trim()) setEditing(false)
+    else onClose()
+  }
+
   return (
     <div className="modal-overlay pf-task-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div className="modal-wizard pf-task" role="dialog" aria-modal="true" aria-labelledby="pf-task-title">
@@ -595,13 +650,43 @@ function TaskView({ name, prompt, onClose }: { name: string; prompt: string; onC
           </div>
         </div>
         <div className="ask-body">
-          <pre className="pf-task-text">{prompt}</pre>
+          {editing ? (
+            <textarea
+              ref={field}
+              className="custom-textarea pf-task-edit"
+              aria-label="Задание"
+              spellCheck={false}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+            />
+          ) : (
+            <Markdown className="pf-task-view" text={prompt} />
+          )}
         </div>
         <div className="modal-footer ask-footer">
           <div className="footer-right">
-            <button type="button" ref={close} className="btn" onClick={onClose}>
-              Закрыть
-            </button>
+            {editing ? (
+              <>
+                <button type="button" className="btn" onClick={cancel}>
+                  Отменить
+                </button>
+                <button type="button" className="btn btn-primary" onClick={done}>
+                  Готово
+                </button>
+              </>
+            ) : (
+              <>
+                {editable && (
+                  <button type="button" className="btn" onClick={() => setEditing(true)}>
+                    <PencilIcon />
+                    Редактировать
+                  </button>
+                )}
+                <button type="button" ref={close} className="btn" onClick={onClose}>
+                  Закрыть
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -650,6 +735,15 @@ function FileIcon() {
       <polyline points="14 2 14 8 20 8" />
       <line x1="8" y1="13" x2="16" y2="13" />
       <line x1="8" y1="17" x2="14" y2="17" />
+    </svg>
+  )
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
     </svg>
   )
 }
