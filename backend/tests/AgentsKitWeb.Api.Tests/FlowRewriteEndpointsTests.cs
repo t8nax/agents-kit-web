@@ -127,6 +127,45 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Rewrite_KeepsUnderlineInDescriptionAndStripsFenceAroundEachStage()
+    {
+        _agent.Lines =
+        [
+            Result("""
+                === стадия «Ревью»
+                ```markdown
+                # Ревью
+
+                исполнитель: reviewer
+                выход: вердикт по sha
+
+                Порядок
+                ===
+                1. Собрать дифф.
+                ```
+                === новая стадия
+                ```
+                # Документация
+
+                исполнитель: оператор
+                выход: раздел
+                ```
+                """.ReplaceLineEndings("\n")),
+        ];
+        var client = await Client();
+
+        var events = await Rewrite(client, "Уточни ревью и заведи документацию", [Review], ["Ревью", "Мерж"]);
+
+        var rewritten = Assert.Single(events);
+        Assert.Equal("rewritten", rewritten.Type);
+        Assert.Equal(2, rewritten.Stages!.Count);
+        Assert.Equal("Ревью", rewritten.Stages[0].Of);
+        Assert.Equal("Порядок\n===\n1. Собрать дифф.", rewritten.Stages[0].Stage.Description);
+        Assert.Null(rewritten.Stages[1].Of);
+        Assert.Equal("Документация", rewritten.Stages[1].Stage.Title);
+    }
+
+    [Fact]
     public async Task Rewrite_ReadsRenamedAndNewStagesAndHelpers()
     {
         _agent.Lines = [Result("""

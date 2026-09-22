@@ -265,19 +265,25 @@ public static partial class FlowRewriteEndpoints
         return firstBreak < 0 || lastFence <= firstBreak ? answer : text[(firstBreak + 1)..lastFence];
     }
 
-    // Ответ по строкам «=== …»: пометка и текст файла под ней. Текст до первой пометки — не стадия.
+    // Ответ по строкам «=== …»: пометка и текст файла под ней. Текст до первой пометки — не стадия. Внутри стадии
+    // пометкой считается только «=== стадия «…»» или «=== новая стадия»: другая строка из «===» — текст стадии,
+    // так в описании подчёркивают заголовок. Первая строка из «===» — пометка любая: неверную разбор назовёт.
     private static List<(string Head, string Text)> Blocks(string answer)
     {
         var blocks = new List<(string Head, List<string> Lines)>();
         foreach (var line in answer.Replace("\r\n", "\n").Split('\n'))
         {
-            if (BlockLine.Match(line) is { Success: true } block)
+            if (BlockLine.Match(line) is { Success: true } block
+                && (blocks.Count == 0 || IsMark(block.Groups["head"].Value)))
                 blocks.Add((block.Groups["head"].Value, []));
             else if (blocks.Count > 0)
                 blocks[^1].Lines.Add(line);
         }
-        return blocks.Select(b => (b.Head, string.Join("\n", b.Lines))).ToList();
+        // Ограду агент ставит и вокруг каждой стадии под её пометкой: снимается и она.
+        return blocks.Select(b => (b.Head, Unfence(string.Join("\n", b.Lines)))).ToList();
     }
+
+    private static bool IsMark(string head) => OfStage.IsMatch(head) || FlowFolder.Key(head) == NewStage;
 
     private static FlowRewriteEvent Failure(AgentExit exit, ClaudeStream stream)
     {

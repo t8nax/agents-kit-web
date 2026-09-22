@@ -205,8 +205,9 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                     <PlusIcon />
                     Стадии
                   </button>
-                  {picked.map((stage) => (
-                    <span key={stage.title} className="rewrite-token">
+                  {/* В черновике до «Сохранить» названия могут совпасть: ключ — с местом стадии. */}
+                  {picked.map((stage, i) => (
+                    <span key={`${i}-${stage.title}`} className="rewrite-token">
                       {mark(stage.title)}
                       {stage.title}
                       <button
@@ -258,8 +259,8 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
               </div>
               {contextStages.length > 0 && (
                 <div className="rewrite-context-line" aria-label="Стадии к просьбе">
-                  {contextStages.map((stage) => (
-                    <span key={stage.title} className="rewrite-token fixed">
+                  {contextStages.map((stage, i) => (
+                    <span key={`${i}-${stage.title}`} className="rewrite-token fixed">
                       {mark(stage.title)}
                       {stage.title}
                     </span>
@@ -443,11 +444,11 @@ function StagePicker({
       </label>
       <div className="rewrite-picker-list" role="listbox" aria-label="Стадии проекта" aria-multiselectable="true">
         {found.length === 0 && <p className="rewrite-picker-empty">Стадий с таким названием нет</p>}
-        {found.map((stage) => {
+        {found.map((stage, i) => {
           const on = chosen.includes(stage.title)
           return (
             <div
-              key={stage.title}
+              key={`${i}-${stage.title}`}
               role="option"
               aria-selected={on}
               tabIndex={0}
