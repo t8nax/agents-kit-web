@@ -47,8 +47,11 @@ function Write-Session([string]$Dir, [int]$Process, [string]$Cwd, [hashtable]$Ex
 
 # Кит подменён: настоящий полез бы в живую сверку и завёл бы настоящую копию. Состояние связи
 # и находки сверки заглушка не вычисляет, а берёт из таблиц, которые пишет этот скрипт.
-function New-Kit([string]$Path) {
+# $LinkNewCopies — заведённая из панели копия сразу связана с базой, как у настоящего кита; песочнице
+# это не нужно: на её копии без связи видно, как панель показывает проблему связи.
+function New-Kit([string]$Path, [switch]$LinkNewCopies) {
     $scripts = Join-Path $Path 'scripts'
+    if ($LinkNewCopies) { Write-Utf8 (Join-Path $scripts 'link-new.txt') "заведённые копии связывать с базой`n" }
 
     Write-Utf8 (Join-Path $scripts 'link-state.ps1') @'
 # Заглушка кита. Состояние связи копии — строка таблицы links.json рядом со скриптами;
@@ -146,6 +149,17 @@ if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) {
 $branch = if ($Name) { $Name } else { 'sandbox-' + [guid]::NewGuid().ToString('N').Substring(0, 6) }
 $target = Join-Path (Split-Path $Path -Parent) $branch
 git -C $Path worktree add -b $branch $target --quiet 2>&1 | Out-Null
+if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'link-new.txt')) {
+    $table = Join-Path $PSScriptRoot 'links.json'
+    $rows = [Collections.Generic.List[object]]::new()
+    foreach ($row in @(Get-Content -LiteralPath $table -Raw | ConvertFrom-Json)) { $rows.Add($row) }
+    $from = ($Path -replace '/', '\').TrimEnd('\')
+    $base = @($rows | Where-Object { $_.path -ieq $from })[0].base
+    if ($base) {
+        $rows.Add([pscustomobject]@{ path = ($target -replace '/', '\').TrimEnd('\'); status = 'Linked'; base = $base })
+        [IO.File]::WriteAllText($table, (ConvertTo-Json @($rows.ToArray()) -Depth 4), [Text.UTF8Encoding]::new($false))
+    }
+}
 "Копия заведена: $target, ветка $branch"
 '@
 

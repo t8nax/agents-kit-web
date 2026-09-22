@@ -248,7 +248,7 @@ function Build-Demo {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
 
-    New-Kit $kitDir
+    New-Kit $kitDir -LinkNewCopies
     New-ClaudeStub $binDir 'демонстрация' 'демонстрации'
 
     $bases = [Collections.Generic.List[string]]::new()
