@@ -821,10 +821,15 @@ test('в окне добавления — новая стадия, стадии
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
   const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию в сценарий «мелкий»' }))
   const own = within(dialog.getByRole('group', { name: 'Стадии базы' }))
-  expect(own.getAllByRole('button').map((button) => button.querySelector('.flow-preset-title')?.textContent)).toEqual([
+  expect(own.getAllByRole('button').map((button) => button.querySelector('.flow-stage-item-title')?.textContent)).toEqual([
     'Критерий',
     'Запас',
   ])
+  // Строка без выхода: значок, название и исполнитель (B-209)
+  expect(own.getByRole('button', { name: /^Критерий/ })).not.toHaveTextContent('выход')
+  // Первой в окне — «Новая стадия», фокус на ней
+  expect(dialog.getAllByRole('button')[1]).toHaveAccessibleName('Новая стадия')
+  expect(dialog.getByRole('button', { name: 'Новая стадия' })).toHaveFocus()
   fireEvent.click(own.getByRole('button', { name: /^Критерий/ }))
 
   const small = within(screen.getByRole('region', { name: 'Сценарий «мелкий»' }))
@@ -858,6 +863,61 @@ test('«Новая стадия» из окна добавления стави�
   expect(labels(within(screen.getByRole('region', { name: 'Сценарий «полный»' })))).toContain('Стадия 4: без названия')
 })
 
+test('окно добавления закрывают крестик, «Отмена» и Escape, ничего не добавив', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+  const before = labels(region)
+  const name = 'Добавить стадию в сценарий «полный»'
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name })).getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog', { name })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name })).getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('dialog', { name })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name })).not.toBeInTheDocument()
+
+  // Щелчок мимо окна — по подложке
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.mouseDown(screen.getByRole('dialog', { name }).parentElement!)
+  expect(screen.queryByRole('dialog', { name })).not.toBeInTheDocument()
+
+  expect(labels(region)).toEqual(before)
+})
+
+test('после удаления пресета фокус — на крестике соседнего: с клавиатуры пресеты удаляются подряд', async () => {
+  stubApi(
+    api(
+      [app],
+      [
+        { ...spare, title: 'Мерж', slug: null, id: 'p1' },
+        { ...spare, title: 'Ретро', slug: null, id: 'p2' },
+      ],
+      { 'DELETE /api/presets': () => new Response(null, { status: 204 }) },
+    ),
+  )
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Мерж' }))
+  await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Мерж' })).not.toBeInTheDocument())
+  expect(screen.getByRole('button', { name: 'Удалить пресет Ретро' })).toHaveFocus()
+})
+
+test('в окне добавления нет группы «Стадии базы», когда все стадии базы уже в сценарии', async () => {
+  stubApi(api([{ ...app, stages: [criterion, review, acceptance] }]))
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию в сценарий «полный»' }))
+  expect(dialog.queryByRole('group', { name: 'Стадии базы' })).not.toBeInTheDocument()
+  expect(dialog.getByRole('group', { name: 'Пресеты стадий' })).toBeInTheDocument()
+})
+
 test('пресет сохраняется со вкладки «Стадии» без помощников и удаляется из окна добавления', async () => {
   const fetchMock = stubApi(
     api([{ ...app, stages: [{ ...criterion, helpers: ['scout'] }, review, acceptance, spare] }], [], {
@@ -877,6 +937,11 @@ test('пресет сохраняется со вкладки «Стадии» �
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
   fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Критерий' }))
   await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Критерий' })).not.toBeInTheDocument())
+  // Кнопки уже нет, фокус остался в окне: Escape его закрывает
+  const dialog = screen.getByRole('dialog', { name: /^Добавить стадию/ })
+  expect(dialog).toHaveFocus()
+  fireEvent.keyDown(dialog, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: /^Добавить стадию/ })).not.toBeInTheDocument()
 })
 
 test('исполнитель стадии выбирается из заведённых, незаведённый не даёт сохранить флоу', async () => {

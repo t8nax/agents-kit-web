@@ -439,23 +439,84 @@ test('раздел держится в экране: прокручиваетс�
   await expect(page.getByRole('button', { name: 'Удалить сценарий' })).toBeInViewport({ ratio: 1 })
 })
 
-test('окно добавления: новая стадия, стадии базы и пресеты карточками; стадия встаёт в конец флоу', async ({ page }) => {
+for (const theme of ['dark', 'light'] as const) {
+  test(`окно добавления в теме ${theme}: рамка соседних окон, стадии строками; стадия встаёт в конец флоу`, async ({
+    page,
+  }) => {
+    await mockApi(page)
+    await page.emulateMedia({ colorScheme: theme })
+    await openFlow(page)
+    await page.getByRole('button', { name: 'Сценарий: полный' }).click()
+    await page.getByRole('option', { name: 'мелкий' }).click()
+    const region = page.getByRole('region', { name: 'Сценарий «мелкий»' })
+
+    await page.getByRole('button', { name: 'Добавить стадию' }).click()
+    const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «мелкий»' })
+    // Рамка окон правки стадии и возвратов: шапка с крестиком, подвал с «Отменой» (B-209)
+    await expect(adding).toHaveClass(/modal-wizard/)
+    await expect(adding.getByRole('heading', { name: 'Добавить стадию' })).toBeVisible()
+    await expect(adding.getByRole('button', { name: 'Закрыть' })).toBeVisible()
+    await expect(adding.getByRole('button', { name: 'Отмена' })).toBeVisible()
+    await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
+    // «Новая стадия» — пунктирной строкой, стадии базы — карточками с рамкой
+    const fresh = adding.getByRole('button', { name: 'Новая стадия' })
+    await expect(fresh).toHaveCSS('border-top-style', 'dashed')
+    const own = adding.getByRole('group', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ })
+    await expect(own).toHaveCSS('border-top-style', 'solid')
+    await expect(own).not.toContainText('выход')
+    // Список: строка во всю ширину окна под «Новой стадией», а не плитка сетки
+    const [top, row] = await Promise.all([fresh.boundingBox(), own.boundingBox()])
+    expect(row!.y).toBeGreaterThan(top!.y)
+    expect(Math.abs(row!.width - top!.width)).toBeLessThan(2)
+    // Цвет — из токенов темы: окно не сливается с подложкой, текст — с окном
+    const [surface, text] = await Promise.all([
+      adding.evaluate((el) => getComputedStyle(el).backgroundColor),
+      own.evaluate((el) => getComputedStyle(el).color),
+    ])
+    expect(text).not.toBe(surface)
+    // Плюс в шапке — одним кольцом: рамка значка карточки погашена
+    await expect(adding.locator('.ask-title .flow-card-mark')).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+    // Значки своего размера: общее `.modal-overlay svg` их не перебивает
+    await expect(async () => {
+      expect(Math.round((await fresh.locator('svg').boundingBox())!.width)).toBe(18)
+      expect(Math.round((await own.locator('.flow-card-mark svg').boundingBox())!.width)).toBe(15)
+    }).toPass()
+    await page.screenshot({ path: `test-results/flow-add-stage-${theme}.png` })
+
+    await own.click()
+    await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeVisible()
+    await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeFocused()
+  })
+}
+
+test('окно добавления: крестик пресета без рамки у края строки, после удаления Escape закрывает окно', async ({ page }) => {
   await mockApi(page)
+  // Пресет уже есть; удаление отвечает, как API
+  await page.route('**/api/presets', (route) =>
+    route.fulfill({ json: [{ ...stages[1], title: 'Мерж', output: 'sha в dev', slug: null, id: 'p1' }] }),
+  )
+  await page.route('**/api/presets/*', (route) => route.fulfill({ status: 204 }))
   await openFlow(page)
-  await page.getByRole('button', { name: 'Сценарий: полный' }).click()
-  await page.getByRole('option', { name: 'мелкий' }).click()
-  const region = page.getByRole('region', { name: 'Сценарий «мелкий»' })
 
   await page.getByRole('button', { name: 'Добавить стадию' }).click()
-  const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «мелкий»' })
-  await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
-  // Стадии в окне выделены карточками, а не идут сплошным списком
-  await expect(adding.getByRole('button', { name: /^Новая стадия/ })).toHaveCSS('border-top-style', 'solid')
-  await expect(adding.getByRole('group', { name: 'Стадии базы' }).getByRole('button')).toHaveText([/^Критерий/])
-  await adding.getByRole('button', { name: /^Критерий/ }).click()
+  const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «полный»' })
+  const row = adding.getByRole('group', { name: 'Пресеты стадий' }).getByRole('button', { name: /^Мерж/ })
+  const remove = adding.getByRole('button', { name: 'Удалить пресет Мерж' })
+  await expect(remove).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+  const [line, cross] = await Promise.all([row.boundingBox(), remove.boundingBox()])
+  // Крестик — внутри строки у её правого края
+  expect(cross!.x + cross!.width).toBeLessThanOrEqual(line!.x + line!.width)
+  expect(line!.x + line!.width - (cross!.x + cross!.width)).toBeLessThan(20)
+  expect(Math.round(cross!.width)).toBe(26)
+  await expect(async () => expect(Math.round((await remove.locator('svg').boundingBox())!.width)).toBe(14)).toPass()
 
-  await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeVisible()
-  await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeFocused()
+  await remove.click()
+  await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
+  // Фокус ушёл на окно, обводки вокруг всего окна нет
+  await expect(adding).toBeFocused()
+  await expect(adding).toHaveCSS('outline-style', 'none')
+  await page.keyboard.press('Escape')
+  await expect(adding).toHaveCount(0)
 })
 
 test('окно стадии возвращает фокус: к описанию — после его окна, к карточке — на вкладке «Стадии»', async ({ page }) => {

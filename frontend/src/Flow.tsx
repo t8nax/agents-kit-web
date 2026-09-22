@@ -2453,7 +2453,10 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
   )
 }
 
-/** Стадия во флоу выбирается своим окном: новая, своя стадия базы, которой во флоу ещё нет, или пресет. */
+/**
+ * Стадия во флоу выбирается своим окном: новая, своя стадия базы, которой во флоу ещё нет, или пресет.
+ * Рамка — окна правки стадии и возвратов, стадии — списком строк в виде карточек вкладки «Стадии» (B-209).
+ */
 function AddStage({
   flow,
   stages,
@@ -2469,73 +2472,150 @@ function AddStage({
   onCancel: () => void
   onRemovePreset: (preset: StagePreset) => void
 }) {
+  const box = useRef<HTMLElement>(null)
+  const first = useRef<HTMLButtonElement>(null)
+  // Фокус — в окне, иначе Escape его не закрывает: он ловится на самом окне.
+  useEffect(() => first.current?.focus(), [])
+
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
-      <div
-        className="flow-confirm flow-add"
+      <section
+        ref={box}
+        className="modal-wizard flow-stage-modal flow-add-modal"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="flow-add-title"
+        aria-label={`Добавить стадию в сценарий «${flowName(flow)}»`}
+        tabIndex={-1}
         onKeyDown={(event) => event.key === 'Escape' && onCancel()}
       >
-        <h3 id="flow-add-title">Добавить стадию в сценарий «{flowName(flow)}»</h3>
-        <div className="flow-presets">
-          <button type="button" className="flow-preset" onClick={() => onPick('new')}>
-            <span className="flow-preset-title">Новая стадия</span>
-            <span className="text-sec">всё заполнить самому</span>
-          </button>
+        <div className="ask-head">
+          <div className="ask-title">
+            <span className="flow-card-mark flow-mark-flow" aria-hidden="true">
+              <PlusIcon />
+            </span>
+            <h2 className="flow-stage-modal-title">Добавить стадию</h2>
+            <span className="pf-project">сценарий «{flowName(flow)}»</span>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onCancel}>
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+
+        <div className="ask-body flow-add-body">
+          <ul className="flow-add-list">
+            <li>
+              <button
+                type="button"
+                ref={first}
+                className="flow-stage-card flow-stage-card-add"
+                onClick={() => onPick('new')}
+              >
+                <PlusIcon />
+                Новая стадия
+              </button>
+            </li>
+          </ul>
           {stages.length > 0 && (
             <div role="group" aria-label="Стадии базы" className="flow-presets-group">
               <div className="flow-presets-label">Стадии базы</div>
-              {stages.map((stage) => (
-                <button key={stage.key} type="button" className="flow-preset" onClick={() => onPick({ stage: stage.key })}>
-                  <span className="flow-preset-head">
-                    <span className="flow-preset-title">{stageName(stage)}</span>
-                    <ExecutorBadge executor={toStage(stage).executor} />
-                  </span>
-                  <span className="text-sec">выход: {stage.output.trim()}</span>
-                </button>
-              ))}
+              <ul className="flow-add-list">
+                {stages.map((stage) => (
+                  <li key={stage.key}>
+                    <AddStageRow
+                      title={stageName(stage)}
+                      icon={stage.icon}
+                      executor={toStage(stage).executor}
+                      onClick={() => onPick({ stage: stage.key })}
+                    />
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
           <div role="group" aria-label="Пресеты стадий" className="flow-presets-group">
             <div className="flow-presets-label">Пресеты</div>
-            {presets.length === 0 && <p className="flow-presets-empty text-ter">Пресетов пока нет.</p>}
-            {presets.map((preset) => (
-              <div className="flow-preset-row" key={preset.id}>
-                <button type="button" className="flow-preset" onClick={() => onPick({ preset })}>
-                  <span className="flow-preset-head">
-                    <span className="flow-preset-title">{preset.title}</span>
-                    <ExecutorBadge executor={preset.executor} />
-                  </span>
-                  <span className="text-sec">
-                    выход: {preset.output}
-                    {preset.skip ? ` · пропуск: ${preset.skip}` : ''}
-                  </span>
-                </button>
-                <IconButton label={`Удалить пресет ${preset.title}`} danger onClick={() => onRemovePreset(preset)}>
-                  <CloseIcon />
-                </IconButton>
-              </div>
-            ))}
+            {presets.length === 0 ? (
+              <p className="flow-presets-empty text-ter">Пресетов пока нет.</p>
+            ) : (
+              <ul className="flow-add-list">
+                {presets.map((preset, index) => (
+                  <li key={preset.id}>
+                    {/* У пресета своего значка нет: значок — по исполнителю. */}
+                    <AddStageRow
+                      title={preset.title}
+                      icon=""
+                      executor={preset.executor}
+                      removable
+                      onClick={() => onPick({ preset })}
+                    />
+                    <span className="flow-preset-remove" data-preset={preset.id}>
+                      <IconButton
+                        label={`Удалить пресет ${preset.title}`}
+                        danger
+                        onClick={() => {
+                          // Кнопка уйдёт вместе с пресетом: фокус — на крестик соседнего пресета, чтобы с клавиатуры
+                          // удалять подряд, а без соседей — на окно, чтобы Escape его закрывал.
+                          const next = (presets[index + 1] ?? presets[index - 1])?.id
+                          const neighbour = next
+                            ? box.current?.querySelector<HTMLElement>(`[data-preset="${CSS.escape(next)}"] button`)
+                            : null
+                          ;(neighbour ?? box.current)?.focus()
+                          onRemovePreset(preset)
+                        }}
+                      >
+                        <CloseIcon />
+                      </IconButton>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
-        <div className="flow-confirm-actions">
-          <button type="button" className="bases-btn" onClick={onCancel}>
+
+        <div className="modal-footer flow-stage-foot">
+          <button type="button" className="btn flow-stage-done" onClick={onCancel}>
             Отмена
           </button>
         </div>
-      </div>
+      </section>
     </div>
   )
 }
 
-function ExecutorBadge({ executor }: { executor: string }) {
+/** Строка окна добавления: значок цвета исполнителя, название и справа исполнитель, как на карточке стадии. */
+function AddStageRow({
+  title,
+  icon,
+  executor,
+  removable = false,
+  onClick,
+}: {
+  title: string
+  icon: string
+  executor: string
+  removable?: boolean
+  onClick: () => void
+}) {
   const kind = executor === 'оркестратор' ? 'orchestrator' : executor === 'оператор' ? 'operator' : 'agent'
   return (
-    <span className={`flow-executor flow-executor-${kind}`}>
-      {kind === 'agent' ? `субагент ${executor}` : executor}
-    </span>
+    <button type="button" className={`flow-stage-card ${removable ? 'has-remove' : ''}`} onClick={onClick}>
+      <span className={`flow-card-mark flow-mark-${kind}`} aria-hidden="true">
+        <StageIcon icon={icon} kind={kind} />
+      </span>
+      <span className="flow-stage-item-title">{title}</span>
+      <span className="flow-stage-card-foot">
+        <span className="flow-stage-badge">
+          {kind === 'agent' && executor ? (
+            <>
+              субагент <span className="mono">{executor}</span>
+            </>
+          ) : (
+            executor || 'субагент'
+          )}
+        </span>
+      </span>
+    </button>
   )
 }
 
