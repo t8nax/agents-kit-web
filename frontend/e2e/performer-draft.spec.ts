@@ -58,14 +58,14 @@ test('оператор описывает исполнителя словами,
   )
 
   const modal = await openNew(page)
-  // До ответа основы нет: имени, описания и задания в окне нет, и сохранить нечего.
-  await expect(modal.getByLabel('Имя')).toHaveCount(0)
+  // До ответа поля пусты: их можно вписать руками (B-198), но без имени и задания сохранить нечего.
+  await expect(modal.getByLabel('Имя')).toHaveValue('')
   await expect(modal.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   await modal.getByLabel(/Просьба к Чудо-Юдо/).fill('Читает дифф ветки и возвращает вердикт')
   await modal.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }).click()
 
   await expect(modal.getByLabel('Имя')).toHaveValue('reviewer')
-  await expect(modal.getByLabel('Описание')).toHaveText('Читает дифф ветки задачи и возвращает вердикт.')
+  await expect(modal.getByLabel('Описание')).toHaveValue('Читает дифф ветки задачи и возвращает вердикт.')
   await expect(modal.getByLabel('Модель')).toHaveValue('opus')
   await expect(modal.getByRole('button', { name: 'Только чтение' })).toHaveAttribute('aria-pressed', 'true')
   await expect(modal.getByText('Основу написал Чудо-Юдо')).toBeVisible()
@@ -119,11 +119,11 @@ test('закрытое окно не останавливает агента: п
 
   const reopened = page.getByRole('dialog')
   await expect(reopened.getByLabel('Имя')).toHaveValue('reviewer')
-  await expect(reopened.getByLabel('Описание')).toHaveText('Читает дифф ветки задачи и возвращает вердикт.')
+  await expect(reopened.getByLabel('Описание')).toHaveValue('Читает дифф ветки задачи и возвращает вердикт.')
   expect(panel.posts).toHaveLength(1)
 })
 
-test('неудача агента сказана одной строкой, просьба остаётся, основы нет', async ({ page }) => {
+test('неудача агента сказана одной строкой, просьба остаётся, поля пусты', async ({ page }) => {
   const { panel } = await mockApi(page)
   panel.reply(
     ndjson({ type: 'error', text: 'Чудо-Юдо вернул исполнителя без имени', output: 'Готово, я придумал ревьюера.' }),
@@ -137,7 +137,7 @@ test('неудача агента сказана одной строкой, пр
   await expect(alert).toHaveText('Чудо-Юдо не ответил: Чудо-Юдо вернул исполнителя без имени')
   // Вывод агента — подсказкой строки, а не второй строкой в окне.
   await expect(alert).toHaveAttribute('title', 'Готово, я придумал ревьюера.')
-  await expect(modal.getByLabel('Имя')).toHaveCount(0)
+  await expect(modal.getByLabel('Имя')).toHaveValue('')
   await expect(modal.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   await expect(modal.getByLabel(/Просьба к Чудо-Юдо/)).toHaveValue('Ревьюер ветки')
 
@@ -177,7 +177,7 @@ test('итог переписывания из шапки открывается
 
   // Итог открывается правкой reviewer, а не окном нового, где его имя было бы занято.
   const reopened = page.getByRole('dialog', { name: 'reviewer' })
-  await expect(reopened.getByLabel('Описание')).toHaveText('Сверяет дифф с критериями.')
+  await expect(reopened.getByLabel('Описание')).toHaveValue('Сверяет дифф с критериями.')
   await expect(reopened.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
   expect(panel.posts).toHaveLength(1)
 })

@@ -110,22 +110,52 @@ test('выпадающий список переключает проект, и 
   expect(screen.getByText('reviewer')).toBeInTheDocument()
 })
 
-test('у проекта без исполнителей сказано, чем их заводят', async () => {
-  stubFetch([bases[0], { ...bases[1], performers: [] }])
+test('новый исполнитель заводится карточкой последней в сетке, а не кнопкой в шапке', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
+
+  const { container } = render(<Performers />)
+
+  const add = await screen.findByRole('button', { name: 'Новый исполнитель' })
+  expect(container.querySelector('.performer-grid')?.lastElementChild).toBe(add)
+  expect(container.querySelector('.content-head button')).toBeNull()
+
+  // На «Всех» окно встаёт на первом проекте.
+  fireEvent.click(add)
+  expect(await screen.findByRole('dialog')).toContainElement(screen.getByLabelText('Проект', { selector: '#pf-base' }))
+  expect(screen.getByLabelText('Проект', { selector: '#pf-base' })).toHaveDisplayValue('Agents Kit Web')
+})
+
+test('карточка добавления открывает окно на выбранном проекте', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
 
   render(<Performers />)
   fireEvent.change(await screen.findByRole('combobox', { name: 'Проект' }), { target: { value: bases[1].base } })
+  fireEvent.click(screen.getByRole('button', { name: 'Новый исполнитель' }))
 
-  expect(screen.getByText(/У проекта «Nota» исполнителей нет/)).toBeInTheDocument()
+  expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  expect(screen.getByLabelText('Проект', { selector: '#pf-base' })).toHaveDisplayValue('Nota')
 })
 
-test('без отслеживаемых баз раздел говорит, где их добавить', async () => {
+test('у проекта без исполнителей в сетке одна карточка добавления и нет строки о пустом списке', async () => {
+  stubFetch([bases[0], { ...bases[1], performers: [] }])
+
+  const { container } = render(<Performers />)
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Проект' }), { target: { value: bases[1].base } })
+
+  const grid = container.querySelector('.performer-grid')
+  expect(grid?.children).toHaveLength(1)
+  expect(grid).toContainElement(screen.getByRole('button', { name: 'Новый исполнитель' }))
+  expect(screen.queryByText(/исполнителей нет/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Заводятся/)).not.toBeInTheDocument()
+})
+
+test('без отслеживаемых баз раздел говорит, где их добавить, и карточки добавления нет', async () => {
   stubFetch([])
 
   render(<Performers />)
 
   expect(await screen.findByText(/Нет отслеживаемых баз/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Новый исполнитель/ })).toBeDisabled()
+  expect(screen.queryByRole('button', { name: /Новый исполнитель/ })).not.toBeInTheDocument()
 })
 
 test('сбой запроса виден строкой', async () => {
