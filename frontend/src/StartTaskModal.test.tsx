@@ -181,6 +181,59 @@ test('выбранный флоу уходит в API вместе с копие
   expect(posts).toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'B-8', flow: 'мелкий' }])
 })
 
+test('начальные слова — последний раздел окна; набранные уходят в API как есть, с переводами строк', async () => {
+  const posts = stub(Response.json({ session: '7339dced' }))
+  const props = renderModal()
+
+  const field = screen.getByRole('textbox', { name: 'Начальные слова' })
+  expect(field).toHaveAttribute('placeholder', 'На что обратить внимание, с чего начать, что уже решено')
+  // Поле стоит после выбора копии, над кнопками — вариант А макета
+  const copyGroup = screen.getByRole('group', { name: 'Рабочая копия' })
+  expect(copyGroup.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.change(field, { target: { value: 'Начни с API.\n\nМакет уже подтверждён.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
+  expect(posts).toEqual([
+    {
+      base,
+      copy: 'D:\\Projects\\rustic-silver-sparrow',
+      number: 'B-8',
+      flow: 'полный',
+      words: 'Начни с API.\n\nМакет уже подтверждён.',
+    },
+  ])
+})
+
+test('пустые начальные слова запуску не мешают и в API не уходят', async () => {
+  const posts = stub(Response.json({ session: '7339dced' }))
+  const props = renderModal()
+
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Начальные слова' }), { target: { value: '  \n ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
+  expect(posts).toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'B-8', flow: 'полный' }])
+})
+
+test('Enter в поле слов задачу не запускает, Ctrl+Enter запускает', async () => {
+  const posts = stub(Response.json({ session: '7339dced' }))
+  const props = renderModal()
+
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  const field = screen.getByRole('textbox', { name: 'Начальные слова' })
+  fireEvent.change(field, { target: { value: 'Первая строка' } })
+  fireEvent.keyDown(field, { key: 'Enter' })
+  expect(posts).toEqual([])
+
+  fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('rustic-silver-sparrow'))
+  expect(posts).toHaveLength(1)
+})
+
 test('у проекта нет флоу: окно говорит, что задачу не начать, и запускать нечего', async () => {
   stub(Response.json({ session: 'x' }), rows, [{ ...flows[0], flows: [] }])
   renderModal()

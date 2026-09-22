@@ -4,6 +4,7 @@ import type { BacklogEntry } from './Backlog'
 import { copyName, freeCopies } from './copies'
 import type { BaseFlow, NamedFlow } from './Flow'
 import './Modal.css'
+import './ReplyModal.css'
 import './StartTaskModal.css'
 
 type Props = {
@@ -47,6 +48,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
   const [path, setPath] = useState<string | null>(null)
   const [flows, setFlows] = useState<Flows>({ kind: 'loading' })
   const [flow, setFlow] = useState<string | null>(null)
+  const [words, setWords] = useState('')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -132,7 +134,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base, copy: chosen.path, number: entry.number, flow }),
+        body: JSON.stringify({ base, copy: chosen.path, number: entry.number, flow, words: words.trim() === '' ? undefined : words }),
       })
       if (response.ok) {
         onStarted(copyName(chosen.path))
@@ -256,6 +258,27 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               </ul>
             )}
           </fieldset>
+
+          {/* Слова уходят сессии той же просьбой, что номер и флоу, — с новой строки под ними. */}
+          <div className="st-field">
+            <label className="st-label" htmlFor="st-words">
+              Начальные слова
+            </label>
+            <textarea
+              id="st-words"
+              className="custom-textarea st-words"
+              value={words}
+              disabled={busy}
+              placeholder="На что обратить внимание, с чего начать, что уже решено"
+              onChange={(e) => setWords(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }
+              }}
+            />
+          </div>
         </div>
 
         <div className="st-footer">
