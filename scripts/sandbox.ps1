@@ -320,7 +320,8 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 
     # Артефакты по форме кита: ссылка открывается вкладкой, путь к файлу окно показывает текстом.
     $artifactsBlock = if ($Artifacts) {
-        "`n## Артефакты`n- макет выгрузки: https://claude.ai/artifact/SandboxMock1`n- спецификация выгрузки: $Copy\docs\export-spec.md`n"
+        $spec = Join-Path $Copy 'docs\export-spec.md'
+        "`n## Артефакты`n- макет выгрузки: https://claude.ai/artifact/SandboxMock1`n- спецификация выгрузки: $spec`n"
     } else { '' }
     # Макет по-старому, подразделом критериев: окно его не показывает ни артефактом, ни критерием.
     $designBlock = if ($OldDesign) { "`n### Дизайн`nМакет: https://claude.ai/artifact/SandboxOld1`n" } else { '' }
