@@ -87,6 +87,26 @@ const rows: WorkspaceRow[] = [
   },
 ]
 
+test('до первого опроса таблица копий стоит заготовкой под шапкой колонок, а не пустой', async () => {
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(Response.json(rows))))),
+  )
+
+  render(<App />)
+
+  const skeleton = screen.getByRole('status', { name: 'Загрузка рабочих копий' })
+  expect(skeleton).toHaveAttribute('aria-busy', 'true')
+  expect(within(skeleton.querySelector('thead')!).getAllByRole('columnheader', { hidden: true })).toHaveLength(8)
+  expect(screen.getByRole('button', { name: 'Новая копия' })).toBeDisabled()
+
+  await act(async () => answer())
+
+  expect(screen.queryByRole('status', { name: 'Загрузка рабочих копий' })).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
+})
+
 test('показывает рабочие копии из /api/workspaces', async () => {
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)

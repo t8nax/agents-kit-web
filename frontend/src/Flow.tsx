@@ -21,6 +21,8 @@ import { Markdown } from './Markdown'
 import type { BasePerformers } from './Performers'
 import { plural } from './plural'
 import RowMenu from './RowMenu'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal, withReveal } from './reveal'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /**
@@ -400,6 +402,7 @@ export default function Flow({
   }, [])
 
   const flows = load.kind === 'loaded' ? load.flows : []
+  const reveal = useReveal(load.kind === 'loading')
   const flow = flows.find((f) => f.base === selected) ?? null
   // Стадия зовёт исполнителя именем; здесь — ровно те, кто лежит в базе проекта.
   const project = flow && performers ? (performers.find((p) => p.base === flow.base) ?? null) : null
@@ -600,6 +603,13 @@ export default function Flow({
               <span className="head-sep" aria-hidden="true" />
             </>
           )}
+          {load.kind === 'loading' && (
+            <>
+              <Sk w={166} h={32} style={{ borderRadius: 8 }} />
+              <span className="head-sep" aria-hidden="true" />
+              <Sk w={136} h={30} style={{ borderRadius: 6 }} />
+            </>
+          )}
           {flows.length > 0 && (
             <PickMenu
               label="Проект"
@@ -656,7 +666,7 @@ export default function Flow({
         </div>
       </div>
 
-      {load.kind === 'loading' && <p className="message text-sec">Загрузка флоу…</p>}
+      {load.kind === 'loading' && <FlowSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -680,81 +690,85 @@ export default function Flow({
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
 
-      {empty && (
-        <div className="flow-empty">
-          <span className="flow-empty-mark" aria-hidden="true">
-            <FlowIcon />
-          </span>
-          <h3>В этом проекте нет флоу</h3>
-          <p>Флоу — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
-          <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
-            <PlusIcon />
-            Создать первый флоу
-          </button>
+      {load.kind === 'loaded' && (
+        <div className={withReveal('flow-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
+          {empty && (
+            <div className="flow-empty">
+              <span className="flow-empty-mark" aria-hidden="true">
+                <FlowIcon />
+              </span>
+              <h3>В этом проекте нет флоу</h3>
+              <p>Флоу — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
+              <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
+                <PlusIcon />
+                Создать первый флоу
+              </button>
+            </div>
+          )}
+
+          {editable && !empty && tab === 'stages' && (
+            <StagesTab
+              draft={draft}
+              current={currentStage}
+              known={known}
+              presets={presets}
+              open={stageOpen}
+              covered={modal === 'description'}
+              onPerformers={onPerformers}
+              onSelect={(key) => {
+                setStageKey(key)
+                setStageOpen(true)
+              }}
+              onClose={() => setStageOpen(false)}
+              onNew={newStage}
+              onChange={(patch) => currentStage && updateStage(currentStage.key, patch)}
+              onEditDescription={() => setModal('description')}
+              onSaveAsPreset={() => currentStage && void saveAsPreset(presetStage(toStage(currentStage)))}
+              onDelete={() => {
+                if (!currentStage) return
+                setDraft({ ...draft, stages: draft.stages.filter((stage) => stage.key !== currentStage.key) })
+                setStageKey(null)
+                setStageOpen(false)
+              }}
+            />
+          )}
+
+          {editable && !empty && tab === 'flow' && currentFlow && (
+            <FlowTab
+              draft={draft}
+              flow={currentFlow}
+              opened={opened}
+              known={known}
+              covered={covered}
+              focus={focus}
+              onFocus={setFocus}
+              onPick={(key) => {
+                setFlowKey(key)
+                setOpened(null)
+              }}
+              onNew={newFlow}
+              onOpen={setOpened}
+              onChange={(change) => updateFlow(currentFlow.key, change)}
+              // Правка стадии и её описания со схемы — окнами поверх сценария, вкладка не меняется (B-202).
+              onEditStage={(entry, key) => {
+                setOrigin(entry)
+                setStageKey(key)
+                setStageOpen(true)
+              }}
+              onEditDescription={(entry, key) => {
+                setOrigin(entry)
+                setStageKey(key)
+                setModal('description')
+              }}
+              onAdd={() => setModal('add')}
+              onDelete={() => {
+                setDraft({ ...draft, flows: draft.flows.filter((f) => f.key !== currentFlow.key) })
+                setFlowKey(null)
+                setOpened(null)
+              }}
+            />
+          )}
         </div>
-      )}
-
-      {editable && !empty && tab === 'stages' && (
-        <StagesTab
-          draft={draft}
-          current={currentStage}
-          known={known}
-          presets={presets}
-          open={stageOpen}
-          covered={modal === 'description'}
-          onPerformers={onPerformers}
-          onSelect={(key) => {
-            setStageKey(key)
-            setStageOpen(true)
-          }}
-          onClose={() => setStageOpen(false)}
-          onNew={newStage}
-          onChange={(patch) => currentStage && updateStage(currentStage.key, patch)}
-          onEditDescription={() => setModal('description')}
-          onSaveAsPreset={() => currentStage && void saveAsPreset(presetStage(toStage(currentStage)))}
-          onDelete={() => {
-            if (!currentStage) return
-            setDraft({ ...draft, stages: draft.stages.filter((stage) => stage.key !== currentStage.key) })
-            setStageKey(null)
-            setStageOpen(false)
-          }}
-        />
-      )}
-
-      {editable && !empty && tab === 'flow' && currentFlow && (
-        <FlowTab
-          draft={draft}
-          flow={currentFlow}
-          opened={opened}
-          known={known}
-          covered={covered}
-          focus={focus}
-          onFocus={setFocus}
-          onPick={(key) => {
-            setFlowKey(key)
-            setOpened(null)
-          }}
-          onNew={newFlow}
-          onOpen={setOpened}
-          onChange={(change) => updateFlow(currentFlow.key, change)}
-          // Правка стадии и её описания со схемы — окнами поверх сценария, вкладка не меняется (B-202).
-          onEditStage={(entry, key) => {
-            setOrigin(entry)
-            setStageKey(key)
-            setStageOpen(true)
-          }}
-          onEditDescription={(entry, key) => {
-            setOrigin(entry)
-            setStageKey(key)
-            setModal('description')
-          }}
-          onAdd={() => setModal('add')}
-          onDelete={() => {
-            setDraft({ ...draft, flows: draft.flows.filter((f) => f.key !== currentFlow.key) })
-            setFlowKey(null)
-            setOpened(null)
-          }}
-        />
       )}
 
       {editable && tab === 'flow' && stageOpen && currentStage && (
@@ -947,6 +961,40 @@ function PickMenu({
         </ul>
       )}
     </div>
+  )
+}
+
+/** Флоу, пока он читается в первый раз: выбор сценария и цепочка стадий полосами (макет B-201). */
+function FlowSkeleton({ shown }: { shown: boolean }) {
+  const arrow = <Sk w={2} h={32} className="sk-block" style={{ margin: '0 auto', borderRadius: 1 }} />
+  const node = (title: number, executor: number) => (
+    <>
+      <div className="flow-node sk-frame">
+        <Sk w={40} h={40} style={{ borderRadius: 11 }} />
+        <Sk w={title} h={12} />
+        <Sk w={executor} h={8} />
+      </div>
+      {arrow}
+    </>
+  )
+  return (
+    <Skeleton label="Загрузка флоу" shown={shown} className="flow-canvas">
+      <div className="flow-canvas-pick">
+        <Sk w={128} h={30} style={{ borderRadius: 6 }} />
+      </div>
+      <div className="flow-scroll">
+        <div className="flow-chain">
+          <div className="flow-start">
+            <Sk w={64} h={64} className="sk-round" />
+            <Sk w={70} h={11} />
+          </div>
+          {arrow}
+          {node(96, 72)}
+          {node(74, 64)}
+          {node(110, 56)}
+        </div>
+      </div>
+    </Skeleton>
   )
 }
 

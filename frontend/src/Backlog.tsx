@@ -4,6 +4,8 @@ import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { numberLetters } from './taskTitle'
@@ -127,6 +129,7 @@ export default function Backlog({
   const closeWrite = useCallback(() => setWriting(false), [])
 
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
+  const reveal = useReveal(load.kind === 'loading')
   // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
   // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
   const filtering = isFiltering(selection)
@@ -153,7 +156,7 @@ export default function Backlog({
         </button>
       </div>
 
-      {load.kind === 'loading' && <p className="message text-sec">Загрузка бэклога…</p>}
+      {load.kind === 'loading' && <BacklogSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -165,7 +168,7 @@ export default function Backlog({
       )}
 
       {load.kind === 'loaded' && backlogs.length > 0 && (
-        <>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {backlogs.length > 1 && (
             <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
               <FilterChip label="Все проекты" active={filter === null} onClick={() => setFilter(null)} />
@@ -280,7 +283,7 @@ export default function Backlog({
               </section>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {opened && <EntryModal entry={opened} onClose={closeEntry} />}
@@ -374,6 +377,62 @@ const PRIORITY_CLASS: Record<string, string> = {
 }
 
 const TYPE_CLASS: Record<string, string> = { баг: 'entry-type-bug', фича: 'entry-type-feature' }
+
+/** Бэклог, пока он читается в первый раз: чипы проектов, строка отбора и записи проектов полосами (макет B-201). */
+function BacklogSkeleton({ shown }: { shown: boolean }) {
+  const round = { borderRadius: 6 }
+  const entry = (title: string) => (
+    <div className="entry-row sk-frame" key={title}>
+      <div className="entry">
+        <span className="entry-num-slot">
+          <Sk w={46} h={18} />
+        </span>
+        <Sk w={54} h={12} />
+        <Sk w={66} h={18} className="sk-pill" />
+        <span style={{ flex: 1 }}>
+          <Sk w={title} h={13} />
+        </span>
+        <Sk w={18} h={18} />
+      </div>
+      <Sk w={118} h={30} style={{ alignSelf: 'center', ...round }} />
+    </div>
+  )
+  const project = (width: number, titles: string[]) => (
+    <section style={{ '--entry-num-width': '5ch' } as CSSProperties}>
+      <div className="base-head">
+        <Sk w={width} h={13} style={{ marginBottom: 6 }} />
+      </div>
+      {titles.map(entry)}
+    </section>
+  )
+  return (
+    <Skeleton label="Загрузка бэклога" shown={shown}>
+      <div className="filter-bar">
+        {[92, 104, 80].map((w) => (
+          <Sk key={w} w={w} h={28} className="sk-pill" />
+        ))}
+      </div>
+      <div className="filter-bar">
+        <Sk w={220} h={30} style={round} />
+        <span className="tool-sep" />
+        <Sk w={64} h={28} className="sk-pill" />
+        <Sk w={72} h={28} className="sk-pill" />
+        <span className="tool-sep" />
+        {[74, 80, 76, 70].map((w) => (
+          <Sk key={w} w={w} h={28} className="sk-pill" />
+        ))}
+        <span className="backlog-order">
+          <Sk w={150} h={30} style={round} />
+          <Sk w={110} h={30} style={round} />
+        </span>
+      </div>
+      <div className="backlog-list">
+        {project(120, ['58%', '44%', '66%', '38%'])}
+        {project(84, ['52%', '40%'])}
+      </div>
+    </Skeleton>
+  )
+}
 
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */
 function numberWidth(entries: BacklogEntry[]): number {

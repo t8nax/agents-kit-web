@@ -95,6 +95,33 @@ async function openMenu(row: string) {
   fireEvent.click(await screen.findByRole('button', { name: `Действия с сессией в ${row}` }))
 }
 
+test('пока сессии читаются в первый раз, стоит заготовка под шапкой колонок, а не пустой раздел', async () => {
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(Response.json([working]))))),
+  )
+
+  render(<Sessions />)
+
+  const skeleton = screen.getByRole('status', { name: 'Загрузка сессий' })
+  expect(skeleton).toHaveAttribute('aria-busy', 'true')
+  const head = within(skeleton.querySelector('thead')!)
+  expect(head.getAllByRole('columnheader', { hidden: true }).map((th) => th.textContent)).toEqual([
+    'Копия',
+    'Сессия',
+    'Состояние',
+    'Живёт',
+    'Действия',
+  ])
+  expect(screen.getByRole('button', { name: 'Новая сессия' })).toBeEnabled()
+
+  answer()
+
+  expect(await screen.findByText('agents-kit b-50 drive')).toBeInTheDocument()
+  expect(screen.queryByRole('status', { name: 'Загрузка сессий' })).not.toBeInTheDocument()
+})
+
 test('сессии показаны группами по проекту', async () => {
   stubSessions([working, idle, inEditor, zebra])
 

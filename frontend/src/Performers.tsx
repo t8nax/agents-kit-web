@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import PerformerModal, { Select } from './PerformerModal'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal, withReveal } from './reveal'
 import './Performers.css'
 
 /**
@@ -40,6 +42,7 @@ export default function Performers({
   draftSubject = null,
 }: { draftFor?: string | null; draftSubject?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
+  const reveal = useReveal(load.kind === 'loading')
   const [project, setProject] = useState<string | null>(draftFor)
   // Окно открыто: заводится новый (performer null) или правится заведённый; base — чей он проект.
   const [editing, setEditing] = useState<{ performer: Performer | null; base: BasePerformers | undefined } | null>(null)
@@ -101,7 +104,7 @@ export default function Performers({
         <h2>Исполнители</h2>
       </div>
 
-      {load.kind === 'loading' && <p className="message text-sec">Загрузка исполнителей…</p>}
+      {load.kind === 'loading' && <PerformersSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -113,7 +116,7 @@ export default function Performers({
       )}
 
       {bases.length > 1 && (
-        <div className="filter-bar performer-filter">
+        <div className={withReveal('filter-bar performer-filter', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
           {/* Проект выбирается выпадающим списком, как в окне исполнителя, — замечание оператора на приёмке B-80.
               Исполнитель принадлежит проекту своей базой: «Все» показывает исполнителей всех баз. */}
           <label className="performer-filter-label" htmlFor="performer-project">
@@ -143,7 +146,7 @@ export default function Performers({
       )}
 
       {load.kind === 'loaded' && bases.length > 0 && (
-        <>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {errors.map((base) => (
             <p className="message warning-text" key={base.base} role="alert">
               {base.project}: {base.error}
@@ -170,7 +173,7 @@ export default function Performers({
               Новый исполнитель
             </button>
           </div>
-        </>
+        </div>
       )}
 
       {editing && editing.base && (
@@ -188,6 +191,47 @@ export default function Performers({
         />
       )}
     </>
+  )
+}
+
+/** Исполнители, пока они читаются в первый раз: выбор проекта и сетка карточек полосами (макет B-201). */
+function PerformersSkeleton({ shown }: { shown: boolean }) {
+  const card = (name: number, source: number, last: string) => (
+    <div className="performer-card sk-frame">
+      <span className="performer-top">
+        <Sk w={26} h={26} style={{ borderRadius: 7 }} />
+        <span style={{ flex: 1 }}>
+          <Sk w={name} h={12} />
+        </span>
+        <Sk w={source} h={18} className="sk-pill" />
+      </span>
+      <span className="performer-details">
+        <span style={{ display: 'grid', gap: 7 }}>
+          <Sk w="100%" h={9} className="sk-block" />
+          <Sk w="92%" h={9} className="sk-block" />
+          <Sk w={last} h={9} className="sk-block" />
+        </span>
+        <span className="performer-foot">
+          <Sk w={58} h={18} className="sk-pill" />
+        </span>
+      </span>
+    </div>
+  )
+  return (
+    <Skeleton label="Загрузка исполнителей" shown={shown}>
+      <div className="filter-bar performer-filter">
+        <Sk w={52} h={11} />
+        <Sk w={200} h={30} style={{ borderRadius: 6 }} />
+      </div>
+      <div className="performer-grid">
+        {card(90, 96, '64%')}
+        {card(74, 96, '48%')}
+        {card(84, 96, '70%')}
+        {card(100, 72, '56%')}
+        {card(70, 72, '40%')}
+        {card(96, 96, '62%')}
+      </div>
+    </Skeleton>
   )
 }
 

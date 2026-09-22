@@ -110,6 +110,31 @@ test('показывает записи бэклога группами по п�
   expect(second.getByText('Экспорт заметок')).toBeInTheDocument()
 })
 
+test('пока бэклог читается, на месте записей заготовка, а шапка раздела уже видна', async () => {
+  let answer: (backlogs: BaseBacklog[]) => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) =>
+      url === '/api/backlog'
+        ? new Promise<Response>((resolve) => (answer = (value) => resolve(Response.json(value))))
+        : Promise.resolve(Response.json([])),
+    ),
+  )
+
+  render(<Backlog />)
+
+  expect(screen.getByRole('status', { name: 'Загрузка бэклога' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Обновить' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Добавить с помощью/ })).toBeDisabled()
+
+  answer(backlogs)
+
+  expect(await screen.findByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
+  expect(screen.queryByRole('status', { name: 'Загрузка бэклога' })).not.toBeInTheDocument()
+})
+
 test('клик по записи открывает окно с номером, заголовком и размеченным текстом', async () => {
   stubFetch(backlogs)
 

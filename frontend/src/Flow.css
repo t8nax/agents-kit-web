@@ -43,6 +43,15 @@
   align-items: stretch;
 }
 
+/* Вкладки прочитанного флоу: обёртка тянется на остаток раздела, как сами вкладки, и проявляется
+   один раз — после чтения, а не на каждом переключении вкладки. */
+.flow-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .flow-scroll {
   flex: 1;
   min-width: 0;
