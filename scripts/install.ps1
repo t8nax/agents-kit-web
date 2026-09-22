@@ -88,16 +88,35 @@ function Install-AgentsKitPanel {
         ($v.Major -eq 20 -and $v.Minor -ge 19) -or ($v.Major -eq 22 -and $v.Minor -ge 12) -or $v.Major -ge 24
     }
 
+    function Get-NodeFound {
+        if (-not (Test-Command 'node')) { return $null }
+        if (-not (Test-Command 'npm')) { return "Node.js $(node --version) есть, но без npm" }
+        "Node.js $(node --version) есть, но сборке нужен 20.19+, 22.12+ или 24+"
+    }
+
+    function Get-DotnetFound {
+        if (-not (Test-Command 'dotnet')) { return $null }
+        $sdks = @(dotnet --list-sdks | ForEach-Object { ($_ -split ' ')[0] })
+        $need = (Get-Content (Join-Path $Repository 'backend\global.json') -Raw | ConvertFrom-Json).sdk.version
+        $have = if ($sdks) { "есть .NET SDK $($sdks -join ', ')" } else { 'есть .NET без SDK' }
+        "$have, но исходникам нужен $need или новее той же версии 10"
+    }
+
     function Install-Tool($tool) {
         if (& $tool.Test) { return $true }
+        # Оператор видит, почему ставится то, что у него вроде бы есть: чаще всего — старая версия.
+        $found = if ($tool.Found) { & $tool.Found }
+        $why = if ($found) { $found } else { "$($tool.Name) не найден" }
         if (-not (Test-Command 'winget')) {
-            Write-Host "Нет $($tool.Name), и поставить его нечем: на компьютере нет winget (App Installer из Microsoft Store)." -ForegroundColor Red
+            Write-Host "$why, и поставить его нечем: на компьютере нет winget (App Installer из Microsoft Store)." -ForegroundColor Red
             return $false
         }
-        Write-Host "Ставлю $($tool.Name)… Windows может спросить разрешение на установку."
+        Write-Host "$why — ставлю $($tool.Name). Windows может спросить разрешение на установку."
         winget install --id $tool.Id --exact --silent --accept-package-agreements --accept-source-agreements | Out-Host
         Update-Path
         if (& $tool.Test) { return $true }
+        $still = if ($tool.Found) { & $tool.Found }
+        if ($still) { Write-Host "После установки: $still — возможно, старый стоит в PATH раньше нового." -ForegroundColor Red }
         Write-Host "$($tool.Name) не поставился — поставьте его руками и запустите команду снова." -ForegroundColor Red
         return $false
     }
@@ -164,8 +183,8 @@ function Install-AgentsKitPanel {
 
     $tools = @(
         @{ Name = 'PowerShell 7'; Id = 'Microsoft.PowerShell'; Test = { Test-Command 'pwsh' } },
-        @{ Name = '.NET SDK 10'; Id = 'Microsoft.DotNet.SDK.10'; Test = { Test-DotnetSdk } },
-        @{ Name = 'Node.js'; Id = 'OpenJS.NodeJS.LTS'; Test = { Test-Node } }
+        @{ Name = '.NET SDK 10'; Id = 'Microsoft.DotNet.SDK.10'; Test = { Test-DotnetSdk }; Found = { Get-DotnetFound } },
+        @{ Name = 'Node.js'; Id = 'OpenJS.NodeJS.LTS'; Test = { Test-Node }; Found = { Get-NodeFound } }
     )
     foreach ($tool in $tools) { if (-not (Install-Tool $tool)) { return $false } }
 
