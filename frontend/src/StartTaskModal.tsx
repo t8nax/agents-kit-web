@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
 import type { BacklogEntry } from './Backlog'
 import { copyName, freeCopies } from './copies'
+import { ChoiceMark } from './ChoiceMark'
 import type { BaseFlow, NamedFlow } from './Flow'
 import { readStartWords, saveStartWords } from './startWords'
 import './Modal.css'
@@ -206,7 +207,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                 {/* Два флоу с одним именем кит считает поломкой, но показать их надо оба — ключ по месту. */}
                 {flows.flows.map((one, index) => (
                   <li key={index}>
-                    <label className={`st-copy ${one.name === flow ? 'is-on' : ''}`}>
+                    <label className={`st-copy choice ${one.name === flow ? 'is-on' : ''}`}>
                       <input
                         type="radio"
                         name="st-flow"
@@ -218,9 +219,9 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                           setFailure(null)
                         }}
                       />
-                      <span className="st-radio" aria-hidden="true" />
+                      <ChoiceMark />
                       <span className="st-copy-text">
-                        <span className="st-copy-name">{one.name}</span>
+                        <span className="st-copy-name choice-name">{one.name}</span>
                         {one.when && <span className="st-copy-sub text-ter">когда: {one.when}</span>}
                       </span>
                     </label>
@@ -241,7 +242,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               <ul className="st-list">
                 {copies.map((row) => (
                   <li key={row.path}>
-                    <label className={`st-copy ${row.path === path ? 'is-on' : ''}`} title={row.path}>
+                    <label className={`st-copy choice ${row.path === path ? 'is-on' : ''}`} title={row.path}>
                       <input
                         type="radio"
                         name="st-copy"
@@ -253,9 +254,9 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                           setFailure(null)
                         }}
                       />
-                      <span className="st-radio" aria-hidden="true" />
+                      <ChoiceMark />
                       <span className="st-copy-text">
-                        <span className="st-copy-name">{copyName(row.path)}</span>
+                        <span className="st-copy-name choice-name">{copyName(row.path)}</span>
                         {/* Моноширинным идёт только имя ветки — как в строке таблицы копий */}
                         <span className="st-copy-sub text-ter">
                           {row.branch ? <>ветка <span className="mono">{row.branch}</span></> : 'ветка неизвестна'}

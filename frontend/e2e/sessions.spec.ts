@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectChoice, expectRingOnlyFromKeyboard } from './choice'
 
 const hours = (count: number) => Date.now() - count * 60 * 60_000
 
@@ -159,35 +160,41 @@ const busyCopy = {
   status: 'in-work',
 }
 
-test('сессия запускается из шапки раздела и появляется в перечне', async ({ page }) => {
-  const posts: unknown[] = []
-  let rows: unknown[] = []
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`сессия запускается из шапки раздела и появляется в перечне (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    const posts: unknown[] = []
+    let rows: unknown[] = []
 
-  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [busyCopy, freeCopy] }))
-  await page.route('**/api/sessions', (route) => route.fulfill({ json: rows }))
-  await page.route('**/api/sessions/new', async (route) => {
-    posts.push(route.request().postDataJSON())
-    rows = [{ ...working, session: '7339dced', name: null, state: 'idle', startedAt: Date.now() }]
-    await route.fulfill({ json: { session: '7339dced', terminal: true } })
+    await page.route('**/api/workspaces', (route) => route.fulfill({ json: [busyCopy, freeCopy] }))
+    await page.route('**/api/sessions', (route) => route.fulfill({ json: rows }))
+    await page.route('**/api/sessions/new', async (route) => {
+      posts.push(route.request().postDataJSON())
+      rows = [{ ...working, session: '7339dced', name: null, state: 'idle', startedAt: Date.now() }]
+      await route.fulfill({ json: { session: '7339dced', terminal: true } })
+    })
+
+    await page.goto('/')
+    await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Сессии' }).click()
+    await expect(page.getByText('Живых сессий Claude Code нет.')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Новая сессия' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Новая сессия' })
+    // Первой в списке стоит занятая копия — оператор выбирает свободную
+    await dialog.getByText('rustic-silver-sparrow').click()
+    await expectChoice(dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }), true)
+    await expectChoice(dialog.locator('label').filter({ hasText: 'noble-keen-walrus' }), false)
+    await expectRingOnlyFromKeyboard(dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }))
+    await dialog.getByLabel('С чего начать — необязательно').fill('посмотри, почему падает e2e')
+    await dialog.getByRole('button', { name: 'Запустить' }).click()
+
+    expect(posts).toEqual([
+      { base: freeCopy.base, copy: freeCopy.path, prompt: 'посмотри, почему падает e2e' },
+    ])
+    await expect(page.getByText('Сессия 7339dced запущена — окно с ней открыто.')).toBeVisible()
+    await expect(page.getByRole('row', { name: /rustic-silver-sparrow/ })).toContainText('фоновая · 7339dced')
   })
-
-  await page.goto('/')
-  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Сессии' }).click()
-  await expect(page.getByText('Живых сессий Claude Code нет.')).toBeVisible()
-
-  await page.getByRole('button', { name: 'Новая сессия' }).click()
-  const dialog = page.getByRole('dialog', { name: 'Новая сессия' })
-  // Первой в списке стоит занятая копия — оператор выбирает свободную
-  await dialog.getByText('rustic-silver-sparrow').click()
-  await dialog.getByLabel('С чего начать — необязательно').fill('посмотри, почему падает e2e')
-  await dialog.getByRole('button', { name: 'Запустить' }).click()
-
-  expect(posts).toEqual([
-    { base: freeCopy.base, copy: freeCopy.path, prompt: 'посмотри, почему падает e2e' },
-  ])
-  await expect(page.getByText('Сессия 7339dced запущена — окно с ней открыто.')).toBeVisible()
-  await expect(page.getByRole('row', { name: /rustic-silver-sparrow/ })).toContainText('фоновая · 7339dced')
-})
+}
 
 test('про копию с идущей задачей окно предупреждает, а неудачный запуск остаётся в нём', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [busyCopy, freeCopy] }))
