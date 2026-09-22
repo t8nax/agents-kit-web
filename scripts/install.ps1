@@ -98,8 +98,12 @@ function Install-AgentsKitPanel {
         if (-not (Test-Command 'dotnet')) { return $null }
         $sdks = @(dotnet --list-sdks | ForEach-Object { ($_ -split ' ')[0] })
         $need = (Get-Content (Join-Path $Repository 'backend\global.json') -Raw | ConvertFrom-Json).sdk.version
+        $major = ([version]$need).Major
+        # Подходящий SDK есть, а dotnet всё равно отказал — дело не в версии, а в самой установке.
+        $fit = $sdks | Where-Object { ([version]$_).Major -eq $major -and [version]$_ -ge [version]$need } | Select-Object -First 1
+        if ($fit) { return "есть .NET SDK $fit, но dotnet не принял backend\global.json исходников — посмотрите вывод dotnet --version в $(Join-Path $Repository 'backend')" }
         $have = if ($sdks) { "есть .NET SDK $($sdks -join ', ')" } else { 'есть .NET без SDK' }
-        "$have, но исходникам нужен $need или новее той же версии 10"
+        "$have, но исходникам нужен $need или новее той же версии $major"
     }
 
     function Install-Tool($tool) {
@@ -113,10 +117,15 @@ function Install-AgentsKitPanel {
         }
         Write-Host "$why — ставлю $($tool.Name). Windows может спросить разрешение на установку."
         winget install --id $tool.Id --exact --silent --accept-package-agreements --accept-source-agreements | Out-Host
+        $code = $LASTEXITCODE
         Update-Path
         if (& $tool.Test) { return $true }
-        $still = if ($tool.Found) { & $tool.Found }
-        if ($still) { Write-Host "После установки: $still — возможно, старый стоит в PATH раньше нового." -ForegroundColor Red }
+        if ($code) { Write-Host "Установка через winget не прошла (код $code) — причина выше." -ForegroundColor Red }
+        else {
+            # winget отработал, а проверка по-прежнему видит старое: новое, скорее всего, стоит в PATH позже.
+            $still = if ($tool.Found) { & $tool.Found }
+            if ($still) { Write-Host "После установки: $still — возможно, старый стоит в PATH раньше нового." -ForegroundColor Red }
+        }
         Write-Host "$($tool.Name) не поставился — поставьте его руками и запустите команду снова." -ForegroundColor Red
         return $false
     }
