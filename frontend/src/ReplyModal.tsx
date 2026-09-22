@@ -347,7 +347,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                   </p>
                 )}
 
-                <div className="reply-tabs" role="tablist" aria-label="Окно ответа">
+                <div className="reply-tabs" role="tablist">
                   <button
                     type="button"
                     role="tab"
