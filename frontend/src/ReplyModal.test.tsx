@@ -146,8 +146,13 @@ test('щелчок по пути к файлу просит панель отк�
   await waitFor(() => expect(calls.some((c) => c.url === '/api/artifact/open')).toBe(true))
   const call = calls.find((c) => c.url === '/api/artifact/open')!
   expect(call.init?.method).toBe('POST')
-  // артефакт называется номером в памяти, а не путём
-  expect(JSON.parse(call.init!.body as string)).toEqual({ base: row.base, copy: row.path, index: 1 })
+  // артефакт называется номером в памяти; адрес — чтобы панель не открыла другой, если память переписали
+  expect(JSON.parse(call.init!.body as string)).toEqual({
+    base: row.base,
+    copy: row.path,
+    index: 1,
+    address: 'docs/spec.md',
+  })
   expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
 })
 

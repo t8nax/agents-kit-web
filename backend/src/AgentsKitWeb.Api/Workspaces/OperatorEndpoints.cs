@@ -27,7 +27,7 @@ public sealed record OpenWorkspaceRequest(string Base, string Copy);
 
 public sealed record OpenWorkspaceFailedResponse(string Problem);
 
-public sealed record OpenArtifactRequest(string Base, string Copy, int Index);
+public sealed record OpenArtifactRequest(string Base, string Copy, int Index, string Address);
 
 public sealed record OpenArtifactFailedResponse(string Problem);
 
@@ -123,7 +123,10 @@ public static class OperatorEndpoints
             CancellationToken cancellationToken) =>
         {
             if (FindMemory(bases, request.Base, request.Copy) is not { Memory: var memory }
-                || request.Index < 0 || request.Index >= memory.Artifacts.Count)
+                || request.Index < 0 || request.Index >= memory.Artifacts.Count
+                // Окно шлёт номер из памяти, прочитанной при его открытии; агент мог с тех пор переписать
+                // «Артефакты» — тогда под этим номером другой адрес, и открывать его нельзя.
+                || memory.Artifacts[request.Index].Address != request.Address)
                 return Results.NotFound();
 
             // Адрес без корня — путь от копии задачи; ссылки на сайт открывает браузер, а не панель.

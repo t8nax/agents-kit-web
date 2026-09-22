@@ -138,7 +138,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       const response = await fetch('/api/artifact/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base, copy, index }),
+        body: JSON.stringify({ base, copy, index, address }),
       })
       if (response.ok) return
       const problem =

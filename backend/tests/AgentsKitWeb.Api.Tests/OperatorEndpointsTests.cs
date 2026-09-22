@@ -535,6 +535,20 @@ public sealed class OperatorEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task OpenArtifact_AddressChangedSinceWindowOpened_IsNotFound()
+    {
+        var spec = Path.Combine(_copy, "docs", "spec.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(spec)!);
+        File.WriteAllText(spec, "# спецификация");
+
+        // под номером 1 в памяти теперь другой артефакт, чем видело окно
+        var response = await PostOpenArtifact(_base, _copy, 1, "docs/old.md");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
     public async Task OpenArtifact_BaseOutsidePanelList_IsNotFound()
     {
         var response = await PostOpenArtifact(Path.Combine(_root, "other-knowledge"), _copy, 1);
@@ -565,8 +579,11 @@ public sealed class OperatorEndpointsTests : IDisposable
     private Task<HttpResponseMessage> PostOpenWorkspace(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/workspace/open", new OpenWorkspaceRequest(basePath, copy));
 
-    private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string copy, int index) =>
-        _factory.CreateClient().PostAsJsonAsync("/api/artifact/open", new OpenArtifactRequest(basePath, copy, index));
+    private static readonly string[] ArtifactAddresses = ["https://claude.ai/artifact/AbC123", "docs/spec.md", "docs/gone.md", "docs/R&D.md"];
+
+    private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string copy, int index, string? address = null) =>
+        _factory.CreateClient().PostAsJsonAsync("/api/artifact/open", new OpenArtifactRequest(
+            basePath, copy, index, address ?? (index >= 0 && index < ArtifactAddresses.Length ? ArtifactAddresses[index] : "docs/spec.md")));
 
     private Task<HttpResponseMessage> PostOpenTerminal(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/session/terminal", new OpenSessionRequest(basePath, copy));

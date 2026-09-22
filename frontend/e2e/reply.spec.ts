@@ -85,7 +85,12 @@ test('оператор отвечает на вопросы копии, и ст�
     await route.fulfill({ status: 204 })
   })
   await dialog.getByRole('button', { name: 'D:\\Projects\\app\\spec.md' }).click()
-  await expect.poll(() => openedArtifact).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app', index: 1 })
+  await expect.poll(() => openedArtifact).toEqual({
+    base: 'D:\\Projects\\app-knowledge',
+    copy: 'D:\\Projects\\app',
+    index: 1,
+    address: 'D:\\Projects\\app\\spec.md',
+  })
   await dialog.getByText('Контекст задачи').click()
 
   await dialog.getByLabel('Ответ').fill('принимаю')
