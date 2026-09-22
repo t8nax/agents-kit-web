@@ -34,9 +34,9 @@ const others: Performer[] = ['designer', 'test-runner', 'code-reader'].map((name
  * /api подменяется: прогон работает с живыми базами оператора, и запись исполнителя положила бы
  * файл в живую базу знаний и закоммитила бы его туда.
  */
-async function mockApi(page: Page, options: { taken?: boolean } = {}) {
+async function mockApi(page: Page, options: { taken?: boolean; performers?: Performer[] } = {}) {
   const saved: unknown[] = []
-  let performers: Performer[] = [reviewer, ...others]
+  let performers: Performer[] = options.performers ?? [reviewer, ...others]
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/agent/requests', (route) => route.fulfill({ json: [] }))
@@ -198,4 +198,39 @@ test('проект выбирается выпадающим списком на
   await select.selectOption({ label: 'Nota' })
   await expect(card(page, 'reviewer')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'designer, Nota' })).toBeVisible()
+})
+
+test('описание в карточке обрезано по трём строкам', async ({ page }) => {
+  const long = 'Читает дифф ветки задачи, сверяет его с критерием закрытия и решениями базы, '.repeat(6)
+  await mockApi(page, { performers: [{ ...reviewer, description: long }, ...others] })
+  await openPerformers(page)
+
+  const description = card(page, 'reviewer').locator('.performer-desc')
+  await expect(description).toBeVisible()
+  // Видно ровно три строки: высота — три строки текста, а остальное срезано. Замер повторяется, пока грузится шрифт.
+  await expect(async () => {
+    const { height, full, line } = await description.evaluate((el) => ({
+      height: el.clientHeight,
+      full: el.scrollHeight,
+      line: parseFloat(getComputedStyle(el).lineHeight),
+    }))
+    expect(Math.round(height / line)).toBe(3)
+    expect(full).toBeGreaterThan(height)
+  }).toPass()
+})
+
+test('карточка добавления стоит последней в сетке и ростом с соседнюю', async ({ page }) => {
+  await mockApi(page)
+  await openPerformers(page)
+
+  const add = page.getByRole('button', { name: 'Новый исполнитель' })
+  await expect(add).toBeVisible()
+  await expect(page.locator('.performer-grid > :last-child')).toHaveText('Новый исполнитель')
+  // Четыре исполнителя: четвёртый и карточка добавления стоят во втором ряду рядом и одного роста.
+  await expect(async () => {
+    const [neighbour, box] = await Promise.all([card(page, 'code-reader').boundingBox(), add.boundingBox()])
+    expect(box!.y).toBe(neighbour!.y)
+    expect(box!.height).toBe(neighbour!.height)
+    expect(box!.x).toBeGreaterThan(neighbour!.x)
+  }).toPass()
 })
