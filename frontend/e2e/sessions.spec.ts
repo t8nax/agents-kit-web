@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectChoice, expectRingOnlyFromKeyboard } from './choice'
 
 const hours = (count: number) => Date.now() - count * 60 * 60_000
 
@@ -179,6 +180,9 @@ test('сессия запускается из шапки раздела и по
   const dialog = page.getByRole('dialog', { name: 'Новая сессия' })
   // Первой в списке стоит занятая копия — оператор выбирает свободную
   await dialog.getByText('rustic-silver-sparrow').click()
+  await expectChoice(dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }), true)
+  await expectChoice(dialog.locator('label').filter({ hasText: 'noble-keen-walrus' }), false)
+  await expectRingOnlyFromKeyboard(dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }))
   await dialog.getByLabel('С чего начать — необязательно').fill('посмотри, почему падает e2e')
   await dialog.getByRole('button', { name: 'Запустить' }).click()
 
