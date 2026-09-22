@@ -99,7 +99,7 @@ test('артефакты задачи показываются блоком «А
   stubApi(() => new Response(null, { status: 204 }), {
     ...questions,
     artifacts: [
-      { label: 'макет окна ответа', address: 'https://claude.ai/artifact/AbC123' },
+      { label: 'макет **окна** ответа', address: 'https://claude.ai/artifact/AbC123' },
       { label: 'спецификация', address: 'D:\\Projects\\app\\spec.md' },
     ],
   })
@@ -113,6 +113,11 @@ test('артефакты задачи показываются блоком «А
     'макет окна ответа',
     'спецификация',
   ])
+  // подпись размечена, как заголовки критериев: значков разметки в окне нет
+  expect(items[0].querySelector('.artifact-label strong')).toHaveTextContent('окна')
+  // блок стоит после «Не входит»
+  const outOfScope = dialog.getByText('Не входит')
+  expect(outOfScope.compareDocumentPosition(dialog.getByText('Артефакты')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   const link = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
   expect(link).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123')
   expect(link).toHaveAttribute('target', '_blank')

@@ -333,7 +333,9 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                         <ul className="artifacts">
                           {load.data.artifacts.map((artifact, i) => (
                             <li key={i}>
-                              <div className="artifact-label">{artifact.label}</div>
+                              <div className="artifact-label">
+                                <InlineMarkdown text={artifact.label} />
+                              </div>
                               {/* путь к файлу из браузера не открыть — он виден текстом, а ссылкой идёт только адрес http(s) */}
                               {/^https?:\/\//i.test(artifact.address) ? (
                                 <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
