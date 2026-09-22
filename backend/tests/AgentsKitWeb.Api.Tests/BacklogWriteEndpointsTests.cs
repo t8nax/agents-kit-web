@@ -390,6 +390,101 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_IsRefusedWhileProposalIsBeingSaved()
+    {
+        _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "удали B-2");
+        var answer = (await Read(client, 2))[1];
+        // Сверка базы долгая: коммит «Сохранить» идёт секунды, и реплика приходит посреди него.
+        File.WriteAllText(Path.Combine(_base, ".git", "hooks", "pre-commit"), "#!/bin/sh\nsleep 3\n");
+
+        var saving = client.PostAsJsonAsync("/api/backlog/write/save", new BacklogProposalRequest(answer.Proposal!.Id));
+        await Task.Delay(1000);
+        var reply = await Reply(client, "и ещё");
+
+        Assert.Equal(HttpStatusCode.Conflict, reply.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await saving).StatusCode);
+        Assert.Single(_agent.Input);
+    }
+
+    [Fact]
+    public async Task Answer_ReportsUncommittedRewriteOfExistingEntry()
+    {
+        _agent.Answers = [[Result("Переписал B-2.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace("Текст второй записи.", "Текст второй записи, и ещё фраза."));
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "перепиши B-2");
+        var error = (await Read(client, 2))[1];
+
+        Assert.Equal("Чудо-Юдо сам изменил записи B-2 вместо предложения: правка не закоммичена — backlog.md остался изменённым", error.Text);
+    }
+
+    [Fact]
+    public async Task Answer_ReportsNewPhraseInOperatorTextAsRewrite()
+    {
+        // Навык дописывает только «Агенту» и поля: вставленная фраза в тексте оператору — уже правка.
+        _agent.Answers = [[Result("Дополнил B-2.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace("Текст второй записи.\n", "Текст второй записи.\n\nНовая фраза.\n"));
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "дополни B-2");
+        var error = (await Read(client, 2))[1];
+
+        Assert.StartsWith("Чудо-Юдо сам изменил записи B-2 вместо предложения", error.Text);
+    }
+
+    [Fact]
+    public async Task Answer_ReportsGitThatDidNotAnswer()
+    {
+        _agent.Answers = [[Result("Ничего не менял.")]];
+        _agent.BeforeLine = _ =>
+        {
+            Directory.Move(Path.Combine(_base, ".git"), Path.Combine(_base, ".git-off"));
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "покажи");
+        var error = (await Read(client, 2))[1];
+
+        Assert.Equal("git не прочитал базу — итог ответа не проверен", error.Text);
+    }
+
+    [Fact]
+    public async Task Answer_DoesNotShowRenumberedForeignEntryAsNew()
+    {
+        File.AppendAllText(BacklogPath, "\n## ORD-5 Запись чужими буквами\n\nТекст чужой.\n");
+        TestGit.Run(_base, "commit", "-m", "чужая", "--", "backlog.md");
+        _agent.Answers = [[Result("Перенумеровал ORD-5 в B-3.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath)
+                .Replace("следующий номер: B-3", "следующий номер: B-4")
+                .Replace("## ORD-5 Запись чужими буквами", "## B-3 Запись чужими буквами"));
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "покажи бэклог");
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("answer", answer.Type);
+        Assert.Null(answer.Entries);
+    }
+
+    [Fact]
     public async Task Answer_ReportsProposalForUnknownEntry()
     {
         _agent.Answers = [[Result("~~~backlog\nудалить B-9\n~~~")]];

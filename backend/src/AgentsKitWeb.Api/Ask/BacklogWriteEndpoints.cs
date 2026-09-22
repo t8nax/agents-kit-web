@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Threading.Channels;
 using AgentsKitWeb.Api.Bases;
@@ -250,7 +251,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         turn.Before = Backlog.Blocks(ReadText(request.Base)!);
         if (turn.Restarted)
         {
-            message = Skill(_about, message);
+            string? about;
+            lock (_gate)
+                about = _about;
+            message = Skill(about, message);
             turn.Restarted = false;
         }
         turn.Timeout.CancelAfter(Answer);
@@ -328,12 +332,21 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var text = ReadText(basePath);
         var after = text is null ? [] : Backlog.Blocks(text);
         var known = before.Select(b => b.Number).OfType<string>().ToHashSet();
+        var letters = text is null ? null : Backlog.Letters(text);
+        // Запись чужими буквами навык кита перенумеровывает счётчиком: под новым номером она не новая.
+        var foreign = before
+            .Where(b => b.Number is not null && BacklogNumber.Letters(b.Number) != letters && after.All(a => a.Number != b.Number))
+            .Select(b => Body(b.Text))
+            .ToList();
+        var renumbered = after
+            .Where(a => a.Number is not null && !known.Contains(a.Number) && foreign.Any(f => Extends(Body(a.Text), f)))
+            .Select(a => a.Number!)
+            .ToHashSet();
         var added = text is null
             ? []
-            : Backlog.Parse(text).Where(e => e.Number is { } n && !known.Contains(n)).ToList();
+            : Backlog.Parse(text).Where(e => e.Number is { } n && !known.Contains(n) && !renumbered.Contains(n)).ToList();
         // Навык кита, дописывая, сам дополняет записи: строкой в «Агенту» найденной записи, недостающим полем,
         // номером записи чужими буквами. Это не правка — правкой считается то, что убрало или переписало строку.
-        var letters = text is null ? null : Backlog.Letters(text);
         var touched = before
             .Where(b => b.Number is not null && BacklogNumber.Letters(b.Number) == letters
                 && (after.FirstOrDefault(a => a.Number == b.Number) is not { } now || !Extends(now.Text, b.Text)))
@@ -383,16 +396,34 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     private static bool Extends(string now, string was)
     {
         var lines = now.Split('\n');
+        var old = was.Split('\n');
         var at = 0;
-        foreach (var line in was.Split('\n'))
+        var agent = false;
+        foreach (var line in lines)
         {
-            while (at < lines.Length && lines[at] != line)
+            if (line.StartsWith("### "))
+                agent = line[4..].Trim() == "Агенту";
+            if (at < old.Length && line == old[at])
+            {
                 at++;
-            if (at == lines.Length)
+                continue;
+            }
+            // Навык дописывает только строки «Агенту», сам его заголовок и поля: новая фраза в тексте оператору — правка.
+            if (!(agent || line.Trim().Length == 0 || FieldLine.IsMatch(line)))
                 return false;
-            at++;
         }
-        return true;
+        return at == old.Length;
+    }
+
+    private static readonly Regex FieldLine = new(@"^(приоритет|тип):\s");
+
+    /// <summary>Запись без номера в заголовке: по ней узнаётся запись, которую перенумеровали.</summary>
+    private static string Body(string text)
+    {
+        var lines = text.Split('\n');
+        var heading = lines[0].Split(' ', 3);
+        lines[0] = heading.Length == 3 ? heading[2] : lines[0];
+        return string.Join("\n", lines);
     }
 
     private static string? ReadText(string basePath)
