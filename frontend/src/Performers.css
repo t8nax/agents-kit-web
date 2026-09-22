@@ -1,43 +1,64 @@
-.performer-list {
+/* Проект — выпадающим списком над сеткой, а не чипами: замечание оператора на приёмке B-80. */
+.performer-filter-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Исполнители — сетка карточек по три в ряд (B-80, выбор оператора по макету). */
+.performer-grid {
   padding: 0 24px 32px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.performer-card {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.performer {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  min-height: 112px;
   padding: 12px 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: var(--bg-surface);
+  cursor: pointer;
+}
+
+.performer-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
+}
+
+.performer-card:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.performer-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .performer-mark {
   flex-shrink: 0;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 7px;
   border: 1px solid var(--accent-done-text);
   background: var(--accent-done-bg);
   color: var(--accent-done-text);
 }
 
-/* Исполнитель профиля панели не принадлежит: значок у него серый, а кнопка правки приглушена. */
-.performer-profile .performer-mark {
-  border-color: var(--border-strong);
-  background: var(--accent-free-bg);
-  color: var(--text-secondary);
-}
-
 .performer-mark svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.7;
@@ -45,65 +66,56 @@
   stroke-linejoin: round;
 }
 
-.performer-body {
-  flex-grow: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.performer-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .performer-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
 }
 
 .performer-source {
+  flex-shrink: 0;
   font-size: 11px;
   padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
-.performer-source-copy {
-  border-color: var(--accent-done-text);
-  background: var(--accent-done-bg);
-  color: var(--accent-done-text);
+/* Описание и низ карточки — одним блоком: он же описание кнопки для программы чтения. */
+.performer-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
+/* Описание — не больше двух строк: целиком оно видно в окне исполнителя. */
 .performer-desc {
-  margin: 0;
-  font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
-.performer-path {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-tertiary);
-  overflow-wrap: anywhere;
-}
-
-.performer-end {
-  flex-shrink: 0;
+.performer-foot {
+  margin-top: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-height: 22px;
 }
 
 .performer-badge {
   font-size: 12px;
-  padding: 2px 9px;
+  padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid var(--border-subtle);
   color: var(--text-secondary);
@@ -121,65 +133,6 @@
   border: 1px solid var(--accent-active-border);
   background: var(--accent-active-bg);
   color: var(--accent-active-text);
-}
-
-/* Копии проекта у строки исполнителя: пока он лежит не всюду, по строке видно, чего не хватает — B-77. */
-.performer-copies {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 2px;
-}
-
-.performer-copy {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 2px 9px;
-  border-radius: 999px;
-}
-
-.performer-copy-mark {
-  width: 11px;
-  height: 11px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.performer-copy-has {
-  border: 1px solid var(--accent-active-border);
-  background: var(--accent-active-bg);
-  color: var(--accent-active-text);
-}
-
-.performer-copy-differs {
-  border: 1px solid var(--accent-waiting-border);
-  background: var(--accent-waiting-bg);
-  color: var(--accent-waiting-text);
-}
-
-/* Копия, где исполнителя нет: пунктир — того же рода пометка, что у шага флоу без исполнителя. */
-.performer-copy-missing {
-  border: 1px dashed var(--border-strong);
-  color: var(--text-tertiary);
-}
-
-.performer-partial {
-  border-color: var(--accent-waiting-border);
-}
-
-.performer-partial-mark {
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--accent-waiting-border);
-  background: var(--accent-waiting-bg);
-  color: var(--accent-waiting-text);
 }
 
 /* Записанный исполнитель: строка держится до следующей записи и говорит, с какой сессии его звать. */

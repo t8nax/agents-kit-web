@@ -18,9 +18,13 @@ public sealed record AgentFault(string Text) : IAgentEvent
     public string Type => "error";
 }
 
-/// <summary>Просьба в списке панели: по ней шапка показывает, чем занят агент и готов ли итог.</summary>
+/// <summary>
+/// Просьба в списке панели: по ней шапка показывает, чем занят агент и готов ли итог. Subject — про кого она:
+/// имя переписываемого исполнителя, чтобы его просьбу подхватывало окно его правки, а не окно нового (B-80).
+/// </summary>
 public sealed record AgentRequestSummary(
-    string Kind, string Id, string Base, string Project, string Text, long ElapsedMs, string State);
+    string Kind, string Id, string Base, string Project, string Text, long ElapsedMs, string State,
+    string? Subject = null);
 
 /// <summary>
 /// Одна просьба к агенту, живущая в панели. Ход работы копится строками NDJSON: окно читает их с начала,
@@ -52,9 +56,11 @@ public sealed class AgentRequest
     public const string Done = "done";
     public const string Failed = "failed";
 
-    public AgentRequest(string kind, string basePath, string project, string text, bool continues = false)
+    public AgentRequest(
+        string kind, string basePath, string project, string text, bool continues = false, string? subject = null)
     {
         Kind = kind;
+        Subject = subject;
         Base = basePath;
         Project = project;
         Text = text;
@@ -76,6 +82,9 @@ public sealed class AgentRequest
     public string Project { get; }
 
     public string Text { get; }
+
+    /// <summary>Про кого просьба: имя переписываемого исполнителя; null — просьба не про заведённого.</summary>
+    public string? Subject { get; }
 
     public CancellationToken Token => _cancel.Token;
 
@@ -110,7 +119,8 @@ public sealed class AgentRequest
                     Project,
                     Text.Length > TextLimit ? Text[..TextLimit] + "…" : Text,
                     (long)_elapsed.Elapsed.TotalMilliseconds,
-                    _state);
+                    _state,
+                    Subject);
         }
     }
 
@@ -223,9 +233,10 @@ public sealed class AgentRequests
         string project,
         string text,
         Func<AgentRequest, CancellationToken, Task> work,
-        bool continues = false)
+        bool continues = false,
+        string? subject = null)
     {
-        var request = new AgentRequest(kind, basePath, project, text, continues);
+        var request = new AgentRequest(kind, basePath, project, text, continues, subject);
         lock (_gate)
         {
             if (_requests.Remove(kind, out var previous))

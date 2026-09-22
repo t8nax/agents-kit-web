@@ -127,7 +127,12 @@ function App() {
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [asking, setAsking] = useState(false)
   // Просьба, к которой оператор вернулся из шапки: раздел с её окном открывается заново, с её базой.
-  const [openRequest, setOpenRequest] = useState<{ kind: AgentKind; base: string; at: number } | null>(null)
+  const [openRequest, setOpenRequest] = useState<{
+    kind: AgentKind
+    base: string
+    subject?: string | null
+    at: number
+  } | null>(null)
   const [creating, setCreating] = useState(false)
   // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
   const [started, setStarted] = useState<string | null>(null)
@@ -231,7 +236,7 @@ function App() {
               return
             }
             setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
-            setOpenRequest({ kind: request.kind, base: request.base, at: Date.now() })
+            setOpenRequest({ kind: request.kind, base: request.base, subject: request.subject, at: Date.now() })
           }}
         />
         <button type="button" className="bases-btn" onClick={() => setAsking(true)}>
@@ -303,6 +308,7 @@ function App() {
             <Performers
               key={openRequest?.kind === 'performer' ? openRequest.at : 'performers'}
               draftFor={openRequest?.kind === 'performer' ? openRequest.base : null}
+              draftSubject={openRequest?.kind === 'performer' ? (openRequest.subject ?? null) : null}
             />
           ) : section === 'sessions' ? (
             <Sessions />

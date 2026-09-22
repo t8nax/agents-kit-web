@@ -62,6 +62,8 @@ export function stubPanel(
           text: String(body.question ?? body.text ?? body.wish ?? ''),
           elapsedMs: 0,
           state: 'running',
+          // Как в API: просьба о правке исполнителя помнит, кого переписывает.
+          subject: (body.current as { name?: string } | null | undefined)?.name ?? null,
         }
         return Promise.resolve(Response.json(request))
       }
@@ -72,6 +74,13 @@ export function stubPanel(
   return { posts, deletes }
 }
 
-export function runningRequest(kind: AgentKind, text: string, base = '', project = '', elapsedMs = 0): AgentRequestSummary {
-  return { kind, id: 'r1', base, project, text, elapsedMs, state: 'running' }
+export function runningRequest(
+  kind: AgentKind,
+  text: string,
+  base = '',
+  project = '',
+  elapsedMs = 0,
+  subject: string | null = null,
+): AgentRequestSummary {
+  return { kind, id: 'r1', base, project, text, elapsedMs, state: 'running', subject }
 }

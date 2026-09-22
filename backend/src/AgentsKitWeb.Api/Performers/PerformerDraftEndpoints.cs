@@ -67,10 +67,12 @@ public static class PerformerDraftEndpoints
 
             var wish = request.Wish.Trim();
             var current = request.Current;
+            // Просьба помнит, кого переписывает: её итог подхватывает окно правки этого исполнителя, а не окно нового.
             var started = requests.Start(
                 AgentRequests.Performer, basePath, ProjectName.Of(basePath), wish,
                 async (drafting, token) =>
-                    drafting.Write(await RunAsync(basePath, copy.Path, wish, current, agent, drafting, token)));
+                    drafting.Write(await RunAsync(basePath, copy.Path, wish, current, agent, drafting, token)),
+                subject: current?.Name);
             return Results.Ok(started.Summary);
         });
     }

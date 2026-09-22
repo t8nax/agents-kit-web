@@ -1,112 +1,120 @@
-/* Окно исполнителя держит вид окон панели: шапка, тело со скроллом, подвал с кнопками. */
+/*
+ * Окно исполнителя — рамка окон ответа и записи в бэклог (modal-wizard, ask-head, ask-body, ask-footer).
+ * Здесь только своё: основа от Чудо-Юдо, настройки, выпадающие списки и окно задания (B-80).
+ */
 
 .pf-modal {
-  width: 640px;
-  max-width: 100%;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 24px 48px var(--shadow-color);
-  overflow: hidden;
+  max-height: min(760px, 90vh);
 }
 
-.pf-modal svg {
+.pf-modal svg,
+.pf-task svg {
   width: 16px;
   height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
 }
 
-.pf-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.pf-head h3 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.pf-close {
-  margin-left: auto;
-}
-
-.pf-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.pf-row {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.pf-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-
-.pf-grow {
-  flex-grow: 1;
-}
-
-.pf-label {
-  font-size: 12px;
+.pf-modal .ask-title > svg,
+.pf-task .ask-title > svg {
+  width: 18px;
+  height: 18px;
   color: var(--text-secondary);
 }
 
-.pf-input {
-  width: 100%;
-  box-sizing: border-box;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  background: var(--bg-base);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 8px 10px;
+.pf-mark {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid var(--accent-done-text);
+  background: var(--accent-done-bg);
+  color: var(--accent-done-text);
 }
 
-.pf-input.mono {
+.pf-modal .pf-mark svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.7;
+}
+
+/* Имя заведённого в заголовке: моноширинное, как в карточке, а проект — плашкой рядом. */
+.ask-title h2.pf-title-name,
+.pf-title-name {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-weight: 600;
 }
 
-.pf-input:focus {
-  outline: none;
-  border-color: var(--border-strong);
+.ask-title h2.pf-title-name {
+  flex: 0 1 auto;
+  font-size: 15px;
 }
 
-.pf-input::placeholder {
+.pf-project {
+  margin-right: auto;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.pf-head-project {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pf-head-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* Просьба: у нового до ответа — крупное поле, как вопрос к Чудо-Юдо; дальше — короче. */
+.pf-wish {
+  min-height: 110px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.pf-wish.pf-wish-short {
+  min-height: 76px;
+}
+
+.pf-wish:focus {
+  border-color: var(--text-secondary);
+}
+
+.pf-wish::placeholder {
   color: var(--text-tertiary);
 }
 
-.pf-input:disabled {
+.pf-wish:disabled {
   color: var(--text-tertiary);
+  cursor: not-allowed;
 }
 
-.pf-text {
-  resize: vertical;
-  line-height: 1.5;
+/* Что сделал агент — строкой под просьбой, со ссылками действий. */
+.pf-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
-/* Готовый набор инструментов ставится одной кнопкой, а руками правится тем же полем. */
-.pf-preset {
-  align-self: flex-start;
+.pf-link {
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   padding: 0;
   border: none;
   background: none;
@@ -115,49 +123,98 @@
   cursor: pointer;
 }
 
-.pf-preset:hover:enabled {
+.pf-link:hover:enabled {
   color: var(--text-primary);
 }
 
-.pf-error {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--accent-error-border);
-  border-radius: 6px;
-  background: var(--accent-error-bg);
+/* Чужая просьба того же вида: новая её остановит — предупреждение до нажатия. */
+.pf-foreign {
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent-waiting-text);
 }
 
-.pf-error-title {
+/* Агент недоступен — одна строка цветом ошибки. */
+.pf-down {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   color: var(--accent-error-text);
 }
 
-.pf-error-text {
+.pf-modal .pf-down svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Основа от Чудо-Юдо — утопленная плашка только для чтения; та же сетка подписей, что у настроек. */
+.pf-basis {
   margin: 0;
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.pf-footer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--footer-tint);
-}
-
-.pf-file {
-  font-size: 11px;
-  min-width: 0;
-  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-base);
+}
+
+.pf-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.pf-basis .pf-row {
+  padding: 12px 16px;
+  min-height: 58px;
+}
+
+.pf-basis .pf-row + .pf-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pf-label {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.pf-basis dd {
+  margin: 0;
+}
+
+.pf-cell {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pf-text {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.pf-name-input {
+  width: 100%;
+  height: 34px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 0 10px;
+  outline: none;
+}
+
+.pf-name-input:focus {
+  border-color: var(--text-secondary);
 }
 
 /* Имя занято у проекта: сохранение переписало бы заведённого, и об этом сказано до записи. */
@@ -171,114 +228,211 @@
   color: var(--accent-waiting-text);
 }
 
-.pf-footer-end {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
+.btn.pf-small {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
 }
 
-/* Просьба к Чудо-Юдо — такое же поле формы, как остальные: особой полосы в окне нет — выбор оператора на B-69. */
-.pf-sep {
+.pf-modal .pf-small svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Модель и инструменты правятся руками: подписи в одну линию с подписями основы, поля — 34px. */
+.pf-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.pf-row-set {
+  min-height: 34px;
+}
+
+.pf-label-set {
+  color: var(--text-secondary);
+}
+
+/* Выпадающий список: стрелка лежит поверх правого края самого списка, поэтому не отъезжает от рамки. */
+.pf-select-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pf-select-wide {
+  width: 260px;
+}
+
+/* Внутри окна правило сильнее общего `.modal-overlay svg` (18px): стрелка остаётся 14px, как в макете. */
+.pf-select-wrap svg,
+.pf-modal .pf-select-wrap svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.pf-select {
+  appearance: none;
+  width: 100%;
+  height: 34px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 0 34px 0 10px;
+  cursor: pointer;
+  outline: none;
+}
+
+.pf-select:focus {
+  border-color: var(--text-secondary);
+}
+
+.pf-select:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.pf-select:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.pf-tools {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-}
-
-.pf-sep::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--border-subtle);
-}
-
-/* Что делает агент и что стало с полями — подписью под полем просьбы, как статус поля в окне ответа. */
-.pf-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.pf-status-text {
   min-width: 0;
 }
 
-.pf-status .pf-preset {
-  align-self: auto;
-}
-
-/* Ход работы агента — как в окне вопроса по базе: моноширинный, последняя строка ярче. */
-.pf-steps {
-  margin: 0;
-  padding: 0 0 0 16px;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.pf-steps li:last-child {
-  color: var(--text-primary);
-}
-
-.pf-spinner {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  border: 2px solid var(--border-strong);
-  border-top-color: var(--accent-active-text);
-  animation: pf-spin 0.9s linear infinite;
-}
-
-@keyframes pf-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .pf-spinner {
-    animation-duration: 3s;
-  }
-}
-
-.pf-elapsed {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.pf-examples {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.pf-example {
+/* «Только чтение» — кнопка-переключатель: включённая залита, как выбранное. */
+.pf-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px 0 9px;
   font: inherit;
-  font-size: 12px;
-  text-align: left;
+  font-size: 13px;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
   color: var(--text-secondary);
-  background: none;
-  border: 1px dashed var(--border-strong);
-  border-radius: 6px;
-  padding: 6px 10px;
   cursor: pointer;
 }
 
-.pf-example:hover {
+.pf-toggle:hover:enabled {
+  border-color: var(--border-strong);
   color: var(--text-primary);
-  background: var(--bg-surface-hover);
+}
+
+.pf-toggle:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.pf-toggle-box {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  border: 1.5px solid var(--border-strong);
+}
+
+.pf-modal .pf-toggle-box svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3;
+  visibility: hidden;
+}
+
+.pf-toggle[aria-pressed='true'] {
+  font-weight: 500;
+  border-color: var(--accent-done-text);
+  background: var(--accent-done-bg);
+  color: var(--accent-done-text);
+}
+
+.pf-toggle[aria-pressed='true'] .pf-toggle-box {
+  border-color: var(--accent-done-text);
+  background: var(--accent-done-text);
+  color: var(--bg-surface);
+}
+
+.pf-modal .pf-toggle[aria-pressed='true'] .pf-toggle-box svg {
+  visibility: visible;
+}
+
+.pf-tools-input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 0 10px;
+  outline: none;
+}
+
+.pf-tools-input:focus {
+  border-color: var(--text-secondary);
+}
+
+.pf-tools-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.pf-tools-fixed {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* Окно задания — поверх окна исполнителя; текст как в файле, моноширинным, только для чтения. */
+.pf-task-overlay {
+  z-index: 1001;
+}
+
+.pf-task {
+  max-height: min(680px, 90vh);
+}
+
+.pf-task-text {
+  margin: 0;
+  padding: 16px 20px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
 }

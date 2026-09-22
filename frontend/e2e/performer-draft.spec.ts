@@ -15,7 +15,7 @@ const drafted = {
  * /api подменяется: настоящая просьба запустила бы агента в живой копии оператора, а «Сохранить»
  * положило бы файл в её репозиторий и закоммитило бы его.
  */
-async function mockApi(page: Page) {
+async function mockApi(page: Page, performers: unknown[] = []) {
   const saved: unknown[] = []
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/performers', (route) => {
@@ -31,7 +31,7 @@ async function mockApi(page: Page) {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
           directory: agents,
-          performers: [],
+          performers,
           error: null,
         },
       ],
@@ -48,7 +48,7 @@ async function openNew(page: Page) {
   return page.getByRole('dialog')
 }
 
-test('оператор описывает исполнителя словами, а поля заполняет Чудо-Юдо', async ({ page }) => {
+test('оператор описывает исполнителя словами, а основу пишет Чудо-Юдо', async ({ page }) => {
   const { panel, saved } = await mockApi(page)
   panel.reply(
     ndjson(
@@ -58,14 +58,21 @@ test('оператор описывает исполнителя словами,
   )
 
   const modal = await openNew(page)
+  // До ответа основы нет: имени, описания и задания в окне нет, и сохранить нечего.
+  await expect(modal.getByLabel('Имя')).toHaveCount(0)
+  await expect(modal.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   await modal.getByLabel(/Просьба к Чудо-Юдо/).fill('Читает дифф ветки и возвращает вердикт')
   await modal.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }).click()
 
   await expect(modal.getByLabel('Имя')).toHaveValue('reviewer')
+  await expect(modal.getByLabel('Описание')).toHaveText('Читает дифф ветки задачи и возвращает вердикт.')
   await expect(modal.getByLabel('Модель')).toHaveValue('opus')
-  await expect(modal.getByLabel('Инструменты')).toHaveValue('Read, Glob, Grep')
-  await expect(modal.getByLabel('Задание')).toHaveValue('Ты читаешь дифф ветки целиком и возвращаешь вердикт.')
-  await expect(modal.getByText('Поля ниже заполнил Чудо-Юдо')).toBeVisible()
+  await expect(modal.getByRole('button', { name: 'Только чтение' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(modal.getByText('Основу написал Чудо-Юдо')).toBeVisible()
+  await modal.getByRole('button', { name: 'Показать задание' }).click()
+  const task = page.getByRole('dialog', { name: /Задание/ })
+  await expect(task.getByText('Ты читаешь дифф ветки целиком и возвращаешь вердикт.')).toBeVisible()
+  await task.getByRole('button', { name: 'Закрыть', exact: true }).click()
   expect(panel.posts).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
@@ -112,11 +119,11 @@ test('закрытое окно не останавливает агента: п
 
   const reopened = page.getByRole('dialog')
   await expect(reopened.getByLabel('Имя')).toHaveValue('reviewer')
-  await expect(reopened.getByLabel('Задание')).toHaveValue('Ты читаешь дифф ветки целиком и возвращаешь вердикт.')
+  await expect(reopened.getByLabel('Описание')).toHaveText('Читает дифф ветки задачи и возвращает вердикт.')
   expect(panel.posts).toHaveLength(1)
 })
 
-test('неудача агента сказана словами, просьба остаётся, поля не тронуты', async ({ page }) => {
+test('неудача агента сказана одной строкой, просьба остаётся, основы нет', async ({ page }) => {
   const { panel } = await mockApi(page)
   panel.reply(
     ndjson({ type: 'error', text: 'Чудо-Юдо вернул исполнителя без имени', output: 'Готово, я придумал ревьюера.' }),
@@ -127,13 +134,50 @@ test('неудача агента сказана словами, просьба 
   await modal.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }).click()
 
   const alert = modal.getByRole('alert')
-  await expect(alert).toContainText('не заполнил поля')
-  await expect(alert).toContainText('Готово, я придумал ревьюера.')
-  await expect(modal.getByLabel('Имя')).toHaveValue('')
+  await expect(alert).toHaveText('Чудо-Юдо не ответил: Чудо-Юдо вернул исполнителя без имени')
+  // Вывод агента — подсказкой строки, а не второй строкой в окне.
+  await expect(alert).toHaveAttribute('title', 'Готово, я придумал ревьюера.')
+  await expect(modal.getByLabel('Имя')).toHaveCount(0)
+  await expect(modal.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   await expect(modal.getByLabel(/Просьба к Чудо-Юдо/)).toHaveValue('Ревьюер ветки')
 
   panel.reply(ndjson({ type: 'drafted', text: '---', fields: drafted, durationMs: 4000 }))
   await modal.getByRole('button', { name: 'Попросить снова' }).click()
   await expect(modal.getByLabel('Имя')).toHaveValue('reviewer')
   expect(panel.posts).toHaveLength(2)
+})
+
+test('итог переписывания из шапки открывается в правке того же исполнителя', async ({ page }) => {
+  const reviewer = { ...drafted, path: `${agents}\\reviewer.md` }
+  const { panel } = await mockApi(page, [reviewer])
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Исполнители' }).click()
+  await page.getByRole('button', { name: 'reviewer, Agents Kit Web' }).click()
+  const modal = page.getByRole('dialog', { name: 'reviewer' })
+  await modal.getByLabel(/Просьба к Чудо-Юдо/).fill('Пусть ещё сверяет с критериями')
+  await modal.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }).click()
+  await expect(modal.getByRole('status')).toContainText('переписывает исполнителя')
+
+  // Оператор закрыл окно, пока агент работает: итог ждёт в шапке и называет, кого переписали.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  panel.reply(
+    ndjson({
+      type: 'drafted',
+      text: '---',
+      fields: { ...drafted, description: 'Сверяет дифф с критериями.' },
+      durationMs: 9000,
+    }),
+  )
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо переписал исполнителя reviewer/ })
+  await expect(done).toBeVisible()
+
+  await done.click()
+
+  // Итог открывается правкой reviewer, а не окном нового, где его имя было бы занято.
+  const reopened = page.getByRole('dialog', { name: 'reviewer' })
+  await expect(reopened.getByLabel('Описание')).toHaveText('Сверяет дифф с критериями.')
+  await expect(reopened.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  expect(panel.posts).toHaveLength(1)
 })
