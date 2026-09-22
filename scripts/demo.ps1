@@ -681,6 +681,13 @@ function Write-DemoUsage {
 
 # --- запуск ------------------------------------------------------------------------------
 
+$apiPort = $Port + 1
+# Демонстрация уже поднята — второй запуск погасил бы её сессии и упал бы на занятом порту.
+$busy = @(Get-NetTCPConnection -LocalPort $Port, $apiPort -State Listen -ErrorAction Ignore)
+if ($busy.Count) {
+    throw "порт $(($busy.LocalPort | Sort-Object -Unique) -join ', ') уже занят — похоже, демонстрация поднята: сначала погасите её"
+}
+
 $known = Read-State
 if ($Rebuild -or -not $known) {
     $built = Build-Demo
@@ -697,7 +704,6 @@ Start-DemoSessions $copies
 Write-DemoUsage
 Write-Json $state ([pscustomobject]@{ copies = $copies; port = $Port })
 
-$apiPort = $Port + 1
 Write-Host ""
 Write-Host "  адрес панели:   http://localhost:$Port   (API рядом, на $apiPort)"
 Write-Host "  собрать заново: pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'demo.ps1')`" -Rebuild"
