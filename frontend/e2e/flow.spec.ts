@@ -205,11 +205,20 @@ test('меню стадии встаёт у курсора, окна возвр�
   await page.keyboard.press('Escape')
   await expect(block).toBeFocused()
 
-  // Enter на блоке открывает меню у его середины
-  await page.keyboard.press('Enter')
-  const byKeys = (await page.getByRole('menu', { name: 'Стадия «Приёмка»' }).boundingBox())!
-  expect(byKeys.x).toBeGreaterThan(at.x + at.width / 2 - 1)
-  await page.keyboard.press('Escape')
+  // Enter и пробел на блоке открывают меню у его середины
+  for (const key of ['Enter', ' ']) {
+    await page.keyboard.press(key)
+    const byKeys = (await page.getByRole('menu', { name: 'Стадия «Приёмка»' }).boundingBox())!
+    expect(byKeys.x).toBeGreaterThan(at.x + at.width / 2 - 1)
+    await page.keyboard.press('Escape')
+    await expect(block).toBeFocused()
+  }
+
+  // Повторный щелчок по блоку закрывает его меню
+  await block.click({ position: { x: 50, y: 30 } })
+  await expect(page.getByRole('menu')).toHaveCount(1)
+  await block.click({ position: { x: 50, y: 30 } })
+  await expect(page.getByRole('menu')).toHaveCount(0)
 
   // Правый щелчок ставит меню у курсора
   const first = region.getByRole('button', { name: 'Стадия 1: Критерий' })
@@ -378,6 +387,8 @@ test('блок перетаскивается мышью, при задачах 
   // Двигается «Ревью»: возврат «Приёмки» к нему по-прежнему ведёт назад, и флоу остаётся годным
   await region.getByRole('button', { name: 'Стадия 2: Ревью' }).dragTo(region.getByRole('button', { name: 'Стадия 1: Критерий' }))
   await expect(region.getByRole('button', { name: 'Стадия 1: Ревью' })).toBeVisible()
+  // Перетаскивание — не щелчок: меню блока не открывается
+  await expect(page.getByRole('menu')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Сохранить флоу Agents Kit Web?' })

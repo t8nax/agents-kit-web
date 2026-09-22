@@ -305,10 +305,12 @@ test('щелчок по блоку стадии — левый и правый �
   fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 
-  // Enter и пробел нажимают кнопку щелчком без точки на экране: меню встаёт у блока, а не в углу по нулям
-  fireEvent.click(block, { detail: 0 })
-  expect(screen.getByRole('menu', { name: 'Стадия «Ревью»' })).toBeInTheDocument()
-  fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+  // Повторный щелчок по тому же блоку закрывает его меню; Enter и пробел у середины блока проверяет e2e —
+  // в jsdom у блока нет размеров
+  fireEvent.click(block, { clientX: 50, clientY: 60, detail: 1 })
+  fireEvent.mouseDown(block)
+  fireEvent.click(block, { clientX: 50, clientY: 60, detail: 1 })
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 
   const menu = menuOf(region, 'Стадия 2: Ревью')
   expect(screen.getByRole('menu')).toHaveAccessibleName('Стадия «Ревью»')
