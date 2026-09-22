@@ -280,6 +280,24 @@ test('«Отменить» возвращает к просмотру без п�
   expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Ты читаешь дифф ветки целиком.')
 })
 
+test('в правке задания клик мимо окна его не закрывает, а в просмотре закрывает', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Набрано руками.' } })
+
+  const overlay = task.parentElement!
+  fireEvent.mouseDown(overlay)
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Набрано руками.')
+
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+  fireEvent.mouseDown(overlay)
+  expect(screen.queryByRole('dialog', { name: /Задание/ })).not.toBeInTheDocument()
+})
+
 test('пустое задание открывается кнопкой «Написать задание» сразу в правке', () => {
   stubSave(() => Response.json({ path: 'x' }))
   open({ ...reviewer, prompt: '' })

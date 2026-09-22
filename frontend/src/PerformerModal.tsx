@@ -633,7 +633,11 @@ function TaskView({
   }
 
   return (
-    <div className="modal-overlay pf-task-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div
+      className="modal-overlay pf-task-overlay"
+      // В правке промах мимо окна не закрывает его: набранное задание пропало бы без вопроса.
+      onMouseDown={(event) => event.target === event.currentTarget && !editing && onClose()}
+    >
       <div className="modal-wizard pf-task" role="dialog" aria-modal="true" aria-labelledby="pf-task-title">
         <div className="ask-head">
           <div className="ask-title">
