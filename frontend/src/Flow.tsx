@@ -1808,7 +1808,7 @@ function ReturnsField({
   const set = (index: number, patch: Partial<DraftReturn>) =>
     onChange(returns.map((back, i) => (i === index ? { ...back, ...patch } : back)))
 
-  // Первой стадии вернуться некуда: пустого блока «Возвраты» у неё нет — замечание оператора на приёмке B-192.
+  // Вернуться не к чему — раньше в сценарии нет стадий базы: пустого блока «Возвраты» нет — замечание оператора на приёмке B-192.
   // Возврат из файла всё же покажется: его надо видеть, чтобы убрать.
   if (earlier.length === 0 && returns.length === 0) return null
 

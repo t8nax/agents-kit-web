@@ -313,6 +313,38 @@ test('у первой стадии сценария блока «Возврат�
   expect(first.getByRole('button', { name: 'Править стадию «Критерий»' })).toBeInTheDocument()
 })
 
+test('возврат из файла у первой стадии виден: его можно убрать, и флоу снова сохраняется', async () => {
+  stubApi(
+    api([{ ...app, flows: [{ ...full, entries: [{ stage: 'Критерий', returns: [{ condition: 'заново', stage: 'Приёмка' }] }, ...full.entries.slice(1)] }] }]),
+  )
+  const region = await renderFlow()
+  expect(screen.getByText(/Не сохранить: флоу «полный», стадия «Критерий»/)).toBeInTheDocument()
+
+  const first = await open(region, /^Стадия 1: Критерий/)
+  expect(first.getByText('Возвраты')).toBeInTheDocument()
+  // Добавить новый некуда, а убрать тот, что в файле, — можно
+  expect(first.queryByRole('button', { name: 'Добавить возврат' })).not.toBeInTheDocument()
+  fireEvent.click(first.getByRole('button', { name: 'Убрать возврат 1' }))
+  expect(first.queryByText('Возвраты')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+})
+
+test('блок «Возвраты» следует за местом стадии: пропадает, когда она встала первой, и возвращается', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+
+  const drawer = await open(region, 'Стадия 2: Ревью')
+  expect(drawer.getByRole('button', { name: 'Добавить возврат' })).toBeInTheDocument()
+
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 2 выше' }))
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 1: Ревью')
+  expect(drawer.queryByText('Возвраты')).not.toBeInTheDocument()
+
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 1 ниже' }))
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 2: Ревью')
+  expect(drawer.getByRole('button', { name: 'Добавить возврат' })).toBeInTheDocument()
+})
+
 test('возврат правится у стадии в своём флоу: цель — только стадии этого флоу, стоящие раньше', async () => {
   const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
