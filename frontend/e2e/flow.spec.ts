@@ -257,6 +257,21 @@ test('меню стадии встаёт у курсора, окна возвр�
   // Поля карточек — крупные, как на макете, а не плотные поля окна правки
   await expect(returns.getByRole('textbox', { name: 'Условие возврата 1' })).toHaveCSS('padding', '11px 14px')
   await expect(returns.getByRole('textbox', { name: 'Условие возврата 1' })).toHaveCSS('font-size', '14px')
+  // Между карточками 16px, как на макете; причина «не сохранить» — вровень с карточками, без отступа строк окна правки
+  await returns.getByRole('button', { name: 'Добавить возврат' }).click()
+  const error = returns.locator('.flow-step-error')
+  await expect(error).toBeVisible()
+  await expect(async () => {
+    const [first, second] = [
+      (await returns.locator('.flow-return').nth(0).boundingBox())!,
+      (await returns.locator('.flow-return').nth(1).boundingBox())!,
+    ]
+    expect(Math.round(second.y - (first.y + first.height))).toBe(16)
+    expect(Math.abs((await error.boundingBox())!.x - first.x)).toBeLessThanOrEqual(1)
+  }).toPass()
+  await expect(error).toHaveCSS('padding-left', '0px')
+  await returns.getByRole('button', { name: 'Убрать возврат 2' }).click()
+  await expect(error).toHaveCount(0)
   await expect(region.locator('.flow-arc-open')).toHaveCount(1)
   await returns.getByRole('textbox', { name: 'Условие возврата 1' }).fill('замечания оператора')
   await expect(page.locator('.save-bar')).toHaveCount(1)
