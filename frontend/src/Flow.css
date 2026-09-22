@@ -666,9 +666,12 @@ textarea.flow-input {
   gap: 12px;
 }
 
-.flow-returns-modal .flow-field {
+/* Сильнее правил окна правки (.flow-stage-modal .flow-field — сетка «подпись | поле»): иначе карточки
+   возвратов стоят в правой колонке, а не во всю ширину окна — замечание оператора на приёмке B-202. */
+.flow-stage-modal.flow-returns-modal .flow-field {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 10px;
 }
 
