@@ -131,6 +131,24 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Draft_RemembersWhomItRewrites()
+    {
+        _agent.Lines = [Result(Drafted)];
+        var client = await Client();
+        var current = new PerformerDraftFields("reviewer", "Читает дифф.", "opus", "Read", "Ты читаешь дифф.");
+
+        // Просьба о правке помнит, кого переписывает: её подхватывает окно правки reviewer, а не окно нового.
+        using var edited = await client.SendAsync(Post(_base, "Пусть ещё сверяет", current));
+        Assert.Equal("reviewer", (await edited.Content.ReadFromJsonAsync<AgentRequestSummary>(Json))!.Subject);
+        var listed = await client.GetFromJsonAsync<List<AgentRequestSummary>>("/api/agent/requests", Json);
+        Assert.Equal("reviewer", Assert.Single(listed!).Subject);
+
+        // Просьба о новом — ни про кого.
+        using var fresh = await client.SendAsync(Post(_base, "Ревьюер ветки", null));
+        Assert.Null((await fresh.Content.ReadFromJsonAsync<AgentRequestSummary>(Json))!.Subject);
+    }
+
+    [Fact]
     public async Task Draft_WritesNothingToDisk()
     {
         _agent.Lines = [Result(Drafted)];
