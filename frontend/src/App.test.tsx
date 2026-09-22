@@ -429,7 +429,7 @@ test('удаление копии открывает окно, а после у�
   })
 
   const dialog = await screen.findByRole('dialog', { name: 'Удалить рабочую копию' })
-  expect(dialog).toHaveTextContent('D:\\Projects\\app-wt')
+  expect(dialog).toHaveTextContent('Копия app-wt проекта')
   const polls = fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces').length
 
   await act(async () => {
