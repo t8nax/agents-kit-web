@@ -3,6 +3,7 @@ import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { TerminalIcon } from './TerminalIcon'
 import { VsCodeIcon } from './VsCodeIcon'
+import './Modal.css'
 import './ReplyModal.css'
 
 export type QuestionVariant = {

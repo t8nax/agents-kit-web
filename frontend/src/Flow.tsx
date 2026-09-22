@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import './Modal.css'
 import './AskModal.css'
 import './Backlog.css'
 import './PerformerModal.css'

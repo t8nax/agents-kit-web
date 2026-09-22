@@ -3,6 +3,7 @@ import type { WorkspaceRow } from './App'
 import type { BacklogEntry } from './Backlog'
 import { copyName, freeCopies } from './copies'
 import type { BaseFlow, NamedFlow } from './Flow'
+import './Modal.css'
 import './StartTaskModal.css'
 
 type Props = {
