@@ -13,31 +13,45 @@ export type AskEvent =
 /** Через сколько окно дочитывает оборванный поток разговора. */
 const reconnectDelay = 500
 
+/** Просьбы-переписки панели: вопрос по базе (B-79) и разговор о бэклоге (B-72). */
+export type ConversationKind = 'ask' | 'backlog'
+
+const routes: Record<ConversationKind, { start: string; reply: string; stop: string }> = {
+  ask: { start: '/api/ask', reply: '/api/ask/reply', stop: '/api/ask/stop' },
+  backlog: { start: '/api/backlog/write', reply: '/api/backlog/write/reply', stop: '/api/backlog/write/stop' },
+}
+
+/** Событие переписки любого вида: у каждого вида свои поля, а ход разговора читается по типу. */
+type ConversationEvent = { type: string; text: string }
+
 /** Разговор ещё в панели: по этому окно отличает оборванную связь от убранной просьбы. */
-async function alive(id: string) {
+async function alive(kind: ConversationKind, id: string) {
   try {
     const response = await fetch('/api/agent/requests')
     if (!response.ok) return false
     const list = (await response.json()) as { kind: string; id: string }[]
-    return list.some((request) => request.kind === 'ask' && request.id === id)
+    return list.some((request) => request.kind === kind && request.id === id)
   } catch {
     return false
   }
 }
 
 /**
- * Разговор с агентом по базе. Переписку держит панель, а окно её только показывает: открытое заново, оно
- * читает её с начала — вместе с ответом, пришедшим без него. Закрытие окна разговор не трогает, убирает его
- * только «Новая переписка» — решения оператора на B-79.
+ * Разговор с агентом. Переписку держит панель, а окно её только показывает: открытое заново, оно читает её
+ * с начала — вместе с ответом, пришедшим без него. Закрытие окна разговор не трогает, убирает его только
+ * forget — решения оператора на B-79. restore — подхватить ли идущий разговор при открытии окна.
  */
-export function useAgentConversation() {
-  const [events, setEvents] = useState<AskEvent[]>([])
+export function useAgentConversation<E extends ConversationEvent = AskEvent>(
+  kind: ConversationKind = 'ask',
+  restore = true,
+) {
+  const [events, setEvents] = useState<E[]>([])
   const [base, setBase] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [retry, setRetry] = useState<string | null>(null)
-  const [restoring, setRestoring] = useState(true)
+  const [restoring, setRestoring] = useState(restore)
   const reading = useRef<AbortController | null>(null)
 
   const follow = useCallback(async function watch(summary: AgentRequestSummary, from = 0): Promise<void> {
@@ -56,7 +70,7 @@ export function useAgentConversation() {
     setStartedAt(Date.now() - summary.elapsedMs)
 
     try {
-      const response = await fetch(`/api/agent/ask/stream?id=${summary.id}&from=${from}`, {
+      const response = await fetch(`/api/agent/${kind}/stream?id=${summary.id}&from=${from}`, {
         signal: controller.signal,
       })
       if (!response.ok || !response.body) {
@@ -76,10 +90,10 @@ export function useAgentConversation() {
         buffer += value
         const lines = buffer.split('\n')
         buffer = lines.pop() ?? ''
-        const chunk: AskEvent[] = []
+        const chunk: E[] = []
         for (const line of lines) {
           if (!line.trim()) continue
-          const event = JSON.parse(line) as AskEvent
+          const event = JSON.parse(line) as E
           chunk.push(event)
           if (event.type === 'reply') {
             answering = true
@@ -105,7 +119,7 @@ export function useAgentConversation() {
       // дальше с того же места, и ход работы агента не теряется.
       await new Promise((wake) => setTimeout(wake, reconnectDelay))
       if (controller.signal.aborted) return
-      if (await alive(summary.id)) {
+      if (await alive(kind, summary.id)) {
         void watch(summary, seen)
         return
       }
@@ -116,10 +130,11 @@ export function useAgentConversation() {
       setRunning(false)
       setFailure(error instanceof SyntaxError ? 'API прислал непонятный ответ' : 'Нет связи с API')
     }
-  }, [])
+  }, [kind])
 
   // Окно открылось: идущий или дождавшийся разговор подхватывается с начала.
   useEffect(() => {
+    if (!restore) return
     let alive = true
     fetch('/api/agent/requests')
       .then((response) => (response.ok ? (response.json() as Promise<AgentRequestSummary[]>) : []))
@@ -127,7 +142,7 @@ export function useAgentConversation() {
         (list) => {
           if (!alive) return
           setRestoring(false)
-          const mine = list.find((request) => request.kind === 'ask')
+          const mine = list.find((request) => request.kind === kind)
           if (mine) void follow(mine)
         },
         () => alive && setRestoring(false),
@@ -137,16 +152,16 @@ export function useAgentConversation() {
       // Закрытое окно перестаёт читать поток, но разговор не трогает: агент остаётся с ним.
       reading.current?.abort()
     }
-  }, [follow])
+  }, [follow, kind, restore])
 
-  /** Первый вопрос: заводит разговор по выбранной базе. */
+  /** Первая реплика: заводит разговор по выбранной базе — тело просьбы у каждого вида своё. */
   const start = useCallback(
-    async (basePath: string, question: string): Promise<Started> => {
+    async (body: Record<string, unknown>): Promise<Started> => {
       try {
-        const response = await fetch('/api/ask', {
+        const response = await fetch(routes[kind].start, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ base: basePath, question }),
+          body: JSON.stringify(body),
         })
         if (!response.ok) return { ok: false, status: response.status }
         const summary = (await response.json()) as AgentRequestSummary
@@ -156,13 +171,13 @@ export function useAgentConversation() {
         return { ok: false, status: null }
       }
     },
-    [follow],
+    [follow, kind],
   )
 
   /** Следующая реплика уходит в тот же разговор: в переписке она появится его же потоком. */
   const send = useCallback(async (text: string): Promise<Started> => {
     try {
-      const response = await fetch('/api/ask/reply', {
+      const response = await fetch(routes[kind].reply, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
@@ -171,16 +186,16 @@ export function useAgentConversation() {
     } catch {
       return { ok: false, status: null }
     }
-  }, [])
+  }, [kind])
 
   /** «Отменить»: нынешний ответ обрывается, а переписка остаётся — её продолжает следующая реплика. */
   const stop = useCallback(async () => {
     try {
-      await fetch('/api/ask/stop', { method: 'POST' })
+      await fetch(routes[kind].stop, { method: 'POST' })
     } catch {
       // Панель недоступна: остановить агента нечем, и окно скажет об этом сбоем чтения потока.
     }
-  }, [])
+  }, [kind])
 
   /** Новая переписка: прежний разговор уходит из панели вместе со своим агентом. */
   const forget = useCallback(async () => {
@@ -193,11 +208,11 @@ export function useAgentConversation() {
     setFailure(null)
     setRetry(null)
     try {
-      await fetch('/api/agent/ask', { method: 'DELETE' })
+      await fetch(`/api/agent/${kind}`, { method: 'DELETE' })
     } catch {
       // Панель недоступна: разговор уйдёт вместе с ней, показывать оператору нечего.
     }
-  }, [])
+  }, [kind])
 
   return { events, base, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure }
 }

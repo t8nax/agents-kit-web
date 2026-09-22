@@ -6,6 +6,7 @@ import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, wri
 import { InlineMarkdown, Markdown } from './Markdown'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
+import { BugIcon, EntryFields, FeatureIcon } from './EntryFields'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { forgetGoneStartWords } from './startWords'
@@ -62,6 +63,8 @@ export default function Backlog({
   }, [])
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
+  // Запись, от которой окно Чудо-Юдо открыто кнопкой «Изменить»; null — окно из шапки раздела.
+  const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry } | null>(null)
   // Запись, которую берут в работу
   const [starting, setStarting] = useState<Started | null>(null)
   // Копии всех баз: по ним видно, есть ли у проекта записи куда запускать. null — ещё не прочитаны.
@@ -128,7 +131,13 @@ export default function Backlog({
     [loadBacklogs],
   )
 
-  const closeWrite = useCallback(() => setWriting(false), [])
+  const closeWrite = useCallback(() => {
+    setWriting(false)
+    setEditing(null)
+  }, [])
+
+  // Панель записала изменения по «Сохранить» — список показывает новый бэклог.
+  const markSaved = useCallback(() => loadBacklogs(), [loadBacklogs])
 
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
   const reveal = useReveal(load.kind === 'loading')
@@ -146,11 +155,14 @@ export default function Backlog({
         <button
           type="button"
           className="bases-btn bases-btn-add head-end"
-          onClick={() => setWriting(true)}
+          onClick={() => {
+            setEditing(null)
+            setWriting(true)
+          }}
           disabled={backlogs.length === 0}
         >
           <WriteIcon />
-          Добавить с помощью {AGENT_NAME}
+          Попросить {AGENT_NAME}
         </button>
         <button type="button" className="bases-btn" onClick={refresh} disabled={load.kind === 'loading'}>
           <RefreshIcon />
@@ -257,7 +269,21 @@ export default function Backlog({
                         {isFresh && <span className="entry-fresh-badge">новая</span>}
                         <ChevronIcon />
                       </button>
-                      {/* Запуск адресует запись номером, поэтому у записи без номера его нет вовсе */}
+                      {/* Правку и запуск адресует номер записи, поэтому у записи без номера их нет вовсе */}
+                      {entry.number && (
+                        <button
+                          type="button"
+                          className="entry-start"
+                          onClick={(e) => {
+                            opener.current = e.currentTarget
+                            setEditing({ base: backlog.base, entry })
+                            setWriting(true)
+                          }}
+                        >
+                          <WriteIcon />
+                          Изменить
+                        </button>
+                      )}
                       {entry.number && (
                         <button
                           type="button"
@@ -312,8 +338,13 @@ export default function Backlog({
         <BacklogWriteModal
           bases={backlogs.map((b) => ({ base: b.base, project: b.project }))}
           initialBase={filter}
+          subject={editing}
+          findEntry={(base, number) =>
+            backlogs.find((b) => b.base === base)?.entries.find((entry) => entry.number === number)
+          }
           onClose={closeWrite}
           onEntries={markWritten}
+          onSaved={markSaved}
         />
       )}
     </>
@@ -369,16 +400,6 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
     </div>
   )
 }
-
-// Значения полей задаёт кит; своё значение панель не судит, а показывает плашкой без цвета.
-const PRIORITY_CLASS: Record<string, string> = {
-  низкий: 'entry-prio-low',
-  средний: 'entry-prio-mid',
-  высокий: 'entry-prio-high',
-  блокер: 'entry-prio-blocker',
-}
-
-const TYPE_CLASS: Record<string, string> = { баг: 'entry-type-bug', фича: 'entry-type-feature' }
 
 /** Бэклог, пока он читается в первый раз: чипы проектов, строка отбора и записи проектов полосами (макет B-201). */
 function BacklogSkeleton({ shown }: { shown: boolean }) {
@@ -439,42 +460,6 @@ function BacklogSkeleton({ shown }: { shown: boolean }) {
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */
 function numberWidth(entries: BacklogEntry[]): number {
   return Math.max(0, ...entries.map((entry) => entry.number?.length ?? 0))
-}
-
-/** Тип и приоритет записи: тип — значок со словом, приоритет — плашка, цвет которой растёт со срочностью. */
-function EntryFields({ entry }: { entry: BacklogEntry }) {
-  return (
-    <>
-      {/* Пробелы не видны во flex-строке, но разделяют плашки в имени кнопки записи */}
-      {entry.type && (
-        <span className={`entry-type ${TYPE_CLASS[entry.type] ?? ''}`}>
-          {entry.type === 'фича' ? <FeatureIcon /> : <BugIcon />}
-          {entry.type}
-        </span>
-      )}{' '}
-      {entry.priority && (
-        <span className={`entry-prio ${PRIORITY_CLASS[entry.priority] ?? ''}`}>{entry.priority}</span>
-      )}
-    </>
-  )
-}
-
-function BugIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <line x1="12" y1="8" x2="12" y2="13" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  )
-}
-
-function FeatureIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z" />
-    </svg>
-  )
 }
 
 function ChevronIcon() {
