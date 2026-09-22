@@ -30,21 +30,21 @@ async function token(page: Page, name: string) {
 }
 
 // Цвет полосы виден только на экране: у псевдоэлементов полосы нет вычисленного стиля.
-async function pixels(page: Page, x: number, y: number, width = 1) {
-  const png = await page.screenshot({ clip: { x, y, width, height: 1 } })
+async function pixels(page: Page, x: number, y: number, width = 1, height = 1) {
+  const png = await page.screenshot({ clip: { x, y, width, height } })
   return page.evaluate(
-    async ({ base64, width }) => {
+    async ({ base64, width, height }) => {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
       const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
-      const canvas = new OffscreenCanvas(width, 1)
+      const canvas = new OffscreenCanvas(width, height)
       const context = canvas.getContext('2d')!
       context.drawImage(bitmap, 0, 0)
-      const data = context.getImageData(0, 0, width, 1).data
-      return Array.from({ length: width }, (_, i) =>
+      const data = context.getImageData(0, 0, width, height).data
+      return Array.from({ length: width * height }, (_, i) =>
         '#' + [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]].map((v) => v.toString(16).padStart(2, '0')).join(''),
       )
     },
-    { base64: png.toString('base64'), width },
+    { base64: png.toString('base64'), width, height },
   )
 }
 
@@ -142,36 +142,54 @@ test('смена темы на открытой панели сразу пере
   await expect.poll(() => pixel(page, bar.x, bar.thumb)).toBe(light)
 })
 
-test('горизонтальная полоса такая же, как вертикальная', async ({ page }) => {
-  // На узком окне таблица рабочих копий уходит вбок
-  await page.setViewportSize({ width: 560, height: 700 })
+for (const theme of ['dark', 'light'] as const) {
+  test(`горизонтальная полоса такая же, как вертикальная, в теме ${theme}`, async ({ page }) => {
+    // На узком окне таблица рабочих копий уходит вбок
+    await page.setViewportSize({ width: 560, height: 700 })
+    await page.emulateMedia({ colorScheme: theme })
+    await openPanel(page)
+    await expect(async () => {
+      const size = await barSize(page)
+      expect(size.across).toBe(true)
+      expect(size.height).toBe(gutter)
+    }).toPass()
+
+    const rest = await token(page, '--border-strong')
+    const hover = await token(page, '--text-tertiary')
+    const drag = await token(page, '--text-secondary')
+    const bar = await page.locator('.content').evaluate(
+      (el, gutter) => {
+        const box = el.getBoundingClientRect()
+        const bottom = box.bottom - parseFloat(getComputedStyle(el).borderBottomWidth)
+        return { x: Math.floor(box.left + 8), top: Math.round(bottom - gutter), y: Math.floor(bottom - gutter / 2) }
+      },
+      gutter,
+    )
+    const across = async (color: string) =>
+      (await pixels(page, bar.x, bar.top, 1, gutter)).filter((c) => c === color).length
+
+    await page.mouse.move(0, 0)
+    await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(rest)
+    expect(await across(rest)).toBe(4)
+
+    await page.mouse.move(bar.x, bar.y)
+    await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(hover)
+    expect(await across(hover)).toBe(6)
+
+    await page.mouse.down()
+    await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(drag)
+    await page.mouse.up()
+  })
+}
+
+// Вид полос задан один раз на все элементы: своя полоса у окна или раздела разошлась бы с остальными,
+// а замеры выше смотрят только на главную область.
+test('вид полос прокрутки задаёт только общий файл стилей', async ({ page }) => {
   await openPanel(page)
-  await expect(async () => {
-    const size = await barSize(page)
-    expect(size.across).toBe(true)
-    expect(size.height).toBe(gutter)
-  }).toPass()
-
-  const rest = await token(page, '--border-strong')
-  const hover = await token(page, '--text-tertiary')
-  const bar = await page.locator('.content').evaluate(
-    (el, gutter) => {
-      const box = el.getBoundingClientRect()
-      const bottom = box.bottom - parseFloat(getComputedStyle(el).borderBottomWidth)
-      return { x: Math.floor(box.left + 8), top: Math.round(bottom - gutter), y: Math.floor(bottom - gutter / 2) }
-    },
-    gutter,
+  const owners = await page.evaluate(() =>
+    [...document.querySelectorAll('style')]
+      .filter((style) => /scrollbar/.test(style.textContent ?? ''))
+      .map((style) => style.dataset.viteDevId ?? '(без имени)'),
   )
-  const across = async (color: string) => {
-    const column = await Promise.all(Array.from({ length: gutter }, (_, i) => pixel(page, bar.x, bar.top + i)))
-    return column.filter((c) => c === color).length
-  }
-
-  await page.mouse.move(0, 0)
-  await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(rest)
-  expect(await across(rest)).toBe(4)
-
-  await page.mouse.move(bar.x, bar.y)
-  await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(hover)
-  expect(await across(hover)).toBe(6)
+  expect(owners.map((owner) => owner.split(/[\\/]/).pop())).toEqual(['index.css'])
 })
