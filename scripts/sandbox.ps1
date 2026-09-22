@@ -289,7 +289,7 @@ function New-Backlog([string]$Path, [switch]$Orders) {
 '@
 }
 
-function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf, [switch]$NoAnswerKey, [switch]$TwoQuestions,
+function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf, [switch]$NoAnswerKey, [switch]$TwoQuestions, [switch]$ThreeQuestions,
     [switch]$Artifacts, [switch]$OldDesign, [string]$Task = 'B-7 Опрос копий не должен мешать работе') {
     $question = @'
 
@@ -305,7 +305,7 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 ответ:
 '@
     if ($NoAnswerKey) { $question = $question -replace "(?m)^ответ:\s*$", '' }
-    if ($TwoQuestions) {
+    if ($TwoQuestions -or $ThreeQuestions) {
         $question += @'
 
 ### Гасить ли панель на ночь?
@@ -313,6 +313,19 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 
 - вариант: гасить по расписанию — утром её надо будить руками
 - вариант: не гасить — как сейчас
+
+ответ:
+'@
+    }
+    # Третий вопрос — без вариантов: на нём видно поле ответа без списка выбора.
+    if ($ThreeQuestions) {
+        $question += @'
+
+### Куда складывать журнал опроса?
+Сейчас журнал опроса пишется рядом с панелью и растёт без предела. Его можно класть в `%LOCALAPPDATA%` или в папку, которую назовёте.
+
+- журнал за неделю — около 40 МБ;
+- старые журналы никто не читает.
 
 ответ:
 '@
@@ -449,7 +462,9 @@ $goodDone = Join-Path $copiesDir 'house-done'
 git -C $goodCopy worktree add -b feat/done $goodDone --quiet
 
 New-Base $goodBase 'Дом' @($goodCopy)
-New-Memory (Join-Path $goodBase 'work\house-task.md') $goodWorktree 'feat/polling'
+# Три вопроса разом: с рекомендованным вариантом, с вариантами без рекомендованного и без вариантов —
+# на них видна лента окна ответа, пропуск, правка ответа и отмена отправки.
+New-Memory (Join-Path $goodBase 'work\house-task.md') $goodWorktree 'feat/polling' -ThreeQuestions
 Add-Commit $goodBase 'Память задачи'
 $bases.Add($goodBase)
 foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
