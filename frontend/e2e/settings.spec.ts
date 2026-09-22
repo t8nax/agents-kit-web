@@ -189,3 +189,30 @@ test('оператор находит кит кнопкой и сам сохра
   await openSettings(page)
   await expect(kit.getByLabel('Путь к каталогу кита')).toHaveValue(kitPath)
 })
+
+test('оператор выключает и включает уведомления переключателем в «Настройках», а не в шапке', async ({ page }) => {
+  // Chromium без окна отвечает «запрещено» и при выданном разрешении — разрешение браузера подменяется
+  await page.addInitScript(() => {
+    Object.defineProperty(Notification, 'permission', { get: () => 'granted' })
+  })
+  await mockApi(page)
+
+  await page.goto('/')
+  await expect(page.getByRole('banner').getByRole('button', { name: /уведомления/i })).toHaveCount(0)
+
+  await openSettings(page)
+  const card = page.getByRole('region', { name: 'Уведомления' })
+  await expect(page.locator('.settings-card').last()).toHaveAttribute('aria-labelledby', 'settings-notifications')
+  const toggle = card.getByRole('switch', { name: 'Показывать уведомления' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  // Выбор помнит браузер: раздел, открытый заново, показывает выключенные уведомления
+  await page.reload()
+  await openSettings(page)
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+})
