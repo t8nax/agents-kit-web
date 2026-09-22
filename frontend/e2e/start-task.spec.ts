@@ -110,11 +110,22 @@ for (const colorScheme of ['light', 'dark'] as const) {
     // Занятая копия в выбор не попадает
     await expect(dialog.locator('label').filter({ hasText: 'noble-keen-walrus' })).toBeHidden()
     await dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }).click()
-    await dialog.getByRole('button', { name: 'Взять в работу' }).click()
+
+    // Начальные слова — последним разделом, под копией; Enter в поле — новая строка, Ctrl+Enter — запуск
+    const words = dialog.getByRole('textbox', { name: 'Начальные слова' })
+    const wordsBox = await words.boundingBox()
+    expect(copyBox!.y + copyBox!.height).toBeLessThanOrEqual(wordsBox!.y)
+    await words.fill('Начни с API.')
+    await words.press('Enter')
+    await words.pressSequentially('Макет подтверждён.')
+    await expect(dialog).toBeVisible()
+    await words.press('Control+Enter')
 
     await expect(dialog).toBeHidden()
     await expect(page.getByRole('status')).toContainText('Задача запущена в rustic-silver-sparrow')
-    expect(posts).toEqual([{ base: freeRow.base, copy: freeRow.path, number: 'B-8', flow: 'мелкий' }])
+    expect(posts).toEqual([
+      { base: freeRow.base, copy: freeRow.path, number: 'B-8', flow: 'мелкий', words: 'Начни с API.\nМакет подтверждён.' },
+    ])
   })
 }
 
