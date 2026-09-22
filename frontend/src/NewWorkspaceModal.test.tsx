@@ -64,6 +64,14 @@ test('проект выбран, превью показывает папку и
   expect(preview).toHaveTextContent('Веткаquiet-cedar')
 })
 
+test('ветка основной копии неизвестна — в «От ветки» пусто, без тире', () => {
+  renderModal([{ ...row, branch: null }])
+
+  const preview = screen.getByLabelText('Что будет заведено')
+  expect(preview).toHaveTextContent('От ветки· основная копия D:\\Projects\\app')
+  expect(preview).not.toHaveTextContent('—')
+})
+
 test('копия заводится: имя уходит в API, окно сообщает имя от кита', async () => {
   const posts = stubPost(Response.json({ name: 'brave-sunny-otter' }))
   const props = renderModal()

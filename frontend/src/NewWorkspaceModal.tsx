@@ -192,7 +192,8 @@ export default function NewWorkspaceModal({ rows, onClose, onCreated, onSettings
                   <dd className="mono">{trimmed || <span className="text-ter">с тем же именем</span>}</dd>
                   <dt>От ветки</dt>
                   <dd className="mono">
-                    {project.source.branch ?? '—'}{' '}
+                    {project.source.branch}
+                    {project.source.branch && ' '}
                     <span className="text-ter">· основная копия {project.source.path}</span>
                   </dd>
                 </dl>
