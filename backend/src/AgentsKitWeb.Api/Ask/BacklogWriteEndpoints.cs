@@ -1,16 +1,23 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Threading.Channels;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Ask;
 
-public sealed record BacklogWriteRequest(string? Base, string? Text);
+/// <summary>Number — запись, от которой открыт разговор кнопкой «Изменить»; null — разговор из шапки раздела.</summary>
+public sealed record BacklogWriteRequest(string? Base, string? Text, string? Number = null);
+
+public sealed record BacklogProposalRequest(string? Id);
 
 /// <summary>
-/// Событие записи в бэклог, одной строкой NDJSON. Type: step — ход работы агента (Text); written — записи
-/// появились и закоммичены (Entries, Commit, DurationMs, Text — итог агента); error — записи нет или она не
-/// закоммичена (Text — почему, Output — что вывел агент, Entries — появившиеся записи, если они есть).
+/// Событие разговора о бэклоге, одной строкой NDJSON. Type: reply — реплика оператора (Number — запись, о которой
+/// она); step — ход агента; note — слово панели в переписке; answer — ответ агента (Text без блоков предложения,
+/// Entries — новые записи, уже закоммиченные, Commit, Proposal — что ждёт «Сохранить»); error — ход не удался
+/// (Text — почему, Output — что вывел агент, Entries — появившиеся записи, если они есть); stopped — ответ оборвал
+/// оператор; saved и refused — предложение ProposalId сохранено коммитом Commit или отклонено.
 /// </summary>
 public sealed record BacklogWriteEvent(
     string Type,
@@ -18,7 +25,392 @@ public sealed record BacklogWriteEvent(
     IReadOnlyList<BacklogEntry>? Entries = null,
     string? Commit = null,
     long? DurationMs = null,
-    string? Output = null) : IAgentEvent;
+    string? Output = null,
+    BacklogProposal? Proposal = null,
+    string? ProposalId = null,
+    string? Number = null) : IAgentEvent;
+
+/// <summary>Чем кончилось «Сохранить»: Error — почему не записано, Commit — чем записано.</summary>
+public sealed record BacklogSaved(string? Commit, string? Error, string? Output = null);
+
+/// <summary>
+/// Разговор оператора с агентом о бэклоге одной базы — решение оператора на B-72: оператор просит добавить,
+/// изменить, удалить или объединить записи и уточняет в том же окне. Новые записи агент пишет навыком кита и
+/// коммитит сам; изменение, удаление и объединение он только предлагает, а записывает их панель по «Сохранить».
+/// Память разговора — живой процесс агента, как у вопроса по базе (B-79).
+/// </summary>
+public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests)
+{
+    /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
+    private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
+
+    public const string SaveMessage = "Изменить бэклог из панели";
+
+    private readonly object _gate = new();
+    private Turn? _turn;
+    private Pending? _pending;
+
+    public async Task<AgentRequestSummary> StartAsync(string basePath, string text, string? number)
+    {
+        var replies = Channel.CreateUnbounded<string>();
+        var turn = new Turn(replies.Writer);
+        var request = requests.Start(
+            AgentRequests.Backlog,
+            basePath,
+            ProjectName.Of(basePath),
+            text,
+            (writing, cancellationToken) => RunAsync(basePath, replies.Reader, turn, writing, cancellationToken),
+            continues: true);
+
+        turn.Request = request;
+        lock (_gate)
+        {
+            _turn = turn;
+            _pending = null;
+        }
+        // Навык кита зовётся первой репликой: дальше разговор идёт в нём же.
+        var about = number is null ? "" : $"Про запись {number}: ";
+        await SayAsync(request, turn, text, $"/agents-kit:backlog {about}{text}", number);
+        return request.Summary;
+    }
+
+    public async Task<AskReplied> ReplyAsync(string text)
+    {
+        if (requests.Of(AgentRequests.Backlog) is not { Continues: true } request)
+            return AskReplied.NoConversation;
+        if (!request.Finished)
+            return AskReplied.Answering;
+
+        Turn? turn;
+        lock (_gate)
+        {
+            turn = _turn?.Request == request && request.Working ? _turn : null;
+            // Новая просьба заменяет несохранённое предложение: сохранять его больше нечего.
+            _pending = null;
+        }
+
+        turn ??= Restart(request);
+        await SayAsync(request, turn, text, text, null);
+        return AskReplied.Sent;
+    }
+
+    public bool Stop()
+    {
+        if (requests.Of(AgentRequests.Backlog) is not { Continues: true } request || request.Finished)
+            return false;
+
+        Turn? turn;
+        lock (_gate)
+            turn = _turn?.Request == request ? _turn : null;
+        if (turn is null)
+            return false;
+
+        turn.Stopped = true;
+        turn.Timeout.Cancel();
+        return true;
+    }
+
+    /// <summary>«Отказаться»: предложение уходит несохранённым, и в переписке это видно.</summary>
+    public bool Refuse(string id)
+    {
+        AgentRequest? request;
+        lock (_gate)
+        {
+            if (_pending?.Proposal.Id != id)
+                return false;
+            request = _pending.Request;
+            _pending = null;
+        }
+        request.Write(new BacklogWriteEvent("refused", "", ProposalId: id));
+        return true;
+    }
+
+    /// <summary>
+    /// «Сохранить»: панель сама меняет и вырезает ровно записи предложения и коммитит только backlog.md. Запись
+    /// успели поменять после ответа агента или в файле чужая незакоммиченная правка — ничего не пишется.
+    /// null — такого предложения нет: заменено, уже сохранено или отклонено.
+    /// </summary>
+    public async Task<BacklogSaved?> SaveAsync(string id)
+    {
+        Pending pending;
+        lock (_gate)
+        {
+            if (_pending?.Proposal.Id != id || _pending.Saving)
+                return null;
+            pending = _pending;
+            pending.Saving = true;
+        }
+
+        var saved = await WriteAsync(pending.Request.Base, pending.Proposal);
+        lock (_gate)
+        {
+            pending.Saving = false;
+            if (saved.Error is null && _pending == pending)
+                _pending = null;
+        }
+        if (saved.Error is null)
+            pending.Request.Write(new BacklogWriteEvent("saved", "", Commit: saved.Commit, ProposalId: id));
+        return saved;
+    }
+
+    private static async Task<BacklogSaved> WriteAsync(string basePath, BacklogProposal proposal)
+    {
+        var file = Path.Combine(basePath, BacklogWriteEndpoints.BacklogFile);
+        switch (await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None))
+        {
+            case null:
+                return new BacklogSaved(null, "git не прочитал базу — ничего не записано");
+            case true:
+                return new BacklogSaved(null, "В backlog.md базы есть незакоммиченная правка — ничего не записано");
+        }
+
+        byte[] before;
+        try
+        {
+            before = await File.ReadAllBytesAsync(file);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new BacklogSaved(null, $"backlog.md не прочитан: {e.Message}");
+        }
+
+        var (decoded, hasBom) = FlowFile.Decode(before);
+        var (text, diverged) = proposal.Apply(decoded);
+        if (text is null)
+            return new BacklogSaved(null, $"Запись {diverged} изменилась после ответа {AgentRequests.AgentName} — ничего не записано");
+
+        try
+        {
+            await File.WriteAllBytesAsync(file, FlowFile.Encode(text, hasBom));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new BacklogSaved(null, $"backlog.md не записан: {e.Message}");
+        }
+
+        var commit = await BaseGit.CommitFileAsync(basePath, BacklogWriteEndpoints.BacklogFile, SaveMessage, CancellationToken.None);
+        if (commit.Error is { } refused)
+        {
+            // Незакоммиченная правка прихватилась бы чужим коммитом соседней сессии: файл возвращается как был.
+            try
+            {
+                await File.WriteAllBytesAsync(file, before);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return new BacklogSaved(null, "Коммит не прошёл, и backlog.md не вернулся как был", $"{refused}\n{e.Message}");
+            }
+            return new BacklogSaved(null, "Коммит не прошёл — backlog.md оставлен как был", refused);
+        }
+
+        return new BacklogSaved(await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None), null);
+    }
+
+    private Turn Restart(AgentRequest request)
+    {
+        var replies = Channel.CreateUnbounded<string>();
+        var turn = new Turn(replies.Writer) { Request = request };
+        lock (_gate)
+            _turn = turn;
+
+        request.Write(new BacklogWriteEvent(
+            "note", $"{AgentRequests.AgentName} отвечает заново: сказанного раньше он уже не помнит"));
+        requests.Run(
+            request,
+            (writing, cancellationToken) => RunAsync(request.Base, replies.Reader, turn, writing, cancellationToken));
+        // Навык прежнего процесса новый агент не знает: реплика зовёт его снова.
+        turn.Restarted = true;
+        return turn;
+    }
+
+    /// <summary>
+    /// Реплика встаёт в переписку и уходит агенту строкой stdin, если бэклог можно трогать: незакоммиченную
+    /// чужую правку агент унёс бы в свой коммит.
+    /// </summary>
+    private static async Task SayAsync(AgentRequest request, Turn turn, string text, string message, string? number)
+    {
+        request.Reply(new BacklogWriteEvent("reply", text, Number: number));
+        if (await RefusalAsync(request.Base) is { } refusal)
+        {
+            request.Write(refusal);
+            return;
+        }
+
+        turn.Before = Backlog.Blocks(ReadText(request.Base)!);
+        if (turn.Restarted)
+        {
+            message = $"/agents-kit:backlog {message}";
+            turn.Restarted = false;
+        }
+        turn.Timeout.CancelAfter(Answer);
+        turn.Replies.TryWrite(Message(message));
+    }
+
+    private static async Task<BacklogWriteEvent?> RefusalAsync(string basePath)
+    {
+        if (WorkspaceCollector.ReadCopies(basePath) is not { } copies || WorkspaceCollector.NewCopySource(copies) is null)
+            return new BacklogWriteEvent("error", "Нет основной копии проекта на диске: агенту негде запустить навык записи");
+        if (ReadText(basePath) is null)
+            return new BacklogWriteEvent("error", "В базе нет backlog.md или он не прочитан");
+        return await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None) switch
+        {
+            null => new BacklogWriteEvent("error", "git не прочитал базу — просьба не отправлена"),
+            true => new BacklogWriteEvent("error", "В backlog.md базы есть незакоммиченная правка — просьба не отправлена"),
+            _ => null,
+        };
+    }
+
+    private async Task RunAsync(
+        string basePath,
+        ChannelReader<string> replies,
+        Turn turn,
+        AgentRequest writing,
+        CancellationToken cancellationToken)
+    {
+        // Навык кита работает только там, где кит подаёт базу, — в копии проекта, а не в каталоге базы.
+        var copy = WorkspaceCollector.ReadCopies(basePath) is { } copies ? WorkspaceCollector.NewCopySource(copies) : null;
+        if (copy is null)
+            return;
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, turn.Timeout.Token);
+        var stream = new ClaudeStream(basePath, copy);
+        try
+        {
+            var exit = await agent.RunAsync(
+                BacklogWriteEndpoints.StartInfo(basePath, copy),
+                replies,
+                async line =>
+                {
+                    foreach (var e in stream.Read(line))
+                    {
+                        if (e.Type == "step")
+                            writing.Write(new BacklogWriteEvent("step", e.Text));
+                        else
+                            writing.Write(await OutcomeAsync(basePath, turn, writing, e));
+                    }
+                    if (stream.Finished)
+                    {
+                        turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                        stream = new ClaudeStream(basePath, copy);
+                    }
+                },
+                linked.Token);
+            if (!writing.Finished)
+                writing.Write(await OutcomeAsync(basePath, turn, writing, null, Failure(exit, stream)));
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            writing.Write(await OutcomeAsync(basePath, turn, writing, null, turn.Stopped
+                ? new BacklogWriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
+                : new BacklogWriteEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен")));
+        }
+    }
+
+    /// <summary>
+    /// Итог реплики по файлу, а не по словам агента: новые записи — номера, которых не было до реплики, и они
+    /// должны быть закоммичены. Прежние записи агент трогать не должен — их правку он только предлагает.
+    /// </summary>
+    private async Task<BacklogWriteEvent> OutcomeAsync(
+        string basePath, Turn turn, AgentRequest writing, AskEvent? answer, BacklogWriteEvent? failure = null)
+    {
+        var before = turn.Before;
+        var text = ReadText(basePath);
+        var after = text is null ? [] : Backlog.Blocks(text);
+        var known = before.Select(b => b.Number).OfType<string>().ToHashSet();
+        var added = text is null
+            ? []
+            : Backlog.Parse(text).Where(e => e.Number is { } n && !known.Contains(n)).ToList();
+        var touched = before
+            .Where(b => b.Number is not null && after.FirstOrDefault(a => a.Number == b.Number)?.Text != b.Text)
+            .Select(b => b.Number!)
+            .ToList();
+        var entries = added.Count > 0 ? added : null;
+
+        if (failure is not null)
+            return failure with { Entries = entries };
+        if (answer is not { Type: "answer" })
+            return new BacklogWriteEvent("error", answer?.Text ?? "", entries, Output: answer?.Output);
+
+        var (said, blocks) = BacklogProposal.Split(answer.Text);
+        var output = said.Length > 0 ? said : null;
+        if (touched.Count > 0)
+            return new BacklogWriteEvent(
+                "error", $"{AgentRequests.AgentName} сам изменил записи {string.Join(", ", touched)} вместо предложения", entries, Output: output);
+
+        var dirty = await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
+        if (dirty != false)
+            return new BacklogWriteEvent("error", "Бэклог изменён, но backlog.md не закоммичен", entries, Output: output);
+
+        var (proposal, wrong) = text is null ? (null, null) : BacklogProposal.Build(blocks, text);
+        if (wrong is not null)
+            return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} предложил правку, которую панель не поняла: {wrong}", entries, Output: output);
+
+        var commit = entries is null ? null : await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
+        if (proposal is not null)
+            lock (_gate)
+                _pending = new Pending(writing, proposal);
+        return new BacklogWriteEvent("answer", said, entries, commit, answer.DurationMs, Proposal: proposal);
+    }
+
+    private static string? ReadText(string basePath)
+    {
+        try
+        {
+            return File.ReadAllText(Path.Combine(basePath, BacklogWriteEndpoints.BacklogFile));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static string Message(string text) => JsonSerializer.Serialize(
+        new
+        {
+            type = "user",
+            message = new { role = "user", content = new[] { new { type = "text", text } } },
+        },
+        AgentRequest.JsonOptions);
+
+    private static BacklogWriteEvent Failure(AgentExit exit, ClaudeStream stream)
+    {
+        if (exit.ExitCode is null)
+            return new BacklogWriteEvent("error", "Claude Code не запустился", Output: exit.Error);
+
+        var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
+        return new BacklogWriteEvent(
+            "error",
+            $"{AgentRequests.AgentName} завершился без ответа",
+            Output: output.Length > 0 ? output : $"код выхода {exit.ExitCode}");
+    }
+
+    private sealed class Turn(ChannelWriter<string> replies)
+    {
+        public ChannelWriter<string> Replies { get; } = replies;
+
+        public CancellationTokenSource Timeout { get; } = new();
+
+        public AgentRequest? Request { get; set; }
+
+        public bool Stopped { get; set; }
+
+        /// <summary>Процесс поднят заново: навык кита новый агент знает, только если реплика его назовёт.</summary>
+        public bool Restarted { get; set; }
+
+        /// <summary>Записи бэклога до нынешней реплики: по ним видно, что агент добавил и что тронул.</summary>
+        public IReadOnlyList<BacklogBlock> Before { get; set; } = [];
+    }
+
+    /// <summary>Предложение, которое ждёт «Сохранить» или «Отказаться».</summary>
+    private sealed class Pending(AgentRequest request, BacklogProposal proposal)
+    {
+        public AgentRequest Request { get; } = request;
+
+        public BacklogProposal Proposal { get; } = proposal;
+
+        public bool Saving { get; set; }
+    }
+}
 
 public static class BacklogWriteEndpoints
 {
@@ -27,13 +419,10 @@ public static class BacklogWriteEndpoints
     /// <summary>Сообщение коммита у всех записей из панели одно: оно стоит в правиле разрешения.</summary>
     public const string CommitMessage = "Записать в бэклог из панели";
 
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(5);
-
     public static void MapBacklogWriteEndpoints(this IEndpointRouteBuilder app)
     {
-        // Просьбу держит панель: POST её заводит и отдаёт сводку, а ход окно читает потоком просьбы.
-        app.MapPost("/api/backlog/write", (
-            BacklogWriteRequest request, BasesStore bases, IAgentProcess agent, AgentRequests requests) =>
+        // Разговор держит панель: POST его заводит и отдаёт сводку, а переписку окно читает потоком просьбы.
+        app.MapPost("/api/backlog/write", async (BacklogWriteRequest request, BasesStore bases, BacklogConversations conversations) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
             if (basePath is null || !Directory.Exists(basePath))
@@ -41,95 +430,41 @@ public static class BacklogWriteEndpoints
             if (string.IsNullOrWhiteSpace(request.Text))
                 return Results.BadRequest();
 
-            var text = request.Text.Trim();
-            var started = requests.Start(
-                AgentRequests.Backlog, basePath, ProjectName.Of(basePath), text,
-                async (writing, cancellationToken) =>
-                    writing.Write(await RunAsync(basePath, text, agent, writing, cancellationToken)));
-            return Results.Ok(started.Summary);
+            var number = string.IsNullOrWhiteSpace(request.Number) ? null : BacklogNumber.Normalize(request.Number);
+            if (!string.IsNullOrWhiteSpace(request.Number) && number is null)
+                return Results.BadRequest();
+            return Results.Ok(await conversations.StartAsync(basePath, request.Text.Trim(), number));
         });
-    }
 
-    private static async Task<BacklogWriteEvent> RunAsync(
-        string basePath, string text, IAgentProcess agent, AgentRequest writing, CancellationToken aborted)
-    {
-        // Навык кита работает только там, где кит подаёт базу, — в копии проекта, а не в каталоге базы.
-        var copy = WorkspaceCollector.ReadCopies(basePath) is { } copies ? WorkspaceCollector.NewCopySource(copies) : null;
-        if (copy is null)
-            return new BacklogWriteEvent("error", "Нет основной копии проекта на диске: агенту негде запустить навык записи");
-
-        var before = ReadNumbers(basePath);
-        if (before is null)
-            return new BacklogWriteEvent("error", "В базе нет backlog.md или он не прочитан");
-        // Агент коммитит backlog.md целиком: чужая незакоммиченная правка ушла бы в его коммит.
-        switch (await BaseGit.IsDirtyAsync(basePath, BacklogFile, aborted))
+        app.MapPost("/api/backlog/write/reply", async (AskReply reply, BacklogConversations conversations) =>
         {
-            case null:
-                return new BacklogWriteEvent("error", "git не прочитал базу — запись не начата");
-            case true:
-                return new BacklogWriteEvent("error", "В backlog.md базы есть незакоммиченная правка — запись не начата");
-        }
+            if (string.IsNullOrWhiteSpace(reply.Text))
+                return Results.BadRequest();
 
-        var stream = new ClaudeStream(basePath, copy);
-        AskEvent? result = null;
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(aborted);
-        timeout.CancelAfter(Timeout);
-        AgentExit exit;
-        try
-        {
-            exit = await agent.RunAsync(
-                StartInfo(basePath, copy),
-                $"/agents-kit:backlog {text}",
-                line =>
-                {
-                    foreach (var e in stream.Read(line))
-                    {
-                        if (e.Type == "step")
-                            writing.Write(new BacklogWriteEvent("step", e.Text));
-                        else
-                            result = e;
-                    }
-                    return Task.CompletedTask;
-                },
-                timeout.Token);
-        }
-        catch (OperationCanceledException) when (!aborted.IsCancellationRequested)
-        {
-            return await Outcome(basePath, before, new BacklogWriteEvent("error", $"{AgentRequests.AgentName} не закончил за пять минут и остановлен"));
-        }
+            return await conversations.ReplyAsync(reply.Text.Trim()) switch
+            {
+                AskReplied.Sent => Results.NoContent(),
+                AskReplied.Answering => Results.Conflict(),
+                _ => Results.NotFound(),
+            };
+        });
 
-        if (result is null)
-            return await Outcome(basePath, before, Failure(exit, stream));
-        if (result.Type == "error")
-            return await Outcome(basePath, before, new BacklogWriteEvent("error", result.Text, Output: result.Output));
-        return await Outcome(basePath, before, null, result);
-    }
+        app.MapPost("/api/backlog/write/stop", (BacklogConversations conversations) =>
+            conversations.Stop() ? Results.NoContent() : Results.NotFound());
 
-    /// <summary>
-    /// Итог по файлу, а не по словам агента: новые записи — номера, которых не было до запуска. Сбой агента
-    /// после правки файла всё равно показывает, что появилось в бэклоге.
-    /// </summary>
-    private static async Task<BacklogWriteEvent> Outcome(
-        string basePath, HashSet<string> before, BacklogWriteEvent? failure, AskEvent? answer = null)
-    {
-        var added = ReadEntries(basePath)?.Where(e => e.Number is { } n && !before.Contains(n)).ToList() ?? [];
-        var output = answer?.Text is { Length: > 0 } said ? said : null;
+        app.MapPost("/api/backlog/write/save", async (BacklogProposalRequest request, BacklogConversations conversations) =>
+            request.Id is null || await conversations.SaveAsync(request.Id) is not { } saved
+                ? Results.NotFound()
+                : Results.Ok(saved));
 
-        if (failure is not null)
-            return added.Count == 0 ? failure : failure with { Entries = added };
-        if (added.Count == 0)
-            return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} закончил, но новых записей в бэклоге нет", Output: output);
-        if (await BaseGit.IsDirtyAsync(basePath, BacklogFile, CancellationToken.None) != false)
-            return new BacklogWriteEvent("error", "Записи появились, но backlog.md не закоммичен", added, Output: output);
-
-        var commit = await BaseGit.LastCommitAsync(basePath, BacklogFile, CancellationToken.None);
-        return new BacklogWriteEvent("written", answer?.Text ?? "", added, commit, answer?.DurationMs);
+        app.MapPost("/api/backlog/write/refuse", (BacklogProposalRequest request, BacklogConversations conversations) =>
+            request.Id is not null && conversations.Refuse(request.Id) ? Results.NoContent() : Results.NotFound());
     }
 
     /// <summary>
     /// Агент видит код копии и базу, но меняет только backlog.md базы и коммитит только его: остальные
-    /// инструменты отключены, а режим dontAsk отказывает всему, что не разрешено правилом. Текст оператора
-    /// уходит в stdin после имени навыка — не в аргументы.
+    /// инструменты отключены, а режим dontAsk отказывает всему, что не разрешено правилом. Реплики оператора
+    /// уходят в stdin — не в аргументы.
     /// </summary>
     public static ProcessStartInfo StartInfo(string basePath, string copyPath)
     {
@@ -139,15 +474,31 @@ public static class BacklogWriteEndpoints
         // сообщение коммита пишет панель, а не агент: его текст — часть разрешённой команды.
         var commit = $"git -C \"{basePath}\" commit -m \"{CommitMessage}\" -- {BacklogFile}";
         var systemPrompt = $"""
-            Ты записываешь в бэклог базы знаний то, что оператор сказал в веб-панели; спросить оператора нельзя.
+            Ты ведёшь с оператором разговор о бэклоге базы знаний в веб-панели: он просит и уточняет в том же разговоре.
             Менять можно только файл {backlog}. Коммит — ровно одной командой PowerShell, слово в слово: {commit}
             Сообщение коммита не менять: разрешена ровно эта команда. Другие команды запрещены и не нужны.
+            Новые записи дописывай в файл и коммить сразу, по навыку.
+            Записи, которые уже есть в файле, не меняй и не удаляй — ни переписыванием, ни удалением, ни объединением.
+            Их правку верни предложением в конце ответа, по блоку на запись; панель покажет его оператору и запишет сама:
+            ~~~backlog
+            изменить B-12
+            ## B-12 <заголовок>
+            <запись целиком, какой она станет: поля, текст оператору, раздел «### Агенту»>
+            ~~~
+            ~~~backlog
+            удалить B-13
+            ~~~
+            При объединении запись, которая остаётся, идёт блоком «изменить», а уходящая — «удалить B-13 в B-12».
+            Номер записи не меняй, счётчик «следующий номер:» не трогай.
+            Запись названа не номером, а описанием — назови найденную запись номером и заголовком и спроси, та ли это;
+            предложения до ответа оператора не давай.
             """;
 
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, copyPath);
         foreach (var arg in new[]
                  {
                      "-p",
+                     "--input-format", "stream-json",
                      "--output-format", "stream-json",
                      "--verbose",
                      "--tools", "Read,Grep,Glob,Edit,PowerShell,Skill",
@@ -162,33 +513,5 @@ public static class BacklogWriteEndpoints
                  })
             startInfo.ArgumentList.Add(arg);
         return startInfo;
-    }
-
-    private static BacklogWriteEvent Failure(AgentExit exit, ClaudeStream stream)
-    {
-        if (exit.ExitCode is null)
-            return new BacklogWriteEvent("error", "Claude Code не запустился", Output: exit.Error);
-
-        var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
-        return new BacklogWriteEvent(
-            "error",
-            $"{AgentRequests.AgentName} завершился без итога",
-            Output: output.Length > 0 ? output : $"код выхода {exit.ExitCode}");
-    }
-
-    // Номера разбор бэклога отдаёт в виде кита: «В-7», набранный руками, — тот же «B-7» (Workspaces/BacklogNumber).
-    private static HashSet<string>? ReadNumbers(string basePath) =>
-        ReadEntries(basePath)?.Select(e => e.Number).OfType<string>().ToHashSet();
-
-    private static IReadOnlyList<BacklogEntry>? ReadEntries(string basePath)
-    {
-        try
-        {
-            return Backlog.Parse(File.ReadAllText(Path.Combine(basePath, BacklogFile)));
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
     }
 }
