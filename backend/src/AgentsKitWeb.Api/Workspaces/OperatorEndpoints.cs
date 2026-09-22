@@ -138,11 +138,15 @@ public static class OperatorEndpoints
             // хвост имени командой. Путь из памяти такой запрос не передаёт.
             if (address.IndexOfAny(CmdSpecial) >= 0)
                 return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
-            var file = Path.GetFullPath(Path.Combine(memory.Copy!, address));
-            if (!File.Exists(file))
+            var path = Path.GetFullPath(Path.Combine(memory.Copy!, address));
+            // Артефактом бывает и папка: она открывается своим окном VS Code, как копия.
+            var opened = File.Exists(path) ? windows.OpenFileAsync(memory.Copy!, path, cancellationToken)
+                : Directory.Exists(path) ? windows.OpenAsync(path, cancellationToken)
+                : null;
+            if (opened is null)
                 return Results.NotFound(new OpenArtifactFailedResponse("missing"));
 
-            return await windows.OpenFileAsync(memory.Copy!, file, cancellationToken)
+            return await opened
                 ? Results.NoContent()
                 : Results.Json(new OpenArtifactFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
         });

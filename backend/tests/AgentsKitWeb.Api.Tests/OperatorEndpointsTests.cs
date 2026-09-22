@@ -36,6 +36,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         - спецификация: docs/spec.md
         - черновик: docs/gone.md
         - отчёт: docs/R&D.md
+        - макеты: design
 
         ## Оператору
 
@@ -113,6 +114,7 @@ public sealed class OperatorEndpointsTests : IDisposable
                 new TaskArtifact("спецификация", "docs/spec.md"),
                 new TaskArtifact("черновик", "docs/gone.md"),
                 new TaskArtifact("отчёт", "docs/R&D.md"),
+                new TaskArtifact("макеты", "design"),
             ],
             response.Artifacts);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
@@ -511,7 +513,7 @@ public sealed class OperatorEndpointsTests : IDisposable
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(4)]
+    [InlineData(5)]
     public async Task OpenArtifact_UnknownIndex_IsNotFound(int index)
     {
         var response = await PostOpenArtifact(_base, _copy, index);
@@ -531,6 +533,19 @@ public sealed class OperatorEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("unsafe-path", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_Folder_OpensItsOwnWindow()
+    {
+        var design = Path.Combine(_copy, "design");
+        Directory.CreateDirectory(design);
+
+        var response = await PostOpenArtifact(_base, _copy, 4);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([design], _windows.Opened);
         Assert.Empty(_windows.OpenedFiles);
     }
 
@@ -579,7 +594,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     private Task<HttpResponseMessage> PostOpenWorkspace(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/workspace/open", new OpenWorkspaceRequest(basePath, copy));
 
-    private static readonly string[] ArtifactAddresses = ["https://claude.ai/artifact/AbC123", "docs/spec.md", "docs/gone.md", "docs/R&D.md"];
+    private static readonly string[] ArtifactAddresses = ["https://claude.ai/artifact/AbC123", "docs/spec.md", "docs/gone.md", "docs/R&D.md", "design"];
 
     private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string copy, int index, string? address = null) =>
         _factory.CreateClient().PostAsJsonAsync("/api/artifact/open", new OpenArtifactRequest(
