@@ -26,7 +26,14 @@ public class WorkMemoryTests
         Health баз.
 
         ### Дизайн
-        Макет таблицы: https://claude.ai/artifact/AbC123
+        Макет таблицы: https://claude.ai/artifact/Old456
+
+        ## Артефакты
+        - макет таблицы: https://claude.ai/artifact/AbC123
+        просто строка, не артефакт
+        - спецификация: D:\Projects\app\spec.md
+        - без адреса
+        - макет: окно ответа: https://claude.ai/artifact/XyZ789
 
         ## Оператору
 
@@ -84,20 +91,46 @@ public class WorkMemoryTests
     }
 
     [Fact]
-    public void Parse_Design_ReadsDesignSubsectionApartFromCriteria()
+    public void Parse_Artifacts_ReadsLabelAndAddressOfEachLineInFileOrder()
     {
         var memory = WorkMemory.Parse(Memory);
 
-        Assert.Equal("Макет таблицы: https://claude.ai/artifact/AbC123", memory.Design);
-        Assert.DoesNotContain(memory.Criteria, c => c.Title == "Дизайн");
+        Assert.Equal(
+            [
+                new TaskArtifact("макет таблицы", "https://claude.ai/artifact/AbC123"),
+                new TaskArtifact("спецификация", @"D:\Projects\app\spec.md"),
+                // двоеточие в подписи адрес не рвёт
+                new TaskArtifact("макет: окно ответа", "https://claude.ai/artifact/XyZ789"),
+            ],
+            memory.Artifacts);
     }
 
     [Fact]
-    public void Parse_WithoutDesignSubsection_HasNullDesign()
+    public void Parse_ArtifactWithBlankAddress_IsSkipped()
     {
-        var memory = WorkMemory.Parse(Memory.Replace("### Дизайн\nМакет таблицы: https://claude.ai/artifact/AbC123\n\n", ""));
+        // пробелы после двоеточия — адреса нет, и пустой строки под подписью окно не покажет
+        var memory = WorkMemory.Parse(Memory.Replace("- без адреса\n", "- без адреса\n- пустой адрес:  \n"));
 
-        Assert.Null(memory.Design);
+        Assert.DoesNotContain(memory.Artifacts, a => a.Label.Contains("пустой адрес"));
+        Assert.All(memory.Artifacts, a => Assert.NotEqual("", a.Address));
+    }
+
+    [Fact]
+    public void Parse_OldDesignSubsection_IsNeitherCriterionNorArtifact()
+    {
+        var memory = WorkMemory.Parse(Memory);
+
+        Assert.DoesNotContain(memory.Criteria, c => c.Title == "Дизайн");
+        Assert.DoesNotContain(memory.Artifacts, a => a.Address.Contains("Old456"));
+    }
+
+    [Fact]
+    public void Parse_WithoutArtifactsSection_HasNoArtifacts()
+    {
+        var start = Memory.IndexOf("## Артефакты", StringComparison.Ordinal);
+        var memory = WorkMemory.Parse(Memory.Remove(start, Memory.IndexOf("## Оператору", StringComparison.Ordinal) - start));
+
+        Assert.Empty(memory.Artifacts);
     }
 
     [Fact]

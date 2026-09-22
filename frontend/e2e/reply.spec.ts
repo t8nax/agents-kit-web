@@ -26,7 +26,10 @@ test('оператор отвечает на вопросы копии, и ст�
         task: 'Окно ответа',
         criteria: [{ title: '1. Окно есть', text: 'Оператор отвечает из панели.' }],
         outOfScope: 'Health баз.',
-        design: 'Макет окна ответа: https://claude.ai/artifact/AbC123',
+        artifacts: [
+          { label: 'макет окна ответа', address: 'https://claude.ai/artifact/AbC123' },
+          { label: 'спецификация', address: 'D:\\Projects\\app\\spec.md' },
+        ],
         questions: [
           { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
           {
@@ -56,11 +59,38 @@ test('оператор отвечает на вопросы копии, и ст�
   const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
 
-  // макет задачи — свой блок в «Контексте задачи», ссылкой в новую вкладку
+  // артефакты задачи — свой блок в «Контексте задачи»: ссылка в новую вкладку, путь к файлу — кнопкой в VS Code
   await dialog.getByText('Контекст задачи').click()
-  await expect(dialog.getByText('Дизайн')).toBeVisible()
-  const design = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
-  await expect(design).toHaveAttribute('target', '_blank')
+  await expect(dialog.getByText('Артефакты')).toBeVisible()
+  const artifact = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
+  await expect(artifact).toHaveAttribute('target', '_blank')
+  await expect(dialog.getByText('D:\\Projects\\app\\spec.md')).toBeVisible()
+  await expect(dialog.getByRole('link', { name: 'D:\\Projects\\app\\spec.md' })).toHaveCount(0)
+  // ссылка янтарная, как остальные ссылки панели, а путь — серый, как текст критериев
+  const tokenColor = (token: string) =>
+    page.evaluate((name) => {
+      const probe = document.createElement('span')
+      probe.style.color = `var(${name})`
+      document.body.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    }, token)
+  await expect(artifact).toHaveCSS('color', await tokenColor('--accent-waiting-text'))
+  await expect(dialog.getByText('D:\\Projects\\app\\spec.md')).toHaveCSS('color', await tokenColor('--text-secondary'))
+  // путь к файлу нажимается: панель открывает артефакт в VS Code, называя его номером в памяти
+  let openedArtifact: unknown = null
+  await page.route('**/api/artifact/open', async (route) => {
+    openedArtifact = route.request().postDataJSON()
+    await route.fulfill({ status: 204 })
+  })
+  await dialog.getByRole('button', { name: 'D:\\Projects\\app\\spec.md' }).click()
+  await expect.poll(() => openedArtifact).toEqual({
+    base: 'D:\\Projects\\app-knowledge',
+    copy: 'D:\\Projects\\app',
+    index: 1,
+    address: 'D:\\Projects\\app\\spec.md',
+  })
   await dialog.getByText('Контекст задачи').click()
 
   await dialog.getByLabel('Ответ').fill('принимаю')
@@ -109,7 +139,7 @@ test('набранный ответ возвращается после закр
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
-        design: null,
+        artifacts: [],
         vsCodeSession: false,
         questions: [{ title: 'Подтвердить критерий?', context: null, variants: [], answer: null }],
       },
@@ -168,7 +198,7 @@ test('ссылка из вопроса открывается в новой вк
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
-        design: null,
+        artifacts: [],
         vsCodeSession: false,
         questions: [
           {
@@ -236,6 +266,7 @@ test('Enter в поле ответа ведёт по вопросам и на п
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
+        artifacts: [],
         vsCodeSession: false,
         questions: [
           { title: 'Подтвердить критерий?', context: null, variants: [], answer: null },

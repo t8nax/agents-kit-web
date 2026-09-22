@@ -23,13 +23,18 @@ export type ClosingCriterion = {
   text: string | null
 }
 
+export type TaskArtifact = {
+  label: string
+  address: string
+}
+
 export type QuestionsResponse = {
   project: string
   copy: string
   task: string | null
   criteria: ClosingCriterion[]
   outOfScope: string | null
-  design: string | null
+  artifacts: TaskArtifact[]
   questions: OperatorQuestion[]
   vsCodeSession: boolean
   backgroundSession: boolean
@@ -120,6 +125,38 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       )
     } catch {
       setOpenError('Не удалось открыть VS Code: нет связи с API')
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  // Файл-артефакт открывает панель: в окне VS Code копии задачи, а без него — в новом окне.
+  async function openArtifact(index: number, address: string) {
+    setOpening(true)
+    setOpenError(null)
+    try {
+      const response = await fetch('/api/artifact/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base, copy, index, address }),
+      })
+      if (response.ok) return
+      const problem =
+        response.status === 404
+          ? await response
+              .json()
+              .then((body: { problem?: string }) => body.problem ?? null)
+              .catch(() => null)
+          : null
+      setOpenError(
+        problem === 'missing'
+          ? `Файла нет на диске: ${address}`
+          : response.status === 404
+            ? 'Файл не открыт: артефакта нет в памяти копии'
+            : 'Не удалось открыть файл в VS Code',
+      )
+    } catch {
+      setOpenError('Не удалось открыть файл в VS Code: нет связи с API')
     } finally {
       setOpening(false)
     }
@@ -322,10 +359,34 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                         <Markdown className="criterion-text" text={load.data.outOfScope} />
                       </>
                     )}
-                    {load.data.design && (
+                    {load.data.artifacts.length > 0 && (
                       <>
-                        <p className="acc-label design-label">Дизайн</p>
-                        <Markdown className="criterion-text" text={load.data.design} />
+                        <p className="acc-label artifacts-label">Артефакты</p>
+                        <ul className="artifacts">
+                          {load.data.artifacts.map((artifact, i) => (
+                            <li key={i}>
+                              <div className="artifact-label">
+                                <InlineMarkdown text={artifact.label} />
+                              </div>
+                              {/* ссылку на сайт открывает браузер, а файл — панель, в VS Code */}
+                              {/^https?:\/\//i.test(artifact.address) ? (
+                                <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
+                                  {artifact.address}
+                                </a>
+                              ) : (
+                                <button
+                                  type="button"
+                                  className="artifact-address artifact-file"
+                                  title="Открыть в VS Code"
+                                  disabled={opening}
+                                  onClick={() => void openArtifact(i, artifact.address)}
+                                >
+                                  {artifact.address}
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       </>
                     )}
                   </div>

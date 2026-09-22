@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, waitForElementToBeRemoved, within } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitFor, waitForElementToBeRemoved, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import type { QuestionsResponse } from './ReplyModal'
@@ -29,7 +29,7 @@ const questions: QuestionsResponse = {
     { title: '2. Строка перестаёт ждать', text: null },
   ],
   outOfScope: 'Health баз.',
-  design: null,
+  artifacts: [],
   vsCodeSession: true,
   backgroundSession: true,
   questions: [
@@ -53,6 +53,7 @@ function stubApi(
   data: QuestionsResponse = questions,
   openSession: Route = () => new Response(null, { status: 204 }),
   openTerminal: Route = () => new Response(null, { status: 204 }),
+  openArtifact: Route = () => new Response(null, { status: 204 }),
 ) {
   const calls: { url: string; init?: RequestInit }[] = []
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -62,6 +63,7 @@ function stubApi(
     if (url === '/api/answers') return answers(init)
     if (url === '/api/session/open') return openSession(init)
     if (url === '/api/session/terminal') return openTerminal(init)
+    if (url === '/api/artifact/open') return openArtifact(init)
     return new Response(null, { status: 404 })
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -95,29 +97,105 @@ test('окно показывает заголовок и текст каждо�
   expect(dialog.queryByText('Критерии не записаны')).not.toBeInTheDocument()
 })
 
-test('макет задачи показывается блоком «Дизайн» со ссылкой', async () => {
+test('артефакты задачи показываются блоком «Артефакты»: подпись, под ней адрес — ссылкой или текстом', async () => {
   stubApi(() => new Response(null, { status: 204 }), {
     ...questions,
-    design: 'Макет окна ответа: https://claude.ai/artifact/AbC123',
+    artifacts: [
+      { label: 'макет **окна** ответа', address: 'https://claude.ai/artifact/AbC123' },
+      { label: 'спецификация', address: 'D:\\Projects\\app\\spec.md' },
+    ],
   })
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  expect(dialog.getByText('Дизайн')).toBeInTheDocument()
-  const link = document.querySelector('.design-label + .criterion-text a')!
+  expect(dialog.getByText('Артефакты')).toBeInTheDocument()
+  const items = [...document.querySelectorAll('.artifacts li')]
+  expect(items.map((li) => li.querySelector('.artifact-label')!.textContent)).toEqual([
+    'макет окна ответа',
+    'спецификация',
+  ])
+  // подпись размечена, как заголовки критериев: значков разметки в окне нет
+  expect(items[0].querySelector('.artifact-label strong')).toHaveTextContent('окна')
+  // блок стоит после «Не входит»
+  const outOfScope = dialog.getByText('Не входит')
+  expect(outOfScope.compareDocumentPosition(dialog.getByText('Артефакты')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  const link = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
   expect(link).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123')
   expect(link).toHaveAttribute('target', '_blank')
+  // путь к файлу — не ссылка браузера, а кнопка открытия в VS Code
+  expect(items[1].querySelector('a')).toBeNull()
+  expect(items[1].querySelector('button')).toHaveTextContent('D:\\Projects\\app\\spec.md')
 })
 
-test('у задачи без макета блока «Дизайн» в окне нет', async () => {
+const withFileArtifact: QuestionsResponse = {
+  ...questions,
+  artifacts: [
+    { label: 'макет', address: 'https://claude.ai/artifact/AbC123' },
+    { label: 'спецификация', address: 'docs/spec.md' },
+  ],
+}
+
+test('щелчок по пути к файлу просит панель открыть этот артефакт в VS Code', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }), withFileArtifact)
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
+
+  await waitFor(() => expect(calls.some((c) => c.url === '/api/artifact/open')).toBe(true))
+  const call = calls.find((c) => c.url === '/api/artifact/open')!
+  expect(call.init?.method).toBe('POST')
+  // артефакт называется номером в памяти; адрес — чтобы панель не открыла другой, если память переписали
+  expect(JSON.parse(call.init!.body as string)).toEqual({
+    base: row.base,
+    copy: row.path,
+    index: 1,
+    address: 'docs/spec.md',
+  })
+  expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('файла артефакта нет на диске — окно говорит об этом строкой', async () => {
+  stubApi(
+    () => new Response(null, { status: 204 }),
+    withFileArtifact,
+    undefined,
+    undefined,
+    () => new Response(JSON.stringify({ problem: 'missing' }), { status: 404 }),
+  )
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
+
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Файла нет на диске: docs/spec.md')
+})
+
+test('VS Code не открылся — окно говорит об этом строкой', async () => {
+  stubApi(
+    () => new Response(null, { status: 204 }),
+    withFileArtifact,
+    undefined,
+    undefined,
+    () => new Response(JSON.stringify({ problem: 'not-opened' }), { status: 502 }),
+  )
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
+
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Не удалось открыть файл в VS Code')
+})
+
+test('у задачи без артефактов блока «Артефакты» в окне нет', async () => {
   stubApi(() => new Response(null, { status: 204 }))
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  expect(dialog.queryByText('Дизайн')).not.toBeInTheDocument()
-  expect(document.querySelector('.design-label')).toBeNull()
+  expect(dialog.queryByText('Артефакты')).not.toBeInTheDocument()
+  expect(document.querySelector('.artifacts')).toBeNull()
 })
 
 test('окно без критериев говорит, что они не записаны', async () => {

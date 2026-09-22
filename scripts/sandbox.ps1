@@ -290,7 +290,7 @@ function New-Backlog([string]$Path, [switch]$Orders) {
 }
 
 function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf, [switch]$NoAnswerKey, [switch]$TwoQuestions,
-    [string]$Task = 'B-7 Опрос копий не должен мешать работе') {
+    [switch]$Artifacts, [switch]$OldDesign, [string]$Task = 'B-7 Опрос копий не должен мешать работе') {
     $question = @'
 
 ## Оператору
@@ -318,6 +318,17 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 '@
     }
 
+    # Артефакты по форме кита: ссылка открывается вкладкой браузера, путь к файлу — в VS Code.
+    $artifactsBlock = if ($Artifacts) {
+        # Файл лежит вне копии: в копии он был бы неотслеживаемой правкой её git. Щелчок в окне ответа
+        # открывает его в VS Code.
+        $spec = Join-Path $Root 'files\export-spec.md'
+        Write-Utf8 $spec "# Спецификация выгрузки заказов`n`nВыдуманный файл песочницы: артефакт задачи ORD-12.`n"
+        "`n## Артефакты`n- макет выгрузки: https://claude.ai/artifact/SandboxMock1`n- спецификация выгрузки: $spec`n"
+    } else { '' }
+    # Макет по-старому, подразделом критериев: окно его не показывает ни артефактом, ни критерием.
+    $designBlock = if ($OldDesign) { "`n### Дизайн`nМакет: https://claude.ai/artifact/SandboxOld1`n" } else { '' }
+
     $text = @"
 # $Task
 
@@ -333,7 +344,7 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 
 ### Не входит
 Переделка вида таблицы.
-$question
+$designBlock$artifactsBlock$question
 
 ## Агенту
 
@@ -460,8 +471,8 @@ $ordersUtf = Join-Path $copiesDir 'orders-utf'
 git -C $ordersCopy worktree add -b fix/utf-names $ordersUtf --quiet
 
 New-Base $ordersBase 'Заказы' @($ordersCopy) -Orders
-New-Memory (Join-Path $ordersBase 'work\orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период'
-New-Memory (Join-Path $ordersBase 'work\orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку'
+New-Memory (Join-Path $ordersBase 'work\orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период' -Artifacts
+New-Memory (Join-Path $ordersBase 'work\orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку' -OldDesign
 Add-Commit $ordersBase 'Памяти задач'
 $bases.Add($ordersBase)
 foreach ($copy in @($ordersCopy, $ordersTask, $ordersUtf)) {
