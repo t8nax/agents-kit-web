@@ -122,12 +122,12 @@
   gap: 8px;
 }
 
-/* Описание — не больше двух строк: целиком оно видно в окне исполнителя. */
+/* Описание — не больше трёх строк (B-198, было две на B-80): целиком оно видно в окне исполнителя. */
 .performer-desc {
   color: var(--text-secondary);
   line-height: 1.45;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
