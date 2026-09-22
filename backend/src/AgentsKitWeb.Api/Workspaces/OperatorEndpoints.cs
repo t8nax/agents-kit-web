@@ -27,6 +27,10 @@ public sealed record OpenWorkspaceRequest(string Base, string Copy);
 
 public sealed record OpenWorkspaceFailedResponse(string Problem);
 
+public sealed record OpenArtifactRequest(string Base, string Copy, int Index);
+
+public sealed record OpenArtifactFailedResponse(string Problem);
+
 public static class OperatorEndpoints
 {
     public static void MapOperatorEndpoints(this IEndpointRouteBuilder app)
@@ -107,6 +111,32 @@ public static class OperatorEndpoints
             return await terminals.AttachAsync(copy, jobId, cancellationToken)
                 ? Results.NoContent()
                 : Results.Json(new OpenSessionFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
+        });
+
+        // Файл-артефакт задачи открывается в VS Code, в окне копии задачи, — решение оператора на B-87.
+        // Запрос называет артефакт номером в памяти, а не путём: файл, которого нет в «Артефактах»
+        // памяти копии, по HTTP не открыть.
+        app.MapPost("/api/artifact/open", async (
+            OpenArtifactRequest request,
+            BasesStore bases,
+            IEditorWindows windows,
+            CancellationToken cancellationToken) =>
+        {
+            if (FindMemory(bases, request.Base, request.Copy) is not { Memory: var memory }
+                || request.Index < 0 || request.Index >= memory.Artifacts.Count)
+                return Results.NotFound();
+
+            // Адрес без корня — путь от копии задачи; ссылки на сайт открывает браузер, а не панель.
+            var address = memory.Artifacts[request.Index].Address;
+            if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+                return Results.BadRequest(new OpenArtifactFailedResponse("not-a-file"));
+            var file = Path.GetFullPath(Path.Combine(memory.Copy!, address));
+            if (!File.Exists(file))
+                return Results.NotFound(new OpenArtifactFailedResponse("missing"));
+
+            return await windows.OpenFileAsync(memory.Copy!, file, cancellationToken)
+                ? Results.NoContent()
+                : Results.Json(new OpenArtifactFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
         });
 
         app.MapPost("/api/answers", async (AnswersRequest request, BasesStore bases, CancellationToken cancellationToken) =>

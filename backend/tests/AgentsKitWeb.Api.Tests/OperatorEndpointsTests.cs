@@ -33,6 +33,8 @@ public sealed class OperatorEndpointsTests : IDisposable
 
         ## Артефакты
         - макет окна: https://claude.ai/artifact/AbC123
+        - спецификация: docs/spec.md
+        - черновик: docs/gone.md
 
         ## Оператору
 
@@ -104,7 +106,13 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal("Окно ответа", response.Task);
         Assert.Equal([new ClosingCriterion("1. Окно есть", "Оператор отвечает из панели.")], response.Criteria);
         Assert.Equal("Health баз.", response.OutOfScope);
-        Assert.Equal([new TaskArtifact("макет окна", "https://claude.ai/artifact/AbC123")], response.Artifacts);
+        Assert.Equal(
+            [
+                new TaskArtifact("макет окна", "https://claude.ai/artifact/AbC123"),
+                new TaskArtifact("спецификация", "docs/spec.md"),
+                new TaskArtifact("черновик", "docs/gone.md"),
+            ],
+            response.Artifacts);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
         Assert.Equal("За вами объём проверок.", response.Questions[0].Context);
         Assert.True(response.Questions[1].Variants[0].Recommended);
@@ -467,6 +475,72 @@ public sealed class OperatorEndpointsTests : IDisposable
         $"/api/questions?base={Uri.EscapeDataString(basePath)}&copy={Uri.EscapeDataString(copy)}";
 
     // Отметка панели о том, что сессию задачи в этой копии завела она сама.
+    [Fact]
+    public async Task OpenArtifact_OpensFileFromMemoryInCopyWindow()
+    {
+        var spec = Path.Combine(_copy, "docs", "spec.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(spec)!);
+        File.WriteAllText(spec, "# спецификация");
+
+        var response = await PostOpenArtifact(_base, _copy, 1);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(_copy, spec)], _windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_FileNotOnDisk_IsMissing()
+    {
+        var response = await PostOpenArtifact(_base, _copy, 2);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("missing", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_LinkToSite_IsNotOpenedByPanel()
+    {
+        var response = await PostOpenArtifact(_base, _copy, 0);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(3)]
+    public async Task OpenArtifact_UnknownIndex_IsNotFound(int index)
+    {
+        var response = await PostOpenArtifact(_base, _copy, index);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_BaseOutsidePanelList_IsNotFound()
+    {
+        var response = await PostOpenArtifact(Path.Combine(_root, "other-knowledge"), _copy, 1);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_EditorFailed_IsBadGateway()
+    {
+        var spec = Path.Combine(_copy, "docs", "spec.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(spec)!);
+        File.WriteAllText(spec, "# спецификация");
+        _windows.Result = false;
+
+        var response = await PostOpenArtifact(_base, _copy, 1);
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        Assert.Equal("not-opened", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+    }
+
     private void StartedByPanel(string copy, string session) => TestBases.TaskSession(_root, copy, session);
 
     private Task<HttpResponseMessage> PostOpenSession(string basePath, string copy) =>
@@ -474,6 +548,9 @@ public sealed class OperatorEndpointsTests : IDisposable
 
     private Task<HttpResponseMessage> PostOpenWorkspace(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/workspace/open", new OpenWorkspaceRequest(basePath, copy));
+
+    private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string copy, int index) =>
+        _factory.CreateClient().PostAsJsonAsync("/api/artifact/open", new OpenArtifactRequest(basePath, copy, index));
 
     private Task<HttpResponseMessage> PostOpenTerminal(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/session/terminal", new OpenSessionRequest(basePath, copy));
@@ -523,8 +600,13 @@ public sealed class OperatorEndpointsTests : IDisposable
             return Task.FromResult(Result);
         }
 
-        public Task<bool> OpenFileAsync(string folder, string file, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+        public List<(string Folder, string File)> OpenedFiles { get; } = [];
+
+        public Task<bool> OpenFileAsync(string folder, string file, CancellationToken cancellationToken)
+        {
+            OpenedFiles.Add((folder, file));
+            return Task.FromResult(Result);
+        }
     }
 
     private Task<HttpResponseMessage> PostAnswers(string basePath, string copy, params (string Question, string Answer)[] answers) =>
