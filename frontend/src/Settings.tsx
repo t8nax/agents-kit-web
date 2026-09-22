@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import FolderBrowser, { FolderIcon, type FolderEntry } from './FolderBrowser'
 import PanelCard from './PanelCard'
+import { Sk, Skeleton } from './Skeleton'
 import './Settings.css'
 
 export type BaseEntry = {
@@ -180,14 +181,28 @@ function BasesSettings() {
 
       {!browsing && (
         <div className="bases-body">
-          {load.kind === 'loading' && <p className="settings-lead">Загрузка списка…</p>}
+          {load.kind === 'loading' && (
+            <Skeleton label="Загрузка списка баз">
+              <ul className="bases-list sk-frame">
+                {['46%', '38%', '52%'].map((width) => (
+                  <li key={width}>
+                    <Sk w={width} h={10} style={{ flex: 'none' }} />
+                    <span style={{ flex: 1 }} />
+                    <Sk w={46} h={9} />
+                    <Sk w={84} h={26} style={{ borderRadius: 6 }} />
+                  </li>
+                ))}
+              </ul>
+              <AddRowSkeleton label={130} buttons={[86, 88]} />
+            </Skeleton>
+          )}
           {load.kind === 'failed' && (
             <p className="bases-error" role="alert">
               {load.message}
             </p>
           )}
           {load.kind === 'loaded' && (
-            <ul className="bases-list" aria-label="Базы знаний">
+            <ul className="bases-list loaded" aria-label="Базы знаний">
               {bases.length === 0 && <li className="bases-empty">Список пуст.</li>}
               {bases.map((base) => (
                 <li key={base.path}>
@@ -216,7 +231,7 @@ function BasesSettings() {
           )}
 
           {load.kind === 'loaded' && (
-            <form className="bases-add" onSubmit={add} noValidate>
+            <form className="bases-add loaded" onSubmit={add} noValidate>
               <label htmlFor="bases-new-path">Путь к каталогу базы</label>
               <div className="bases-add-row">
                 <input
@@ -413,14 +428,18 @@ function KitSettings() {
 
       {!browsing && (
         <div className="bases-body">
-          {load.kind === 'loading' && <p className="settings-lead">Загрузка…</p>}
+          {load.kind === 'loading' && (
+            <Skeleton label="Загрузка пути к киту">
+              <AddRowSkeleton label={140} buttons={[86, 160, 96]} />
+            </Skeleton>
+          )}
           {load.kind === 'failed' && (
             <p className="bases-error" role="alert">
               {load.message}
             </p>
           )}
           {load.kind === 'loaded' && (
-            <form className="bases-add" onSubmit={save} noValidate>
+            <form className="bases-add loaded" onSubmit={save} noValidate>
               <label htmlFor="kit-path">Путь к каталогу кита</label>
               <div className="bases-add-row">
                 <input
@@ -531,6 +550,22 @@ function KitSettings() {
         </div>
       )}
     </section>
+  )
+}
+
+/** Поле пути с подписью и кнопками, пока карточка читает свои данные: полосы их размера (макет B-201). */
+function AddRowSkeleton({ label, buttons }: { label: number; buttons: number[] }) {
+  const round = { borderRadius: 6 }
+  return (
+    <div className="bases-add">
+      <Sk w={label} h={9} />
+      <div className="bases-add-row">
+        <Sk w="100%" h={32} style={{ flex: 1, width: 'auto', ...round }} />
+        {buttons.map((width) => (
+          <Sk key={width} w={width} h={32} style={round} />
+        ))}
+      </div>
+    </div>
   )
 }
 
