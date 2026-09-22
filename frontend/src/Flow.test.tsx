@@ -128,7 +128,7 @@ const body = (fetchMock: ReturnType<typeof stubApi>, key: string) => {
 /** Раздел открывается вкладкой «Флоу» на первом флоу базы. */
 async function renderFlow(props: { onPerformers?: () => void } = {}, flowName = 'полный') {
   render(<Flow {...props} />)
-  const region = within(await screen.findByRole('region', { name: `Флоу «${flowName}»` }))
+  const region = within(await screen.findByRole('region', { name: `Сценарий «${flowName}»` }))
   return region
 }
 
@@ -138,11 +138,13 @@ async function open(region: ReturnType<typeof within>, name: string | RegExp) {
   return within(await screen.findByRole('complementary'))
 }
 
-/** Вкладка «Стадии» с выбранной стадией. */
+/** Вкладка «Стадии» с открытым окном правки стадии. */
 async function stagesTab(title?: string) {
   fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
-  if (title) fireEvent.click(within(screen.getByRole('list', { name: 'Стадии базы' })).getByRole('button', { name: new RegExp(`^${title}`) }))
-  return within(await screen.findByRole('region', { name: title ? `Стадия «${title}»` : /^Стадия «/ }))
+  const list = within(screen.getByRole('list', { name: 'Стадии базы' }))
+  // Правка открывается окном по щелчку на карточке; без названия — первая карточка.
+  fireEvent.click(title ? list.getByRole('button', { name: new RegExp(`^${title}`) }) : list.getAllByRole('button')[0])
+  return within(await screen.findByRole('dialog', { name: title ? `Стадия «${title}»` : /^Стадия «/ }))
 }
 
 /** Пункт меню «…» шапки: редкие действия раздела живут в нём, меню открывается по требованию. */
@@ -162,19 +164,45 @@ const nodes = (region: ReturnType<typeof within>): HTMLElement[] =>
 
 const labels = (region: ReturnType<typeof within>) => nodes(region).map((node) => node.getAttribute('aria-label'))
 
+/** Окно правки стадии закрывается «Готово»: правки остаются в полосе сохранения, а она — под окном. */
+function closeStage() {
+  const stage = screen.queryByRole('dialog', { name: /^Стадия «/ })
+  if (stage) fireEvent.click(within(stage).getByRole('button', { name: 'Готово' }))
+}
+
 async function saveAndRead(fetchMock: ReturnType<typeof stubApi>) {
+  closeStage()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await screen.findByText('Флоу сохранён и закоммичен в базу')
   return body(fetchMock, 'POST /api/flow')
 }
+
+test('верх раздела: заголовок, за ним справа вкладки «Стадии» и «Сценарии», проект и «…»', async () => {
+  stubApi(api([app, nota]))
+
+  await renderFlow()
+
+  const head = screen.getByRole('heading', { name: 'Флоу', level: 2 }).parentElement!
+  const order = [
+    screen.getByRole('heading', { name: 'Флоу', level: 2 }),
+    screen.getByRole('tablist', { name: 'Части флоу' }),
+    screen.getByRole('button', { name: /^Проект/ }),
+    screen.getByRole('button', { name: 'Ещё действия' }),
+  ]
+  order.forEach((element) => expect(head).toContainElement(element))
+  order.slice(1).forEach((element, i) =>
+    expect(order[i].compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(),
+  )
+  expect(within(screen.getByRole('tablist')).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Стадии', 'Сценарии'])
+})
 
 test('вкладка «Флоу»: узел старта с именем флоу и стадии блоками — значок, название и исполнитель, без номера', async () => {
   stubApi(api([app, nota]))
 
   const region = await renderFlow()
 
-  expect(screen.getByRole('tab', { name: 'Флоу' })).toHaveAttribute('aria-selected', 'true')
-  expect(region.getByRole('button', { name: 'Флоу «полный»: название и «когда»' })).toHaveTextContent('полный')
+  expect(screen.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
+  expect(region.getByRole('button', { name: 'Сценарий «полный»: название и «когда»' })).toHaveTextContent('полный')
   const stages = nodes(region)
   expect(labels(region)).toEqual(['Стадия 1: Критерий', 'Стадия 2: Ревью', 'Стадия 3: Приёмка'])
   expect(within(stages[1]).getByText('субагент reviewer')).toBeInTheDocument()
@@ -192,13 +220,13 @@ test('флоу выбирается списком в углу холста: в 
   stubApi(api([app]))
   await renderFlow()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
-  const list = within(screen.getByRole('listbox', { name: 'Флоу' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Сценарий: полный' }))
+  const list = within(screen.getByRole('listbox', { name: 'Сценарий' }))
   expect(list.getAllByRole('option').map((option) => option.textContent)).toEqual(['полный', 'мелкий'])
   expect(list.getByRole('option', { name: 'полный' })).toHaveAttribute('aria-selected', 'true')
   fireEvent.click(list.getByRole('option', { name: 'мелкий' }))
 
-  const region = within(screen.getByRole('region', { name: 'Флоу «мелкий»' }))
+  const region = within(screen.getByRole('region', { name: 'Сценарий «мелкий»' }))
   expect(labels(region)).toEqual(['Стадия 1: Ревью', 'Стадия 2: Приёмка, возврат к стадии Ревью'])
 })
 
@@ -206,32 +234,38 @@ test('узел старта открывает сайдбар флоу: назв
   const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
 
-  const drawer = await open(region, 'Флоу «полный»: название и «когда»')
-  expect(drawer.getByRole('textbox', { name: 'Название флоу' })).toHaveValue('полный')
-  expect(drawer.getByRole('textbox', { name: 'Когда брать флоу' })).toHaveValue('новая возможность')
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Название флоу' }), { target: { value: 'большой' } })
-  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать флоу' }), { target: { value: 'правка в нескольких местах' } })
+  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
+  expect(drawer.getByRole('textbox', { name: 'Название сценария' })).toHaveValue('полный')
+  expect(drawer.getByRole('textbox', { name: 'Когда брать сценарий' })).toHaveValue('новая возможность')
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Название сценария' }), { target: { value: 'большой' } })
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'правка в нескольких местах' } })
 
-  expect(screen.getByRole('region', { name: 'Флоу «большой»' })).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Сценарий «большой»' })).toBeInTheDocument()
   expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
   const sent = await saveAndRead(fetchMock)
   expect(sent.flows[0]).toMatchObject({ name: 'большой', when: 'правка в нескольких местах' })
 
-  const renamed = within(screen.getByRole('region', { name: 'Флоу «большой»' }))
-  fireEvent.click((await open(renamed, /^Флоу «большой»/)).getByRole('button', { name: 'Удалить флоу' }))
-  expect(await screen.findByRole('region', { name: 'Флоу «мелкий»' })).toBeInTheDocument()
+  const renamed = within(screen.getByRole('region', { name: 'Сценарий «большой»' }))
+  fireEvent.click((await open(renamed, /^Сценарий «большой»/)).getByRole('button', { name: 'Удалить сценарий' }))
+  expect(await screen.findByRole('region', { name: 'Сценарий «мелкий»' })).toBeInTheDocument()
 })
 
-test('новый флоу заводится у списка флоу и открыт в сайдбаре; пустой не сохранить', async () => {
+test('новый сценарий заводится у списка флоу и открыт в сайдбаре; пустой не сохранить', async () => {
   stubApi(api([app]))
   await renderFlow()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Новый флоу' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
 
-  const region = within(await screen.findByRole('region', { name: 'Флоу «новый флоу»' }))
+  const region = within(await screen.findByRole('region', { name: 'Сценарий «новый сценарий»' }))
   expect(nodes(region)).toHaveLength(0)
-  expect(within(screen.getByRole('complementary')).getByRole('textbox', { name: 'Название флоу' })).toHaveValue('новый флоу')
-  expect(screen.getByText(/Не сохранить: флоу «новый флоу» — не указано «когда», во флоу нет стадий/)).toBeInTheDocument()
+  const drawer = within(screen.getByRole('complementary'))
+  expect(drawer.getByRole('textbox', { name: 'Название сценария' })).toHaveValue('новый сценарий')
+  // На вкладке «Сценарии» конкретный флоу зовётся сценарием
+  expect(drawer.getByText('Название сценария')).toBeInTheDocument()
+  expect(drawer.getByText('сценарий')).toBeInTheDocument()
+  expect(drawer.getByRole('textbox', { name: 'Когда брать сценарий' })).toHaveAttribute('placeholder', 'какие задачи вести этим сценарием')
+  expect(drawer.getByRole('button', { name: 'Удалить сценарий' })).toBeInTheDocument()
+  expect(screen.getByText(/Не сохранить: флоу «новый сценарий» — не указано «когда», во флоу нет стадий/)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
@@ -240,12 +274,12 @@ test('при двух флоу у каждого нужно «когда», пр
   const region = await renderFlow()
   expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Новый флоу' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
   expect(screen.getByText(/Не сохранить: флоу «полный» — не указано «когда»/)).toBeInTheDocument()
   expect(region).toBeDefined()
 })
 
-test('стадия во флоу открывает сайдбар с её возвратами в этом флоу, а название ведёт к её правке', async () => {
+test('стадия во флоу открывает сайдбар с её возвратами в этом флоу, а кнопка после возвратов ведёт к её правке', async () => {
   stubApi(api([app]))
   const region = await renderFlow()
 
@@ -254,13 +288,61 @@ test('стадия во флоу открывает сайдбар с её во�
   expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 2: Ревью')
   // Поля самой стадии правятся на вкладке «Стадии», а не здесь
   expect(drawer.queryByRole('textbox', { name: 'Выход стадии' })).not.toBeInTheDocument()
-  expect(drawer.getByRole('button', { name: 'Добавить возврат' })).toBeInTheDocument()
+  // Название в шапке — не ссылка: к правке ведёт кнопка сразу после возвратов
+  expect(within(drawer.getByRole('heading', { name: 'Ревью' })).queryByRole('button')).not.toBeInTheDocument()
+  const add = drawer.getByRole('button', { name: 'Добавить возврат' })
+  const edit = drawer.getByRole('button', { name: 'Править стадию «Ревью»' })
+  expect(add.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(drawer.getByRole('button', { name: 'Закрыть сайдбар' })).toBeInTheDocument()
 
-  fireEvent.click(drawer.getByRole('button', { name: 'Править стадию «Ревью»' }))
+  fireEvent.click(edit)
 
   expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
-  const edit = within(screen.getByRole('region', { name: 'Стадия «Ревью»' }))
-  expect(edit.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт по sha')
+  const dialog = within(screen.getByRole('dialog', { name: 'Стадия «Ревью»' }))
+  expect(dialog.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт по sha')
+})
+
+test('у первой стадии сценария блока «Возвраты» нет: вернуться ей некуда', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+
+  const first = await open(region, 'Стадия 1: Критерий')
+  expect(first.queryByText('Возвраты')).not.toBeInTheDocument()
+  expect(first.queryByRole('button', { name: 'Добавить возврат' })).not.toBeInTheDocument()
+  // Переход к правке стадии остаётся
+  expect(first.getByRole('button', { name: 'Править стадию «Критерий»' })).toBeInTheDocument()
+})
+
+test('возврат из файла у первой стадии виден: его можно убрать, и флоу снова сохраняется', async () => {
+  stubApi(
+    api([{ ...app, flows: [{ ...full, entries: [{ stage: 'Критерий', returns: [{ condition: 'заново', stage: 'Приёмка' }] }, ...full.entries.slice(1)] }] }]),
+  )
+  const region = await renderFlow()
+  expect(screen.getByText(/Не сохранить: флоу «полный», стадия «Критерий»/)).toBeInTheDocument()
+
+  const first = await open(region, /^Стадия 1: Критерий/)
+  expect(first.getByText('Возвраты')).toBeInTheDocument()
+  // Добавить новый некуда, а убрать тот, что в файле, — можно
+  expect(first.queryByRole('button', { name: 'Добавить возврат' })).not.toBeInTheDocument()
+  fireEvent.click(first.getByRole('button', { name: 'Убрать возврат 1' }))
+  expect(first.queryByText('Возвраты')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Не сохранить/)).not.toBeInTheDocument()
+})
+
+test('блок «Возвраты» следует за местом стадии: пропадает, когда она встала первой, и возвращается', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+
+  const drawer = await open(region, 'Стадия 2: Ревью')
+  expect(drawer.getByRole('button', { name: 'Добавить возврат' })).toBeInTheDocument()
+
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 2 выше' }))
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 1: Ревью')
+  expect(drawer.queryByText('Возвраты')).not.toBeInTheDocument()
+
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 1 ниже' }))
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 2: Ревью')
+  expect(drawer.getByRole('button', { name: 'Добавить возврат' })).toBeInTheDocument()
 })
 
 test('возврат правится у стадии в своём флоу: цель — только стадии этого флоу, стоящие раньше', async () => {
@@ -303,9 +385,9 @@ test('возврат без цели не даёт сохранить флоу, 
 test('возвраты нарисованы дугами: у открытой стадии дуга подсвечена и подписана условием', async () => {
   stubApi(api([app]))
   await renderFlow()
-  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Сценарий: полный' }))
   fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
-  const region = within(screen.getByRole('region', { name: 'Флоу «мелкий»' }))
+  const region = within(screen.getByRole('region', { name: 'Сценарий «мелкий»' }))
 
   expect(document.querySelectorAll('.flow-arc')).toHaveLength(1)
   expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
@@ -346,7 +428,7 @@ test('стадия убирается из флоу, а в базе остаёт
   const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
 
-  fireEvent.click((await open(region, 'Стадия 1: Критерий')).getByRole('button', { name: 'Убрать из флоу' }))
+  fireEvent.click((await open(region, 'Стадия 1: Критерий')).getByRole('button', { name: 'Убрать из сценария' }))
 
   expect(labels(region)).toEqual(['Стадия 1: Ревью', 'Стадия 2: Приёмка'])
   const sent = await saveAndRead(fetchMock)
@@ -365,12 +447,13 @@ test('вкладка «Стадии»: все стадии базы, и прав
     'Ревьюсубагент reviewer',
     'Приёмкаоператор',
     'Запасоператор',
+    'Новая стадия',
   ])
   fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Вычитка' } })
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
-  expect(labels(within(screen.getByRole('region', { name: 'Флоу «полный»' })))).toContain('Стадия 2: Вычитка')
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
+  expect(labels(within(screen.getByRole('region', { name: 'Сценарий «полный»' })))).toContain('Стадия 2: Вычитка')
 
   const sent = await saveAndRead(fetchMock)
   expect(sent.stages[1]).toEqual({ ...review, title: 'Вычитка', output: 'вердикт' })
@@ -402,7 +485,7 @@ test('новая стадия заводится на вкладке «Стад�
 
   fireEvent.click(screen.getByRole('button', { name: 'Новая стадия' }))
 
-  const edit = within(screen.getByRole('region', { name: 'Стадия «без названия»' }))
+  const edit = within(screen.getByRole('dialog', { name: 'Стадия «без названия»' }))
   expect(screen.getByText('Не сохранить: стадия «без названия» — нет названия, не указан выход')).toBeInTheDocument()
   fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Мерж' } })
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'sha в dev' } })
@@ -429,6 +512,49 @@ test('две стадии с одним названием не сохранит
   expect(screen.getByText(/^Не сохранить: стадия «Ревью» — стадия с таким названием уже есть/)).toBeInTheDocument()
 })
 
+test('стадия правится окном по щелчку на карточке: «Готово» закрывает окно, правка ждёт в полосе сохранения', async () => {
+  const fetchMock = stubApi(api([app], [], saved()))
+  await renderFlow()
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  // Пока карточку не выбрали, окна нет
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  const edit = await stagesTab('Ревью')
+  // В шапке окна — название и исполнитель, в окне — все поля стадии
+  expect(edit.getByRole('heading', { name: 'Ревью' })).toBeInTheDocument()
+  expect(edit.getByText('субагент reviewer')).toBeInTheDocument()
+  for (const name of ['Название стадии', 'Выход стадии', 'Пропуск стадии'])
+    expect(edit.getByRole('textbox', { name })).toBeInTheDocument()
+  expect(edit.getByRole('combobox', { name: 'Исполнитель стадии' })).toBeInTheDocument()
+  expect(edit.getByRole('button', { name: 'Значок стадии' })).toBeInTheDocument()
+  expect(edit.getByRole('button', { name: 'В пресеты' })).toBeInTheDocument()
+  expect(edit.getByRole('button', { name: 'Удалить стадию' })).toBeDisabled()
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
+
+  fireEvent.click(edit.getByRole('button', { name: 'Готово' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
+  // Окно ничего не пишет само: запись — кнопкой полосы
+  expect(body(fetchMock, 'POST /api/flow')).toBeUndefined()
+
+  // Escape закрывает верхнее окно: сначала описание, потом правку
+  const again = await stagesTab('Ревью')
+  expect(again.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт')
+  fireEvent.click(again.getByRole('button', { name: /Редактировать описание/ }))
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Описание стадии' }), { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: /^Описание стадии/ })).not.toBeInTheDocument()
+  const stage = screen.getByRole('dialog', { name: 'Стадия «Ревью»' })
+  // Открытый список значков Escape закрывает первым, окно остаётся
+  fireEvent.click(within(stage).getByRole('button', { name: 'Значок стадии' }))
+  fireEvent.keyDown(within(stage).getByRole('button', { name: 'Значок «код»' }), { key: 'Escape' })
+  expect(within(stage).queryByRole('group', { name: 'Значки стадии' })).not.toBeInTheDocument()
+  expect(stage).toBeInTheDocument()
+  fireEvent.keyDown(within(stage).getByRole('textbox', { name: 'Выход стадии' }), { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  expect((await saveAndRead(fetchMock)).stages[1].output).toBe('вердикт')
+})
+
 test('описание стадии правится в окне по кнопке, у стадии без описания кнопка приглушена', async () => {
   const fetchMock = stubApi(api([app], [], saved()))
   await renderFlow()
@@ -444,7 +570,7 @@ test('описание стадии правится в окне по кнопк
   fireEvent.change(text, { target: { value: 'Ревью по диффу.\n\n1. Собрать дифф.' } })
   fireEvent.click(dialog.getByRole('button', { name: 'Готово' }))
 
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: /^Описание стадии/ })).not.toBeInTheDocument()
   expect((await saveAndRead(fetchMock)).stages[1].description).toBe('Ревью по диффу.\n\n1. Собрать дифф.')
 })
 
@@ -465,12 +591,12 @@ test('значок стадии выбирается из списка знач�
 test('в окне добавления — новая стадия, стадии базы, которых во флоу нет, и пресеты', async () => {
   const fetchMock = stubApi(api([app], [{ ...spare, title: 'Мерж', output: 'sha в dev', slug: null, id: 'p1' }], saved()))
   const region = await renderFlow()
-  await open(region, 'Флоу «полный»: название и «когда»')
-  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  await open(region, 'Сценарий «полный»: название и «когда»')
+  fireEvent.click(screen.getByRole('button', { name: 'Сценарий: полный' }))
   fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
 
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
-  const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию во флоу «мелкий»' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию в сценарий «мелкий»' }))
   const own = within(dialog.getByRole('group', { name: 'Стадии базы' }))
   expect(own.getAllByRole('button').map((button) => button.querySelector('.flow-preset-title')?.textContent)).toEqual([
     'Критерий',
@@ -478,7 +604,7 @@ test('в окне добавления — новая стадия, стадии
   ])
   fireEvent.click(own.getByRole('button', { name: /^Критерий/ }))
 
-  const small = within(screen.getByRole('region', { name: 'Флоу «мелкий»' }))
+  const small = within(screen.getByRole('region', { name: 'Сценарий «мелкий»' }))
   expect(labels(small)).toContain('Стадия 3: Критерий')
   // Добавленная стадия сразу открыта в сайдбаре
   expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 3: Критерий')
@@ -499,14 +625,14 @@ test('«Новая стадия» из окна добавления стави�
   await renderFlow()
 
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
-  const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию во флоу «полный»' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию в сценарий «полный»' }))
   expect(dialog.getByText('Пресетов пока нет.')).toBeInTheDocument()
   fireEvent.click(dialog.getByRole('button', { name: /^Новая стадия/ }))
 
   expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
-  expect(screen.getByRole('region', { name: 'Стадия «без названия»' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
-  expect(labels(within(screen.getByRole('region', { name: 'Флоу «полный»' })))).toContain('Стадия 4: без названия')
+  expect(screen.getByRole('dialog', { name: 'Стадия «без названия»' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
+  expect(labels(within(screen.getByRole('region', { name: 'Сценарий «полный»' })))).toContain('Стадия 4: без названия')
 })
 
 test('пресет сохраняется со вкладки «Стадии» без помощников и удаляется из окна добавления', async () => {
@@ -524,7 +650,7 @@ test('пресет сохраняется со вкладки «Стадии» �
   expect(await screen.findByRole('button', { name: 'Стадия в пресетах' })).toBeDisabled()
   expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ title: 'Критерий', helpers: [], slug: null })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
   fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Критерий' }))
   await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Критерий' })).not.toBeInTheDocument())
@@ -590,6 +716,7 @@ test('при задачах в работе сохранение спрашив�
   await renderFlow()
   const edit = await stagesTab('Критерий')
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий в памяти' } })
+  closeStage()
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   const dialog = within(screen.getByRole('dialog', { name: 'Сохранить флоу Agents Kit Web?' }))
@@ -624,7 +751,7 @@ test('«Отменить правки» возвращает флоу базы �
   const fetchMock = stubApi(api([app]))
   const region = await renderFlow()
 
-  fireEvent.click((await open(region, 'Стадия 3: Приёмка')).getByRole('button', { name: 'Убрать из флоу' }))
+  fireEvent.click((await open(region, 'Стадия 3: Приёмка')).getByRole('button', { name: 'Убрать из сценария' }))
   expect(nodes(region)).toHaveLength(2)
   // Пока правки не записаны, проект не переключить и базу не перечитать
   expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
@@ -679,10 +806,10 @@ test('проект без флоу — пустое состояние с одн
 
   fireEvent.click(screen.getByRole('button', { name: 'Создать первый флоу' }))
 
-  expect(await screen.findByRole('region', { name: 'Флоу «новый флоу»' })).toBeInTheDocument()
-  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Флоу «новый флоу»')
+  expect(await screen.findByRole('region', { name: 'Сценарий «новый сценарий»' })).toBeInTheDocument()
+  expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Сценарий «новый сценарий»')
   // Одному флоу «когда» не нужно, но стадия нужна
-  expect(screen.getByText('Не сохранить: флоу «новый флоу» — во флоу нет стадий')).toBeInTheDocument()
+  expect(screen.getByText('Не сохранить: флоу «новый сценарий» — во флоу нет стадий')).toBeInTheDocument()
 })
 
 test('база, которую панель не прочитала, названа словами', async () => {
@@ -715,35 +842,39 @@ test('«Открыть в VS Code» просит API открыть флоу э�
   await vi.waitFor(() => expect(body(fetchMock, 'POST /api/flow/open')).toEqual({ base: app.base }))
 })
 
-test('список стадий идёт в порядке флоу, а не по именам файлов; стадии вне флоу — в конце', async () => {
+test('стадии стоят карточками в порядке флоу, а не по именам файлов; стадии вне флоу и «Новая стадия» — в конце', async () => {
   stubApi(api([{ ...app, stages: [spare, acceptance, criterion, review] }]))
   await renderFlow()
 
-  await stagesTab()
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
 
   const list = within(screen.getByRole('list', { name: 'Стадии базы' }))
-  expect(list.getAllByRole('button').map((item) => item.querySelector('.flow-stage-item-title')?.textContent)).toEqual([
+  const cards = list.getAllByRole('button')
+  expect(cards.map((item) => item.querySelector('.flow-stage-item-title')?.textContent ?? item.textContent)).toEqual([
     'Критерий',
     'Ревью',
     'Приёмка',
     'Запас',
+    'Новая стадия',
   ])
-  // Открыта первая по ходу работы
-  expect(screen.getByRole('region', { name: 'Стадия «Критерий»' })).toBeInTheDocument()
+  // На карточке — значок, название и исполнитель
+  expect(cards[1].querySelector('.flow-stage-badge')).toHaveTextContent('субагент reviewer')
+  // Имя субагента — моноширинным, как в карточке исполнителя
+  expect(within(cards[1]).getByText('reviewer')).toHaveClass('mono')
 })
 
 test('удалённый единственный флоу сохраняется или отменяется из полосы внизу пустого состояния', async () => {
   const fetchMock = stubApi(api([{ ...app, flows: [full] }], [], saved()))
   const region = await renderFlow()
 
-  fireEvent.click((await open(region, /^Флоу «полный»/)).getByRole('button', { name: 'Удалить флоу' }))
+  fireEvent.click((await open(region, /^Сценарий «полный»/)).getByRole('button', { name: 'Удалить сценарий' }))
 
   expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
   expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Отменить правки' }))
-  expect(await screen.findByRole('region', { name: 'Флоу «полный»' })).toBeInTheDocument()
+  expect(await screen.findByRole('region', { name: 'Сценарий «полный»' })).toBeInTheDocument()
 
-  fireEvent.click((await open(within(screen.getByRole('region', { name: 'Флоу «полный»' })), /^Флоу «полный»/)).getByRole('button', { name: 'Удалить флоу' }))
+  fireEvent.click((await open(within(screen.getByRole('region', { name: 'Сценарий «полный»' })), /^Сценарий «полный»/)).getByRole('button', { name: 'Удалить сценарий' }))
   expect((await saveAndRead(fetchMock)).flows).toEqual([])
 })
 
@@ -761,7 +892,7 @@ test('строки файлов флоу, которые панель не со�
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
-test('после сохранения выбранные флоу и стадия остаются выбранными', async () => {
+test('после сохранения раздел остаётся на своей вкладке и выбранном флоу', async () => {
   let version = 1
   const fetchMock = stubApi({
     ...api([app]),
@@ -773,7 +904,7 @@ test('после сохранения выбранные флоу и стади�
     },
   })
   await renderFlow()
-  fireEvent.click(screen.getByRole('button', { name: 'Флоу: полный' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Сценарий: полный' }))
   fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
   const edit = await stagesTab('Ревью')
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
@@ -781,9 +912,11 @@ test('после сохранения выбранные флоу и стади�
   await saveAndRead(fetchMock)
   await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/flow').length).toBe(3))
 
-  expect(await screen.findByRole('region', { name: 'Стадия «Ревью»' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
-  expect(screen.getByRole('region', { name: 'Флоу «мелкий»' })).toBeInTheDocument()
+  // Окно правки закрыто перед записью, а раздел остаётся на вкладке «Стадии» и на флоу «мелкий»
+  expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
+  expect(screen.getByRole('region', { name: 'Сценарий «мелкий»' })).toBeInTheDocument()
 })
 
 test('скобки и кавычки в названии стадии не пускаются: ими пишется ссылка и возврат', async () => {

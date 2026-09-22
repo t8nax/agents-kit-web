@@ -264,55 +264,77 @@
 
 .flow-drawer {
   animation: flow-drawer-in 0.18s ease;
-  width: 360px;
+  width: 400px;
   max-width: 100%;
   flex: none;
   display: flex;
   flex-direction: column;
   background: var(--bg-surface);
-  border-left: 1px solid var(--border-subtle);
-  box-shadow: -18px 0 36px -28px var(--shadow-color);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -18px 0 36px -24px var(--shadow-color);
 }
 
+/* Сайдбары схемы — в оформлении окна ответа: шапка с крестиком, крупные поля, подвал с подложкой (B-192). */
 .flow-drawer-head {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 14px;
+  padding: 20px 20px 20px 28px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .flow-drawer-name {
+  flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .flow-drawer-name h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 500;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
-.flow-drawer-head .flow-icon-btn {
-  margin-left: auto;
-  border-color: transparent;
+.flow-drawer-kind {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.flow-drawer .btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.flow-drawer .btn-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .flow-drawer-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: 24px 28px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 20px;
 }
 
 .flow-drawer-foot {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 18px 28px;
+  background: var(--footer-tint);
   border-top: 1px solid var(--border-subtle);
 }
 
@@ -320,7 +342,86 @@
   margin-left: auto;
 }
 
-.flow-drawer-foot .bases-btn svg {
+.flow-drawer .btn-danger svg {
+  color: var(--accent-error-text);
+}
+
+.flow-drawer .btn.btn-danger:hover:not(:disabled) {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
+}
+
+.flow-drawer .flow-field {
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.flow-drawer .flow-input {
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg-base);
+  border-color: var(--border-strong);
+  border-radius: 8px;
+  padding: 11px 14px;
+}
+
+.flow-drawer .flow-input:focus {
+  border-color: var(--accent-waiting-text);
+}
+
+.flow-drawer .flow-input[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+.flow-drawer textarea.flow-input {
+  min-height: 88px;
+  resize: none;
+}
+
+/* Переход к правке стадии — кнопкой сразу после возвратов (B-192). */
+.flow-go-stage {
+  justify-content: center;
+  font-weight: 500;
+}
+
+.flow-drawer .flow-go-stage svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+}
+
+/* «Добавить возврат» — пунктирной кнопкой во всю ширину, как «Добавить стадию» на схеме. */
+.flow-add-dashed {
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.flow-add-dashed:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.flow-add-dashed:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.flow-add-dashed svg {
   width: 14px;
   height: 14px;
 }
@@ -694,25 +795,36 @@ textarea.flow-input {
   cursor: pointer;
 }
 
-/* Возврат в сайдбаре: условие, значок круга и шаг, к которому работа идёт заново. */
+/* Возврат в сайдбаре — карточкой: условие и «убрать» строкой, под ними стадия, к которой работа идёт заново. */
 .flow-return {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.flow-return-row {
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
-.flow-return .flow-input {
+.flow-return-row .flow-input {
   flex: 1;
+  min-width: 0;
 }
 
-.flow-return-step {
-  flex: none;
-  width: 128px;
+.flow-drawer .flow-return .flow-input {
+  background: var(--bg-surface);
 }
 
 .flow-return-mark {
   display: inline-flex;
   flex-shrink: 0;
+  padding: 0 4px 0 6px;
   color: var(--text-tertiary);
 }
 
@@ -800,7 +912,7 @@ textarea.flow-input {
   dominant-baseline: middle;
 }
 
-/* Верх раздела: заголовок и вкладки одной строкой, проект и «…» справа — вариант оператора. */
+/* Верх раздела: заголовок слева, справа вкладки переключателем, проект и «…» — выбор оператора на B-192. */
 .vc-head {
   flex: none;
   display: flex;
@@ -824,17 +936,20 @@ textarea.flow-input {
 }
 
 .vc-tabs {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
 }
 
 .flow-tab {
-  font-size: 14px;
+  font-size: 13px;
   background: none;
   border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 14px 12px 9px;
+  border-radius: 5px;
+  padding: 4px 12px;
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -845,13 +960,22 @@ textarea.flow-input {
 
 .flow-tab.is-on {
   color: var(--text-primary);
-  border-bottom-color: var(--text-primary);
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px var(--shadow-color);
   font-weight: 500;
 }
 
 .flow-tab:focus-visible {
   outline: 2px solid var(--text-primary);
-  outline-offset: -2px;
+  outline-offset: 1px;
+}
+
+/* Черта между вкладками и выбором проекта. */
+.head-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border-subtle);
 }
 
 /* Полоса сохранения внизу раздела: видна, только пока есть правки. */
@@ -983,115 +1107,354 @@ textarea.flow-input {
   height: 14px;
 }
 
-/* Вкладка «Стадии»: список стадий базы и правка выбранной на всю оставшуюся ширину. */
+/* Вкладка «Стадии»: стадии сеткой карточек по три в ряд, как исполнители (B-192), — прокручивается сетка. */
 .flow-stages {
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
+}
+
+.flow-stage-grid {
+  list-style: none;
+  margin: 0;
+  padding: 20px 24px 32px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flow-stage-grid > li {
   display: flex;
 }
 
-.flow-stage-list {
-  width: 320px;
-  flex: none;
+.flow-stage-card {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-subtle);
+  gap: 8px;
+  min-height: 96px;
+  padding: 12px 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
   background: var(--bg-surface);
+  cursor: pointer;
 }
 
-.flow-stage-list-head {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-subtle);
+.flow-stage-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
 }
 
-.flow-stage-list-head svg {
+.flow-stage-card:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.flow-stage-card.is-on {
+  border-color: var(--accent-done-text);
+}
+
+.flow-stage-card.invalid .flow-stage-item-title {
+  color: var(--accent-error-text);
+}
+
+.flow-stage-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Значок на карточке — малый, в рамке цвета исполнителя, как значок исполнителя в его карточке. */
+.flow-card-mark {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid currentColor;
+}
+
+.flow-card-mark svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flow-stage-item-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.flow-stage-card-foot {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+}
+
+.flow-stage-badge {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+/* «Новая стадия» — пунктирной карточкой последней в сетке: пунктир, как у «Добавить стадию» на схеме. */
+.flow-stage-card-add {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.flow-stage-card-add:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+.flow-stage-card-add svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+/*
+ * Окно правки стадии — рамка окна исполнителя (modal-wizard, ask-head, ask-body, modal-footer):
+ * подписи слева, поля справа, под чертой «Работа» — выход, пропуск и описание (B-192).
+ * Правила идут от .flow-stage-modal: иначе общее `.modal-overlay svg` перебивает размеры значков.
+ */
+.flow-stage-modal {
+  max-height: min(760px, 90vh);
+  color: var(--text-primary);
+}
+
+.flow-stage-modal svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.flow-stage-modal .flow-card-mark svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.7;
+}
+
+.flow-stage-modal .ask-title h2.flow-stage-modal-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.flow-stage-modal .btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.flow-stage-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+/* Строка поля: подпись в колонке слева, поле и всё, что к нему, — справа. */
+.flow-stage-modal .flow-field {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.flow-stage-modal .flow-field > :not(:first-child) {
+  grid-column: 2;
+}
+
+.flow-stage-modal .flow-field > :first-child {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  padding-top: 8px;
+}
+
+.flow-stage-modal .flow-input {
+  width: 100%;
+  min-height: 34px;
+  font-size: 13px;
+  background: var(--bg-base);
+  border-color: var(--border-strong);
+  padding: 6px 10px;
+}
+
+.flow-stage-modal .flow-input:focus {
+  border-color: var(--text-secondary);
+}
+
+.flow-stage-modal .flow-input[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+.flow-stage-modal textarea.flow-input {
+  min-height: 84px;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: none;
+}
+
+.flow-stage-modal .flow-stage-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.flow-stage-modal .flow-icons {
+  justify-self: start;
+}
+
+.flow-stage-modal .flow-icon-toggle {
+  height: 34px;
+  padding: 0 8px 0 3px;
+  border-color: var(--border-strong);
+  border-radius: 6px;
+}
+
+.flow-stage-modal .flow-icon-toggle .flow-node-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.flow-stage-modal .flow-icon-toggle .flow-node-mark svg {
+  width: 15px;
+  height: 15px;
+}
+
+.flow-stage-modal .flow-icon-toggle > svg,
+.flow-stage-modal .flow-chip-remove svg {
+  width: 13px;
+  height: 13px;
+}
+
+.flow-stage-modal .flow-icon-menu .flow-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.flow-stage-modal .flow-chip {
+  height: 30px;
+  padding: 0 8px 0 12px;
+  font-family: var(--font-mono);
+}
+
+.flow-stage-modal .btn.flow-description-btn {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.flow-stage-modal .flow-description-btn svg {
   width: 14px;
   height: 14px;
 }
 
-.flow-stage-list ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  flex: 1;
-}
-
-.flow-stage-item {
-  width: 100%;
+/* Черта «Работа» между тем, кто проходит стадию, и тем, что она делает, — как в окне исполнителя. */
+.flow-stage-sep {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 9px 16px 9px 14px;
-  background: none;
-  border: 0;
-  border-left: 2px solid transparent;
-  border-bottom: 1px solid var(--border-subtle);
-  text-align: left;
+  gap: 10px;
+  padding: 4px 16px 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.flow-stage-sep::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.flow-stage-modal .flow-step-error {
+  padding: 0 16px;
+}
+
+.flow-stage-foot {
+  padding: 16px 40px;
+  justify-content: flex-start;
+}
+
+.flow-stage-foot .btn {
+  min-height: 42px;
+  padding-block: 0;
+}
+
+/* Удаление в покое — контурное, как в макете: красная заливка общего `.btn.btn-danger` (Sessions.css) — для
+   необратимого, а здесь правку отменяет полоса сохранения. Красным кнопка становится под мышью. */
+.flow-stage-foot .btn.btn-danger,
+.flow-drawer .btn.btn-danger {
   color: var(--text-primary);
-  cursor: pointer;
+  background: transparent;
+  border-color: var(--border-strong);
 }
 
-.flow-stage-item:hover {
-  background: var(--bg-surface-hover);
+.flow-stage-foot .btn-danger:hover:not(:disabled) {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
 }
 
-.flow-stage-item:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: -2px;
-}
-
-.flow-stage-item.is-on {
-  background: var(--bg-surface-hover);
-  border-left-color: var(--accent-done-text);
-}
-
-.flow-stage-item.invalid .flow-stage-item-title {
+.flow-stage-foot .btn-danger svg {
   color: var(--accent-error-text);
 }
 
-.flow-stage-item .flow-node-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-}
-
-.flow-stage-item .flow-node-mark svg {
-  width: 16px;
-  height: 16px;
-}
-
-.flow-stage-item-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.flow-stage-item-title {
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.flow-stage-edit {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-surface);
-}
-
-.flow-stage-edit .flow-drawer-body {
-  padding: 18px 24px;
-}
-
-.flow-stage-edit .flow-drawer-head,
-.flow-stage-edit .flow-drawer-foot {
-  padding-left: 24px;
-  padding-right: 24px;
+.flow-stage-foot .flow-stage-done {
+  margin-left: auto;
+  min-width: 140px;
+  justify-content: center;
 }
 
 /* Вкладка «Флоу»: выбор флоу в углу холста, над схемой пусто. */
@@ -1176,34 +1539,6 @@ textarea.flow-input {
   color: var(--text-secondary);
   background: var(--bg-base);
   box-shadow: inset 0 0 0 1px var(--border-strong);
-}
-
-/* Название стадии в сайдбаре флоу ведёт к её правке на вкладке «Стадии». */
-.flow-name-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text-primary);
-  font: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: var(--border-strong);
-  text-underline-offset: 3px;
-  text-align: left;
-}
-
-.flow-name-link:hover {
-  text-decoration-color: var(--text-primary);
-}
-
-.flow-name-link svg {
-  width: 14px;
-  height: 14px;
-  flex: none;
-  color: var(--text-tertiary);
 }
 
 .flow-presets-group {
