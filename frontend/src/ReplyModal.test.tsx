@@ -326,6 +326,29 @@ test('данный ответ правится: «Изменить» откры�
   expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
 })
 
+test('набранное, но не отданное, не стирается уходом к другому вопросу — и у нового, и у правки данного ответа', async () => {
+  stubApi(() => new Response(null, { status: 204 }), three)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'длинный свой ответ' } })
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
+  fireEvent.click(collapsed(dialog, 'Подтвердить критерий?'))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('длинный свой ответ')
+  expect(document.querySelector('.op-bubble')).toBeNull()
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
+  fireEvent.click(dialog.getByRole('button', { name: 'Изменить' }))
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'длинный свой ответ, и ещё' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Дальше' }))
+  // данный ответ прежний, пока правку не отдали
+  expect(document.querySelector('.op-bubble')).toHaveTextContent('длинный свой ответ')
+  expect(document.querySelector('.op-bubble')).not.toHaveTextContent('и ещё')
+  fireEvent.click(dialog.getByRole('button', { name: 'Предыдущий вопрос' }))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('длинный свой ответ, и ещё')
+})
+
 const draftsKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app'
 
 test('закрытое с пропущенными окно ничего не отправляет и возвращает данные ответы, каким бы способом его ни закрыли', async () => {

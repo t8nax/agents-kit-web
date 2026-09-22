@@ -78,6 +78,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [current, setCurrent] = useState(0)
   // Набранное в строке ввода — ответ на текущий вопрос, пока его не дали.
   const [draft, setDraft] = useState('')
+  // Набранное, но не отданное у других вопросов: уход к другому вопросу его не стирает.
+  const [typed, setTyped] = useState<Record<number, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('open')
   const [opening, setOpening] = useState(false)
@@ -158,10 +160,15 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     if (phase === 'sending' && feed.current) feed.current.scrollTop = feed.current.scrollHeight
   }, [phase])
 
-  function go(index: number) {
+  // `given` — ответ, только что данный текущему вопросу: набранное у него уже стало ответом.
+  function go(index: number, given?: string) {
+    const left = { ...typed }
+    if (given !== undefined || draft === (answers[current] ?? '')) delete left[current]
+    else left[current] = draft
+    setTyped(left)
     setPassed((prev) => prev.map((p, i) => p || i === current))
     setCurrent(index)
-    setDraft(answers[index] ?? '')
+    setDraft(left[index] ?? answers[index] ?? '')
     setError(null)
   }
 
@@ -193,7 +200,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       return
     }
     const after = left.filter((i) => i > current)
-    go(after.length > 0 ? after[0] : left[0])
+    go(after.length > 0 ? after[0] : left[0], value)
   }
 
   function undo() {
