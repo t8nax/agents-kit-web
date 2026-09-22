@@ -13,11 +13,6 @@
   overflow: hidden;
 }
 
-.dw-modal svg {
-  width: 16px;
-  height: 16px;
-}
-
 .dw-head {
   display: flex;
   align-items: center;
