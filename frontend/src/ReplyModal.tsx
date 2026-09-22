@@ -403,7 +403,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                     </button>
                     {/* Пока ответы уходят, вкладок нет: окно показывает только отправку. */}
                     {phase === 'open' && (
-                      <div className="vc-tabs reply-tabs" role="tablist" aria-label="Части окна ответа">
+                      <div className="vc-tabs reply-tabs" role="tablist" aria-label="Вкладки окна">
                         {TABS.map((t) => (
                           <button
                             key={t.id}
