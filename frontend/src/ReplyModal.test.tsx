@@ -743,6 +743,8 @@ test.each([
   fireEvent.click(artifacts.getByRole('button', { name: 'docs/spec.md' }))
 
   expect(await artifacts.findByRole('alert')).toHaveTextContent(text)
+  // строка одна: окно ответа под окном артефактов её не повторяет
+  expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1)
 })
 
 test('показывать нечего — кнопки нет: без артефактов нет «Артефактов», без критериев и «Не входит» — «Контекста задачи»', async () => {

@@ -450,7 +450,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             </button>
           </div>
 
-          {openError && (
+          {/* ошибку открытия артефакта говорит окно артефактов, пока оно открыто, а не окно под ним */}
+          {openError && shown !== 'artifacts' && (
             <p className="open-error error-text" role="alert">
               <WarningIcon />
               {openError}

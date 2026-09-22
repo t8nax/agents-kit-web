@@ -61,18 +61,6 @@
   margin-left: auto;
 }
 
-.footer-msg {
-  font-size: 12px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.footer-msg svg {
-  width: 14px;
-  height: 14px;
-}
-
 /* ---------- окно ответа ---------- */
 
 /* Высота постоянная: лента прокручивается внутри, а строка ввода стоит внизу. */
