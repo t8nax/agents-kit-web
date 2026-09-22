@@ -70,31 +70,6 @@
   font-weight: 500;
 }
 
-.dw-preview {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 6px 12px;
-  padding: 12px 14px;
-  background: var(--bg-base);
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.dw-preview dt {
-  color: var(--text-tertiary);
-}
-
-.dw-preview dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-/* Ветку кит оставляет — окно говорит это там же, где её называет */
-.dw-note {
-  color: var(--text-tertiary);
-}
-
 .dw-error {
   display: flex;
   flex-direction: column;

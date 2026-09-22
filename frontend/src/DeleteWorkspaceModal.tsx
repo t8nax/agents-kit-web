@@ -92,21 +92,11 @@ export default function DeleteWorkspaceModal({ row, onClose, onRemoved, onSettin
         </div>
 
         <div className="dw-body">
+          {/* Проект — в той же строке; пути и ветки окно не показывает (B-215) */}
           <p className="dw-lead">
-            Копия <span className="dw-strong">{copyName(row.path)}</span> уйдёт с диска. Вернуть её панель не сможет.
+            Копия <span className="dw-strong">{copyName(row.path)}</span> проекта{' '}
+            <span className="dw-strong">{row.project}</span> уйдёт с диска. Вернуть её панель не сможет.
           </p>
-
-          <dl className="dw-preview" aria-label="Что будет удалено">
-            <dt>Проект</dt>
-            <dd>{row.project}</dd>
-            <dt>Каталог</dt>
-            <dd className="mono">{row.path}</dd>
-            <dt>Ветка</dt>
-            <dd>
-              {row.branch ? <span className="mono">{row.branch}</span> : <span className="text-ter">отсоединён</span>}
-              <span className="dw-note"> — останется</span>
-            </dd>
-          </dl>
 
           {failure && (
             <div className="dw-error" role="alert">
