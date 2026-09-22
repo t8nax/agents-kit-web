@@ -191,10 +191,7 @@ test('оператор находит кит кнопкой и сам сохра
 })
 
 test('оператор выключает и включает уведомления переключателем в «Настройках», а не в шапке', async ({ page }) => {
-  // Chromium без окна отвечает «запрещено» и при выданном разрешении — разрешение браузера подменяется
-  await page.addInitScript(() => {
-    Object.defineProperty(Notification, 'permission', { get: () => 'granted' })
-  })
+  await stubPermission(page, 'granted')
   await mockApi(page)
 
   await page.goto('/')
@@ -216,3 +213,63 @@ test('оператор выключает и включает уведомлен
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
 })
+
+// Цвет токена темы в том виде, в каком его отдаёт getComputedStyle, — чтобы сравнивать с вычисленным цветом
+async function tokenColor(page: Page, token: string) {
+  return page.evaluate((name) => {
+    const probe = document.createElement('span')
+    probe.style.color = `var(${name})`
+    document.body.append(probe)
+    const color = getComputedStyle(probe).color
+    probe.remove()
+    return color
+  }, token)
+}
+
+// Chromium без окна отвечает «запрещено» и при выданном разрешении — разрешение браузера подменяется
+async function stubPermission(page: Page, permission: NotificationPermission) {
+  await page.addInitScript((value) => {
+    Object.defineProperty(Notification, 'permission', { get: () => value })
+  }, permission)
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`переключатель уведомлений включённый зелёный, выключенный серый (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await stubPermission(page, 'granted')
+    await mockApi(page)
+
+    await page.goto('/')
+    await openSettings(page)
+    const toggle = page.getByRole('region', { name: 'Уведомления' }).getByRole('switch', { name: 'Показывать уведомления' })
+    const background = () => toggle.evaluate((el) => getComputedStyle(el).backgroundColor)
+    const knob = () => toggle.evaluate((el) => getComputedStyle(el, '::after').backgroundColor)
+
+    await expect(toggle).toHaveAttribute('aria-checked', 'true')
+    // Переход цвета длится 140 мс: замер повторяется, пока не сойдётся
+    await expect(async () => expect(await background()).toBe(await tokenColor(page, '--accent-active-text'))).toPass()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-checked', 'false')
+    await expect(async () => expect(await background()).toBe(await tokenColor(page, '--border-strong'))).toPass()
+    // Бегунок цвета карточки и отличим от дорожки в обоих положениях
+    expect(await knob()).toBe(await tokenColor(page, '--bg-surface'))
+    expect(await knob()).not.toBe(await background())
+  })
+
+  test(`надпись о запрете уведомлений бледнее подзаголовка карточки (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await stubPermission(page, 'denied')
+    await mockApi(page)
+
+    await page.goto('/')
+    await openSettings(page)
+    const card = page.getByRole('region', { name: 'Уведомления' })
+    const note = card.getByText('Уведомления запрещены в браузере')
+    await expect(note).toBeVisible()
+    await expect(card.getByRole('switch')).toHaveCount(0)
+
+    const color = (locator: typeof note) => locator.evaluate((el) => getComputedStyle(el).color)
+    expect(await color(note)).toBe(await tokenColor(page, '--text-tertiary'))
+    expect(await color(note)).not.toBe(await color(card.getByText('Сообщения браузера, когда копия меняет статус.')))
+  })
+}
