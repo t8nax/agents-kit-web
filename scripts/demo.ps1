@@ -519,8 +519,9 @@ function Build-Demo {
     foreach ($copy in $stock.Values) { $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $stockBase }) }
     $copies.stock = $stock
 
-    # «Блог»: одна задача в самом начале, другая закончилась, основная копия свободна.
-    $blog = New-DemoProject 'blog' 'Блог' ([ordered]@{ 'blog-rss' = 'feat/blog-6-rss'; 'blog-authors' = 'feat/blog-4-authors' })
+    # «Блог»: одна задача в самом начале, другая ждёт ответа оператора, третья закончилась.
+    $blog = New-DemoProject 'blog' 'Блог' ([ordered]@{
+            'blog-rss' = 'feat/blog-6-rss'; 'blog-newsletter' = 'feat/blog-3-newsletter'; 'blog-authors' = 'feat/blog-4-authors' })
     $blogBase = Join-Path $basesDir 'blog-knowledge'
     New-DemoBase $blogBase 'Блог' @'
 - Блог сети кофеен: рецепты, новости и истории поставщиков.
@@ -577,7 +578,54 @@ function Build-Demo {
 - [ ] собрать ленту из последних статей
 - [ ] тест ленты
 "@
-    Add-Commit $blogBase 'Память задачи'
+    Write-Utf8 (Join-Path $blogBase 'work\blog-newsletter.md') @"
+# BLOG-3 Письмо с новыми статьями раз в неделю
+рабочая копия: $($blog['blog-newsletter'])
+ветка: feat/blog-3-newsletter
+флоу: полный
+Решения: нет
+
+## Критерии закрытия
+
+### 1. Критерий ещё не написан
+Критерий пишется после того, как решены развилки обсуждения.
+
+## Оператору
+
+### Отправлять письмо всем гостям или только подписавшимся?
+Адреса почты есть у всех гостей, которые заказывали навынос. Подписку на новости из них оформили немногие.
+
+- вариант: всем гостям с адресом — письмо прочтёт больше людей, но часть сочтёт его спамом
+- вариант: только подписавшимся — читателей меньше, зато письмо ждут
+- рекомендовано: только подписавшимся — читателей меньше, зато письмо ждут
+
+ответ:
+
+## Агенту
+
+### Критерии
+- 1. проверка: будет названа вместе с критерием — где: стадия «Критерий»
+
+### Вопросы
+
+### Факты
+- письма уходят через сервис рассылок, шаблон письма заказа — mail/order.html
+
+### Флоу
+- [x] 1. Ветка — выход: feat/blog-3-newsletter от dev
+- [x] 2. Разведка — выход: карта мест в «Фактах»
+- [ ] 3. Обсуждение
+- [ ] 4. Критерий
+- [ ] 5. Реализация
+- [ ] 6. Ревью
+- [ ] 7. Приёмка
+- [ ] 8. Мерж
+
+### Шаги
+- [x] вынести развилки оператору — результат: вопрос о получателях письма — проверен: блок в «Оператору»
+- [ ] вобрать ответ оператора
+"@
+    Add-Commit $blogBase 'Памяти задач'
     $bases.Add($blogBase)
     foreach ($copy in $blog.Values) { $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $blogBase }) }
     $copies.blog = $blog
@@ -602,19 +650,21 @@ function Start-DemoSessions($Copies) {
         @{ cwd = $Copies.cafe.'cafe-receipts'; extra = @{ status = 'idle' } }
         @{ cwd = $Copies.stock.'stock-labels'; extra = @{ status = 'idle' } }
         @{ cwd = $Copies.blog.'blog-rss'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'b06e5a17'; status = 'busy'; name = 'drive BLOG-6'; startedAt = $now - 3 * 60000 } }
+        @{ cwd = $Copies.blog.'blog-newsletter'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'b03c7d88'; status = 'waiting'; name = 'drive BLOG-3'; startedAt = $now - 70 * 60000 } }
         @{ cwd = $Copies.blog.'blog-authors'; extra = @{ status = 'idle' } }
         @{ cwd = $Copies.stock.'stock-import'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 's31d9c02'; status = 'busy'; name = 'drive SKL-31'; startedAt = $now - 15 * 60000 } }
     )
-    # Список запусков задач ведёт сама панель — в нём и задачи, запущенные оператором из демонстрации:
-    # свои записи скрипт обновляет, а чужие оставляет.
+    # Копию оператор мог убрать из панели, а demo.json сборки постарше может её и не знать: сессии
+    # в каталоге, которого нет, не заводится.
+    $sessions = @($sessions | Where-Object { $_.cwd -and (Test-Path -LiteralPath $_.cwd -PathType Container) })
+    # Список запусков задач ведёт сама панель — в нём и задачи, запущенные оператором из демонстрации.
+    # Задача в копии у панели одна: в копиях своих фоновых сессий скрипт ставит их, остальное оставляет.
     $file = Join-Path $panelDir 'task-sessions.json'
     $known = if (Test-Path -LiteralPath $file) { try { @((Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).sessions) } catch { @() } } else { @() }
-    $ours = @($sessions | ForEach-Object { $_.extra.jobId } | Where-Object { $_ })
+    $ours = @($sessions | Where-Object { $_.extra.jobId } | ForEach-Object { $_.cwd })
     $tasks = [Collections.Generic.List[object]]::new()
-    foreach ($task in $known) { if ($task -and $task.session -notin $ours) { $tasks.Add($task) } }
+    foreach ($task in $known) { if ($task.copy -and $task.copy -notin $ours) { $tasks.Add($task) } }
     foreach ($session in $sessions) {
-        # Копию оператор мог убрать из панели: сессии в каталоге, которого нет, не заводится.
-        if (-not (Test-Path -LiteralPath $session.cwd -PathType Container)) { continue }
         $id = Start-Dummy
         Write-Session $sessionsDir $id $session.cwd $session.extra
         if ($session.extra.jobId) { $tasks.Add([pscustomobject]@{ copy = $session.cwd; session = $session.extra.jobId }) }
@@ -626,8 +676,8 @@ function Start-DemoSessions($Copies) {
 
 # Журналы расхода за последнюю неделю в формате Claude Code. Пишутся заново на каждый запуск:
 # время записей отсчитывается от сейчас, а старше недели «Расход» не смотрит. Случайность с
-# постоянным зерном — одни и те же сутки на каждом запуске; тише только выходные, и они сдвигаются
-# вместе с сегодняшним днём недели.
+# постоянным зерном — одна и та же неделя на запусках в один и тот же день недели: выходные тише
+# будней, и от сегодняшнего дня недели зависит, где они и как ляжет остальное.
 function Write-DemoUsage {
     if (Test-Path -LiteralPath $projectsDir) { Remove-Item -LiteralPath $projectsDir -Recurse -Force }
     $random = [Random]::new(112)
