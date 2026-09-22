@@ -16,6 +16,9 @@ async function tokenColor(where: Locator, token: string) {
 export async function expectChoice(row: Locator, on: boolean) {
   const mark = row.locator('.choice-mark')
   const name = row.locator('.choice-name')
+  // Размер значка меряется здесь, а не в jsdom: общее `.modal-overlay svg` перебило бы правило той же силы
+  await expect(mark).toHaveCSS('width', '16px')
+  await expect(mark.locator('svg')).toHaveCSS('width', '10px')
   if (on) {
     await expect(mark).toHaveCSS('background-color', await tokenColor(row, '--text-primary'))
     await expect(mark.locator('svg')).toBeVisible()
@@ -24,6 +27,9 @@ export async function expectChoice(row: Locator, on: boolean) {
     await expect(mark).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(mark.locator('svg')).toBeHidden()
     await expect(name).toHaveCSS('font-weight', '400')
+    // Под мышью кружок невыбранной строки темнеет
+    await row.hover()
+    await expect(mark).toHaveCSS('border-top-color', await tokenColor(row, '--text-secondary'))
   }
 }
 
