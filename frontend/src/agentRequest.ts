@@ -39,6 +39,8 @@ export function useAgentRequest<E extends AgentEvent>(
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [restoring, setRestoring] = useState(true)
+  // Просьба того же вида, которую окно своей не считает: новая просьба окна её остановит (B-80).
+  const [foreign, setForeign] = useState<AgentRequestSummary | null>(null)
   const reading = useRef<AbortController | null>(null)
 
   const follow = useCallback(
@@ -127,6 +129,7 @@ export function useAgentRequest<E extends AgentEvent>(
           setRestoring(false)
           const own = list.find((request) => request.kind === kind && mine(request))
           if (own) void follow(own)
+          setForeign(list.find((request) => request.kind === kind && !mine(request)) ?? null)
         },
         () => alive && setRestoring(false),
       )
@@ -149,6 +152,8 @@ export function useAgentRequest<E extends AgentEvent>(
         })
         if (!response.ok) return { ok: false, status: response.status }
         const summary = (await response.json()) as AgentRequestSummary
+        // Чужую просьбу панель этой остановила: предупреждать больше не о чем.
+        setForeign(null)
         void follow(summary)
         return { ok: true }
       } catch {
@@ -176,7 +181,7 @@ export function useAgentRequest<E extends AgentEvent>(
     }
   }, [kind])
 
-  return { asked, base, steps, outcome, running, startedAt, failure, restoring, start, forget, setFailure }
+  return { asked, base, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure }
 }
 
 /** Своя просьба по умолчанию — любая просьба своего вида: разом идёт по одной каждого вида. */

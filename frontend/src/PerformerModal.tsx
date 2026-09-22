@@ -503,6 +503,15 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
             </div>
           </div>
 
+          {/* Разом идёт одна просьба этого вида: просьба отсюда остановит ту, что идёт про другого. */}
+          {draft.foreign && phase !== 'running' && (
+            <p className="pf-foreign">
+              {AGENT_NAME} {draft.foreign.state === 'running' ? 'сейчас занят' : 'уже ответил'}{' '}
+              {draft.foreign.subject ? `про исполнителя ${draft.foreign.subject}` : 'про нового исполнителя'}{' '}
+              {draft.foreign.project}: новая просьба отсюда {draft.foreign.state === 'running' ? 'остановит его' : 'уберёт этот ответ'}.
+            </p>
+          )}
+
           {failure && (
             <div className="ask-error" role="alert">
               <strong>{failure.git ? 'База не приняла исполнителя' : 'Исполнитель не записан'}</strong>

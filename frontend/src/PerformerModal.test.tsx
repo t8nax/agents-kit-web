@@ -378,6 +378,8 @@ test('окно правки не подхватывает просьбу о но
   expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
   expect(screen.queryByText('Основу написал Чудо-Юдо')).not.toBeInTheDocument()
   expect(panel.deletes).toEqual([])
+  // Разом идёт одна просьба этого вида: окно предупреждает, что его просьба остановит чужую.
+  expect(screen.getByText(/сейчас занят про нового исполнителя Agents Kit Web: новая просьба отсюда остановит его/)).toBeInTheDocument()
 })
 
 test('открытое заново окно правки подхватывает свою просьбу и её итог', async () => {
@@ -411,6 +413,12 @@ test('окно нового не подхватывает просьбу о пр
   await new Promise((resolve) => setTimeout(resolve, 50))
   expect(screen.queryByText('Пусть ещё сверяет')).not.toBeInTheDocument()
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  expect(screen.getByText(/сейчас занят про исполнителя reviewer Agents Kit Web/)).toBeInTheDocument()
+
+  // Своя просьба чужую останавливает: предупреждать больше не о чем.
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
+  await waitFor(() => expect(screen.queryByText(/сейчас занят про исполнителя/)).not.toBeInTheDocument())
 })
 
 test('нынешние поля уходят агенту, когда исполнителя правят', async () => {

@@ -127,6 +127,13 @@
   color: var(--text-primary);
 }
 
+/* Чужая просьба того же вида: новая её остановит — предупреждение до нажатия. */
+.pf-foreign {
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent-waiting-text);
+}
+
 /* Агент недоступен — одна строка цветом ошибки. */
 .pf-down {
   margin: 0;
