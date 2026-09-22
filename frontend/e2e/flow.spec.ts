@@ -136,7 +136,7 @@ async function openFlow(page: Page) {
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toBeVisible()
   // Мышь уходит с сайдбара разделов: под ней он раскрыт и накрывает левый край раздела.
   await page.mouse.move(900, 400)
-  const region = page.getByRole('region', { name: 'Флоу «полный»' })
+  const region = page.getByRole('region', { name: 'Сценарий «полный»' })
   await expect(region.getByRole('button', { name: 'Стадия 1: Критерий' })).toBeVisible()
   return region
 }
@@ -159,19 +159,19 @@ test('вкладка «Флоу»: узел старта и блоки по це
 
   // Узел старта, стрелки и блок «Добавить стадию» стоят по центру блоков
   const block = await region.getByRole('button', { name: 'Стадия 1: Критерий' }).boundingBox()
-  const start = await region.getByRole('button', { name: 'Флоу «полный»: название и «когда»' }).boundingBox()
+  const start = await region.getByRole('button', { name: 'Сценарий «полный»: название и «когда»' }).boundingBox()
   const arrow = await region.locator('.flow-arrow').first().boundingBox()
   const add = await page.getByRole('button', { name: 'Добавить стадию' }).boundingBox()
   for (const box of [start, arrow, add])
     expect(Math.abs(block!.x + block!.width / 2 - (box!.x + box!.width / 2))).toBeLessThan(1)
   // Выбор флоу — в левом верхнем углу холста, левее ленты
-  const picker = await page.getByRole('button', { name: 'Флоу: полный' }).boundingBox()
+  const picker = await page.getByRole('button', { name: 'Сценарий: полный' }).boundingBox()
   expect(picker!.x + picker!.width).toBeLessThan(block!.x)
 
-  await page.getByRole('button', { name: 'Флоу: полный' }).click()
-  await expect(page.getByRole('listbox', { name: 'Флоу' }).getByRole('option')).toHaveText(['полный', 'мелкий'])
+  await page.getByRole('button', { name: 'Сценарий: полный' }).click()
+  await expect(page.getByRole('listbox', { name: 'Сценарий' }).getByRole('option')).toHaveText(['полный', 'мелкий'])
   await page.getByRole('option', { name: 'мелкий' }).click()
-  await expect(page.getByRole('region', { name: 'Флоу «мелкий»' }).getByRole('button', { name: /^Стадия 1: Ревью/ })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Сценарий «мелкий»' }).getByRole('button', { name: /^Стадия 1: Ревью/ })).toBeVisible()
 
   // Редкие действия раздела — в меню «…» шапки; переписывания в нём нет
   await page.getByRole('button', { name: 'Ещё действия' }).click()
@@ -329,20 +329,20 @@ test('раздел держится в экране: прокручиваетс�
 
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('button', { name: 'Ещё действия' })).toBeInViewport({ ratio: 1 })
-  await expect(page.getByRole('button', { name: 'Флоу: полный' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Сценарий: полный' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('complementary')).toBeInViewport({ ratio: 1 })
-  await expect(page.getByRole('button', { name: 'Убрать из флоу' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Убрать из сценария' })).toBeInViewport({ ratio: 1 })
 })
 
 test('окно добавления: новая стадия, стадии базы и пресеты карточками; стадия встаёт в конец флоу', async ({ page }) => {
   await mockApi(page)
   await openFlow(page)
-  await page.getByRole('button', { name: 'Флоу: полный' }).click()
+  await page.getByRole('button', { name: 'Сценарий: полный' }).click()
   await page.getByRole('option', { name: 'мелкий' }).click()
-  const region = page.getByRole('region', { name: 'Флоу «мелкий»' })
+  const region = page.getByRole('region', { name: 'Сценарий «мелкий»' })
 
   await page.getByRole('button', { name: 'Добавить стадию' }).click()
-  const adding = page.getByRole('dialog', { name: 'Добавить стадию во флоу «мелкий»' })
+  const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «мелкий»' })
   await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
   // Стадии в окне выделены карточками, а не идут сплошным списком
   await expect(adding.getByRole('button', { name: /^Новая стадия/ })).toHaveCSS('border-top-style', 'solid')
@@ -420,6 +420,6 @@ test('проект без флоу — пустое состояние по це
   await expect(page.locator('.flow-empty').getByRole('button')).toHaveText(['Создать первый флоу'])
 
   await page.getByRole('button', { name: 'Создать первый флоу' }).click()
-  await expect(page.getByRole('region', { name: 'Флоу «новый флоу»' })).toBeVisible()
-  await expect(page.getByRole('complementary').getByRole('textbox', { name: 'Название флоу' })).toHaveValue('новый флоу')
+  await expect(page.getByRole('region', { name: 'Сценарий «новый сценарий»' })).toBeVisible()
+  await expect(page.getByRole('complementary').getByRole('textbox', { name: 'Название сценария' })).toHaveValue('новый сценарий')
 })

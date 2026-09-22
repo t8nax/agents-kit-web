@@ -280,7 +280,7 @@ const samePreset = (a: FlowStage, b: FlowStage) =>
 /** Имя, которого нет среди флоу: «новый флоу», «новый флоу 2»… */
 function freeName(flows: DraftFlow[]) {
   for (let n = 1; ; n++) {
-    const name = n === 1 ? 'новый флоу' : `новый флоу ${n}`
+    const name = n === 1 ? 'новый сценарий' : `новый сценарий ${n}`
     if (!flows.some((flow) => norm(flow.name) === norm(name))) return name
   }
 }
@@ -1218,10 +1218,10 @@ function FlowTab({
     onChange((f) => ({ ...f, entries: f.entries.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)) }))
 
   return (
-    <section className="flow-canvas" aria-label={`Флоу «${flowName(flow)}»`}>
+    <section className="flow-canvas" aria-label={`Сценарий «${flowName(flow)}»`}>
       <div className="flow-canvas-pick">
         <PickMenu
-          label="Флоу"
+          label="Сценарий"
           value={flowName(flow)}
           options={draft.flows.map((f) => ({ id: String(f.key), label: flowName(f) }))}
           selected={String(flow.key)}
@@ -1229,7 +1229,7 @@ function FlowTab({
         />
         <button type="button" className="bases-btn bases-btn-small" onClick={onNew}>
           <PlusIcon />
-          Новый флоу
+          Новый сценарий
         </button>
       </div>
 
@@ -1241,7 +1241,7 @@ function FlowTab({
             className={`flow-start ${opened?.kind === 'flow' ? 'opened' : ''} ${
               flowErrors(flow, draft.flows).length > 0 ? 'invalid' : ''
             }`}
-            aria-label={`Флоу «${flowName(flow)}»: название и «когда»`}
+            aria-label={`Сценарий «${flowName(flow)}»: название и «когда»`}
             aria-current={opened?.kind === 'flow'}
             onClick={() => onOpen({ kind: 'flow' })}
           >
@@ -1549,14 +1549,14 @@ function EntryDrawer({
       <div className="flow-drawer-foot">
         <button type="button" className="btn btn-danger flow-drawer-delete" onClick={onRemove}>
           <MinusIcon />
-          Убрать из флоу
+          Убрать из сценария
         </button>
       </div>
     </aside>
   )
 }
 
-/** Сайдбар флоу — по щелчку на узле старта: название, «когда» и удаление флоу. */
+/** Сайдбар сценария (флоу) — по щелчку на узле старта: название, «когда» и удаление. На вкладке флоу зовётся сценарием (B-192). */
 function FlowDrawer({
   flow,
   errors,
@@ -1573,7 +1573,7 @@ function FlowDrawer({
   return (
     <aside
       className="flow-drawer"
-      aria-label={`Флоу «${flowName(flow)}»`}
+      aria-label={`Сценарий «${flowName(flow)}»`}
       onKeyDown={(event) => event.key === 'Escape' && onClose()}
     >
       <div className="flow-drawer-head">
@@ -1582,7 +1582,7 @@ function FlowDrawer({
         </span>
         <div className="flow-drawer-name">
           <h3>{flowName(flow)}</h3>
-          <span className="flow-drawer-kind">флоу базы</span>
+          <span className="flow-drawer-kind">сценарий</span>
         </div>
         <button type="button" className="btn btn-icon" aria-label="Закрыть сайдбар" title="Закрыть сайдбар" onClick={onClose}>
           <CloseIcon />
@@ -1591,10 +1591,10 @@ function FlowDrawer({
 
       <div className="flow-drawer-body">
         <label className="flow-field">
-          <span>Название</span>
+          <span>Название сценария</span>
           <input
             className="flow-input"
-            aria-label="Название флоу"
+            aria-label="Название сценария"
             aria-invalid={!flow.name.trim()}
             value={flow.name}
             onChange={(event) => onChange({ name: event.target.value })}
@@ -1604,8 +1604,8 @@ function FlowDrawer({
           <span>Когда</span>
           <textarea
             className="flow-input"
-            aria-label="Когда брать флоу"
-            placeholder="какие задачи вести этим флоу"
+            aria-label="Когда брать сценарий"
+            placeholder="какие задачи вести этим сценарием"
             rows={4}
             value={flow.when}
             onChange={(event) => onChange({ when: event.target.value })}
@@ -1617,7 +1617,7 @@ function FlowDrawer({
       <div className="flow-drawer-foot">
         <button type="button" className="btn btn-danger flow-drawer-delete" onClick={onDelete}>
           <TrashIcon />
-          Удалить флоу
+          Удалить сценарий
         </button>
       </div>
     </aside>
@@ -2002,7 +2002,7 @@ function AddStage({
         aria-labelledby="flow-add-title"
         onKeyDown={(event) => event.key === 'Escape' && onCancel()}
       >
-        <h3 id="flow-add-title">Добавить стадию во флоу «{flowName(flow)}»</h3>
+        <h3 id="flow-add-title">Добавить стадию в сценарий «{flowName(flow)}»</h3>
         <div className="flow-presets">
           <button type="button" className="flow-preset" onClick={() => onPick('new')}>
             <span className="flow-preset-title">Новая стадия</span>
