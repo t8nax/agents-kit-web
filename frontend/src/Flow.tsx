@@ -1289,7 +1289,7 @@ function FlowTab({
   onAdd: () => void
   onDelete: () => void
 }) {
-  // Меню блока по щелчку: key пункта и точка, у которой оно встаёт (B-202).
+  // Меню блока по правому щелчку: key пункта и точка, у которой оно встаёт (B-202).
   const [menu, setMenu] = useState<{ key: number; at: Point } | null>(null)
   const chain = useRef<HTMLDivElement>(null)
   const stageOf = (entry: DraftEntry) => draft.stages.find((stage) => stage.key === entry.stage) ?? null
@@ -1383,7 +1383,6 @@ function FlowTab({
                     onOpen(null)
                     setMenu({ key: entry.key, at })
                   }}
-                  onMenuClose={() => setMenu(null)}
                   onMove={move}
                 />
               )
@@ -1525,8 +1524,8 @@ function ReturnArcs({ flow, opened }: { flow: DraftFlow; opened: number }) {
 
 /**
  * Блок стадии на схеме: без номера — по решению оператора, — со значком, названием и исполнителем.
- * Правка — меню у курсора по щелчку, левому и правому, — замечание оператора на приёмке B-202; с клавиатуры —
- * Enter, пробел, Shift+F10 или клавиша меню. Перетаскивание щелчка не шлёт и меню не открывает.
+ * Щелчок по нему ничего не открывает, блок только перетаскивается; правка — меню у курсора только по правому
+ * щелчку, с клавиатуры — Shift+F10 или клавишей меню: так решил оператор на приёмке B-202.
  */
 function StageNode({
   entry,
@@ -1540,7 +1539,6 @@ function StageNode({
   last,
   menu,
   onMenu,
-  onMenuClose,
   onMove,
 }: {
   entry: number
@@ -1554,7 +1552,6 @@ function StageNode({
   last: boolean
   menu: boolean
   onMenu: (at: Point) => void
-  onMenuClose: () => void
   onMove: (from: number, to: number) => void
 }) {
   const [dragging, setDragging] = useState(false)
@@ -1585,13 +1582,6 @@ function StageNode({
           aria-haspopup="menu"
           aria-expanded={menu}
           draggable
-          // Enter и пробел нажимают кнопку щелчком без точки на экране (detail 0): меню встаёт у середины блока.
-          // Повторный щелчок по блоку с открытым меню закрывает его, как у любой кнопки с раскрытым меню.
-          onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
-            if (menu) onMenuClose()
-            else if (event.detail === 0) fromKeys(event.currentTarget)
-            else onMenu({ x: event.clientX, y: event.clientY })
-          }}
           onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
             event.preventDefault()
             // Клавиша меню и Shift+F10 уже открыли меню по нажатию; браузер следом шлёт contextmenu — его пропускаем.
@@ -1771,9 +1761,7 @@ function ContextMenu({
 
   useEffect(() => {
     const onDown = (event: MouseEvent) => {
-      // Нажатие на кнопку, открывшую меню, закрывает его её же щелчком: здесь оно меню не трогает.
-      const opener = (event.target as Element).closest?.('[aria-haspopup="menu"][aria-expanded="true"]')
-      if (!box.current?.contains(event.target as Node) && !opener) close.current(false)
+      if (!box.current?.contains(event.target as Node)) close.current(false)
     }
     // Прокрутку, которая случилась до меню, браузер присылает событием в следующем кадре — раньше колбэков
     // кадра: фокус, вернувшийся на блок, подкручивает схему к нему, и без этого меню, открытое сразу

@@ -293,24 +293,18 @@ test('при двух флоу у каждого нужно «когда», пр
   expect(region).toBeDefined()
 })
 
-test('щелчок по блоку стадии — левый и правый — открывает у курсора меню её правки, сайдбара нет', async () => {
+test('левый щелчок по блоку стадии ничего не открывает, правый открывает у курсора меню её правки', async () => {
   stubApi(api([app]))
   const region = await renderFlow()
   const block = region.getByRole('button', { name: 'Стадия 2: Ревью' })
 
-  // Левый щелчок открывает то же меню у курсора, а не сайдбар — замечание оператора на приёмке
+  // Сайдбара стадии нет, а меню — только по правому щелчку: левый щелчок ничего не открывает — решение
+  // оператора на приёмке. Enter и пробел, которые нажимают кнопку, проверяет e2e: jsdom щелчка из них не делает
   fireEvent.click(block, { clientX: 50, clientY: 60, detail: 1 })
-  expect(screen.getByRole('menu', { name: 'Стадия «Ревью»' })).toHaveStyle({ left: '50px', top: '60px' })
+  fireEvent.click(block, { detail: 0 })
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
-  fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-
-  // Повторный щелчок по тому же блоку закрывает его меню; Enter и пробел у середины блока проверяет e2e —
-  // в jsdom у блока нет размеров
-  fireEvent.click(block, { clientX: 50, clientY: 60, detail: 1 })
-  fireEvent.mouseDown(block)
-  fireEvent.click(block, { clientX: 50, clientY: 60, detail: 1 })
-  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
   const menu = menuOf(region, 'Стадия 2: Ревью')
   expect(screen.getByRole('menu')).toHaveAccessibleName('Стадия «Ревью»')
