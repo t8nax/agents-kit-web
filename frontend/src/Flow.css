@@ -235,11 +235,6 @@
   height: 32px;
 }
 
-/* Окно выбора нового шага */
-.flow-add {
-  width: 560px;
-}
-
 .flow-node-add {
   height: 92px;
   gap: 6px;
@@ -582,39 +577,6 @@ textarea.flow-input {
   font-size: 13px;
 }
 
-/* Бейдж исполнителя в списке пресетов */
-.flow-executor {
-  font-size: 12px;
-  font-weight: 500;
-  border-radius: 4px;
-  padding: 2px 8px;
-  white-space: nowrap;
-}
-
-.flow-executor-orchestrator {
-  color: var(--accent-active-text);
-  background: var(--accent-active-bg);
-}
-
-.flow-executor-operator {
-  color: var(--accent-waiting-text);
-  background: var(--accent-waiting-bg);
-}
-
-.flow-executor-agent {
-  color: var(--accent-done-text);
-  background: var(--accent-done-bg);
-}
-
-/* Список шагов в окне «Добавить шаг»: каждый шаг — своя карточка, иначе они сливаются. */
-.flow-presets {
-  max-height: 50vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 /* Шаг без описания: надпись та же, кнопка приглушена пунктиром */
 .flow-description-btn.flow-description-empty {
   background: transparent;
@@ -720,53 +682,6 @@ textarea.flow-input {
 .flow-presets-empty {
   margin: 0;
   padding: 0 2px 4px;
-}
-
-.flow-preset-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.flow-preset-row .flow-icon-btn {
-  border-color: transparent;
-}
-
-.flow-preset {
-  font: inherit;
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.flow-preset:hover {
-  background: var(--bg-surface-hover);
-  border-color: var(--border-strong);
-}
-
-.flow-preset:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
-}
-
-.flow-preset-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.flow-preset-title {
-  font-size: 14px;
-  font-weight: 500;
 }
 
 /* Окно подтверждения сохранения */
@@ -1601,6 +1516,82 @@ textarea.flow-input {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* Окно «Добавить стадию» — рамкой окна правки стадии, уже: в нём один столбец строк (B-209). Сильнее общего
+   .modal-wizard (800px): при равной силе ширину решал бы порядок подключения стилей. */
+.modal-wizard.flow-add-modal {
+  width: 600px;
+}
+
+.flow-add-body {
+  gap: 10px;
+}
+
+.flow-add-body > .flow-presets-group:first-of-type .flow-presets-label {
+  padding-top: 0;
+}
+
+/* Стадии — списком, по карточке вкладки «Стадии» в строку: значок, название, справа исполнитель. */
+.flow-add-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.flow-add-list > li {
+  position: relative;
+  display: flex;
+}
+
+.flow-add-list .flow-stage-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 14px;
+}
+
+.flow-add-list .flow-stage-card.flow-stage-card-add {
+  justify-content: center;
+  min-height: 48px;
+}
+
+/* Плюс — размера пунктирной карточки вкладки «Стадии», а не общих значков окна правки. */
+.flow-stage-modal .flow-add-list .flow-stage-card-add svg {
+  width: 18px;
+  height: 18px;
+}
+
+.flow-add-list .flow-stage-card-foot {
+  margin-top: 0;
+  flex-shrink: 0;
+  max-width: 45%;
+}
+
+/* Крестик пресета стоит поверх строки у правого края: место под него строка оставляет справа. */
+.flow-add-list .flow-stage-card.has-remove {
+  padding-right: 48px;
+}
+
+.flow-preset-remove {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  display: flex;
+}
+
+.flow-stage-modal .flow-preset-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.flow-add-modal .flow-stage-foot {
+  justify-content: flex-end;
 }
 
 /* Проект без флоу: по центру раздела под строкой заголовка. */
