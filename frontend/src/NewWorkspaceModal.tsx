@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
+import { ChoiceMark } from './ChoiceMark'
 import { plural } from './plural'
 import { WarningIcon } from './Problems'
 import './Modal.css'
@@ -128,7 +129,7 @@ export default function NewWorkspaceModal({ rows, onClose, onCreated, onSettings
                 <ul className="nw-projects">
                   {projects.map((p) => (
                     <li key={p.base}>
-                      <label className={`nw-project ${p.base === base ? 'is-on' : ''} ${p.source ? '' : 'is-off'}`}>
+                      <label className={`nw-project choice ${p.base === base ? 'is-on' : ''} ${p.source ? '' : 'is-off'}`}>
                         <input
                           type="radio"
                           name="nw-project"
@@ -140,9 +141,9 @@ export default function NewWorkspaceModal({ rows, onClose, onCreated, onSettings
                             if (failure?.kind !== 'kit') setFailure(null)
                           }}
                         />
-                        <span className="nw-radio" aria-hidden="true" />
+                        <ChoiceMark />
                         <span className="nw-project-text">
-                          <span className="nw-project-name">{p.name}</span>
+                          <span className="nw-project-name choice-name">{p.name}</span>
                           <span className="mono text-ter">{p.source ? p.source.path : 'копии проекта нет на диске'}</span>
                         </span>
                         <span className="nw-project-meta">
