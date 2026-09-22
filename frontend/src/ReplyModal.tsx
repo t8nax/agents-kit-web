@@ -116,7 +116,15 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   }, [base, copy])
 
   // Закрытое окно ничего не отправляет: отложенная запись уходит вместе с ним.
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  // Ответ записи, пришедший после закрытия окна, его уже не трогает: иначе он закрыл бы окно другой копии.
+  const alive = useRef(true)
+  useEffect(
+    () => () => {
+      alive.current = false
+      window.clearTimeout(timer.current)
+    },
+    [],
+  )
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -198,6 +206,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   async function write(given: string[]) {
     setPhase('writing')
     const fail = (text: string, question?: string) => {
+      if (!alive.current) return
       const index = question ? questions.findIndex((q) => q.title === question) : -1
       if (index >= 0) {
         setCurrent(index)
@@ -220,7 +229,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         forgetDrafts(base, copy, questions.map((q) => q.title))
         // ответы в памяти: окно больше не нужно, признак успеха — строка таблицы перестаёт ждать
         onAnswered()
-        onClose()
+        if (alive.current) onClose()
         return
       }
       if (response.status === 400 || response.status === 409) {
@@ -418,7 +427,14 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                 </>
               )}
             </div>
-            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onClose}>
+            {/* Пока ответы уходят, окно не закрывается ничем: закрытое сняло бы запись молча. */}
+            <button
+              type="button"
+              className="btn btn-icon"
+              aria-label="Закрыть"
+              disabled={phase !== 'open'}
+              onClick={onClose}
+            >
               <CloseIcon />
             </button>
           </div>

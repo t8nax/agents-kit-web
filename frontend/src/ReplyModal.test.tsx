@@ -496,9 +496,13 @@ test('ответ на последний оставшийся вопрос: «О
 
   expect(dialog.getByRole('status')).toHaveTextContent('Ответы отправлены агенту')
   expect(dialog.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
-  // строки ввода нет, и окно пока не закрывается ни Escape, ни щелчком мимо
+  // строки ввода нет, и окно пока не закрывается ни Escape, ни щелчком мимо, ни крестиком:
+  // закрытое сняло бы запись молча
   expect(dialog.queryByLabelText('Ответ')).not.toBeInTheDocument()
   fireEvent.keyDown(window, { key: 'Escape' })
+  fireEvent.mouseDown(document.querySelector('.modal-overlay')!)
+  expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
+  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
   expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
   act(() => vi.advanceTimersByTime(UNDO_MS - 1))
   expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
@@ -558,6 +562,8 @@ test('Enter на последнем вопросе отправляет так �
 
   await waitFor(() => expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1))
   expect(dialog.queryByRole('button', { name: 'Отменить' })).not.toBeInTheDocument()
+  // пока запись идёт, окно тоже не закрывается: об отказе оператор иначе не узнал бы
+  expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
   finish()
   await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
   expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
