@@ -10,7 +10,7 @@ public sealed record QuestionsResponse(
     string? Task,
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
-    string? Design,
+    IReadOnlyList<TaskArtifact> Artifacts,
     IReadOnlyList<OperatorQuestion> Questions,
     bool VsCodeSession,
     bool BackgroundSession);
@@ -43,7 +43,7 @@ public static class OperatorEndpoints
                 memory.Task,
                 memory.Criteria,
                 memory.OutOfScope,
-                memory.Design,
+                memory.Artifacts,
                 memory.Questions.Where(q => q.Answer is null).ToList(),
                 sessions.VsCodeIn(memory.Copy!) is not null,
                 sessions.BackgroundIn(memory.Copy!, tasks.SessionIn(memory.Copy!)) is not null));

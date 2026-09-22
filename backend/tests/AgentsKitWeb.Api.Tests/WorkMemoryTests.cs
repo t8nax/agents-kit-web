@@ -26,7 +26,13 @@ public class WorkMemoryTests
         Health баз.
 
         ### Дизайн
-        Макет таблицы: https://claude.ai/artifact/AbC123
+        Макет таблицы: https://claude.ai/artifact/Old456
+
+        ## Артефакты
+        - макет таблицы: https://claude.ai/artifact/AbC123
+        просто строка, не артефакт
+        - спецификация: D:\Projects\app\spec.md
+        - без адреса
 
         ## Оператору
 
@@ -84,20 +90,34 @@ public class WorkMemoryTests
     }
 
     [Fact]
-    public void Parse_Design_ReadsDesignSubsectionApartFromCriteria()
+    public void Parse_Artifacts_ReadsLabelAndAddressOfEachLineInFileOrder()
     {
         var memory = WorkMemory.Parse(Memory);
 
-        Assert.Equal("Макет таблицы: https://claude.ai/artifact/AbC123", memory.Design);
-        Assert.DoesNotContain(memory.Criteria, c => c.Title == "Дизайн");
+        Assert.Equal(
+            [
+                new TaskArtifact("макет таблицы", "https://claude.ai/artifact/AbC123"),
+                new TaskArtifact("спецификация", @"D:\Projects\app\spec.md"),
+            ],
+            memory.Artifacts);
     }
 
     [Fact]
-    public void Parse_WithoutDesignSubsection_HasNullDesign()
+    public void Parse_OldDesignSubsection_IsNeitherCriterionNorArtifact()
     {
-        var memory = WorkMemory.Parse(Memory.Replace("### Дизайн\nМакет таблицы: https://claude.ai/artifact/AbC123\n\n", ""));
+        var memory = WorkMemory.Parse(Memory);
 
-        Assert.Null(memory.Design);
+        Assert.DoesNotContain(memory.Criteria, c => c.Title == "Дизайн");
+        Assert.DoesNotContain(memory.Artifacts, a => a.Address.Contains("Old456"));
+    }
+
+    [Fact]
+    public void Parse_WithoutArtifactsSection_HasNoArtifacts()
+    {
+        var start = Memory.IndexOf("## Артефакты", StringComparison.Ordinal);
+        var memory = WorkMemory.Parse(Memory.Remove(start, Memory.IndexOf("## Оператору", StringComparison.Ordinal) - start));
+
+        Assert.Empty(memory.Artifacts);
     }
 
     [Fact]

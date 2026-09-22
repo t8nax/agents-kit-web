@@ -15,6 +15,9 @@ public sealed record OperatorQuestion(
 /// <summary>Критерий закрытия — подраздел «### N. признак» и текст оператору под ним.</summary>
 public sealed record ClosingCriterion(string Title, string? Text);
 
+/// <summary>Артефакт задачи — строка «- что это: адрес» раздела «## Артефакты».</summary>
+public sealed record TaskArtifact(string Label, string Address);
+
 /// <summary>Рабочая память задачи — файл work/*.md базы.</summary>
 public sealed record WorkMemory(
     string? Copy,
@@ -24,17 +27,21 @@ public sealed record WorkMemory(
     int? Progress,
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
-    string? Design,
+    IReadOnlyList<TaskArtifact> Artifacts,
     IReadOnlyList<OperatorQuestion> Questions)
 {
     private const string OutOfScopeTitle = "Не входит";
-    // Ссылку на макет агент кладёт сюда — шаг 1.2.2 флоу проекта.
+    // Прежнее место ссылки на макет: артефакты теперь в «## Артефакты», а подраздел памятей,
+    // записанных по-старому, не показывается ни артефактом, ни критерием.
     private const string DesignTitle = "Дизайн";
 
     public bool WaitingForOperator => Questions.Any(q => q.Answer is null);
 
     // Строки «Флоу» и «Шагов» размечены одинаково; у шага флоу впереди ещё и его номер.
     private static readonly Regex ChecklistItem = new(@"^- \[(?<done>[ xX])\]\s*(?:\d+\.\s*)?(?<name>.*)$");
+
+    // «- макет окна: https://…» — подпись до первого «: », адрес после; у «https://» и «D:\» пробела за двоеточием нет.
+    private static readonly Regex ArtifactItem = new(@"^- (?<label>.+?): (?<address>.+)$");
 
     public static WorkMemory Parse(string text)
     {
@@ -43,6 +50,7 @@ public sealed record WorkMemory(
         string? copy = null, branch = null, task = null;
         // Подразделы критериев в порядке файла: заголовок и строки текста под ним.
         var criteriaBlocks = new List<(string Title, List<string> Lines)>();
+        var artifacts = new List<TaskArtifact>();
         var flowTotal = 0;
         var flowDone = 0;
         var stepsTotal = 0;
@@ -85,6 +93,12 @@ public sealed record WorkMemory(
                 continue;
             }
 
+            if (section == "Артефакты" && ArtifactItem.Match(line) is { Success: true } artifact)
+            {
+                artifacts.Add(new TaskArtifact(artifact.Groups["label"].Value.Trim(), artifact.Groups["address"].Value.Trim()));
+                continue;
+            }
+
             if (section == "Агенту" && subsection == "Флоу" && ChecklistItem.Match(line) is { Success: true } flowItem)
             {
                 flowTotal++;
@@ -114,8 +128,7 @@ public sealed record WorkMemory(
             .Select(b => new ClosingCriterion(b.Title, MemoryText.Block(b.Lines)))
             .ToList();
         var outOfScope = Named(criteriaBlocks, OutOfScopeTitle);
-        var design = Named(criteriaBlocks, DesignTitle);
-        return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, design, questions);
+        return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, artifacts, questions);
     }
 
     private static string? Named(List<(string Title, List<string> Lines)> blocks, string title) =>

@@ -31,8 +31,8 @@ public sealed class OperatorEndpointsTests : IDisposable
         ### Не входит
         Health баз.
 
-        ### Дизайн
-        Макет окна: https://claude.ai/artifact/AbC123
+        ## Артефакты
+        - макет окна: https://claude.ai/artifact/AbC123
 
         ## Оператору
 
@@ -104,7 +104,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal("Окно ответа", response.Task);
         Assert.Equal([new ClosingCriterion("1. Окно есть", "Оператор отвечает из панели.")], response.Criteria);
         Assert.Equal("Health баз.", response.OutOfScope);
-        Assert.Equal("Макет окна: https://claude.ai/artifact/AbC123", response.Design);
+        Assert.Equal([new TaskArtifact("макет окна", "https://claude.ai/artifact/AbC123")], response.Artifacts);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
         Assert.Equal("За вами объём проверок.", response.Questions[0].Context);
         Assert.True(response.Questions[1].Variants[0].Recommended);
