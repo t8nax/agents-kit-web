@@ -50,6 +50,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     private Turn? _turn;
     private Pending? _pending;
 
+    /// <summary>Запись, про которую разговор открыт кнопкой «Изменить»: новый агент после сбоя должен её знать.</summary>
+    private string? _about;
+
     public async Task<AgentRequestSummary> StartAsync(string basePath, string text, string? number)
     {
         var replies = Channel.CreateUnbounded<string>();
@@ -67,10 +70,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         {
             _turn = turn;
             _pending = null;
+            _about = number;
         }
         // Навык кита зовётся первой репликой: дальше разговор идёт в нём же.
-        var about = number is null ? "" : $"Про запись {number}: ";
-        await SayAsync(request, turn, text, $"/agents-kit:backlog {about}{text}", number);
+        await SayAsync(request, turn, text, Skill(number, text), number);
         return request.Summary;
     }
 
@@ -84,6 +87,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         Turn? turn;
         lock (_gate)
         {
+            // Пока панель пишет предложение, реплика не уходит: агент застал бы бэклог посреди записи.
+            if (_pending is { Saving: true })
+                return AskReplied.Answering;
             turn = _turn?.Request == request && request.Working ? _turn : null;
             // Новая просьба заменяет несохранённое предложение: сохранять его больше нечего.
             _pending = null;
@@ -135,7 +141,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         Pending pending;
         lock (_gate)
         {
-            if (_pending?.Proposal.Id != id || _pending.Saving)
+            // Предложение живёт, пока жив его разговор и агент не отвечает на новую реплику.
+            if (_pending?.Proposal.Id != id || _pending.Saving
+                || requests.Of(AgentRequests.Backlog) != _pending.Request || !_pending.Request.Finished)
                 return null;
             pending = _pending;
             pending.Saving = true;
@@ -227,7 +235,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     /// Реплика встаёт в переписку и уходит агенту строкой stdin, если бэклог можно трогать: незакоммиченную
     /// чужую правку агент унёс бы в свой коммит.
     /// </summary>
-    private static async Task SayAsync(AgentRequest request, Turn turn, string text, string message, string? number)
+    private static string Skill(string? number, string text) =>
+        number is null ? $"/agents-kit:backlog {text}" : $"/agents-kit:backlog Про запись {number}: {text}";
+
+    private async Task SayAsync(AgentRequest request, Turn turn, string text, string message, string? number)
     {
         request.Reply(new BacklogWriteEvent("reply", text, Number: number));
         if (await RefusalAsync(request.Base) is { } refusal)
@@ -239,7 +250,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         turn.Before = Backlog.Blocks(ReadText(request.Base)!);
         if (turn.Restarted)
         {
-            message = $"/agents-kit:backlog {message}";
+            message = Skill(_about, message);
             turn.Restarted = false;
         }
         turn.Timeout.CancelAfter(Answer);
@@ -333,12 +344,24 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
 
         var (said, blocks) = BacklogProposal.Split(answer.Text);
         var output = said.Length > 0 ? said : null;
-        if (touched.Count > 0)
-            return new BacklogWriteEvent(
-                "error", $"{AgentRequests.AgentName} сам изменил записи {string.Join(", ", touched)} вместо предложения", entries, Output: output);
-
         var dirty = await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
-        if (dirty != false)
+        if (touched.Count > 0)
+        {
+            // Оператору надо знать, где искать правку, сделанную без его «Сохранить»: в истории базы или в файле.
+            var where = dirty switch
+            {
+                true => "правка не закоммичена — backlog.md остался изменённым",
+                false when await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None) is { } sha =>
+                    $"правка уже в истории базы, коммит {sha}",
+                _ => "закоммичена ли правка, git не сказал",
+            };
+            return new BacklogWriteEvent(
+                "error", $"{AgentRequests.AgentName} сам изменил записи {string.Join(", ", touched)} вместо предложения: {where}", entries, Output: output);
+        }
+
+        if (dirty is null)
+            return new BacklogWriteEvent("error", "git не прочитал базу — итог ответа не проверен", entries, Output: output);
+        if (dirty == true)
             return new BacklogWriteEvent("error", "Бэклог изменён, но backlog.md не закоммичен", entries, Output: output);
 
         var (proposal, wrong) = text is null ? (null, null) : BacklogProposal.Build(blocks, text);

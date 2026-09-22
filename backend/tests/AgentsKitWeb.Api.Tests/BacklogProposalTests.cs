@@ -41,6 +41,29 @@ public sealed class BacklogProposalTests
     }
 
     [Fact]
+    public void Build_RefusesChangeThatLosesAgentSectionAndMergeIntoDeletedEntry()
+    {
+        const string withAgent = "# Бэклог\n\n## B-1 Первая\n\nТекст.\n\n### Агенту\n- где: App.tsx\n\n## B-2 Вторая\n";
+
+        Assert.Equal(
+            "В изменённой записи B-1 пропал раздел «### Агенту»",
+            BacklogProposal.Build(["изменить B-1\n## B-1 Первая\n\nНовый текст."], withAgent).Error);
+        Assert.Equal(
+            "Запись B-2 уходит в B-1, а B-1 удаляется в том же предложении",
+            BacklogProposal.Build(["удалить B-1", "удалить B-2 в B-1"], withAgent).Error);
+    }
+
+    [Fact]
+    public void Apply_KeepsTrailingSpacesOfChangedEntry()
+    {
+        var (proposal, _) = BacklogProposal.Build(["изменить B-2\n## B-2 Вторая\n\nСтрока с переносом  \nдальше\n\n"], File);
+
+        var (text, _) = proposal!.Apply(File);
+
+        Assert.Contains("Строка с переносом  \r\nдальше\r\n\r\n## B-3", text);
+    }
+
+    [Fact]
     public void Split_TakesProposalBlocksOutOfAnswer()
     {
         var (text, blocks) = BacklogProposal.Split("Вот так.\r\n\r\n~~~backlog\r\nудалить B-2\r\n~~~\r\n\r\n\r\nГотово.");

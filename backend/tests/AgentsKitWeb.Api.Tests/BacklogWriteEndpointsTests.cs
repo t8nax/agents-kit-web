@@ -219,7 +219,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     {
         _agent.Answers =
         [
-            [Result("~~~backlog\nизменить B-1\n## B-1 Старая и вторая\n\nОба текста.\n~~~\n~~~backlog\nудалить B-2 в B-1\n~~~")],
+            [Result("~~~backlog\nизменить B-1\n## B-1 Старая и вторая\n\nОба текста.\n\n### Агенту\n- где: App.tsx\n~~~\n~~~backlog\nудалить B-2 в B-1\n~~~")],
         ];
         var client = Client(_base);
 
@@ -233,7 +233,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
         Assert.Null((await Save(client, answer.Proposal.Id)).Error);
         Assert.Equal(
-            "# Order Service — бэклог\n\nследующий номер: B-3\nполя: тип, приоритет\n\n## B-1 Старая и вторая\n\nОба текста.\n",
+            "# Order Service — бэклог\n\nследующий номер: B-3\nполя: тип, приоритет\n\n## B-1 Старая и вторая\n\nОба текста.\n\n### Агенту\n- где: App.tsx\n",
             File.ReadAllText(BacklogPath));
     }
 
@@ -337,8 +337,37 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         var error = (await Read(client, 2))[1];
 
         Assert.Equal("error", error.Type);
-        Assert.Equal("Чудо-Юдо сам изменил записи B-2 вместо предложения", error.Text);
+        Assert.Equal($"Чудо-Юдо сам изменил записи B-2 вместо предложения: правка уже в истории базы, коммит {Git("log", "-1", "--format=%h")}", error.Text);
         Assert.Equal("Удалил B-2.", error.Output);
+    }
+
+    [Fact]
+    public async Task Save_RefusesProposalOfRemovedConversation()
+    {
+        _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "удали B-2");
+        var answer = (await Read(client, 2))[1];
+
+        await client.DeleteAsync("/api/agent/backlog");
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync("/api/backlog/write/save", new BacklogProposalRequest(answer.Proposal!.Id))).StatusCode);
+        Assert.Contains("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
+    public async Task Reply_AfterAgentEndedRemindsNewAgentOfTheEntry()
+    {
+        _agent.Answers = [[Result("Что поменять?")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        var client = Client(_base);
+
+        await Start(client, "поправь", "B-1");
+        await Read(client, 2);
+        await Reply(client, "приоритет высокий");
+        await Read(client, 5);
+
+        Assert.Equal("/agents-kit:backlog Про запись B-1: приоритет высокий", Said(_agent.Input[1]));
     }
 
     [Fact]

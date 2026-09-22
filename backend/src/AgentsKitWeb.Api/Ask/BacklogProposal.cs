@@ -88,9 +88,14 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
                 var own = Backlog.Blocks(body);
                 if (own.Count != 1 || own[0].Start != 0 || own[0].Number != number)
                     return (null, $"Изменённая запись {number} должна начинаться строкой «## {number} …» и быть одна");
+                // Раздел «Агенту» оператор в окне не видит: пропади он в предложении, «Сохранить» срезал бы его молча.
+                if (HasAgentSection(original.Text) && !HasAgentSection(own[0].Text))
+                    return (null, $"В изменённой записи {number} пропал раздел «### Агенту»");
+                // В файл идёт запись, как её написал агент: разбор срезает хвостовые пробелы строк, а в markdown
+                // два пробела в конце — перенос строки.
                 changes.Add(new BacklogChange(BacklogChange.Change, number!, Entry(header, own[0].Text))
                 {
-                    Text = own[0].Text,
+                    Text = WithoutTrailingBlankLines(body),
                     Original = original.Text,
                 });
                 continue;
@@ -101,6 +106,9 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
 
         if (changes.GroupBy(c => c.Number).FirstOrDefault(g => g.Count() > 1) is { } twice)
             return (null, $"Запись {twice.Key} названа в предложении дважды");
+        var deleted = changes.Where(c => c.Kind == BacklogChange.Delete).Select(c => c.Number).ToHashSet();
+        if (changes.FirstOrDefault(c => c.Into is not null && deleted.Contains(c.Into)) is { } lost)
+            return (null, $"Запись {lost.Number} уходит в {lost.Into}, а {lost.Into} удаляется в том же предложении");
         return (new BacklogProposal(Guid.NewGuid().ToString("N"), changes), null);
     }
 
@@ -136,6 +144,17 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
             text = text[..edit.Start] + edit.Text + text[edit.End..];
         // Вырезана последняя запись: пустые строки перед ней остались бы висеть в конце файла.
         return (lastCut ? text.TrimEnd() + newline : text, null);
+    }
+
+    private static bool HasAgentSection(string text) =>
+        text.Split('\n').Any(line => line.StartsWith("### ") && line[4..].Trim() == "Агенту");
+
+    private static string WithoutTrailingBlankLines(string text)
+    {
+        var lines = text.Split('\n').ToList();
+        while (lines.Count > 1 && lines[^1].Trim().Length == 0)
+            lines.RemoveAt(lines.Count - 1);
+        return string.Join("\n", lines);
     }
 
     private static BacklogBlock? Find(IReadOnlyList<BacklogBlock> entries, string? number) =>
