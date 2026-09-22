@@ -99,7 +99,7 @@
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
-  cursor: pointer;
+  cursor: grab;
 }
 
 .flow-node:hover {
@@ -110,11 +110,6 @@
 .flow-node:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
-}
-
-.flow-node.opened {
-  border-color: var(--accent-done-text);
-  background: var(--bg-surface-hover);
 }
 
 .flow-node.invalid {
@@ -248,6 +243,7 @@
 .flow-node-add {
   height: 92px;
   gap: 6px;
+  cursor: pointer;
   color: var(--text-secondary);
   background: none;
   border-style: dashed;
@@ -391,18 +387,6 @@
   resize: none;
 }
 
-/* Переход к правке стадии — кнопкой сразу после возвратов (B-192). */
-.flow-go-stage {
-  justify-content: center;
-  font-weight: 500;
-}
-
-.flow-drawer .flow-go-stage svg {
-  width: 14px;
-  height: 14px;
-  color: var(--text-tertiary);
-}
-
 /* «Добавить возврат» — пунктирной кнопкой во всю ширину, как «Добавить стадию» на схеме. */
 .flow-add-dashed {
   font: inherit;
@@ -470,15 +454,6 @@
 textarea.flow-input {
   resize: vertical;
   line-height: 1.5;
-}
-
-/* Описание шага — текст как в файле: моноширинный, с отступами пунктов */
-.flow-description-text {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow-x: auto;
 }
 
 /* Список значков: в нём сами значки, а не их названия */
@@ -653,9 +628,85 @@ textarea.flow-input {
   height: 14px;
 }
 
-/* Окно описания: текст как в файле */
-.flow-description {
-  width: 760px;
+/* Окно описания — рамкой окна задания исполнителя (pf-task): во весь рост, текст оформленным (B-202). */
+.flow-description .ask-title > svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-secondary);
+}
+
+.flow-description .btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Правка со схемы задевает все сценарии, где стоит стадия: строкой под заголовком окна, янтарём, как
+   предупреждение о задачах в работе при сохранении (B-202). */
+.flow-scope-warning {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border: 1px solid var(--accent-waiting-border);
+  border-radius: 6px;
+}
+
+/* Меню блока стадии — меню строки, поставленное у курсора поверх страницы (B-202). */
+.flow-context-menu {
+  position: fixed;
+  right: auto;
+  z-index: 1000;
+}
+
+/* Блок с открытым меню выглядит как под мышью. */
+.flow-node.menu-open {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+/* Окно возвратов — рамкой окна правки стадии, уже: в нём только карточки возвратов. Сильнее общего
+   .modal-wizard (800px): при равной силе ширину решал бы порядок подключения стилей. */
+.modal-wizard.flow-returns-modal {
+  width: 560px;
+}
+
+.flow-returns-modal .ask-body {
+  gap: 12px;
+}
+
+/* Сильнее правил окна правки (.flow-stage-modal .flow-field — сетка «подпись | поле»): иначе карточки
+   возвратов стоят в правой колонке, а не во всю ширину окна — замечание оператора на приёмке B-202. */
+.flow-stage-modal.flow-returns-modal .flow-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+}
+
+/* Подпись «Возвраты» уже в заголовке окна. */
+.flow-returns-modal .flow-field > span:first-child {
+  display: none;
+}
+
+/* Поля карточек — крупные, как на макете и в прежнем сайдбаре, а не плотные поля окна правки. */
+.flow-stage-modal.flow-returns-modal .flow-input {
+  min-height: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  border-radius: 8px;
+  padding: 11px 14px;
+  background: var(--bg-surface);
+}
+
+/* У карточек нет отступа строк окна правки: причина «не сохранить» стоит вровень с ними. */
+.flow-stage-modal.flow-returns-modal .flow-step-error {
+  padding: 0;
+}
+
+.flow-returns-modal .flow-stage-foot {
+  justify-content: flex-end;
 }
 
 .flow-presets-label {
@@ -824,10 +875,6 @@ textarea.flow-input {
 .flow-return-row .flow-input {
   flex: 1;
   min-width: 0;
-}
-
-.flow-drawer .flow-return .flow-input {
-  background: var(--bg-surface);
 }
 
 .flow-return-mark {

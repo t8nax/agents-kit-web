@@ -180,7 +180,7 @@ test('вкладка «Флоу»: узел старта и блоки по це
   await expect.poll(() => calls.open).toEqual([{ base: 'D:\\Projects\\app-knowledge' }])
 })
 
-test('сайдбар стадии справа от схемы, дуги возвратов слева от ленты, кнопка после возвратов ведёт к правке стадии', async ({
+test('меню стадии встаёт у курсора, окна возвратов и правки открываются поверх схемы и возвращают фокус блоку', async ({
   page,
 }) => {
   await mockApi(page)
@@ -195,21 +195,122 @@ test('сайдбар стадии справа от схемы, дуги воз�
     expect(line && node && line.x + line.width).toBeLessThanOrEqual((node?.x ?? 0) + 2)
   }).toPass()
 
-  await region.getByRole('button', { name: /^Стадия 3: Приёмка/ }).click()
-  const drawer = page.getByRole('complementary')
-  await expect(region.locator('.flow-arc-open')).toHaveCount(1)
-  await expect(region.getByText('есть замечания')).toBeVisible()
-  const node = await region.getByRole('button', { name: /^Стадия 3: Приёмка/ }).boundingBox()
-  expect((await drawer.boundingBox())!.x).toBeGreaterThan(node!.x + node!.width)
-  // В сайдбаре стадии во флоу — только её возвраты
-  await expect(drawer.getByRole('textbox', { name: 'Условие возврата 1' })).toHaveValue('есть замечания')
-  await expect(drawer.getByRole('textbox', { name: 'Выход стадии' })).toHaveCount(0)
+  // Левый щелчок, Enter и пробел по блоку ничего не открывают: меню — только по правому щелчку
+  const block = region.getByRole('button', { name: /^Стадия 3: Приёмка/ })
+  await block.click()
+  await expect(block).toBeFocused()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  for (const key of ['Enter', ' ']) {
+    await page.keyboard.press(key)
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(block).toBeFocused()
+  }
+  await expect(page.getByRole('complementary')).toHaveCount(0)
 
-  await drawer.getByRole('button', { name: 'Править стадию «Приёмка»' }).click()
-  await expect(page.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
-  await expect(
-    page.getByRole('dialog', { name: 'Стадия «Приёмка»' }).getByRole('textbox', { name: 'Выход стадии' }),
-  ).toHaveValue('ответ оператора «принято»')
+  // Щелчок по самому блоку закрывает его открытое меню
+  await block.click({ button: 'right' })
+  await expect(page.getByRole('menu')).toHaveCount(1)
+  await block.click({ position: { x: 10, y: 10 } })
+  await expect(page.getByRole('menu')).toHaveCount(0)
+
+  // Правый щелчок ставит меню у курсора
+  const first = region.getByRole('button', { name: 'Стадия 1: Критерий' })
+  await first.click({ button: 'right', position: { x: 60, y: 40 } })
+  const node = (await first.boundingBox())!
+  const box = (await page.getByRole('menu', { name: 'Стадия «Критерий»' }).boundingBox())!
+  expect(Math.abs(box.x - (node.x + 60))).toBeLessThanOrEqual(1)
+  expect(Math.abs(box.y - (node.y + 40))).toBeLessThanOrEqual(1)
+  // Прокрутка схемы после открытия закрывает меню: оно стоит у точки экрана, а блок уехал бы
+  await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))))
+  await region.locator('.flow-scroll').dispatchEvent('scroll')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+
+  // У нижнего края меню поднимается вверх и целиком остаётся в окне
+  await block.click({ button: 'right', position: { x: 60, y: 120 } })
+  const menu = page.getByRole('menu', { name: 'Стадия «Приёмка»' })
+  await expect(menu).toBeInViewport({ ratio: 1 })
+  await expect(menu.getByRole('menuitem', { name: 'Возвраты' })).toBeFocused()
+
+  // Окно возвратов — поверх схемы: дуга стадии подсвечена, под окном Tab не уходит к разделу
+  await menu.getByRole('menuitem', { name: 'Возвраты' }).click()
+  const returns = page.getByRole('dialog', { name: 'Возвраты стадии «Приёмка»' })
+  await expect(returns.getByRole('textbox', { name: 'Условие возврата 1' })).toHaveValue('есть замечания')
+  await expect(returns.getByRole('textbox', { name: 'Выход стадии' })).toHaveCount(0)
+  // Окно возвратов — 560px, как на макете; карточки — во всю ширину его тела, без колонки подписи слева
+  await expect(async () => {
+    expect(Math.round((await returns.boundingBox())!.width)).toBe(560)
+    const body = await returns.locator('.ask-body').evaluate((el) => {
+      const style = getComputedStyle(el)
+      return el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    })
+    const card = (await returns.locator('.flow-return').first().boundingBox())!
+    expect(Math.abs(card.width - body)).toBeLessThanOrEqual(1)
+  }).toPass()
+  // Поля карточек — крупные, как на макете, а не плотные поля окна правки
+  await expect(returns.getByRole('textbox', { name: 'Условие возврата 1' })).toHaveCSS('padding', '11px 14px')
+  await expect(returns.getByRole('textbox', { name: 'Условие возврата 1' })).toHaveCSS('font-size', '14px')
+  // Между карточками 16px, как на макете; причина «не сохранить» — вровень с карточками, без отступа строк окна правки
+  await returns.getByRole('button', { name: 'Добавить возврат' }).click()
+  const error = returns.locator('.flow-step-error')
+  await expect(error).toBeVisible()
+  await expect(async () => {
+    const [first, second] = [
+      (await returns.locator('.flow-return').nth(0).boundingBox())!,
+      (await returns.locator('.flow-return').nth(1).boundingBox())!,
+    ]
+    expect(Math.round(second.y - (first.y + first.height))).toBe(16)
+    expect(Math.abs((await error.boundingBox())!.x - first.x)).toBeLessThanOrEqual(1)
+  }).toPass()
+  await expect(error).toHaveCSS('padding-left', '0px')
+  await returns.getByRole('button', { name: 'Убрать возврат 2' }).click()
+  await expect(error).toHaveCount(0)
+  await expect(region.locator('.flow-arc-open')).toHaveCount(1)
+  await returns.getByRole('textbox', { name: 'Условие возврата 1' }).fill('замечания оператора')
+  await expect(page.locator('.save-bar')).toHaveCount(1)
+  const under = () => page.evaluate(() => Boolean(document.activeElement?.closest('.vc-head, .flow-canvas, .save-bar')))
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press('Tab')
+    expect(await under()).toBe(false)
+  }
+  await returns.getByRole('textbox', { name: 'Условие возврата 1' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(returns).toHaveCount(0)
+  await expect(block).toBeFocused()
+
+  // С клавиатуры — Shift+F10 на блоке; «Править стадию» открывает окно правки, вкладка не меняется
+  await page.keyboard.press('Shift+F10')
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  const stage = page.getByRole('dialog', { name: 'Стадия «Приёмка»' })
+  await expect(stage.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('ответ оператора «принято»')
+  await expect(page.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
+  await expect(stage.getByText('Стадия стоит в сценариях «полный» и «мелкий» — правка изменит её в обоих.')).toBeVisible()
+  await stage.getByRole('button', { name: 'Готово' }).click()
+  await expect(stage).toHaveCount(0)
+  await expect(block).toBeFocused()
+})
+
+test('описание стадии из меню — оформленным текстом во весь рост; закрытое возвращает фокус блоку', async ({ page }) => {
+  await mockApi(page)
+  const region = await openFlow(page)
+  const block = region.getByRole('button', { name: 'Стадия 2: Ревью' })
+
+  await block.click({ button: 'right' })
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Редактировать описание' }).click()
+  const description = page.getByRole('dialog', { name: 'Описание стадии «Ревью»' })
+  await expect(description.getByRole('listitem')).toHaveText('Собрать дифф.')
+  await expect(description.getByText(/^Стадия стоит в сценариях/)).toBeVisible()
+  // Окно во весь рост, как окно задания исполнителя
+  await expect(async () => {
+    const height = (await description.boundingBox())!.height
+    expect(height).toBeGreaterThan(page.viewportSize()!.height * 0.85)
+  }).toPass()
+
+  await description.getByRole('button', { name: 'Закрыть', exact: true }).click()
+  await expect(description).toHaveCount(0)
+  await expect(block).toBeFocused()
 })
 
 test('вкладка «Стадии»: стадии карточками по три в ряд, «Новая стадия» последней, значок из списка значков', async ({
@@ -308,6 +409,8 @@ test('блок перетаскивается мышью, при задачах 
   // Двигается «Ревью»: возврат «Приёмки» к нему по-прежнему ведёт назад, и флоу остаётся годным
   await region.getByRole('button', { name: 'Стадия 2: Ревью' }).dragTo(region.getByRole('button', { name: 'Стадия 1: Критерий' }))
   await expect(region.getByRole('button', { name: 'Стадия 1: Ревью' })).toBeVisible()
+  // Перетаскивание — не щелчок: меню блока не открывается
+  await expect(page.getByRole('menu')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Сохранить флоу Agents Kit Web?' })
@@ -323,7 +426,7 @@ test('раздел держится в экране: прокручиваетс�
   await mockApi(page)
   await page.setViewportSize({ width: 1100, height: 600 })
   const region = await openFlow(page)
-  await region.getByRole('button', { name: 'Стадия 1: Критерий' }).click()
+  await region.getByRole('button', { name: /^Сценарий «полный»/ }).click()
 
   const scroll = region.locator('.flow-scroll')
   await expect.poll(async () => scroll.evaluate((box) => box.scrollHeight > box.clientHeight)).toBe(true)
@@ -333,7 +436,7 @@ test('раздел держится в экране: прокручиваетс�
   await expect(page.getByRole('button', { name: 'Ещё действия' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('button', { name: 'Сценарий: полный' })).toBeInViewport({ ratio: 1 })
   await expect(page.getByRole('complementary')).toBeInViewport({ ratio: 1 })
-  await expect(page.getByRole('button', { name: 'Убрать из сценария' })).toBeInViewport({ ratio: 1 })
+  await expect(page.getByRole('button', { name: 'Удалить сценарий' })).toBeInViewport({ ratio: 1 })
 })
 
 test('окно добавления: новая стадия, стадии базы и пресеты карточками; стадия встаёт в конец флоу', async ({ page }) => {
@@ -352,21 +455,19 @@ test('окно добавления: новая стадия, стадии ба�
   await adding.getByRole('button', { name: /^Критерий/ }).click()
 
   await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeVisible()
-  await expect(page.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 3: Критерий')
+  await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeFocused()
 })
 
-test('окно стадии возвращает фокус: к описанию — после его окна, к карточке — после окна, даже если открыли из сайдбара', async ({
-  page,
-}) => {
+test('окно стадии возвращает фокус: к описанию — после его окна, к карточке — на вкладке «Стадии»', async ({ page }) => {
   await mockApi(page)
-  const region = await openFlow(page)
+  await openFlow(page)
+  await page.getByRole('tab', { name: 'Стадии' }).click()
 
-  // Открыли из сайдбара схемы: на закрытии сайдбара уже нет, фокус встаёт на карточку стадии
-  await region.getByRole('button', { name: /^Стадия 3: Приёмка/ }).click()
-  await page.getByRole('complementary').getByRole('button', { name: 'Править стадию «Приёмка»' }).click()
+  await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Приёмка/ }).click()
   const stage = page.getByRole('dialog', { name: 'Стадия «Приёмка»' })
   await stage.getByRole('button', { name: /Редактировать описание/ }).click()
-  await page.getByRole('dialog', { name: /^Описание стадии/ }).getByRole('button', { name: 'Отмена' }).click()
+  // Пустое описание открыто в правке: «Отменить» закрывает окно
+  await page.getByRole('dialog', { name: /^Описание стадии/ }).getByRole('button', { name: 'Отменить' }).click()
   await expect(stage.getByRole('button', { name: /Редактировать описание/ })).toBeFocused()
   await stage.getByRole('button', { name: 'Готово' }).click()
   await expect(stage).toHaveCount(0)
@@ -430,7 +531,7 @@ test('окно стадии: Escape закрывает верхнее окно, 
     await page.keyboard.press('Tab')
     expect(await stage.evaluate((el) => el.contains(document.activeElement))).toBe(false)
   }
-  await description.getByRole('textbox', { name: 'Описание стадии' }).focus()
+  await description.getByRole('button', { name: 'Закрыть', exact: true }).focus()
   await page.keyboard.press('Escape')
   await expect(description).toHaveCount(0)
   await expect(stage).toBeVisible()
@@ -448,6 +549,9 @@ test('описание стадии правится в окне по кнопк
   const stage = page.getByRole('dialog', { name: 'Стадия «Критерий»' })
   await stage.getByRole('button', { name: /Редактировать описание/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Описание стадии «Критерий»' })
+  // Описание открыто оформленным текстом; править — по «Редактировать»
+  await expect(dialog.getByRole('listitem')).toHaveText('Написать критерий.')
+  await dialog.getByRole('button', { name: 'Редактировать' }).click()
   const text = dialog.getByRole('textbox', { name: 'Описание стадии' })
   await expect(text).toBeFocused()
   await expect(text).toHaveValue('1. Написать критерий.')
@@ -460,6 +564,8 @@ test('описание стадии правится в окне по кнопк
   await text.pressSequentially('- проверяемый;')
   await text.press('Enter')
   await dialog.getByRole('button', { name: 'Готово' }).click()
+  await expect(dialog.getByText('Критерий пишется до кода.')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await stage.getByRole('button', { name: 'Готово' }).click()
 
