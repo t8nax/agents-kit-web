@@ -221,6 +221,58 @@ test('новая просьба до «Сохранить» уходит в то
   expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
 })
 
+test('пока идёт «Сохранить», новая просьба не уходит', async () => {
+  const stream = controlledStream<WriteEvent>()
+  // Ответ на «Сохранить» так и не дочитывается: панель всё ещё пишет.
+  stubFetch(stream, { save: () => new Response(new ReadableStream({ start: () => {} })) })
+  renderModal()
+
+  await say('Убери B-36')
+  stream.send({ type: 'reply', text: 'Убери B-36' })
+  stream.send(answer({ proposal }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+
+  await waitFor(() => expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeDisabled())
+})
+
+test('«Отказаться» у предложения, которого панель уже не помнит, говорит об этом', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubPanel('backlog', stream, {
+    others: (url) => (url === '/api/backlog/write/refuse' ? new Response(null, { status: 404 }) : null),
+  })
+  renderModal()
+
+  await say('Убери B-36')
+  stream.send({ type: 'reply', text: 'Убери B-36' })
+  stream.send(answer({ proposal }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Отказаться' }))
+
+  expect(await screen.findByText('Предложение уже не ждёт ответа')).toBeInTheDocument()
+})
+
+test('запись разговора, удалённая по «Сохранить», отмечена «удалена»', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  render(
+    <BacklogWriteModal
+      bases={bases}
+      initialBase={null}
+      subject={{ base: bases[0].base, entry: B36 }}
+      findEntry={() => undefined}
+      onClose={() => {}}
+      onEntries={() => {}}
+    />,
+  )
+
+  await say('Больше не нужна')
+  stream.send({ type: 'reply', text: 'Больше не нужна', number: 'B-36' })
+  stream.send(answer({ proposal: { id: 'p3', changes: [{ kind: 'delete', number: 'B-36', entry: B36 }] } }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+  stream.send({ type: 'saved', text: '', commit: 'c0ffee1', proposalId: 'p3' })
+
+  expect(await screen.findAllByText('удалена')).toHaveLength(2)
+})
+
 test('объединение: остающаяся запись под «Останется», уходящая — под «Уйдёт в …»', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream)

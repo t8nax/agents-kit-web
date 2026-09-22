@@ -86,8 +86,15 @@ export default function BacklogWriteModal({
   const project = bases.find((b) => b.base === base)?.project ?? ''
   const firstReply = events.find((e) => e.type === 'reply')
   const aboutNumber = subject?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
-  const about =
-    subject?.entry ?? (aboutNumber && base && findEntry ? (findEntry(base, aboutNumber) ?? null) : null)
+  const savedCount = events.filter((e) => e.type === 'saved').length
+  const current = aboutNumber && base && findEntry ? (findEntry(base, aboutNumber) ?? null) : null
+  // После «Сохранить» запись разговора показывается такой, какой стала, а удалённая — отметкой «удалена».
+  const aboutGone = savedCount > 0 && aboutNumber !== null && current === null
+  const about = aboutGone
+    ? (subject?.entry ?? savedEntry(events, aboutNumber))
+    : savedCount > 0
+      ? current
+      : (subject?.entry ?? current)
 
   // Закрытое окно убирает свой разговор, если агент не занят: несохранённое предложение уходит вместе с ним.
   // Разговора, которого окно не показывает — окно от записи до первой реплики, окно, ещё читающее панель, —
@@ -121,7 +128,6 @@ export default function BacklogWriteModal({
     if (base && added) onEntries(base, added.split(' '))
   }, [base, added, onEntries])
 
-  const savedCount = events.filter((e) => e.type === 'saved').length
   useEffect(() => {
     if (base && savedCount > 0) onSaved?.(base)
   }, [base, savedCount, onSaved])
@@ -178,11 +184,12 @@ export default function BacklogWriteModal({
   async function refuse(id: string) {
     setSaveError(null)
     try {
-      await fetch('/api/backlog/write/refuse', {
+      const response = await fetch('/api/backlog/write/refuse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       })
+      if (!response.ok) setSaveError({ id, text: 'Предложение уже не ждёт ответа' })
     } catch {
       setSaveError({ id, text: 'Нет связи с API' })
     }
@@ -243,7 +250,11 @@ export default function BacklogWriteModal({
             <div className="talk-subject">
               <p className="talk-label">Запись</p>
               <ul className="write-entries">
-                <EntryCard entry={about} />
+                {aboutGone ? (
+                  <EntryCard entry={about} badge="удалена" tone="added" removed />
+                ) : (
+                  <EntryCard entry={about} />
+                )}
               </ul>
             </div>
           )}
@@ -330,7 +341,8 @@ export default function BacklogWriteModal({
               autoFocus
               value={value}
               placeholder={placeholder}
-              disabled={running || restoring}
+              // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
+              disabled={running || restoring || saving !== null}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -347,7 +359,7 @@ export default function BacklogWriteModal({
               <button
                 type="button"
                 className="btn btn-primary composer-send"
-                disabled={!base || !value.trim() || restoring}
+                disabled={!base || !value.trim() || restoring || saving !== null}
                 onClick={() => void submit()}
               >
                 <SendIcon />
@@ -551,6 +563,14 @@ function proposalStates(events: WriteEvent[]): Map<string, ProposalState> {
     else states.set(id, 'pending')
   })
   return states
+}
+
+/** Запись, какой она была в сохранённом предложении: удалённую больше не найти в бэклоге. */
+function savedEntry(events: WriteEvent[], number: string | null) {
+  for (const event of events)
+    if (event.type === 'answer')
+      for (const change of event.proposal?.changes ?? []) if (change.number === number) return change.entry
+  return null
 }
 
 /** Шаги ответа на последнюю реплику: ход виден только у той, на которую сейчас отвечают. */
