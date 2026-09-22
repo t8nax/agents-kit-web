@@ -320,7 +320,10 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 
     # Артефакты по форме кита: ссылка открывается вкладкой, путь к файлу окно показывает текстом.
     $artifactsBlock = if ($Artifacts) {
-        $spec = Join-Path $Copy 'docs\export-spec.md'
+        # Файл лежит вне копии: в копии он был бы неотслеживаемой правкой её git. Щелчок в окне ответа
+        # открывает его в VS Code.
+        $spec = Join-Path $Root 'files\export-spec.md'
+        Write-Utf8 $spec "# Спецификация выгрузки заказов`n`nВыдуманный файл песочницы: артефакт задачи ORD-12.`n"
         "`n## Артефакты`n- макет выгрузки: https://claude.ai/artifact/SandboxMock1`n- спецификация выгрузки: $spec`n"
     } else { '' }
     # Макет по-старому, подразделом критериев: окно его не показывает ни артефактом, ни критерием.
