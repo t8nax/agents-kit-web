@@ -500,8 +500,13 @@ test('стадия правится окном по щелчку на карто
   fireEvent.click(again.getByRole('button', { name: /Редактировать описание/ }))
   fireEvent.keyDown(screen.getByRole('textbox', { name: 'Описание стадии' }), { key: 'Escape' })
   expect(screen.queryByRole('dialog', { name: /^Описание стадии/ })).not.toBeInTheDocument()
-  expect(screen.getByRole('dialog', { name: 'Стадия «Ревью»' })).toBeInTheDocument()
-  fireEvent.keyDown(window, { key: 'Escape' })
+  const stage = screen.getByRole('dialog', { name: 'Стадия «Ревью»' })
+  // Открытый список значков Escape закрывает первым, окно остаётся
+  fireEvent.click(within(stage).getByRole('button', { name: 'Значок стадии' }))
+  fireEvent.keyDown(within(stage).getByRole('button', { name: 'Значок «код»' }), { key: 'Escape' })
+  expect(within(stage).queryByRole('group', { name: 'Значки стадии' })).not.toBeInTheDocument()
+  expect(stage).toBeInTheDocument()
+  fireEvent.keyDown(within(stage).getByRole('textbox', { name: 'Выход стадии' }), { key: 'Escape' })
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
   expect((await saveAndRead(fetchMock)).stages[1].output).toBe('вердикт')

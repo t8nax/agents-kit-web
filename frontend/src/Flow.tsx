@@ -552,7 +552,8 @@ export default function Flow({
 
   return (
     <>
-      <div className="vc-head">
+      {/* Пока открыто окно правки стадии, верх раздела и полоса под подложкой недоступны: окно запирает Tab. */}
+      <div className="vc-head" inert={stageOpen}>
         <h2>Флоу</h2>
         <div className="head-end flow-actions">
           {editable && !empty && (
@@ -753,7 +754,7 @@ export default function Flow({
           в базе уже сломан: иначе не видно, почему его не сохранить. С правками она стоит и в пустом
           состоянии: удалённый последний флоу иначе не сохранить и не отменить. */}
       {editable && (dirty || (problem && !empty)) && (
-        <div className="save-bar">
+        <div className="save-bar" inert={stageOpen}>
           <div className="save-bar-state">
             {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
             {problem && <span className="flow-blocked">Не сохранить: {problem}</span>}
@@ -930,14 +931,19 @@ function StagesTab({
   onSaveAsPreset: () => void
   onDelete: () => void
 }) {
+  const grid = useRef<HTMLUListElement>(null)
+  const add = useRef<HTMLButtonElement>(null)
+
   return (
     <div className="flow-stages">
       {/* Стадии сеткой карточек, как исполнители; новая — пунктирной карточкой последней (B-192). */}
-      <ul className="flow-stage-grid" aria-label="Стадии базы">
+      {/* Пока открыто окно правки, карточки под ним недоступны: Tab не уходит под подложку. */}
+      <ul className="flow-stage-grid" aria-label="Стадии базы" ref={grid} inert={open}>
         {stagesInOrder(draft).map((stage) => (
           <li key={stage.key}>
             <button
               type="button"
+              data-stage={stage.key}
               className={`flow-stage-card ${open && stage.key === current?.key ? 'is-on' : ''} ${
                 stageErrors(stage, draft.stages, known).length > 0 ? 'invalid' : ''
               }`}
@@ -956,7 +962,7 @@ function StagesTab({
           </li>
         ))}
         <li>
-          <button type="button" className="flow-stage-card flow-stage-card-add" onClick={onNew}>
+          <button type="button" className="flow-stage-card flow-stage-card-add" ref={add} onClick={onNew}>
             <PlusIcon />
             Новая стадия
           </button>
@@ -972,6 +978,10 @@ function StagesTab({
           covered={covered}
           onPerformers={onPerformers}
           onClose={onClose}
+          onReturnFocus={(key) =>
+            // Удалённой стадии карточки нет — фокус встаёт на «Новую стадию».
+            (grid.current?.querySelector<HTMLElement>(`[data-stage="${key}"]`) ?? add.current)?.focus()
+          }
           onChange={onChange}
           onEditDescription={onEditDescription}
           onSaveAsPreset={onSaveAsPreset}
@@ -994,6 +1004,7 @@ function StageModal({
   covered,
   onPerformers,
   onClose,
+  onReturnFocus,
   onChange,
   onEditDescription,
   onSaveAsPreset,
@@ -1006,6 +1017,7 @@ function StageModal({
   covered: boolean
   onPerformers?: () => void
   onClose: () => void
+  onReturnFocus: (key: number) => void
   onChange: (patch: Partial<DraftStage>) => void
   onEditDescription: () => void
   onSaveAsPreset: () => void
@@ -1016,24 +1028,22 @@ function StageModal({
   const errors = stageErrors(stage, draft.stages, known)
   const isPreset = presets.some((preset) => samePreset(preset, presetStage(toStage(stage))))
   const title = useRef<HTMLInputElement>(null)
-
-  // Фокус встаёт в название, а на закрытии возвращается туда, откуда окно открыли, — к карточке.
+  const describe = useRef<HTMLButtonElement>(null)
+  // Карточка, к которой вернётся фокус, — та, чью стадию правили: окно могли открыть и из сайдбара схемы,
+  // и из окна добавления, а тех на закрытии уже нет (B-192, ревью).
+  // Ключ стадии за время жизни окна не меняется, а возврат ищет карточку по ссылкам на сетку — хватает
+  // того, что было на открытии.
   useEffect(() => {
-    const before = document.activeElement as HTMLElement | null
     title.current?.focus()
-    return () => {
-      if (before?.isConnected) before.focus()
-    }
-  }, [])
+    return () => onReturnFocus(stage.key)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Escape закрывает верхнее окно: окно описания закрывается само, а это — только когда оно одно.
+  // Окно описания закрылось — фокус обратно на кнопку, которой его открыли, как в окне исполнителя.
+  const wasCovered = useRef(covered)
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !covered) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [covered, onClose])
+    if (wasCovered.current && !covered) describe.current?.focus()
+    wasCovered.current = covered
+  }, [covered])
 
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && !covered && onClose()}>
@@ -1042,6 +1052,13 @@ function StageModal({
         role="dialog"
         aria-modal={!covered}
         aria-label={`Стадия «${stageName(stage)}»`}
+        // Фокус держится в окне и при щелчке мимо полей: иначе он уходит со страницы, и Escape некому поймать.
+        tabIndex={-1}
+        // Escape закрывает окно, если его не забрал кто-то внутри, — список значков закрывает сначала себя.
+        // Окно описания стоит отдельно, и его Escape сюда не доходит.
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && !event.defaultPrevented) onClose()
+        }}
         // Пока поверх открыто описание, правка под ним недоступна: Tab и программа чтения — только в описании.
         inert={covered}
       >
@@ -1137,6 +1154,7 @@ function StageModal({
               <span>Описание</span>
               {/* Кнопка показывает лишь наличие описания: без него та же надпись, но пунктиром. */}
               <button
+                ref={describe}
                 type="button"
                 className={`btn flow-description-btn ${stage.description ? '' : 'flow-description-empty'}`}
                 title={stage.description ? 'Описание есть — править' : 'Описания нет — добавить'}
@@ -1933,7 +1951,16 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
   }
 
   return (
-    <div className="flow-icons" ref={box} onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}>
+    <div
+      className="flow-icons"
+      ref={box}
+      onKeyDown={(event) => {
+        // Escape закрывает сперва список, и дальше, к окну стадии, он не идёт.
+        if (event.key !== 'Escape' || !open) return
+        event.preventDefault()
+        setOpen(false)
+      }}
+    >
       <button
         type="button"
         className="flow-icon-toggle"
