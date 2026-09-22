@@ -413,3 +413,10 @@
 .rewrite-untouched .ask-duration {
   margin-left: auto;
 }
+
+/* Просьба про стадии другого проекта: новая её остановит — предупреждение до нажатия. */
+.rewrite-foreign {
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent-waiting-text);
+}

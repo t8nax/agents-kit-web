@@ -210,3 +210,17 @@ test('открытое заново окно показывает перепис
   await waitFor(() => expect(onApply).toHaveBeenCalledWith([rewritten]))
   expect(posts).toEqual([])
 })
+
+test('итог просьбы про другой проект окно своим не считает и предупреждает, что новая просьба его уберёт', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  const other = String.raw`D:\Projects\other-knowledge`
+  stubFetch(stream, { ...runningRequest('flow', 'Уточни выход ревью', other, 'Other', 1000), state: 'done' })
+  renderModal()
+
+  expect(
+    await screen.findByText('Чудо-Юдо уже переписал стадии Other: новая просьба отсюда уберёт этот ответ.'),
+  ).toBeInTheDocument()
+  expect(screen.queryByText('Уточни выход ревью')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Что изменилось в стадиях')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Что поменять в стадиях')).toBeInTheDocument()
+})

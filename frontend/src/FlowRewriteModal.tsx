@@ -56,8 +56,9 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
   // Описание стадии читается своим окном поверх разбора: в карточке стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
   // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
-  const { asked, steps: agentSteps, outcome, running, startedAt, failure, restoring, start, forget, setFailure } =
-    useAgentRequest<RewriteEvent>('flow')
+  // Своя просьба — только своего проекта: ответ про стадии другого лёг бы на одноимённые стадии этого.
+  const { asked, steps: agentSteps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure } =
+    useAgentRequest<RewriteEvent>('flow', { mine: (request) => request.base === base })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -207,6 +208,13 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                   />
                 )}
               </div>
+              {/* Разом идёт одна просьба этого вида: просьба отсюда остановит ту, что идёт про другой проект. */}
+              {foreign && (
+                <p className="rewrite-foreign">
+                  {AGENT_NAME} {foreign.state === 'running' ? 'сейчас переписывает' : 'уже переписал'} стадии{' '}
+                  {foreign.project}: новая просьба отсюда {foreign.state === 'running' ? 'остановит его' : 'уберёт этот ответ'}.
+                </p>
+              )}
               {!wish && !picking && (
                 <div className="ask-examples">
                   <div className="ask-examples-title">Например</div>
