@@ -111,17 +111,33 @@ test('правка называет исполнителя в заголовке
   expect(screen.queryByLabelText('Проект')).not.toBeInTheDocument()
 })
 
-test('руками правятся только модель и инструменты: описание и задание только читаются', () => {
-  stubSave(() => Response.json({ path: 'x' }))
+test('описание правится полем прямо в окне, а сохраняется одной строкой', async () => {
+  const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   open(reviewer)
 
-  expect(screen.getByLabelText('Модель')).toHaveValue('opus')
-  // Подпись и значение основы связаны так, что их читает и программа для незрячих.
-  expect(screen.getByRole('definition', { name: 'Описание' })).toHaveTextContent('Читает дифф ветки задачи.')
-  // Полей ввода описания и задания нет: их переписывает Чудо-Юдо по просьбе.
-  const inputs = screen.getAllByRole('textbox')
-  expect(inputs.map((input) => input.getAttribute('id') ?? input.getAttribute('aria-label'))).toEqual(['pf-wish'])
-  expect(screen.getByRole('combobox', { name: 'Модель' })).toBeEnabled()
+  const description = screen.getByLabelText('Описание')
+  expect(description.tagName).toBe('TEXTAREA')
+  expect(description).toHaveValue('Читает дифф ветки задачи.')
+  expect(description).toHaveAttribute('rows', '4')
+
+  // Enter новой строки не начинает: в файле описание — одна строка шапки.
+  const enter = fireEvent.keyDown(description, { key: 'Enter' })
+  expect(enter).toBe(false)
+  // Вставленный текст с переводами строк сводится к одной строке.
+  fireEvent.change(description, { target: { value: 'Читает дифф.\r\n  Возвращает вердикт.\n' } })
+  expect(description).toHaveValue('Читает дифф. Возвращает вердикт. ')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await waitFor(() => expect(saved(fetchMock).description).toBe('Читает дифф. Возвращает вердикт.'))
+})
+
+test('отказ API описанию назван своей строкой, а не ошибкой имени', async () => {
+  stubSave(() => Response.json({ problem: 'invalid-description' }, { status: 400 }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Описание не годится')
 })
 
 test('«Только чтение» — переключатель: включён — набор закреплён, выключен — поле своих инструментов', () => {
@@ -184,8 +200,8 @@ test('у заведённого с пустым заданием модель и
   const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   const onSaved = open({ ...reviewer, description: null, prompt: '' })
 
-  // Файл завели в базе руками, без тела: основа видна прочерками, а сохранение не заперто.
-  expect(screen.getByLabelText('Описание')).toHaveTextContent('—')
+  // Файл завели в базе руками, без тела: поле описания пусто, а сохранение не заперто.
+  expect(screen.getByLabelText('Описание')).toHaveValue('')
   expect(screen.queryByRole('button', { name: 'Показать задание' })).not.toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'sonnet' } })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))

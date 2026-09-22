@@ -11,6 +11,11 @@ const models = ['', 'opus', 'sonnet', 'haiku']
 /** Набор «только чтение»; пусто — все инструменты сессии, иначе список, как его понимает Claude Code. */
 const READ_ONLY = 'Read, Glob, Grep'
 
+/** Описание — строка шапки файла исполнителя: переводы строк в нём сводятся в пробел. */
+function oneLine(text: string) {
+  return text.replace(/[ \t]*[\r\n]+[ \t]*/g, ' ')
+}
+
 /** Инструменты файла — переключатель «Только чтение» и свой список: набор чтения списком не считается. */
 function splitTools(tools: string | null) {
   const readOnly = (tools ?? '').trim() === READ_ONLY
@@ -211,8 +216,12 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         return
       }
       if (response.status === 400) {
+        const body = (await response.json().catch(() => null)) as { problem?: string } | null
         setFailure({
-          text: 'Имя не годится: строчная латиница, цифры и дефис — так исполнителя зовёт стадия флоу.',
+          text:
+            body?.problem === 'invalid-description'
+              ? 'Описание не годится: в файле исполнителя оно одна строка.'
+              : 'Имя не годится: строчная латиница, цифры и дефис — так исполнителя зовёт стадия флоу.',
           git: false,
         })
       } else if (response.status === 409) {
@@ -415,12 +424,24 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                   </dd>
                 </div>
               )}
-              <div className="pf-row">
-                <dt className="pf-label" id="pf-description-label">
-                  Описание
+              {/* Описание правится полем от четырёх строк (B-198), а в файл ложится одной строкой шапки:
+                  Enter новой строки не начинает, вставленные переводы строк сводятся в пробел. */}
+              <div className="pf-row pf-row-top">
+                <dt className="pf-label">
+                  <label htmlFor="pf-description">Описание</label>
                 </dt>
-                <dd className="pf-text" aria-labelledby="pf-description-label">
-                  {description.trim() || '—'}
+                <dd className="pf-cell">
+                  <textarea
+                    id="pf-description"
+                    className="pf-desc"
+                    rows={4}
+                    value={description}
+                    disabled={locked}
+                    onChange={(event) => setDescription(oneLine(event.target.value))}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') event.preventDefault()
+                    }}
+                  />
                 </dd>
               </div>
               <div className="pf-row">
