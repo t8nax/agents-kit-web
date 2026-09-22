@@ -60,6 +60,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(tableBox!.y)
     expect(buttonBox!.x).toBeGreaterThan(headingBox!.x + headingBox!.width)
     expect(buttonBox!.x).toBeLessThan(headingBox!.x + headingBox!.width + 40)
+    // и в линию с ним: середины по высоте почти совпадают
+    const middle = (box: { y: number; height: number }) => box.y + box.height / 2
+    expect(Math.abs(middle(buttonBox!) - middle(headingBox!))).toBeLessThanOrEqual(3)
     await button.click()
 
     const dialog = page.getByRole('dialog', { name: 'Новая рабочая копия' })
