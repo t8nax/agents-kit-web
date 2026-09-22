@@ -439,24 +439,48 @@ test('раздел держится в экране: прокручиваетс�
   await expect(page.getByRole('button', { name: 'Удалить сценарий' })).toBeInViewport({ ratio: 1 })
 })
 
-test('окно добавления: новая стадия, стадии базы и пресеты карточками; стадия встаёт в конец флоу', async ({ page }) => {
-  await mockApi(page)
-  await openFlow(page)
-  await page.getByRole('button', { name: 'Сценарий: полный' }).click()
-  await page.getByRole('option', { name: 'мелкий' }).click()
-  const region = page.getByRole('region', { name: 'Сценарий «мелкий»' })
+for (const theme of ['dark', 'light'] as const) {
+  test(`окно добавления в теме ${theme}: рамка соседних окон, стадии строками; стадия встаёт в конец флоу`, async ({
+    page,
+  }) => {
+    await mockApi(page)
+    await page.emulateMedia({ colorScheme: theme })
+    await openFlow(page)
+    await page.getByRole('button', { name: 'Сценарий: полный' }).click()
+    await page.getByRole('option', { name: 'мелкий' }).click()
+    const region = page.getByRole('region', { name: 'Сценарий «мелкий»' })
 
-  await page.getByRole('button', { name: 'Добавить стадию' }).click()
-  const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «мелкий»' })
-  await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
-  // Стадии в окне выделены карточками, а не идут сплошным списком
-  await expect(adding.getByRole('button', { name: /^Новая стадия/ })).toHaveCSS('border-top-style', 'solid')
-  await expect(adding.getByRole('group', { name: 'Стадии базы' }).getByRole('button')).toHaveText([/^Критерий/])
-  await adding.getByRole('button', { name: /^Критерий/ }).click()
+    await page.getByRole('button', { name: 'Добавить стадию' }).click()
+    const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «мелкий»' })
+    // Рамка окон правки стадии и возвратов: шапка с крестиком, подвал с «Отменой» (B-209)
+    await expect(adding).toHaveClass(/modal-wizard/)
+    await expect(adding.getByRole('heading', { name: 'Добавить стадию' })).toBeVisible()
+    await expect(adding.getByRole('button', { name: 'Закрыть' })).toBeVisible()
+    await expect(adding.getByRole('button', { name: 'Отмена' })).toBeVisible()
+    await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
+    // «Новая стадия» — пунктирной строкой, стадии базы — карточками с рамкой
+    const fresh = adding.getByRole('button', { name: 'Новая стадия' })
+    await expect(fresh).toHaveCSS('border-top-style', 'dashed')
+    const own = adding.getByRole('group', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ })
+    await expect(own).toHaveCSS('border-top-style', 'solid')
+    await expect(own).not.toContainText('выход')
+    // Список: строка во всю ширину окна под «Новой стадией», а не плитка сетки
+    const [top, row] = await Promise.all([fresh.boundingBox(), own.boundingBox()])
+    expect(row!.y).toBeGreaterThan(top!.y)
+    expect(Math.abs(row!.width - top!.width)).toBeLessThan(2)
+    // Цвет — из токенов темы: окно не сливается с подложкой, текст — с окном
+    const [surface, text] = await Promise.all([
+      adding.evaluate((el) => getComputedStyle(el).backgroundColor),
+      own.evaluate((el) => getComputedStyle(el).color),
+    ])
+    expect(text).not.toBe(surface)
+    await page.screenshot({ path: `test-results/flow-add-stage-${theme}.png` })
 
-  await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeVisible()
-  await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeFocused()
-})
+    await own.click()
+    await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeVisible()
+    await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeFocused()
+  })
+}
 
 test('окно стадии возвращает фокус: к описанию — после его окна, к карточке — на вкладке «Стадии»', async ({ page }) => {
   await mockApi(page)
