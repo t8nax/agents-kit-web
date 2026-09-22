@@ -66,6 +66,18 @@ test('оператор отвечает на вопросы копии, и ст�
   await expect(artifact).toHaveAttribute('target', '_blank')
   await expect(dialog.getByText('D:\\Projects\\app\\spec.md')).toBeVisible()
   await expect(dialog.getByRole('link', { name: 'D:\\Projects\\app\\spec.md' })).toHaveCount(0)
+  // ссылка янтарная, как остальные ссылки панели, а путь — серый, как текст критериев
+  const tokenColor = (token: string) =>
+    page.evaluate((name) => {
+      const probe = document.createElement('span')
+      probe.style.color = `var(${name})`
+      document.body.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    }, token)
+  await expect(artifact).toHaveCSS('color', await tokenColor('--accent-waiting-text'))
+  await expect(dialog.getByText('D:\\Projects\\app\\spec.md')).toHaveCSS('color', await tokenColor('--text-secondary'))
   await dialog.getByText('Контекст задачи').click()
 
   await dialog.getByLabel('Ответ').fill('принимаю')
