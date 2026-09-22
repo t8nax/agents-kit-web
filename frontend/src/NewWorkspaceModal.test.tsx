@@ -44,32 +44,23 @@ function renderModal(list = rows) {
   return props
 }
 
-test('проект выбран, превью показывает папку и ветки, свободная копия названа', () => {
+test('у проекта только имя, превью нет, свободная копия названа', () => {
   renderModal()
 
   const dialog = screen.getByRole('dialog', { name: 'Новая рабочая копия' })
-  expect(within(dialog).getByRole('radio', { name: /Agents Kit Web/ })).toBeChecked()
-  // У проекта без копии на диске заводить не от чего
-  expect(within(dialog).getByRole('radio', { name: /Nota/ })).toBeDisabled()
-  expect(within(dialog).getByRole('radio', { name: /Agents Kit Web/ }).closest('label')).toHaveTextContent('2 копии1 свободна')
+  const chosen = within(dialog).getByRole('radio', { name: /Agents Kit Web/ })
+  expect(chosen).toBeChecked()
+  // Ни числа копий, ни пути основной копии — только имя проекта (B-215)
+  expect(chosen.closest('label')).toHaveTextContent(/^Agents Kit Web$/)
+  expect(dialog).not.toHaveTextContent('D:\\Projects')
+  // У проекта без копии на диске заводить не от чего: он приглушён и не выбирается
+  const off = within(dialog).getByRole('radio', { name: /Nota/ })
+  expect(off).toBeDisabled()
+  expect(off.closest('label')).toHaveClass('is-off')
+  expect(off.closest('label')).toHaveTextContent(/^Nota$/)
 
-  const preview = within(dialog).getByLabelText('Что будет заведено')
-  expect(preview).toHaveTextContent('D:\\Projects\\<имя от кита>')
-  expect(preview).toHaveTextContent('с тем же именем')
-  expect(preview).toHaveTextContent('master · основная копия D:\\Projects\\app')
+  expect(within(dialog).queryByLabelText('Что будет заведено')).not.toBeInTheDocument()
   expect(dialog).toHaveTextContent('У проекта уже есть свободная копия master — задачу можно взять и в ней.')
-
-  fireEvent.change(screen.getByLabelText(/Имя копии/), { target: { value: 'quiet-cedar' } })
-  expect(preview).toHaveTextContent('D:\\Projects\\quiet-cedar')
-  expect(preview).toHaveTextContent('Веткаquiet-cedar')
-})
-
-test('ветка основной копии неизвестна — в «От ветки» пусто, без тире', () => {
-  renderModal([{ ...row, branch: null }])
-
-  const preview = screen.getByLabelText('Что будет заведено')
-  expect(preview).toHaveTextContent('От ветки· основная копия D:\\Projects\\app')
-  expect(preview).not.toHaveTextContent('—')
 })
 
 test('копия заводится: имя уходит в API, окно сообщает имя от кита', async () => {
