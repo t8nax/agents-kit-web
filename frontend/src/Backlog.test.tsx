@@ -65,6 +65,8 @@ function stubFetch(...responses: BaseBacklog[][]) {
       return Promise.resolve(taskReply ?? Response.json({ session: '7339dced' }))
     }
     if (url === '/api/workspaces') return Promise.resolve(Response.json(rows))
+    // Окно записи, открытое с раздела, спрашивает, не идёт ли уже просьба
+    if (url === '/api/agent/requests') return Promise.resolve(Response.json([]))
     // Окно запуска предлагает флоу базы записи: у каждой базы здесь флоу один.
     if (url === '/api/flow')
       return Promise.resolve(
@@ -584,4 +586,36 @@ test('проект, где под отбор ничего не подошло, �
   fireEvent.click(screen.getByRole('button', { name: 'Очистить' }))
   fireEvent.click(screen.getByRole('button', { name: 'баг' }))
   expect(screen.getByRole('region', { name: 'Nota' })).toBeInTheDocument()
+})
+
+test('открытие с проектом просьбы ставит фильтр его проекта, отбор при этом пуст', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog writeFor={backlogs[1].base} />)
+  await screen.findByRole('heading', { name: 'Nota' })
+
+  // Окно записи открыто на той же базе; чип проекта — в строке фильтра раздела
+  const projects = within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  expect(projects.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+})
+
+test('недоступное хранилище не мешает выбирать порядок', async () => {
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('number')
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
+  fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
+  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
+  vi.restoreAllMocks()
 })
