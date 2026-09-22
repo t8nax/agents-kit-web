@@ -50,15 +50,20 @@ function Read-State {
     try { return Get-Content -LiteralPath $state -Raw | ConvertFrom-Json } catch { return $null }
 }
 
-# Пустышки сессий прошлого запуска: гасятся вместе с их файлами в реестре, иначе от каждого запуска
-# в разделе «Сессии» оставалось бы по лишней строке.
-function Stop-Dummies($Known) {
-    if (-not $Known) { return }
-    foreach ($dummy in @($Known.dummies | Where-Object { $_ })) {
-        $process = Get-Process -Id $dummy -ErrorAction Ignore
-        # Номера процессов Windows переиспользует: гасим только свою пустышку.
-        if ($process -and $process.ProcessName -eq 'pwsh') { Stop-Process -Id $dummy -Force -ErrorAction Ignore }
-        Remove-Item -LiteralPath (Join-Path $sessionsDir "$dummy.json") -Force -ErrorAction Ignore
+# Пустышки сессий гасятся по реестру самой демонстрации вместе с файлами: и заведённые этим скриптом,
+# и те, что завела заглушка агента на запуске задачи из панели. Иначе от каждого запуска в разделе
+# «Сессии» оставалось бы по лишней строке, а скрытые процессы висели бы сутками.
+function Stop-Dummies {
+    foreach ($file in @(Get-ChildItem -LiteralPath $sessionsDir -Filter '*.json' -ErrorAction Ignore)) {
+        $session = try { Get-Content -LiteralPath $file.FullName -Raw | ConvertFrom-Json } catch { $null }
+        if ($session.pid) {
+            # Номера процессов Windows переиспользует: гасим процесс, только если это наша пустышка.
+            $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$session.pid)" -ErrorAction Ignore
+            if ($process -and $process.Name -eq 'pwsh.exe' -and $process.CommandLine -like '*Start-Sleep -Seconds 86400*') {
+                Stop-Process -Id $process.ProcessId -Force -ErrorAction Ignore
+            }
+        }
+        Remove-Item -LiteralPath $file.FullName -Force -ErrorAction Ignore
     }
 }
 
@@ -237,7 +242,7 @@ function New-DemoProject([string]$Name, [string]$Title, [Collections.Specialized
 # --- сборка ------------------------------------------------------------------------------
 
 function Build-Demo {
-    Stop-Dummies (Read-State)
+    Stop-Dummies
     if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
     foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $projectsDir, $binDir, $basesDir, $copiesDir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -589,7 +594,6 @@ function Build-Demo {
 # Живые сессии агентов: процессы-пустышки заводятся на каждый запуск, потому что прошлые не
 # переживают перезагрузки машины.
 function Start-DemoSessions($Copies) {
-    $dummies = [Collections.Generic.List[int]]::new()
     $now = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $sessions = @(
         @{ cwd = $Copies.cafe.main; extra = @{ status = 'busy' } }
@@ -604,14 +608,12 @@ function Start-DemoSessions($Copies) {
     $tasks = [Collections.Generic.List[object]]::new()
     foreach ($session in $sessions) {
         $id = Start-Dummy
-        $dummies.Add($id)
         Write-Session $sessionsDir $id $session.cwd $session.extra
         if ($session.extra.jobId) { $tasks.Add([pscustomobject]@{ copy = $session.cwd; session = $session.extra.jobId }) }
     }
     # Сессию задачи строка таблицы показывает, только если её запустила панель: этот список запусков
     # панель ведёт сама, и без него фоновые сессии видны лишь в разделе «Сессии».
     Write-Json (Join-Path $panelDir 'task-sessions.json') ([pscustomobject]@{ sessions = $tasks.ToArray() })
-    return $dummies.ToArray()
 }
 
 # Журналы расхода за последнюю неделю в формате Claude Code. Пишутся заново на каждый запуск:
@@ -679,13 +681,13 @@ if ($Rebuild -or -not $known) {
 }
 else {
     $copies = $known.copies
-    Stop-Dummies $known
+    Stop-Dummies
     Write-Host "Демонстрация поднята такой, какой её оставили: $Root"
 }
 
-$dummies = Start-DemoSessions $copies
+Start-DemoSessions $copies
 Write-DemoUsage
-Write-Json $state ([pscustomobject]@{ copies = $copies; dummies = $dummies; port = $Port })
+Write-Json $state ([pscustomobject]@{ copies = $copies; port = $Port })
 
 $apiPort = $Port + 1
 Write-Host ""
@@ -718,7 +720,8 @@ try {
 }
 finally {
     Pop-Location
-    # dotnet run держит API отдельным дочерним процессом: гасим всё дерево, а с ним и пустышки сессий.
+    # dotnet run держит API отдельным дочерним процессом: гасим всё дерево, а следом пустышки сессий —
+    # они заведены отдельно и в дерево не входят.
     & taskkill.exe /PID $api.Id /T /F 2>$null | Out-Null
-    Stop-Dummies ([pscustomobject]@{ dummies = $dummies })
+    Stop-Dummies
 }
