@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import FolderBrowser, { FolderIcon, type FolderEntry } from './FolderBrowser'
 import PanelCard from './PanelCard'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal, withReveal } from './reveal'
 import './Settings.css'
 
 export type BaseEntry = {
@@ -72,6 +73,7 @@ export default function Settings() {
 
 function BasesSettings() {
   const [load, setLoad] = useState<Load<BaseEntry[]>>({ kind: 'loading' })
+  const reveal = useReveal(load.kind === 'loading')
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [listError, setListError] = useState<string | null>(null)
@@ -202,7 +204,7 @@ function BasesSettings() {
             </p>
           )}
           {load.kind === 'loaded' && (
-            <ul className="bases-list loaded" aria-label="Базы знаний">
+            <ul className={withReveal('bases-list', reveal)} onAnimationEnd={reveal.onAnimationEnd} aria-label="Базы знаний">
               {bases.length === 0 && <li className="bases-empty">Список пуст.</li>}
               {bases.map((base) => (
                 <li key={base.path}>
@@ -231,7 +233,7 @@ function BasesSettings() {
           )}
 
           {load.kind === 'loaded' && (
-            <form className="bases-add loaded" onSubmit={add} noValidate>
+            <form className={withReveal('bases-add', reveal)} onAnimationEnd={reveal.onAnimationEnd} onSubmit={add} noValidate>
               <label htmlFor="bases-new-path">Путь к каталогу базы</label>
               <div className="bases-add-row">
                 <input
@@ -323,6 +325,7 @@ function BasesSettings() {
 
 function KitSettings() {
   const [load, setLoad] = useState<Load<KitEntry>>({ kind: 'loading' })
+  const reveal = useReveal(load.kind === 'loading')
   const [path, setPath] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -439,7 +442,7 @@ function KitSettings() {
             </p>
           )}
           {load.kind === 'loaded' && (
-            <form className="bases-add loaded" onSubmit={save} noValidate>
+            <form className={withReveal('bases-add', reveal)} onAnimationEnd={reveal.onAnimationEnd} onSubmit={save} noValidate>
               <label htmlFor="kit-path">Путь к каталогу кита</label>
               <div className="bases-add-row">
                 <input

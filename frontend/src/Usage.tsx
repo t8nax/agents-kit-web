@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import './Usage.css'
 
 /** Окно лимита: свой счёт панели по журналам и процент лимита из учётной записи. */
@@ -56,6 +57,7 @@ export default function Usage() {
   const [view, setView] = useState<UsageView | null>(null)
   const [failed, setFailed] = useState(false)
   const [loading, setLoading] = useState(false)
+  const reveal = useReveal(view === null)
 
   const load = useCallback(() => {
     fetch('/api/usage')
@@ -106,7 +108,7 @@ export default function Usage() {
       {view === null && !failed && <UsageSkeleton />}
 
       {view && (
-        <div className="loaded">
+        <div {...reveal}>
           {view.limitsProblem && (
             <p className="usage-failure">
               <b>Проценты лимита сейчас недоступны.</b> {view.limitsProblem} Панель спрашивает их тем же способом,

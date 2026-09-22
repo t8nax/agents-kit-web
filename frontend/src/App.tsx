@@ -23,6 +23,7 @@ import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
@@ -124,6 +125,7 @@ type Section =
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
+  const reveal = useReveal(state.rows === null)
   const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [asking, setAsking] = useState(false)
@@ -273,7 +275,7 @@ function App() {
               {state.failed && <p className="message warning-text">Нет связи с API</p>}
               {state.rows === null && !state.failed && <WorkspacesSkeleton />}
               {state.rows && (
-                <div className="loaded">
+                <div {...reveal}>
                   <WorkspacesTable
                     rows={state.rows}
                     fresh={fresh}

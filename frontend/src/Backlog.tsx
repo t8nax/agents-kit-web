@@ -5,6 +5,7 @@ import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { numberLetters } from './taskTitle'
@@ -128,6 +129,7 @@ export default function Backlog({
   const closeWrite = useCallback(() => setWriting(false), [])
 
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
+  const reveal = useReveal(load.kind === 'loading')
   // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
   // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
   const filtering = isFiltering(selection)
@@ -166,7 +168,7 @@ export default function Backlog({
       )}
 
       {load.kind === 'loaded' && backlogs.length > 0 && (
-        <div className="loaded">
+        <div {...reveal}>
           {backlogs.length > 1 && (
             <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
               <FilterChip label="Все проекты" active={filter === null} onClick={() => setFilter(null)} />

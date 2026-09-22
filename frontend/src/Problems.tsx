@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { plural } from './plural'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import './Problems.css'
 
 export type HealthProblem = {
@@ -36,6 +37,7 @@ const checkingIntervalMs = 1000
  */
 export default function Problems({ onSettings }: { onSettings: () => void }) {
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null)
+  const reveal = useReveal(snapshot === null)
   const [failed, setFailed] = useState(false)
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
@@ -113,7 +115,7 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
       {snapshot === null && !failed && <ProblemsSkeleton />}
       {snapshot?.pending && <p className="empty-message">Идёт первая проверка баз…</p>}
       {snapshot && !snapshot.pending && (
-        <div className="loaded">
+        <div {...reveal}>
           {snapshot.kit !== 'ok' && <KitNotice kit={snapshot.kit} onSettings={onSettings} />}
           {snapshot.bases.length === 0 && (
             <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>

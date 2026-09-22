@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './PanelCard.css'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal, withReveal } from './reveal'
 
 export type PanelBuild = {
   channel: string
@@ -56,6 +57,7 @@ const waiting = (count: number) => {
  */
 export default function PanelCard() {
   const [panel, setPanel] = useState<Panel | null>(null)
+  const reveal = useReveal(panel === null)
   const [updates, setUpdates] = useState<PanelUpdates | null>(null)
   const [checking, setChecking] = useState(false)
   const [update, setUpdate] = useState<PanelUpdateState | null>(null)
@@ -147,7 +149,7 @@ export default function PanelCard() {
 
   return (
     <PanelShell>
-      <div className="panel-card-body loaded">
+      <div className={withReveal('panel-card-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
         <div className="panel-row">
           <span className="panel-label">Канал</span>
           <div className="panel-channels" role="group" aria-label="Канал панели">

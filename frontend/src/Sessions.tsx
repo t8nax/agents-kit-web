@@ -4,6 +4,7 @@ import NewSessionModal from './NewSessionModal'
 import { PlusIcon } from './NewWorkspaceModal'
 import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import './Modal.css'
 import './Sessions.css'
 import { TerminalIcon } from './TerminalIcon'
@@ -59,6 +60,7 @@ const columnCount = 5
  */
 export default function Sessions() {
   const [rows, setRows] = useState<SessionRow[] | null>(null)
+  const reveal = useReveal(rows === null)
   const [failed, setFailed] = useState(false)
   const [copy, setCopy] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -190,7 +192,7 @@ export default function Sessions() {
       )}
       {rows === null && !failed && <SessionsSkeleton />}
       {rows && (
-        <div className="loaded">
+        <div {...reveal}>
           {rows.length > 0 && (
             <div className="filter-bar" role="group" aria-label="Фильтр по копиям">
               <FilterChip label="Все копии" active={copy === null} onClick={() => setCopy(null)} />

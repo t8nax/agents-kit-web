@@ -9,6 +9,7 @@ import type { BasePerformers } from './Performers'
 import { plural } from './plural'
 import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
+import { useReveal, withReveal } from './reveal'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /**
@@ -382,6 +383,7 @@ export default function Flow({
   }, [])
 
   const flows = load.kind === 'loaded' ? load.flows : []
+  const reveal = useReveal(load.kind === 'loading')
   const flow = flows.find((f) => f.base === selected) ?? null
   // Стадия зовёт исполнителя именем; здесь — ровно те, кто лежит в базе проекта.
   const project = flow && performers ? (performers.find((p) => p.base === flow.base) ?? null) : null
@@ -665,7 +667,7 @@ export default function Flow({
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
 
       {load.kind === 'loaded' && (
-        <div className="flow-body loaded">
+        <div className={withReveal('flow-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
           {empty && (
             <div className="flow-empty">
               <span className="flow-empty-mark" aria-hidden="true">

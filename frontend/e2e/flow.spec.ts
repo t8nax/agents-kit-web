@@ -373,6 +373,25 @@ test('окно стадии возвращает фокус: к описанию
   await expect(page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Приёмка/ })).toBeFocused()
 })
 
+test('окно стадии накрывает и сайдбар разделов: его затемнение лежит поверх всей панели', async ({ page }) => {
+  await mockApi(page)
+  await openFlow(page)
+  await page.getByRole('tab', { name: 'Стадии' }).click()
+  await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Стадия «Критерий»' })).toBeVisible()
+
+  // Проявление раздела после загрузки не оставляет своего слоя отрисовки: иначе окно внутри раздела
+  // уходило под сайдбар, и щелчок по разделу уводил из «Флоу» с несохранёнными правками (B-201).
+  const box = (await page.locator('.sidebar').boundingBox())!
+  await expect(async () => {
+    const onTop = await page.evaluate(
+      ([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.modal-overlay')),
+      [box.x + box.width / 2, box.y + box.height / 2],
+    )
+    expect(onTop).toBe(true)
+  }).toPass()
+})
+
 test('окно стадии: Escape закрывает верхнее окно, под окнами Tab не проходит к разделу, значки своего размера', async ({ page }) => {
   await mockApi(page)
   await openFlow(page)
