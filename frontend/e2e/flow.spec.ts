@@ -173,9 +173,9 @@ test('вкладка «Флоу»: узел старта и блоки по це
   await page.getByRole('option', { name: 'мелкий' }).click()
   await expect(page.getByRole('region', { name: 'Сценарий «мелкий»' }).getByRole('button', { name: /^Стадия 1: Ревью/ })).toBeVisible()
 
-  // Редкие действия раздела — в меню «…» шапки; переписывания в нём нет
+  // Редкие действия раздела — в меню «…» шапки; переписывание стадий с Чудо-Юдо — первым
   await page.getByRole('button', { name: 'Ещё действия' }).click()
-  await expect(page.getByRole('menuitem')).toHaveText(['Обновить', 'Открыть в VS Code'])
+  await expect(page.getByRole('menuitem')).toHaveText(['Переписать с Чудо-Юдо', 'Обновить', 'Открыть в VS Code'])
   await page.getByRole('menuitem', { name: 'Открыть в VS Code' }).click()
   await expect.poll(() => calls.open).toEqual([{ base: 'D:\\Projects\\app-knowledge' }])
 })

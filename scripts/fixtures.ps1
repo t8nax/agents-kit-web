@@ -49,7 +49,9 @@ function Write-Session([string]$Dir, [int]$Process, [string]$Cwd, [hashtable]$Ex
 # и находки сверки заглушка не вычисляет, а берёт из таблиц, которые пишет этот скрипт.
 # $LinkNewCopies — заведённая из панели копия сразу связана с базой, как у настоящего кита; песочнице
 # это не нужно: на её копии без связи видно, как панель показывает проблему связи.
-function New-Kit([string]$Path, [switch]$LinkNewCopies) {
+# $Rules — справка кита о флоу и стадиях (reference/flow-stages.md установленного кита): из неё панель подаёт
+# агенту правила формы стадии. Не нашлась — заглушка кладёт короткую свою, чтобы переписывание не отвечало отказом.
+function New-Kit([string]$Path, [switch]$LinkNewCopies, [string]$Rules) {
     $scripts = Join-Path $Path 'scripts'
     if ($LinkNewCopies) { Write-Utf8 (Join-Path $scripts 'link-new.txt') "заведённые копии связывать с базой`n" }
 
@@ -193,6 +195,25 @@ if ($LASTEXITCODE -ne 0) { throw "git не убрал копию «$tree»: $(($
 "Рабочая копия удалена: $tree"
 if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $branch" }
 '@
+
+    $reference = Join-Path $Path 'reference\flow-stages.md'
+    if ($Rules -and (Test-Path -LiteralPath $Rules)) {
+        New-Item -ItemType Directory -Path (Split-Path $reference -Parent) -Force | Out-Null
+        Copy-Item -LiteralPath $Rules -Destination $reference -Force
+    } else {
+        Write-Utf8 $reference @'
+# Флоу и стадии
+
+Заглушка кита: настоящей справки рядом не нашлось, и здесь только то, без чего переписывание стадии не начнётся.
+
+## Стадия
+
+Стадия — файл `flow/stages/<слаг>.md`. Заголовок файла — название стадии, под ним подряд пары `ключ: значение`,
+после пустой строки — описание.
+
+Ключи — закрытый перечень: `исполнитель` (обязателен), `помощники`, `выход` (обязателен), `пропуск`.
+'@
+    }
 }
 
 # --- подставной агент --------------------------------------------------------------------
@@ -348,6 +369,26 @@ if ($arguments -contains '--bg') {
 if ($mode -eq 'garbage') {
     Write-Line 'здесь должен был быть поток событий агента'
     Write-Line '{ это почти json, но нет'
+    exit 0
+}
+
+# Переписывание стадий: панель зовёт агента с правилами формы стадии в системном промпте и ждёт стадии
+# блоками «=== стадия «…»» и «=== новая стадия». Подставной дописывает к выходу первой добавленной стадии
+# слова просьбы, а без добавленных пишет новую стадию.
+$system = Get-Argument '--append-system-prompt'
+if ($system -and $system -match 'стадии флоу проекта') {
+    Write-Step 'Read' @{ file_path = 'flow/flow.md' }
+    Write-Step 'Glob' @{ pattern = 'flow/stages/*.md' }
+    if ($mode -eq 'truncated') { exit 0 }
+    $input_ = $stdin -replace "`r`n", "`n"
+    $wish = if ($input_ -match 'Просьба оператора:\n([^\n]*)') { $Matches[1].Trim() } else { '' }
+    if ($input_ -match '(?s)Добавленная стадия «([^»]*)»:\n(.*?)(?=\n\nДобавленная стадия|\n\nОстальные стадии|\n\nИсполнители проекта|$)') {
+        $title = $Matches[1]
+        $file = $Matches[2] -replace '(?m)^выход:\s*(.*)$', "выход: `$1 — по просьбе «$wish»"
+        Write-Result "=== стадия «$title»`n$file"
+    } else {
+        Write-Result "=== новая стадия`n# Заметки подставного агента`n`nисполнитель: оператор`nвыход: заметка по просьбе «$wish»`n`n1. Написано подставным агентом @@OF@@: настоящей стадии здесь нет.`n"
+    }
     exit 0
 }
 

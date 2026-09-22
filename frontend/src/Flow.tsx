@@ -17,6 +17,9 @@ import './Backlog.css'
 import './PerformerModal.css'
 import './ReplyModal.css'
 import './Flow.css'
+import { AGENT_NAME } from './BacklogWriteModal'
+import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
+import type { RewrittenStage } from './flowChanges'
 import { Markdown } from './Markdown'
 import type { BasePerformers } from './Performers'
 import { plural } from './plural'
@@ -331,8 +334,17 @@ const invalidLabels: Record<string, string> = {
  */
 export default function Flow({
   baseFor = null,
+  rewriteAt = null,
   onPerformers,
-}: { baseFor?: string | null; onPerformers?: () => void } = {}) {
+}: {
+  baseFor?: string | null
+  /**
+   * Когда оператор щёлкнул отметку просьбы в шапке: поверх раздела — окно переписывания стадий. Раздел,
+   * уже открытый, не пересоздаётся, а только открывает окно: несохранённые правки остаются на месте.
+   */
+  rewriteAt?: number | null
+  onPerformers?: () => void
+} = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [selected, setSelected] = useState<string | null>(baseFor)
   const [presets, setPresets] = useState<StagePreset[]>([])
@@ -355,8 +367,9 @@ export default function Flow({
   const [focus, setFocus] = useState<Focus>(null)
   // Выбор до записи — по именам: перечитанный флоу собирается в форму заново, с новыми key.
   const [keep, setKeep] = useState<{ flow: string | null } | null>(null)
-  // Какое окно открыто поверх раздела: описание стадии или выбор стадии во флоу.
-  const [modal, setModal] = useState<'description' | 'add' | null>(null)
+  // Какое окно открыто поверх раздела: описание стадии, выбор стадии во флоу или переписывание с Чудо-Юдо.
+  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(rewriteAt !== null ? 'rewrite' : null)
+  const [rewriteSeen, setRewriteSeen] = useState(rewriteAt)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -420,6 +433,23 @@ export default function Flow({
   const savedApi = useMemo(() => JSON.stringify(toApi(saved)), [saved])
   const dirty =
     flow !== null && (JSON.stringify(toApi(draft)) !== savedApi || !sameIcons(toIcons(draft), flow.icons ?? {}))
+  // Отметка в шапке щёлкнута при открытом разделе: окно встаёт поверх, а проект переключается на проект
+  // просьбы, только если переключать нечего терять — как в выборе проекта. С несохранёнными правками окно
+  // остаётся на своём проекте и говорит, что просьба про другой.
+  if (rewriteAt !== rewriteSeen) {
+    setRewriteSeen(rewriteAt)
+    if (rewriteAt !== null) {
+      setModal('rewrite')
+      if (baseFor !== null && baseFor !== selected && !dirty) {
+        setSelected(baseFor)
+        setOpened(null)
+        setStageKey(null)
+        setStageOpen(false)
+        setFlowKey(null)
+        setKeep(null)
+      }
+    }
+  }
   const unread = flow?.unread ?? []
   const problem =
     unread.length > 0
@@ -524,6 +554,39 @@ export default function Flow({
     return { added, stages: [...draft.stages, added] }
   }
 
+  /**
+   * Правки Чудо-Юдо ложатся на стадии черновика: переписанная сохраняет key, и пункты сценариев и возвраты,
+   * которые ссылаются на неё key, идут за новым названием сами — как при ручном переименовании. Новая стадия
+   * встаёт в конец вкладки «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
+   */
+  const applyRewritten = (rewritten: RewrittenStage[]) => {
+    let stages = draft.stages
+    for (const { of, stage } of rewritten) {
+      const fields = stageDraft(stage)
+      const was = of == null ? undefined : stages.find((one) => norm(one.title) === norm(of))
+      stages = was
+        ? stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
+        : [...stages, { ...fields, slug: null }]
+    }
+    setDraft({ ...draft, stages })
+    setModal(null)
+    if (rewritten.some((one) => one.of == null)) {
+      setTab('stages')
+      setOpened(null)
+    }
+  }
+
+  // Значок стадии в окне переписывания — тот же, что на её карточке.
+  const stageMark = (title: string) => {
+    const stage = draft.stages.find((one) => norm(one.title) === norm(title))
+    const kind = !stage ? 'orchestrator' : stage.kind === 'оркестратор' ? 'orchestrator' : stage.kind === 'оператор' ? 'operator' : 'agent'
+    return (
+      <span className={`flow-card-mark flow-mark-${kind}`} aria-hidden="true">
+        <StageIcon icon={stage?.icon ?? ''} kind={kind} />
+      </span>
+    )
+  }
+
   // Новая стадия на вкладке «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
   const newStage = () => {
     const { added, stages } = addStage(emptyStage)
@@ -570,7 +633,9 @@ export default function Flow({
   const editable = flow !== null && !flow.error
   const empty = editable && draft.flows.length === 0
   // Открыто окно поверх раздела: верх, схема и полоса под подложкой недоступны — Tab не уходит из окна.
-  const covered = stageOpen || modal === 'description' || opened?.kind === 'returns'
+  // Окно переписывания у непрочитанного флоу не встаёт — и верх раздела не запирает: проект можно сменить или обновить.
+  const covered =
+    stageOpen || modal === 'description' || (modal === 'rewrite' && editable) || opened?.kind === 'returns'
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
   const backToBlock = () => origin !== null && setFocus({ key: origin })
@@ -620,6 +685,8 @@ export default function Flow({
               disabled={dirty}
               onPick={(base) => {
                 setSelected(base)
+                // Выбор проекта доступен поверх окна переписывания, только если оно не встало: забыть и его.
+                setModal(null)
                 setOpened(null)
                 setStageKey(null)
                 setStageOpen(false)
@@ -631,6 +698,22 @@ export default function Flow({
           <RowMenu label="Ещё действия" title="Ещё действия" buttonClassName="bases-btn head-more">
             {(close) => (
               <>
+                {/* Правки агента ложатся в черновик поверх несохранённых: стадии он получает такими, как на экране.
+                    Без флоу вкладок нет, и новую стадию было бы не видно: пункта в пустом состоянии нет. */}
+                {editable && !empty && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="row-menu-item"
+                    onClick={() => {
+                      close()
+                      setModal('rewrite')
+                    }}
+                  >
+                    <RewriteIcon />
+                    Переписать с {AGENT_NAME}
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -689,6 +772,12 @@ export default function Flow({
       )}
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
+      {/* Правки агента ложатся только на прочитанный флоу: с отметки в шапке окно не встаёт — сказать почему. */}
+      {modal === 'rewrite' && flow?.error && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
+        </p>
+      )}
 
       {load.kind === 'loaded' && (
         <div className={withReveal('flow-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
@@ -801,6 +890,21 @@ export default function Flow({
             if (tab === 'flow' && !stageOpen) backToBlock()
           }}
           onDone={(description) => updateStage(currentStage.key, { description })}
+        />
+      )}
+
+      {modal === 'rewrite' && flow && editable && (
+        <FlowRewriteModal
+          base={flow.base}
+          project={flow.project}
+          stages={draft.stages.map(toStage)}
+          mark={stageMark}
+          scope={(title) => {
+            const stage = draft.stages.find((one) => norm(one.title) === norm(title))
+            return stage ? scopeWarning(draft, stage.key) : null
+          }}
+          onApply={applyRewritten}
+          onClose={() => setModal(null)}
         />
       )}
 

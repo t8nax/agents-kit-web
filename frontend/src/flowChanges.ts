@@ -1,106 +1,54 @@
-/**
- * Шаг флоу прежней формы — одним файлом flow.md со стадиями по номерам. Его разбирает и переписывает окно
- * «Переписать с Чудо-Юдо»; из раздела «Флоу» оно убрано, пока переписывание не переведут на новую форму (B-179).
- */
-export type FlowReturn = { condition: string; step: string }
+import type { FlowStage } from './Flow'
 
-export type FlowStep = {
+/**
+ * Стадия из ответа Чудо-Юдо: of — название стадии контекста, которую она переписывает. У новой стадии его нет:
+ * пустые поля API не пишет, поэтому of приходит не null, а не приходит вовсе.
+ */
+export type RewrittenStage = { of?: string | null; stage: FlowStage }
+
+export type StageFieldName = 'title' | 'executor' | 'output' | 'skip' | 'helpers' | 'description'
+
+export type StageFieldChange = { field: StageFieldName; before: string | null; after: string | null }
+
+/**
+ * Что стало со стадией контекста или новой стадией: title — название, каким оно стало; of — прежнее
+ * название, у новой стадии его нет. У стадии без правок fields пуст.
+ */
+export type StageChange = {
+  kind: 'added' | 'changed' | 'same'
   title: string
-  executor: string
-  output: string
-  skip: string | null
-  description: string | null
-  returns?: FlowReturn[]
-  helpers?: string[]
+  of: string | null
+  stage: FlowStage
+  fields: StageFieldChange[]
 }
 
-export type FlowFieldName = 'executor' | 'output' | 'skip' | 'description' | 'returns' | 'helpers'
+const fieldNames: StageFieldName[] = ['title', 'executor', 'output', 'skip', 'helpers', 'description']
 
-export type FlowFieldChange = { field: FlowFieldName; before: string | null; after: string | null }
+const value = (stage: FlowStage, field: StageFieldName) => {
+  const raw = field === 'helpers' ? (stage.helpers ?? []).join(', ') : stage[field]
+  return raw === null || raw === undefined || raw.trim() === '' ? null : raw
+}
+
+const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
 
 /**
- * Что стало с шагом: at — место в новом флоу, from — в прежнем; у добавленного и удалённого своего места
- * во втором нет и стоит -1.
+ * Разбор ответа: сначала стадии, которые агент вернул, в его порядке, — прежний их вид берётся из stages
+ * раздела, — следом стадии контекста, которых он не вернул или вернул как было: они стоят строкой «без правок».
  */
-export type FlowChange = {
-  kind: 'added' | 'changed' | 'moved' | 'removed' | 'same'
-  title: string
-  at: number
-  from: number
-  step: FlowStep | null
-  fields: FlowFieldChange[]
-}
+export function stageChanges(stages: FlowStage[], rewritten: RewrittenStage[], context: FlowStage[]): StageChange[] {
+  const changes: StageChange[] = rewritten.map(({ of, stage }) => {
+    const was = of == null ? undefined : stages.find((one) => norm(one.title) === norm(of))
+    if (!was) return { kind: 'added', title: stage.title, of: null, stage, fields: [] }
 
-const fieldNames: FlowFieldName[] = ['executor', 'output', 'skip', 'description', 'returns', 'helpers']
-
-/** Возвраты и помощники — списки, поэтому в строке изменений они читаются одной строкой. */
-const listValue = (step: FlowStep, field: 'returns' | 'helpers') =>
-  field === 'helpers'
-    ? (step.helpers ?? []).join(', ')
-    : (step.returns ?? []).map((back) => `${back.condition} → ${back.step}`).join('; ')
-
-const value = (step: FlowStep, field: FlowFieldName) => {
-  const raw =
-    field === 'executor'
-      ? step.executor
-      : field === 'output'
-        ? step.output
-        : field === 'skip'
-          ? step.skip
-          : field === 'description'
-            ? step.description
-            : listValue(step, field)
-  return raw === null || raw === undefined || raw === '' ? null : raw
-}
-
-const fieldsOf = (before: FlowStep, after: FlowStep) =>
-  fieldNames
-    .map((field) => ({ field, before: value(before, field), after: value(after, field) }))
-    .filter((change) => change.before !== change.after)
-
-/**
- * Пары «прежний шаг — новый» по названию: одинаковые названия разбираются по порядку, поэтому
- * переставленный шаг узнаётся, а переименованный выглядит как удалённый и добавленный.
- */
-function pairs(before: FlowStep[], after: FlowStep[]) {
-  const free = new Map<string, number[]>()
-  before.forEach((step, index) => {
-    const key = step.title.trim()
-    free.set(key, [...(free.get(key) ?? []), index])
+    const fields = fieldNames
+      .map((field) => ({ field, before: value(was, field), after: value(stage, field) }))
+      .filter((change) => change.before !== change.after)
+    return { kind: fields.length > 0 ? 'changed' : 'same', title: stage.title, of: was.title, stage, fields }
   })
 
-  return after.map((step) => {
-    const places = free.get(step.title.trim())
-    return places?.length ? (places.shift() as number) : -1
-  })
-}
-
-/** Разбор переписанного флоу: по шагу на строку, сначала новый порядок, следом удалённые шаги. */
-export function flowChanges(before: FlowStep[], after: FlowStep[]): FlowChange[] {
-  const from = pairs(before, after)
-  const taken = new Set(from.filter((index) => index >= 0))
-
-  const changes: FlowChange[] = after.map((step, at) => {
-    const was = from[at] >= 0 ? before[from[at]] : null
-    if (!was) return { kind: 'added', title: step.title, at, from: -1, step, fields: [] }
-
-    const fields = fieldsOf(was, step)
-    // Место считается по шагам, которые есть в обоих флоу: иначе сдвиг от чужого шага выглядит перестановкой.
-    const kind = fields.length > 0 ? 'changed' : moved(from, at) ? 'moved' : 'same'
-    return { kind, title: step.title, at, from: from[at], step, fields }
-  })
-
-  before.forEach((step, index) => {
-    if (!taken.has(index))
-      changes.push({ kind: 'removed', title: step.title, at: -1, from: index, step, fields: [] })
-  })
+  for (const stage of context)
+    if (!changes.some((change) => change.of !== null && norm(change.of) === norm(stage.title)))
+      changes.push({ kind: 'same', title: stage.title, of: stage.title, stage, fields: [] })
 
   return changes
-}
-
-/** Шаг переставлен, если порядок уцелевших шагов вокруг него изменился: чужие шаги места не сдвигают. */
-function moved(from: number[], at: number) {
-  const order = from.filter((index) => index >= 0)
-  const place = from.slice(0, at).filter((index) => index >= 0).length
-  return order[place] !== [...order].sort((a, b) => a - b)[place]
 }

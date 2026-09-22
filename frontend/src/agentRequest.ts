@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { FlowStage } from './Flow'
 
 /** Виды просьб к агенту: разом идёт по одной каждого вида — решение оператора на B-52. */
 export type AgentKind = 'ask' | 'backlog' | 'flow' | 'performer'
@@ -13,6 +14,8 @@ export type AgentRequestSummary = {
   state: 'running' | 'done' | 'failed'
   /** Про кого просьба: имя переписываемого исполнителя; нет — просьба не про заведённого (B-80). */
   subject?: string | null
+  /** Стадии флоу, ушедшие агенту с просьбой переписать их: открытое заново окно показывает их и сличает с ними ответ. */
+  stages?: FlowStage[] | null
 }
 
 /** Событие просьбы: «step» — ход работы агента, любое другое — её итог. */
@@ -33,6 +36,8 @@ export function useAgentRequest<E extends AgentEvent>(
 ) {
   const [asked, setAsked] = useState('')
   const [base, setBase] = useState<string | null>(null)
+  // Просьба, которую окно показывает, — такой, какой её держит панель.
+  const [request, setRequest] = useState<AgentRequestSummary | null>(null)
   const [steps, setSteps] = useState<string[]>([])
   const [outcome, setOutcome] = useState<E | null>(null)
   const [running, setRunning] = useState(false)
@@ -50,6 +55,7 @@ export function useAgentRequest<E extends AgentEvent>(
       reading.current = controller
       setAsked(summary.text)
       setBase(summary.base)
+      setRequest(summary)
       setSteps([])
       setOutcome(null)
       setFailure(null)
@@ -169,6 +175,7 @@ export function useAgentRequest<E extends AgentEvent>(
     reading.current = null
     setAsked('')
     setBase(null)
+    setRequest(null)
     setSteps([])
     setOutcome(null)
     setRunning(false)
@@ -181,7 +188,7 @@ export function useAgentRequest<E extends AgentEvent>(
     }
   }, [kind])
 
-  return { asked, base, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure }
+  return { asked, base, request, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure }
 }
 
 /** Своя просьба по умолчанию — любая просьба своего вида: разом идёт по одной каждого вида. */
