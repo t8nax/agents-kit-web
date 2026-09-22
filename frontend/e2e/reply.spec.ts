@@ -94,6 +94,19 @@ test('оператор отвечает лентой, ответы уходят 
   await expect(dialog.getByRole('button', { name: 'Отменить' })).toBeVisible()
   expect(posted).toBeNull()
 
+  // записанные ответы уводят окно угасанием: оно длится доли секунды, поэтому ловим его каждый кадр —
+  // на это время оверлей гаснет и не ловит щелчки
+  const faded = await page.waitForFunction(
+    () => {
+      const overlay = document.querySelector('.modal-overlay.is-leaving')
+      if (!overlay) return null
+      const style = getComputedStyle(overlay)
+      return { pointerEvents: style.pointerEvents, duration: style.transitionDuration }
+    },
+    null,
+    { polling: 'raf', timeout: 10000 },
+  )
+  expect(await faded.jsonValue()).toEqual({ pointerEvents: 'none', duration: '0.22s' })
   await expect(dialog).toBeHidden({ timeout: 10000 })
   expect(posted).toEqual({
     base: 'D:\\Projects\\app-knowledge',
@@ -122,6 +135,7 @@ test('«Отменить» ничего не записывает, а лента
   await answer.press('Enter')
   await dialog.getByRole('button', { name: 'Отменить' }).click()
 
+  await expect(page.locator('.modal-overlay.is-leaving')).toHaveCount(0)
   await expect(dialog.locator('.reply-feed')).toBeVisible()
   await expect(answer).toHaveValue('принимаю')
   await page.waitForTimeout(3500)

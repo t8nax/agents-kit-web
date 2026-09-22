@@ -368,10 +368,6 @@
   border-color: var(--border-strong);
 }
 
-.q-compact:disabled {
-  cursor: default;
-}
-
 .qc-title {
   color: var(--text-primary);
   font-weight: 500;
@@ -526,19 +522,18 @@
 /* Записанные ответы уводят окно угасанием; обычное закрытие мгновенно — решение оператора. */
 .modal-overlay.is-leaving {
   opacity: 0;
-  transition: opacity 0.22s ease;
+  /* длительность приходит из кода окна (FADE_MS): иначе числа разойдутся и окно мигнёт */
+  transition: opacity var(--fade-ms) ease;
+  /* пока окно гаснет, щелчки идут таблице под ним, а не в прозрачный слой */
+  pointer-events: none;
 }
 
 .modal-overlay.is-leaving .reply-window {
   transform: scale(0.985);
-  transition: transform 0.22s ease;
+  transition: transform var(--fade-ms) ease;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .modal-overlay.is-leaving {
-    transition: opacity 0.15s linear;
-  }
-
   .modal-overlay.is-leaving .reply-window {
     transform: none;
   }

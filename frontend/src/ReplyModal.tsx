@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
@@ -131,23 +131,22 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   }, [])
 
   // Ошибка открытия файла из окна артефактов уходит вместе с ним: под шапкой окна ответа она бы повисла.
-  function hideShown() {
-    if (shown === 'artifacts') setOpenError(null)
-    setShown(null)
-  }
+  const hideShown = useCallback(() => {
+    setShown((open) => {
+      if (open === 'artifacts') setOpenError(null)
+      return null
+    })
+  }, [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (shown) {
-        if (shown === 'artifacts') setOpenError(null)
-        setShown(null)
-      }
+      if (shown) hideShown()
       else if (phase === 'open') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, shown, phase])
+  }, [onClose, shown, phase, hideShown])
 
   // Закрытое окно поверх возвращает фокус на свою кнопку — после перерисовки: пока оно открыто,
   // окно ответа inert, и фокус в него не встаёт.
@@ -237,6 +236,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         onAnswered()
         // окно уходит угасанием, а закрывается, когда оно закончилось
         if (!alive.current) return
+        setShown(null)
         setPhase('leaving')
         timer.current = window.setTimeout(onClose, FADE_MS)
         return
@@ -359,6 +359,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     <>
       <div
         className={`modal-overlay ${phase === 'leaving' ? 'is-leaving' : ''}`}
+        // длительность угасания живёт в коде: стили берут её отсюда, чтобы числа не разошлись
+        style={{ '--fade-ms': `${FADE_MS}ms` } as CSSProperties}
         onMouseDown={(e) => e.target === e.currentTarget && !shown && phase === 'open' && onClose()}
       >
         <div
