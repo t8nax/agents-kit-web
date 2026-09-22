@@ -115,11 +115,25 @@ public sealed class TaskEndpointsTests : IDisposable
         _agent.Lines = ["backgrounded · abc123"];
 
         var response = await Client().PostAsJsonAsync("/api/tasks",
-            new TaskStartRequest(_base, _copy, "B-7", "мелкий", "  Начни с API.\n\n- тесты «как есть»\n"));
+            new TaskStartRequest(_base, _copy, "B-7", "мелкий", "\n  Начни с API.\n\n- тесты «как есть»\n"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         // Другого сообщения запущенной сессии панель не шлёт: слова идут той же просьбой, одним аргументом.
-        Assert.Equal("/agents-kit:drive B-7 флоу «мелкий»\n\nНачни с API.\n\n- тесты «как есть»", _agent.StartInfo!.ArgumentList[^1]);
+        // Отступ первой строки остаётся, пустые строки по краям — нет.
+        Assert.Equal("/agents-kit:drive B-7 флоу «мелкий»\n\n  Начни с API.\n\n- тесты «как есть»", _agent.StartInfo!.ArgumentList[^1]);
+    }
+
+    [Fact]
+    public async Task Start_RejectsWordsLongerThanLimit()
+    {
+        _agent.Lines = ["backgrounded · abc123"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks",
+            new TaskStartRequest(_base, _copy, "B-7", null, new string('с', TaskEndpoints.WordsLimit + 1)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("words-too-long", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
     }
 
     [Fact]

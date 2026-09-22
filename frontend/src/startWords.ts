@@ -20,3 +20,28 @@ export function saveStartWords(base: string, number: string, text: string) {
     // хранилище недоступно — окно работает, как без черновика
   }
 }
+
+// Черновики записей, которых в прочитанном бэклоге больше нет, забываются — как черновики ответов на ушедшие
+// вопросы: запись взяли не из панели или удалили, а номер новой записи не достаётся. Бэклог базы не прочитан —
+// её черновики остаются; базы нет в списке панели — уходят и они.
+export function forgetGoneStartWords(backlogs: { base: string; entries: { number: string | null }[]; error: string | null }[]) {
+  try {
+    const prefix = 'agents-kit-web.start-words|'
+    const kept = new Set<string>()
+    const unread = new Set<string>()
+    for (const backlog of backlogs) {
+      if (backlog.error !== null) unread.add(backlog.base)
+      for (const entry of backlog.entries) if (entry.number) kept.add(wordsKey(backlog.base, entry.number))
+    }
+    const gone: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key === null || !key.startsWith(prefix) || kept.has(key)) continue
+      const base = key.slice(prefix.length, key.lastIndexOf('|'))
+      if (!unread.has(base)) gone.push(key)
+    }
+    for (const key of gone) localStorage.removeItem(key)
+  } catch {
+    // хранилище недоступно — забывать нечего
+  }
+}

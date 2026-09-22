@@ -16,7 +16,10 @@ type Props = {
   onStarted: (copy: string) => void
 }
 
-type Problem = 'copy-busy' | 'copy-starting' | 'record-unknown' | 'flow-unknown' | 'agent'
+type Problem = 'copy-busy' | 'copy-starting' | 'record-unknown' | 'flow-unknown' | 'words-too-long' | 'agent'
+
+/** Слова уходят сессии аргументом командной строки, а её длину Windows ограничивает — предел с большим запасом. */
+export const WORDS_LIMIT = 8000
 
 type Load =
   | { kind: 'loading' }
@@ -33,6 +36,8 @@ function failureOf(problem: Problem, message: string | null): string {
       return 'В этой копии панель уже запустила задачу — агент ещё не завёл её память.'
     case 'record-unknown':
       return 'Этой записи больше нет в бэклоге: её взяли или удалили. Закройте окно и откройте заново.'
+    case 'words-too-long':
+      return `Начальные слова длиннее ${WORDS_LIMIT} знаков — сократите их.`
     case 'flow-unknown':
       return 'Этого флоу в базе больше нет: его переименовали или удалили. Закройте окно и откройте заново.'
     default:
@@ -42,7 +47,8 @@ function failureOf(problem: Problem, message: string | null): string {
 
 /**
  * Окно запуска задачи: запись выбрана в бэклоге, оператор выбирает флоу, которым её вести, и свободную копию
- * её проекта. Выбор флоу виден всегда, даже при одном флоу, первым выбран первый — ответ оператора.
+ * её проекта. Выбор флоу виден всегда, даже при одном флоу, первым выбран первый — ответ оператора. Последним
+ * разделом — необязательные начальные слова сессии; набранные помнятся у записи, пока задачу не запустили.
  */
 export default function StartTaskModal({ base, entry, onClose, onStarted }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
@@ -272,6 +278,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               className="custom-textarea st-words"
               value={words}
               disabled={busy}
+              maxLength={WORDS_LIMIT}
               placeholder="На что обратить внимание, с чего начать, что уже решено"
               onChange={(e) => {
                 setWords(e.target.value)

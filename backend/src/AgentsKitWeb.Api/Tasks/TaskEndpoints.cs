@@ -21,6 +21,9 @@ public sealed record TaskStartProblem(string Problem, string? Message = null);
 
 public static class TaskEndpoints
 {
+    /// <summary>Предел начальных слов оператора в знаках; тот же стоит у поля окна запуска.</summary>
+    public const int WordsLimit = 8000;
+
     public static void MapTaskEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/tasks", async (
@@ -68,6 +71,10 @@ public static class TaskEndpoints
             if (started.SessionIn(row.Path) is { } running)
                 return Results.BadRequest(new TaskStartProblem("copy-starting", running));
 
+            // Слова уходят аргументом командной строки, а её длину Windows ограничивает: предел — с большим запасом.
+            if (request.Words is { Length: > WordsLimit })
+                return Results.BadRequest(new TaskStartProblem("words-too-long"));
+
             if (!Entries(basePath).TryGetValue(number, out var title))
                 return Results.BadRequest(new TaskStartProblem("record-unknown"));
 
@@ -93,7 +100,8 @@ public static class TaskEndpoints
     {
         var prompt = flow is null ? $"/agents-kit:drive {number}" : $"/agents-kit:drive {number} флоу «{flow}»";
         if (!string.IsNullOrWhiteSpace(words))
-            prompt += "\n\n" + words.Trim();
+            // Отступ первой строки — часть слов оператора: по краям срезаются только пустые строки.
+            prompt += "\n\n" + words.TrimStart('\r', '\n').TrimEnd();
         return BackgroundSession.StartInfo(copyPath, prompt);
     }
 

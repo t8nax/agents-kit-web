@@ -270,6 +270,17 @@ test('после запуска слова забываются, а неудач
   expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('')
 })
 
+test('слова длиннее предела поле не принимает, а отказ API окно называет понятно', async () => {
+  stub(Response.json({ problem: 'words-too-long', message: null }, { status: 400 }))
+  renderModal()
+
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveAttribute('maxLength', '8000')
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Начальные слова длиннее 8000 знаков — сократите их.')
+})
+
 test('у проекта нет флоу: окно говорит, что задачу не начать, и запускать нечего', async () => {
   stub(Response.json({ session: 'x' }), rows, [{ ...flows[0], flows: [] }])
   renderModal()
