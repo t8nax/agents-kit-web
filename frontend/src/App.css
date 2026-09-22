@@ -207,6 +207,11 @@ svg {
   align-self: center;
 }
 
+/* Кнопка сразу за заголовком раздела, а не у правого края (B-205). */
+.content-head .head-btn {
+  align-self: center;
+}
+
 .message {
   padding: 16px 24px;
   margin: 0;
