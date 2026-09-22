@@ -56,21 +56,21 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         """;
 
     private const string Layout = """
-        # Раскладка базы знаний
+        # Флоу и стадии
 
-        ## Куда именно
+        ## Флоу
 
-        Файлы знания правятся по месту.
+        Флоу — раздел flow/flow.md.
 
-        ## Флоу проекта
-
-        Шаги идут в порядке исполнения, номера подряд с 1.
-
-        ### Шаг
+        ## Стадия
 
         Ключи — закрытый перечень: исполнитель, выход, пропуск.
 
-        ## Решения
+        ## Чего во флоу нет
+
+        Инвариантов кита во флоу нет.
+
+        ## Находки сверки
 
         Один файл — одна область.
         """;
@@ -93,7 +93,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         File.WriteAllText(_flowPath, Flow.ReplaceLineEndings("\n"));
 
         _kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
-        var layout = Path.Combine(_kit, FlowRules.LayoutFile);
+        var layout = Path.Combine(_kit, FlowRules.RulesFile);
         Directory.CreateDirectory(Path.GetDirectoryName(layout)!);
         File.WriteAllText(layout, Layout.ReplaceLineEndings("\n"));
     }
@@ -275,7 +275,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
         var error = Assert.Single(events);
         Assert.Contains("правила формы флоу", error.Text);
-        Assert.Contains(FlowRules.LayoutFile, error.Text);
+        Assert.Contains(FlowRules.RulesFile, error.Text);
         Assert.Null(_agent.StartInfo);
     }
 
@@ -301,18 +301,6 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Post(other, "Добавь ревью"))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(Post(_base, "  "))).StatusCode);
         Assert.Null(_agent.StartInfo);
-    }
-
-    [Fact]
-    public void Rules_ReadsFlowSectionOfKitLayoutOnly()
-    {
-        var rules = FlowRules.Read(_kit);
-
-        Assert.StartsWith("## Флоу проекта", rules);
-        Assert.Contains("### Шаг", rules);
-        Assert.DoesNotContain("Один файл — одна область.", rules);
-        Assert.Null(FlowRules.Read(null));
-        Assert.Null(FlowRules.Read(_root));
     }
 
     [Theory]

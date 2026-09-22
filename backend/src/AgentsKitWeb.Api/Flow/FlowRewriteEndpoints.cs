@@ -72,7 +72,7 @@ public static class FlowRewriteEndpoints
         if (FlowRules.Read(kit) is not { } rules)
             return new FlowRewriteEvent(
                 "error",
-                $"Панель не прочитала у кита правила формы флоу ({FlowRules.LayoutFile}): путь к киту задаётся в «Настройках»");
+                $"Панель не прочитала у кита правила формы флоу ({FlowRules.RulesFile}): путь к киту задаётся в «Настройках»");
 
         var stream = new ClaudeStream(basePath);
         AskEvent? result = null;
