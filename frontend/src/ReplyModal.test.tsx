@@ -2,7 +2,7 @@ import { act, createEvent, fireEvent, render, screen, waitFor, waitForElementToB
 import { StrictMode } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
-import { UNDO_MS, type QuestionsResponse } from './ReplyModal'
+import { UNDO_MS, WRITE_TIMEOUT_MS, type QuestionsResponse } from './ReplyModal'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -803,4 +803,26 @@ test('в StrictMode записанные ответы закрывают окн�
   waitOut()
   expect(await dialog.findByRole('alert')).toHaveTextContent('Этого вопроса уже нет в памяти')
   expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
+})
+
+test('запись, на которую панель не ответила за свой срок, отпускает окно строкой под полем', async () => {
+  const calls = stubApi(
+    (init) =>
+      new Promise<Response>((_, reject) =>
+        init!.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))),
+      ),
+  )
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+  answerLast(dialog, 'заменять')
+  act(() => vi.advanceTimersByTime(UNDO_MS))
+  expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
+  expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
+  waitOut(WRITE_TIMEOUT_MS)
+
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Панель не ответила')
+  expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeEnabled()
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('заменять')
 })

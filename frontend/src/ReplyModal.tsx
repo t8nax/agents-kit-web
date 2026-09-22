@@ -62,6 +62,9 @@ const EMPTY = 'Напишите свой ответ или выберите ва
 // Пока видно «Ответы отправлены агенту», отправку можно отменить: запись идёт после этих секунд.
 export const UNDO_MS = 3000
 
+// Запись без ответа дольше этого не держит окно: на время записи оно не закрывается ничем.
+export const WRITE_TIMEOUT_MS = 30000
+
 const problemText: Record<Rejection['problem'], string> = {
   empty: EMPTY,
   missing: 'Этого вопроса уже нет в памяти. Ничего не записано — закройте окно, чтобы увидеть актуальную память.',
@@ -228,8 +231,11 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       setError(text)
       setPhase('open')
     }
+    const abort = new AbortController()
+    const limit = window.setTimeout(() => abort.abort(), WRITE_TIMEOUT_MS)
     try {
       const response = await fetch('/api/answers', {
+        signal: abort.signal,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -252,7 +258,13 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       }
       fail(response.status === 404 ? 'Ответы не записаны: память копии не найдена' : 'Ответы не записаны')
     } catch {
-      fail('Ответы не записаны: нет связи с API')
+      fail(
+        abort.signal.aborted
+          ? 'Панель не ответила: записались ли ответы, неизвестно. Закройте окно, чтобы увидеть актуальную память.'
+          : 'Ответы не записаны: нет связи с API',
+      )
+    } finally {
+      window.clearTimeout(limit)
     }
   }
 
