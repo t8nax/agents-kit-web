@@ -153,3 +153,263 @@
   display: flex;
   justify-content: flex-end;
 }
+
+.rewrite-scope {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border: 1px solid var(--accent-waiting-border);
+  border-radius: 6px;
+}
+
+/* Поле просьбы с контекстом: текст сверху, внизу в той же рамке — кнопка «Стадии» и добавленные стадии. */
+.rewrite-composer {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+.rewrite-composer:focus-within {
+  border-color: var(--accent-waiting-text);
+}
+
+.rewrite-composer .ask-textarea {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.rewrite-composer-bar,
+.rewrite-context-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rewrite-composer-bar {
+  padding: 8px 10px 10px;
+}
+
+.rewrite-context-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rewrite-context-btn:hover,
+.rewrite-context-btn.open {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.rewrite-context-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.rewrite-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 4px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.rewrite-token.fixed {
+  padding-right: 10px;
+}
+
+.rewrite-token .flow-card-mark,
+.rewrite-picker-row .flow-card-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.rewrite-token .flow-card-mark svg,
+.rewrite-picker-row .flow-card-mark svg {
+  width: 12px;
+  height: 12px;
+}
+
+.rewrite-token-remove {
+  display: inline-flex;
+  padding: 2px;
+  color: var(--text-tertiary);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.rewrite-token-remove:hover {
+  color: var(--text-primary);
+}
+
+.rewrite-token-remove svg,
+.rewrite-picker-search svg,
+.rewrite-check svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.rewrite-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  width: 360px;
+  max-height: 320px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px var(--shadow-color);
+}
+
+.rewrite-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  margin-bottom: 2px;
+  color: var(--text-tertiary);
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+
+.rewrite-picker-search:focus-within {
+  border-color: var(--text-secondary);
+}
+
+.rewrite-picker-search svg {
+  width: 14px;
+  height: 14px;
+}
+
+.rewrite-picker-search input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  outline: none;
+}
+
+.rewrite-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.rewrite-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rewrite-picker-row:hover,
+.rewrite-picker-row:focus-visible {
+  background: var(--bg-surface-hover);
+  outline: none;
+}
+
+.rewrite-picker-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+
+.rewrite-picker-empty {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.rewrite-check {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-waiting-on);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.rewrite-check.on {
+  background: var(--accent-waiting-fill);
+  border-color: var(--accent-waiting-fill);
+}
+
+.rewrite-check svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3;
+}
+
+.rewrite-asked {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.rewrite-asked-row {
+  display: flex;
+  gap: 12px;
+}
+
+.rewrite-asked .ask-asked-label {
+  flex: none;
+  color: var(--text-tertiary);
+}
+
+.rewrite-untouched .ask-duration {
+  margin-left: auto;
+}
