@@ -142,15 +142,16 @@
   gap: 8px;
 }
 
-/* Кнопка необратимого действия: заливка, а не рамка — её не спутать с «Отмена» */
-.dw-btn-danger {
+/* Кнопка необратимого действия: заливка, а не рамка — её не спутать с «Отмена».
+   Два класса: Settings.css с `.bases-btn` грузится позже и иначе перебивает заливку */
+.bases-btn.dw-btn-danger {
   background: var(--accent-error-text);
   color: var(--bg-surface);
   border-color: transparent;
   font-weight: 500;
 }
 
-.dw-btn-danger:hover:not(:disabled) {
+.bases-btn.dw-btn-danger:hover:not(:disabled) {
   background: var(--accent-error-text);
   border-color: transparent;
   opacity: 0.9;
