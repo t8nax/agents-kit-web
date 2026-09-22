@@ -11,6 +11,8 @@ export type AgentRequestSummary = {
   text: string
   elapsedMs: number
   state: 'running' | 'done' | 'failed'
+  /** Про кого просьба: имя переписываемого исполнителя; нет — просьба не про заведённого (B-80). */
+  subject?: string | null
 }
 
 /** Событие просьбы: «step» — ход работы агента, любое другое — её итог. */
@@ -22,10 +24,13 @@ export type Started = { ok: true } | { ok: false; status: number | null }
  * Просьба живёт в панели, а не в окне: окно её только показывает. Открытое заново, оно читает ход просьбы
  * с начала — вместе с тем, что пришло без него, — и ждёт продолжения. Закрытие окна агента не трогает:
  * останавливает его «Отменить», то есть cancel.
- * restore: false — окно не подхватывает просьбу, которую завело не оно: так окно правки исполнителя не берёт
- * ответ, написанный про другого (B-80).
+ * mine — какую просьбу этого вида окно считает своей: окно правки исполнителя подхватывает только просьбу
+ * о нём, а окно нового — только о новом (B-80). Без него своя — любая просьба этого вида.
  */
-export function useAgentRequest<E extends AgentEvent>(kind: AgentKind, { restore = true }: { restore?: boolean } = {}) {
+export function useAgentRequest<E extends AgentEvent>(
+  kind: AgentKind,
+  { mine = anyRequest }: { mine?: (request: AgentRequestSummary) => boolean } = {},
+) {
   const [asked, setAsked] = useState('')
   const [base, setBase] = useState<string | null>(null)
   const [steps, setSteps] = useState<string[]>([])
@@ -33,8 +38,7 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind, { restore
   const [running, setRunning] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  // Без подхвата восстанавливать нечего: окно сразу готово к просьбе.
-  const [restoring, setRestoring] = useState(restore)
+  const [restoring, setRestoring] = useState(true)
   const reading = useRef<AbortController | null>(null)
 
   const follow = useCallback(
@@ -114,10 +118,6 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind, { restore
 
   // Окно открылось: идущая или дождавшаяся просьба этого вида подхватывается с начала.
   useEffect(() => {
-    if (!restore) {
-      // Своё окно всё равно перестаёт читать поток при закрытии: просьбу это не трогает.
-      return () => reading.current?.abort()
-    }
     let alive = true
     fetch('/api/agent/requests')
       .then((response) => (response.ok ? (response.json() as Promise<AgentRequestSummary[]>) : []))
@@ -125,8 +125,8 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind, { restore
         (list) => {
           if (!alive) return
           setRestoring(false)
-          const mine = list.find((request) => request.kind === kind)
-          if (mine) void follow(mine)
+          const own = list.find((request) => request.kind === kind && mine(request))
+          if (own) void follow(own)
         },
         () => alive && setRestoring(false),
       )
@@ -135,7 +135,9 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind, { restore
       // Закрытое окно перестаёт читать поток, но просьбу не трогает: агент работает дальше.
       reading.current?.abort()
     }
-  }, [kind, follow, restore])
+    // Отбор своей просьбы читается один раз, при открытии окна: окно и спрашивает о ней один раз.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kind, follow])
 
   const start = useCallback(
     async (url: string, body: unknown): Promise<Started> => {
@@ -175,4 +177,9 @@ export function useAgentRequest<E extends AgentEvent>(kind: AgentKind, { restore
   }, [kind])
 
   return { asked, base, steps, outcome, running, startedAt, failure, restoring, start, forget, setFailure }
+}
+
+/** Своя просьба по умолчанию — любая просьба своего вида: разом идёт по одной каждого вида. */
+function anyRequest() {
+  return true
 }

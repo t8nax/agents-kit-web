@@ -80,8 +80,12 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   }, [reading])
 
   // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
-  // Окно правки чужую просьбу не подхватывает: ответ про другого исполнителя переписал бы этого (B-80).
-  const draft = useAgentRequest<DraftEvent>('performer', { restore: editing === null })
+  // Окно подхватывает только свою просьбу: правка — просьбу об этом исполнителе этого проекта, новое — просьбу
+  // о новом. Ответ про другого переписал бы этого, а переписанный заведённый лёг бы в окно нового (B-80).
+  const draft = useAgentRequest<DraftEvent>('performer', {
+    mine: (request) =>
+      editing ? request.subject === editing.name && request.base === initial : !request.subject,
+  })
   const [wish, setWish] = useState('')
   // Поля, какими они были до ответа агента: «Вернуть как было» ставит их обратно.
   const [before, setBefore] = useState<DraftFields | null>(null)

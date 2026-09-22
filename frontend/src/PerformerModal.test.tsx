@@ -362,22 +362,55 @@ test('правка не меняет имя, даже если агент вер
   expect(saved(fetchMock)).toMatchObject({ name: 'reviewer', editing: 'reviewer', prompt: 'Новое задание.' })
 })
 
-test('окно правки не подхватывает чужую просьбу, которая ждёт в панели', async () => {
+test('окно правки не подхватывает просьбу о новом исполнителе', async () => {
   const stream = controlledStream<DraftEvent>()
   const panel = stubPanel('performer', stream, {
-    running: runningRequest('performer', 'Ревьюер ветки', 'D:\\Projects\\app-knowledge', 'Agents Kit Web'),
+    running: runningRequest('performer', 'Ревьюер ветки', bases[0].base,'Agents Kit Web'),
   })
   const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
   open(reviewer)
   stream.send({ type: 'drafted', text: '---', fields: runner })
   stream.close()
 
-  // Ответ про другого исполнителя в окно reviewer не ложится и просьбу не забирает.
+  // Окно спросило о просьбах, но ответ про другого исполнителя в окно reviewer не лёг и просьбу не забрал.
+  await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => url)).toContain('/api/agent/requests'))
   await new Promise((resolve) => setTimeout(resolve, 50))
   expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
   expect(screen.queryByText('Основу написал Чудо-Юдо')).not.toBeInTheDocument()
-  expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain('/api/agent/requests')
   expect(panel.deletes).toEqual([])
+})
+
+test('открытое заново окно правки подхватывает свою просьбу и её итог', async () => {
+  const stream = controlledStream<DraftEvent>()
+  stubPanel('performer', stream, {
+    running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base,'Agents Kit Web', 0, 'reviewer'),
+  })
+  open(reviewer)
+
+  expect(await screen.findByText('Пусть ещё сверяет')).toBeInTheDocument()
+  stream.send({
+    type: 'drafted',
+    text: '---',
+    fields: { name: 'reviewer', description: 'Сверяет с критериями.', model: 'opus', tools: null, prompt: 'Новое.' },
+  })
+  stream.close()
+
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Сверяет с критериями.'))
+  expect(screen.getByRole('heading', { name: 'reviewer' })).toBeInTheDocument()
+})
+
+test('окно нового не подхватывает просьбу о правке заведённого', async () => {
+  const stream = controlledStream<DraftEvent>()
+  stubPanel('performer', stream, {
+    running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base,'Agents Kit Web', 0, 'reviewer'),
+  })
+  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
+  open()
+
+  await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => url)).toContain('/api/agent/requests'))
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(screen.queryByText('Пусть ещё сверяет')).not.toBeInTheDocument()
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
 })
 
 test('нынешние поля уходят агенту, когда исполнителя правят', async () => {
