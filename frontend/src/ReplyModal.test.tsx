@@ -518,7 +518,8 @@ test('ответ на последний оставшийся вопрос: «О
   answerLast(dialog, 'Заменять пробелами')
 
   expect(dialog.getByRole('status')).toHaveTextContent('Ответы отправлены агенту')
-  expect(dialog.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+  // строка ввода ушла вместе с фокусом — он на «Отменить»: отменить можно с клавиатуры
+  expect(dialog.getByRole('button', { name: 'Отменить' })).toHaveFocus()
   // строки ввода нет, и окно пока не закрывается ни Escape, ни щелчком мимо, ни крестиком:
   // закрытое сняло бы запись молча
   expect(dialog.queryByLabelText('Ответ')).not.toBeInTheDocument()

@@ -89,6 +89,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
 
   const feed = useRef<HTMLDivElement>(null)
   const field = useRef<HTMLInputElement>(null)
+  const undoButton = useRef<HTMLButtonElement>(null)
   const timer = useRef<number | undefined>(undefined)
   const contextButton = useRef<HTMLButtonElement>(null)
   const artifactsButton = useRef<HTMLButtonElement>(null)
@@ -156,8 +157,11 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     field.current?.focus()
   }, [loaded, current, phase])
 
+  // Строка ввода ушла вместе с фокусом: «Отменить» получает его, чтобы успеть отменить с клавиатуры.
   useEffect(() => {
-    if (phase === 'sending' && feed.current) feed.current.scrollTop = feed.current.scrollHeight
+    if (phase !== 'sending') return
+    if (feed.current) feed.current.scrollTop = feed.current.scrollHeight
+    undoButton.current?.focus()
   }, [phase])
 
   // `given` — ответ, только что данный текущему вопросу: набранное у него уже стало ответом.
@@ -541,7 +545,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                   Ответы отправлены агенту
                 </span>
                 {phase === 'sending' && (
-                  <button type="button" className="undo" onClick={undo}>
+                  <button ref={undoButton} type="button" className="undo" onClick={undo}>
                     Отменить
                   </button>
                 )}
