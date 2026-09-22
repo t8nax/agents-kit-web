@@ -1108,6 +1108,18 @@ test('база, которую панель не прочитала, назва�
   expect(screen.queryByRole('heading', { name: 'В этом проекте нет флоу' })).not.toBeInTheDocument()
 })
 
+test('с отметки в шапке у непрочитанного флоу раздел говорит, почему окна переписывания нет', async () => {
+  stubApi(api([{ ...nota, version: null, error: 'База не найдена на диске' }], [], rewriteApi([])))
+  render(<Flow baseFor={nota.base} rewriteAt={1} />)
+
+  expect(
+    await screen.findByText(
+      'Окно «Переписать с Чудо-Юдо» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.',
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+})
+
 test('проект выбирается списком в шапке', async () => {
   stubApi(api([app, nota]))
   await renderFlow()

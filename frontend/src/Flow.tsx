@@ -768,6 +768,12 @@ export default function Flow({
       )}
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
+      {/* Правки агента ложатся только на прочитанный флоу: с отметки в шапке окно не встаёт — сказать почему. */}
+      {modal === 'rewrite' && flow?.error && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
+        </p>
+      )}
 
       {load.kind === 'loaded' && (
         <div className={withReveal('flow-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
