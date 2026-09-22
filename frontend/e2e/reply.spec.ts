@@ -241,6 +241,7 @@ test('Enter в поле ответа ведёт по вопросам и на п
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
+        artifacts: [],
         vsCodeSession: false,
         questions: [
           { title: 'Подтвердить критерий?', context: null, variants: [], answer: null },
