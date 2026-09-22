@@ -40,7 +40,7 @@ pwsh -NoProfile -File scripts/publish.ps1
 iex ((irm https://raw.githubusercontent.com/t8nax/agents-kit-web/master/scripts/install.ps1).TrimStart([char]0xFEFF))
 ```
 
-`scripts/install.ps1` сначала проверяет, что на компьютере есть установленный кит и Claude Code со входом в аккаунт; чего-то нет — называет, что поставить, и больше ничего не делает. Затем ставит через winget недостающее для сборки (git, PowerShell 7, .NET SDK 10 под `backend/global.json`, Node.js — Windows может спросить разрешение), клонирует репозиторий в `%LOCALAPPDATA%\agents-kit-web\source` и зовёт из клона `publish.ps1`. Клон остаётся на диске: по нему панель дальше обновляется сама, кнопкой в «Настройках». Список баз и путь к киту не переносятся — их задают в «Настройках» на месте. Параметры `-Repository`, `-Source`, `-Channel`, `-Ref`, `-Target`, `-Port`, `-TaskName` — для запуска файлом.
+`scripts/install.ps1` сначала проверяет, что на компьютере есть установленный кит и Claude Code со входом в аккаунт; чего-то нет — называет, что поставить, и больше ничего не делает. Затем ставит через winget недостающее для сборки (git, PowerShell 7, .NET SDK 10 под `backend/global.json`, Node.js — Windows может спросить разрешение), клонирует репозиторий в `%LOCALAPPDATA%\agents-kit-web\source` и зовёт из клона `publish.ps1`. Клон остаётся на диске: по нему панель дальше обновляется из себя, кнопкой в «Настройках». Список баз и путь к киту не переносятся — их задают в «Настройках» на месте. Параметры `-Repository`, `-Source`, `-Channel`, `-Ref`, `-Target`, `-Port`, `-TaskName` — для запуска файлом.
 
 ## Песочница
 

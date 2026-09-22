@@ -10,7 +10,7 @@
 панели работать не с чем, и тогда он говорит, что поставить, и больше ничего не делает.
 Затем ставит через winget недостающее для сборки — git, PowerShell 7, .NET SDK 10, Node.js,
 клонирует репозиторий панели и зовёт из клона scripts/publish.ps1. Клон остаётся на диске:
-по нему поставленная панель потом обновляет себя сама.
+по нему поставленная панель потом обновляет себя из себя, кнопкой в «Настройках».
 
 Список баз и путь к киту не переносятся: их задают в «Настройках» панели.
 
@@ -81,6 +81,13 @@ function Install-AgentsKitPanel {
         finally { Pop-Location }
     }
 
+    # Старый Node на компьютере сборку не выдержит: vite требует ^20.19 || ^22.12 || >=24.
+    function Test-Node {
+        if (-not ((Test-Command 'node') -and (Test-Command 'npm'))) { return $false }
+        $v = [version]((node --version) -replace '^v', '')
+        ($v.Major -eq 20 -and $v.Minor -ge 19) -or ($v.Major -eq 22 -and $v.Minor -ge 12) -or $v.Major -ge 24
+    }
+
     function Install-Tool($tool) {
         if (& $tool.Test) { return $true }
         if (-not (Test-Command 'winget')) {
@@ -96,21 +103,26 @@ function Install-AgentsKitPanel {
     }
 
     # winget меняет PATH в реестре, а не в этом процессе: без перечитывания только что поставленное не видно.
+    # Только дописать новые записи: строкой «irm | iex» это PATH окна оператора, и его добавки остаются.
     function Update-Path {
-        $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' +
-            [Environment]::GetEnvironmentVariable('Path', 'User')
+        $known = $env:Path -split ';'
+        foreach ($scope in 'Machine', 'User') {
+            foreach ($entry in [Environment]::GetEnvironmentVariable('Path', $scope) -split ';') {
+                if ($entry -and $known -notcontains $entry) { $env:Path += ";$entry"; $known += $entry }
+            }
+        }
     }
 
     Write-Host 'Проверяю, есть ли то, с чем работает панель…'
     $missing = @()
     $kit = Find-Kit
     if ($kit) { Write-Host "  кит: $kit" }
-    else { $missing += 'кит agents-kit — поставьте его для Claude Code по инструкции кита' }
+    else { $missing += 'кит agents-kit — https://github.com/t8nax/agents-kit, поставьте его для Claude Code по инструкции оттуда' }
     if (Test-Command 'claude') {
         if (Test-ClaudeLogin) { Write-Host '  Claude Code: есть, вход выполнен' }
-        else { $missing += 'вход в аккаунт Claude Code — запустите claude и войдите' }
+        else { $missing += 'вход в Claude Code по подписке Claude — запустите claude и войдите командой /login' }
     }
-    else { $missing += 'Claude Code — https://claude.com/claude-code, затем запустите claude и войдите' }
+    else { $missing += 'Claude Code — https://claude.com/claude-code, затем запустите claude и войдите по подписке Claude' }
 
     if ($missing) {
         Write-Host ''
@@ -137,12 +149,23 @@ function Install-AgentsKitPanel {
             Write-Host 'Исходники не скачались.' -ForegroundColor Red
             return $false
         }
+        # Метка «клон установщика»: такой клон update.ps1 перед обновлением доводит до вершины канала —
+        # иначе свежий код собирали бы скрипты дня установки. Рабочую копию разработчика он не трогает.
+        git -C $Repository config agents-kit-web.installer true
+    }
+    if ((git -C $Repository config --get agents-kit-web.installer) -eq 'true') {
+        git -C $Repository fetch --quiet origin
+        git -C $Repository checkout --quiet --detach --force $(if ($Ref) { $Ref } else { "origin/$Channel" })
+        if ($LASTEXITCODE) {
+            Write-Host 'Исходники не удалось довести до свежих.' -ForegroundColor Red
+            return $false
+        }
     }
 
     $tools = @(
         @{ Name = 'PowerShell 7'; Id = 'Microsoft.PowerShell'; Test = { Test-Command 'pwsh' } },
         @{ Name = '.NET SDK 10'; Id = 'Microsoft.DotNet.SDK.10'; Test = { Test-DotnetSdk } },
-        @{ Name = 'Node.js'; Id = 'OpenJS.NodeJS.LTS'; Test = { Test-Command 'npm' } }
+        @{ Name = 'Node.js'; Id = 'OpenJS.NodeJS.LTS'; Test = { Test-Node } }
     )
     foreach ($tool in $tools) { if (-not (Install-Tool $tool)) { return $false } }
 

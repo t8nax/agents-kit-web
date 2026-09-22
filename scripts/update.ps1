@@ -30,6 +30,16 @@ New-Item -ItemType Directory -Force -Path (Split-Path $Log -Parent) | Out-Null
 Add-Content -LiteralPath $Log -Value "публикация канала $Channel, $((Get-Date).ToString('HH:mm:ss'))"
 
 try {
+    # Клон, который завёл install.ps1 на компьютере без исходников, сам не движется: без этого
+    # свежий код собирали бы publish.ps1 и update.ps1 дня установки. Рабочую копию разработчика
+    # метки нет, и её ветка не трогается.
+    $repo = Split-Path $PSScriptRoot -Parent
+    if ((git -C $repo config --get agents-kit-web.installer) -eq 'true') {
+        git -C $repo fetch --quiet origin
+        git -C $repo checkout --quiet --detach --force "origin/$Channel" *>&1 |
+            ForEach-Object { Add-Content -LiteralPath $Log -Value ($_ | Out-String).TrimEnd() }
+        if ($LASTEXITCODE) { throw "исходники не доведены до origin/$Channel" }
+    }
     & (Join-Path $PSScriptRoot 'publish.ps1') -Channel $Channel -Target $Target -Port $Port -TaskName $TaskName *>&1 |
         ForEach-Object { Add-Content -LiteralPath $Log -Value ($_ | Out-String).TrimEnd() }
     if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "публикация вернула код $LASTEXITCODE" }
