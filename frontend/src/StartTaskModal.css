@@ -178,3 +178,13 @@
   display: flex;
   gap: 8px;
 }
+
+/* Поле начальных слов — поле ответа панели (custom-textarea), ниже под узкое окно запуска */
+.st-words {
+  min-height: 112px;
+  line-height: 1.5;
+}
+
+.st-words::placeholder {
+  color: var(--text-tertiary);
+}
