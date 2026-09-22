@@ -239,7 +239,7 @@ public static class ClaudeShim
 
     $stub = @'
 # Подставной агент Claude Code. Режим читается на каждый вызов из claude-mode.txt корня
-# песочницы:
+# @@OF@@:
 #   ok         как при удачной работе
 #   garbage    вместо потока событий — не JSON
 #   truncated  поток обрывается на середине, итога нет
@@ -294,7 +294,7 @@ function Write-Result([string]$Text) {
 }
 
 if ($mode -eq 'fail') {
-    [Console]::Error.WriteLine('подставной агент отказался работать: так задан режим песочницы')
+    [Console]::Error.WriteLine('подставной агент отказался работать: так задан режим @@OF@@')
     exit 1
 }
 

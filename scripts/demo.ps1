@@ -626,15 +626,13 @@ function Start-DemoSessions($Copies) {
 
 # Журналы расхода за последнюю неделю в формате Claude Code. Пишутся заново на каждый запуск:
 # время записей отсчитывается от сейчас, а старше недели «Расход» не смотрит. Случайность с
-# постоянным зерном — один и тот же рисунок недели на каждом запуске.
+# постоянным зерном — одни и те же сутки на каждом запуске; тише только выходные, и они сдвигаются
+# вместе с сегодняшним днём недели.
 function Write-DemoUsage {
     if (Test-Path -LiteralPath $projectsDir) { Remove-Item -LiteralPath $projectsDir -Recurse -Force }
     $random = [Random]::new(112)
-    $models = @(
-        @{ name = 'claude-opus-5'; weight = 6 }
-        @{ name = 'claude-sonnet-5'; weight = 3 }
-        @{ name = 'claude-haiku-4-5-20251001'; weight = 1 }
-    )
+    # Доли моделей — шесть к трём к одной.
+    $models = @('claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001')
     $projects = @('cafe', 'stock', 'blog')
     # Рабочий день — по часам этой машины: «Расход» раскладывает сутки по её часовому поясу.
     $now = [DateTimeOffset]::Now
@@ -648,7 +646,7 @@ function Write-DemoUsage {
             $start = $today.AddDays(-$day).AddHours(7 + $random.Next(10)).AddMinutes($random.Next(60))
             if ($start -gt $now) { continue }
             $roll = $random.Next(10)
-            $model = if ($roll -lt 6) { $models[0].name } elseif ($roll -lt 9) { $models[1].name } else { $models[2].name }
+            $model = if ($roll -lt 6) { $models[0] } elseif ($roll -lt 9) { $models[1] } else { $models[2] }
             $lines = [Collections.Generic.List[string]]::new()
             $at = $start
             foreach ($i in 1..(20 + $random.Next(60))) {
