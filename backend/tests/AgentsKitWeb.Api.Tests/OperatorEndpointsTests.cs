@@ -35,6 +35,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         - макет окна: https://claude.ai/artifact/AbC123
         - спецификация: docs/spec.md
         - черновик: docs/gone.md
+        - отчёт: docs/R&D.md
 
         ## Оператору
 
@@ -111,6 +112,7 @@ public sealed class OperatorEndpointsTests : IDisposable
                 new TaskArtifact("макет окна", "https://claude.ai/artifact/AbC123"),
                 new TaskArtifact("спецификация", "docs/spec.md"),
                 new TaskArtifact("черновик", "docs/gone.md"),
+                new TaskArtifact("отчёт", "docs/R&D.md"),
             ],
             response.Artifacts);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
@@ -509,12 +511,26 @@ public sealed class OperatorEndpointsTests : IDisposable
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(3)]
+    [InlineData(4)]
     public async Task OpenArtifact_UnknownIndex_IsNotFound(int index)
     {
         var response = await PostOpenArtifact(_base, _copy, index);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_PathWithCmdMetacharacters_IsNotPassedToEditor()
+    {
+        var report = Path.Combine(_copy, "docs", "R&D.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(report)!);
+        File.WriteAllText(report, "# отчёт");
+
+        var response = await PostOpenArtifact(_base, _copy, 3);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("unsafe-path", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
         Assert.Empty(_windows.OpenedFiles);
     }
 

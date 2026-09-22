@@ -130,6 +130,11 @@ public static class OperatorEndpoints
             var address = memory.Artifacts[request.Index].Address;
             if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
                 return Results.BadRequest(new OpenArtifactFailedResponse("not-a-file"));
+            // VS Code запускается через cmd /c, а .NET берёт аргумент в кавычки только из-за пробела:
+            // & | < > ^ % и кавычку в пути cmd разобрал бы сам — открыл бы не тот файл или выполнил
+            // хвост имени командой. Путь из памяти такой запрос не передаёт.
+            if (address.IndexOfAny(CmdSpecial) >= 0)
+                return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
             var file = Path.GetFullPath(Path.Combine(memory.Copy!, address));
             if (!File.Exists(file))
                 return Results.NotFound(new OpenArtifactFailedResponse("missing"));
@@ -153,6 +158,8 @@ public static class OperatorEndpoints
             };
         });
     }
+
+    private static readonly char[] CmdSpecial = ['&', '|', '<', '>', '^', '%', '"'];
 
     // Пишется только память копии из work/ базы, которая есть в списке баз панели:
     // путь к файлу панель не принимает, а собирает сама.
