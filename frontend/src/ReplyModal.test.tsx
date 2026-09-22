@@ -507,6 +507,8 @@ test('«Отправить» показывает знак отправки с �
   fireEvent.keyDown(window, { key: 'Escape' })
   fireEvent.mouseDown(document.querySelector('.modal-overlay')!)
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
+  // «Отменить» держится полторы секунды
+  expect(UNDO_MS).toBe(1500)
   act(() => vi.advanceTimersByTime(UNDO_MS - 1))
   expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
 
