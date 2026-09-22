@@ -19,82 +19,159 @@ const gutter = 10
 // Playwright запускает Chromium без окна с --hide-scrollbars: полос нет ни на экране, ни в раскладке
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
 
+async function openPanel(page: Page) {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: rows }))
+  await page.goto('/')
+  await expect(page.getByText('Задача 59')).toBeAttached()
+}
+
 async function token(page: Page, name: string) {
   return page.evaluate((name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim(), name)
 }
 
 // Цвет полосы виден только на экране: у псевдоэлементов полосы нет вычисленного стиля.
-async function pixel(page: Page, x: number, y: number) {
-  const png = await page.screenshot({ clip: { x, y, width: 1, height: 1 } })
-  return page.evaluate(async (base64) => {
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
-    const canvas = new OffscreenCanvas(1, 1)
-    const context = canvas.getContext('2d')!
-    context.drawImage(bitmap, 0, 0)
-    const [r, g, b] = context.getImageData(0, 0, 1, 1).data
-    return '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')
-  }, png.toString('base64'))
-}
-
-// Середина места под вертикальную полосу у правого края области, на уровне y от её верха
-async function verticalBar(page: Page, selector: string, y: number) {
-  return page.locator(selector).evaluate(
-    (el, { gutter, y }) => {
-      const box = el.getBoundingClientRect()
-      const style = getComputedStyle(el)
-      const right = box.right - parseFloat(style.borderRightWidth)
-      return { x: Math.floor(right - gutter / 2), y: Math.floor(box.top + y), bottom: Math.floor(box.bottom - 12) }
+async function pixels(page: Page, x: number, y: number, width = 1) {
+  const png = await page.screenshot({ clip: { x, y, width, height: 1 } })
+  return page.evaluate(
+    async ({ base64, width }) => {
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
+      const canvas = new OffscreenCanvas(width, 1)
+      const context = canvas.getContext('2d')!
+      context.drawImage(bitmap, 0, 0)
+      const data = context.getImageData(0, 0, width, 1).data
+      return Array.from({ length: width }, (_, i) =>
+        '#' + [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]].map((v) => v.toString(16).padStart(2, '0')).join(''),
+      )
     },
-    { gutter, y },
+    { base64: png.toString('base64'), width },
   )
 }
 
-for (const theme of ['dark', 'light'] as const) {
-  test(`полосы прокрутки узкие, без стрелок и в цветах темы ${theme}`, async ({ page }) => {
-    await page.route('**/api/workspaces', (route) => route.fulfill({ json: rows }))
-    await page.emulateMedia({ colorScheme: theme })
-    await page.goto('/')
-    await expect(page.getByText('Задача 59')).toBeAttached()
+async function pixel(page: Page, x: number, y: number) {
+  return (await pixels(page, x, y))[0]
+}
 
-    const content = page.locator('.content')
-    const size = await content.evaluate((el: HTMLElement) => {
-      const style = getComputedStyle(el)
-      const borders = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth)
-      return { bar: el.offsetWidth - el.clientWidth - borders, scrolls: el.scrollHeight > el.clientHeight }
-    })
-    expect(size.scrolls).toBe(true)
-    expect(size.bar).toBe(gutter)
+// Сколько точек поперёк полосы закрашено цветом бегунка
+async function thickness(page: Page, left: number, y: number, color: string) {
+  return (await pixels(page, left, y, gutter)).filter((c) => c === color).length
+}
 
-    const rest = await token(page, '--border-strong')
-    const hover = await token(page, '--text-tertiary')
+// Место под вертикальную полосу у правого края главной области
+async function verticalBar(page: Page) {
+  return page.locator('.content').evaluate(
+    (el, gutter) => {
+      const box = el.getBoundingClientRect()
+      const right = box.right - parseFloat(getComputedStyle(el).borderRightWidth)
+      return {
+        left: Math.round(right - gutter),
+        x: Math.floor(right - gutter / 2),
+        // Бегунок прокрученной к началу области стоит у самого верха полосы: стрелок над ним нет
+        thumb: Math.floor(box.top + 8),
+        track: Math.floor(box.bottom - 12),
+      }
+    },
+    gutter,
+  )
+}
 
-    // Стрелок нет: бегунок прокрученной к началу области начинается у самого верха полосы
-    const bar = await verticalBar(page, '.content', 8)
-    await page.mouse.move(0, 0)
-    await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(rest)
-
-    // Мышь на пустой дорожке под бегунком полосу не меняет
-    await page.mouse.move(bar.x, bar.bottom)
-    await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(rest)
-
-    await page.mouse.move(bar.x, bar.y)
-    await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(hover)
+async function barSize(page: Page) {
+  return page.locator('.content').evaluate((el: HTMLElement) => {
+    const style = getComputedStyle(el)
+    return {
+      width: el.offsetWidth - el.clientWidth - parseFloat(style.borderLeftWidth) - parseFloat(style.borderRightWidth),
+      height: el.offsetHeight - el.clientHeight - parseFloat(style.borderTopWidth) - parseFloat(style.borderBottomWidth),
+      down: el.scrollHeight > el.clientHeight,
+      across: el.scrollWidth > el.clientWidth,
+    }
   })
 }
 
-test('горизонтальная полоса любой прокручиваемой области такая же узкая', async ({ page }) => {
-  await page.route('**/api/workspaces', (route) => route.fulfill({ json: rows }))
-  await page.goto('/')
-  await expect(page.getByText('Задача 0')).toBeVisible()
+for (const theme of ['dark', 'light'] as const) {
+  test(`полоса прокрутки узкая, без стрелок, на прозрачной дорожке, в цветах темы ${theme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await openPanel(page)
 
-  // Правило общее для всех элементов, поэтому хватает любой области с горизонтальной прокруткой
-  const bar = await page.evaluate(() => {
-    const pre = document.createElement('pre')
-    pre.style.cssText = 'overflow-x: auto; width: 200px; margin: 0; position: fixed; left: 20px; top: 20px'
-    pre.textContent = 'x'.repeat(400)
-    document.body.append(pre)
-    return pre.offsetHeight - pre.clientHeight
+    // Высоту строк задаёт шрифт, который грузится после первой отрисовки
+    await expect(async () => {
+      const size = await barSize(page)
+      expect(size.down).toBe(true)
+      expect(size.width).toBe(gutter)
+    }).toPass()
+
+    const rest = await token(page, '--border-strong')
+    const hover = await token(page, '--text-tertiary')
+    const drag = await token(page, '--text-secondary')
+    const background = await token(page, '--bg-base')
+    const bar = await verticalBar(page)
+
+    await page.mouse.move(0, 0)
+    await expect.poll(() => pixel(page, bar.x, bar.thumb)).toBe(rest)
+    expect(await thickness(page, bar.left, bar.thumb, rest)).toBe(4)
+    // Дорожка прозрачная: под бегунком виден фон панели
+    expect(await pixel(page, bar.x, bar.track)).toBe(background)
+
+    // Мышь на пустой дорожке под бегунком полосу не меняет
+    await page.mouse.move(bar.x, bar.track)
+    await expect.poll(() => pixel(page, bar.x, bar.thumb)).toBe(rest)
+
+    await page.mouse.move(bar.x, bar.thumb)
+    await expect.poll(() => pixel(page, bar.x, bar.thumb)).toBe(hover)
+    expect(await thickness(page, bar.left, bar.thumb, hover)).toBe(6)
+
+    await page.mouse.down()
+    await expect.poll(() => pixel(page, bar.x, bar.thumb)).toBe(drag)
+    await page.mouse.up()
   })
-  expect(bar).toBe(gutter)
+}
+
+test('смена темы на открытой панели сразу перекрашивает полосу', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await openPanel(page)
+  await expect(async () => expect((await barSize(page)).down).toBe(true)).toPass()
+
+  const bar = await verticalBar(page)
+  const dark = await token(page, '--border-strong')
+  await page.mouse.move(0, 0)
+  await expect.poll(() => pixel(page, bar.x, bar.thumb)).toBe(dark)
+
+  await page.getByRole('button', { name: 'Светлая тема' }).click()
+  await expect(page.getByRole('button', { name: 'Тёмная тема' })).toBeVisible()
+  const light = await token(page, '--border-strong')
+  expect(light).not.toBe(dark)
+  await expect.poll(() => pixel(page, bar.x, bar.thumb)).toBe(light)
+})
+
+test('горизонтальная полоса такая же, как вертикальная', async ({ page }) => {
+  // На узком окне таблица рабочих копий уходит вбок
+  await page.setViewportSize({ width: 560, height: 700 })
+  await openPanel(page)
+  await expect(async () => {
+    const size = await barSize(page)
+    expect(size.across).toBe(true)
+    expect(size.height).toBe(gutter)
+  }).toPass()
+
+  const rest = await token(page, '--border-strong')
+  const hover = await token(page, '--text-tertiary')
+  const bar = await page.locator('.content').evaluate(
+    (el, gutter) => {
+      const box = el.getBoundingClientRect()
+      const bottom = box.bottom - parseFloat(getComputedStyle(el).borderBottomWidth)
+      return { x: Math.floor(box.left + 8), top: Math.round(bottom - gutter), y: Math.floor(bottom - gutter / 2) }
+    },
+    gutter,
+  )
+  const across = async (color: string) => {
+    const column = await Promise.all(Array.from({ length: gutter }, (_, i) => pixel(page, bar.x, bar.top + i)))
+    return column.filter((c) => c === color).length
+  }
+
+  await page.mouse.move(0, 0)
+  await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(rest)
+  expect(await across(rest)).toBe(4)
+
+  await page.mouse.move(bar.x, bar.y)
+  await expect.poll(() => pixel(page, bar.x, bar.y)).toBe(hover)
+  expect(await across(hover)).toBe(6)
 })
