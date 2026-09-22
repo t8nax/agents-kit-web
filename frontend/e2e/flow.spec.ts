@@ -353,6 +353,24 @@ test('окно добавления: новая стадия, стадии ба�
   await expect(page.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 3: Критерий')
 })
 
+test('окно стадии возвращает фокус: к описанию — после его окна, к карточке — после окна, даже если открыли из сайдбара', async ({
+  page,
+}) => {
+  await mockApi(page)
+  const region = await openFlow(page)
+
+  // Открыли из сайдбара схемы: на закрытии сайдбара уже нет, фокус встаёт на карточку стадии
+  await region.getByRole('button', { name: /^Стадия 3: Приёмка/ }).click()
+  await page.getByRole('complementary').getByRole('button', { name: 'Править стадию «Приёмка»' }).click()
+  const stage = page.getByRole('dialog', { name: 'Стадия «Приёмка»' })
+  await stage.getByRole('button', { name: /Редактировать описание/ }).click()
+  await page.getByRole('dialog', { name: /^Описание стадии/ }).getByRole('button', { name: 'Отмена' }).click()
+  await expect(stage.getByRole('button', { name: /Редактировать описание/ })).toBeFocused()
+  await stage.getByRole('button', { name: 'Готово' }).click()
+  await expect(stage).toHaveCount(0)
+  await expect(page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Приёмка/ })).toBeFocused()
+})
+
 test('описание стадии правится в окне по кнопке со вкладки «Стадии»', async ({ page }) => {
   const calls = await mockApi(page)
   await openFlow(page)
