@@ -293,18 +293,22 @@ test('при двух флоу у каждого нужно «когда», пр
   expect(region).toBeDefined()
 })
 
-test('щелчок по блоку стадии ничего не открывает, правый щелчок открывает меню её правки', async () => {
+test('щелчок по блоку стадии — левый и правый — открывает у курсора меню её правки, сайдбара нет', async () => {
   stubApi(api([app]))
   const region = await renderFlow()
   const block = region.getByRole('button', { name: 'Стадия 2: Ревью' })
 
-  // Сайдбара стадии нет: щелчок, Enter и пробел ничего не открывают, блок только перетаскивается
-  fireEvent.click(block)
-  fireEvent.keyDown(block, { key: 'Enter' })
-  fireEvent.keyDown(block, { key: ' ' })
+  // Левый щелчок открывает то же меню у курсора, а не сайдбар — замечание оператора на приёмке
+  fireEvent.click(block, { clientX: 50, clientY: 60, detail: 1 })
+  expect(screen.getByRole('menu', { name: 'Стадия «Ревью»' })).toHaveStyle({ left: '50px', top: '60px' })
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
   expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  // Enter и пробел нажимают кнопку щелчком без точки на экране: меню встаёт у блока, а не в углу по нулям
+  fireEvent.click(block, { detail: 0 })
+  expect(screen.getByRole('menu', { name: 'Стадия «Ревью»' })).toBeInTheDocument()
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
 
   const menu = menuOf(region, 'Стадия 2: Ревью')
   expect(screen.getByRole('menu')).toHaveAccessibleName('Стадия «Ревью»')

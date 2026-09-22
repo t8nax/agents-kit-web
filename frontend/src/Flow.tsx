@@ -1524,8 +1524,8 @@ function ReturnArcs({ flow, opened }: { flow: DraftFlow; opened: number }) {
 
 /**
  * Блок стадии на схеме: без номера — по решению оператора, — со значком, названием и исполнителем.
- * Щелчок по нему ничего не открывает, блок только перетаскивается; правка — меню по правому щелчку,
- * с клавиатуры — Shift+F10 или клавишей меню (B-202).
+ * Правка — меню у курсора по щелчку, левому и правому, — замечание оператора на приёмке B-202; с клавиатуры —
+ * Enter, пробел, Shift+F10 или клавиша меню. Перетаскивание щелчка не шлёт и меню не открывает.
  */
 function StageNode({
   entry,
@@ -1582,6 +1582,10 @@ function StageNode({
           aria-haspopup="menu"
           aria-expanded={menu}
           draggable
+          // Enter и пробел нажимают кнопку щелчком без точки на экране (detail 0): меню встаёт у середины блока.
+          onClick={(event: ReactMouseEvent<HTMLButtonElement>) =>
+            event.detail === 0 ? fromKeys(event.currentTarget) : onMenu({ x: event.clientX, y: event.clientY })
+          }
           onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
             event.preventDefault()
             // Клавиша меню и Shift+F10 уже открыли меню по нажатию; браузер следом шлёт contextmenu — его пропускаем.

@@ -195,11 +195,21 @@ test('меню стадии встаёт у курсора, окна возвр�
     expect(line && node && line.x + line.width).toBeLessThanOrEqual((node?.x ?? 0) + 2)
   }).toPass()
 
-  // Щелчок по блоку ничего не открывает
+  // Левый щелчок открывает меню у курсора, а не сайдбар
   const block = region.getByRole('button', { name: /^Стадия 3: Приёмка/ })
-  await block.click()
+  await block.click({ position: { x: 50, y: 30 } })
+  const left = (await page.getByRole('menu', { name: 'Стадия «Приёмка»' }).boundingBox())!
+  const at = (await block.boundingBox())!
+  expect(Math.abs(left.x - (at.x + 50))).toBeLessThanOrEqual(1)
   await expect(page.getByRole('complementary')).toHaveCount(0)
-  await expect(page.getByRole('menu')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(block).toBeFocused()
+
+  // Enter на блоке открывает меню у его середины
+  await page.keyboard.press('Enter')
+  const byKeys = (await page.getByRole('menu', { name: 'Стадия «Приёмка»' }).boundingBox())!
+  expect(byKeys.x).toBeGreaterThan(at.x + at.width / 2 - 1)
+  await page.keyboard.press('Escape')
 
   // Правый щелчок ставит меню у курсора
   const first = region.getByRole('button', { name: 'Стадия 1: Критерий' })
