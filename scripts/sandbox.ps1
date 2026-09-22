@@ -424,7 +424,11 @@ foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $cop
 }
 
 $kitDir = Join-Path $claudeDir 'skills\agents-kit'
-New-Kit $kitDir
+# Правила формы стадии заглушка берёт у установленного кита — с ними и настоящий агент (-RealAgent) пишет
+# стадии как в жизни. Путь к киту — из списка баз оператора, только на чтение; нет его — место по умолчанию.
+$installedKit = try { (Get-Content -LiteralPath (Join-Path $env:APPDATA 'agents-kit-web\bases.json') -Raw | ConvertFrom-Json).kit } catch { $null }
+if (-not $installedKit) { $installedKit = Join-Path $HOME '.claude\skills\agents-kit' }
+New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md')
 New-ClaudeStub $binDir
 Write-Utf8 (Join-Path $Root 'kit-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'claude-mode.txt') "ok`n"
