@@ -79,7 +79,7 @@ type DraftFlow = { key: number; name: string; when: string; entries: DraftEntry[
 type Draft = { stages: DraftStage[]; flows: DraftFlow[] }
 
 type Tab = 'stages' | 'flow'
-// Что открыто в сайдбаре вкладки «Флоу»: стадия — key пункта, а не место, место меняется перетаскиванием.
+// Что открыто в сайдбаре вкладки «Сценарии»: стадия — key пункта, а не место, место меняется перетаскиванием.
 type Opened = { kind: 'entry'; key: number } | { kind: 'flow' } | null
 
 type Notice = { kind: 'done' | 'error'; text: string } | null
@@ -325,14 +325,14 @@ export default function Flow({
   // или перечитанного флоу не всплывают.
   const [edits, setEdits] = useState<{ key: string; draft: Draft } | null>(null)
   const [tab, setTab] = useState<Tab>('flow')
-  // Выбранные стадия вкладки «Стадии» и флоу вкладки «Флоу» — по key, как в форме.
+  // Выбранные стадия вкладки «Стадии» и флоу вкладки «Сценарии» — по key, как в форме.
   const [stageKey, setStageKey] = useState<number | null>(null)
   // Правка стадии — окном поверх карточек: открыто ли оно (B-192).
   const [stageOpen, setStageOpen] = useState(false)
   const [flowKey, setFlowKey] = useState<number | null>(null)
   const [opened, setOpened] = useState<Opened>(null)
   // Выбор до записи — по именам: перечитанный флоу собирается в форму заново, с новыми key.
-  const [keep, setKeep] = useState<{ flow: string | null; stage: string | null } | null>(null)
+  const [keep, setKeep] = useState<{ flow: string | null } | null>(null)
   // Какое окно открыто поверх раздела: описание стадии или выбор стадии во флоу.
   const [modal, setModal] = useState<'description' | 'add' | null>(null)
   const [confirming, setConfirming] = useState(false)
@@ -403,17 +403,14 @@ export default function Flow({
       ? `в файлах флоу есть строка, которую панель не сохранит, — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
       : firstProblem(draft, known)
 
-  // Записанный флоу перечитан с новыми key: выбор находится по именам, а не падает на первые флоу и стадию.
+  // Записанный флоу перечитан с новыми key: выбор находится по имени, а не падает на первый флоу.
   const currentFlow =
     draft.flows.find((f) => f.key === flowKey) ??
     draft.flows.find((f) => keep?.flow != null && norm(f.name) === norm(keep.flow)) ??
     draft.flows[0] ??
     null
-  const currentStage =
-    draft.stages.find((s) => s.key === stageKey) ??
-    draft.stages.find((s) => keep?.stage != null && norm(s.title) === norm(keep.stage)) ??
-    stagesInOrder(draft)[0] ??
-    null
+  // Стадия выбрана, только пока её правят окном: оно открывается вместе с выбором карточки (B-192).
+  const currentStage = draft.stages.find((s) => s.key === stageKey) ?? null
 
   const refresh = useCallback(() => {
     setNotice(null)
@@ -454,7 +451,7 @@ export default function Flow({
       })
       if (response.ok) {
         setNotice({ kind: 'done', text: 'Флоу сохранён и закоммичен в базу' })
-        setKeep({ flow: currentFlow?.name ?? null, stage: currentStage?.title ?? null })
+        setKeep({ flow: currentFlow?.name ?? null })
         setOpened(null)
         loadFlows()
         return
@@ -504,7 +501,7 @@ export default function Flow({
     return { added, stages: [...draft.stages, added] }
   }
 
-  // Новая стадия на вкладке «Стадии»: во флоу её ставят уже со вкладки «Флоу».
+  // Новая стадия на вкладке «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
   const newStage = () => {
     const { added, stages } = addStage(emptyStage)
     setDraft({ ...draft, stages })
@@ -1202,7 +1199,7 @@ function StageModal({
   )
 }
 
-/** Вкладка «Флоу»: выбранный флоу схемой — узел старта, стадии блоками и возвраты дугами. */
+/** Вкладка «Сценарии»: выбранный флоу схемой — узел старта, стадии блоками и возвраты дугами. */
 function FlowTab({
   draft,
   flow,
@@ -1512,7 +1509,7 @@ function StageNode({
 
 /**
  * Сайдбар стадии во флоу: только то, что у неё своё в этом флоу, — возвраты. Правка самой стадии —
- * на вкладке «Стадии»: туда ведёт её название в шапке.
+ * окном на вкладке «Стадии»: туда ведёт кнопка сразу после возвратов (B-192).
  */
 function EntryDrawer({
   draft,
@@ -1842,7 +1839,7 @@ function ReturnsField({
                 <ReturnIcon />
               </span>
               <select
-                className="flow-input flow-return-step"
+                className="flow-input"
                 aria-label={`Стадия возврата ${index + 1}`}
                 aria-invalid={!valid}
                 value={valid ? String(back.target) : ''}

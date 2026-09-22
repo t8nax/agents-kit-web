@@ -803,7 +803,7 @@ test('стадии стоят карточками в порядке флоу, �
   stubApi(api([{ ...app, stages: [spare, acceptance, criterion, review] }]))
   await renderFlow()
 
-  await stagesTab()
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
 
   const list = within(screen.getByRole('list', { name: 'Стадии базы' }))
   const cards = list.getAllByRole('button')
@@ -818,8 +818,6 @@ test('стадии стоят карточками в порядке флоу, �
   expect(cards[1].querySelector('.flow-stage-badge')).toHaveTextContent('субагент reviewer')
   // Имя субагента — моноширинным, как в карточке исполнителя
   expect(within(cards[1]).getByText('reviewer')).toHaveClass('mono')
-  // Открыта первая по ходу работы
-  expect(screen.getByRole('dialog', { name: 'Стадия «Критерий»' })).toBeInTheDocument()
 })
 
 test('удалённый единственный флоу сохраняется или отменяется из полосы внизу пустого состояния', async () => {
