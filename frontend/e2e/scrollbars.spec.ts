@@ -58,7 +58,7 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(page.getByText('Задача 59')).toBeAttached()
 
     const content = page.locator('.content')
-    const size = await content.evaluate((el) => {
+    const size = await content.evaluate((el: HTMLElement) => {
       const style = getComputedStyle(el)
       const borders = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth)
       return { bar: el.offsetWidth - el.clientWidth - borders, scrolls: el.scrollHeight > el.clientHeight }
