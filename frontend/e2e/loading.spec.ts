@@ -53,7 +53,15 @@ test('заготовка мерцает, содержимое проявляет
   await page.route('**/api/backlog', (route) => route.fulfill({ json: [] }))
   await page.goto('/')
 
-  // Полосы видны, когда загрузка затянулась: первые доли секунды они держат место невидимыми
+  // Первые доли секунды полосы держат место невидимыми, а шапка колонок уже видна
+  await skeleton(page).waitFor({ state: 'attached' })
+  const early = await skeleton(page).evaluate((status) => ({
+    head: getComputedStyle(status.querySelector('th')!).visibility,
+    bar: getComputedStyle(status.querySelector('.sk')!).visibility,
+  }))
+  expect(early).toEqual({ head: 'visible', bar: 'hidden' })
+
+  // Затянулась загрузка — полосы видны
   await expect(page.locator('.sk').first()).toBeVisible()
   expect(await firstBar(page, 'animationName')).toBe('sk-wave')
 
@@ -129,6 +137,7 @@ test('при «уменьшить движение» полосы стоят б�
   await page.goto('/')
 
   await expect(skeleton(page)).toBeVisible()
+  await expect(page.locator('.sk').first()).toBeVisible()
   expect(await firstBar(page, 'animationName')).toBe('none')
 
   release()
@@ -144,6 +153,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.goto('/')
 
     await expect(skeleton(page)).toBeVisible()
+    await expect(page.locator('.sk').first()).toBeVisible()
     const bar = await firstBar(page, 'backgroundColor')
     const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)
     expect(bar).not.toBe('rgba(0, 0, 0, 0)')
