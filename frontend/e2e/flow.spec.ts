@@ -292,6 +292,70 @@ test('меню стадии встаёт у курсора, окна возвр�
   await expect(block).toBeFocused()
 })
 
+test('возвраты блока подсвечены под мышью и под курсором клавиатуры, ведущие в него — нет (B-214)', async ({ page }) => {
+  // У «Ревью» возврат к «Критерию», у «Приёмки» — к «Ревью» и к «Критерию»
+  await mockApi(page, 0, {
+    stages,
+    flows: [
+      {
+        name: 'полный',
+        when: 'новая возможность',
+        entries: [
+          { stage: 'Критерий', returns: [] },
+          { stage: 'Ревью', returns: [{ condition: 'нет критерия', stage: 'Критерий' }] },
+          {
+            stage: 'Приёмка',
+            returns: [
+              { condition: 'замечания', stage: 'Ревью' },
+              { condition: 'другое', stage: 'Критерий' },
+            ],
+          },
+        ],
+      },
+    ],
+  })
+  const region = await openFlow(page)
+  const labels = region.locator('.flow-arc-open .flow-arc-label')
+  const review = region.getByRole('button', { name: /^Стадия 2: Ревью/ })
+  const acceptance = region.getByRole('button', { name: /^Стадия 3: Приёмка/ })
+  await expect(region.locator('.flow-arc')).toHaveCount(3)
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+
+  // Мышь над «Приёмкой» — обе её дуги подписаны условием; увёл — погасли
+  await acceptance.hover()
+  await expect(labels).toHaveText(['замечания', 'другое'])
+  await page.mouse.move(900, 40)
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+
+  // Мышь над «Ревью» — только его дуга, возврат «Приёмки» в него приглушён
+  await review.hover()
+  await expect(labels).toHaveText(['нет критерия'])
+  await page.mouse.move(900, 40)
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+
+  // Tab ставит курсор клавиатуры на блок — его дуги подсвечены, ушёл дальше — погасли
+  await region.getByRole('button', { name: 'Сценарий «полный»: название и «когда»' }).focus()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+  await page.keyboard.press('Tab')
+  await expect(region.getByRole('button', { name: 'Стадия 1: Критерий' })).toBeFocused()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+  while (!(await review.evaluate((el) => el === document.activeElement))) await page.keyboard.press('Tab')
+  await expect(labels).toHaveText(['нет критерия'])
+  await page.keyboard.press('Tab')
+  await expect(review).not.toBeFocused()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+
+  // Левый щелчок ставит курсор и ничего не открывает; мышь над другим блоком добавляет его дуги
+  await review.click()
+  await expect(review).toBeFocused()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await acceptance.hover()
+  await expect(region.locator('.flow-arc-open')).toHaveCount(3)
+  // Подсвеченные дуги нарисованы поверх приглушённых: последними в схеме
+  await page.mouse.move(900, 40)
+  await expect(region.locator('.flow-arc').last()).toHaveClass(/flow-arc-open/)
+})
+
 test('описание стадии из меню — оформленным текстом во весь рост; закрытое возвращает фокус блоку', async ({ page }) => {
   await mockApi(page)
   const region = await openFlow(page)
