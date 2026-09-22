@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
 import { plural } from './plural'
 import { WarningIcon } from './Problems'
+import './Modal.css'
 import './NewWorkspaceModal.css'
 
 /** Проект в окне: база, копия, от которой кит заводит новые, и свободные копии. */

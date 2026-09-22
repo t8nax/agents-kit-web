@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { useAgentRequest } from './agentRequest'
+import './Modal.css'
 import './AskModal.css'
 import './BacklogWriteModal.css'
 

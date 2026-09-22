@@ -59,8 +59,8 @@ test('оператор отвечает на вопросы копии, и ст�
   const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
 
-  // артефакты задачи — свой блок в «Контексте задачи»: ссылка в новую вкладку, путь к файлу — кнопкой в VS Code
-  await dialog.getByText('Контекст задачи').click()
+  // артефакты задачи — свой блок на вкладке «Контекст задачи»: ссылка в новую вкладку, путь к файлу — кнопкой в VS Code
+  await dialog.getByRole('tab', { name: 'Контекст задачи' }).click()
   await expect(dialog.getByText('Артефакты')).toBeVisible()
   const artifact = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
   await expect(artifact).toHaveAttribute('target', '_blank')
@@ -91,7 +91,7 @@ test('оператор отвечает на вопросы копии, и ст�
     index: 1,
     address: 'D:\\Projects\\app\\spec.md',
   })
-  await dialog.getByText('Контекст задачи').click()
+  await dialog.getByRole('tab', { name: 'Вопрос' }).click()
 
   await dialog.getByLabel('Ответ').fill('принимаю')
   await dialog.getByRole('button', { name: 'Далее' }).click()
@@ -110,6 +110,68 @@ test('оператор отвечает на вопросы копии, и ст�
   })
 
   await expect(tableRow.getByText('В работе')).toBeVisible()
+})
+
+// /api подменяется, как и выше. Раньше шапка контекста была одной строкой, и длинный путь копии
+// рвался на много строк рядом с кнопками перехода.
+test('длинные задача, копия и ветка в полосе над вопросом не наезжают друг на друга и на кнопки', async ({ page }) => {
+  const long = 'очень-длинное-имя-'.repeat(6)
+  await page.route('**/api/workspaces', (route) =>
+    route.fulfill({
+      json: [
+        {
+          project: 'app-knowledge',
+          base: 'D:\\Projects\\app-knowledge',
+          path: `D:\\Projects\\${long}copy`,
+          branch: `feat/${long}branch`,
+          task: 'Окно ответа',
+          flowStep: 'Критерий',
+          progress: 0,
+          status: 'waiting',
+          error: null,
+        },
+      ],
+    }),
+  )
+  await page.route('**/api/questions?**', (route) =>
+    route.fulfill({
+      json: {
+        project: 'app-knowledge',
+        copy: `D:\\Projects\\${long}copy`,
+        branch: `feat/${long}branch`,
+        task: `B-199 Окно ответа ${'с очень длинным названием задачи '.repeat(4)}`,
+        criteria: [],
+        outOfScope: null,
+        artifacts: [],
+        vsCodeSession: false,
+        backgroundSession: true,
+        questions: [{ title: 'Подтвердить критерий?', context: null, variants: [], answer: null }],
+      },
+    }),
+  )
+
+  await page.goto('/')
+  await page.getByRole('row', { name: /Окно ответа/ }).getByRole('button', { name: 'Ответить' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
+  await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
+  await expect(dialog.locator('.strip-meta')).toContainText(`${long}copy`)
+  await expect(dialog.locator('.strip-meta')).not.toContainText('D:\\Projects')
+
+  // шрифт панели грузится после первой отрисовки — замер повторяется, пока не сойдётся
+  await expect(async () => {
+    const strip = (await dialog.locator('.task-strip').boundingBox())!
+    const task = (await dialog.locator('.strip-task').boundingBox())!
+    const meta = (await dialog.locator('.strip-meta').boundingBox())!
+    const actions = (await dialog.locator('.strip-actions').boundingBox())!
+    const tabs = (await dialog.getByRole('tablist').boundingBox())!
+    expect(task.y + task.height).toBeLessThanOrEqual(meta.y + 1)
+    expect(meta.y + meta.height).toBeLessThanOrEqual(actions.y + 1)
+    expect(actions.y + actions.height).toBeLessThanOrEqual(strip.y + strip.height + 1)
+    expect(strip.y + strip.height).toBeLessThanOrEqual(tabs.y + 1)
+    for (const part of [task, meta, actions]) expect(part.x + part.width).toBeLessThanOrEqual(strip.x + strip.width + 1)
+  }).toPass()
+  const fits = await dialog.locator('.modal-scroll-area').evaluate((el) => el.scrollWidth <= el.clientWidth)
+  expect(fits).toBe(true)
 })
 
 // /api подменяется, как и выше: набранный ответ хранится в браузере, а отправки нет.

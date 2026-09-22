@@ -62,6 +62,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(preview).toContainText('quiet-cedar — останется')
     // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
     await expect(dialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    // Значки окна — общие 18px окон: выносом общих стилей в Modal.css они было сжались до 16px (B-199)
+    const icon = dialog.locator('.dw-head-icon svg')
+    await expect(async () => expect((await icon.boundingBox())!.width).toBe(18)).toPass()
 
     await dialog.getByRole('button', { name: 'Удалить копию' }).click()
 

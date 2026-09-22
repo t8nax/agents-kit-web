@@ -105,6 +105,7 @@ public sealed class OperatorEndpointsTests : IDisposable
 
         Assert.NotNull(response);
         Assert.Equal("App", response.Project);
+        Assert.Equal("feat/x", response.Branch);
         Assert.Equal("Окно ответа", response.Task);
         Assert.Equal([new ClosingCriterion("1. Окно есть", "Оператор отвечает из панели.")], response.Criteria);
         Assert.Equal("Health баз.", response.OutOfScope);

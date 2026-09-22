@@ -34,9 +34,9 @@ const others: Performer[] = ['designer', 'test-runner', 'code-reader'].map((name
  * /api подменяется: прогон работает с живыми базами оператора, и запись исполнителя положила бы
  * файл в живую базу знаний и закоммитила бы его туда.
  */
-async function mockApi(page: Page, options: { taken?: boolean } = {}) {
+async function mockApi(page: Page, options: { taken?: boolean; performers?: Performer[] } = {}) {
   const saved: unknown[] = []
-  let performers: Performer[] = [reviewer, ...others]
+  let performers: Performer[] = options.performers ?? [reviewer, ...others]
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/agent/requests', (route) => route.fulfill({ json: [] }))
@@ -105,10 +105,13 @@ test('клик по карточке открывает окно, где пра�
   await card(page, 'reviewer').click()
   const modal = page.getByRole('dialog', { name: 'reviewer' })
   await expect(modal).toBeVisible()
-  await expect(modal.getByLabel('Описание')).toHaveText('Читает дифф ветки задачи и возвращает вердикт.')
+  await expect(modal.getByLabel('Описание')).toHaveValue('Читает дифф ветки задачи и возвращает вердикт.')
   // Стрелка списка модели — 14px, как в принятом макете, а не 18px общих значков окон.
   const arrow = modal.locator('.pf-select-wrap svg').first()
   await expect(async () => expect((await arrow.boundingBox())!.width).toBe(14)).toPass()
+  // Прочие значки окна — общие 18px окон: выносом общих стилей в Modal.css они было сжались до 16px (B-199)
+  const close = modal.getByRole('button', { name: 'Закрыть' }).locator('svg')
+  await expect(async () => expect((await close.boundingBox())!.width).toBe(18)).toPass()
 
   await modal.getByLabel('Модель').selectOption('haiku')
   await modal.getByRole('button', { name: 'Только чтение' }).click()
@@ -198,4 +201,91 @@ test('проект выбирается выпадающим списком на
   await select.selectOption({ label: 'Nota' })
   await expect(card(page, 'reviewer')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'designer, Nota' })).toBeVisible()
+})
+
+test('описание в карточке обрезано по трём строкам', async ({ page }) => {
+  const long = 'Читает дифф ветки задачи, сверяет его с критерием закрытия и решениями базы, '.repeat(6)
+  await mockApi(page, { performers: [{ ...reviewer, description: long }, ...others] })
+  await openPerformers(page)
+
+  const description = card(page, 'reviewer').locator('.performer-desc')
+  await expect(description).toBeVisible()
+  // Видно ровно три строки: высота — три строки текста, а остальное срезано. Замер повторяется, пока грузится шрифт.
+  await expect(async () => {
+    const { height, full, line } = await description.evaluate((el) => ({
+      height: el.clientHeight,
+      full: el.scrollHeight,
+      line: parseFloat(getComputedStyle(el).lineHeight),
+    }))
+    expect(Math.round(height / line)).toBe(3)
+    expect(full).toBeGreaterThan(height)
+  }).toPass()
+})
+
+test('карточка добавления стоит последней в сетке и ростом с соседнюю', async ({ page }) => {
+  // У соседки описание в три строки: она выше общей нижней границы роста карточек, и равенство что-то значит.
+  const tall = 'Читает дифф ветки задачи, сверяет его с критерием закрытия и решениями базы, '.repeat(6)
+  await mockApi(page, {
+    performers: [reviewer, ...others.map((p) => (p.name === 'code-reader' ? { ...p, description: tall } : p))],
+  })
+  await openPerformers(page)
+
+  const add = page.getByRole('button', { name: 'Новый исполнитель' })
+  await expect(add).toBeVisible()
+  await expect(page.locator('.performer-grid > :last-child')).toHaveText('Новый исполнитель')
+  // Четыре исполнителя: четвёртый и карточка добавления стоят во втором ряду рядом и одного роста.
+  await expect(async () => {
+    const [neighbour, box] = await Promise.all([card(page, 'code-reader').boundingBox(), add.boundingBox()])
+    expect(box!.y).toBe(neighbour!.y)
+    expect(neighbour!.height).toBeGreaterThan(112)
+    expect(box!.height).toBe(neighbour!.height)
+    expect(box!.x).toBeGreaterThan(neighbour!.x)
+  }).toPass()
+})
+
+test('окно задания стоит во весь рост экрана, а просмотр и поле правки заполняют его тело', async ({ page }) => {
+  await mockApi(page)
+  await openPerformers(page)
+  await card(page, 'reviewer').click()
+  await page.getByRole('dialog', { name: 'reviewer' }).getByRole('button', { name: 'Показать задание' }).click()
+
+  const task = page.getByRole('dialog', { name: /Задание/ })
+  const body = task.locator('.ask-body')
+  const viewport = page.viewportSize()!.height
+  /** Низ блока стоит у низа тела окна, за вычетом его нижнего отступа: блок растянут на всё тело. */
+  const fillsBody = async (block: ReturnType<typeof task.locator>) => {
+    const [inner, outer, padding] = await Promise.all([
+      block.boundingBox(),
+      body.boundingBox(),
+      body.evaluate((el) => parseFloat(getComputedStyle(el).paddingBottom)),
+    ])
+    expect(Math.abs(inner!.y + inner!.height - (outer!.y + outer!.height - padding))).toBeLessThanOrEqual(1)
+  }
+
+  // Короткое задание окно не сжимает: высота — девять десятых экрана (замечание оператора на приёмке B-198).
+  await expect(async () => {
+    const box = (await task.boundingBox())!
+    expect(Math.abs(box.height - viewport * 0.9)).toBeLessThanOrEqual(1)
+    await fillsBody(task.locator('.pf-task-view'))
+  }).toPass()
+
+  await task.getByRole('button', { name: 'Редактировать' }).click()
+  await expect(async () => fillsBody(task.getByRole('textbox', { name: 'Задание' }))).toPass()
+})
+
+test('длинное задание прокручивается в теле окна, а кнопки подвала остаются на месте', async ({ page }) => {
+  const long = Array.from({ length: 120 }, (_, i) => `Строка задания ${i + 1}.`).join('\n\n')
+  await mockApi(page, { performers: [{ ...reviewer, prompt: long }, ...others] })
+  await openPerformers(page)
+  await card(page, 'reviewer').click()
+  await page.getByRole('dialog', { name: 'reviewer' }).getByRole('button', { name: 'Показать задание' }).click()
+
+  const task = page.getByRole('dialog', { name: /Задание/ })
+  await expect(task.getByText('Строка задания 120.')).toBeAttached()
+  await expect(async () => {
+    const scroll = await task.locator('.ask-body').evaluate((el) => el.scrollHeight - el.clientHeight)
+    expect(scroll).toBeGreaterThan(0)
+    const [box, edit] = await Promise.all([task.boundingBox(), task.getByRole('button', { name: 'Редактировать' }).boundingBox()])
+    expect(edit!.y + edit!.height).toBeLessThanOrEqual(box!.y + box!.height)
+  }).toPass()
 })

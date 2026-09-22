@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { Markdown } from './Markdown'
 import { useAgentConversation, type AskEvent } from './agentConversation'
+import './Modal.css'
 import './AskModal.css'
 
 export type AskBase = { base: string; project: string }

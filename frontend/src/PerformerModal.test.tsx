@@ -66,17 +66,49 @@ async function drafted(stream: ReturnType<typeof controlledStream<DraftEvent>>, 
   await screen.findByLabelText('Имя')
 }
 
-test('у нового до ответа Чудо-Юдо основы нет и сохранить нельзя', () => {
+test('у нового имя, описание и задание видны сразу, а сохранить можно, когда есть имя и задание', () => {
   stubSave(() => Response.json({ path: 'x' }))
   open()
 
   expect(screen.getByRole('heading', { name: 'Новый исполнитель' })).toBeInTheDocument()
-  // Руками заводится только модель и инструменты: имени, описания и задания в окне нет.
-  expect(screen.queryByLabelText('Имя')).not.toBeInTheDocument()
-  expect(screen.queryByText('Описание')).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: /Показать задание/ })).not.toBeInTheDocument()
-  expect(screen.getByLabelText('Модель')).toBeInTheDocument()
+  expect(screen.getByLabelText('Имя')).toHaveValue('')
+  expect(screen.getByLabelText('Описание')).toHaveValue('')
+  expect(screen.getByRole('button', { name: 'Написать задание' })).toBeInTheDocument()
+  // Пока поля пусты, окно подсказывает просьбы примерами.
+  expect(screen.getByText('Например')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'release-notes' } })
+  expect(screen.queryByText('Например')).not.toBeInTheDocument()
+  // Имя без задания — ещё не исполнитель.
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('нового можно завести целиком руками, без просьбы к Чудо-Юдо', async () => {
+  const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
+  const onSaved = open()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'release-notes' } })
+  fireEvent.change(screen.getByLabelText('Описание'), { target: { value: 'Собирает заметки к версии.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Написать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Ты собираешь заметки.' } })
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+  fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+
+  const save = screen.getByRole('button', { name: 'Сохранить' })
+  expect(save).toBeEnabled()
+  fireEvent.click(save)
+
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('release-notes'))
+  expect(saved(fetchMock)).toMatchObject({
+    name: 'release-notes',
+    description: 'Собирает заметки к версии.',
+    prompt: 'Ты собираешь заметки.',
+    editing: null,
+  })
+  // Просьбы к агенту не было.
+  expect(fetchMock.mock.calls.some(([url]) => url === '/api/performers/draft')).toBe(false)
 })
 
 test('окно закрывается крестиком, отдельной «Отмены» нет', () => {
@@ -111,17 +143,40 @@ test('правка называет исполнителя в заголовке
   expect(screen.queryByLabelText('Проект')).not.toBeInTheDocument()
 })
 
-test('руками правятся только модель и инструменты: описание и задание только читаются', () => {
-  stubSave(() => Response.json({ path: 'x' }))
+test('описание правится полем прямо в окне, а сохраняется одной строкой', async () => {
+  const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   open(reviewer)
 
-  expect(screen.getByLabelText('Модель')).toHaveValue('opus')
-  // Подпись и значение основы связаны так, что их читает и программа для незрячих.
-  expect(screen.getByRole('definition', { name: 'Описание' })).toHaveTextContent('Читает дифф ветки задачи.')
-  // Полей ввода описания и задания нет: их переписывает Чудо-Юдо по просьбе.
-  const inputs = screen.getAllByRole('textbox')
-  expect(inputs.map((input) => input.getAttribute('id') ?? input.getAttribute('aria-label'))).toEqual(['pf-wish'])
-  expect(screen.getByRole('combobox', { name: 'Модель' })).toBeEnabled()
+  const description = screen.getByLabelText('Описание')
+  expect(description.tagName).toBe('TEXTAREA')
+  expect(description).toHaveValue('Читает дифф ветки задачи.')
+  expect(description).toHaveAttribute('rows', '4')
+
+  // Enter новой строки не начинает: в файле описание — одна строка шапки.
+  const enter = fireEvent.keyDown(description, { key: 'Enter' })
+  expect(enter).toBe(false)
+  // Вставленный текст с переводами строк сводится к одной строке.
+  fireEvent.change(description, { target: { value: 'Читает дифф.\r\n  Возвращает вердикт.\n' } })
+  expect(description).toHaveValue('Читает дифф. Возвращает вердикт. ')
+  // Прочие переводы строк, что понимает разбор файла, сводятся так же.
+  fireEvent.change(description, {
+    target: { value: 'Читает\u2028дифф.\u0085Возвращает\fвердикт.\u2029' },
+  })
+  expect(description).toHaveValue('Читает дифф. Возвращает вердикт. ')
+  fireEvent.change(description, { target: { value: 'Читает дифф. Возвращает вердикт.' } })
+  expect(description).toHaveValue('Читает дифф. Возвращает вердикт.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await waitFor(() => expect(saved(fetchMock).description).toBe('Читает дифф. Возвращает вердикт.'))
+})
+
+test('отказ API описанию назван своей строкой, а не ошибкой имени', async () => {
+  stubSave(() => Response.json({ problem: 'invalid-description' }, { status: 400 }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Описание не годится')
 })
 
 test('«Только чтение» — переключатель: включён — набор закреплён, выключен — поле своих инструментов', () => {
@@ -180,13 +235,105 @@ test('правка модели и инструментов записывает
   })
 })
 
+test('разметка задания показана оформленной', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open({ ...reviewer, prompt: '## Что делаешь\n\n- читаешь **дифф**\n- сверяешь с `decisions`' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  expect(within(task).getByRole('heading', { name: 'Что делаешь' })).toBeInTheDocument()
+  expect(within(task).getAllByRole('listitem')).toHaveLength(2)
+  expect(within(task).getByText('дифф').tagName).toBe('STRONG')
+  expect(within(task).getByText('decisions').tagName).toBe('CODE')
+})
+
+test('«Редактировать» открывает поле, «Готово» возвращает к просмотру с правкой, и она уходит в файл', async () => {
+  const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+
+  const field = within(task).getByRole('textbox', { name: 'Задание' })
+  expect(field).toHaveValue('Ты читаешь дифф ветки целиком.')
+  expect(field).toHaveFocus()
+  fireEvent.change(field, { target: { value: 'Ты читаешь **только** дифф.' } })
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+
+  expect(within(task).queryByRole('textbox')).not.toBeInTheDocument()
+  expect(within(task).getByText('только').tagName).toBe('STRONG')
+
+  fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await waitFor(() => expect(saved(fetchMock).prompt).toBe('Ты читаешь **только** дифф.'))
+})
+
+test('«Отменить» возвращает к просмотру без правки', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Другое.' } })
+  fireEvent.click(within(task).getByRole('button', { name: 'Отменить' }))
+
+  expect(within(task).queryByRole('textbox')).not.toBeInTheDocument()
+  expect(within(task).getByText('Ты читаешь дифф ветки целиком.')).toBeInTheDocument()
+  // Открытая заново правка начинается с того, что в задании, а не с отменённого.
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Ты читаешь дифф ветки целиком.')
+})
+
+test('в правке задания ни клик мимо окна, ни Escape его не закрывают, а в просмотре клик закрывает', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Набрано руками.' } })
+
+  const overlay = task.parentElement!
+  fireEvent.mouseDown(overlay)
+  // Окно осталось в документе, и набранное в нём цело.
+  expect(screen.getByRole('dialog', { name: /Задание/ })).toBe(task)
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Набрано руками.')
+  // Escape в правке тоже не закрывает окно.
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.getByRole('dialog', { name: /Задание/ })).toBe(task)
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Набрано руками.')
+
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+  fireEvent.mouseDown(overlay)
+  expect(screen.queryByRole('dialog', { name: /Задание/ })).not.toBeInTheDocument()
+})
+
+test('пустое задание открывается кнопкой «Написать задание» сразу в правке', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open({ ...reviewer, prompt: '' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Написать задание' }))
+
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveFocus()
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Ты гоняешь проверки.' } })
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+  fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+
+  expect(screen.getByRole('button', { name: 'Показать задание' })).toBeInTheDocument()
+})
+
 test('у заведённого с пустым заданием модель и инструменты всё равно сохраняются', async () => {
   const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   const onSaved = open({ ...reviewer, description: null, prompt: '' })
 
-  // Файл завели в базе руками, без тела: основа видна прочерками, а сохранение не заперто.
-  expect(screen.getByLabelText('Описание')).toHaveTextContent('—')
+  // Файл завели в базе руками, без тела: поле описания пусто, а сохранение не заперто.
+  expect(screen.getByLabelText('Описание')).toHaveValue('')
   expect(screen.queryByRole('button', { name: 'Показать задание' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Написать задание' })).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'sonnet' } })
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
@@ -194,7 +341,7 @@ test('у заведённого с пустым заданием модель и
   expect(saved(fetchMock)).toMatchObject({ model: 'sonnet', prompt: '', description: null })
 })
 
-test('задание открывается кнопкой в окне только для чтения', () => {
+test('задание открывается кнопкой своим окном, оформленным markdown', () => {
   stubSave(() => Response.json({ path: 'x' }))
   open(reviewer)
 
@@ -202,7 +349,9 @@ test('задание открывается кнопкой в окне толь�
 
   const task = screen.getByRole('dialog', { name: /Задание/ })
   expect(within(task).getByText('Ты читаешь дифф ветки целиком.')).toBeInTheDocument()
+  // В просмотре поля нет: правку открывает одна кнопка «Редактировать».
   expect(within(task).queryByRole('textbox')).not.toBeInTheDocument()
+  expect(within(task).getByRole('button', { name: 'Редактировать' })).toBeInTheDocument()
 
   // Окно задания сверху: фокус в нём, а окно исполнителя под ним недоступно.
   expect(within(task).getByRole('button', { name: 'Закрыть' })).toHaveFocus()
@@ -331,12 +480,69 @@ test('«Вернуть как было» возвращает то, что ст�
   })
   stream.close()
 
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Новое описание.'))
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Новое описание.'))
 
   fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
 
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.'))
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Читает дифф ветки задачи.'))
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
+})
+
+test('ответ агента заменяет поправленные руками описание и задание, а «вернуть как было» возвращает правку', async () => {
+  const stream = controlledStream<DraftEvent>()
+  stubPanel('performer', stream)
+  open(reviewer)
+
+  fireEvent.change(screen.getByLabelText('Описание'), { target: { value: 'Поправлено руками.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Задание руками.' } })
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+  fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Перепиши короче' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  stream.send({
+    type: 'drafted',
+    text: '---',
+    fields: { name: 'reviewer', description: 'Описание агента.', model: null, tools: null, prompt: 'Задание агента.' },
+  })
+  stream.close()
+
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Описание агента.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  expect(within(screen.getByRole('dialog', { name: /Задание/ })).getByText('Задание агента.')).toBeInTheDocument()
+  fireEvent.click(within(screen.getByRole('dialog', { name: /Задание/ })).getByRole('button', { name: 'Закрыть' }))
+
+  fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
+
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Поправлено руками.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  expect(within(screen.getByRole('dialog', { name: /Задание/ })).getByText('Задание руками.')).toBeInTheDocument()
+})
+
+test('ответ агента при открытом задании попадает и в правку, а не только в просмотр', async () => {
+  const stream = controlledStream<DraftEvent>()
+  stubPanel('performer', stream)
+  open(reviewer)
+
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Перепиши короче' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  await screen.findByRole('status')
+  // Пока агент работает, оператор открыл задание: окно висит, когда приходит ответ.
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  stream.send({
+    type: 'drafted',
+    text: '---',
+    fields: { name: 'reviewer', description: 'Описание агента.', model: null, tools: null, prompt: 'Задание агента.' },
+  })
+  stream.close()
+
+  expect(await within(task).findByText('Задание агента.')).toBeInTheDocument()
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Задание агента.')
 })
 
 test('правка не меняет имя, даже если агент вернул другое', async () => {

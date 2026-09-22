@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { WorkspaceRow } from './App'
 import { WarningIcon } from './Problems'
+import './Modal.css'
 import './DeleteWorkspaceModal.css'
 
 type Problem = 'kit-not-set' | 'kit-not-found' | 'in-work' | 'main-copy' | 'refused'
