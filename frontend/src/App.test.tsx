@@ -771,37 +771,27 @@ function workspaceResponses(...lists: WorkspaceRow[][]) {
 
 const inWork: WorkspaceRow = { ...rows[0], status: 'in-work' }
 
-test('без поддержки уведомлений браузером шапка их не предлагает', async () => {
+test('шапка уведомлениями не управляет: их включают в «Настройках»', async () => {
+  stubNotification('default')
   workspaceResponses(rows)
 
   render(<App />)
 
   await findTableRows()
-  expect(screen.queryByRole('button', { name: 'Включить уведомления' })).not.toBeInTheDocument()
-  expect(screen.queryByText(/Уведомления/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /уведомления/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+  expect(screen.queryByText('Уведомления запрещены в браузере')).not.toBeInTheDocument()
 })
 
-test('кнопка в шапке запрашивает разрешение на уведомления', async () => {
-  const { FakeNotification } = stubNotification('default', 'granted')
-  workspaceResponses(rows)
-
-  render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
-
-  expect(await screen.findByRole('button', { name: 'Выключить уведомления' })).toBeInTheDocument()
-  expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1)
-  expect(screen.queryByRole('button', { name: 'Включить уведомления' })).not.toBeInTheDocument()
-})
-
-test('выключенные из шапки уведомления не показываются и не держат опрос скрытой вкладки', async () => {
+test('выключенные в «Настройках» уведомления не показываются и не держат опрос скрытой вкладки', async () => {
   fakeInterval()
-  const { shown, FakeNotification } = stubNotification('granted')
+  // Так переключатель карточки «Уведомления» помнит, что уведомления выключены
+  localStorage.setItem('agents-kit-web.notifications-muted', 'true')
+  const { shown } = stubNotification('granted')
   const fetchMock = workspaceResponses([inWork], [rows[0]])
 
   render(<App />)
   await screen.findByText('В работе')
-  fireEvent.click(screen.getByRole('button', { name: 'Выключить уведомления' }))
-  expect(screen.getByRole('button', { name: 'Включить уведомления' })).toBeInTheDocument()
 
   setVisibility('hidden')
   await tick(30000)
@@ -810,39 +800,6 @@ test('выключенные из шапки уведомления не пок�
   await act(async () => setVisibility('visible'))
   expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
   expect(shown).toHaveLength(0)
-  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
-})
-
-test('уведомления включаются обратно без нового запроса разрешения, выбор помнится', async () => {
-  fakeInterval()
-  const { shown, FakeNotification } = stubNotification('granted')
-  workspaceResponses(rows)
-
-  const { unmount } = render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Выключить уведомления' }))
-  unmount()
-
-  workspaceResponses([inWork], [rows[0]])
-  render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
-  expect(screen.getByRole('button', { name: 'Выключить уведомления' })).toBeInTheDocument()
-  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
-
-  await screen.findByText('В работе')
-  await tick(3000)
-  expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
-  expect(shown).toHaveLength(1)
-})
-
-test('при отказе в разрешении шапка это показывает, а таблица работает', async () => {
-  stubNotification('default', 'denied')
-  workspaceResponses(rows)
-
-  render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
-
-  expect(await screen.findByText('Уведомления запрещены в браузере')).toBeInTheDocument()
-  expect(await findTableRows()).toHaveLength(4)
 })
 
 test('уведомляет, когда копия начала ждать оператора, и не шлёт на первом опросе', async () => {
