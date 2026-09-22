@@ -1239,6 +1239,42 @@ test('отметка в шапке при открытом разделе отк
   expect(within(screen.getByRole('list', { name: 'Стадии базы' })).getByRole('button', { name: /^Критерий закрытия/ })).toBeInTheDocument()
 })
 
+/** Просьба переписать стадии Nota, дождавшаяся оператора: к ней ведёт отметка в шапке. */
+const notaRewrite = {
+  ...rewriteApi([]),
+  'GET /api/agent/requests': () =>
+    json([{ kind: 'flow', id: 'r1', base: nota.base, project: nota.project, text: 'просьба', elapsedMs: 0, state: 'done' }]),
+}
+
+test('отметка в шапке без несохранённых правок переключает раздел на проект просьбы', async () => {
+  stubApi(api([app, nota], [], notaRewrite))
+  const view = render(<Flow />)
+  await screen.findByRole('region', { name: 'Сценарий «полный»' })
+
+  view.rerender(<Flow baseFor={nota.base} rewriteAt={2} />)
+
+  expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
+})
+
+test('отметка в шапке с несохранёнными правками оставляет раздел на своём проекте и предупреждает о чужой просьбе', async () => {
+  stubApi(api([app, nota], [], notaRewrite))
+  const view = render(<Flow />)
+  await screen.findByRole('region', { name: 'Сценарий «полный»' })
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Критерий закрытия' } })
+  fireEvent.click(edit.getByRole('button', { name: 'Готово' }))
+
+  view.rerender(<Flow baseFor={nota.base} rewriteAt={2} />)
+
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  expect(
+    await modal.findByText('Чудо-Юдо уже переписал стадии Nota: новая просьба отсюда уберёт этот ответ.'),
+  ).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument()
+})
+
 test('«Открыть в VS Code» просит API открыть флоу этой базы', async () => {
   const fetchMock = stubApi(api([app], [], { 'POST /api/flow/open': () => new Response(null, { status: 204 }) }))
   await renderFlow()
