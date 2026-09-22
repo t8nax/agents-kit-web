@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { expectChoice, expectRingOnlyFromKeyboard } from './choice'
+import { expectChoice, expectRingOnlyFromKeyboard } from './choice.ts'
 
 // Запуск задачи e2e не делает по-настоящему: и список копий, и /api/tasks подменяются page.route.
 const freeRow = {

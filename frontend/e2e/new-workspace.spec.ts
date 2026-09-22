@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { expectChoice, expectRingOnlyFromKeyboard } from './choice'
+import { expectChoice, expectRingOnlyFromKeyboard } from './choice.ts'
 
 // Запись в репозиторий проекта e2e не делает: заведение копии подменяется page.route.
 const row = {

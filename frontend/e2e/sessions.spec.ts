@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { expectChoice, expectRingOnlyFromKeyboard } from './choice'
+import { expectChoice, expectRingOnlyFromKeyboard } from './choice.ts'
 
 const hours = (count: number) => Date.now() - count * 60 * 60_000
 
