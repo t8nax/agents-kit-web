@@ -13,6 +13,8 @@ describe('Skeleton', () => {
     const skeleton = screen.getByRole('status', { name: 'Загрузка бэклога' })
     expect(skeleton).toHaveAttribute('aria-busy', 'true')
     expect(skeleton).toHaveTextContent('')
+    // Полосы читать нечего: диктор слышит только, что грузится
+    expect(skeleton.firstElementChild).toHaveAttribute('aria-hidden', 'true')
   })
 
   it('задаёт полосе ширину числом в пикселях, строкой — как есть', () => {

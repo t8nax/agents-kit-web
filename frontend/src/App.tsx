@@ -22,6 +22,7 @@ import ReplyModal from './ReplyModal'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
+import { Sk, Skeleton } from './Skeleton'
 import { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
@@ -270,15 +271,18 @@ function App() {
                 </button>
               </div>
               {state.failed && <p className="message warning-text">Нет связи с API</p>}
+              {state.rows === null && !state.failed && <WorkspacesSkeleton />}
               {state.rows && (
-                <WorkspacesTable
-                  rows={state.rows}
-                  fresh={fresh}
-                  onReply={setReplyTo}
-                  onRemove={setRemoving}
-                  onProblems={() => setSection('problems')}
-                  onSettings={() => setSection('settings')}
-                />
+                <div className="loaded">
+                  <WorkspacesTable
+                    rows={state.rows}
+                    fresh={fresh}
+                    onReply={setReplyTo}
+                    onRemove={setRemoving}
+                    onProblems={() => setSection('problems')}
+                    onSettings={() => setSection('settings')}
+                  />
+                </div>
               )}
               {state.rows?.length === 0 && (
                 <p className="empty-message">
@@ -639,6 +643,89 @@ function TaskCells({ task, letters }: { task: string | null; letters: string | n
   )
 }
 
+function WorkspacesHead() {
+  return (
+    <thead>
+      <tr>
+        <th>Копия</th>
+        <th className="num-col">№</th>
+        <th>Задача</th>
+        <th>Стадия флоу</th>
+        <th>Прогресс</th>
+        <th>Статус</th>
+        <th>Проблемы</th>
+        <th className="actions-col">Действия</th>
+      </tr>
+    </thead>
+  )
+}
+
+/**
+ * Таблица копий, пока её не опросили в первый раз: группы и строки полосами под настоящей шапкой
+ * колонок (макет B-201). Прежде до первого ответа раздел стоял пустым.
+ */
+function WorkspacesSkeleton() {
+  const row = (name: number, branch: number, task: string, stage: number, badge: number) => (
+    <tr className="sk-frame" key={`${name}-${branch}`}>
+      <td className="copy-col">
+        <div className="proj">
+          <Sk w={8} h={8} className="sk-round" />
+          <Sk w={name} h={11} />
+        </div>
+        <div className="sub">
+          <Sk w={branch} h={8} />
+        </div>
+      </td>
+      <td className="num-col">
+        <Sk w={46} h={18} />
+      </td>
+      <td className="task-col">
+        <Sk w={task} h={11} />
+      </td>
+      <td>
+        <Sk w={stage} h={11} />
+      </td>
+      <td>
+        <div className="progress-container">
+          <Sk w="100%" h={4} style={{ flex: 1, width: 'auto' }} />
+          <Sk w={26} h={9} />
+        </div>
+      </td>
+      <td>
+        <Sk w={badge} h={22} />
+      </td>
+      <td />
+      <td>
+        <div className="row-actions">
+          <Sk w={24} h={24} />
+        </div>
+      </td>
+    </tr>
+  )
+  const group = (width: number, rows: ReactNode[]) => (
+    <tbody>
+      <tr className="group-row sk-frame">
+        <th colSpan={columnCount}>
+          <div className="group-head">
+            <Sk w={14} h={14} />
+            <Sk w={width} h={12} />
+          </div>
+        </th>
+      </tr>
+      {rows}
+    </tbody>
+  )
+  return (
+    <Skeleton label="Загрузка рабочих копий">
+      <table>
+        <WorkspacesHead />
+        {group(118, [row(104, 150, '72%', 84, 84), row(88, 124, '58%', 96, 104), row(96, 138, '64%', 70, 72)])}
+        {group(86, [row(70, 110, '48%', 84, 84), row(92, 132, '66%', 90, 104)])}
+      </table>
+    </Skeleton>
+  )
+}
+
 function WorkspacesTable({
   rows,
   fresh,
@@ -713,18 +800,7 @@ function WorkspacesTable({
       {kitState && <KitNotice kit={kitState === 'kit-not-set' ? 'not-set' : 'not-found'} onSettings={onSettings} />}
       {openError && <p className="message warning-text">{openError}</p>}
       <table>
-        <thead>
-          <tr>
-            <th>Копия</th>
-            <th className="num-col">№</th>
-            <th>Задача</th>
-            <th>Стадия флоу</th>
-            <th>Прогресс</th>
-            <th>Статус</th>
-            <th>Проблемы</th>
-            <th className="actions-col">Действия</th>
-          </tr>
-        </thead>
+        <WorkspacesHead />
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
           const waiting = group.rows.some((row) => row.status === 'waiting')

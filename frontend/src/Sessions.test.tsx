@@ -107,7 +107,7 @@ test('пока сессии читаются в первый раз, стоит 
   const skeleton = screen.getByRole('status', { name: 'Загрузка сессий' })
   expect(skeleton).toHaveAttribute('aria-busy', 'true')
   const head = within(skeleton.querySelector('thead')!)
-  expect(head.getAllByRole('columnheader').map((th) => th.textContent)).toEqual([
+  expect(head.getAllByRole('columnheader', { hidden: true }).map((th) => th.textContent)).toEqual([
     'Копия',
     'Сессия',
     'Состояние',

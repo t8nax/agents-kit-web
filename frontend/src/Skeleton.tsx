@@ -26,12 +26,15 @@ export function Sk({
 
 /**
  * Заготовка раздела, пока он в первый раз читает свои данные: полосы в форме того, что придёт.
- * label — что грузится, словами: его читает программа для незрячих, на экране его нет.
+ * label — что грузится, словами: его читает программа для незрячих, на экране его нет. Сами полосы
+ * и настоящая шапка колонок под ними от неё скрыты — читать в них нечего.
  */
 export function Skeleton({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
     <div className={className} role="status" aria-busy="true" aria-label={label}>
-      {children}
+      <div className="sk-content" aria-hidden="true">
+        {children}
+      </div>
     </div>
   )
 }
