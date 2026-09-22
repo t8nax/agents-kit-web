@@ -71,6 +71,31 @@ test('заготовка мерцает, содержимое проявляет
   expect(await animations.names()).not.toContain('loaded-in')
 })
 
+test('после выбора папки в «Настройках» список баз не проявляется заново', async ({ page }) => {
+  const animations = await recordAnimations(page)
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
+  await page.route('**/api/bases', (route) => route.fulfill({ json: [{ path: 'D:\\Projects\\app-knowledge', copies: 2 }] }))
+  await page.route('**/api/kit', (route) => route.fulfill({ json: { path: null, found: false } }))
+  await page.route('**/api/folders**', (route) =>
+    route.fulfill({ json: { path: null, parent: null, folders: [{ name: 'D:\\', path: 'D:\\', isBase: false, copies: null }] } }),
+  )
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Настройки' }).click()
+
+  const bases = page.getByRole('region', { name: /^Базы знаний/ })
+  await expect(bases.getByRole('list', { name: 'Базы знаний' })).toBeVisible()
+  await expect.poll(animations.names).toContain('loaded-in')
+  await expect(page.locator('.loaded')).toHaveCount(0)
+
+  await bases.getByRole('button', { name: 'Обзор…' }).click()
+  await expect(bases.getByRole('list', { name: 'Папки' })).toBeVisible()
+  await animations.clear()
+  await bases.getByRole('button', { name: 'К списку баз' }).click()
+  await expect(bases.getByRole('list', { name: 'Базы знаний' })).toBeVisible()
+  await nextFrames(page)
+  expect(await animations.names()).not.toContain('loaded-in')
+})
+
 test('при «уменьшить движение» полосы стоят без мерцания и содержимое встаёт без проявления', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const animations = await recordAnimations(page)
