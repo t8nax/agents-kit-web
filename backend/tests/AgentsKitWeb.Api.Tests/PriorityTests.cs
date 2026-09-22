@@ -11,6 +11,12 @@ public class PriorityTests
     }
 
     [Fact]
+    public void TestRun_IsNotPowerThrottled()
+    {
+        Assert.True(TestPriority.ThrottlingOff());
+    }
+
+    [Fact]
     public void ProcessStartedByTests_IsBelowNormal()
     {
         var startInfo = new ProcessStartInfo("ping", "-n 30 127.0.0.1") { RedirectStandardOutput = true };
