@@ -244,8 +244,9 @@ test('меню стадии встаёт у курсора, окна возвр�
   const returns = page.getByRole('dialog', { name: 'Возвраты стадии «Приёмка»' })
   await expect(returns.getByRole('textbox', { name: 'Условие возврата 1' })).toHaveValue('есть замечания')
   await expect(returns.getByRole('textbox', { name: 'Выход стадии' })).toHaveCount(0)
-  // Карточки возвратов — во всю ширину тела окна, без колонки подписи слева
+  // Окно возвратов — 560px, как на макете; карточки — во всю ширину его тела, без колонки подписи слева
   await expect(async () => {
+    expect(Math.round((await returns.boundingBox())!.width)).toBe(560)
     const body = await returns.locator('.ask-body').evaluate((el) => {
       const style = getComputedStyle(el)
       return el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
