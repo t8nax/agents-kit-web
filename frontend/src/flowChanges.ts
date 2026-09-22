@@ -1,7 +1,10 @@
 import type { FlowStage } from './Flow'
 
-/** Стадия из ответа Чудо-Юдо: of — название стадии контекста, которую она переписывает; null — новая стадия. */
-export type RewrittenStage = { of: string | null; stage: FlowStage }
+/**
+ * Стадия из ответа Чудо-Юдо: of — название стадии контекста, которую она переписывает. У новой стадии его нет:
+ * пустые поля API не пишет, поэтому of приходит не null, а не приходит вовсе.
+ */
+export type RewrittenStage = { of?: string | null; stage: FlowStage }
 
 export type StageFieldName = 'title' | 'executor' | 'output' | 'skip' | 'helpers' | 'description'
 
@@ -34,7 +37,7 @@ const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
  */
 export function stageChanges(stages: FlowStage[], rewritten: RewrittenStage[], context: FlowStage[]): StageChange[] {
   const changes: StageChange[] = rewritten.map(({ of, stage }) => {
-    const was = of === null ? undefined : stages.find((one) => norm(one.title) === norm(of))
+    const was = of == null ? undefined : stages.find((one) => norm(one.title) === norm(of))
     if (!was) return { kind: 'added', title: stage.title, of: null, stage, fields: [] }
 
     const fields = fieldNames

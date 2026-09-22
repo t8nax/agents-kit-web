@@ -58,6 +58,12 @@ describe('stageChanges', () => {
     ])
   })
 
+  it('новая стадия из API приходит без of вовсе', () => {
+    const docs = stage('Документация')
+
+    expect(stageChanges(stages, [{ stage: docs }], []).map((c) => [c.kind, c.of])).toEqual([['added', null]])
+  })
+
   it('прежний вид стадии берётся из раздела, даже когда контекст не известен', () => {
     const changes = stageChanges(stages, [{ of: 'ревью', stage: { ...review, output: 'вердикт' } }], [])
 

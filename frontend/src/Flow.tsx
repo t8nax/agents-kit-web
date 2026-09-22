@@ -542,14 +542,14 @@ export default function Flow({
     let stages = draft.stages
     for (const { of, stage } of rewritten) {
       const fields = stageDraft(stage)
-      const was = of === null ? undefined : stages.find((one) => norm(one.title) === norm(of))
+      const was = of == null ? undefined : stages.find((one) => norm(one.title) === norm(of))
       stages = was
         ? stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
         : [...stages, { ...fields, slug: null }]
     }
     setDraft({ ...draft, stages })
     setModal(null)
-    if (rewritten.some((one) => one.of === null)) {
+    if (rewritten.some((one) => one.of == null)) {
       setTab('stages')
       setOpened(null)
     }

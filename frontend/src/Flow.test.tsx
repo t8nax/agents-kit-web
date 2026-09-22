@@ -1135,7 +1135,8 @@ const rewriteApi = (events: unknown[]) => ({
 test('«Переписать с Чудо-Юдо» в меню «…» шлёт стадии как на экране, а принятые правки ложатся в черновик', async () => {
   const rewritten = [
     { of: 'Ревью', stage: { ...review, title: 'Проверка', output: 'вердикт по sha и тестам' } },
-    { of: null, stage: { ...spare, title: 'Документация', executor: 'оператор', output: 'раздел', slug: null } },
+    // Новая стадия приходит без of: пустые поля API не пишет.
+    { stage: { ...spare, title: 'Документация', executor: 'оператор', output: 'раздел', slug: null } },
   ]
   const fetchMock = stubApi(api([app], [], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
   await renderFlow()
