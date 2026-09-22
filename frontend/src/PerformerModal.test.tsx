@@ -449,12 +449,46 @@ test('«Вернуть как было» возвращает то, что ст�
   })
   stream.close()
 
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Новое описание.'))
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Новое описание.'))
 
   fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
 
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.'))
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Читает дифф ветки задачи.'))
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
+})
+
+test('ответ агента заменяет поправленные руками описание и задание, а «вернуть как было» возвращает правку', async () => {
+  const stream = controlledStream<DraftEvent>()
+  stubPanel('performer', stream)
+  open(reviewer)
+
+  fireEvent.change(screen.getByLabelText('Описание'), { target: { value: 'Поправлено руками.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Задание руками.' } })
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+  fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Перепиши короче' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  stream.send({
+    type: 'drafted',
+    text: '---',
+    fields: { name: 'reviewer', description: 'Описание агента.', model: null, tools: null, prompt: 'Задание агента.' },
+  })
+  stream.close()
+
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Описание агента.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  expect(within(screen.getByRole('dialog', { name: /Задание/ })).getByText('Задание агента.')).toBeInTheDocument()
+  fireEvent.click(within(screen.getByRole('dialog', { name: /Задание/ })).getByRole('button', { name: 'Закрыть' }))
+
+  fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
+
+  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Поправлено руками.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  expect(within(screen.getByRole('dialog', { name: /Задание/ })).getByText('Задание руками.')).toBeInTheDocument()
 })
 
 test('правка не меняет имя, даже если агент вернул другое', async () => {
