@@ -15,7 +15,7 @@ const drafted = {
  * /api подменяется: настоящая просьба запустила бы агента в живой копии оператора, а «Сохранить»
  * положило бы файл в её репозиторий и закоммитило бы его.
  */
-async function mockApi(page: Page) {
+async function mockApi(page: Page, performers: unknown[] = []) {
   const saved: unknown[] = []
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/performers', (route) => {
@@ -31,7 +31,7 @@ async function mockApi(page: Page) {
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
           directory: agents,
-          performers: [],
+          performers,
           error: null,
         },
       ],
@@ -145,4 +145,39 @@ test('неудача агента сказана одной строкой, пр
   await modal.getByRole('button', { name: 'Попросить снова' }).click()
   await expect(modal.getByLabel('Имя')).toHaveValue('reviewer')
   expect(panel.posts).toHaveLength(2)
+})
+
+test('итог переписывания из шапки открывается в правке того же исполнителя', async ({ page }) => {
+  const reviewer = { ...drafted, path: `${agents}\\reviewer.md` }
+  const { panel } = await mockApi(page, [reviewer])
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Исполнители' }).click()
+  await page.getByRole('button', { name: 'reviewer, Agents Kit Web' }).click()
+  const modal = page.getByRole('dialog', { name: 'reviewer' })
+  await modal.getByLabel(/Просьба к Чудо-Юдо/).fill('Пусть ещё сверяет с критериями')
+  await modal.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }).click()
+  await expect(modal.getByRole('status')).toContainText('переписывает исполнителя')
+
+  // Оператор закрыл окно, пока агент работает: итог ждёт в шапке и называет, кого переписали.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  panel.reply(
+    ndjson({
+      type: 'drafted',
+      text: '---',
+      fields: { ...drafted, description: 'Сверяет дифф с критериями.' },
+      durationMs: 9000,
+    }),
+  )
+  const done = page.getByRole('banner').getByRole('button', { name: /Чудо-Юдо переписал исполнителя reviewer/ })
+  await expect(done).toBeVisible()
+
+  await done.click()
+
+  // Итог открывается правкой reviewer, а не окном нового, где его имя было бы занято.
+  const reopened = page.getByRole('dialog', { name: 'reviewer' })
+  await expect(reopened.getByLabel('Описание')).toHaveText('Сверяет дифф с критериями.')
+  await expect(reopened.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  expect(panel.posts).toHaveLength(1)
 })

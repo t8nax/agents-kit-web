@@ -33,8 +33,12 @@ type Load =
  * Раздел «Исполнители»: субагенты проектов панели. Строка — файл базы, поэтому в списке видны и те,
  * кого завели в базе помимо панели; проекты фильтруют чипы, где рядом стоит «Все».
  * draftFor — база просьбы, к которой вернулся оператор: окно исполнителя открывается сразу на ней.
+ * draftSubject — кого просьба переписывает: тогда открывается правка этого исполнителя, а не окно нового.
  */
-export default function Performers({ draftFor = null }: { draftFor?: string | null } = {}) {
+export default function Performers({
+  draftFor = null,
+  draftSubject = null,
+}: { draftFor?: string | null; draftSubject?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [project, setProject] = useState<string | null>(draftFor)
   // Окно открыто: заводится новый (performer null) или правится заведённый; base — чей он проект.
@@ -72,8 +76,10 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
   useEffect(() => {
     if (draftFor === null || opened.current || load.kind !== 'loaded') return
     opened.current = true
-    setEditing({ performer: null, base: load.bases.find((b) => b.base === draftFor) })
-  }, [draftFor, load])
+    const base = load.bases.find((b) => b.base === draftFor)
+    const performer = draftSubject ? (base?.performers.find((p) => p.name === draftSubject) ?? null) : null
+    setEditing({ performer, base })
+  }, [draftFor, draftSubject, load])
 
   const bases = load.kind === 'loaded' ? load.bases : []
   // Выбран проект — его исполнители; выбран «Все» (project === null) — исполнители всех проектов.
