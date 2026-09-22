@@ -78,10 +78,18 @@ export default function Performers({
     opened.current = true
     const base = load.bases.find((b) => b.base === draftFor)
     const performer = draftSubject ? (base?.performers.find((p) => p.name === draftSubject) ?? null) : null
-    setEditing({ performer, base })
+    // Переписывали заведённого, а его уже нет: окно нового его просьбу не подхватит и встало бы пустым.
+    setEditing(draftSubject && !performer ? null : { performer, base })
   }, [draftFor, draftSubject, load])
 
   const bases = load.kind === 'loaded' ? load.bases : []
+  // Итог переписывания исполнителя, которого в проекте уже нет: окна для него нет, и об этом сказано строкой.
+  const lost =
+    draftSubject !== null &&
+    load.kind === 'loaded' &&
+    !bases.find((b) => b.base === draftFor)?.performers.some((p) => p.name === draftSubject)
+      ? draftSubject
+      : null
   // Выбран проект — его исполнители; выбран «Все» (project === null) — исполнители всех проектов.
   const shown = project === null ? bases : bases.filter((b) => b.base === project)
   const rows = shown.flatMap((base) => base.performers.map((performer) => ({ base, performer })))
@@ -136,6 +144,12 @@ export default function Performers({
             </button>
           ))}
         </div>
+      )}
+
+      {lost && (
+        <p className="message warning-text" role="alert">
+          Исполнителя {lost} в проекте больше нет: переписанное открыть не в чем.
+        </p>
       )}
 
       {saved && (

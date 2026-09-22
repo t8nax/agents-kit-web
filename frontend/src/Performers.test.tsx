@@ -140,3 +140,20 @@ test('ошибка по проекту показана вместе с его �
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Имя проекта не записать латиницей')
 })
+
+test('итог из шапки про исполнителя, которого нет, сказан строкой, а не пустым окном нового', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
+
+  render(<Performers draftFor={bases[0].base} draftSubject="gone" />)
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Исполнителя gone в проекте больше нет')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('итог из шапки про заведённого открывается его правкой', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
+
+  render(<Performers draftFor={bases[0].base} draftSubject="reviewer" />)
+
+  expect(await screen.findByRole('dialog', { name: 'reviewer' })).toBeInTheDocument()
+})
