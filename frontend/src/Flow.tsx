@@ -666,74 +666,74 @@ export default function Flow({
 
       {load.kind === 'loaded' && (
         <div className="flow-body loaded">
-      {empty && (
-        <div className="flow-empty">
-          <span className="flow-empty-mark" aria-hidden="true">
-            <FlowIcon />
-          </span>
-          <h3>В этом проекте нет флоу</h3>
-          <p>Флоу — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
-          <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
-            <PlusIcon />
-            Создать первый флоу
-          </button>
-        </div>
-      )}
+          {empty && (
+            <div className="flow-empty">
+              <span className="flow-empty-mark" aria-hidden="true">
+                <FlowIcon />
+              </span>
+              <h3>В этом проекте нет флоу</h3>
+              <p>Флоу — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
+              <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
+                <PlusIcon />
+                Создать первый флоу
+              </button>
+            </div>
+          )}
 
-      {editable && !empty && tab === 'stages' && (
-        <StagesTab
-          draft={draft}
-          current={currentStage}
-          known={known}
-          presets={presets}
-          open={stageOpen}
-          covered={modal === 'description'}
-          onPerformers={onPerformers}
-          onSelect={(key) => {
-            setStageKey(key)
-            setStageOpen(true)
-          }}
-          onClose={() => setStageOpen(false)}
-          onNew={newStage}
-          onChange={(patch) => currentStage && updateStage(currentStage.key, patch)}
-          onEditDescription={() => setModal('description')}
-          onSaveAsPreset={() => currentStage && void saveAsPreset(presetStage(toStage(currentStage)))}
-          onDelete={() => {
-            if (!currentStage) return
-            setDraft({ ...draft, stages: draft.stages.filter((stage) => stage.key !== currentStage.key) })
-            setStageKey(null)
-            setStageOpen(false)
-          }}
-        />
-      )}
+          {editable && !empty && tab === 'stages' && (
+            <StagesTab
+              draft={draft}
+              current={currentStage}
+              known={known}
+              presets={presets}
+              open={stageOpen}
+              covered={modal === 'description'}
+              onPerformers={onPerformers}
+              onSelect={(key) => {
+                setStageKey(key)
+                setStageOpen(true)
+              }}
+              onClose={() => setStageOpen(false)}
+              onNew={newStage}
+              onChange={(patch) => currentStage && updateStage(currentStage.key, patch)}
+              onEditDescription={() => setModal('description')}
+              onSaveAsPreset={() => currentStage && void saveAsPreset(presetStage(toStage(currentStage)))}
+              onDelete={() => {
+                if (!currentStage) return
+                setDraft({ ...draft, stages: draft.stages.filter((stage) => stage.key !== currentStage.key) })
+                setStageKey(null)
+                setStageOpen(false)
+              }}
+            />
+          )}
 
-      {editable && !empty && tab === 'flow' && currentFlow && (
-        <FlowTab
-          draft={draft}
-          flow={currentFlow}
-          opened={opened}
-          known={known}
-          onPick={(key) => {
-            setFlowKey(key)
-            setOpened(null)
-          }}
-          onNew={newFlow}
-          onOpen={setOpened}
-          onChange={(change) => updateFlow(currentFlow.key, change)}
-          onEditStage={(key) => {
-            setStageKey(key)
-            setStageOpen(true)
-            setTab('stages')
-            setOpened(null)
-          }}
-          onAdd={() => setModal('add')}
-          onDelete={() => {
-            setDraft({ ...draft, flows: draft.flows.filter((f) => f.key !== currentFlow.key) })
-            setFlowKey(null)
-            setOpened(null)
-          }}
-        />
-      )}
+          {editable && !empty && tab === 'flow' && currentFlow && (
+            <FlowTab
+              draft={draft}
+              flow={currentFlow}
+              opened={opened}
+              known={known}
+              onPick={(key) => {
+                setFlowKey(key)
+                setOpened(null)
+              }}
+              onNew={newFlow}
+              onOpen={setOpened}
+              onChange={(change) => updateFlow(currentFlow.key, change)}
+              onEditStage={(key) => {
+                setStageKey(key)
+                setStageOpen(true)
+                setTab('stages')
+                setOpened(null)
+              }}
+              onAdd={() => setModal('add')}
+              onDelete={() => {
+                setDraft({ ...draft, flows: draft.flows.filter((f) => f.key !== currentFlow.key) })
+                setFlowKey(null)
+                setOpened(null)
+              }}
+            />
+          )}
         </div>
       )}
 
