@@ -26,7 +26,10 @@ test('оператор отвечает на вопросы копии, и ст�
         task: 'Окно ответа',
         criteria: [{ title: '1. Окно есть', text: 'Оператор отвечает из панели.' }],
         outOfScope: 'Health баз.',
-        design: 'Макет окна ответа: https://claude.ai/artifact/AbC123',
+        artifacts: [
+          { label: 'макет окна ответа', address: 'https://claude.ai/artifact/AbC123' },
+          { label: 'спецификация', address: 'D:\\Projects\\app\\spec.md' },
+        ],
         questions: [
           { title: 'Подтвердить критерий?', context: 'За вами объём проверок', variants: [], answer: null },
           {
@@ -56,11 +59,13 @@ test('оператор отвечает на вопросы копии, и ст�
   const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
 
-  // макет задачи — свой блок в «Контексте задачи», ссылкой в новую вкладку
+  // артефакты задачи — свой блок в «Контексте задачи»: ссылка в новую вкладку, путь к файлу текстом
   await dialog.getByText('Контекст задачи').click()
-  await expect(dialog.getByText('Дизайн')).toBeVisible()
-  const design = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
-  await expect(design).toHaveAttribute('target', '_blank')
+  await expect(dialog.getByText('Артефакты')).toBeVisible()
+  const artifact = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
+  await expect(artifact).toHaveAttribute('target', '_blank')
+  await expect(dialog.getByText('D:\\Projects\\app\\spec.md')).toBeVisible()
+  await expect(dialog.getByRole('link', { name: 'D:\\Projects\\app\\spec.md' })).toHaveCount(0)
   await dialog.getByText('Контекст задачи').click()
 
   await dialog.getByLabel('Ответ').fill('принимаю')
@@ -109,7 +114,7 @@ test('набранный ответ возвращается после закр
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
-        design: null,
+        artifacts: [],
         vsCodeSession: false,
         questions: [{ title: 'Подтвердить критерий?', context: null, variants: [], answer: null }],
       },
@@ -168,7 +173,7 @@ test('ссылка из вопроса открывается в новой вк
         task: 'Окно ответа',
         criteria: [],
         outOfScope: null,
-        design: null,
+        artifacts: [],
         vsCodeSession: false,
         questions: [
           {

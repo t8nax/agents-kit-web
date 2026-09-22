@@ -23,13 +23,18 @@ export type ClosingCriterion = {
   text: string | null
 }
 
+export type TaskArtifact = {
+  label: string
+  address: string
+}
+
 export type QuestionsResponse = {
   project: string
   copy: string
   task: string | null
   criteria: ClosingCriterion[]
   outOfScope: string | null
-  design: string | null
+  artifacts: TaskArtifact[]
   questions: OperatorQuestion[]
   vsCodeSession: boolean
   backgroundSession: boolean
@@ -322,10 +327,24 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                         <Markdown className="criterion-text" text={load.data.outOfScope} />
                       </>
                     )}
-                    {load.data.design && (
+                    {load.data.artifacts.length > 0 && (
                       <>
-                        <p className="acc-label design-label">Дизайн</p>
-                        <Markdown className="criterion-text" text={load.data.design} />
+                        <p className="acc-label artifacts-label">Артефакты</p>
+                        <ul className="artifacts">
+                          {load.data.artifacts.map((artifact, i) => (
+                            <li key={i}>
+                              <div className="artifact-label">{artifact.label}</div>
+                              {/* путь к файлу из браузера не открыть — он виден текстом, а ссылкой идёт только адрес http(s) */}
+                              {/^https?:\/\//i.test(artifact.address) ? (
+                                <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
+                                  {artifact.address}
+                                </a>
+                              ) : (
+                                <span className="artifact-address">{artifact.address}</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       </>
                     )}
                   </div>

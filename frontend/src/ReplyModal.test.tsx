@@ -29,7 +29,7 @@ const questions: QuestionsResponse = {
     { title: '2. Строка перестаёт ждать', text: null },
   ],
   outOfScope: 'Health баз.',
-  design: null,
+  artifacts: [],
   vsCodeSession: true,
   backgroundSession: true,
   questions: [
@@ -95,29 +95,40 @@ test('окно показывает заголовок и текст каждо�
   expect(dialog.queryByText('Критерии не записаны')).not.toBeInTheDocument()
 })
 
-test('макет задачи показывается блоком «Дизайн» со ссылкой', async () => {
+test('артефакты задачи показываются блоком «Артефакты»: подпись, под ней адрес — ссылкой или текстом', async () => {
   stubApi(() => new Response(null, { status: 204 }), {
     ...questions,
-    design: 'Макет окна ответа: https://claude.ai/artifact/AbC123',
+    artifacts: [
+      { label: 'макет окна ответа', address: 'https://claude.ai/artifact/AbC123' },
+      { label: 'спецификация', address: 'D:\\Projects\\app\\spec.md' },
+    ],
   })
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  expect(dialog.getByText('Дизайн')).toBeInTheDocument()
-  const link = document.querySelector('.design-label + .criterion-text a')!
+  expect(dialog.getByText('Артефакты')).toBeInTheDocument()
+  const items = [...document.querySelectorAll('.artifacts li')]
+  expect(items.map((li) => li.querySelector('.artifact-label')!.textContent)).toEqual([
+    'макет окна ответа',
+    'спецификация',
+  ])
+  const link = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
   expect(link).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123')
   expect(link).toHaveAttribute('target', '_blank')
+  // путь к файлу из браузера не открыть — он виден текстом, а не ссылкой
+  expect(items[1].querySelector('a')).toBeNull()
+  expect(items[1]).toHaveTextContent('D:\\Projects\\app\\spec.md')
 })
 
-test('у задачи без макета блока «Дизайн» в окне нет', async () => {
+test('у задачи без артефактов блока «Артефакты» в окне нет', async () => {
   stubApi(() => new Response(null, { status: 204 }))
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  expect(dialog.queryByText('Дизайн')).not.toBeInTheDocument()
-  expect(document.querySelector('.design-label')).toBeNull()
+  expect(dialog.queryByText('Артефакты')).not.toBeInTheDocument()
+  expect(document.querySelector('.artifacts')).toBeNull()
 })
 
 test('окно без критериев говорит, что они не записаны', async () => {

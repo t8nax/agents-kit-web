@@ -234,7 +234,8 @@
   gap: 12px;
 }
 
-.criterion-title {
+.criterion-title,
+.artifact-label {
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
@@ -249,8 +250,34 @@
 }
 
 .out-of-scope-label,
-.design-label {
+.artifacts-label {
   margin-top: 16px;
+}
+
+.artifacts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.artifact-address {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+a.artifact-address {
+  color: var(--accent-waiting-text);
+  text-decoration: none;
+}
+
+a.artifact-address:hover {
+  text-decoration: underline;
 }
 
 .massive-title {
