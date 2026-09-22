@@ -196,6 +196,31 @@ test('верх раздела: заголовок, за ним справа вк
   expect(within(screen.getByRole('tablist')).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Стадии', 'Сценарии'])
 })
 
+test('пока флоу читается, на месте схемы заготовка, а заголовок и «…» уже видны', async () => {
+  const handlers: Record<string, Handler> = api([app, nota])
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: string) =>
+      input === '/api/flow'
+        ? new Promise<Response>((resolve) => (answer = () => resolve(handlers['GET /api/flow']())))
+        : Promise.resolve(handlers[`GET ${input}`]()),
+    ),
+  )
+
+  render(<Flow />)
+
+  expect(screen.getByRole('status', { name: 'Загрузка флоу' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Флоу', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Ещё действия' })).toBeInTheDocument()
+
+  answer()
+
+  expect(await screen.findByRole('region', { name: 'Сценарий «полный»' })).toBeInTheDocument()
+  expect(screen.queryByRole('status', { name: 'Загрузка флоу' })).not.toBeInTheDocument()
+})
+
 test('вкладка «Флоу»: узел старта с именем флоу и стадии блоками — значок, название и исполнитель, без номера', async () => {
   stubApi(api([app, nota]))
 

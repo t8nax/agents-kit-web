@@ -8,6 +8,7 @@ import './Flow.css'
 import type { BasePerformers } from './Performers'
 import { plural } from './plural'
 import RowMenu from './RowMenu'
+import { Sk, Skeleton } from './Skeleton'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /**
@@ -576,6 +577,13 @@ export default function Flow({
               <span className="head-sep" aria-hidden="true" />
             </>
           )}
+          {load.kind === 'loading' && (
+            <>
+              <Sk w={166} h={32} style={{ borderRadius: 8 }} />
+              <span className="head-sep" aria-hidden="true" />
+              <Sk w={136} h={30} style={{ borderRadius: 6 }} />
+            </>
+          )}
           {flows.length > 0 && (
             <PickMenu
               label="Проект"
@@ -632,7 +640,7 @@ export default function Flow({
         </div>
       </div>
 
-      {load.kind === 'loading' && <p className="message text-sec">Загрузка флоу…</p>}
+      {load.kind === 'loading' && <FlowSkeleton />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -656,6 +664,8 @@ export default function Flow({
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
 
+      {load.kind === 'loaded' && (
+        <div className="flow-body loaded">
       {empty && (
         <div className="flow-empty">
           <span className="flow-empty-mark" aria-hidden="true">
@@ -723,6 +733,8 @@ export default function Flow({
             setOpened(null)
           }}
         />
+      )}
+        </div>
       )}
 
       {modal === 'description' && currentStage && (
@@ -898,6 +910,40 @@ function PickMenu({
 }
 
 /** Вкладка «Стадии»: все стадии базы карточками и правка выбранной окном — сразу для всех флоу, где она стоит. */
+/** Флоу, пока он читается в первый раз: выбор сценария и цепочка стадий полосами (макет B-201). */
+function FlowSkeleton() {
+  const arrow = <Sk w={2} h={32} className="sk-block" style={{ margin: '0 auto', borderRadius: 1 }} />
+  const node = (title: number, executor: number) => (
+    <>
+      <div className="flow-node sk-frame">
+        <Sk w={40} h={40} style={{ borderRadius: 11 }} />
+        <Sk w={title} h={12} />
+        <Sk w={executor} h={8} />
+      </div>
+      {arrow}
+    </>
+  )
+  return (
+    <Skeleton label="Загрузка флоу" className="flow-canvas">
+      <div className="flow-canvas-pick">
+        <Sk w={128} h={30} style={{ borderRadius: 6 }} />
+      </div>
+      <div className="flow-scroll">
+        <div className="flow-chain">
+          <div className="flow-start">
+            <Sk w={64} h={64} className="sk-round" />
+            <Sk w={70} h={11} />
+          </div>
+          {arrow}
+          {node(96, 72)}
+          {node(74, 64)}
+          {node(110, 56)}
+        </div>
+      </div>
+    </Skeleton>
+  )
+}
+
 function StagesTab({
   draft,
   current,
