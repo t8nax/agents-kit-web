@@ -337,3 +337,143 @@
 .entry-no-text {
   color: var(--text-tertiary);
 }
+
+/* Отбор и порядок записей — строка под чипами проектов по макету B-78: поиск, тип, приоритет, справа порядок.
+   Поле и список ростом с чипы, группы чипов разделены чертой. */
+.tool-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-subtle);
+  margin: 0 4px;
+}
+
+.chip svg {
+  width: 13px;
+  height: 13px;
+}
+
+.chip .chip-type-bug {
+  color: var(--accent-error-text);
+}
+
+.chip .chip-type-feature {
+  color: var(--accent-active-text);
+}
+
+.backlog-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.backlog-search > svg {
+  position: absolute;
+  left: 9px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.backlog-search input {
+  font: inherit;
+  font-size: 13px;
+  width: 220px;
+  height: 30px;
+  padding: 0 30px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.backlog-search input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.backlog-search input.filled,
+.backlog-search input:focus-visible {
+  border-color: var(--border-strong);
+}
+
+.backlog-search-clear {
+  position: absolute;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.backlog-search-clear:hover,
+.backlog-search-clear:focus-visible {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.backlog-search-clear svg {
+  width: 14px;
+  height: 14px;
+}
+
+.backlog-order {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.backlog-order-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.backlog-order-select svg {
+  position: absolute;
+  right: 9px;
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.backlog-order-select select {
+  appearance: none;
+  font: inherit;
+  font-size: 13px;
+  height: 30px;
+  line-height: 1;
+  padding: 0 30px 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+}
+
+.backlog-order-select select:focus-visible {
+  border-color: var(--border-strong);
+}
+
+.backlog-order-dir {
+  height: 30px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.backlog-order-dir svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+}
