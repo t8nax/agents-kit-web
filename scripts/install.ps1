@@ -72,9 +72,27 @@ function Install-AgentsKitPanel {
 
     function Test-Command($name) { [bool](Get-Command $name -ErrorAction SilentlyContinue) }
 
+    # SDK годится тот, что принимает global.json исходников: его и спрашивают, запустив dotnet в их каталоге.
     function Test-DotnetSdk {
         if (-not (Test-Command 'dotnet')) { return $false }
-        [bool](dotnet --list-sdks | Where-Object { $_ -match '^10\.' })
+        $ErrorActionPreference = 'Continue'
+        Push-Location (Join-Path $Repository 'backend')
+        try { dotnet --version 2>&1 | Out-Null; return $LASTEXITCODE -eq 0 }
+        finally { Pop-Location }
+    }
+
+    function Install-Tool($tool) {
+        if (& $tool.Test) { return $true }
+        if (-not (Test-Command 'winget')) {
+            Write-Host "Нет $($tool.Name), и поставить его нечем: на компьютере нет winget (App Installer из Microsoft Store)." -ForegroundColor Red
+            return $false
+        }
+        Write-Host "Ставлю $($tool.Name)… Windows может спросить разрешение на установку."
+        winget install --id $tool.Id --exact --silent --accept-package-agreements --accept-source-agreements | Out-Host
+        Update-Path
+        if (& $tool.Test) { return $true }
+        Write-Host "$($tool.Name) не поставился — поставьте его руками и запустите команду снова." -ForegroundColor Red
+        return $false
     }
 
     # winget меняет PATH в реестре, а не в этом процессе: без перечитывания только что поставленное не видно.
@@ -102,26 +120,8 @@ function Install-AgentsKitPanel {
         return $false
     }
 
-    $tools = @(
-        @{ Name = 'git'; Id = 'Git.Git'; Test = { Test-Command 'git' } },
-        @{ Name = 'PowerShell 7'; Id = 'Microsoft.PowerShell'; Test = { Test-Command 'pwsh' } },
-        @{ Name = '.NET SDK 10'; Id = 'Microsoft.DotNet.SDK.10'; Test = { Test-DotnetSdk } },
-        @{ Name = 'Node.js'; Id = 'OpenJS.NodeJS.LTS'; Test = { Test-Command 'npm' } }
-    )
-    foreach ($tool in $tools) {
-        if (& $tool.Test) { continue }
-        if (-not (Test-Command 'winget')) {
-            Write-Host "Нет $($tool.Name), и поставить его нечем: на компьютере нет winget (App Installer из Microsoft Store)." -ForegroundColor Red
-            return $false
-        }
-        Write-Host "Ставлю $($tool.Name)… Windows может спросить разрешение на установку."
-        winget install --id $tool.Id --exact --silent --accept-package-agreements --accept-source-agreements | Out-Host
-        Update-Path
-        if (-not (& $tool.Test)) {
-            Write-Host "$($tool.Name) не поставился — поставьте его руками и запустите команду снова." -ForegroundColor Red
-            return $false
-        }
-    }
+    # git — первым: без него не скачать исходники, а по ним видно, какой SDK нужен.
+    if (-not (Install-Tool @{ Name = 'git'; Id = 'Git.Git'; Test = { Test-Command 'git' } })) { return $false }
 
     if (Test-Path (Join-Path $Repository '.git')) {
         Write-Host "Исходники уже есть: $Repository"
@@ -138,6 +138,13 @@ function Install-AgentsKitPanel {
             return $false
         }
     }
+
+    $tools = @(
+        @{ Name = 'PowerShell 7'; Id = 'Microsoft.PowerShell'; Test = { Test-Command 'pwsh' } },
+        @{ Name = '.NET SDK 10'; Id = 'Microsoft.DotNet.SDK.10'; Test = { Test-DotnetSdk } },
+        @{ Name = 'Node.js'; Id = 'OpenJS.NodeJS.LTS'; Test = { Test-Command 'npm' } }
+    )
+    foreach ($tool in $tools) { if (-not (Install-Tool $tool)) { return $false } }
 
     $arguments = @('-NoProfile', '-File', (Join-Path $Repository 'scripts\publish.ps1'), '-Channel', $Channel)
     if ($Ref) { $arguments += @('-Ref', $Ref) }
