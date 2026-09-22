@@ -3,6 +3,7 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { Markdown } from './Markdown'
 import { useAgentRequest } from './agentRequest'
 import { PerformerIcon, type BasePerformers, type Performer } from './Performers'
+import './Modal.css'
 import './AskModal.css'
 import './PerformerModal.css'
 

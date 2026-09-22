@@ -109,6 +109,9 @@ test('клик по карточке открывает окно, где пра�
   // Стрелка списка модели — 14px, как в принятом макете, а не 18px общих значков окон.
   const arrow = modal.locator('.pf-select-wrap svg').first()
   await expect(async () => expect((await arrow.boundingBox())!.width).toBe(14)).toPass()
+  // Прочие значки окна — общие 18px окон: выносом общих стилей в Modal.css они было сжались до 16px (B-199)
+  const close = modal.getByRole('button', { name: 'Закрыть' }).locator('svg')
+  await expect(async () => expect((await close.boundingBox())!.width).toBe(18)).toPass()
 
   await modal.getByLabel('Модель').selectOption('haiku')
   await modal.getByRole('button', { name: 'Только чтение' }).click()

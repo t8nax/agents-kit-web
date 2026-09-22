@@ -3,6 +3,7 @@ import type { WorkspaceRow } from './App'
 import { plural } from './plural'
 import type { SessionRow } from './Sessions'
 import { splitTask } from './taskTitle'
+import './Modal.css'
 import './NewSessionModal.css'
 
 type Props = {

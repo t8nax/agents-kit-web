@@ -1,8 +1,10 @@
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
+import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { TerminalIcon } from './TerminalIcon'
 import { VsCodeIcon } from './VsCodeIcon'
+import './Modal.css'
 import './ReplyModal.css'
 
 export type QuestionVariant = {
@@ -31,6 +33,7 @@ export type TaskArtifact = {
 export type QuestionsResponse = {
   project: string
   copy: string
+  branch: string | null
   task: string | null
   criteria: ClosingCriterion[]
   outOfScope: string | null
@@ -67,6 +70,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [sending, setSending] = useState(false)
   const [opening, setOpening] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
+  const [tab, setTab] = useState<'question' | 'context'>('question')
 
   useEffect(() => {
     const params = new URLSearchParams({ base, copy })
@@ -94,6 +98,12 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   }, [onClose])
 
   const questions = load.kind === 'loaded' ? load.data.questions : []
+
+  // Переход к вопросу показывает сам вопрос, даже если оператор читал контекст задачи.
+  function goTo(index: number) {
+    setCurrent(index)
+    setTab('question')
+  }
 
   function setAnswer(index: number, value: string) {
     setAnswers((prev) => prev.map((a, i) => (i === index ? value : a)))
@@ -188,7 +198,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   async function send() {
     const empty = answers.findIndex((a) => !a.trim())
     if (empty >= 0) {
-      setCurrent(empty)
+      goTo(empty)
       setRejection({ question: questions[empty].title, problem: 'empty' })
       setFooterError(null)
       return
@@ -216,7 +226,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       if (response.status === 400 || response.status === 409) {
         const body = (await response.json()) as Rejection
         const index = questions.findIndex((q) => q.title === body.question)
-        if (index >= 0) setCurrent(index)
+        if (index >= 0) goTo(index)
         setRejection(body)
         setFooterError('Ответы не записаны')
         return
@@ -262,7 +272,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                       aria-current={i === current ? 'step' : undefined}
                       aria-label={`Вопрос ${i + 1}: ${q.title}`}
                       title={q.title}
-                      onClick={() => setCurrent(i)}
+                      onClick={() => goTo(i)}
                     />
                   ))}
                 </div>
@@ -286,15 +296,20 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             )}
             {load.kind === 'loaded' && question && (
               <>
-                <details className="context-accordion">
-                  <summary>
-                    <span className="acc-title">
-                      <span>Контекст задачи</span>
-                      <span className="acc-task">{load.data.task ?? '—'}</span>
-                      <span className="acc-copy">
-                        {load.data.project} · {load.data.copy}
-                      </span>
-                    </span>
+                <div className="task-strip">
+                  {load.data.task && <div className="strip-task">{load.data.task}</div>}
+                  <div className="strip-meta">
+                    <span className="strip-project">{load.data.project}</span>
+                    <span className="strip-sep">·</span>
+                    {copyName(load.data.copy)}
+                    {load.data.branch && (
+                      <>
+                        <span className="strip-sep">·</span>
+                        {load.data.branch}
+                      </>
+                    )}
+                  </div>
+                  <div className="strip-actions">
                     <button
                       type="button"
                       className="btn-code"
@@ -304,12 +319,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                           ? 'Открыть терминал с сессией этой копии'
                           : 'В этой копии не идёт фоновая сессия'
                       }
-                      // Кнопка живёт в summary: без этого щелчок по ней складывал бы аккордеон.
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        void openTerminal()
-                      }}
+                      onClick={() => void openTerminal()}
                     >
                       <TerminalIcon />
                       {load.data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
@@ -323,45 +333,79 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                           ? 'Открыть окно VS Code этой копии'
                           : 'Сессия этой копии не открыта в VS Code'
                       }
-                      // Кнопка живёт в summary: без этого щелчок по ней складывал бы аккордеон.
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        void openSession()
-                      }}
+                      onClick={() => void openSession()}
                     >
                       <VsCodeIcon />
                       {load.data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
                     </button>
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </summary>
-                  <div className="accordion-content">
-                    <p className="acc-label">Критерии закрытия</p>
-                    {load.data.criteria.length > 0 ? (
-                      <ul className="criteria">
-                        {load.data.criteria.map((criterion, i) => (
-                          <li key={i}>
-                            <div className="criterion-title">
-                              <InlineMarkdown text={criterion.title} />
-                            </div>
-                            {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="criterion-text">Критерии не записаны</p>
-                    )}
+                  </div>
+                </div>
+
+                {openError && (
+                  <p className="open-error error-text" role="alert">
+                    <WarningIcon />
+                    {openError}
+                  </p>
+                )}
+
+                <div className="reply-tabs" role="tablist">
+                  <button
+                    type="button"
+                    role="tab"
+                    id="reply-tab-question"
+                    className="reply-tab"
+                    aria-selected={tab === 'question'}
+                    aria-controls="reply-panel"
+                    onClick={() => setTab('question')}
+                  >
+                    Вопрос
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="reply-tab-context"
+                    className="reply-tab"
+                    aria-selected={tab === 'context'}
+                    aria-controls="reply-panel"
+                    onClick={() => setTab('context')}
+                  >
+                    Контекст задачи
+                  </button>
+                </div>
+
+                {tab === 'context' ? (
+                  <div
+                    className="ctx-sections"
+                    role="tabpanel"
+                    id="reply-panel"
+                    aria-labelledby="reply-tab-context"
+                  >
+                    <div className="ctx-section">
+                      <p className="acc-label">Критерии закрытия</p>
+                      {load.data.criteria.length > 0 ? (
+                        <ul className="criteria">
+                          {load.data.criteria.map((criterion, i) => (
+                            <li key={i}>
+                              <div className="criterion-title">
+                                <InlineMarkdown text={criterion.title} />
+                              </div>
+                              {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="criterion-text">Критерии не записаны</p>
+                      )}
+                    </div>
                     {load.data.outOfScope && (
-                      <>
-                        <p className="acc-label out-of-scope-label">Не входит</p>
+                      <div className="ctx-section">
+                        <p className="acc-label">Не входит</p>
                         <Markdown className="criterion-text" text={load.data.outOfScope} />
-                      </>
+                      </div>
                     )}
                     {load.data.artifacts.length > 0 && (
-                      <>
-                        <p className="acc-label artifacts-label">Артефакты</p>
+                      <div className="ctx-section">
+                        <p className="acc-label">Артефакты</p>
                         <ul className="artifacts">
                           {load.data.artifacts.map((artifact, i) => (
                             <li key={i}>
@@ -387,62 +431,55 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                             </li>
                           ))}
                         </ul>
-                      </>
-                    )}
-                  </div>
-                </details>
-
-                {openError && (
-                  <p className="open-error error-text" role="alert">
-                    <WarningIcon />
-                    {openError}
-                  </p>
-                )}
-
-                <section>
-                  <h2 className="massive-title">
-                    <InlineMarkdown text={question.title} />
-                  </h2>
-                  {question.context && <Markdown className="question-box" text={question.context} />}
-                  {question.variants.length > 0 && (
-                    <div className="options-grid">
-                      {question.variants.map((v, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          className="option-card"
-                          aria-pressed={answers[current] === v.choice}
-                          onClick={() => setAnswer(current, v.choice)}
-                        >
-                          <span className="option-head">
-                            <span className="option-title">{v.choice}</span>
-                            {v.recommended && <span className="tag-rec">Рекомендовано</span>}
-                          </span>
-                          {v.effect && <span className="option-desc">{v.effect}</span>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  <div className="input-group">
-                    <label htmlFor="reply-answer">Ответ</label>
-                    <textarea
-                      id="reply-answer"
-                      className="custom-textarea"
-                      value={answers[current]}
-                      placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
-                      onChange={(e) => setAnswer(current, e.target.value)}
-                      onKeyDown={onAnswerKeyDown}
-                    />
-                    {rejection?.question === question.title ? (
-                      <div className="field-status error-text" role="alert">
-                        <WarningIcon />
-                        {problemText[rejection.problem]}
                       </div>
-                    ) : (
-                      <div className="field-status">Ответ записывается одной строкой</div>
                     )}
                   </div>
-                </section>
+                ) : (
+                  <section role="tabpanel" id="reply-panel" aria-labelledby="reply-tab-question">
+                    <h2 className="massive-title">
+                      <InlineMarkdown text={question.title} />
+                    </h2>
+                    {question.context && <Markdown className="question-box" text={question.context} />}
+                    {question.variants.length > 0 && (
+                      <div className="options-grid">
+                        {question.variants.map((v, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            className="option-card"
+                            aria-pressed={answers[current] === v.choice}
+                            onClick={() => setAnswer(current, v.choice)}
+                          >
+                            <span className="option-head">
+                              <span className="option-title">{v.choice}</span>
+                              {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
+                            </span>
+                            {v.effect && <span className="option-desc">{v.effect}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="input-group">
+                      <label htmlFor="reply-answer">Ответ</label>
+                      <textarea
+                        id="reply-answer"
+                        className="custom-textarea"
+                        value={answers[current]}
+                        placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
+                        onChange={(e) => setAnswer(current, e.target.value)}
+                        onKeyDown={onAnswerKeyDown}
+                      />
+                      {rejection?.question === question.title ? (
+                        <div className="field-status error-text" role="alert">
+                          <WarningIcon />
+                          {problemText[rejection.problem]}
+                        </div>
+                      ) : (
+                        <div className="field-status">Ответ записывается одной строкой</div>
+                      )}
+                    </div>
+                  </section>
+                )}
               </>
             )}
           </div>
@@ -450,7 +487,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
 
         <div className="modal-footer">
           {load.kind === 'loaded' && question && (
-            <button type="button" className="btn" disabled={current === 0} onClick={() => setCurrent(current - 1)}>
+            <button type="button" className="btn" disabled={current === 0} onClick={() => goTo(current - 1)}>
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <polyline points="15 18 9 12 15 6" />
               </svg>
@@ -467,7 +504,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             {load.kind === 'loaded' && question ? (
               <>
                 {current < questions.length - 1 && (
-                  <button type="button" className="btn" onClick={() => setCurrent(current + 1)}>
+                  <button type="button" className="btn" onClick={() => goTo(current + 1)}>
                     Далее
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <polyline points="9 18 15 12 9 6" />

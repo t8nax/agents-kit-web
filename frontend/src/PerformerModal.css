@@ -7,10 +7,9 @@
   max-height: min(760px, 90vh);
 }
 
+/* Размер значков — общий у окон (Modal.css, 18px): правило окна его никогда не перебивало. */
 .pf-modal svg,
 .pf-task svg {
-  width: 16px;
-  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
