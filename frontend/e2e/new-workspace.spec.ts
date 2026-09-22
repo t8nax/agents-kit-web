@@ -27,6 +27,17 @@ const busyRow = {
 const createdRow = { ...row, path: 'D:\\Projects\\quiet-cedar', branch: 'quiet-cedar', copiesDir: null }
 // Второй проект: без него в списке окна одна строка, и разделителей между строками не видно
 const notaRow = { ...row, project: 'Nota', base: 'D:\\Projects\\nota-knowledge', path: 'D:\\Projects\\nota', branch: 'main' }
+// Проект без копии на диске: заводить не от чего, и отличает его в окне только бледность (B-215)
+const goneRow = {
+  ...row,
+  project: 'Ledger',
+  base: 'D:\\Projects\\ledger-knowledge',
+  path: 'E:\\gone',
+  branch: null,
+  status: null,
+  error: 'Копия не найдена на диске',
+  copiesDir: null,
+}
 
 async function routeApi(
   page: Page,
@@ -52,7 +63,7 @@ async function routeApi(
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`новая копия заводится из окна и отмечена в таблице (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme })
-    const posts = await routeApi(page, (name) => ({ status: 200, json: { name } }), [notaRow])
+    const posts = await routeApi(page, (name) => ({ status: 200, json: { name } }), [notaRow, goneRow])
     await page.goto('/')
 
     const button = page.getByRole('button', { name: 'Новая копия' })
@@ -78,6 +89,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(dialog.locator('.nw-project').first()).toHaveText('Agents Kit Web')
     await expect(dialog).not.toContainText('D:\\Projects')
     await expect(dialog.getByLabel('Что будет заведено')).toHaveCount(0)
+    // Проект без копии на диске не выбирается и заметно бледнее остальных
+    await expect(dialog.getByRole('radio', { name: /Ledger/ })).toBeDisabled()
+    await expect(dialog.locator('.nw-project', { hasText: 'Ledger' })).toHaveCSS('opacity', '0.6')
+    await expect(dialog.locator('.nw-project', { hasText: 'Nota' })).toHaveCSS('opacity', '1')
     await expect(dialog).toContainText('У проекта уже есть свободная копия master')
     const transparent = 'rgba(0, 0, 0, 0)'
     // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
