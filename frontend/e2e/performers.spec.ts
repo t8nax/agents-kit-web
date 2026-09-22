@@ -105,7 +105,7 @@ test('клик по карточке открывает окно, где пра�
   await card(page, 'reviewer').click()
   const modal = page.getByRole('dialog', { name: 'reviewer' })
   await expect(modal).toBeVisible()
-  await expect(modal.getByLabel('Описание')).toHaveText('Читает дифф ветки задачи и возвращает вердикт.')
+  await expect(modal.getByLabel('Описание')).toHaveValue('Читает дифф ветки задачи и возвращает вердикт.')
   // Стрелка списка модели — 14px, как в принятом макете, а не 18px общих значков окон.
   const arrow = modal.locator('.pf-select-wrap svg').first()
   await expect(async () => expect((await arrow.boundingBox())!.width).toBe(14)).toPass()
