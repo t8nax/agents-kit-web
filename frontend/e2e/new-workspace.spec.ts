@@ -25,8 +25,14 @@ const busyRow = {
   copiesDir: null,
 }
 const createdRow = { ...row, path: 'D:\\Projects\\quiet-cedar', branch: 'quiet-cedar', copiesDir: null }
+// Второй проект: без него в списке окна одна строка, и разделителей между строками не видно
+const notaRow = { ...row, project: 'Nota', base: 'D:\\Projects\\nota-knowledge', path: 'D:\\Projects\\nota', branch: 'main' }
 
-async function routeApi(page: Page, answer: (name: string | null) => { status: number; json: unknown }) {
+async function routeApi(
+  page: Page,
+  answer: (name: string | null) => { status: number; json: unknown },
+  extra: unknown[] = [],
+) {
   let created = false
   const posts: unknown[] = []
   await page.route('**/api/workspaces', async (route) => {
@@ -38,7 +44,7 @@ async function routeApi(page: Page, answer: (name: string | null) => { status: n
       await route.fulfill(reply)
       return
     }
-    await route.fulfill({ json: created ? [row, busyRow, createdRow] : [row, busyRow] })
+    await route.fulfill({ json: created ? [row, busyRow, createdRow, ...extra] : [row, busyRow, ...extra] })
   })
   return posts
 }
@@ -46,7 +52,7 @@ async function routeApi(page: Page, answer: (name: string | null) => { status: n
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`новая копия заводится из окна и отмечена в таблице (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme })
-    const posts = await routeApi(page, (name) => ({ status: 200, json: { name } }))
+    const posts = await routeApi(page, (name) => ({ status: 200, json: { name } }), [notaRow])
     await page.goto('/')
 
     const button = page.getByRole('button', { name: 'Новая копия' })
@@ -72,15 +78,16 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(preview).toContainText('D:\\Projects\\quiet-cedar')
     await expect(preview).toContainText('master · основная копия D:\\Projects\\agents-kit-web')
     await expect(dialog).toContainText('У проекта уже есть свободная копия master')
-    // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
-    await expect(dialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    // Вид «Легче» (B-215): шапка и подвал без полос и подкраски, список проектов без рамки,
-    // превью на подложке без пунктира, напоминание — простая строка без рамки и фона
     const transparent = 'rgba(0, 0, 0, 0)'
+    // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
+    await expect(dialog).not.toHaveCSS('background-color', transparent)
+    // Вид «Легче» (B-215): шапка и подвал без полос и подкраски, список проектов без рамки
+    // и разделителей, превью на подложке без пунктира, напоминание — простая строка без рамки и фона
     await expect(dialog.locator('.nw-head')).toHaveCSS('border-bottom-style', 'none')
     await expect(dialog.locator('.nw-footer')).toHaveCSS('border-top-style', 'none')
     await expect(dialog.locator('.nw-footer')).toHaveCSS('background-color', transparent)
     await expect(dialog.locator('.nw-projects')).toHaveCSS('border-top-style', 'none')
+    await expect(dialog.locator('.nw-projects > li').nth(1)).toHaveCSS('border-top-style', 'none')
     await expect(preview).toHaveCSS('border-top-style', 'none')
     const dialogBackground = await dialog.evaluate((node) => getComputedStyle(node).backgroundColor)
     await expect(preview).not.toHaveCSS('background-color', transparent)

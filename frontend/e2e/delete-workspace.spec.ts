@@ -60,14 +60,14 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const preview = dialog.getByLabel('Что будет удалено')
     await expect(preview).toContainText('D:\\Projects\\quiet-cedar')
     await expect(preview).toContainText('quiet-cedar — останется')
+    const transparent = 'rgba(0, 0, 0, 0)'
     // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
-    await expect(dialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(dialog).not.toHaveCSS('background-color', transparent)
     // Значки окна — общие 18px окон: выносом общих стилей в Modal.css они было сжались до 16px (B-199)
     const icon = dialog.locator('.dw-head-icon svg')
     await expect(async () => expect((await icon.boundingBox())!.width).toBe(18)).toPass()
     // Вид «Легче», как у окна новой копии (B-215): шапка и подвал без полос и подкраски,
     // превью на подложке без пунктира
-    const transparent = 'rgba(0, 0, 0, 0)'
     await expect(dialog.locator('.dw-head')).toHaveCSS('border-bottom-style', 'none')
     await expect(dialog.locator('.dw-footer')).toHaveCSS('border-top-style', 'none')
     await expect(dialog.locator('.dw-footer')).toHaveCSS('background-color', transparent)
