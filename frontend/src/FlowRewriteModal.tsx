@@ -57,8 +57,8 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
   // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
   // Своя просьба — только своего проекта: ответ про стадии другого лёг бы на одноимённые стадии этого.
-  const { asked, steps: agentSteps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure } =
-    useAgentRequest<RewriteEvent>('flow', { mine: (request) => request.base === base })
+  const { asked, request, steps: agentSteps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure } =
+    useAgentRequest<RewriteEvent>('flow', { mine: (one) => one.base === base })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -71,18 +71,21 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose, description, picking])
 
-  const contextStages = context
+  const picked = context
     .map((title) => stages.find((stage) => norm(stage.title) === norm(title)))
     .filter((stage): stage is FlowStage => stage !== undefined)
+  // Стадии идущей или дождавшейся просьбы — те, что ушли агенту: их помнит панель, а не окно, и открытое
+  // заново окно видит их так же, как то, из которого просили.
+  const contextStages = request?.stages ?? picked
 
   const rewrite = useCallback(
-    async (text: string) => {
+    async (text: string, withStages: FlowStage[]) => {
       if (!text.trim()) return
       setPicking(false)
       const started = await start('/api/flow/rewrite', {
         base,
         wish: text.trim(),
-        stages: contextStages,
+        stages: withStages,
         titles: stages.map((stage) => stage.title),
       })
       if (started.ok) return
@@ -94,7 +97,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
             : 'Панель не приняла просьбу',
       )
     },
-    [base, start, setFailure, contextStages, stages],
+    [base, start, setFailure, stages],
   )
 
   const rewritten = outcome?.type === 'rewritten' ? outcome : null
@@ -110,7 +113,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
           ? 'rewritten'
           : 'idle'
   const shown = asked || wish.trim()
-  // Прежний вид стадии берётся из раздела: окно, открытое заново, контекста не помнит, но стадии видит.
+  // Прежний вид стадии берётся из раздела; стадии без правок — из тех, что ушли агенту.
   const changes = rewritten ? stageChanges(stages, rewritten.stages, contextStages) : []
   const changed = changes.filter((change) => change.kind !== 'same')
   const untouched = changes.filter((change) => change.kind === 'same')
@@ -169,7 +172,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                   placeholder="Скажите своими словами, что поменять в стадиях или какую стадию завести"
                   onChange={(e) => setWish(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish)
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish, picked)
                   }}
                 />
                 <div className="rewrite-composer-bar" aria-label="Стадии к просьбе">
@@ -183,7 +186,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                     <PlusIcon />
                     Стадии
                   </button>
-                  {contextStages.map((stage) => (
+                  {picked.map((stage) => (
                     <span key={stage.title} className="rewrite-token">
                       {mark(stage.title)}
                       {stage.title}
@@ -313,8 +316,8 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
           )}
           <div className="footer-right">
             {phase === 'idle' && (
-              <button type="button" className="btn btn-primary" disabled={!wish.trim()} onClick={() => void rewrite(wish)}>
-                {contextStages.length > 0 ? 'Переписать' : 'Написать стадию'}
+              <button type="button" className="btn btn-primary" disabled={!wish.trim()} onClick={() => void rewrite(wish, picked)}>
+                {picked.length > 0 ? 'Переписать' : 'Написать стадию'}
               </button>
             )}
             {phase === 'running' && (
@@ -344,12 +347,13 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                   className="btn"
                   onClick={() => {
                     setWish(shown)
+                    setContext(contextStages.map((stage) => stage.title))
                     void forget()
                   }}
                 >
                   Изменить просьбу
                 </button>
-                <button type="button" className="btn btn-primary" onClick={() => void rewrite(shown)}>
+                <button type="button" className="btn btn-primary" onClick={() => void rewrite(shown, contextStages)}>
                   Попросить снова
                 </button>
               </>

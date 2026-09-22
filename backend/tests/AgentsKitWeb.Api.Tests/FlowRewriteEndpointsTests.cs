@@ -113,6 +113,20 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Rewrite_RequestRemembersContextStages()
+    {
+        _agent.Lines = [Result(NewDocs)];
+        var client = await Client();
+
+        await Rewrite(client, "Уточни выход ревью", [Review, Merge], ["Ревью", "Мерж"]);
+
+        // Открытое заново окно берёт стадии просьбы из списка панели: само оно их не помнит.
+        var listed = await client.GetFromJsonAsync<List<AgentRequestSummary>>("/api/agent/requests", Json);
+        var request = Assert.Single(listed!, r => r.Kind == AgentRequests.Flow);
+        Assert.Equal([Review, Merge], request.Stages);
+    }
+
+    [Fact]
     public async Task Rewrite_ReadsRenamedAndNewStagesAndHelpers()
     {
         _agent.Lines = [Result("""

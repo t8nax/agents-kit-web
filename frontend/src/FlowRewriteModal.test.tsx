@@ -224,3 +224,38 @@ test('итог просьбы про другой проект окно свои
   expect(screen.queryByLabelText('Что изменилось в стадиях')).not.toBeInTheDocument()
   expect(screen.getByLabelText('Что поменять в стадиях')).toBeInTheDocument()
 })
+
+test('открытое заново окно помнит стадии просьбы: строка стадий, «без правок» и «Попросить снова» с ними', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream, {
+    ...runningRequest('flow', 'Уточни выход ревью', base, 'Agents Kit Web', 1000),
+    stages: [review, merge],
+  })
+  renderModal()
+
+  expect(await screen.findByText('Чудо-Юдо переписывает стадии…')).toBeInTheDocument()
+  const line = screen.getByLabelText('Стадии к просьбе')
+  expect(within(line).getByText('Ревью')).toBeInTheDocument()
+  expect(within(line).getByText('Мерж')).toBeInTheDocument()
+
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
+  const changes = await screen.findByLabelText('Что изменилось в стадиях')
+  expect(within(changes).getByText('без правок')).toBeInTheDocument()
+  expect(within(changes).getByText('Мерж')).toBeInTheDocument()
+})
+
+test('после сбоя «Попросить снова» уходит с теми же стадиями, даже если окно открыто заново', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  const { posts } = stubFetch(stream, {
+    ...runningRequest('flow', 'Уточни выход ревью', base, 'Agents Kit Web', 1000),
+    stages: [review],
+  })
+  renderModal()
+
+  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  stream.send({ type: 'error', text: 'Агент упал' })
+  fireEvent.click(await screen.findByRole('button', { name: 'Попросить снова' }))
+
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0].body).toMatchObject({ wish: 'Уточни выход ревью', stages: [review] })
+})

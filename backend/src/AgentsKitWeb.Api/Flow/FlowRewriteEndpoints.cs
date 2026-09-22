@@ -75,7 +75,8 @@ public static partial class FlowRewriteEndpoints
             var started = requests.Start(
                 AgentRequests.Flow, basePath, ProjectName.Of(basePath), wish,
                 async (rewriting, token) =>
-                    rewriting.Write(await RunAsync(basePath, copyPath, wish, context, titles, kit, agent, rewriting, token)));
+                    rewriting.Write(await RunAsync(basePath, copyPath, wish, context, titles, kit, agent, rewriting, token)),
+                stages: context);
             return Results.Ok(started.Summary);
         });
     }
