@@ -248,10 +248,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(toggle).toHaveAttribute('aria-checked', 'true')
     // Переход цвета длится 140 мс: замер повторяется, пока не сойдётся
     await expect(async () => expect(await background()).toBe(await tokenColor(page, '--accent-active-text'))).toPass()
+    // Бегунок цвета карточки и отличим от дорожки в обоих положениях
+    expect(await knob()).toBe(await tokenColor(page, '--bg-surface'))
+    expect(await knob()).not.toBe(await background())
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-checked', 'false')
     await expect(async () => expect(await background()).toBe(await tokenColor(page, '--border-strong'))).toPass()
-    // Бегунок цвета карточки и отличим от дорожки в обоих положениях
     expect(await knob()).toBe(await tokenColor(page, '--bg-surface'))
     expect(await knob()).not.toBe(await background())
   })
