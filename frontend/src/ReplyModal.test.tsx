@@ -1,9 +1,10 @@
-import { createEvent, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, waitFor, waitForElementToBeRemoved, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
-import type { QuestionsResponse } from './ReplyModal'
+import { UNDO_MS, type QuestionsResponse } from './ReplyModal'
 
 afterEach(() => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   localStorage.clear()
 })
@@ -472,3 +473,143 @@ test('сессия закрылась между опросами — перех
 
   expect(await dialog.findByText('Сессия этой копии уже не открыта в VS Code')).toBeInTheDocument()
 })
+
+// Отправка ждёт секунд с «Отменить»: часы подделываются перед последним ответом и сдвигаются на эти секунды.
+function answerLast(dialog: ReturnType<typeof within>, text: string) {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  answerWith(dialog, text)
+}
+
+function waitOut(ms = UNDO_MS) {
+  act(() => vi.advanceTimersByTime(ms))
+  vi.useRealTimers()
+}
+
+test('ответ на последний оставшийся вопрос: «Ответы отправлены агенту» с «Отменить», запись — после секунд, одна со всеми ответами', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+  fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
+  answerLast(dialog, 'Заменять пробелами')
+
+  expect(dialog.getByRole('status')).toHaveTextContent('Ответы отправлены агенту')
+  expect(dialog.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+  // строки ввода нет, и окно пока не закрывается ни Escape, ни щелчком мимо
+  expect(dialog.queryByLabelText('Ответ')).not.toBeInTheDocument()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
+  act(() => vi.advanceTimersByTime(UNDO_MS - 1))
+  expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
+
+  waitOut(1)
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
+  const post = calls.filter((c) => c.url === '/api/answers')
+  expect(post).toHaveLength(1)
+  expect(JSON.parse(post[0].init!.body as string)).toEqual({
+    base: row.base,
+    copy: row.path,
+    answers: [
+      { question: 'Подтвердить критерий?', answer: 'принимаю' },
+      { question: 'Как быть с переносами?', answer: 'Заменять пробелами' },
+    ],
+  })
+  // таблица перечитывается: строка копии перестаёт ждать
+  await waitFor(() => expect(calls.filter((c) => c.url === '/api/workspaces')).toHaveLength(2))
+  expect(localStorage.getItem(draftsKey)).toBeNull()
+})
+
+test('«Отменить» ничего не записывает: окно остаётся с данными ответами, любой можно поправить', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+  answerLast(dialog, 'заменять')
+  fireEvent.click(dialog.getByRole('button', { name: 'Отменить' }))
+  waitOut()
+
+  expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
+  expect(dialog.queryByRole('status')).not.toBeInTheDocument()
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('заменять')
+  expect(document.querySelectorAll('.op-bubble')).toHaveLength(2)
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Изменить' }))
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+})
+
+test('Enter на последнем вопросе отправляет так же, и второй Enter второй отправки не начинает', async () => {
+  let finish = () => {}
+  const calls = stubApi(
+    () => new Promise<Response>((resolve) => (finish = () => resolve(new Response(null, { status: 204 })))),
+  )
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const field = dialog.getByLabelText('Ответ')
+  fireEvent.change(field, { target: { value: 'заменять' } })
+  fireEvent.keyDown(field, { key: 'Enter' })
+  fireEvent.keyDown(field, { key: 'Enter' })
+  waitOut()
+
+  await waitFor(() => expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1))
+  expect(dialog.queryByRole('button', { name: 'Отменить' })).not.toBeInTheDocument()
+  finish()
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
+  expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
+})
+
+function rejectWith(status: number, body?: object): Route {
+  return () =>
+    new Response(body ? JSON.stringify(body) : null, {
+      status,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    })
+}
+
+test.each([
+  [
+    'на вопрос уже ответили из другого места',
+    rejectWith(409, { question: 'Подтвердить критерий?', problem: 'already-answered' }),
+    'На этот вопрос уже ответили из другого места',
+    'Подтвердить критерий?',
+  ],
+  [
+    'вопроса уже нет в памяти',
+    rejectWith(409, { question: 'Подтвердить критерий?', problem: 'missing' }),
+    'Этого вопроса уже нет в памяти',
+    'Подтвердить критерий?',
+  ],
+  ['памяти копии нет', rejectWith(404), 'Ответы не записаны: память копии не найдена', 'Как быть с переносами?'],
+  [
+    'нет связи с API',
+    () => Promise.reject(new TypeError('Failed to fetch')),
+    'Ответы не записаны: нет связи с API',
+    'Как быть с переносами?',
+  ],
+] as [string, Route, string, string][])(
+  'отказ записи (%s) — красной строкой под полем, лента на вопросе отказа, окно и ответы на месте',
+  async (_, answers, text, heading) => {
+    stubApi(answers)
+    const dialog = within(await openReply())
+    await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+    answerWith(dialog, 'принимаю')
+    answerLast(dialog, 'заменять')
+    waitOut()
+
+    expect(await dialog.findByRole('alert')).toHaveTextContent(text)
+    expect(document.querySelector('.composer .field-error')).toHaveTextContent(text)
+    expect(dialog.getByRole('heading', { name: heading })).toBeInTheDocument()
+    expect(dialog.getByLabelText('Ответ')).toHaveValue(heading === 'Подтвердить критерий?' ? 'принимаю' : 'заменять')
+    expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({
+      'Подтвердить критерий?': 'принимаю',
+      'Как быть с переносами?': 'заменять',
+    })
+  },
+)
