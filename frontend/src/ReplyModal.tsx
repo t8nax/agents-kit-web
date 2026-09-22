@@ -379,7 +379,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                                   className="artifact-address artifact-file"
                                   title="Открыть в VS Code"
                                   disabled={opening}
-                                  onClick={() => openArtifact(i, artifact.address)}
+                                  onClick={() => void openArtifact(i, artifact.address)}
                                 >
                                   {artifact.address}
                                 </button>

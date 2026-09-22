@@ -478,7 +478,6 @@ public sealed class OperatorEndpointsTests : IDisposable
     private static string QuestionsUrl(string basePath, string copy) =>
         $"/api/questions?base={Uri.EscapeDataString(basePath)}&copy={Uri.EscapeDataString(copy)}";
 
-    // Отметка панели о том, что сессию задачи в этой копии завела она сама.
     [Fact]
     public async Task OpenArtifact_OpensFileFromMemoryInCopyWindow()
     {
@@ -508,6 +507,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         var response = await PostOpenArtifact(_base, _copy, 0);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("not-a-file", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
         Assert.Empty(_windows.OpenedFiles);
     }
 
@@ -586,6 +586,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal("not-opened", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
     }
 
+    // Отметка панели о том, что сессию задачи в этой копии завела она сама.
     private void StartedByPanel(string copy, string session) => TestBases.TaskSession(_root, copy, session);
 
     private Task<HttpResponseMessage> PostOpenSession(string basePath, string copy) =>
