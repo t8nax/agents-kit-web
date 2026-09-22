@@ -75,8 +75,9 @@ public static class PerformersEndpoints
                 return Results.BadRequest(new PerformerRejectedResponse("invalid-name"));
 
             // Описание стоит строкой шапки файла: перевод строки в нём оборвал бы шапку, и Claude Code
-            // прочёл бы остаток как новые ключи. Окно сводит описание в строку само, сюда такое не приходит.
-            if (request.Description is { } description && description.AsSpan().IndexOfAny('\r', '\n') >= 0)
+            // прочёл бы остаток как новые ключи. Переводы строк — все, что понимает разбор файла (ReplaceLineEndings).
+            // Окно сводит описание в строку само, сюда такое не приходит.
+            if (request.Description is { } description && description.AsSpan().IndexOfAny(LineBreaks) >= 0)
                 return Results.BadRequest(new PerformerRejectedResponse("invalid-description"));
 
             var editing = request.Editing?.Trim();
@@ -247,6 +248,8 @@ public static class PerformersEndpoints
 
     private static string? Configured(BasesStore bases, string? requested) =>
         requested is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, requested));
+
+    private const string LineBreaks = "\r\n\f\u0085\u2028\u2029";
 
     private static string? Trimmed(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

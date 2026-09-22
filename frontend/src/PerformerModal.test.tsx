@@ -158,6 +158,9 @@ test('описание правится полем прямо в окне, а с
   // Вставленный текст с переводами строк сводится к одной строке.
   fireEvent.change(description, { target: { value: 'Читает дифф.\r\n  Возвращает вердикт.\n' } })
   expect(description).toHaveValue('Читает дифф. Возвращает вердикт. ')
+  // Переводы строк из Юникода, что понимает разбор файла, сводятся так же.
+  fireEvent.change(description, { target: { value: 'Читает дифф.\u0085Возвращает вердикт.' } })
+  expect(description).toHaveValue('Читает дифф. Возвращает вердикт.')
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   await waitFor(() => expect(saved(fetchMock).description).toBe('Читает дифф. Возвращает вердикт.'))
