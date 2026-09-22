@@ -365,7 +365,7 @@ test('правка не меняет имя, даже если агент вер
 test('окно правки не подхватывает просьбу о новом исполнителе', async () => {
   const stream = controlledStream<DraftEvent>()
   const panel = stubPanel('performer', stream, {
-    running: runningRequest('performer', 'Ревьюер ветки', bases[0].base,'Agents Kit Web'),
+    running: runningRequest('performer', 'Ревьюер ветки', bases[0].base, 'Agents Kit Web'),
   })
   const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
   open(reviewer)
@@ -385,7 +385,7 @@ test('окно правки не подхватывает просьбу о но
 test('открытое заново окно правки подхватывает свою просьбу и её итог', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream, {
-    running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base,'Agents Kit Web', 0, 'reviewer'),
+    running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base, 'Agents Kit Web', 0, 'reviewer'),
   })
   open(reviewer)
 
@@ -404,7 +404,7 @@ test('открытое заново окно правки подхватывае
 test('окно нового не подхватывает просьбу о правке заведённого', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream, {
-    running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base,'Agents Kit Web', 0, 'reviewer'),
+    running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base, 'Agents Kit Web', 0, 'reviewer'),
   })
   const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
   open()
