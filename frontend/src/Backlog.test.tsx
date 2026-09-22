@@ -619,3 +619,19 @@ test('недоступное хранилище не мешает выбират
   expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
   vi.restoreAllMocks()
 })
+
+test('проект, чей бэклог не читается, при отборе остаётся со строкой ошибки', async () => {
+  stubFetch([...fielded, { ...backlogs[1], entries: [], error: 'В базе нет backlog.md' }])
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(within(screen.getByRole('region', { name: 'Nota' })).getByText('В базе нет backlog.md')).toBeInTheDocument()
+  expect(screen.queryByText('Под фильтр записей нет')).not.toBeInTheDocument()
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'нет такого' } })
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Nota' })).toBeInTheDocument()
+  expect(screen.getByText('Под фильтр записей нет')).toBeInTheDocument()
+})

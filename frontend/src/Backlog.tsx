@@ -127,10 +127,12 @@ export default function Backlog({
   const closeWrite = useCallback(() => setWriting(false), [])
 
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
-  // Пока отбор включён, проект, где под него ничего не подошло, не показывается
+  // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
+  // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
+  const filtering = isFiltering(selection)
   const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
     .map((backlog) => ({ backlog, entries: arrange(backlog.entries, selection, order) }))
-    .filter(({ entries }) => entries.length > 0 || !isFiltering(selection))
+    .filter(({ backlog, entries }) => entries.length > 0 || !filtering || backlog.error)
 
   return (
     <>
@@ -202,7 +204,9 @@ export default function Backlog({
             <OrderBox order={order} onChange={changeOrder} />
           </div>
 
-          {shown.length === 0 && <p className="empty-message">Под фильтр записей нет</p>}
+          {filtering && shown.every(({ entries }) => entries.length === 0) && (
+            <p className="empty-message">Под фильтр записей нет</p>
+          )}
 
           <div className="backlog-list">
             {shown.map(({ backlog, entries }) => (
