@@ -54,7 +54,13 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
   const [restoring, setRestoring] = useState(restore)
   const reading = useRef<AbortController | null>(null)
 
-  const follow = useCallback(async function watch(summary: AgentRequestSummary, from = 0): Promise<void> {
+  // wasAnswering — дочитывание оборванного потока: идёт ли ответ, знает прошлое чтение, а не сводка, взятая
+  // при открытии окна, — по ней окно ждало бы агента, который давно ответил.
+  const follow = useCallback(async function watch(
+    summary: AgentRequestSummary,
+    from = 0,
+    wasAnswering?: boolean,
+  ): Promise<void> {
     reading.current?.abort()
     const controller = new AbortController()
     reading.current = controller
@@ -64,10 +70,10 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
       setEvents([])
       setRetry(null)
     }
-    let answering = summary.state === 'running'
+    let answering = wasAnswering ?? summary.state === 'running'
     setRunning(answering)
     // Время реплики идёт от её начала, а не от открытия окна: сколько агент отвечает, знает панель.
-    setStartedAt(Date.now() - summary.elapsedMs)
+    if (from === 0) setStartedAt(Date.now() - summary.elapsedMs)
 
     try {
       const response = await fetch(`/api/agent/${kind}/stream?id=${summary.id}&from=${from}`, {
@@ -120,7 +126,7 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
       await new Promise((wake) => setTimeout(wake, reconnectDelay))
       if (controller.signal.aborted) return
       if (await alive(kind, summary.id)) {
-        void watch(summary, seen)
+        void watch(summary, seen, answering)
         return
       }
       setRunning(false)
