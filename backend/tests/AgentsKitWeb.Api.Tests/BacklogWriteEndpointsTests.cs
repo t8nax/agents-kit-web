@@ -371,6 +371,25 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Answer_AcceptsSkillAddingLineToFoundEntry()
+    {
+        // Навык кита дописывает просьбу, которая легла в найденную запись, строкой в её «Агенту» — это не правка.
+        _agent.Answers = [[Result("Дописал в B-1.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace("- где: App.tsx\n", "- где: App.tsx\n- ещё случай из панели\n"));
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "и ещё случай про B-1");
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal(new BacklogWriteEvent("answer", "Дописал в B-1.", DurationMs: 1000), answer);
+    }
+
+    [Fact]
     public async Task Answer_ReportsProposalForUnknownEntry()
     {
         _agent.Answers = [[Result("~~~backlog\nудалить B-9\n~~~")]];

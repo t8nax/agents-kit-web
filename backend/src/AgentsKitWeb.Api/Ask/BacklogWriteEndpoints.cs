@@ -331,8 +331,12 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var added = text is null
             ? []
             : Backlog.Parse(text).Where(e => e.Number is { } n && !known.Contains(n)).ToList();
+        // Навык кита, дописывая, сам дополняет записи: строкой в «Агенту» найденной записи, недостающим полем,
+        // номером записи чужими буквами. Это не правка — правкой считается то, что убрало или переписало строку.
+        var letters = text is null ? null : Backlog.Letters(text);
         var touched = before
-            .Where(b => b.Number is not null && after.FirstOrDefault(a => a.Number == b.Number)?.Text != b.Text)
+            .Where(b => b.Number is not null && BacklogNumber.Letters(b.Number) == letters
+                && (after.FirstOrDefault(a => a.Number == b.Number) is not { } now || !Extends(now.Text, b.Text)))
             .Select(b => b.Number!)
             .ToList();
         var entries = added.Count > 0 ? added : null;
@@ -373,6 +377,22 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             lock (_gate)
                 _pending = new Pending(writing, proposal);
         return new BacklogWriteEvent("answer", said, entries, commit, answer.DurationMs, Proposal: proposal);
+    }
+
+    /// <summary>Запись только дополнена: все её прежние строки стоят в новой по порядку, а новые лишь вставлены.</summary>
+    private static bool Extends(string now, string was)
+    {
+        var lines = now.Split('\n');
+        var at = 0;
+        foreach (var line in was.Split('\n'))
+        {
+            while (at < lines.Length && lines[at] != line)
+                at++;
+            if (at == lines.Length)
+                return false;
+            at++;
+        }
+        return true;
     }
 
     private static string? ReadText(string basePath)
