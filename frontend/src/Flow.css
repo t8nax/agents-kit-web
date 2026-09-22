@@ -673,7 +673,7 @@ textarea.flow-input {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
+  gap: 16px;
 }
 
 /* Подпись «Возвраты» уже в заголовке окна. */
@@ -681,8 +681,19 @@ textarea.flow-input {
   display: none;
 }
 
-.flow-returns-modal .flow-return .flow-input {
+/* Поля карточек — крупные, как на макете и в прежнем сайдбаре, а не плотные поля окна правки. */
+.flow-stage-modal.flow-returns-modal .flow-input {
+  min-height: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  border-radius: 8px;
+  padding: 11px 14px;
   background: var(--bg-surface);
+}
+
+/* У карточек нет отступа строк окна правки: причина «не сохранить» стоит вровень с ними. */
+.flow-stage-modal.flow-returns-modal .flow-step-error {
+  padding: 0;
 }
 
 .flow-returns-modal .flow-stage-foot {
