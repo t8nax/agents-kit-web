@@ -259,3 +259,41 @@ test('после сбоя «Попросить снова» уходит с те
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(posts[0].body).toMatchObject({ wish: 'Уточни выход ревью', stages: [review] })
 })
+
+test('карточка говорит, что стадию поправили или убрали в разделе, пока Чудо-Юдо работал', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  // Ушли агенту «Ревью» и «Запас»; в разделе «Ревью» с тех пор поправили, а «Запаса» уже нет.
+  stubFetch(stream, {
+    ...runningRequest('flow', 'Уточни выходы', base, 'Agents Kit Web', 1000),
+    stages: [{ ...review, output: 'вердикт' }, stage('Запас')],
+  })
+  renderModal()
+
+  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  stream.send({
+    type: 'rewritten',
+    text: '',
+    stages: [
+      { of: 'Ревью', stage: { ...review, output: 'вердикт по sha' } },
+      { of: 'Запас', stage: stage('Запас', { output: 'новый выход' }) },
+    ],
+  })
+
+  const changes = await screen.findByLabelText('Что изменилось в стадиях')
+  expect(
+    within(changes).getByText('Стадию «Ревью» правили, пока Чудо-Юдо работал: «Принять правки» заменит эти правки его ответом.'),
+  ).toBeInTheDocument()
+  expect(within(changes).getByText('Стадии «Запас» в разделе уже нет: правка ляжет новой стадией.')).toBeInTheDocument()
+})
+
+test('стадия, которую никто не трогал, пока Чудо-Юдо работал, идёт без предупреждения', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream, { ...runningRequest('flow', 'Уточни выход', base, 'Agents Kit Web', 1000), stages: [review] })
+  renderModal()
+
+  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
+
+  await screen.findByLabelText('Что изменилось в стадиях')
+  expect(screen.queryByText(/пока Чудо-Юдо работал/)).not.toBeInTheDocument()
+})

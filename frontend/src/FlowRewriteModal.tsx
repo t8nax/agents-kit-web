@@ -48,6 +48,14 @@ const kindLabels: Record<StageChange['kind'], string> = {
 
 const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
 
+const sameStage = (one: FlowStage, other: FlowStage) =>
+  one.title === other.title &&
+  one.executor === other.executor &&
+  one.output === other.output &&
+  (one.skip ?? null) === (other.skip ?? null) &&
+  (one.description ?? null) === (other.description ?? null) &&
+  (one.helpers ?? []).join(', ') === (other.helpers ?? []).join(', ')
+
 export default function FlowRewriteModal({ base, project, stages, mark, scope, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
   // Стадии контекста — по названию: список раздела на время окна не меняется.
@@ -116,6 +124,17 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
   // Прежний вид стадии берётся из раздела; стадии без правок — из тех, что ушли агенту.
   const changes = rewritten ? stageChanges(stages, rewritten.stages, contextStages) : []
   const changed = changes.filter((change) => change.kind !== 'same')
+  // Стадию могли поправить в разделе, пока агент работал: ответ ляжет поверх, и карточка говорит об этом.
+  const drift = (of: string | null) => {
+    if (of === null) return null
+    const sent = request?.stages?.find((stage) => norm(stage.title) === norm(of))
+    if (!sent) return null
+    const now = stages.find((stage) => norm(stage.title) === norm(of))
+    if (!now) return `Стадии «${of}» в разделе уже нет: правка ляжет новой стадией.`
+    return sameStage(sent, now)
+      ? null
+      : `Стадию «${of}» правили, пока ${AGENT_NAME} работал: «Принять правки» заменит эти правки его ответом.`
+  }
   const untouched = changes.filter((change) => change.kind === 'same')
 
   async function apply() {
@@ -277,6 +296,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                   key={`${change.kind}-${change.of}-${change.title}`}
                   change={change}
                   scope={change.of === null ? null : scope(change.of)}
+                  drift={drift(rewritten.stages.find((one) => one.stage === change.stage)?.of ?? null)}
                   onDescription={setDescription}
                 />
               ))}
@@ -457,10 +477,12 @@ function StagePicker({
 function Change({
   change,
   scope,
+  drift,
   onDescription,
 }: {
   change: StageChange
   scope: string | null
+  drift: string | null
   onDescription: (description: { title: string; text: string }) => void
 }) {
   const stage = change.stage
@@ -474,6 +496,7 @@ function Change({
         <span className="rewrite-change-title">{change.title}</span>
       </div>
       {change.kind === 'changed' && scope && <p className="rewrite-scope">{scope}</p>}
+      {drift && <p className="rewrite-drift">{drift}</p>}
 
       {change.kind === 'added' && (
         <dl className="rewrite-fields">

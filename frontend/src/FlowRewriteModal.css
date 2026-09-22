@@ -165,6 +165,14 @@
   border-radius: 6px;
 }
 
+/* Стадию поправили в разделе, пока агент работал: принятый ответ ляжет поверх этих правок. */
+.rewrite-drift {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-waiting-text);
+}
+
 /* Поле просьбы с контекстом: текст сверху, внизу в той же рамке — кнопка «Стадии» и добавленные стадии. */
 .rewrite-composer {
   position: relative;
