@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
 import StartTaskModal from './StartTaskModal'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  localStorage.clear()
 })
 
 const base = 'D:\\Projects\\app-knowledge'
@@ -179,6 +180,105 @@ test('выбранный флоу уходит в API вместе с копие
 
   await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
   expect(posts).toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'B-8', flow: 'мелкий' }])
+})
+
+test('начальные слова — последний раздел окна; набранные уходят в API как есть, с переводами строк', async () => {
+  const posts = stub(Response.json({ session: '7339dced' }))
+  const props = renderModal()
+
+  const field = screen.getByRole('textbox', { name: 'Начальные слова' })
+  expect(field).toHaveAttribute('placeholder', 'На что обратить внимание, с чего начать, что уже решено')
+  // Поле стоит после выбора копии, над кнопками — вариант А макета
+  const copyGroup = screen.getByRole('group', { name: 'Рабочая копия' })
+  expect(copyGroup.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.change(field, { target: { value: 'Начни с API.\n\nМакет уже подтверждён.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
+  expect(posts).toEqual([
+    {
+      base,
+      copy: 'D:\\Projects\\rustic-silver-sparrow',
+      number: 'B-8',
+      flow: 'полный',
+      words: 'Начни с API.\n\nМакет уже подтверждён.',
+    },
+  ])
+})
+
+test('пустые начальные слова запуску не мешают и в API не уходят', async () => {
+  const posts = stub(Response.json({ session: '7339dced' }))
+  const props = renderModal()
+
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Начальные слова' }), { target: { value: '  \n ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
+  expect(posts).toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'B-8', flow: 'полный' }])
+})
+
+test('Enter в поле слов задачу не запускает, Ctrl+Enter запускает', async () => {
+  const posts = stub(Response.json({ session: '7339dced' }))
+  const props = renderModal()
+
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  const field = screen.getByRole('textbox', { name: 'Начальные слова' })
+  fireEvent.change(field, { target: { value: 'Первая строка' } })
+  fireEvent.keyDown(field, { key: 'Enter' })
+  expect(posts).toEqual([])
+
+  fireEvent.keyDown(field, { key: 'Enter', ctrlKey: true })
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('rustic-silver-sparrow'))
+  expect(posts).toHaveLength(1)
+})
+
+test('набранные слова переживают закрытие окна — у каждой записи свои', async () => {
+  stub(Response.json({ session: '7339dced' }))
+  const first = render(<StartTaskModal base={base} entry={entry} onClose={vi.fn()} onStarted={vi.fn()} />)
+  fireEvent.change(screen.getByRole('textbox', { name: 'Начальные слова' }), { target: { value: 'Сначала тесты.' } })
+  first.unmount()
+
+  const other = render(
+    <StartTaskModal base={base} entry={{ ...entry, number: 'B-9' }} onClose={vi.fn()} onStarted={vi.fn()} />,
+  )
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('')
+  other.unmount()
+
+  renderModal()
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('Сначала тесты.')
+})
+
+test('после запуска слова забываются, а неудачный запуск их оставляет', async () => {
+  stub(Response.json({ problem: 'agent', message: 'сбой' }, { status: 400 }))
+  const failed = renderModal()
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Начальные слова' }), { target: { value: 'Слова' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+  expect(await screen.findByRole('alert')).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('Слова')
+  expect(failed.onStarted).not.toHaveBeenCalled()
+
+  stub(Response.json({ session: '7339dced' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+  await waitFor(() => expect(failed.onStarted).toHaveBeenCalled())
+  cleanup()
+
+  renderModal()
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveValue('')
+})
+
+test('слова длиннее предела поле не принимает, а отказ API окно называет понятно', async () => {
+  stub(Response.json({ problem: 'words-too-long', message: null }, { status: 400 }))
+  renderModal()
+
+  expect(screen.getByRole('textbox', { name: 'Начальные слова' })).toHaveAttribute('maxLength', '8000')
+  fireEvent.click(await copies().findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Начальные слова длиннее 8000 знаков — сократите их.')
 })
 
 test('у проекта нет флоу: окно говорит, что задачу не начать, и запускать нечего', async () => {

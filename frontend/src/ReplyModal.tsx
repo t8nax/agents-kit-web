@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
@@ -47,6 +47,10 @@ type Rejection = { question: string; problem: 'empty' | 'missing' | 'already-ans
 
 type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 'loaded'; data: QuestionsResponse }
 
+// open — оператор отвечает; sending — ответы ждут своих секунд с «Отменить»; writing — запись идёт;
+// leaving — записанные ответы уходят вместе с окном, и оно гаснет.
+type Phase = 'open' | 'sending' | 'writing' | 'leaving'
+
 type Props = {
   base: string
   copy: string
@@ -54,8 +58,19 @@ type Props = {
   onAnswered: () => void
 }
 
+const EMPTY = 'Напишите свой ответ или выберите вариант'
+
+// Пока видно «Ответы отправлены агенту», отправку можно отменить: запись идёт после этих секунд.
+export const UNDO_MS = 3000
+
+// Записанные ответы уводят окно угасанием; обычное закрытие мгновенно — решение оператора.
+export const FADE_MS = 220
+
+// Запись без ответа дольше этого не держит окно: на время записи оно не закрывается ничем.
+export const WRITE_TIMEOUT_MS = 30000
+
 const problemText: Record<Rejection['problem'], string> = {
-  empty: 'Напишите свой ответ',
+  empty: EMPTY,
   missing: 'Этого вопроса уже нет в памяти. Ничего не записано — закройте окно, чтобы увидеть актуальную память.',
   'already-answered':
     'На этот вопрос уже ответили из другого места. Ничего не записано — закройте окно, чтобы увидеть актуальную память.',
@@ -63,14 +78,23 @@ const problemText: Record<Rejection['problem'], string> = {
 
 export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
+  // Данные ответы — по вопросу; пустая строка — ответа нет.
   const [answers, setAnswers] = useState<string[]>([])
   const [current, setCurrent] = useState(0)
-  const [rejection, setRejection] = useState<Rejection | null>(null)
-  const [footerError, setFooterError] = useState<string | null>(null)
-  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [phase, setPhase] = useState<Phase>('open')
   const [opening, setOpening] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
-  const [tab, setTab] = useState<'question' | 'context'>('question')
+  // Контекст задачи и артефакты — своими окнами поверх окна ответа.
+  const [shown, setShown] = useState<'context' | 'artifacts' | null>(null)
+
+  const feed = useRef<HTMLDivElement>(null)
+  const field = useRef<HTMLInputElement>(null)
+  const undoButton = useRef<HTMLButtonElement>(null)
+  const timer = useRef<number | undefined>(undefined)
+  const contextButton = useRef<HTMLButtonElement>(null)
+  const artifactsButton = useRef<HTMLButtonElement>(null)
+  const wasShown = useRef<'context' | 'artifacts' | null>(null)
 
   useEffect(() => {
     const params = new URLSearchParams({ base, copy })
@@ -81,7 +105,11 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         return response.json() as Promise<QuestionsResponse>
       })
       .then((data) => {
-        setAnswers(takeDrafts(base, copy, data.questions.map((q) => q.title)))
+        const given = takeDrafts(base, copy, data.questions.map((q) => q.title))
+        // Открытое заново окно встаёт на первый вопрос без ответа; всё, что до него, уже пройдено.
+        const first = Math.max(0, given.findIndex((a) => !a.trim()))
+        setAnswers(given)
+        setCurrent(first)
         setLoad({ kind: 'loaded', data })
       })
       .catch((error: unknown) =>
@@ -89,31 +117,158 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       )
   }, [base, copy])
 
+  // Закрытое окно ничего не отправляет: отложенная запись уходит вместе с ним.
+  // Ответ записи, пришедший после закрытия окна, его уже не трогает: иначе он закрыл бы окно другой копии.
+  // Отметка ставится в самом эффекте: в StrictMode разработки окно монтируется дважды, и первая уборка
+  // иначе оставила бы его «закрытым» навсегда.
+  const alive = useRef(false)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+      window.clearTimeout(timer.current)
+    }
+  }, [])
+
+  // Ошибка открытия файла из окна артефактов уходит вместе с ним: под шапкой окна ответа она бы повисла.
+  const hideShown = useCallback(() => {
+    setShown((open) => {
+      if (open === 'artifacts') setOpenError(null)
+      return null
+    })
+  }, [])
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape') return
+      if (shown) hideShown()
+      else if (phase === 'open') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, shown, phase, hideShown])
 
-  const questions = load.kind === 'loaded' ? load.data.questions : []
+  // Закрытое окно поверх возвращает фокус на свою кнопку — после перерисовки: пока оно открыто,
+  // окно ответа inert, и фокус в него не встаёт.
+  useEffect(() => {
+    if (wasShown.current && !shown) (wasShown.current === 'context' ? contextButton : artifactsButton).current?.focus()
+    wasShown.current = shown
+  }, [shown])
 
-  // Переход к вопросу показывает сам вопрос, даже если оператор читал контекст задачи.
-  function goTo(index: number) {
+  const loaded = load.kind === 'loaded'
+  const questions = loaded ? load.data.questions : []
+
+  // Текущий вопрос встаёт в начало ленты, а строка ввода получает фокус: отвечают, не берясь за мышь.
+  useEffect(() => {
+    if (!loaded || phase !== 'open') return
+    const item = feed.current?.querySelector<HTMLElement>(`[data-q="${current}"]`)
+    if (feed.current && item) feed.current.scrollTop = item.offsetTop - 16
+    field.current?.focus()
+  }, [loaded, current, phase])
+
+  // Строка ввода ушла вместе с фокусом: «Отменить» получает его, чтобы успеть отменить с клавиатуры.
+  useEffect(() => {
+    if (phase !== 'sending') return
+    if (feed.current) feed.current.scrollTop = feed.current.scrollHeight
+    undoButton.current?.focus()
+  }, [phase])
+
+  function go(index: number) {
     setCurrent(index)
-    setTab('question')
+    setError(null)
   }
 
-  function setAnswer(index: number, value: string) {
-    setAnswers((prev) => prev.map((a, i) => (i === index ? value : a)))
-    if (questions[index]) saveDraft(base, copy, questions[index].title, value)
-    if (rejection?.problem === 'empty' && questions[index]?.title === rejection.question && value.trim()) {
-      setRejection(null)
+  function unansweredIn(list: string[]) {
+    return list.flatMap((a, i) => (a.trim() ? [] : [i]))
+  }
+
+  // Ответ пишется сразу, как его набирают или выбирают: в ленту и в черновик браузера.
+  function setAnswer(value: string) {
+    setAnswers((prev) => prev.map((a, i) => (i === current ? value : a)))
+    saveDraft(base, copy, questions[current].title, value.trim())
+    if (error === EMPTY && value.trim()) setError(null)
+  }
+
+  function send() {
+    const left = unansweredIn(answers)
+    if (left.length > 0) {
+      go(left[0])
+      setError(EMPTY)
+      return
+    }
+    setError(null)
+    setPhase('sending')
+    const given = answers
+    timer.current = window.setTimeout(() => void write(given), UNDO_MS)
+  }
+
+  function undo() {
+    window.clearTimeout(timer.current)
+    setPhase('open')
+  }
+
+  // Все ответы пишутся разом и только все вместе; отказ оставляет окно и данные ответы на месте.
+  async function write(given: string[]) {
+    setPhase('writing')
+    const fail = (text: string, question?: string) => {
+      if (!alive.current) return
+      const index = question ? questions.findIndex((q) => q.title === question) : -1
+      if (index >= 0) setCurrent(index)
+      setError(text)
+      setPhase('open')
+    }
+    const abort = new AbortController()
+    const limit = window.setTimeout(() => abort.abort(), WRITE_TIMEOUT_MS)
+    try {
+      const response = await fetch('/api/answers', {
+        signal: abort.signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          base,
+          copy,
+          answers: questions.map((q, i) => ({ question: q.title, answer: given[i] })),
+        }),
+      })
+      if (response.ok) {
+        forgetDrafts(base, copy, questions.map((q) => q.title))
+        // ответы в памяти: окно больше не нужно, признак успеха — строка таблицы перестаёт ждать
+        onAnswered()
+        // окно уходит угасанием, а закрывается, когда оно закончилось
+        if (!alive.current) return
+        setShown(null)
+        setPhase('leaving')
+        timer.current = window.setTimeout(onClose, FADE_MS)
+        return
+      }
+      if (response.status === 400 || response.status === 409) {
+        const body = (await response.json()) as Rejection
+        fail(problemText[body.problem] ?? 'Ответы не записаны', body.question)
+        return
+      }
+      fail(response.status === 404 ? 'Ответы не записаны: память копии не найдена' : 'Ответы не записаны')
+    } catch {
+      fail(
+        abort.signal.aborted
+          ? 'Панель не ответила: записались ли ответы, неизвестно. Закройте окно, чтобы увидеть актуальную память.'
+          : 'Ответы не записаны: нет связи с API',
+      )
+    } finally {
+      window.clearTimeout(limit)
     }
   }
 
-  // Окно вопроса остаётся на месте вместе с набранным ответом: переход его не трогает.
+  // Enter в строке ввода — «Ответить». Набор через IME заканчивается тем же Enter — его событие
+  // пропускается, иначе ответ ушёл бы посреди набора.
+  function onFieldKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return
+    if (event.nativeEvent.isComposing) return
+    event.preventDefault()
+    if (current < questions.length - 1) go(current + 1)
+    else send()
+  }
+
+  // Окно ответа остаётся на месте вместе с набранным ответом: переход его не трогает.
   async function openSession() {
     setOpening(true)
     setOpenError(null)
@@ -195,117 +350,40 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     }
   }
 
-  async function send() {
-    const empty = answers.findIndex((a) => !a.trim())
-    if (empty >= 0) {
-      goTo(empty)
-      setRejection({ question: questions[empty].title, problem: 'empty' })
-      setFooterError(null)
-      return
-    }
-
-    setSending(true)
-    setFooterError(null)
-    try {
-      const response = await fetch('/api/answers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          base,
-          copy,
-          answers: questions.map((q, i) => ({ question: q.title, answer: answers[i] })),
-        }),
-      })
-      if (response.ok) {
-        forgetDrafts(base, copy, questions.map((q) => q.title))
-        // ответы в памяти: окно больше не нужно, признак успеха — строка таблицы перестаёт ждать
-        onAnswered()
-        onClose()
-        return
-      }
-      if (response.status === 400 || response.status === 409) {
-        const body = (await response.json()) as Rejection
-        const index = questions.findIndex((q) => q.title === body.question)
-        if (index >= 0) goTo(index)
-        setRejection(body)
-        setFooterError('Ответы не записаны')
-        return
-      }
-      setFooterError(response.status === 404 ? 'Ответы не записаны: память копии не найдена' : 'Ответы не записаны')
-    } catch {
-      setFooterError('Ответы не записаны: нет связи с API')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  // Enter в поле повторяет «Далее», а на последнем вопросе — «Отправить»: ответ всё равно
-  // пишется одной строкой, так что перевод строки в поле не нужен. Shift и другие модификаторы
-  // оставляют полю его обычное поведение, а набор через IME заканчивается тем же Enter — его
-  // событие пропускается, иначе вопрос сменился бы посреди набора.
-  function onAnswerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return
-    if (event.nativeEvent.isComposing) return
-    event.preventDefault()
-    if (current < questions.length - 1) setCurrent(current + 1)
-    else if (!sending) void send()
-  }
-
+  const data = loaded ? load.data : null
+  const hasContext = !!data && (data.criteria.length > 0 || !!data.outOfScope)
+  const hasArtifacts = !!data && data.artifacts.length > 0
   const question = questions[current]
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-wizard" role="dialog" aria-modal="true" aria-label="Ответ оператора">
-        <div className="wizard-stepper">
-          <div className="stepper-main">
-            {load.kind === 'loaded' && questions.length > 0 && (
-              <>
-                <div className="step-label">
-                  Вопрос {current + 1} из {questions.length}
-                </div>
-                <div className="steps">
-                  {questions.map((q, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      className="step-indicator"
-                      aria-current={i === current ? 'step' : undefined}
-                      aria-label={`Вопрос ${i + 1}: ${q.title}`}
-                      title={q.title}
-                      onClick={() => goTo(i)}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-          <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onClose}>
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        <div className={`modal-scroll-area ${load.kind !== 'loaded' || !question ? 'is-centered' : ''}`}>
-          <div className="central-column">
-            {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
-            {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
-            {load.kind === 'loaded' && !question && (
-              <p className="modal-message">Вопросов без ответа нет</p>
-            )}
-            {load.kind === 'loaded' && question && (
-              <>
-                <div className="task-strip">
-                  {load.data.task && <div className="strip-task">{load.data.task}</div>}
+    <>
+      <div
+        className={`modal-overlay ${phase === 'leaving' ? 'is-leaving' : ''}`}
+        // длительность угасания живёт в коде: стили берут её отсюда, чтобы числа не разошлись
+        style={{ '--fade-ms': `${FADE_MS}ms` } as CSSProperties}
+        onMouseDown={(e) => e.target === e.currentTarget && !shown && phase === 'open' && onClose()}
+      >
+        <div
+          className="modal-wizard reply-window"
+          role="dialog"
+          aria-modal={!shown}
+          aria-label="Ответ оператора"
+          // Пока открыто окно поверх, окно ответа под ним недоступно: Tab и программа чтения — только в нём.
+          inert={!!shown}
+        >
+          <div className="reply-head">
+            <div className="task-strip">
+              {data && (
+                <>
+                  {data.task && <div className="strip-task">{data.task}</div>}
                   <div className="strip-meta">
-                    <span className="strip-project">{load.data.project}</span>
+                    <span className="strip-project">{data.project}</span>
                     <span className="strip-sep">·</span>
-                    {copyName(load.data.copy)}
-                    {load.data.branch && (
+                    {copyName(data.copy)}
+                    {data.branch && (
                       <>
                         <span className="strip-sep">·</span>
-                        {load.data.branch}
+                        {data.branch}
                       </>
                     )}
                   </div>
@@ -313,217 +391,290 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                     <button
                       type="button"
                       className="btn-code"
-                      disabled={!load.data.backgroundSession || opening}
+                      disabled={!data.backgroundSession || opening}
                       title={
-                        load.data.backgroundSession
+                        data.backgroundSession
                           ? 'Открыть терминал с сессией этой копии'
                           : 'В этой копии не идёт фоновая сессия'
                       }
                       onClick={() => void openTerminal()}
                     >
                       <TerminalIcon />
-                      {load.data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
+                      {data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
                     </button>
                     <button
                       type="button"
                       className="btn-code"
-                      disabled={!load.data.vsCodeSession || opening}
+                      disabled={!data.vsCodeSession || opening}
                       title={
-                        load.data.vsCodeSession
-                          ? 'Открыть окно VS Code этой копии'
-                          : 'Сессия этой копии не открыта в VS Code'
+                        data.vsCodeSession ? 'Открыть окно VS Code этой копии' : 'Сессия этой копии не открыта в VS Code'
                       }
                       onClick={() => void openSession()}
                     >
                       <VsCodeIcon />
-                      {load.data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
+                      {data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
                     </button>
-                  </div>
-                </div>
-
-                {openError && (
-                  <p className="open-error error-text" role="alert">
-                    <WarningIcon />
-                    {openError}
-                  </p>
-                )}
-
-                <div className="reply-tabs" role="tablist">
-                  <button
-                    type="button"
-                    role="tab"
-                    id="reply-tab-question"
-                    className="reply-tab"
-                    aria-selected={tab === 'question'}
-                    aria-controls="reply-panel"
-                    onClick={() => setTab('question')}
-                  >
-                    Вопрос
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    id="reply-tab-context"
-                    className="reply-tab"
-                    aria-selected={tab === 'context'}
-                    aria-controls="reply-panel"
-                    onClick={() => setTab('context')}
-                  >
-                    Контекст задачи
-                  </button>
-                </div>
-
-                {tab === 'context' ? (
-                  <div
-                    className="ctx-sections"
-                    role="tabpanel"
-                    id="reply-panel"
-                    aria-labelledby="reply-tab-context"
-                  >
-                    <div className="ctx-section">
-                      <p className="acc-label">Критерии закрытия</p>
-                      {load.data.criteria.length > 0 ? (
-                        <ul className="criteria">
-                          {load.data.criteria.map((criterion, i) => (
-                            <li key={i}>
-                              <div className="criterion-title">
-                                <InlineMarkdown text={criterion.title} />
-                              </div>
-                              {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="criterion-text">Критерии не записаны</p>
-                      )}
-                    </div>
-                    {load.data.outOfScope && (
-                      <div className="ctx-section">
-                        <p className="acc-label">Не входит</p>
-                        <Markdown className="criterion-text" text={load.data.outOfScope} />
-                      </div>
+                    {(hasContext || hasArtifacts) && <span className="strip-gap" aria-hidden="true" />}
+                    {hasContext && (
+                      <button
+                        ref={contextButton}
+                        type="button"
+                        className="btn-ghost"
+                        aria-haspopup="dialog"
+                        onClick={() => setShown('context')}
+                      >
+                        <DocIcon />
+                        Контекст задачи
+                      </button>
                     )}
-                    {load.data.artifacts.length > 0 && (
-                      <div className="ctx-section">
-                        <p className="acc-label">Артефакты</p>
-                        <ul className="artifacts">
-                          {load.data.artifacts.map((artifact, i) => (
-                            <li key={i}>
-                              <div className="artifact-label">
-                                <InlineMarkdown text={artifact.label} />
-                              </div>
-                              {/* ссылку на сайт открывает браузер, а файл — панель, в VS Code */}
-                              {/^https?:\/\//i.test(artifact.address) ? (
-                                <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
-                                  {artifact.address}
-                                </a>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="artifact-address artifact-file"
-                                  title="Открыть в VS Code"
-                                  disabled={opening}
-                                  onClick={() => void openArtifact(i, artifact.address)}
-                                >
-                                  {artifact.address}
-                                </button>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                    {hasArtifacts && (
+                      <button
+                        ref={artifactsButton}
+                        type="button"
+                        className="btn-ghost"
+                        aria-haspopup="dialog"
+                        onClick={() => setShown('artifacts')}
+                      >
+                        <LinkIcon />
+                        Артефакты <span className="btn-count">{data.artifacts.length}</span>
+                      </button>
                     )}
                   </div>
-                ) : (
-                  <section role="tabpanel" id="reply-panel" aria-labelledby="reply-tab-question">
-                    <h2 className="massive-title">
-                      <InlineMarkdown text={question.title} />
-                    </h2>
-                    {question.context && <Markdown className="question-box" text={question.context} />}
-                    {question.variants.length > 0 && (
-                      <div className="options-grid">
-                        {question.variants.map((v, i) => (
-                          <button
-                            key={i}
-                            type="button"
-                            className="option-card"
-                            aria-pressed={answers[current] === v.choice}
-                            onClick={() => setAnswer(current, v.choice)}
-                          >
-                            <span className="option-head">
-                              <span className="option-title">{v.choice}</span>
-                              {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
-                            </span>
-                            {v.effect && <span className="option-desc">{v.effect}</span>}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <div className="input-group">
-                      <label htmlFor="reply-answer">Ответ</label>
-                      <textarea
-                        id="reply-answer"
-                        className="custom-textarea"
-                        value={answers[current]}
-                        placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
-                        onChange={(e) => setAnswer(current, e.target.value)}
-                        onKeyDown={onAnswerKeyDown}
-                      />
-                      {rejection?.question === question.title ? (
-                        <div className="field-status error-text" role="alert">
-                          <WarningIcon />
-                          {problemText[rejection.problem]}
-                        </div>
-                      ) : (
-                        <div className="field-status">Ответ записывается одной строкой</div>
-                      )}
-                    </div>
-                  </section>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="modal-footer">
-          {load.kind === 'loaded' && question && (
-            <button type="button" className="btn" disabled={current === 0} onClick={() => goTo(current - 1)}>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-              Назад
+                </>
+              )}
+            </div>
+            {/* Пока ответы уходят, окно не закрывается ничем: закрытое сняло бы запись молча. */}
+            <button
+              type="button"
+              className="btn btn-icon"
+              aria-label="Закрыть"
+              disabled={phase !== 'open'}
+              onClick={onClose}
+            >
+              <CloseIcon />
             </button>
-          )}
-          <div className="footer-right">
-            {footerError && (
-              <span className="footer-msg error-text" role="alert">
-                <WarningIcon />
-                {footerError}
-              </span>
-            )}
-            {load.kind === 'loaded' && question ? (
-              <>
-                {current < questions.length - 1 && (
-                  <button type="button" className="btn" onClick={() => goTo(current + 1)}>
-                    Далее
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <polyline points="9 18 15 12 9 6" />
-                    </svg>
-                  </button>
-                )}
-                <button type="button" className="btn btn-primary" disabled={sending} onClick={send}>
-                  Отправить
-                </button>
-              </>
-            ) : (
-              <button type="button" className="btn btn-primary" onClick={onClose}>
-                Закрыть
-              </button>
-            )}
           </div>
+
+          {/* ошибку открытия артефакта говорит окно артефактов, пока оно открыто, а не окно под ним */}
+          {openError && shown !== 'artifacts' && (
+            <p className="open-error error-text" role="alert">
+              <WarningIcon />
+              {openError}
+            </p>
+          )}
+
+          {phase === 'open' ? (
+            <div className={`reply-feed ${!question ? 'is-centered' : ''}`} ref={feed}>
+              {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
+              {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
+              {loaded && !question && <p className="modal-message">Вопросов без ответа нет</p>}
+              {questions.map((q, i) => {
+                const given = answers[i] ?? ''
+                const effect = q.variants.find((v) => v.choice === given)?.effect
+                return (
+                  <div className="feed-item" key={i} data-q={i}>
+                    {i === current ? (
+                      <section className="agent-q" aria-labelledby={`reply-q-${i}`}>
+                        <h2 className="q-title" id={`reply-q-${i}`}>
+                          <InlineMarkdown text={q.title} />
+                        </h2>
+                        {q.context && <Markdown className="q-context" text={q.context} />}
+                        {q.variants.length > 0 && (
+                          <div className="radio-list">
+                            {q.variants.map((v, k) => (
+                              <button
+                                key={k}
+                                type="button"
+                                className="radio-opt"
+                                aria-pressed={given === v.choice}
+                                // повторный щелчок по выбранному снимает ответ: иначе его не убрать
+                                onClick={() => {
+                                  setAnswer(given === v.choice ? '' : v.choice)
+                                  field.current?.focus()
+                                }}
+                              >
+                                <span className="radio-dot" aria-hidden="true" />
+                                <span className="opt-head">
+                                  <span className="opt-title">{v.choice}</span>
+                                  {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
+                                </span>
+                                {v.effect && <span className="opt-desc">{v.effect}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    ) : (
+                      <button type="button" className="q-compact" onClick={() => go(i)}>
+                        <span className="qc-title">
+                          <InlineMarkdown text={q.title} plainLinks />
+                        </span>
+                      </button>
+                    )}
+                    {given.trim() && (
+                      <div className="op-row">
+                        <div className={`op-bubble ${i === current ? 'is-current' : ''}`}>
+                          {effect ? (
+                            <>
+                              <p className="ans-choice">{given}</p>
+                              <p className="ans-effect">{effect}</p>
+                            </>
+                          ) : (
+                            <p className="ans-text">{given}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            // Ответы ушли: ленты не видно, на её месте — знак отправки, а внизу «Отменить».
+            <div className="reply-done" role="status">
+              <span className="done-mark">
+                <CheckIcon />
+              </span>
+              <p className="done-text">Ответы отправлены агенту</p>
+            </div>
+          )}
+
+          {question && (
+            <div className={`composer ${error ? 'has-error' : ''}`}>
+              {phase === 'open' ? (
+                <div className="composer-row">
+                  <button
+                    type="button"
+                    className="btn btn-icon"
+                    aria-label="Предыдущий вопрос"
+                    title="Предыдущий вопрос"
+                    disabled={current === 0}
+                    onClick={() => go(current - 1)}
+                  >
+                    <ChevronIcon direction="left" />
+                  </button>
+                  <input
+                    ref={field}
+                    id="reply-answer"
+                    className="composer-field"
+                    aria-label="Ответ"
+                    autoComplete="off"
+                    value={answers[current] ?? ''}
+                    placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    onKeyDown={onFieldKeyDown}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-icon"
+                    aria-label="Следующий вопрос"
+                    title="Следующий вопрос"
+                    disabled={current === questions.length - 1}
+                    onClick={() => go(current + 1)}
+                  >
+                    <ChevronIcon direction="right" />
+                  </button>
+                  <button type="button" className="btn btn-primary composer-send" onClick={send}>
+                    <SendIcon />
+                    Отправить
+                  </button>
+                </div>
+              ) : (
+                <div className="composer-row is-undo">
+                  <button
+                    ref={undoButton}
+                    type="button"
+                    className="btn composer-undo"
+                    disabled={phase !== 'sending'}
+                    onClick={undo}
+                  >
+                    Отменить
+                  </button>
+                </div>
+              )}
+              {error && (
+                <span className="field-error error-text" role="alert">
+                  <WarningIcon />
+                  <span>{error}</span>
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
-    </div>
+
+      {data && shown && (
+        <div className="modal-overlay reply-sub-overlay" onMouseDown={(e) => e.target === e.currentTarget && hideShown()}>
+          <div className="modal-wizard reply-sub" role="dialog" aria-modal="true" aria-labelledby="reply-sub-title">
+            <div className="reply-sub-head">
+              <h2 id="reply-sub-title">{shown === 'context' ? 'Контекст задачи' : 'Артефакты'}</h2>
+              <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={hideShown}>
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="reply-sub-body">
+              {shown === 'context' ? (
+                <>
+                  {data.criteria.length > 0 && (
+                    <div className="ctx-section">
+                      <p className="acc-label">Критерии закрытия</p>
+                      <ul className="criteria">
+                        {data.criteria.map((criterion, i) => (
+                          <li key={i}>
+                            <div className="criterion-title">
+                              <InlineMarkdown text={criterion.title} />
+                            </div>
+                            {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {data.outOfScope && (
+                    <div className="ctx-section">
+                      <p className="acc-label">Не входит</p>
+                      <Markdown className="criterion-text" text={data.outOfScope} />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <ul className="artifacts">
+                  {data.artifacts.map((artifact, i) => (
+                    <li key={i}>
+                      <div className="artifact-label">
+                        <InlineMarkdown text={artifact.label} />
+                      </div>
+                      {/* ссылку на сайт открывает браузер, а файл — панель, в VS Code */}
+                      {/^https?:\/\//i.test(artifact.address) ? (
+                        <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
+                          {artifact.address}
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className="artifact-address artifact-file"
+                          title="Открыть в VS Code"
+                          disabled={opening}
+                          onClick={() => void openArtifact(i, artifact.address)}
+                        >
+                          {artifact.address}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {openError && shown === 'artifacts' && (
+                <p className="open-error error-text" role="alert">
+                  <WarningIcon />
+                  {openError}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -533,6 +684,60 @@ function WarningIcon() {
       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
       <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
+function ChevronIcon({ direction }: { direction: 'left' | 'right' }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points={direction === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6'} />
+    </svg>
+  )
+}
+
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="22" y1="2" x2="11" y2="13" />
+      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
+
+function DocIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="13" y2="17" />
+    </svg>
+  )
+}
+
+function LinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </svg>
   )
 }

@@ -8,6 +8,7 @@ import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
+import { forgetGoneStartWords } from './startWords'
 import { numberLetters } from './taskTitle'
 
 export type BacklogEntry = {
@@ -86,6 +87,7 @@ export default function Backlog({
       .then(
         (backlogs) => {
           setLoad({ kind: 'loaded', backlogs })
+          forgetGoneStartWords(backlogs)
           // База могла уйти из списка, пока раздел был открыт: показываем тогда все проекты.
           setFilter((current) => (backlogs.some((b) => b.base === current) ? current : null))
         },
