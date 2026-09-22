@@ -1297,11 +1297,13 @@ function FlowTab({
   const menuIndex = menu ? flow.entries.findIndex((entry) => entry.key === menu.key) : -1
 
   // Фокус встаёт на блок, когда закрылось окно, открытое из его меню: схема к этому времени уже не под подложкой.
+  // Поставленный фокус забывается: иначе вкладка, открытая заново, снова дёрнула бы его и прокрутку к старому блоку.
   useEffect(() => {
     if (!focus) return
     const block = focus.key === null ? null : chain.current?.querySelector<HTMLElement>(`[data-entry="${focus.key}"]`)
     ;(block ?? chain.current?.querySelector<HTMLElement>('.flow-node-add'))?.focus()
-  }, [focus])
+    onFocus(null)
+  }, [focus, onFocus])
 
   const move = (from: number, to: number) => {
     if (from === to || to < 0 || to >= flow.entries.length) return
@@ -2199,9 +2201,10 @@ function ReturnsField({
 }
 
 /**
- * Описание стадии правится текстом в окне, а не полем — решение оператора, — по образцу задания исполнителя (B-202): разметка показана оформленной, «Редактировать»
- * открывает поле с исходным текстом. «Готово» кладёт правку в черновик и возвращает к просмотру, «Отменить» —
- * без правки; в базу описание ложится полосой сохранения. Пустое описание открывается сразу в правке.
+ * Описание стадии правится текстом в окне, а не полем — решение оператора, — по образцу задания исполнителя
+ * (B-202): разметка показана оформленной, «Редактировать» открывает поле с исходным текстом. «Готово» кладёт
+ * правку в черновик и возвращает к просмотру, «Отменить» — без правки; в базу описание ложится полосой
+ * сохранения. Пустое описание открывается сразу в правке.
  */
 function DescriptionEditor({
   title,
@@ -2257,8 +2260,8 @@ function DescriptionEditor({
         aria-modal="true"
         aria-labelledby="flow-description-title"
         tabIndex={-1}
-        // Escape закрывает просмотр, а правку — нет, как у задания исполнителя: набранное не теряется от промаха клавишей.
-        onKeyDown={(event) => event.key === 'Escape' && !editing && onClose()}
+        // Escape закрывает верхнее окно и в правке — без правки, как до B-202: так решено для всех окон раздела.
+        onKeyDown={(event) => event.key === 'Escape' && onClose()}
       >
         <div className="ask-head">
           <div className="ask-title">
@@ -2767,7 +2770,7 @@ function TickIcon() {
   )
 }
 
-/** Значок перехода у названия стадии: оно ведёт к её правке на вкладке «Стадии». */
+/** Карандаш у пунктов правки: «Править стадию» в меню блока и «Редактировать» в окне описания. */
 function PencilIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">

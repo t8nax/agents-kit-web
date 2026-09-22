@@ -477,6 +477,36 @@ test('описание стадии открывается из меню пов�
   expect(region.getByRole('button', { name: 'Стадия 2: Ревью' })).toHaveFocus()
 })
 
+test('возвращённый блоку фокус не прыгает на него снова, когда вкладку «Сценарии» открыли заново', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+
+  menuOf(region, 'Стадия 2: Ревью')
+  fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+  expect(region.getByRole('button', { name: 'Стадия 2: Ревью' })).toHaveFocus()
+  ;(document.activeElement as HTMLElement).blur()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
+  const again = within(screen.getByRole('region', { name: 'Сценарий «полный»' }))
+  expect(again.getByRole('button', { name: 'Стадия 2: Ревью' })).not.toHaveFocus()
+})
+
+test('Escape закрывает окно описания и в правке, не сохраняя набранного', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+
+  // У Приёмки описания нет — окно открыто сразу в правке
+  fireEvent.click(menuOf(region, 'Стадия 3: Приёмка').getByRole('menuitem', { name: 'Редактировать описание' }))
+  const text = await screen.findByRole('textbox', { name: 'Описание стадии' })
+  fireEvent.change(text, { target: { value: 'черновик' } })
+  fireEvent.keyDown(text, { key: 'Escape' })
+
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(screen.queryByText('есть несохранённые правки')).not.toBeInTheDocument()
+  expect(region.getByRole('button', { name: 'Стадия 3: Приёмка' })).toHaveFocus()
+})
+
 test('возврат правится у стадии в своём флоу: цель — только стадии этого флоу, стоящие раньше', async () => {
   const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
