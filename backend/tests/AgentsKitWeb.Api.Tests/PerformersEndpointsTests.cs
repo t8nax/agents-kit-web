@@ -257,6 +257,8 @@ public sealed class PerformersEndpointsTests : IDisposable
     [InlineData("\r")]
     [InlineData("\u2028")]
     [InlineData("\u0085")]
+    [InlineData("\u2029")]
+    [InlineData("\f")]
     public async Task Performers_RefusesDescriptionThatSpansLines(string lineBreak)
     {
         // Описание — строка шапки файла: перевод строки в нём оборвал бы шапку.

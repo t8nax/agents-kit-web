@@ -220,7 +220,11 @@ test('описание в карточке обрезано по трём стр
 })
 
 test('карточка добавления стоит последней в сетке и ростом с соседнюю', async ({ page }) => {
-  await mockApi(page)
+  // У соседки описание в три строки: она выше общей нижней границы роста карточек, и равенство что-то значит.
+  const tall = 'Читает дифф ветки задачи, сверяет его с критерием закрытия и решениями базы, '.repeat(6)
+  await mockApi(page, {
+    performers: [reviewer, ...others.map((p) => (p.name === 'code-reader' ? { ...p, description: tall } : p))],
+  })
   await openPerformers(page)
 
   const add = page.getByRole('button', { name: 'Новый исполнитель' })
@@ -230,6 +234,7 @@ test('карточка добавления стоит последней в с�
   await expect(async () => {
     const [neighbour, box] = await Promise.all([card(page, 'code-reader').boundingBox(), add.boundingBox()])
     expect(box!.y).toBe(neighbour!.y)
+    expect(neighbour!.height).toBeGreaterThan(112)
     expect(box!.height).toBe(neighbour!.height)
     expect(box!.x).toBeGreaterThan(neighbour!.x)
   }).toPass()

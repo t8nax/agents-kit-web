@@ -158,8 +158,12 @@ test('описание правится полем прямо в окне, а с
   // Вставленный текст с переводами строк сводится к одной строке.
   fireEvent.change(description, { target: { value: 'Читает дифф.\r\n  Возвращает вердикт.\n' } })
   expect(description).toHaveValue('Читает дифф. Возвращает вердикт. ')
-  // Переводы строк из Юникода, что понимает разбор файла, сводятся так же.
-  fireEvent.change(description, { target: { value: 'Читает дифф.\u0085Возвращает вердикт.' } })
+  // Прочие переводы строк, что понимает разбор файла, сводятся так же.
+  fireEvent.change(description, {
+    target: { value: 'Читает\u2028дифф.\u0085Возвращает\fвердикт.\u2029' },
+  })
+  expect(description).toHaveValue('Читает дифф. Возвращает вердикт. ')
+  fireEvent.change(description, { target: { value: 'Читает дифф. Возвращает вердикт.' } })
   expect(description).toHaveValue('Читает дифф. Возвращает вердикт.')
 
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
@@ -283,7 +287,7 @@ test('«Отменить» возвращает к просмотру без п�
   expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Ты читаешь дифф ветки целиком.')
 })
 
-test('в правке задания клик мимо окна его не закрывает, а в просмотре закрывает', () => {
+test('в правке задания ни клик мимо окна, ни Escape его не закрывают, а в просмотре клик закрывает', () => {
   stubSave(() => Response.json({ path: 'x' }))
   open(reviewer)
 
@@ -294,6 +298,12 @@ test('в правке задания клик мимо окна его не за
 
   const overlay = task.parentElement!
   fireEvent.mouseDown(overlay)
+  // Окно осталось в документе, и набранное в нём цело.
+  expect(screen.getByRole('dialog', { name: /Задание/ })).toBe(task)
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Набрано руками.')
+  // Escape в правке тоже не закрывает окно.
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.getByRole('dialog', { name: /Задание/ })).toBe(task)
   expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Набрано руками.')
 
   fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))

@@ -80,6 +80,11 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   const taskButton = useRef<HTMLButtonElement>(null)
   const wasReading = useRef(false)
   const closeTask = useCallback(() => setReading(false), [])
+  // Задание открыто в правке: Escape его не закрывает, иначе набранное пропало бы без вопроса.
+  const taskEditing = useRef(false)
+  const setTaskEditing = useCallback((value: boolean) => {
+    taskEditing.current = value
+  }, [])
   useEffect(() => {
     if (wasReading.current && !reading) taskButton.current?.focus()
     wasReading.current = reading
@@ -103,8 +108,9 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || busy) return
       // Escape закрывает верхнее окно: сначала задание, потом само окно исполнителя.
-      if (reading) closeTask()
-      else onClose()
+      if (reading) {
+        if (!taskEditing.current) closeTask()
+      } else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -578,6 +584,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           prompt={prompt}
           editable={!locked}
           onDone={setPrompt}
+          onEditing={setTaskEditing}
           onClose={closeTask}
         />
       )}
@@ -595,12 +602,14 @@ function TaskView({
   prompt,
   editable,
   onDone,
+  onEditing,
   onClose,
 }: {
   name: string
   prompt: string
   editable: boolean
   onDone: (prompt: string) => void
+  onEditing: (editing: boolean) => void
   onClose: () => void
 }) {
   const empty = !prompt.trim()
@@ -610,6 +619,10 @@ function TaskView({
   const close = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
   useEffect(() => (editing ? field.current?.focus() : close.current?.focus()), [editing])
+  useEffect(() => {
+    onEditing(editing)
+    return () => onEditing(false)
+  }, [editing, onEditing])
 
   // Правка начинается с нынешнего задания: пока окно открыто, его мог переписать ответ Чудо-Юдо.
   function edit() {
