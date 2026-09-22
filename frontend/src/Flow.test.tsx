@@ -168,12 +168,31 @@ async function saveAndRead(fetchMock: ReturnType<typeof stubApi>) {
   return body(fetchMock, 'POST /api/flow')
 }
 
+test('верх раздела: заголовок, за ним справа вкладки «Стадии» и «Сценарии», проект и «…»', async () => {
+  stubApi(api([app, nota]))
+
+  await renderFlow()
+
+  const head = screen.getByRole('heading', { name: 'Флоу', level: 2 }).parentElement!
+  const order = [
+    screen.getByRole('heading', { name: 'Флоу', level: 2 }),
+    screen.getByRole('tablist', { name: 'Части флоу' }),
+    screen.getByRole('button', { name: /^Проект/ }),
+    screen.getByRole('button', { name: 'Ещё действия' }),
+  ]
+  order.forEach((element) => expect(head).toContainElement(element))
+  order.slice(1).forEach((element, i) =>
+    expect(order[i].compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(),
+  )
+  expect(within(screen.getByRole('tablist')).getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Стадии', 'Сценарии'])
+})
+
 test('вкладка «Флоу»: узел старта с именем флоу и стадии блоками — значок, название и исполнитель, без номера', async () => {
   stubApi(api([app, nota]))
 
   const region = await renderFlow()
 
-  expect(screen.getByRole('tab', { name: 'Флоу' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
   expect(region.getByRole('button', { name: 'Флоу «полный»: название и «когда»' })).toHaveTextContent('полный')
   const stages = nodes(region)
   expect(labels(region)).toEqual(['Стадия 1: Критерий', 'Стадия 2: Ревью', 'Стадия 3: Приёмка'])
@@ -369,7 +388,7 @@ test('вкладка «Стадии»: все стадии базы, и прав
   fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Вычитка' } })
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
   expect(labels(within(screen.getByRole('region', { name: 'Флоу «полный»' })))).toContain('Стадия 2: Вычитка')
 
   const sent = await saveAndRead(fetchMock)
@@ -505,7 +524,7 @@ test('«Новая стадия» из окна добавления стави�
 
   expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
   expect(screen.getByRole('region', { name: 'Стадия «без названия»' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
   expect(labels(within(screen.getByRole('region', { name: 'Флоу «полный»' })))).toContain('Стадия 4: без названия')
 })
 
@@ -524,7 +543,7 @@ test('пресет сохраняется со вкладки «Стадии» �
   expect(await screen.findByRole('button', { name: 'Стадия в пресетах' })).toBeDisabled()
   expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ title: 'Критерий', helpers: [], slug: null })
 
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
   fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Критерий' }))
   await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Критерий' })).not.toBeInTheDocument())
@@ -782,7 +801,7 @@ test('после сохранения выбранные флоу и стади�
   await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/flow').length).toBe(3))
 
   expect(await screen.findByRole('region', { name: 'Стадия «Ревью»' })).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('tab', { name: 'Флоу' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
   expect(screen.getByRole('region', { name: 'Флоу «мелкий»' })).toBeInTheDocument()
 })
 

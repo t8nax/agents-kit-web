@@ -800,7 +800,7 @@ textarea.flow-input {
   dominant-baseline: middle;
 }
 
-/* Верх раздела: заголовок и вкладки одной строкой, проект и «…» справа — вариант оператора. */
+/* Верх раздела: заголовок слева, справа вкладки переключателем, проект и «…» — выбор оператора на B-192. */
 .vc-head {
   flex: none;
   display: flex;
@@ -824,17 +824,20 @@ textarea.flow-input {
 }
 
 .vc-tabs {
-  display: flex;
-  align-items: stretch;
-  gap: 4px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
 }
 
 .flow-tab {
-  font-size: 14px;
+  font-size: 13px;
   background: none;
   border: 0;
-  border-bottom: 2px solid transparent;
-  padding: 14px 12px 9px;
+  border-radius: 5px;
+  padding: 4px 12px;
   color: var(--text-secondary);
   cursor: pointer;
 }
@@ -845,13 +848,22 @@ textarea.flow-input {
 
 .flow-tab.is-on {
   color: var(--text-primary);
-  border-bottom-color: var(--text-primary);
+  background: var(--bg-surface);
+  box-shadow: 0 1px 2px var(--shadow-color);
   font-weight: 500;
 }
 
 .flow-tab:focus-visible {
   outline: 2px solid var(--text-primary);
-  outline-offset: -2px;
+  outline-offset: 1px;
+}
+
+/* Черта между вкладками и выбором проекта. */
+.head-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border-subtle);
 }
 
 /* Полоса сохранения внизу раздела: видна, только пока есть правки. */

@@ -546,26 +546,29 @@ export default function Flow({
     <>
       <div className="vc-head">
         <h2>Флоу</h2>
-        {editable && !empty && (
-          <div className="vc-tabs" role="tablist" aria-label="Части флоу">
-            {(['stages', 'flow'] as const).map((one) => (
-              <button
-                key={one}
-                type="button"
-                role="tab"
-                className={`flow-tab ${tab === one ? 'is-on' : ''}`}
-                aria-selected={tab === one}
-                onClick={() => {
-                  setTab(one)
-                  setOpened(null)
-                }}
-              >
-                {one === 'stages' ? 'Стадии' : 'Флоу'}
-              </button>
-            ))}
-          </div>
-        )}
         <div className="head-end flow-actions">
+          {editable && !empty && (
+            <>
+              <div className="vc-tabs" role="tablist" aria-label="Части флоу">
+                {(['stages', 'flow'] as const).map((one) => (
+                  <button
+                    key={one}
+                    type="button"
+                    role="tab"
+                    className={`flow-tab ${tab === one ? 'is-on' : ''}`}
+                    aria-selected={tab === one}
+                    onClick={() => {
+                      setTab(one)
+                      setOpened(null)
+                    }}
+                  >
+                    {one === 'stages' ? 'Стадии' : 'Сценарии'}
+                  </button>
+                ))}
+              </div>
+              <span className="head-sep" aria-hidden="true" />
+            </>
+          )}
           {flows.length > 0 && (
             <PickMenu
               label="Проект"
