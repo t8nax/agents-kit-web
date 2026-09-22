@@ -268,7 +268,9 @@
   width: 260px;
 }
 
-.pf-select-wrap svg {
+/* Внутри окна правило сильнее общего `.modal-overlay svg` (18px): стрелка остаётся 14px, как в макете. */
+.pf-select-wrap svg,
+.pf-modal .pf-select-wrap svg {
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
