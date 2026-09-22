@@ -466,7 +466,7 @@ test('у проекта без номеров колонки номера нет
 
 const fielded: BaseBacklog[] = [
   {
-    base: 'D:\Projects\app-knowledge',
+    base: 'D:\\Projects\\app-knowledge',
     project: 'Agents Kit Web',
     entries: [
       { number: 'B-1', title: 'Старый баг', text: null, type: 'баг', priority: 'средний' },
