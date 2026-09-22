@@ -1526,35 +1526,28 @@ function EntryDrawer({
           {stage ? <StageIcon icon={stage.icon} kind={kind} /> : <MissingIcon />}
         </span>
         <div className="flow-drawer-name">
-          <h3>
-            {stage ? (
-              <button
-                type="button"
-                className="flow-name-link"
-                aria-label={`Править стадию «${title}»`}
-                onClick={() => onEditStage(stage.key)}
-              >
-                {title}
-                <ExternalIcon />
-              </button>
-            ) : (
-              title
-            )}
-          </h3>
-          <span className="flow-node-executor">{stage ? executorOf(stage) || 'субагент' : 'стадии нет в базе'}</span>
+          <h3>{title}</h3>
+          <span className="flow-drawer-kind">{stage ? executorOf(stage) || 'субагент' : 'стадии нет в базе'}</span>
         </div>
-        <IconButton label="Закрыть сайдбар" onClick={onClose}>
+        <button type="button" className="btn btn-icon" aria-label="Закрыть сайдбар" title="Закрыть сайдбар" onClick={onClose}>
           <CloseIcon />
-        </IconButton>
+        </button>
       </div>
 
       <div className="flow-drawer-body">
         <ReturnsField returns={entry.returns} earlier={earlier} onChange={(returns) => onChange({ returns })} />
         {errors.length > 0 && <p className="flow-step-error">Флоу не сохранить: {errors.join(', ')}.</p>}
+        {/* Переход к правке стадии — после возвратов: правка общая на все флоу, а здесь — своё у стадии в этом флоу (B-192). */}
+        {stage && (
+          <button type="button" className="btn flow-go-stage" onClick={() => onEditStage(stage.key)}>
+            Править стадию «{title}»
+            <ExternalIcon />
+          </button>
+        )}
       </div>
 
       <div className="flow-drawer-foot">
-        <button type="button" className="bases-btn bases-btn-danger flow-drawer-delete" onClick={onRemove}>
+        <button type="button" className="btn btn-danger flow-drawer-delete" onClick={onRemove}>
           <MinusIcon />
           Убрать из флоу
         </button>
@@ -1589,16 +1582,16 @@ function FlowDrawer({
         </span>
         <div className="flow-drawer-name">
           <h3>{flowName(flow)}</h3>
-          <span className="flow-node-executor">флоу базы</span>
+          <span className="flow-drawer-kind">флоу базы</span>
         </div>
-        <IconButton label="Закрыть сайдбар" onClick={onClose}>
+        <button type="button" className="btn btn-icon" aria-label="Закрыть сайдбар" title="Закрыть сайдбар" onClick={onClose}>
           <CloseIcon />
-        </IconButton>
+        </button>
       </div>
 
       <div className="flow-drawer-body">
         <label className="flow-field">
-          <span>название</span>
+          <span>Название</span>
           <input
             className="flow-input"
             aria-label="Название флоу"
@@ -1608,12 +1601,12 @@ function FlowDrawer({
           />
         </label>
         <label className="flow-field">
-          <span>когда</span>
+          <span>Когда</span>
           <textarea
             className="flow-input"
             aria-label="Когда брать флоу"
             placeholder="какие задачи вести этим флоу"
-            rows={3}
+            rows={4}
             value={flow.when}
             onChange={(event) => onChange({ when: event.target.value })}
           />
@@ -1622,7 +1615,7 @@ function FlowDrawer({
       </div>
 
       <div className="flow-drawer-foot">
-        <button type="button" className="bases-btn bases-btn-danger flow-drawer-delete" onClick={onDelete}>
+        <button type="button" className="btn btn-danger flow-drawer-delete" onClick={onDelete}>
           <TrashIcon />
           Удалить флоу
         </button>
@@ -1793,48 +1786,59 @@ function ReturnsField({
 
   return (
     <div className="flow-field">
-      <span>возврат</span>
+      <span>Возвраты</span>
       {returns.map((back, index) => {
         const valid = earlier.some((stage) => stage.key === back.target)
         return (
           <div className="flow-return" key={index}>
-            <input
-              className="flow-input"
-              aria-label={`Условие возврата ${index + 1}`}
-              placeholder="условие"
-              aria-invalid={!back.condition.trim()}
-              value={back.condition}
-              onChange={(event) => set(index, { condition: event.target.value })}
-            />
-            <span className="flow-return-mark" aria-hidden="true">
-              <ReturnIcon />
-            </span>
-            <select
-              className="flow-input flow-return-step"
-              aria-label={`Стадия возврата ${index + 1}`}
-              aria-invalid={!valid}
-              value={valid ? String(back.target) : ''}
-              onChange={(event) => set(index, { target: event.target.value ? Number(event.target.value) : null })}
-            >
-              <option value="">стадия…</option>
-              {earlier.map((stage) => (
-                <option key={stage.key} value={stage.key}>
-                  {stageName(stage)}
-                </option>
-              ))}
-            </select>
-            <IconButton label={`Убрать возврат ${index + 1}`} onClick={() => onChange(returns.filter((_, i) => i !== index))}>
-              <CloseIcon />
-            </IconButton>
+            <div className="flow-return-row">
+              <input
+                className="flow-input"
+                aria-label={`Условие возврата ${index + 1}`}
+                placeholder="условие"
+                aria-invalid={!back.condition.trim()}
+                value={back.condition}
+                onChange={(event) => set(index, { condition: event.target.value })}
+              />
+              <button
+                type="button"
+                className="btn btn-icon"
+                aria-label={`Убрать возврат ${index + 1}`}
+                title={`Убрать возврат ${index + 1}`}
+                onClick={() => onChange(returns.filter((_, i) => i !== index))}
+              >
+                <CloseIcon />
+              </button>
+            </div>
+            <div className="flow-return-row">
+              <span className="flow-return-mark" aria-hidden="true">
+                <ReturnIcon />
+              </span>
+              <select
+                className="flow-input flow-return-step"
+                aria-label={`Стадия возврата ${index + 1}`}
+                aria-invalid={!valid}
+                value={valid ? String(back.target) : ''}
+                onChange={(event) => set(index, { target: event.target.value ? Number(event.target.value) : null })}
+              >
+                <option value="">стадия…</option>
+                {earlier.map((stage) => (
+                  <option key={stage.key} value={stage.key}>
+                    {stageName(stage)}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         )
       })}
       {earlier.length > 0 && (
         <button
           type="button"
-          className="flow-link"
+          className="flow-add-dashed"
           onClick={() => onChange([...returns, { condition: '', target: null }])}
         >
+          <PlusIcon />
           Добавить возврат
         </button>
       )}

@@ -273,7 +273,7 @@ test('при двух флоу у каждого нужно «когда», пр
   expect(region).toBeDefined()
 })
 
-test('стадия во флоу открывает сайдбар с её возвратами в этом флоу, а название ведёт к её правке', async () => {
+test('стадия во флоу открывает сайдбар с её возвратами в этом флоу, а кнопка после возвратов ведёт к её правке', async () => {
   stubApi(api([app]))
   const region = await renderFlow()
 
@@ -282,13 +282,18 @@ test('стадия во флоу открывает сайдбар с её во�
   expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Стадия 2: Ревью')
   // Поля самой стадии правятся на вкладке «Стадии», а не здесь
   expect(drawer.queryByRole('textbox', { name: 'Выход стадии' })).not.toBeInTheDocument()
-  expect(drawer.getByRole('button', { name: 'Добавить возврат' })).toBeInTheDocument()
+  // Название в шапке — не ссылка: к правке ведёт кнопка сразу после возвратов
+  expect(within(drawer.getByRole('heading', { name: 'Ревью' })).queryByRole('button')).not.toBeInTheDocument()
+  const add = drawer.getByRole('button', { name: 'Добавить возврат' })
+  const edit = drawer.getByRole('button', { name: 'Править стадию «Ревью»' })
+  expect(add.compareDocumentPosition(edit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(drawer.getByRole('button', { name: 'Закрыть сайдбар' })).toBeInTheDocument()
 
-  fireEvent.click(drawer.getByRole('button', { name: 'Править стадию «Ревью»' }))
+  fireEvent.click(edit)
 
   expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
-  const edit = within(screen.getByRole('dialog', { name: 'Стадия «Ревью»' }))
-  expect(edit.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт по sha')
+  const dialog = within(screen.getByRole('dialog', { name: 'Стадия «Ревью»' }))
+  expect(dialog.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт по sha')
 })
 
 test('возврат правится у стадии в своём флоу: цель — только стадии этого флоу, стоящие раньше', async () => {
