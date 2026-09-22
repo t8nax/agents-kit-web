@@ -89,11 +89,13 @@ export default function BacklogWriteModal({
   const about =
     subject?.entry ?? (aboutNumber && base && findEntry ? (findEntry(base, aboutNumber) ?? null) : null)
 
-  // Закрытое окно разговор убирает, если агент не занят: несохранённое предложение уходит вместе с ним.
+  // Закрытое окно убирает свой разговор, если агент не занят: несохранённое предложение уходит вместе с ним.
+  // Разговора, которого окно не показывает — окно от записи до первой реплики, окно, ещё читающее панель, —
+  // закрытие не трогает: это чужая работа агента.
   const close = useCallback(() => {
-    if (!running) void forget()
+    if (talking && !restoring && !running) void forget()
     onClose()
-  }, [running, forget, onClose])
+  }, [talking, restoring, running, forget, onClose])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -481,7 +483,8 @@ function ChangeCard({ change, state }: { change: ProposalChange; state: Proposal
         : state === 'refused'
           ? 'отказались'
           : 'заменено'
-  const tone = removed && (state === 'pending' || state === 'saved') ? 'removed' : undefined
+  // Сохранённое — в бэклоге, как добавленное: зелёным; удаляемое, пока ждёт, — красным.
+  const tone = state === 'saved' ? 'added' : removed && state === 'pending' ? 'removed' : undefined
   return (
     <EntryCard
       entry={change.entry}

@@ -160,6 +160,9 @@ test('изменение и удаление ждут «Сохранить», а
   stream.send({ type: 'saved', text: '', commit: 'c0ffee1', proposalId: 'p1' })
   expect(await within(screen.getByRole('list', { name: 'Изменения' })).findByText('изменена')).toBeInTheDocument()
   expect(screen.getByText('удалена')).toBeInTheDocument()
+  // Сохранённое уже в бэклоге: отметки зелёные, как у добавленной записи.
+  expect(screen.getByText('изменена')).toHaveClass('added')
+  expect(screen.getByText('удалена')).toHaveClass('added')
   expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
   expect(screen.queryByText('Ждут сохранения: изменить 1, удалить 1')).not.toBeInTheDocument()
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(bases[0].base))
@@ -287,6 +290,17 @@ test('закрытое посреди ответа окно агента не т
   await screen.findByText('Готово.')
   fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
   expect(deletes).toEqual(['/api/agent/backlog'])
+})
+
+test('окно от записи, закрытое без просьбы, не трогает разговор, который идёт в панели', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream, { running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web') })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  await screen.findByLabelText('Просьба к Чудо-Юдо')
+  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+
+  expect(deletes).toEqual([])
 })
 
 test('открытое заново окно показывает разговор с его записью и ход, который шёл без него', async () => {
