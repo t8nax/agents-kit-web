@@ -75,6 +75,12 @@ test('поиск — по номеру и заголовку без различ
   expect(numbers(arrange(entries, { ...emptySelection, query: 'импорт', types: ['баг'] }, defaultOrder))).toEqual(['B-10'])
 })
 
+test('номер, набранный кириллицей, и слова вокруг разметки заголовка находятся', () => {
+  const marked = [...entries, entry('B-5', 'Флаг `--force` у **сборки**')]
+  expect(numbers(arrange(marked, { ...emptySelection, query: 'в-10' }, defaultOrder))).toEqual(['B-10'])
+  expect(numbers(arrange(marked, { ...emptySelection, query: '--force у сборки' }, defaultOrder))).toEqual(['B-5'])
+})
+
 test('отбор включён, когда выбрано значение или набран запрос', () => {
   expect(isFiltering(emptySelection)).toBe(false)
   expect(isFiltering({ ...emptySelection, query: '  ' })).toBe(false)

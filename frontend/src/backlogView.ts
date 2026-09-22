@@ -1,4 +1,5 @@
 import type { BacklogEntry } from './Backlog'
+import { twins } from './taskTitle'
 
 // Отбор и порядок записей бэклога — только показ: порядок записей в самом файле панель не меняет.
 // Значения полей задаёт кит; запись без поля или со своим значением под фильтр по этому полю не попадает.
@@ -9,7 +10,7 @@ export type SortField = 'number' | 'type' | 'priority'
 export type SortDirection = 'asc' | 'desc'
 export type Order = { field: SortField; direction: SortDirection }
 
-/** Без сохранённого выбора записи стоят как в файле — по номеру от давних к новым. */
+/** Без сохранённого выбора — по числу номера от давних к новым; буквы номера порядку не важны. */
 export const defaultOrder: Order = { field: 'number', direction: 'asc' }
 
 /** Выбор оператора: пустой список значений — поле не фильтрует, пустой запрос — поиска нет. */
@@ -24,8 +25,14 @@ export function isFiltering(selection: Selection): boolean {
 export function matches(entry: BacklogEntry, selection: Selection): boolean {
   if (selection.types.length > 0 && !selection.types.includes(entry.type ?? '')) return false
   if (selection.priorities.length > 0 && !selection.priorities.includes(entry.priority ?? '')) return false
-  const query = selection.query.trim().toLowerCase()
-  return query === '' || `${entry.number ?? ''} ${entry.title}`.toLowerCase().includes(query)
+  const query = searchable(selection.query.trim())
+  return query === '' || searchable(`${entry.number ?? ''} ${entry.title}`).includes(query)
+}
+
+// Поиск сравнивает то, что видно: без регистра, без знаков разметки заголовка, а номер, набранный
+// кириллицей, — как латиницей: «в-7» находит «B-7», как у номеров кита.
+function searchable(text: string): string {
+  return [...text.replace(/[`*_~]/g, '').toUpperCase()].map((c) => twins[c] ?? c).join('')
 }
 
 function numberRank(entry: BacklogEntry): number | null {

@@ -523,6 +523,7 @@ test('поиск по номеру и заголовку без различия
 
   fireEvent.click(screen.getByRole('button', { name: 'Очистить' }))
   expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveFocus()
   expect(screen.queryByRole('button', { name: 'Очистить' })).not.toBeInTheDocument()
   expect(shownNumbers()).toEqual(['B-1', 'B-2', 'B-3', 'B-4'])
 })

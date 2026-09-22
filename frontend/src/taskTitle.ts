@@ -3,7 +3,7 @@
 // в номере, набранном руками, ничего не значат: «в-7» — тот же номер, что «B-7».
 const format = /^([A-Z][A-Z0-9]{0,9})-\d+$/
 
-const twins: Record<string, string> = {
+export const twins: Record<string, string> = {
   А: 'A', В: 'B', Е: 'E', К: 'K', М: 'M', Н: 'H', О: 'O', Р: 'P', С: 'C', Т: 'T', Х: 'X',
 }
 

@@ -444,10 +444,12 @@ function toggle(values: string[], value: string): string[] {
 }
 
 function SearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const input = useRef<HTMLInputElement>(null)
   return (
     <label className="backlog-search">
       <SearchIcon />
       <input
+        ref={input}
         type="text"
         className={value ? 'filled' : ''}
         placeholder="Поиск"
@@ -456,7 +458,16 @@ function SearchBox({ value, onChange }: { value: string; onChange: (value: strin
         onChange={(e) => onChange(e.target.value)}
       />
       {value && (
-        <button type="button" className="backlog-search-clear" aria-label="Очистить" onClick={() => onChange('')}>
+        <button
+          type="button"
+          className="backlog-search-clear"
+          aria-label="Очистить"
+          onClick={() => {
+            onChange('')
+            // Кнопка с очисткой пропадает: клавиатура остаётся в поле, а не уходит в начало страницы
+            input.current?.focus()
+          }}
+        >
           <CloseIcon />
         </button>
       )}
