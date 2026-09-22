@@ -90,26 +90,34 @@ function collapsed(dialog: ReturnType<typeof within>, title: string) {
   return dialog.getByRole('button', { name: new RegExp(`^${title.replace(/[?.]/g, '\\$&')}`) })
 }
 
-test('над лентой — полоса с задачей, проектом, именем копии и веткой, без полного пути копии', async () => {
+test('в шапке — задача, проект и имя копии со значками, без ветки и полного пути копии', async () => {
   stubApi(() => new Response(null, { status: 204 }))
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   expect(document.querySelector('.strip-task')).toHaveTextContent('Окно ответа')
-  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledge·app·feat/reply')
+  const items = [...document.querySelectorAll('.strip-meta .meta-item')]
+  expect(items.map((item) => [item.getAttribute('title'), item.textContent])).toEqual([
+    ['Проект', 'app-knowledge'],
+    ['Рабочая копия', 'app'],
+  ])
+  // у каждого свой значок, а разделителя между ними нет
+  expect(items.every((item) => item.querySelector('svg'))).toBe(true)
+  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledgeapp')
+  expect(document.querySelector('.reply-window')!.textContent).not.toContain('feat/reply')
   expect(document.querySelector('.reply-window')!.textContent).not.toContain('D:\\Projects\\app')
 })
 
-test('задача не прочиталась — на её месте пусто, без тире; ветки нет — строка без неё', async () => {
-  stubApi(() => new Response(null, { status: 204 }), { ...questions, task: null, branch: null })
+test('задача не прочиталась — на её месте пусто, без тире', async () => {
+  stubApi(() => new Response(null, { status: 204 }), { ...questions, task: null })
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   expect(document.querySelector('.strip-task')).toBeNull()
   expect(document.querySelector('.task-strip')!.textContent).not.toContain('—')
-  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledge·app')
+  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledgeapp')
 })
 
 test('все вопросы видны сразу: раскрыт первый, остальные свёрнуты, без номеров, счётчика и шагов', async () => {

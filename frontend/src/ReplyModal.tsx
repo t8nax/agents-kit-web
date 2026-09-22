@@ -362,16 +362,16 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
               {data && (
                 <>
                   {data.task && <div className="strip-task">{data.task}</div>}
+                  {/* Проект и копия — значками, без ветки: она почти повторяла имя копии (решение оператора). */}
                   <div className="strip-meta">
-                    <span className="strip-project">{data.project}</span>
-                    <span className="strip-sep">·</span>
-                    {copyName(data.copy)}
-                    {data.branch && (
-                      <>
-                        <span className="strip-sep">·</span>
-                        {data.branch}
-                      </>
-                    )}
+                    <span className="meta-item" title="Проект">
+                      <BoxIcon />
+                      <span className="strip-project">{data.project}</span>
+                    </span>
+                    <span className="meta-item" title="Рабочая копия">
+                      <FolderIcon />
+                      <span>{copyName(data.copy)}</span>
+                    </span>
                   </div>
                   <div className="strip-actions">
                     <button
@@ -704,6 +704,25 @@ function SendIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <line x1="22" y1="2" x2="11" y2="13" />
       <polygon points="22 2 15 22 11 13 2 9 22 2" />
+    </svg>
+  )
+}
+
+function BoxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="16.5" y1="9.4" x2="7.5" y2="4.21" />
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  )
+}
+
+function FolderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
     </svg>
   )
 }
