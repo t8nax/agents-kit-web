@@ -120,14 +120,16 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
 
   // Закрытое окно ничего не отправляет: отложенная запись уходит вместе с ним.
   // Ответ записи, пришедший после закрытия окна, его уже не трогает: иначе он закрыл бы окно другой копии.
-  const alive = useRef(true)
-  useEffect(
-    () => () => {
+  // Отметка ставится в самом эффекте: в StrictMode разработки окно монтируется дважды, и первая уборка
+  // иначе оставила бы его «закрытым» навсегда.
+  const alive = useRef(false)
+  useEffect(() => {
+    alive.current = true
+    return () => {
       alive.current = false
       window.clearTimeout(timer.current)
-    },
-    [],
-  )
+    }
+  }, [])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

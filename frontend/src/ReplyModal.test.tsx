@@ -1,4 +1,5 @@
 import { act, createEvent, fireEvent, render, screen, waitFor, waitForElementToBeRemoved, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import { UNDO_MS, type QuestionsResponse } from './ReplyModal'
@@ -783,4 +784,23 @@ test('Escape сначала закрывает окно поверх, потом
 
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+// В разработке панель идёт в StrictMode: окно монтируется дважды, и отметка «окно открыто» должна это пережить —
+// иначе записанные ответы не закрывали окно, а отказ не показывался (поймано e2e на B-208).
+test('в StrictMode записанные ответы закрывают окно, а отказ показывается', async () => {
+  const calls = stubApi(rejectWith(409, { question: 'Подтвердить критерий?', problem: 'missing' }), { ...questions, questions: [questions.questions[0]] })
+  render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'Ответить' }))
+  const dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerLast(dialog, 'принимаю')
+  waitOut()
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Этого вопроса уже нет в памяти')
+  expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
 })
