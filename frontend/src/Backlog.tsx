@@ -156,7 +156,7 @@ export default function Backlog({
         </button>
       </div>
 
-      {load.kind === 'loading' && <BacklogSkeleton />}
+      {load.kind === 'loading' && <BacklogSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -168,7 +168,7 @@ export default function Backlog({
       )}
 
       {load.kind === 'loaded' && backlogs.length > 0 && (
-        <div {...reveal}>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {backlogs.length > 1 && (
             <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
               <FilterChip label="Все проекты" active={filter === null} onClick={() => setFilter(null)} />
@@ -379,7 +379,7 @@ const PRIORITY_CLASS: Record<string, string> = {
 const TYPE_CLASS: Record<string, string> = { баг: 'entry-type-bug', фича: 'entry-type-feature' }
 
 /** Бэклог, пока он читается в первый раз: чипы проектов, строка отбора и записи проектов полосами (макет B-201). */
-function BacklogSkeleton() {
+function BacklogSkeleton({ shown }: { shown: boolean }) {
   const round = { borderRadius: 6 }
   const entry = (title: string) => (
     <div className="entry-row sk-frame" key={title}>
@@ -406,7 +406,7 @@ function BacklogSkeleton() {
     </section>
   )
   return (
-    <Skeleton label="Загрузка бэклога">
+    <Skeleton label="Загрузка бэклога" shown={shown}>
       <div className="filter-bar">
         {[92, 104, 80].map((w) => (
           <Sk key={w} w={w} h={28} className="sk-pill" />

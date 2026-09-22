@@ -125,7 +125,7 @@ type Section =
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
-  const reveal = useReveal(state.rows === null)
+  const reveal = useReveal(state.rows === null && !state.failed)
   const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [asking, setAsking] = useState(false)
@@ -273,9 +273,9 @@ function App() {
                 </button>
               </div>
               {state.failed && <p className="message warning-text">Нет связи с API</p>}
-              {state.rows === null && !state.failed && <WorkspacesSkeleton />}
+              {state.rows === null && !state.failed && <WorkspacesSkeleton shown={reveal.shown} />}
               {state.rows && (
-                <div {...reveal}>
+                <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
                   <WorkspacesTable
                     rows={state.rows}
                     fresh={fresh}
@@ -666,7 +666,7 @@ function WorkspacesHead() {
  * Таблица копий, пока её не опросили в первый раз: группы и строки полосами под настоящей шапкой
  * колонок (макет B-201). Прежде до первого ответа раздел стоял пустым.
  */
-function WorkspacesSkeleton() {
+function WorkspacesSkeleton({ shown }: { shown: boolean }) {
   const row = (name: number, branch: number, task: string, stage: number, badge: number) => (
     <tr className="sk-frame" key={`${name}-${branch}`}>
       <td className="copy-col">
@@ -718,7 +718,7 @@ function WorkspacesSkeleton() {
     </tbody>
   )
   return (
-    <Skeleton label="Загрузка рабочих копий">
+    <Skeleton label="Загрузка рабочих копий" shown={shown}>
       <table>
         <WorkspacesHead />
         {group(118, [row(104, 150, '72%', 84, 84), row(88, 124, '58%', 96, 104), row(96, 138, '64%', 70, 72)])}

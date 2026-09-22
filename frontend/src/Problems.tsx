@@ -37,8 +37,8 @@ const checkingIntervalMs = 1000
  */
 export default function Problems({ onSettings }: { onSettings: () => void }) {
   const [snapshot, setSnapshot] = useState<HealthSnapshot | null>(null)
-  const reveal = useReveal(snapshot === null)
   const [failed, setFailed] = useState(false)
+  const reveal = useReveal(snapshot === null && !failed)
   const [checking, setChecking] = useState(false)
   const [checkError, setCheckError] = useState<string | null>(null)
   const lastRequest = useRef(0)
@@ -112,10 +112,10 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
       </div>
       {failed && <p className="message warning-text">Нет связи с API</p>}
       {checkError && <p className="message warning-text">{checkError}</p>}
-      {snapshot === null && !failed && <ProblemsSkeleton />}
+      {snapshot === null && !failed && <ProblemsSkeleton shown={reveal.shown} />}
       {snapshot?.pending && <p className="empty-message">Идёт первая проверка баз…</p>}
       {snapshot && !snapshot.pending && (
-        <div {...reveal}>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {snapshot.kit !== 'ok' && <KitNotice kit={snapshot.kit} onSettings={onSettings} />}
           {snapshot.bases.length === 0 && (
             <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>
@@ -130,7 +130,7 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
 }
 
 /** Проблемы, пока снимок сверки читается в первый раз: карточки баз полосами (макет B-201). */
-function ProblemsSkeleton() {
+function ProblemsSkeleton({ shown }: { shown: boolean }) {
   const item = (file: number, message: string) => (
     <li className="problems-item" style={{ alignItems: 'center' }} key={`${file}-${message}`}>
       <span>
@@ -165,7 +165,7 @@ function ProblemsSkeleton() {
     </section>
   )
   return (
-    <Skeleton label="Загрузка проблем баз">
+    <Skeleton label="Загрузка проблем баз" shown={shown}>
       {card(
         110,
         250,

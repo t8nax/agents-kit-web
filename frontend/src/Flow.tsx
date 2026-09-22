@@ -642,7 +642,7 @@ export default function Flow({
         </div>
       </div>
 
-      {load.kind === 'loading' && <FlowSkeleton />}
+      {load.kind === 'loading' && <FlowSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -912,7 +912,7 @@ function PickMenu({
 }
 
 /** Флоу, пока он читается в первый раз: выбор сценария и цепочка стадий полосами (макет B-201). */
-function FlowSkeleton() {
+function FlowSkeleton({ shown }: { shown: boolean }) {
   const arrow = <Sk w={2} h={32} className="sk-block" style={{ margin: '0 auto', borderRadius: 1 }} />
   const node = (title: number, executor: number) => (
     <>
@@ -925,7 +925,7 @@ function FlowSkeleton() {
     </>
   )
   return (
-    <Skeleton label="Загрузка флоу" className="flow-canvas">
+    <Skeleton label="Загрузка флоу" shown={shown} className="flow-canvas">
       <div className="flow-canvas-pick">
         <Sk w={128} h={30} style={{ borderRadius: 6 }} />
       </div>

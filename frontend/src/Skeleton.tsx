@@ -1,5 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
-import { SKELETON_DELAY_MS } from './reveal'
+import type { CSSProperties, ReactNode } from 'react'
 import './Skeleton.css'
 
 /**
@@ -28,15 +27,21 @@ export function Sk({
 /**
  * Заготовка раздела, пока он в первый раз читает свои данные: полосы в форме того, что придёт.
  * label — что грузится, словами: его читает программа для незрячих, на экране его нет. Сами полосы
- * и настоящая шапка колонок под ними от неё скрыты — читать в них нечего. Видны полосы становятся
- * через SKELETON_DELAY_MS: быструю загрузку они не успевают перемигнуть, а место держат сразу.
+ * и настоящая шапка колонок под ними от неё скрыты — читать в них нечего. shown — от useReveal раздела:
+ * пока загрузка не затянулась, полосы держат место невидимыми и при быстрой загрузке не успевают
+ * появиться; настоящая шапка колонок видна сразу.
  */
-export function Skeleton({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
-  const [shown, setShown] = useState(false)
-  useEffect(() => {
-    const timer = setTimeout(() => setShown(true), SKELETON_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [])
+export function Skeleton({
+  label,
+  shown,
+  className,
+  children,
+}: {
+  label: string
+  shown: boolean
+  className?: string
+  children: ReactNode
+}) {
   return (
     <div className={className} role="status" aria-busy="true" aria-label={label}>
       <div className={shown ? 'sk-content' : 'sk-content sk-wait'} aria-hidden="true">

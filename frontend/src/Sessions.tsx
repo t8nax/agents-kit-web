@@ -60,8 +60,8 @@ const columnCount = 5
  */
 export default function Sessions() {
   const [rows, setRows] = useState<SessionRow[] | null>(null)
-  const reveal = useReveal(rows === null)
   const [failed, setFailed] = useState(false)
+  const reveal = useReveal(rows === null && !failed)
   const [copy, setCopy] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -190,9 +190,9 @@ export default function Sessions() {
           {error}
         </p>
       )}
-      {rows === null && !failed && <SessionsSkeleton />}
+      {rows === null && !failed && <SessionsSkeleton shown={reveal.shown} />}
       {rows && (
-        <div {...reveal}>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {rows.length > 0 && (
             <div className="filter-bar" role="group" aria-label="Фильтр по копиям">
               <FilterChip label="Все копии" active={copy === null} onClick={() => setCopy(null)} />
@@ -358,7 +358,7 @@ function SessionsHead() {
  * Перечень, пока сессии читаются в первый раз: чипы копий и строки таблицы полосами под настоящей
  * шапкой колонок (макет B-201). Прежде до первого ответа раздел стоял пустым.
  */
-function SessionsSkeleton() {
+function SessionsSkeleton({ shown }: { shown: boolean }) {
   const row = (copy: number, name: number, sub: number, badge: number) => (
     <tr className="sk-frame" key={`${copy}-${name}`}>
       <td>
@@ -399,7 +399,7 @@ function SessionsSkeleton() {
     </tbody>
   )
   return (
-    <Skeleton label="Загрузка сессий">
+    <Skeleton label="Загрузка сессий" shown={shown}>
       <div className="filter-bar">
         {[86, 130, 116, 124].map((w) => (
           <Sk key={w} w={w} h={28} className="sk-pill" />

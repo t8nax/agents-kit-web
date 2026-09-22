@@ -104,7 +104,7 @@ export default function Performers({
         <h2>Исполнители</h2>
       </div>
 
-      {load.kind === 'loading' && <PerformersSkeleton />}
+      {load.kind === 'loading' && <PerformersSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -146,7 +146,7 @@ export default function Performers({
       )}
 
       {load.kind === 'loaded' && bases.length > 0 && (
-        <div {...reveal}>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {errors.map((base) => (
             <p className="message warning-text" key={base.base} role="alert">
               {base.project}: {base.error}
@@ -195,7 +195,7 @@ export default function Performers({
 }
 
 /** Исполнители, пока они читаются в первый раз: выбор проекта и сетка карточек полосами (макет B-201). */
-function PerformersSkeleton() {
+function PerformersSkeleton({ shown }: { shown: boolean }) {
   const card = (name: number, source: number, last: string) => (
     <div className="performer-card sk-frame">
       <span className="performer-top">
@@ -218,7 +218,7 @@ function PerformersSkeleton() {
     </div>
   )
   return (
-    <Skeleton label="Загрузка исполнителей">
+    <Skeleton label="Загрузка исполнителей" shown={shown}>
       <div className="filter-bar performer-filter">
         <Sk w={52} h={11} />
         <Sk w={200} h={30} style={{ borderRadius: 6 }} />

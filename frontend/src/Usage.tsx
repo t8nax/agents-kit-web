@@ -57,7 +57,7 @@ export default function Usage() {
   const [view, setView] = useState<UsageView | null>(null)
   const [failed, setFailed] = useState(false)
   const [loading, setLoading] = useState(false)
-  const reveal = useReveal(view === null)
+  const reveal = useReveal(view === null && !failed)
 
   const load = useCallback(() => {
     fetch('/api/usage')
@@ -105,10 +105,10 @@ export default function Usage() {
       </div>
 
       {failed && <p className="message warning-text">Нет связи с API</p>}
-      {view === null && !failed && <UsageSkeleton />}
+      {view === null && !failed && <UsageSkeleton shown={reveal.shown} />}
 
       {view && (
-        <div {...reveal}>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {view.limitsProblem && (
             <p className="usage-failure">
               <b>Проценты лимита сейчас недоступны.</b> {view.limitsProblem} Панель спрашивает их тем же способом,
@@ -194,7 +194,7 @@ function ModelsHead() {
 }
 
 /** Расход, пока он читается в первый раз: три окна лимита и таблица моделей полосами (макет B-201). */
-function UsageSkeleton() {
+function UsageSkeleton({ shown }: { shown: boolean }) {
   const limit = (label: number, when: number, day = false) => (
     <section className={`usage-window ${day ? 'day' : ''}`}>
       <div className="usage-window-head">
@@ -236,7 +236,7 @@ function UsageSkeleton() {
     </tr>
   )
   return (
-    <Skeleton label="Загрузка расхода">
+    <Skeleton label="Загрузка расхода" shown={shown}>
       <div className="usage-windows">
         {limit(150, 110)}
         {limit(130, 150)}

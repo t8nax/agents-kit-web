@@ -57,12 +57,12 @@ const waiting = (count: number) => {
  */
 export default function PanelCard() {
   const [panel, setPanel] = useState<Panel | null>(null)
-  const reveal = useReveal(panel === null)
   const [updates, setUpdates] = useState<PanelUpdates | null>(null)
   const [checking, setChecking] = useState(false)
   const [update, setUpdate] = useState<PanelUpdateState | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const reveal = useReveal(panel === null && !error)
   const [copied, setCopied] = useState(false)
 
   const loadUpdates = useCallback((installed: boolean) => {
@@ -136,7 +136,7 @@ export default function PanelCard() {
   if (!panel)
     return (
       <PanelShell>
-        {error ? <p className="bases-error">{error}</p> : <PanelSkeleton />}
+        {error ? <p className="bases-error">{error}</p> : <PanelSkeleton shown={reveal.shown} />}
       </PanelShell>
     )
 
@@ -258,7 +258,7 @@ export default function PanelCard() {
 }
 
 /** Карточка, пока панель читает, какая она: канал, сборка и кнопка полосами (макет B-201). */
-function PanelSkeleton() {
+function PanelSkeleton({ shown }: { shown: boolean }) {
   const row = (label: number, value: number, height = 12) => (
     <div className="panel-row">
       <span className="panel-label">
@@ -268,7 +268,7 @@ function PanelSkeleton() {
     </div>
   )
   return (
-    <Skeleton label="Загрузка сведений о панели" className="panel-card-body">
+    <Skeleton label="Загрузка сведений о панели" shown={shown} className="panel-card-body">
       {row(46, 170, 36)}
       <div className="panel-divider" />
       {row(40, 150)}

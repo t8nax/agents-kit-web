@@ -184,7 +184,7 @@ function BasesSettings() {
       {!browsing && (
         <div className="bases-body">
           {load.kind === 'loading' && (
-            <Skeleton label="Загрузка списка баз">
+            <Skeleton label="Загрузка списка баз" shown={reveal.shown}>
               <ul className="bases-list sk-frame">
                 {['46%', '38%', '52%'].map((width) => (
                   <li key={width}>
@@ -432,7 +432,7 @@ function KitSettings() {
       {!browsing && (
         <div className="bases-body">
           {load.kind === 'loading' && (
-            <Skeleton label="Загрузка пути к киту">
+            <Skeleton label="Загрузка пути к киту" shown={reveal.shown}>
               <AddRowSkeleton label={140} buttons={[86, 160, 96]} />
             </Skeleton>
           )}
