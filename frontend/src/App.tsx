@@ -295,6 +295,7 @@ function App() {
             <Flow
               key={openRequest?.kind === 'flow' ? openRequest.at : 'flow'}
               baseFor={openRequest?.kind === 'flow' ? openRequest.base : null}
+              rewriting={openRequest?.kind === 'flow'}
               onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (
