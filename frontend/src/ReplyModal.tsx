@@ -47,8 +47,9 @@ type Rejection = { question: string; problem: 'empty' | 'missing' | 'already-ans
 
 type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 'loaded'; data: QuestionsResponse }
 
-// open — оператор отвечает; sending — ответы ждут своих секунд с «Отменить»; writing — запись идёт.
-type Phase = 'open' | 'sending' | 'writing'
+// open — оператор отвечает; sending — ответы ждут своих секунд с «Отменить»; writing — запись идёт;
+// leaving — записанные ответы уходят вместе с окном, и оно гаснет.
+type Phase = 'open' | 'sending' | 'writing' | 'leaving'
 
 type Props = {
   base: string
@@ -61,6 +62,9 @@ const EMPTY = 'Напишите свой ответ или выберите ва
 
 // Пока видно «Ответы отправлены агенту», отправку можно отменить: запись идёт после этих секунд.
 export const UNDO_MS = 3000
+
+// Записанные ответы уводят окно угасанием; обычное закрытие мгновенно — решение оператора.
+export const FADE_MS = 220
 
 // Запись без ответа дольше этого не держит окно: на время записи оно не закрывается ничем.
 export const WRITE_TIMEOUT_MS = 30000
@@ -76,13 +80,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   // Данные ответы — по вопросу; пустая строка — ответа нет.
   const [answers, setAnswers] = useState<string[]>([])
-  // Вопросы, мимо которых уже прошли: без ответа такой — «Пропущен».
-  const [passed, setPassed] = useState<boolean[]>([])
   const [current, setCurrent] = useState(0)
-  // Набранное в строке ввода — ответ на текущий вопрос, пока его не дали.
-  const [draft, setDraft] = useState('')
-  // Набранное, но не отданное у других вопросов: уход к другому вопросу его не стирает.
-  const [typed, setTyped] = useState<Record<number, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('open')
   const [opening, setOpening] = useState(false)
@@ -111,9 +109,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         // Открытое заново окно встаёт на первый вопрос без ответа; всё, что до него, уже пройдено.
         const first = Math.max(0, given.findIndex((a) => !a.trim()))
         setAnswers(given)
-        setPassed(given.map((_, i) => i < first))
         setCurrent(first)
-        setDraft(given[first] ?? '')
         setLoad({ kind: 'loaded', data })
       })
       .catch((error: unknown) =>
@@ -178,15 +174,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     undoButton.current?.focus()
   }, [phase])
 
-  // `given` — ответ, только что данный текущему вопросу: набранное у него уже стало ответом.
-  function go(index: number, given?: string) {
-    const left = { ...typed }
-    if (given !== undefined || draft === (answers[current] ?? '')) delete left[current]
-    else left[current] = draft
-    setTyped(left)
-    setPassed((prev) => prev.map((p, i) => p || i === current))
+  function go(index: number) {
     setCurrent(index)
-    setDraft(left[index] ?? answers[index] ?? '')
     setError(null)
   }
 
@@ -194,37 +183,29 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     return list.flatMap((a, i) => (a.trim() ? [] : [i]))
   }
 
-  function skip() {
-    if (current < questions.length - 1) return go(current + 1)
-    const others = unansweredIn(answers).filter((i) => i !== current)
-    if (others.length > 0) go(others[0])
+  // Ответ пишется сразу, как его набирают или выбирают: в ленту и в черновик браузера.
+  function setAnswer(value: string) {
+    setAnswers((prev) => prev.map((a, i) => (i === current ? value : a)))
+    saveDraft(base, copy, questions[current].title, value.trim())
+    if (error === EMPTY && value.trim()) setError(null)
   }
 
-  function answer() {
-    const value = draft.trim()
-    if (!value) {
+  function send() {
+    const left = unansweredIn(answers)
+    if (left.length > 0) {
+      go(left[0])
       setError(EMPTY)
       return
     }
-    const next = answers.map((a, i) => (i === current ? value : a))
-    setAnswers(next)
-    saveDraft(base, copy, questions[current].title, value)
-    const left = unansweredIn(next)
-    if (left.length === 0) {
-      setPassed((prev) => prev.map((p, i) => p || i === current))
-      setError(null)
-      setPhase('sending')
-      timer.current = window.setTimeout(() => void write(next), UNDO_MS)
-      return
-    }
-    const after = left.filter((i) => i > current)
-    go(after.length > 0 ? after[0] : left[0], value)
+    setError(null)
+    setPhase('sending')
+    const given = answers
+    timer.current = window.setTimeout(() => void write(given), UNDO_MS)
   }
 
   function undo() {
     window.clearTimeout(timer.current)
     setPhase('open')
-    setDraft(answers[current] ?? '')
   }
 
   // Все ответы пишутся разом и только все вместе; отказ оставляет окно и данные ответы на месте.
@@ -233,10 +214,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     const fail = (text: string, question?: string) => {
       if (!alive.current) return
       const index = question ? questions.findIndex((q) => q.title === question) : -1
-      if (index >= 0) {
-        setCurrent(index)
-        setDraft(given[index])
-      }
+      if (index >= 0) setCurrent(index)
       setError(text)
       setPhase('open')
     }
@@ -257,7 +235,10 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         forgetDrafts(base, copy, questions.map((q) => q.title))
         // ответы в памяти: окно больше не нужно, признак успеха — строка таблицы перестаёт ждать
         onAnswered()
-        if (alive.current) onClose()
+        // окно уходит угасанием, а закрывается, когда оно закончилось
+        if (!alive.current) return
+        setPhase('leaving')
+        timer.current = window.setTimeout(onClose, FADE_MS)
         return
       }
       if (response.status === 400 || response.status === 409) {
@@ -283,7 +264,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return
     if (event.nativeEvent.isComposing) return
     event.preventDefault()
-    answer()
+    if (current < questions.length - 1) go(current + 1)
+    else send()
   }
 
   // Окно ответа остаётся на месте вместе с набранным ответом: переход его не трогает.
@@ -372,13 +354,11 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const hasContext = !!data && (data.criteria.length > 0 || !!data.outOfScope)
   const hasArtifacts = !!data && data.artifacts.length > 0
   const question = questions[current]
-  const answered = !!answers[current]?.trim()
-  const canSkip = current < questions.length - 1 || unansweredIn(answers).some((i) => i !== current)
 
   return (
     <>
       <div
-        className="modal-overlay"
+        className={`modal-overlay ${phase === 'leaving' ? 'is-leaving' : ''}`}
         onMouseDown={(e) => e.target === e.currentTarget && !shown && phase === 'open' && onClose()}
       >
         <div
@@ -481,138 +461,135 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             </p>
           )}
 
-          <div className={`reply-feed ${!question ? 'is-centered' : ''}`} ref={feed}>
-            {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
-            {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
-            {loaded && !question && <p className="modal-message">Вопросов без ответа нет</p>}
-            {questions.map((q, i) => {
-              const given = answers[i] ?? ''
-              const effect = q.variants.find((v) => v.choice === given)?.effect
-              const skipped = !given.trim() && passed[i] && i !== current
-              return (
-                <div className="feed-item" key={i} data-q={i}>
-                  {i === current && phase === 'open' ? (
-                    <section className="agent-q" aria-labelledby={`reply-q-${i}`}>
-                      <h2 className="q-title" id={`reply-q-${i}`}>
-                        <InlineMarkdown text={q.title} />
-                      </h2>
-                      {q.context && <Markdown className="q-context" text={q.context} />}
-                      {q.variants.length > 0 && (
-                        <div className="radio-list">
-                          {q.variants.map((v, k) => (
-                            <button
-                              key={k}
-                              type="button"
-                              className="radio-opt"
-                              aria-pressed={draft === v.choice}
-                              onClick={() => {
-                                setDraft(v.choice)
-                                if (error === EMPTY) setError(null)
-                                field.current?.focus()
-                              }}
-                            >
-                              <span className="radio-dot" aria-hidden="true" />
-                              <span className="opt-head">
-                                <span className="opt-title">{v.choice}</span>
-                                {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
-                              </span>
-                              {v.effect && <span className="opt-desc">{v.effect}</span>}
-                            </button>
-                          ))}
+          {phase === 'open' ? (
+            <div className={`reply-feed ${!question ? 'is-centered' : ''}`} ref={feed}>
+              {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
+              {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
+              {loaded && !question && <p className="modal-message">Вопросов без ответа нет</p>}
+              {questions.map((q, i) => {
+                const given = answers[i] ?? ''
+                const effect = q.variants.find((v) => v.choice === given)?.effect
+                return (
+                  <div className="feed-item" key={i} data-q={i}>
+                    {i === current ? (
+                      <section className="agent-q" aria-labelledby={`reply-q-${i}`}>
+                        <h2 className="q-title" id={`reply-q-${i}`}>
+                          <InlineMarkdown text={q.title} />
+                        </h2>
+                        {q.context && <Markdown className="q-context" text={q.context} />}
+                        {q.variants.length > 0 && (
+                          <div className="radio-list">
+                            {q.variants.map((v, k) => (
+                              <button
+                                key={k}
+                                type="button"
+                                className="radio-opt"
+                                aria-pressed={given === v.choice}
+                                // повторный щелчок по выбранному снимает ответ: иначе его не убрать
+                                onClick={() => {
+                                  setAnswer(given === v.choice ? '' : v.choice)
+                                  field.current?.focus()
+                                }}
+                              >
+                                <span className="radio-dot" aria-hidden="true" />
+                                <span className="opt-head">
+                                  <span className="opt-title">{v.choice}</span>
+                                  {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
+                                </span>
+                                {v.effect && <span className="opt-desc">{v.effect}</span>}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    ) : (
+                      <button type="button" className="q-compact" onClick={() => go(i)}>
+                        <span className="qc-title">
+                          <InlineMarkdown text={q.title} plainLinks />
+                        </span>
+                      </button>
+                    )}
+                    {given.trim() && (
+                      <div className="op-row">
+                        <div className={`op-bubble ${i === current ? 'is-current' : ''}`}>
+                          {effect ? (
+                            <>
+                              <p className="ans-choice">{given}</p>
+                              <p className="ans-effect">{effect}</p>
+                            </>
+                          ) : (
+                            <p className="ans-text">{given}</p>
+                          )}
                         </div>
-                      )}
-                    </section>
-                  ) : (
-                    <button
-                      type="button"
-                      className={`q-compact ${skipped ? 'is-skipped' : ''}`}
-                      disabled={phase !== 'open'}
-                      onClick={() => go(i)}
-                    >
-                      <span className="qc-title">
-                        <InlineMarkdown text={q.title} plainLinks />
-                      </span>
-                      {skipped && (
-                        <>
-                          <span className="pill-skip">Пропущен</span>
-                          <span className="qc-go">Ответить</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                  {given.trim() && (
-                    <div className="op-row">
-                      <div className={`op-bubble ${i === current && phase === 'open' ? 'is-current' : ''}`}>
-                        {effect ? (
-                          <>
-                            <p className="ans-choice">{given}</p>
-                            <p className="ans-effect">{effect}</p>
-                          </>
-                        ) : (
-                          <p className="ans-text">{given}</p>
-                        )}
-                        {i !== current && phase === 'open' && (
-                          <button type="button" className="link-btn" onClick={() => go(i)}>
-                            Изменить
-                          </button>
-                        )}
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            // Ответы ушли: ленты не видно, на её месте — знак отправки, а внизу «Отменить».
+            <div className="reply-done" role="status">
+              <span className="done-mark">
+                <CheckIcon />
+              </span>
+              <p className="done-text">Ответы отправлены агенту</p>
+            </div>
+          )}
+
+          {question && (
+            <div className={`composer ${error ? 'has-error' : ''}`}>
+              {phase === 'open' ? (
+                <div className="composer-row">
+                  <button
+                    type="button"
+                    className="btn btn-icon"
+                    aria-label="Предыдущий вопрос"
+                    title="Предыдущий вопрос"
+                    disabled={current === 0}
+                    onClick={() => go(current - 1)}
+                  >
+                    <ChevronIcon direction="left" />
+                  </button>
+                  <input
+                    ref={field}
+                    id="reply-answer"
+                    className="composer-field"
+                    aria-label="Ответ"
+                    autoComplete="off"
+                    value={answers[current] ?? ''}
+                    placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    onKeyDown={onFieldKeyDown}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-icon"
+                    aria-label="Следующий вопрос"
+                    title="Следующий вопрос"
+                    disabled={current === questions.length - 1}
+                    onClick={() => go(current + 1)}
+                  >
+                    <ChevronIcon direction="right" />
+                  </button>
+                  <button type="button" className="btn btn-primary composer-send" onClick={send}>
+                    <SendIcon />
+                    Отправить
+                  </button>
                 </div>
-              )
-            })}
-            {phase !== 'open' && (
-              <div className="sent" role="status">
-                <span className="sent-msg">
-                  <CheckIcon />
-                  Ответы отправлены агенту
-                </span>
-                {phase === 'sending' && (
-                  <button ref={undoButton} type="button" className="undo" onClick={undo}>
+              ) : (
+                <div className="composer-row is-undo">
+                  <button
+                    ref={undoButton}
+                    type="button"
+                    className="btn composer-undo"
+                    disabled={phase !== 'sending'}
+                    onClick={undo}
+                  >
                     Отменить
                   </button>
-                )}
-              </div>
-            )}
-          </div>
-
-          {question && phase === 'open' && (
-            <div className={`composer ${error ? 'has-error' : ''}`}>
-              <div className="composer-row">
-                <button
-                  type="button"
-                  className="btn btn-icon"
-                  aria-label="Предыдущий вопрос"
-                  title="Предыдущий вопрос"
-                  disabled={current === 0}
-                  onClick={() => go(current - 1)}
-                >
-                  <ChevronIcon direction="left" />
-                </button>
-                <input
-                  ref={field}
-                  id="reply-answer"
-                  className="composer-field"
-                  aria-label="Ответ"
-                  autoComplete="off"
-                  value={draft}
-                  placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
-                  onChange={(e) => {
-                    setDraft(e.target.value)
-                    if (error === EMPTY && e.target.value.trim()) setError(null)
-                  }}
-                  onKeyDown={onFieldKeyDown}
-                />
-                <button type="button" className="btn-ghost composer-skip" disabled={!canSkip} onClick={skip}>
-                  {answered ? 'Дальше' : 'Пропустить'}
-                  <ChevronIcon direction="right" />
-                </button>
-                <button type="button" className="btn btn-primary composer-send" onClick={answer}>
-                  <SendIcon />
-                  Ответить
-                </button>
-              </div>
+                </div>
+              )}
               {error && (
                 <span className="field-error error-text" role="alert">
                   <WarningIcon />

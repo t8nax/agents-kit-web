@@ -80,10 +80,9 @@ async function openReply() {
 }
 
 
-// Ответ даётся строкой ввода внизу окна: набрать или выбрать вариант и нажать «Ответить».
+// Ответ ставится сразу, как его набирают: отдельной кнопки ответа нет.
 function answerWith(dialog: ReturnType<typeof within>, text: string) {
   fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: text } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
 }
 
 // Свёрнутый вопрос — кнопка с его заголовком; раскрытый — заголовок второго уровня.
@@ -126,7 +125,10 @@ test('все вопросы видны сразу: раскрыт первый, 
   expect(dialog.queryByRole('heading', { name: 'Как быть с переносами?' })).not.toBeInTheDocument()
 
   expect(dialog.queryByRole('tablist')).not.toBeInTheDocument()
-  for (const name of ['Далее', 'Назад', 'Отправить']) expect(dialog.queryByRole('button', { name })).not.toBeInTheDocument()
+  for (const name of ['Далее', 'Назад', 'Ответить', 'Пропустить']) {
+    expect(dialog.queryByRole('button', { name })).not.toBeInTheDocument()
+  }
+  expect(dialog.getByRole('button', { name: 'Отправить' })).toBeInTheDocument()
   expect(document.querySelector('.reply-window')!.textContent).not.toMatch(/Вопрос \d|из \d|Агент/)
 })
 
@@ -210,47 +212,67 @@ test('адреса в заголовке и контексте вопроса �
   expect(collapsed(dialog, 'А с https://example.com/second?').querySelector('a')).toBeNull()
 })
 
-test('вариант только вписывается в строку ввода, ответ встаёт пузырём после «Ответить», и лента идёт дальше', async () => {
+test('выбор варианта сразу ставит ответ пузырём, повторный щелчок его снимает', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
   fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
 
-  fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
+  const choice = dialog.getByRole('button', { name: /Заменять пробелами/ })
+  fireEvent.click(choice)
+
   expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами')
-  expect(dialog.getByRole('button', { name: /Заменять пробелами/ })).toHaveAttribute('aria-pressed', 'true')
-  expect(document.querySelector('.op-bubble')).toBeNull()
-
-  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
-
+  expect(choice).toHaveAttribute('aria-pressed', 'true')
   // ответ под своим вопросом: выбранный вариант жирно, под ним его описание
   const bubble = document.querySelector('.op-bubble')!
   expect(bubble.querySelector('.ans-choice')).toHaveTextContent('Заменять пробелами')
   expect(bubble.querySelector('.ans-effect')).toHaveTextContent('Абзацы теряются')
-  // остался вопрос без ответа — лента перешла к нему, ничего не отправлено
-  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
+  // ничего не отправлено, лента осталась на том же вопросе
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
   expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
+
+  fireEvent.click(choice)
+  expect(document.querySelector('.op-bubble')).toBeNull()
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
 })
 
-test('пустой ответ не принимается: под строкой ввода просьба ответить, набранное её снимает', async () => {
+test('набранное сразу видно пузырём и сохраняется черновиком, а меняют его возвратом к вопросу', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+
+  expect(document.querySelector('.op-bubble')).toHaveTextContent('принимаю')
+  expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({ 'Подтвердить критерий?': 'принимаю' })
+  // «Изменить» и «Ответить» из ленты убраны
+  expect(dialog.queryByRole('button', { name: 'Изменить' })).not.toBeInTheDocument()
+
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  fireEvent.click(collapsed(dialog, 'Подтвердить критерий?'))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+  answerWith(dialog, 'принимаю с оговоркой')
+  expect([...document.querySelectorAll('.op-bubble')].map((b) => b.textContent)).toEqual(['принимаю с оговоркой'])
+})
+
+test('«Отправить» с вопросом без ответа не отправляет: лента идёт к нему, под полем — просьба ответить', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: '   ' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  answerWith(dialog, 'заменять')
+  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
 
   expect(dialog.getByRole('alert')).toHaveTextContent('Напишите свой ответ или выберите вариант')
   expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(document.querySelector('.op-bubble')).toBeNull()
   expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
 
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
+  answerWith(dialog, 'принимаю')
   expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
 })
 
-test('Enter в строке ввода — «Ответить», а Enter набора через IME ответа не даёт', async () => {
+test('Enter ведёт к следующему вопросу, а Enter набора через IME никуда не ведёт', async () => {
   stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
@@ -275,90 +297,36 @@ const three: QuestionsResponse = {
   ],
 }
 
-test('«Пропустить» ведёт дальше, пройденный без ответа вопрос помечен «Пропущен», с последнего — к первому пропущенному', async () => {
-  stubApi(() => new Response(null, { status: 204 }), three)
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.click(dialog.getByRole('button', { name: 'Пропустить' }))
-  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
-  expect(collapsed(dialog, 'Подтвердить критерий?')).toHaveTextContent('Пропущен')
-  expect(collapsed(dialog, 'Куда класть копию?')).not.toHaveTextContent('Пропущен')
-
-  answerWith(dialog, 'заменять')
-  expect(dialog.getByRole('heading', { name: 'Куда класть копию?' })).toBeInTheDocument()
-
-  // с последнего вопроса «Пропустить» ведёт к первому пропущенному
-  fireEvent.click(dialog.getByRole('button', { name: 'Пропустить' }))
-  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(collapsed(dialog, 'Куда класть копию?')).toHaveTextContent('Пропущен')
-})
-
-test('у вопроса с ответом вместо «Пропустить» — «Дальше»; стрелка ведёт к предыдущему и на первом не нажимается', async () => {
+test('стрелки ведут по вопросам и упираются в первый и последний; пометки «Пропущен» нет', async () => {
   stubApi(() => new Response(null, { status: 204 }), three)
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   expect(dialog.getByRole('button', { name: 'Предыдущий вопрос' })).toBeDisabled()
-  answerWith(dialog, 'принимаю')
-  fireEvent.click(dialog.getByRole('button', { name: 'Предыдущий вопрос' }))
+  fireEvent.click(dialog.getByRole('button', { name: 'Следующий вопрос' }))
 
-  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
-  expect(dialog.queryByRole('button', { name: 'Пропустить' })).not.toBeInTheDocument()
-  fireEvent.click(dialog.getByRole('button', { name: 'Дальше' }))
   expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
-})
+  // мимо первого прошли без ответа, и он всё равно обычная свёрнутая строка
+  expect(collapsed(dialog, 'Подтвердить критерий?')).not.toHaveTextContent('Пропущен')
+  expect(document.querySelector('.q-compact.is-skipped')).toBeNull()
 
-test('данный ответ правится: «Изменить» открывает его вопрос, новый ответ встаёт на место прежнего', async () => {
-  stubApi(() => new Response(null, { status: 204 }), three)
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'Следующий вопрос' }))
+  expect(dialog.getByRole('heading', { name: 'Куда класть копию?' })).toBeInTheDocument()
+  expect(dialog.getByRole('button', { name: 'Следующий вопрос' })).toBeDisabled()
 
-  answerWith(dialog, 'принимаю')
-  fireEvent.click(dialog.getByRole('button', { name: 'Изменить' }))
-
-  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
-  answerWith(dialog, 'принимаю с оговоркой')
-
-  const bubbles = [...document.querySelectorAll('.op-bubble')]
-  expect(bubbles.map((b) => b.querySelector('.ans-text, .ans-choice')!.textContent)).toEqual(['принимаю с оговоркой'])
-  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
-})
-
-test('набранное, но не отданное, не стирается уходом к другому вопросу — и у нового, и у правки данного ответа', async () => {
-  stubApi(() => new Response(null, { status: 204 }), three)
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'длинный свой ответ' } })
-  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
-  fireEvent.click(collapsed(dialog, 'Подтвердить критерий?'))
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('длинный свой ответ')
-  expect(document.querySelector('.op-bubble')).toBeNull()
-
-  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
-  fireEvent.click(dialog.getByRole('button', { name: 'Изменить' }))
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'длинный свой ответ, и ещё' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Дальше' }))
-  // данный ответ прежний, пока правку не отдали
-  expect(document.querySelector('.op-bubble')).toHaveTextContent('длинный свой ответ')
-  expect(document.querySelector('.op-bubble')).not.toHaveTextContent('и ещё')
   fireEvent.click(dialog.getByRole('button', { name: 'Предыдущий вопрос' }))
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('длинный свой ответ, и ещё')
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
 })
 
 const draftsKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app'
 
-test('закрытое с пропущенными окно ничего не отправляет и возвращает данные ответы, каким бы способом его ни закрыли', async () => {
+test('закрытое окно ничего не отправляет и возвращает ответы, каким бы способом его ни закрыли', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }), three)
   let dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   answerWith(dialog, 'принимаю')
-  fireEvent.click(dialog.getByRole('button', { name: 'Пропустить' }))
+  fireEvent.click(collapsed(dialog, 'Куда класть копию?'))
   answerWith(dialog, 'рядом')
   fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -366,7 +334,7 @@ test('закрытое с пропущенными окно ничего не о
 
   fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
   dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
-  // открыто на первом вопросе без ответа, данные ответы — в ленте
+  // открыто на первом вопросе без ответа, ответы — в ленте
   await dialog.findByRole('heading', { name: 'Как быть с переносами?' })
   expect([...document.querySelectorAll('.op-bubble')].map((b) => b.textContent)).toEqual(
     expect.arrayContaining([expect.stringContaining('принимаю'), expect.stringContaining('рядом')]),
@@ -498,10 +466,10 @@ test('сессия закрылась между опросами — перех
   expect(await dialog.findByText('Сессия этой копии уже не открыта в VS Code')).toBeInTheDocument()
 })
 
-// Отправка ждёт секунд с «Отменить»: часы подделываются перед последним ответом и сдвигаются на эти секунды.
-function answerLast(dialog: ReturnType<typeof within>, text: string) {
+// Отправка ждёт секунд с «Отменить»: часы подделываются перед нажатием и сдвигаются на эти секунды.
+function sendAll(dialog: ReturnType<typeof within>) {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-  answerWith(dialog, text)
+  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
 }
 
 function waitOut(ms = UNDO_MS) {
@@ -509,26 +477,29 @@ function waitOut(ms = UNDO_MS) {
   vi.useRealTimers()
 }
 
-test('ответ на последний оставшийся вопрос: «Ответы отправлены агенту» с «Отменить», запись — после секунд, одна со всеми ответами', async () => {
+test('«Отправить» показывает знак отправки с «Отменить», а запись идёт после секунд — одна со всеми ответами', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   answerWith(dialog, 'принимаю')
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
   fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
-  answerLast(dialog, 'Заменять пробелами')
+  sendAll(dialog)
 
+  // ленты не видно: на её месте знак отправки, а внизу «Отменить» вместо «Отправить»
   expect(dialog.getByRole('status')).toHaveTextContent('Ответы отправлены агенту')
-  // строка ввода ушла вместе с фокусом — он на «Отменить»: отменить можно с клавиатуры
-  expect(dialog.getByRole('button', { name: 'Отменить' })).toHaveFocus()
-  // строки ввода нет, и окно пока не закрывается ни Escape, ни щелчком мимо, ни крестиком:
-  // закрытое сняло бы запись молча
+  expect(document.querySelector('.reply-feed')).toBeNull()
+  expect(document.querySelector('.done-mark svg')).toBeInTheDocument()
+  expect(dialog.queryByRole('button', { name: 'Отправить' })).not.toBeInTheDocument()
   expect(dialog.queryByLabelText('Ответ')).not.toBeInTheDocument()
+  const undo = dialog.getByRole('button', { name: 'Отменить' })
+  expect(undo).toHaveFocus()
+
+  // окно пока не закрывается ни Escape, ни щелчком мимо, ни крестиком
   fireEvent.keyDown(window, { key: 'Escape' })
   fireEvent.mouseDown(document.querySelector('.modal-overlay')!)
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
-  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
-  expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
   act(() => vi.advanceTimersByTime(UNDO_MS - 1))
   expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
 
@@ -544,18 +515,19 @@ test('ответ на последний оставшийся вопрос: «О
       { question: 'Как быть с переносами?', answer: 'Заменять пробелами' },
     ],
   })
-  // таблица перечитывается: строка копии перестаёт ждать
   await waitFor(() => expect(calls.filter((c) => c.url === '/api/workspaces')).toHaveLength(2))
   expect(localStorage.getItem(draftsKey)).toBeNull()
 })
 
-test('«Отменить» ничего не записывает: окно остаётся с данными ответами, любой можно поправить', async () => {
+test('«Отменить» ничего не записывает: лента возвращается со всеми ответами', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   answerWith(dialog, 'принимаю')
-  answerLast(dialog, 'заменять')
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  answerWith(dialog, 'заменять')
+  sendAll(dialog)
   fireEvent.click(dialog.getByRole('button', { name: 'Отменить' }))
   waitOut()
 
@@ -563,10 +535,7 @@ test('«Отменить» ничего не записывает: окно ос
   expect(dialog.queryByRole('status')).not.toBeInTheDocument()
   expect(dialog.getByLabelText('Ответ')).toHaveValue('заменять')
   expect(document.querySelectorAll('.op-bubble')).toHaveLength(2)
-
-  fireEvent.click(dialog.getByRole('button', { name: 'Изменить' }))
-  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+  expect(dialog.getByRole('button', { name: 'Отправить' })).toBeInTheDocument()
 })
 
 test('Enter на последнем вопросе отправляет так же, и второй Enter второй отправки не начинает', async () => {
@@ -577,17 +546,17 @@ test('Enter на последнем вопросе отправляет так �
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  answerWith(dialog, 'принимаю')
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   const field = dialog.getByLabelText('Ответ')
-  fireEvent.change(field, { target: { value: 'заменять' } })
+  fireEvent.change(field, { target: { value: 'принимаю' } })
   fireEvent.keyDown(field, { key: 'Enter' })
-  fireEvent.keyDown(field, { key: 'Enter' })
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
   waitOut()
 
   await waitFor(() => expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1))
-  expect(dialog.queryByRole('button', { name: 'Отменить' })).not.toBeInTheDocument()
-  // пока запись идёт, окно тоже не закрывается: об отказе оператор иначе не узнал бы
+  // пока запись идёт, окно не закрывается и отменить уже нельзя
+  expect(dialog.getByRole('button', { name: 'Отменить' })).toBeDisabled()
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
   finish()
   await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
@@ -630,10 +599,14 @@ test.each([
     await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
     answerWith(dialog, 'принимаю')
-    answerLast(dialog, 'заменять')
+    fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+    answerWith(dialog, 'заменять')
+    sendAll(dialog)
     waitOut()
 
     expect(await dialog.findByRole('alert')).toHaveTextContent(text)
+    // лента вернулась: отказ не оставляет окно на знаке отправки
+    expect(document.querySelector('.reply-feed')).toBeInTheDocument()
     expect(document.querySelector('.composer .field-error')).toHaveTextContent(text)
     expect(dialog.getByRole('heading', { name: heading })).toBeInTheDocument()
     expect(dialog.getByLabelText('Ответ')).toHaveValue(heading === 'Подтвердить критерий?' ? 'принимаю' : 'заменять')
@@ -802,7 +775,8 @@ test('в StrictMode отказ записи показывается', async () 
   const dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  answerLast(dialog, 'принимаю')
+  answerWith(dialog, 'принимаю')
+  sendAll(dialog)
   waitOut()
   expect(await dialog.findByRole('alert')).toHaveTextContent('Этого вопроса уже нет в памяти')
   expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
@@ -819,7 +793,9 @@ test('запись, на которую панель не ответила за 
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   answerWith(dialog, 'принимаю')
-  answerLast(dialog, 'заменять')
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  answerWith(dialog, 'заменять')
+  sendAll(dialog)
   act(() => vi.advanceTimersByTime(UNDO_MS))
   expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
@@ -841,7 +817,8 @@ test('в StrictMode записанные ответы закрывают окн�
   const dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  answerLast(dialog, 'принимаю')
+  answerWith(dialog, 'принимаю')
+  sendAll(dialog)
   waitOut()
   await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
   expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
