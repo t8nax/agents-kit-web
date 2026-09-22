@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, waitFor, waitForElementToBeRemoved, within } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import type { QuestionsResponse } from './ReplyModal'
@@ -77,12 +77,19 @@ async function openReply() {
   return screen.findByRole('dialog', { name: 'Ответ оператора' })
 }
 
-// Критерии, «Не входит» и артефакты живут на своей вкладке, рядом с вопросом их не видно.
-function openContext(dialog: ReturnType<typeof within>) {
-  fireEvent.click(dialog.getByRole('tab', { name: 'Контекст задачи' }))
+
+// Ответ даётся строкой ввода внизу окна: набрать или выбрать вариант и нажать «Ответить».
+function answerWith(dialog: ReturnType<typeof within>, text: string) {
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: text } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
 }
 
-test('над вопросом — полоса с задачей, проектом, именем копии и веткой, без полного пути копии', async () => {
+// Свёрнутый вопрос — кнопка с его заголовком; раскрытый — заголовок второго уровня.
+function collapsed(dialog: ReturnType<typeof within>, title: string) {
+  return dialog.getByRole('button', { name: new RegExp(`^${title.replace(/[?.]/g, '\\$&')}`) })
+}
+
+test('над лентой — полоса с задачей, проектом, именем копии и веткой, без полного пути копии', async () => {
   stubApi(() => new Response(null, { status: 204 }))
 
   const dialog = within(await openReply())
@@ -90,7 +97,7 @@ test('над вопросом — полоса с задачей, проекто
 
   expect(document.querySelector('.strip-task')).toHaveTextContent('Окно ответа')
   expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledge·app·feat/reply')
-  expect(document.querySelector('.modal-wizard')!.textContent).not.toContain('D:\\Projects\\app')
+  expect(document.querySelector('.reply-window')!.textContent).not.toContain('D:\\Projects\\app')
 })
 
 test('задача не прочиталась — на её месте пусто, без тире; ветки нет — строка без неё', async () => {
@@ -104,199 +111,50 @@ test('задача не прочиталась — на её месте пуст
   expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledge·app')
 })
 
-test('окно открывается на вкладке «Вопрос», контекст задачи — своей вкладкой, переход к вопросу возвращает к нему', async () => {
-  stubApi(() => new Response(null, { status: 204 }))
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  expect(dialog.getByRole('tab', { name: 'Вопрос' })).toHaveAttribute('aria-selected', 'true')
-  expect(dialog.getByRole('tab', { name: 'Контекст задачи' })).toHaveAttribute('aria-selected', 'false')
-  expect(dialog.queryByText('Критерии закрытия')).not.toBeInTheDocument()
-
-  openContext(dialog)
-  expect(dialog.getByRole('tab', { name: 'Контекст задачи' })).toHaveAttribute('aria-selected', 'true')
-  expect(dialog.getByRole('tabpanel')).toHaveTextContent('Критерии закрытия')
-  expect(dialog.queryByRole('heading', { name: 'Подтвердить критерий?' })).not.toBeInTheDocument()
-  // кнопки перехода в сессию остаются в полосе над вкладками
-  expect(dialog.getByRole('button', { name: 'Открыть в терминале' })).toBeInTheDocument()
-
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  expect(dialog.getByRole('tab', { name: 'Вопрос' })).toHaveAttribute('aria-selected', 'true')
-  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
-})
-
-test('окно показывает заголовок и текст каждого критерия и отдельно то, что не входит', async () => {
-  stubApi(() => new Response(null, { status: 204 }))
-
-  const dialog = within(await openReply())
-
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  openContext(dialog)
-  const titles = [...document.querySelectorAll('.criterion-title')]
-  // номер критерия остаётся в заголовке, а не съедается разметкой как список
-  expect(titles.map((t) => t.textContent)).toEqual(['1. Окно есть', '2. Строка перестаёт ждать'])
-  const firstText = titles[0].parentElement!.querySelector('.criterion-text')
-  // абзацы критерия — отдельные абзацы разметки, а не один кусок текста
-  expect([...firstText!.querySelectorAll('p')].map((p) => p.textContent)).toEqual([
-    'Оператор отвечает из панели.',
-    'Без IDE.',
-  ])
-  expect(titles[1].parentElement!.querySelector('.criterion-text')).toBeNull()
-  expect(dialog.getByText('Не входит')).toBeInTheDocument()
-  expect(dialog.getByText('Health баз.')).toBeInTheDocument()
-  expect(dialog.queryByText('Критерии не записаны')).not.toBeInTheDocument()
-})
-
-test('артефакты задачи показываются блоком «Артефакты»: подпись, под ней адрес — ссылкой или текстом', async () => {
-  stubApi(() => new Response(null, { status: 204 }), {
-    ...questions,
-    artifacts: [
-      { label: 'макет **окна** ответа', address: 'https://claude.ai/artifact/AbC123' },
-      { label: 'спецификация', address: 'D:\\Projects\\app\\spec.md' },
-    ],
-  })
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  openContext(dialog)
-
-  expect(dialog.getByText('Артефакты')).toBeInTheDocument()
-  const items = [...document.querySelectorAll('.artifacts li')]
-  expect(items.map((li) => li.querySelector('.artifact-label')!.textContent)).toEqual([
-    'макет окна ответа',
-    'спецификация',
-  ])
-  // подпись размечена, как заголовки критериев: значков разметки в окне нет
-  expect(items[0].querySelector('.artifact-label strong')).toHaveTextContent('окна')
-  // блок стоит после «Не входит»
-  const outOfScope = dialog.getByText('Не входит')
-  expect(outOfScope.compareDocumentPosition(dialog.getByText('Артефакты')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  const link = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
-  expect(link).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123')
-  expect(link).toHaveAttribute('target', '_blank')
-  // путь к файлу — не ссылка браузера, а кнопка открытия в VS Code
-  expect(items[1].querySelector('a')).toBeNull()
-  expect(items[1].querySelector('button')).toHaveTextContent('D:\\Projects\\app\\spec.md')
-})
-
-const withFileArtifact: QuestionsResponse = {
-  ...questions,
-  artifacts: [
-    { label: 'макет', address: 'https://claude.ai/artifact/AbC123' },
-    { label: 'спецификация', address: 'docs/spec.md' },
-  ],
-}
-
-test('щелчок по пути к файлу просит панель открыть этот артефакт в VS Code', async () => {
-  const calls = stubApi(() => new Response(null, { status: 204 }), withFileArtifact)
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  openContext(dialog)
-  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
-
-  await waitFor(() => expect(calls.some((c) => c.url === '/api/artifact/open')).toBe(true))
-  const call = calls.find((c) => c.url === '/api/artifact/open')!
-  expect(call.init?.method).toBe('POST')
-  // артефакт называется номером в памяти; адрес — чтобы панель не открыла другой, если память переписали
-  expect(JSON.parse(call.init!.body as string)).toEqual({
-    base: row.base,
-    copy: row.path,
-    index: 1,
-    address: 'docs/spec.md',
-  })
-  expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
-})
-
-test('файла артефакта нет на диске — окно говорит об этом строкой', async () => {
-  stubApi(
-    () => new Response(null, { status: 204 }),
-    withFileArtifact,
-    undefined,
-    undefined,
-    () => new Response(JSON.stringify({ problem: 'missing' }), { status: 404 }),
-  )
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  openContext(dialog)
-  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
-
-  expect(await dialog.findByRole('alert')).toHaveTextContent('Файла нет на диске: docs/spec.md')
-})
-
-test('VS Code не открылся — окно говорит об этом строкой', async () => {
-  stubApi(
-    () => new Response(null, { status: 204 }),
-    withFileArtifact,
-    undefined,
-    undefined,
-    () => new Response(JSON.stringify({ problem: 'not-opened' }), { status: 502 }),
-  )
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  openContext(dialog)
-  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
-
-  expect(await dialog.findByRole('alert')).toHaveTextContent('Не удалось открыть файл в VS Code')
-})
-
-test('у задачи без артефактов блока «Артефакты» в окне нет', async () => {
-  stubApi(() => new Response(null, { status: 204 }))
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  openContext(dialog)
-
-  expect(dialog.queryByText('Артефакты')).not.toBeInTheDocument()
-  expect(document.querySelector('.artifacts')).toBeNull()
-})
-
-test('окно без критериев говорит, что они не записаны', async () => {
-  stubApi(() => new Response(null, { status: 204 }), { ...questions, criteria: [], outOfScope: null })
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  openContext(dialog)
-
-  expect(dialog.getByText('Критерии не записаны')).toBeInTheDocument()
-  expect(dialog.queryByText('Не входит')).not.toBeInTheDocument()
-})
-
-test('окно показывает вопрос копии с контекстом, вариантами и критерием', async () => {
+test('все вопросы видны сразу: раскрыт первый, остальные свёрнуты, без номеров, счётчика, вкладок и шагов', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
 
   const dialog = within(await openReply())
 
   expect(await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
   expect(calls.some((c) => c.url === '/api/questions?base=D%3A%5CProjects%5Capp-knowledge&copy=D%3A%5CProjects%5Capp')).toBe(true)
-  expect(dialog.getByText('Вопрос 1 из 2')).toBeInTheDocument()
   expect(dialog.getByText('За вами объём проверок')).toBeInTheDocument()
+  // второй вопрос виден свёрнутым с самого открытия, и мимо него ещё не проходили
+  expect(collapsed(dialog, 'Как быть с переносами?')).not.toHaveTextContent('Пропущен')
+  expect(dialog.queryByRole('heading', { name: 'Как быть с переносами?' })).not.toBeInTheDocument()
 
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  expect(dialog.getByText('Вопрос 2 из 2')).toBeInTheDocument()
+  expect(dialog.queryByRole('tablist')).not.toBeInTheDocument()
+  for (const name of ['Далее', 'Назад', 'Отправить']) expect(dialog.queryByRole('button', { name })).not.toBeInTheDocument()
+  expect(document.querySelector('.reply-window')!.textContent).not.toMatch(/Вопрос \d|из \d|Агент/)
+})
+
+test('щелчок по свёрнутому вопросу раскрывает его: размеченный контекст и варианты с рекомендованным', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
+  expect(collapsed(dialog, 'Подтвердить критерий?')).toBeInTheDocument()
   // контекст размечен: абзац и список с вложенным пунктом, а не строки простым текстом
-  const context = document.querySelector('.question-box')!
+  const context = document.querySelector('.q-context')!
   expect(context.querySelector('p')!.textContent).toBe('Абзацы из поля теряются.')
   expect([...context.querySelectorAll(':scope > ul > li')].map((li) => li.firstChild!.textContent)).toEqual([
     'заменить пробелами',
     'не отправлять',
   ])
   expect(context.querySelector('li > ul > li')!.textContent).toBe('и сказать об этом')
-  expect(dialog.getByText('Рекомендовано ИИ')).toBeInTheDocument()
-  expect(dialog.queryByRole('button', { name: 'Далее' })).not.toBeInTheDocument()
-
-  fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами')
+  const recommended = dialog.getByRole('button', { name: /Заменять пробелами/ })
+  expect(recommended).toHaveTextContent('Рекомендовано ИИ')
+  // описание варианта видно целиком
+  expect(recommended).toHaveTextContent('Абзацы теряются')
+  expect(dialog.getByRole('button', { name: /Не отправлять/ })).not.toHaveTextContent('Рекомендовано ИИ')
 })
 
-test('заголовок, контекст и критерий показываются размеченными, сырой HTML не рендерится', async () => {
+test('заголовок и контекст вопроса показываются размеченными, сырой HTML не рендерится', async () => {
   stubApi(() => new Response(null, { status: 204 }), {
     ...questions,
-    criteria: [{ title: '1. Окно `ReplyModal` есть', text: 'Текст с **выделением**.' }],
-    outOfScope: 'Разметка в *таблице копий*.',
     questions: [
       {
         title: 'Что делать с `white-space`?',
@@ -310,26 +168,18 @@ test('заголовок, контекст и критерий показыва�
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Что делать с white-space?' })
 
-  const context = document.querySelector('.question-box')!
+  const context = document.querySelector('.q-context')!
   expect(context.querySelector('strong')!.textContent).toBe('важное')
   expect(context.querySelector('code')!.textContent).toBe('код')
   expect(context.querySelector('a')).toHaveAttribute('href', 'https://example.com')
   expect(context.querySelector('b')).toBeNull()
   expect(context.textContent).toContain('<b>сырой HTML</b> не рендерится.')
-
-  expect(document.querySelector('.massive-title code')!.textContent).toBe('white-space')
-
-  openContext(dialog)
-  expect(document.querySelector('.criterion-title code')!.textContent).toBe('ReplyModal')
-  expect(document.querySelector('.criterion-text strong')!.textContent).toBe('выделением')
-  expect(dialog.getByText('таблице копий').tagName).toBe('EM')
+  expect(document.querySelector('.q-title code')!.textContent).toBe('white-space')
 })
 
-test('адреса в заголовке, контексте и критериях — ссылки в новую вкладку, в вариантах — текст', async () => {
+test('адреса в заголовке и контексте вопроса — ссылки в новую вкладку, в вариантах и свёрнутом вопросе — текст', async () => {
   stubApi(() => new Response(null, { status: 204 }), {
     ...questions,
-    criteria: [{ title: '1. Смотреть https://example.com/c-title', text: 'Где: https://example.com/c-text' }],
-    outOfScope: 'Не трогаем https://example.com/out',
     questions: [
       {
         title: 'Что с https://example.com/q-title?',
@@ -337,90 +187,188 @@ test('адреса в заголовке, контексте и критерия
         variants: [{ choice: 'Как в https://example.com/v', effect: 'См. https://example.com/e', recommended: false }],
         answer: null,
       },
+      { title: 'А с https://example.com/second?', context: null, variants: [], answer: null },
     ],
   })
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: /Что с/ })
 
-  const hrefs = () =>
-    dialog
-      .getAllByRole('link')
-      .map((link) => {
-        expect(link).toHaveAttribute('target', '_blank')
-        expect(link).toHaveAttribute('rel', 'noopener noreferrer')
-        return link.getAttribute('href')
-      })
-      .sort()
-  expect(hrefs()).toEqual(['https://example.com/q-context', 'https://example.com/q-title'])
+  const hrefs = dialog
+    .getAllByRole('link')
+    .map((link) => {
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      return link.getAttribute('href')
+    })
+    .sort()
+  expect(hrefs).toEqual(['https://example.com/q-context', 'https://example.com/q-title'])
   expect(dialog.getByRole('button', { name: /Как в https:\/\/example\.com\/v/ })).toBeInTheDocument()
-
-  openContext(dialog)
-  expect(hrefs()).toEqual(['https://example.com/c-text', 'https://example.com/c-title', 'https://example.com/out'])
+  // свёрнутый вопрос сам кнопка: ссылки внутри него нет
+  expect(collapsed(dialog, 'А с https://example.com/second?').querySelector('a')).toBeNull()
 })
 
-test('пустой ответ не отправляется: окно открывает этот вопрос', async () => {
+test('вариант только вписывается в строку ввода, ответ встаёт пузырём после «Ответить», и лента идёт дальше', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+
+  fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами')
+  expect(dialog.getByRole('button', { name: /Заменять пробелами/ })).toHaveAttribute('aria-pressed', 'true')
+  expect(document.querySelector('.op-bubble')).toBeNull()
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
+
+  // ответ под своим вопросом: выбранный вариант жирно, под ним его описание
+  const bubble = document.querySelector('.op-bubble')!
+  expect(bubble.querySelector('.ans-choice')).toHaveTextContent('Заменять пробелами')
+  expect(bubble.querySelector('.ans-effect')).toHaveTextContent('Абзацы теряются')
+  // остался вопрос без ответа — лента перешла к нему, ничего не отправлено
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
+  expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
+})
+
+test('пустой ответ не принимается: под строкой ввода просьба ответить, набранное её снимает', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: '   ' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Ответить' }))
 
-  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
-  expect(dialog.getByText('Напишите свой ответ')).toBeInTheDocument()
+  expect(dialog.getByRole('alert')).toHaveTextContent('Напишите свой ответ или выберите вариант')
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+  expect(document.querySelector('.op-bubble')).toBeNull()
   expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
 
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
-  expect(dialog.queryByText('Напишите свой ответ')).not.toBeInTheDocument()
+  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
+  expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
 })
 
-test('все ответы уходят одной отправкой, после записи окно закрывается и таблица перечитывается', async () => {
-  const calls = stubApi(() => new Response(null, { status: 204 }))
+test('Enter в строке ввода — «Ответить», а Enter набора через IME ответа не даёт', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
-  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
-
-  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
-  const post = calls.filter((c) => c.url === '/api/answers')
-  expect(post).toHaveLength(1)
-  expect(JSON.parse(post[0].init!.body as string)).toEqual({
-    base: 'D:\\Projects\\app-knowledge',
-    copy: 'D:\\Projects\\app',
-    answers: [
-      { question: 'Подтвердить критерий?', answer: 'принимаю' },
-      { question: 'Как быть с переносами?', answer: 'Заменять пробелами' },
-    ],
-  })
-  expect(calls.filter((c) => c.url === '/api/workspaces')).toHaveLength(2)
-  expect(screen.queryByText('Ответы записаны')).not.toBeInTheDocument()
-})
-
-test('вопрос, на который уже ответили, останавливает запись и показывается с причиной', async () => {
-  stubApi(
-    () =>
-      new Response(JSON.stringify({ question: 'Подтвердить критерий?', problem: 'already-answered' }), {
-        status: 409,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-  )
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
-
-  expect(await dialog.findByText('Ответы не записаны')).toBeInTheDocument()
+  const field = dialog.getByLabelText('Ответ')
+  fireEvent.change(field, { target: { value: 'принимаю' } })
+  fireEvent.keyDown(field, { key: 'Enter', isComposing: true })
   expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(dialog.getByText(/уже ответили из другого места/)).toBeInTheDocument()
+
+  const plain = createEvent.keyDown(field, { key: 'Enter' })
+  fireEvent(field, plain)
+  expect(plain.defaultPrevented).toBe(true)
+  expect(document.querySelector('.op-bubble')).toHaveTextContent('принимаю')
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
+})
+
+const three: QuestionsResponse = {
+  ...questions,
+  questions: [
+    ...questions.questions,
+    { title: 'Куда класть копию?', context: null, variants: [], answer: null },
+  ],
+}
+
+test('«Пропустить» ведёт дальше, пройденный без ответа вопрос помечен «Пропущен», с последнего — к первому пропущенному', async () => {
+  stubApi(() => new Response(null, { status: 204 }), three)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Пропустить' }))
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
+  expect(collapsed(dialog, 'Подтвердить критерий?')).toHaveTextContent('Пропущен')
+  expect(collapsed(dialog, 'Куда класть копию?')).not.toHaveTextContent('Пропущен')
+
+  answerWith(dialog, 'заменять')
+  expect(dialog.getByRole('heading', { name: 'Куда класть копию?' })).toBeInTheDocument()
+
+  // с последнего вопроса «Пропустить» ведёт к первому пропущенному
+  fireEvent.click(dialog.getByRole('button', { name: 'Пропустить' }))
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+  expect(collapsed(dialog, 'Куда класть копию?')).toHaveTextContent('Пропущен')
+})
+
+test('у вопроса с ответом вместо «Пропустить» — «Дальше»; стрелка ведёт к предыдущему и на первом не нажимается', async () => {
+  stubApi(() => new Response(null, { status: 204 }), three)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  expect(dialog.getByRole('button', { name: 'Предыдущий вопрос' })).toBeDisabled()
+  answerWith(dialog, 'принимаю')
+  fireEvent.click(dialog.getByRole('button', { name: 'Предыдущий вопрос' }))
+
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
   expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
-  expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
+  expect(dialog.queryByRole('button', { name: 'Пропустить' })).not.toBeInTheDocument()
+  fireEvent.click(dialog.getByRole('button', { name: 'Дальше' }))
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
+})
+
+test('данный ответ правится: «Изменить» открывает его вопрос, новый ответ встаёт на место прежнего', async () => {
+  stubApi(() => new Response(null, { status: 204 }), three)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+  fireEvent.click(dialog.getByRole('button', { name: 'Изменить' }))
+
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
+  answerWith(dialog, 'принимаю с оговоркой')
+
+  const bubbles = [...document.querySelectorAll('.op-bubble')]
+  expect(bubbles.map((b) => b.querySelector('.ans-text, .ans-choice')!.textContent)).toEqual(['принимаю с оговоркой'])
+  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
+})
+
+const draftsKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app'
+
+test('закрытое с пропущенными окно ничего не отправляет и возвращает данные ответы, каким бы способом его ни закрыли', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }), three)
+  let dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+  fireEvent.click(dialog.getByRole('button', { name: 'Пропустить' }))
+  answerWith(dialog, 'рядом')
+  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
+  dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
+  // открыто на первом вопросе без ответа, данные ответы — в ленте
+  await dialog.findByRole('heading', { name: 'Как быть с переносами?' })
+  expect([...document.querySelectorAll('.op-bubble')].map((b) => b.textContent)).toEqual(
+    expect.arrayContaining([expect.stringContaining('принимаю'), expect.stringContaining('рядом')]),
+  )
+
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
+  expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({
+    'Подтвердить критерий?': 'принимаю',
+    'Куда класть копию?': 'рядом',
+  })
+})
+
+test('черновик вопроса, которого больше нет среди ждущих, не показывается и забывается', async () => {
+  const otherCopyKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app-2'
+  localStorage.setItem(draftsKey, JSON.stringify({ 'Подтвердить критерий?': 'принимаю', 'Старый вопрос?': 'устарело' }))
+  localStorage.setItem(otherCopyKey, JSON.stringify({ 'Как быть с переносами?': 'из другой копии' }))
+  stubApi(() => new Response(null, { status: 204 }))
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Как быть с переносами?' })
+  expect(document.querySelector('.op-bubble')).toHaveTextContent('принимаю')
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
+
+  expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({ 'Подтвердить критерий?': 'принимаю' })
+  expect(JSON.parse(localStorage.getItem(otherCopyKey)!)).toEqual({ 'Как быть с переносами?': 'из другой копии' })
 })
 
 test('кнопка перехода открывает терминал с фоновой сессией той копии, чей вопрос читают', async () => {
@@ -523,169 +471,4 @@ test('сессия закрылась между опросами — перех
   fireEvent.click(dialog.getByRole('button', { name: 'Открыть в VS Code' }))
 
   expect(await dialog.findByText('Сессия этой копии уже не открыта в VS Code')).toBeInTheDocument()
-})
-
-const draftsKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app'
-
-test('закрытое окно возвращает набранные ответы, каким бы способом его ни закрыли', async () => {
-  stubApi(() => new Response(null, { status: 204 }))
-  let dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  fireEvent.click(dialog.getByRole('button', { name: /Заменять пробелами/ }))
-  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
-  dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами')
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'Заменять пробелами и сказать' } })
-  fireEvent.keyDown(window, { key: 'Escape' })
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
-  dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('Заменять пробелами и сказать')
-})
-
-test('после успешной отправки набранное забывается', async () => {
-  stubApi(() => new Response(null, { status: 204 }))
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
-  expect(localStorage.getItem(draftsKey)).not.toBeNull()
-  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
-
-  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
-  expect(localStorage.getItem(draftsKey)).toBeNull()
-})
-
-test('отправка не прошла — набранное остаётся', async () => {
-  stubApi(
-    () =>
-      new Response(JSON.stringify({ question: 'Подтвердить критерий?', problem: 'already-answered' }), {
-        status: 409,
-        headers: { 'Content-Type': 'application/json' },
-      }),
-  )
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
-
-  expect(await dialog.findByText('Ответы не записаны')).toBeInTheDocument()
-  expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({
-    'Подтвердить критерий?': 'принимаю',
-    'Как быть с переносами?': 'заменять',
-  })
-})
-
-test('черновик вопроса, которого больше нет среди ждущих, не показывается и забывается', async () => {
-  const otherCopyKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app-2'
-  localStorage.setItem(
-    draftsKey,
-    JSON.stringify({ 'Подтвердить критерий?': 'принимаю', 'Старый вопрос?': 'устарело' }),
-  )
-  localStorage.setItem(otherCopyKey, JSON.stringify({ 'Как быть с переносами?': 'из другой копии' }))
-  stubApi(() => new Response(null, { status: 204 }))
-
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('принимаю')
-  fireEvent.click(dialog.getByRole('button', { name: 'Далее' }))
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
-
-  expect(JSON.parse(localStorage.getItem(draftsKey)!)).toEqual({ 'Подтвердить критерий?': 'принимаю' })
-  expect(JSON.parse(localStorage.getItem(otherCopyKey)!)).toEqual({ 'Как быть с переносами?': 'из другой копии' })
-})
-
-test('Enter в поле ответа открывает следующий вопрос, а Shift+Enter и набор через IME его не трогают', async () => {
-  stubApi(() => new Response(null, { status: 204 }))
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  const field = dialog.getByLabelText('Ответ')
-  fireEvent.change(field, { target: { value: 'принимаю' } })
-
-  const withShift = createEvent.keyDown(field, { key: 'Enter', shiftKey: true })
-  fireEvent(field, withShift)
-  // перенос строки Shift+Enter поле оставляет себе
-  expect(withShift.defaultPrevented).toBe(false)
-  fireEvent.keyDown(field, { key: 'Enter', isComposing: true })
-  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-
-  const plain = createEvent.keyDown(field, { key: 'Enter' })
-  fireEvent(field, plain)
-  // переноса строки в поле не будет: Enter повторяет «Далее»
-  expect(plain.defaultPrevented).toBe(true)
-  expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
-  expect(dialog.getByText('Вопрос 2 из 2')).toBeInTheDocument()
-  expect(dialog.getByLabelText('Ответ')).toHaveValue('')
-})
-
-test('Enter на последнем вопросе отправляет все ответы и закрывает окно', async () => {
-  const calls = stubApi(() => new Response(null, { status: 204 }))
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
-  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
-
-  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
-  const post = calls.filter((c) => c.url === '/api/answers')
-  expect(post).toHaveLength(1)
-  expect(JSON.parse(post[0].init!.body as string).answers).toEqual([
-    { question: 'Подтвердить критерий?', answer: 'принимаю' },
-    { question: 'Как быть с переносами?', answer: 'заменять' },
-  ])
-})
-
-test('Enter на последнем вопросе с пустым ответом возвращает к нему и ничего не отправляет', async () => {
-  const calls = stubApi(() => new Response(null, { status: 204 }))
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
-  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
-
-  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
-  expect(dialog.getByText('Напишите свой ответ')).toBeInTheDocument()
-  expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
-})
-
-test('Enter, нажатый второй раз, пока отправка идёт, второй отправки не начинает', async () => {
-  let finish = () => {}
-  const calls = stubApi(
-    () => new Promise<Response>((resolve) => (finish = () => resolve(new Response(null, { status: 204 })))),
-  )
-  const dialog = within(await openReply())
-  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'принимаю' } })
-  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
-  fireEvent.change(dialog.getByLabelText('Ответ'), { target: { value: 'заменять' } })
-  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
-  fireEvent.keyDown(dialog.getByLabelText('Ответ'), { key: 'Enter' })
-
-  expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
-
-  finish()
-  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
 })
