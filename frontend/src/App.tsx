@@ -264,7 +264,7 @@ function App() {
                 <h2>Рабочие копии</h2>
                 <button
                   type="button"
-                  className="bases-btn bases-btn-add head-end"
+                  className="bases-btn bases-btn-add head-btn"
                   disabled={!state.rows}
                   onClick={() => setCreating(true)}
                 >
