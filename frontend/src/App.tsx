@@ -10,12 +10,7 @@ import type { AgentKind } from './agentRequest'
 import Flow, { FlowIcon } from './Flow'
 import NewWorkspaceModal, { PlusIcon } from './NewWorkspaceModal'
 import Performers, { PerformerIcon } from './Performers'
-import {
-  notificationsActive,
-  notifyStatusChange,
-  useNotifications,
-  type NotificationPermissionState,
-} from './notifications'
+import { notificationsActive, notifyStatusChange } from './notifications'
 import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
@@ -144,7 +139,6 @@ function App() {
   const inFlight = useRef(0)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
-  const notifications = useNotifications()
   const theme = useTheme()
 
   const loadRows = useCallback(() => {
@@ -223,12 +217,6 @@ function App() {
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
         <h3>Agents Kit Web</h3>
-        <NotificationsControl
-          permission={notifications.permission}
-          muted={notifications.muted}
-          onRequest={notifications.request}
-          onToggle={notifications.setEnabled}
-        />
         <AgentBar
           onOpen={(request) => {
             if (request.kind === 'ask') {
@@ -546,48 +534,6 @@ function GearIcon() {
   )
 }
 
-function NotificationsControl({
-  permission,
-  muted,
-  onRequest,
-  onToggle,
-}: {
-  permission: NotificationPermissionState
-  muted: boolean
-  onRequest: () => void
-  onToggle: (enabled: boolean) => void
-}) {
-  if (permission === 'default') {
-    return (
-      <button type="button" className="bases-btn header-start" onClick={onRequest}>
-        <BellIcon />
-        Включить уведомления
-      </button>
-    )
-  }
-  if (permission === 'granted') {
-    return (
-      <button type="button" className="bases-btn header-start" onClick={() => onToggle(muted)}>
-        {muted ? <BellOffIcon /> : <BellIcon />}
-        {muted ? 'Включить уведомления' : 'Выключить уведомления'}
-      </button>
-    )
-  }
-  if (permission === 'denied') {
-    return <span className="header-start header-note text-ter">Уведомления запрещены в браузере</span>
-  }
-  return <span className="header-start" />
-}
-
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  )
-}
-
 function SunIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -601,18 +547,6 @@ function MoonIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
-    </svg>
-  )
-}
-
-function BellOffIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-      <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
-      <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
-      <path d="M18 8a6 6 0 0 0-9.33-5" />
-      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   )
 }

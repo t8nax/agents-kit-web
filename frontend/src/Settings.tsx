@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import FolderBrowser, { FolderIcon, type FolderEntry } from './FolderBrowser'
+import NotificationsCard from './NotificationsCard'
 import PanelCard from './PanelCard'
 import './Settings.css'
 
@@ -65,6 +66,7 @@ export default function Settings() {
       <BasesSettings />
       <KitSettings />
       <PanelCard />
+      <NotificationsCard />
     </div>
   )
 }
