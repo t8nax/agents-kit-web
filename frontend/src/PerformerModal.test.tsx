@@ -491,6 +491,29 @@ test('ответ агента заменяет поправленные рука
   expect(within(screen.getByRole('dialog', { name: /Задание/ })).getByText('Задание руками.')).toBeInTheDocument()
 })
 
+test('ответ агента при открытом задании попадает и в правку, а не только в просмотр', async () => {
+  const stream = controlledStream<DraftEvent>()
+  stubPanel('performer', stream)
+  open(reviewer)
+
+  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Перепиши короче' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  await screen.findByRole('status')
+  // Пока агент работает, оператор открыл задание: окно висит, когда приходит ответ.
+  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  stream.send({
+    type: 'drafted',
+    text: '---',
+    fields: { name: 'reviewer', description: 'Описание агента.', model: null, tools: null, prompt: 'Задание агента.' },
+  })
+  stream.close()
+
+  expect(await within(task).findByText('Задание агента.')).toBeInTheDocument()
+  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Задание агента.')
+})
+
 test('правка не меняет имя, даже если агент вернул другое', async () => {
   const { stream, fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   const onSaved = open(reviewer)

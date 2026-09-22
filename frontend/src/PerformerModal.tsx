@@ -611,6 +611,12 @@ function TaskView({
   const field = useRef<HTMLTextAreaElement>(null)
   useEffect(() => (editing ? field.current?.focus() : close.current?.focus()), [editing])
 
+  // Правка начинается с нынешнего задания: пока окно открыто, его мог переписать ответ Чудо-Юдо.
+  function edit() {
+    setText(prompt)
+    setEditing(true)
+  }
+
   function cancel() {
     // Пустое задание открывали, чтобы написать: без правки смотреть в нём нечего.
     if (empty) onClose()
@@ -678,7 +684,7 @@ function TaskView({
             ) : (
               <>
                 {editable && (
-                  <button type="button" className="btn" onClick={() => setEditing(true)}>
+                  <button type="button" className="btn" onClick={edit}>
                     <PencilIcon />
                     Редактировать
                   </button>
