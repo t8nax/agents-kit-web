@@ -15,9 +15,9 @@ export default function NotificationsCard() {
       </div>
       <div className="bases-body">
         {permission === 'denied' ? (
-          <p className="settings-lead notify-off">Уведомления запрещены в браузере</p>
+          <p className="notify-off">Уведомления запрещены в браузере</p>
         ) : permission === 'unsupported' ? (
-          <p className="settings-lead notify-off">Этот браузер не поддерживает уведомления</p>
+          <p className="notify-off">Этот браузер не поддерживает уведомления</p>
         ) : (
           <div className="notify-row">
             <span className="notify-label" id="notify-label">
