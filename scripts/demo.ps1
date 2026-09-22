@@ -688,13 +688,17 @@ if ($busy.Count) {
     throw "порт $(($busy.LocalPort | Sort-Object -Unique) -join ', ') уже занят — похоже, демонстрация поднята: сначала погасите её"
 }
 
-$known = Read-State
-if ($Rebuild -or -not $known) {
+# Без -Rebuild демонстрация собирается, только когда её каталога нет: всё, что в ней сделали, живёт там.
+if ($Rebuild -or -not (Test-Path -LiteralPath $Root)) {
     $built = Build-Demo
     $copies = $built.copies
     Write-Host "Демонстрация собрана: $Root"
 }
 else {
+    $known = Read-State
+    if (-not $known.copies) {
+        throw "не прочитать $state — демонстрацию не поднять такой, какой её оставили; собрать заново: pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'demo.ps1')`" -Rebuild"
+    }
     $copies = $known.copies
     Stop-Dummies
     Write-Host "Демонстрация поднята такой, какой её оставили: $Root"
