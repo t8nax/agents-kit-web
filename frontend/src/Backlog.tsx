@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
-import { arrange, emptySelection, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
+import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
@@ -127,7 +127,10 @@ export default function Backlog({
   const closeWrite = useCallback(() => setWriting(false), [])
 
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
-  const shown = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
+  // Пока отбор включён, проект, где под него ничего не подошло, не показывается
+  const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
+    .map((backlog) => ({ backlog, entries: arrange(backlog.entries, selection, order) }))
+    .filter(({ entries }) => entries.length > 0 || !isFiltering(selection))
 
   return (
     <>
@@ -199,8 +202,10 @@ export default function Backlog({
             <OrderBox order={order} onChange={changeOrder} />
           </div>
 
+          {shown.length === 0 && <p className="empty-message">Под фильтр записей нет</p>}
+
           <div className="backlog-list">
-            {shown.map((backlog) => (
+            {shown.map(({ backlog, entries }) => (
               <section
                 key={backlog.base}
                 aria-label={backlog.project}
@@ -220,7 +225,7 @@ export default function Backlog({
                 {!backlog.error && backlog.entries.length === 0 && (
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
-                {arrange(backlog.entries, selection, order).map((entry, index) => {
+                {entries.map((entry, index) => {
                   const isFresh = entry.number !== null && fresh.has(`${backlog.base}|${entry.number}`)
                   return (
                     <div className={`entry-row ${isFresh ? 'entry-fresh' : ''}`} key={entry.number ?? `${backlog.base}-${index}`}>
