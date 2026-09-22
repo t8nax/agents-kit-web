@@ -59,7 +59,7 @@ test('оператор отвечает на вопросы копии, и ст�
   const dialog = page.getByRole('dialog', { name: 'Ответ оператора' })
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
 
-  // артефакты задачи — свой блок в «Контексте задачи»: ссылка в новую вкладку, путь к файлу текстом
+  // артефакты задачи — свой блок в «Контексте задачи»: ссылка в новую вкладку, путь к файлу — кнопкой в VS Code
   await dialog.getByText('Контекст задачи').click()
   await expect(dialog.getByText('Артефакты')).toBeVisible()
   const artifact = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
@@ -78,6 +78,14 @@ test('оператор отвечает на вопросы копии, и ст�
     }, token)
   await expect(artifact).toHaveCSS('color', await tokenColor('--accent-waiting-text'))
   await expect(dialog.getByText('D:\\Projects\\app\\spec.md')).toHaveCSS('color', await tokenColor('--text-secondary'))
+  // путь к файлу нажимается: панель открывает артефакт в VS Code, называя его номером в памяти
+  let openedArtifact: unknown = null
+  await page.route('**/api/artifact/open', async (route) => {
+    openedArtifact = route.request().postDataJSON()
+    await route.fulfill({ status: 204 })
+  })
+  await dialog.getByRole('button', { name: 'D:\\Projects\\app\\spec.md' }).click()
+  await expect.poll(() => openedArtifact).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app', index: 1 })
   await dialog.getByText('Контекст задачи').click()
 
   await dialog.getByLabel('Ответ').fill('принимаю')

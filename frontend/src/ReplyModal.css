@@ -276,8 +276,22 @@ a.artifact-address {
   text-decoration: none;
 }
 
-a.artifact-address:hover {
+a.artifact-address:hover,
+.artifact-file:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+/* путь к файлу — кнопка открытия в VS Code, но выглядит строкой адреса, как на макете */
+.artifact-file {
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifact-file:disabled {
+  cursor: default;
 }
 
 .massive-title {

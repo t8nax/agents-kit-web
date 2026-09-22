@@ -130,6 +130,38 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     }
   }
 
+  // Файл-артефакт открывает панель: в окне VS Code копии задачи, а без него — в новом окне.
+  async function openArtifact(index: number, address: string) {
+    setOpening(true)
+    setOpenError(null)
+    try {
+      const response = await fetch('/api/artifact/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base, copy, index }),
+      })
+      if (response.ok) return
+      const problem =
+        response.status === 404
+          ? await response
+              .json()
+              .then((body: { problem?: string }) => body.problem ?? null)
+              .catch(() => null)
+          : null
+      setOpenError(
+        problem === 'missing'
+          ? `Файла нет на диске: ${address}`
+          : response.status === 404
+            ? 'Файл не открыт: артефакта нет в памяти копии'
+            : 'Не удалось открыть файл в VS Code',
+      )
+    } catch {
+      setOpenError('Не удалось открыть файл в VS Code: нет связи с API')
+    } finally {
+      setOpening(false)
+    }
+  }
+
   // Переход в фоновую сессию: своего окна у неё нет, и панель открывает терминал, подключённый к ней.
   async function openTerminal() {
     setOpening(true)
@@ -336,13 +368,21 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                               <div className="artifact-label">
                                 <InlineMarkdown text={artifact.label} />
                               </div>
-                              {/* путь к файлу из браузера не открыть — он виден текстом, а ссылкой идёт только адрес http(s) */}
+                              {/* ссылку на сайт открывает браузер, а файл — панель, в VS Code */}
                               {/^https?:\/\//i.test(artifact.address) ? (
                                 <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
                                   {artifact.address}
                                 </a>
                               ) : (
-                                <span className="artifact-address">{artifact.address}</span>
+                                <button
+                                  type="button"
+                                  className="artifact-address artifact-file"
+                                  title="Открыть в VS Code"
+                                  disabled={opening}
+                                  onClick={() => openArtifact(i, artifact.address)}
+                                >
+                                  {artifact.address}
+                                </button>
                               )}
                             </li>
                           ))}

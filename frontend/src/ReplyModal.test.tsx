@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen, waitForElementToBeRemoved, within } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitFor, waitForElementToBeRemoved, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import type { QuestionsResponse } from './ReplyModal'
@@ -53,6 +53,7 @@ function stubApi(
   data: QuestionsResponse = questions,
   openSession: Route = () => new Response(null, { status: 204 }),
   openTerminal: Route = () => new Response(null, { status: 204 }),
+  openArtifact: Route = () => new Response(null, { status: 204 }),
 ) {
   const calls: { url: string; init?: RequestInit }[] = []
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -62,6 +63,7 @@ function stubApi(
     if (url === '/api/answers') return answers(init)
     if (url === '/api/session/open') return openSession(init)
     if (url === '/api/session/terminal') return openTerminal(init)
+    if (url === '/api/artifact/open') return openArtifact(init)
     return new Response(null, { status: 404 })
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -121,9 +123,64 @@ test('артефакты задачи показываются блоком «А
   const link = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
   expect(link).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123')
   expect(link).toHaveAttribute('target', '_blank')
-  // путь к файлу из браузера не открыть — он виден текстом, а не ссылкой
+  // путь к файлу — не ссылка браузера, а кнопка открытия в VS Code
   expect(items[1].querySelector('a')).toBeNull()
-  expect(items[1]).toHaveTextContent('D:\\Projects\\app\\spec.md')
+  expect(items[1].querySelector('button')).toHaveTextContent('D:\\Projects\\app\\spec.md')
+})
+
+const withFileArtifact: QuestionsResponse = {
+  ...questions,
+  artifacts: [
+    { label: 'макет', address: 'https://claude.ai/artifact/AbC123' },
+    { label: 'спецификация', address: 'docs/spec.md' },
+  ],
+}
+
+test('щелчок по пути к файлу просит панель открыть этот артефакт в VS Code', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }), withFileArtifact)
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
+
+  await waitFor(() => expect(calls.some((c) => c.url === '/api/artifact/open')).toBe(true))
+  const call = calls.find((c) => c.url === '/api/artifact/open')!
+  expect(call.init?.method).toBe('POST')
+  // артефакт называется номером в памяти, а не путём
+  expect(JSON.parse(call.init!.body as string)).toEqual({ base: row.base, copy: row.path, index: 1 })
+  expect(dialog.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('файла артефакта нет на диске — окно говорит об этом строкой', async () => {
+  stubApi(
+    () => new Response(null, { status: 204 }),
+    withFileArtifact,
+    undefined,
+    undefined,
+    () => new Response(JSON.stringify({ problem: 'missing' }), { status: 404 }),
+  )
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
+
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Файла нет на диске: docs/spec.md')
+})
+
+test('VS Code не открылся — окно говорит об этом строкой', async () => {
+  stubApi(
+    () => new Response(null, { status: 204 }),
+    withFileArtifact,
+    undefined,
+    undefined,
+    () => new Response(JSON.stringify({ problem: 'not-opened' }), { status: 502 }),
+  )
+
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.click(dialog.getByRole('button', { name: 'docs/spec.md' }))
+
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Не удалось открыть файл в VS Code')
 })
 
 test('у задачи без артефактов блока «Артефакты» в окне нет', async () => {
