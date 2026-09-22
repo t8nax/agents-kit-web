@@ -239,3 +239,25 @@ test('карточка добавления стоит последней в с�
     expect(box!.x).toBeGreaterThan(neighbour!.x)
   }).toPass()
 })
+
+test('окно задания стоит во весь рост экрана, и поле правки его заполняет', async ({ page }) => {
+  await mockApi(page)
+  await openPerformers(page)
+  await card(page, 'reviewer').click()
+  await page.getByRole('dialog', { name: 'reviewer' }).getByRole('button', { name: 'Показать задание' }).click()
+
+  const task = page.getByRole('dialog', { name: /Задание/ })
+  const viewport = page.viewportSize()!.height
+  // Короткое задание окно не сжимает: высота — девять десятых экрана (замечание оператора на приёмке B-198).
+  await expect(async () => {
+    const box = (await task.boundingBox())!
+    expect(Math.abs(box.height - viewport * 0.9)).toBeLessThanOrEqual(1)
+  }).toPass()
+
+  await task.getByRole('button', { name: 'Редактировать' }).click()
+  const field = task.getByRole('textbox', { name: 'Задание' })
+  await expect(async () => {
+    const box = (await field.boundingBox())!
+    expect(box.height).toBeGreaterThan(viewport * 0.6)
+  }).toPass()
+})

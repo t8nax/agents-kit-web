@@ -450,11 +450,14 @@
   z-index: 1001;
 }
 
+/* Окно задания — во весь рост экрана: задание бывает на десятки строк — замечание оператора на приёмке B-198. */
 .pf-task {
-  max-height: min(680px, 90vh);
+  height: 90vh;
+  max-height: 90vh;
 }
 
 .pf-task-view {
+  flex: 1;
   padding: 16px 20px;
   font-size: 14px;
   line-height: 1.65;
@@ -470,6 +473,7 @@
 }
 
 .pf-task-edit {
+  flex: 1;
   min-height: 440px;
   padding: 16px 20px;
   font-family: var(--font-mono);
