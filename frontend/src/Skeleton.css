@@ -1,0 +1,69 @@
+/* Заготовка раздела, пока он в первый раз читает свои данные.
+   Полосы берут цвет рамок панели: основа — --border-subtle, блик — --border-strong.
+   Блик привязан к окну (background-attachment: fixed) — все полосы раздела мерцают одной волной. */
+.sk {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+  height: 10px;
+  border-radius: 4px;
+  background-color: var(--border-subtle);
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--border-strong) 70%, transparent) 50%,
+    transparent 70%
+  );
+  background-size: 60vw 100%;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  animation: sk-wave 1.5s ease-in-out infinite;
+}
+
+@keyframes sk-wave {
+  from {
+    background-position: -60vw 0;
+  }
+  to {
+    background-position: 100vw 0;
+  }
+}
+
+.sk-pill {
+  border-radius: 999px;
+}
+
+.sk-round {
+  border-radius: 50%;
+}
+
+.sk-block {
+  display: block;
+}
+
+/* Карточки и строки заготовки — те же рамки, что у настоящих, только без наведения */
+.sk-frame {
+  pointer-events: none;
+}
+
+/* Настоящее содержимое встаёт на место заготовки коротким проявлением */
+.loaded {
+  animation: loaded-in 180ms ease-out both;
+}
+
+@keyframes loaded-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk {
+    animation: none;
+    background-image: none;
+  }
+
+  .loaded {
+    animation: none;
+  }
+}
