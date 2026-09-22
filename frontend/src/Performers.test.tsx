@@ -47,6 +47,25 @@ function stubFetch(...responses: BasePerformers[][]) {
   return fetchMock
 }
 
+test('пока исполнители читаются, на месте карточек заготовка, а заголовок раздела уже виден', async () => {
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(Response.json(bases))))),
+  )
+
+  render(<Performers />)
+
+  expect(screen.getByRole('status', { name: 'Загрузка исполнителей' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Исполнители' })).toBeInTheDocument()
+
+  answer()
+
+  expect(await screen.findByText('reviewer')).toBeInTheDocument()
+  expect(screen.queryByRole('status', { name: 'Загрузка исполнителей' })).not.toBeInTheDocument()
+})
+
 test('карточка показывает имя, описание и модель, а путь файла и инструменты — нет', async () => {
   const fetchMock = stubFetch(bases)
 
