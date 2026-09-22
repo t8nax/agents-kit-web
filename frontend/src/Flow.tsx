@@ -1761,11 +1761,17 @@ function ContextMenu({
     const onDown = (event: MouseEvent) => {
       if (!box.current?.contains(event.target as Node)) close.current(false)
     }
-    const away = () => close.current(false)
+    // Прокрутку, которая случилась до меню, браузер присылает событием в следующем кадре — раньше колбэков
+    // кадра: фокус, вернувшийся на блок, подкручивает схему к нему, и без этого меню, открытое сразу
+    // после, закрылось бы само. Закрывает только прокрутка после первого кадра меню.
+    let ready = false
+    const frame = requestAnimationFrame(() => (ready = true))
+    const away = () => ready && close.current(false)
     document.addEventListener('mousedown', onDown)
     window.addEventListener('resize', away)
     window.addEventListener('scroll', away, true)
     return () => {
+      cancelAnimationFrame(frame)
       document.removeEventListener('mousedown', onDown)
       window.removeEventListener('resize', away)
       window.removeEventListener('scroll', away, true)
