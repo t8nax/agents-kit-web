@@ -367,7 +367,7 @@ if ($baseDir) {
 $product = Join-Path (Get-Location).Path 'product.md'
 if (-not $chat) {
     Write-Step 'Read' @{ file_path = $product }
-    Write-Step 'Grep' @{ pattern = 'песочница' }
+    Write-Step 'Grep' @{ pattern = '@@NAME@@' }
     if ($mode -eq 'truncated') { exit 0 }
     Write-Result "Подставной агент @@OF@@ отвечает на «$($stdin.Trim())»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
     exit 0
@@ -379,7 +379,7 @@ while ($null -ne ($line = $stdinReader.ReadLine())) {
     $text = try { ([string]($line | ConvertFrom-Json).message.content[0].text).Trim() } catch { $line.Trim() }
     $said += $text
     Write-Step 'Read' @{ file_path = $product }
-    Write-Step 'Grep' @{ pattern = 'песочница' }
+    Write-Step 'Grep' @{ pattern = '@@NAME@@' }
     if ($mode -eq 'truncated') { exit 0 }
     $answer = if ($said.Count -eq 1) {
         "Подставной агент @@OF@@ отвечает на «$text»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
