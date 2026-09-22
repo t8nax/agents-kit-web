@@ -273,6 +273,46 @@ test('запись разговора, удалённая по «Сохрани�
   expect(await screen.findAllByText('удалена')).toHaveLength(2)
 })
 
+test('изменённая запись разговора не становится «удалена», даже если бэклог не перечитался', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  render(
+    <BacklogWriteModal
+      bases={bases}
+      initialBase={null}
+      subject={{ base: bases[0].base, entry: B40 }}
+      findEntry={() => undefined}
+      onClose={() => {}}
+      onEntries={() => {}}
+    />,
+  )
+
+  await say('Сделай средний')
+  stream.send({ type: 'reply', text: 'Сделай средний', number: 'B-40' })
+  const lower = { ...B40, title: 'Показывать длительность задачи', priority: 'средний' }
+  stream.send(answer({ proposal: { id: 'p4', changes: [{ kind: 'change', number: 'B-40', entry: lower }] } }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+  stream.send({ type: 'saved', text: '', commit: 'c0ffee1', proposalId: 'p4' })
+
+  expect(await screen.findByText('изменена')).toBeInTheDocument()
+  expect(screen.queryByText('удалена')).not.toBeInTheDocument()
+  // Карточка записи наверху — такая, какой её сохранили.
+  expect(screen.getAllByText('Показывать длительность задачи')).toHaveLength(2)
+})
+
+test('окно, ещё читающее панель, закрытием разговор не трогает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubPanel('backlog', stream, {
+    // Список просьб панели так и не дочитывается: окно всё ещё узнаёт, идёт ли разговор.
+    others: (url) => (url === '/api/agent/requests' ? new Response(new ReadableStream({ start: () => {} })) : null),
+  })
+  renderModal()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+
+  expect(deletes).toEqual([])
+})
+
 test('объединение: остающаяся запись под «Останется», уходящая — под «Уйдёт в …»', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream)

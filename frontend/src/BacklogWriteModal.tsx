@@ -88,13 +88,11 @@ export default function BacklogWriteModal({
   const aboutNumber = subject?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
   const savedCount = events.filter((e) => e.type === 'saved').length
   const current = aboutNumber && base && findEntry ? (findEntry(base, aboutNumber) ?? null) : null
-  // После «Сохранить» запись разговора показывается такой, какой стала, а удалённая — отметкой «удалена».
-  const aboutGone = savedCount > 0 && aboutNumber !== null && current === null
-  const about = aboutGone
-    ? (subject?.entry ?? savedEntry(events, aboutNumber))
-    : savedCount > 0
-      ? current
-      : (subject?.entry ?? current)
+  // После «Сохранить» запись разговора показывается такой, какой её записали, а удалённая — отметкой «удалена».
+  // Что с ней стало, говорит сохранённое предложение, а не список раздела: тот мог и не перечитаться.
+  const saved = savedChange(events, aboutNumber)
+  const aboutGone = saved?.kind === 'delete'
+  const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (subject?.entry ?? current)
 
   // Закрытое окно убирает свой разговор, если агент не занят: несохранённое предложение уходит вместе с ним.
   // Разговора, которого окно не показывает — окно от записи до первой реплики, окно, ещё читающее панель, —
@@ -565,12 +563,15 @@ function proposalStates(events: WriteEvent[]): Map<string, ProposalState> {
   return states
 }
 
-/** Запись, какой она была в сохранённом предложении: удалённую больше не найти в бэклоге. */
-function savedEntry(events: WriteEvent[], number: string | null) {
+/** Последняя сохранённая правка записи: какой она стала или что удалена. */
+function savedChange(events: WriteEvent[], number: string | null) {
+  if (number === null) return null
+  const saved = new Set(events.flatMap((e) => (e.type === 'saved' ? [e.proposalId] : [])))
+  let last: ProposalChange | null = null
   for (const event of events)
-    if (event.type === 'answer')
-      for (const change of event.proposal?.changes ?? []) if (change.number === number) return change.entry
-  return null
+    if (event.type === 'answer' && event.proposal && saved.has(event.proposal.id))
+      last = event.proposal.changes.find((change) => change.number === number) ?? last
+  return last
 }
 
 /** Шаги ответа на последнюю реплику: ход виден только у той, на которую сейчас отвечают. */
