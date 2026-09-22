@@ -74,24 +74,21 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const dialog = page.getByRole('dialog', { name: 'Новая рабочая копия' })
     await expect(dialog.getByRole('radio', { name: /Agents Kit Web/ })).toBeChecked()
     await dialog.getByLabel(/Имя копии/).fill('quiet-cedar')
-    const preview = dialog.getByLabel('Что будет заведено')
-    await expect(preview).toContainText('D:\\Projects\\quiet-cedar')
-    await expect(preview).toContainText('master · основная копия D:\\Projects\\agents-kit-web')
+    // У проекта только имя: ни числа копий, ни пути, и блока «что будет заведено» нет (B-215)
+    await expect(dialog.locator('.nw-project').first()).toHaveText('Agents Kit Web')
+    await expect(dialog).not.toContainText('D:\\Projects')
+    await expect(dialog.getByLabel('Что будет заведено')).toHaveCount(0)
     await expect(dialog).toContainText('У проекта уже есть свободная копия master')
     const transparent = 'rgba(0, 0, 0, 0)'
     // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
     await expect(dialog).not.toHaveCSS('background-color', transparent)
     // Вид «Легче» (B-215): шапка и подвал без полос и подкраски, список проектов без рамки
-    // и разделителей, превью на подложке без пунктира, напоминание — простая строка без рамки и фона
+    // и разделителей, напоминание — простая строка без рамки и фона
     await expect(dialog.locator('.nw-head')).toHaveCSS('border-bottom-style', 'none')
     await expect(dialog.locator('.nw-footer')).toHaveCSS('border-top-style', 'none')
     await expect(dialog.locator('.nw-footer')).toHaveCSS('background-color', transparent)
     await expect(dialog.locator('.nw-projects')).toHaveCSS('border-top-style', 'none')
     await expect(dialog.locator('.nw-projects > li').nth(1)).toHaveCSS('border-top-style', 'none')
-    await expect(preview).toHaveCSS('border-top-style', 'none')
-    const dialogBackground = await dialog.evaluate((node) => getComputedStyle(node).backgroundColor)
-    await expect(preview).not.toHaveCSS('background-color', transparent)
-    await expect(preview).not.toHaveCSS('background-color', dialogBackground)
     const notice = dialog.locator('.nw-notice')
     await expect(notice).toHaveCSS('border-top-style', 'none')
     await expect(notice).toHaveCSS('background-color', transparent)
