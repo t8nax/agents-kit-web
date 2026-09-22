@@ -40,7 +40,7 @@ async function openReply(page: Page) {
   return page.getByRole('dialog', { name: 'Ответ оператора' })
 }
 
-test('оператор отвечает на вопросы копии лентой, ответы уходят после секунд с «Отменить», и строка перестаёт ждать', async ({ page }) => {
+test('оператор отвечает лентой, ответы уходят по «Отправить» после секунд с «Отменить», и строка перестаёт ждать', async ({ page }) => {
   let answered = false
   let posted: unknown = null
 
@@ -72,28 +72,28 @@ test('оператор отвечает на вопросы копии лент�
   await expect(tableRow.getByText('Ждёт оператора')).toBeVisible()
   const dialog = await openReply(page)
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
-  // второй вопрос виден свёрнутым с самого открытия
   await expect(dialog.getByRole('button', { name: /^Как быть с переносами\?/ })).toBeVisible()
 
-  // строка ввода получает фокус сама: отвечают, не берясь за мышь
+  // строка ввода получает фокус сама, ответ виден в ленте сразу
   const answer = dialog.getByLabel('Ответ')
   await expect(answer).toBeFocused()
   await answer.fill('принимаю')
+  await expect(dialog.locator('.op-bubble')).toHaveText(/принимаю/)
   await answer.press('Enter')
 
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
   await dialog.getByRole('button', { name: /Заменять пробелами/ }).click()
   await expect(answer).toHaveValue('Заменять пробелами')
-  await dialog.getByRole('button', { name: 'Ответить' }).click()
+  await dialog.getByRole('button', { name: 'Отправить' }).click()
 
+  // ленты не видно: знак отправки по центру, «Отменить» внизу
   await expect(dialog.getByRole('status')).toHaveText(/Ответы отправлены агенту/)
+  await expect(dialog.locator('.reply-feed')).toHaveCount(0)
+  const check = (await dialog.locator('.done-mark svg').boundingBox())!
+  expect([Math.round(check.width), Math.round(check.height)]).toEqual([34, 34])
   await expect(dialog.getByRole('button', { name: 'Отменить' })).toBeVisible()
   expect(posted).toBeNull()
-  // галочка строки — своего размера, а не общих 18px значков окна
-  const check = (await dialog.locator('.sent svg').boundingBox())!
-  expect([Math.round(check.width), Math.round(check.height)]).toEqual([14, 14])
 
-  // после секунд с «Отменить» ответы записываются, и окно закрывается само
   await expect(dialog).toBeHidden({ timeout: 10000 })
   expect(posted).toEqual({
     base: 'D:\\Projects\\app-knowledge',
@@ -106,7 +106,7 @@ test('оператор отвечает на вопросы копии лент�
   await expect(tableRow.getByText('В работе')).toBeVisible()
 })
 
-test('«Отменить» ничего не записывает, а окно остаётся с данными ответами', async ({ page }) => {
+test('«Отменить» ничего не записывает, а лента возвращается с ответами', async ({ page }) => {
   let posted = false
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?')])
@@ -122,6 +122,7 @@ test('«Отменить» ничего не записывает, а окно �
   await answer.press('Enter')
   await dialog.getByRole('button', { name: 'Отменить' }).click()
 
+  await expect(dialog.locator('.reply-feed')).toBeVisible()
   await expect(answer).toHaveValue('принимаю')
   await page.waitForTimeout(3500)
   expect(posted).toBe(false)
@@ -136,7 +137,7 @@ test('вопросы агента — пузыри слева, ответы оп
   const dialog = await openReply(page)
   const answer = dialog.getByLabel('Ответ')
   await answer.fill('принимаю')
-  await answer.press('Enter')
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
 
   for (const scheme of ['dark', 'light'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
@@ -152,14 +153,25 @@ test('вопросы агента — пузыри слева, ответы оп
       expect(compact.width).toBeLessThan(feed.width - 48)
       expect(feed.x + feed.width - (bubble.x + bubble.width)).toBeLessThan(40)
     }).toPass()
-    // пузырь вопроса залит своим цветом, отличным от фона окна
+    // пузырь вопроса залит своим цветом, отличным от фона окна; ответ — нейтральный, не янтарный
     const fill = await dialog.locator('.agent-q').evaluate((el) => getComputedStyle(el).backgroundColor)
     const windowFill = await dialog.evaluate((el) => getComputedStyle(el).backgroundColor)
     expect(fill).not.toBe(windowFill)
+    const answerFill = await dialog.locator('.op-bubble').evaluate((el) => getComputedStyle(el).backgroundColor)
+    const waiting = await page.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.background = 'var(--accent-waiting-bg)'
+      document.body.append(probe)
+      const color = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return color
+    })
+    expect(answerFill).not.toBe(waiting)
+    expect(answerFill).not.toBe(fill)
   }
 })
 
-test('пропущенный вопрос — пунктиром, у вариантов кружок выбора, значки шапки и строки ввода своего размера', async ({ page }) => {
+test('свёрнутые вопросы одинаковы, у вариантов кружок выбора, значки шапки и строки ввода своего размера', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(
     page,
@@ -180,12 +192,13 @@ test('пропущенный вопрос — пунктиром, у вариа�
 
   await page.goto('/')
   const dialog = await openReply(page)
-  await dialog.getByRole('button', { name: 'Пропустить' }).click()
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
 
-  const skipped = dialog.locator('.q-compact.is-skipped')
-  await expect(skipped).toHaveText(/Пропущен/)
-  await expect(skipped).toHaveCSS('border-top-style', 'dashed')
+  // вопрос, мимо которого прошли без ответа, — обычная свёрнутая строка без пометок и пунктира
+  const compact = dialog.locator('.q-compact')
+  await expect(compact).toHaveText('Подтвердить критерий?')
+  await expect(compact).toHaveCSS('border-top-style', 'solid')
 
   // кружок выбора: пустой у невыбранного, с точкой у выбранного
   const option = dialog.getByRole('button', { name: /Заменять пробелами/ })
@@ -203,13 +216,11 @@ test('пропущенный вопрос — пунктиром, у вариа�
   }
   await expect(async () => {
     expect(await size('.strip-actions .btn-ghost svg')).toEqual([16, 16])
-    expect(await size('.composer-skip svg')).toEqual([16, 16])
     expect(await size('.composer-send svg')).toEqual([16, 16])
   }).toPass()
 
   await dialog.getByLabel('Ответ').fill('')
-  // у пропущенного вопроса тоже есть «Ответить» — строка ввода отвечает кнопкой с этим именем целиком
-  await dialog.getByRole('button', { name: 'Ответить', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Отправить' }).click()
   await expect(dialog.locator('.field-error')).toBeVisible()
   expect(await size('.field-error svg')).toEqual([14, 14])
 })
@@ -334,7 +345,7 @@ test('данные ответы возвращаются после закрыт
   await page.goto('/')
   let dialog = await openReply(page)
   await dialog.getByLabel('Ответ').fill('принимаю, но без e2e')
-  await dialog.getByLabel('Ответ').press('Enter')
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -390,7 +401,7 @@ test('ссылка из вопроса открывается в новой вк
   await expect(dialog.getByLabel('Ответ')).toHaveValue('в новую папку')
 })
 
-test('лента проходится одной клавиатурой: Enter отвечает, стрелка возвращает к прежнему, ответ правится', async ({ page }) => {
+test('лента проходится одной клавиатурой: Enter ведёт дальше, стрелка возвращает, ответ правится', async ({ page }) => {
   let posted: unknown = null
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?'), plain('Как быть с переносами?')])
@@ -441,6 +452,8 @@ test('отказ записи — красной строкой под поле�
   await answer.fill('заменять')
   await answer.press('Enter')
 
+  // лента вернулась с ответами, знака отправки больше нет
+  await expect(dialog.locator('.reply-feed')).toBeVisible()
   const alert = dialog.getByRole('alert')
   await expect(alert).toHaveText(/уже ответили из другого места/, { timeout: 10000 })
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
