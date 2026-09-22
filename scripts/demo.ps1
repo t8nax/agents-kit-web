@@ -392,9 +392,9 @@ function Build-Demo {
     foreach ($copy in $cafe.Values) { $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $cafeBase }) }
     $copies.cafe = $cafe
 
-    # «Склад»: задача на ревью и задача на приёмке у оператора.
+    # «Склад»: задача на ревью, задача на приёмке у оператора и копия, где задача закончилась.
     $stock = New-DemoProject 'stock' 'Склад' ([ordered]@{
-            'stock-import' = 'feat/skl-31-import'; 'stock-audit' = 'feat/skl-27-audit' })
+            'stock-import' = 'feat/skl-31-import'; 'stock-audit' = 'feat/skl-27-audit'; 'stock-labels' = 'feat/skl-29-labels' })
     $stockBase = Join-Path $basesDir 'stock-knowledge'
     New-DemoBase $stockBase 'Склад' @'
 - Учёт остатков на складе кофеен: приход, расход и инвентаризация.
@@ -514,8 +514,8 @@ function Build-Demo {
     foreach ($copy in $stock.Values) { $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $stockBase }) }
     $copies.stock = $stock
 
-    # «Блог»: задач в работе нет, копия свободна, в бэклоге есть что взять.
-    $blog = New-DemoProject 'blog' 'Блог'
+    # «Блог»: одна задача в самом начале, другая закончилась, основная копия свободна.
+    $blog = New-DemoProject 'blog' 'Блог' ([ordered]@{ 'blog-rss' = 'feat/blog-6-rss'; 'blog-authors' = 'feat/blog-4-authors' })
     $blogBase = Join-Path $basesDir 'blog-knowledge'
     New-DemoBase $blogBase 'Блог' @'
 - Блог сети кофеен: рецепты, новости и истории поставщиков.
@@ -539,6 +539,40 @@ function Build-Demo {
 
 Картинки отдаются в полном размере, и на телефоне статья открывается долго.
 '@
+    Write-Utf8 (Join-Path $blogBase 'work\blog-rss.md') @"
+# BLOG-6 Подписка на блог через RSS
+рабочая копия: $($blog['blog-rss'])
+ветка: feat/blog-6-rss
+флоу: мелкий
+Решения: нет
+
+## Критерии закрытия
+
+### 1. У блога есть RSS-лента
+По адресу /rss.xml отдаются двадцать последних статей с заголовком, датой и первым абзацем.
+
+## Оператору
+
+## Агенту
+
+### Критерии
+- 1. проверка: тест ленты на трёх статьях — где: tests/rss.test.ts
+
+### Вопросы
+
+### Факты
+
+### Флоу
+- [x] 1. Ветка — выход: feat/blog-6-rss от dev
+- [ ] 2. Реализация
+- [ ] 3. Приёмка
+- [ ] 4. Мерж
+
+### Шаги
+- [ ] собрать ленту из последних статей
+- [ ] тест ленты
+"@
+    Add-Commit $blogBase 'Память задачи'
     $bases.Add($blogBase)
     foreach ($copy in $blog.Values) { $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $blogBase }) }
     $copies.blog = $blog
@@ -562,6 +596,9 @@ function Start-DemoSessions($Copies) {
         @{ cwd = $Copies.cafe.'cafe-loyalty'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'c14a7e21'; status = 'busy'; name = 'drive CAFE-14'; startedAt = $now - 40 * 60000 } }
         @{ cwd = $Copies.cafe.'cafe-menu'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'c09b3f40'; status = 'waiting'; name = 'drive CAFE-9'; startedAt = $now - 95 * 60000 } }
         @{ cwd = $Copies.cafe.'cafe-receipts'; extra = @{ status = 'idle' } }
+        @{ cwd = $Copies.stock.'stock-labels'; extra = @{ status = 'idle' } }
+        @{ cwd = $Copies.blog.'blog-rss'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 'b06e5a17'; status = 'busy'; name = 'drive BLOG-6'; startedAt = $now - 3 * 60000 } }
+        @{ cwd = $Copies.blog.'blog-authors'; extra = @{ status = 'idle' } }
         @{ cwd = $Copies.stock.'stock-import'; extra = @{ entrypoint = 'cli'; kind = 'bg'; jobId = 's31d9c02'; status = 'busy'; name = 'drive SKL-31'; startedAt = $now - 15 * 60000 } }
     )
     $tasks = [Collections.Generic.List[object]]::new()
