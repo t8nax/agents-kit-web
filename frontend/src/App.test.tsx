@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import { type AgentKind, type AgentRequestSummary } from './agentRequest'
+import NotificationsCard from './NotificationsCard'
 import { applyChosenTheme } from './theme'
 
 // Индикатор просьб к агенту опрашивает панель сам и проверяется своим тестом: здесь он молчит,
@@ -800,6 +801,31 @@ test('выключенные в «Настройках» уведомления 
   await act(async () => setVisibility('visible'))
   expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
   expect(shown).toHaveLength(0)
+})
+
+test('выключенные и снова включённые переключателем уведомления приходят без нового запроса разрешения', async () => {
+  fakeInterval()
+  const { shown, FakeNotification } = stubNotification('granted')
+  workspaceResponses([inWork], [rows[0]])
+
+  // Карточка «Уведомления» стоит в «Настройках»; здесь она рядом с таблицей, чтобы щелчок по ней шёл в ту же панель
+  render(
+    <>
+      <App />
+      <NotificationsCard />
+    </>,
+  )
+  await screen.findByText('В работе')
+  const toggle = screen.getByRole('switch', { name: 'Показывать уведомления' })
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-checked', 'false')
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-checked', 'true')
+
+  await tick(3000)
+  expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
+  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
 })
 
 test('уведомляет, когда копия начала ждать оператора, и не шлёт на первом опросе', async () => {
