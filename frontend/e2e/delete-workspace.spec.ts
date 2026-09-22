@@ -75,6 +75,13 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const dialogBackground = await dialog.evaluate((node) => getComputedStyle(node).backgroundColor)
     await expect(preview).not.toHaveCSS('background-color', transparent)
     await expect(preview).not.toHaveCSS('background-color', dialogBackground)
+    // Необратимое действие залито, а не обведено: общий стиль кнопок уже однажды перебивал заливку (B-215)
+    const cancelBackground = await dialog
+      .getByRole('button', { name: 'Отмена' })
+      .evaluate((node) => getComputedStyle(node).backgroundColor)
+    const danger = dialog.getByRole('button', { name: 'Удалить копию' })
+    await expect(danger).not.toHaveCSS('background-color', transparent)
+    await expect(danger).not.toHaveCSS('background-color', cancelBackground)
 
     await dialog.getByRole('button', { name: 'Удалить копию' }).click()
 
