@@ -94,7 +94,7 @@ export default function Usage() {
             className="usage-refresh"
             disabled={loading}
             onClick={() => {
-              // Работу показывает только кнопка: при открытии раздела на её месте заготовка
+              // Работу показывает только кнопка: при открытии раздела на месте содержимого заготовка
               setLoading(true)
               load()
             }}
