@@ -297,3 +297,20 @@ test('стадия, которую никто не трогал, пока Чуд
   await screen.findByLabelText('Что изменилось в стадиях')
   expect(screen.queryByText(/пока Чудо-Юдо работал/)).not.toBeInTheDocument()
 })
+
+test('«Попросить снова» уходит со стадиями такими, какими их видно в разделе сейчас', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  // Ушла прежняя «Ревью» и «Запас», которого в разделе уже нет.
+  const { posts } = stubFetch(stream, {
+    ...runningRequest('flow', 'Уточни выход ревью', base, 'Agents Kit Web', 1000),
+    stages: [{ ...review, output: 'старый выход' }, stage('Запас')],
+  })
+  renderModal()
+
+  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  stream.send({ type: 'error', text: 'Агент упал' })
+  fireEvent.click(await screen.findByRole('button', { name: 'Попросить снова' }))
+
+  await waitFor(() => expect(posts).toHaveLength(1))
+  expect(posts[0].body).toMatchObject({ stages: [review, stage('Запас')] })
+})

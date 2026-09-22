@@ -150,6 +150,11 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
     onClose()
   }
 
+  // Повтор просьбы уходит со стадиями такими, какими их видно сейчас: их могли поправить после сбоя. Пропавшая
+  // из раздела стадия уходит прежней.
+  const current = (sent: FlowStage[]) =>
+    sent.map((one) => stages.find((stage) => norm(stage.title) === norm(one.title)) ?? one)
+
   const toggle = (title: string) =>
     setContext((now) => (now.includes(title) ? now.filter((one) => one !== title) : [...now, title]))
 
@@ -374,7 +379,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                 >
                   Изменить просьбу
                 </button>
-                <button type="button" className="btn btn-primary" onClick={() => void rewrite(shown, contextStages)}>
+                <button type="button" className="btn btn-primary" onClick={() => void rewrite(shown, current(contextStages))}>
                   Попросить снова
                 </button>
               </>
