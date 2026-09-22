@@ -3,7 +3,11 @@ import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
 import Backlog, { type BaseBacklog } from './Backlog'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  // Порядок записей раздел помнит в браузере: каждый тест начинает с порядка по умолчанию
+  localStorage.clear()
+})
 
 const backlogs: BaseBacklog[] = [
   {
@@ -539,4 +543,24 @@ test('порядок выбирается полем и кнопкой напр�
 
   fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'type' } })
   expect(shownNumbers()).toEqual(['B-3', 'B-1', 'B-2', 'B-4'])
+})
+
+test('порядок помнится между открытиями раздела, а фильтры и поиск — нет', async () => {
+  stubFetch(fielded)
+
+  const { unmount } = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
+  fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'импорт' } })
+  unmount()
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('priority')
+  expect(screen.getByRole('button', { name: 'По убыванию' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
 })

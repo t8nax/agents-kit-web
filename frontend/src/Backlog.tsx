@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
-import { arrange, defaultOrder, emptySelection, PRIORITIES, TYPES, type Order, type Selection, type SortField } from './backlogView'
+import { arrange, emptySelection, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
@@ -49,9 +49,14 @@ export default function Backlog({
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [filter, setFilter] = useState<string | null>(writeFor)
-  // Отбор и порядок записей внутри каждого проекта
+  // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, отбор каждое открытие раздела пуст
   const [selection, setSelection] = useState<Selection>(emptySelection)
-  const [order, setOrder] = useState<Order>(defaultOrder)
+  const [order, setOrder] = useState<Order>(readOrder)
+
+  const changeOrder = useCallback((next: Order) => {
+    setOrder(next)
+    writeOrder(next)
+  }, [])
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
   // Запись, которую берут в работу
@@ -191,7 +196,7 @@ export default function Backlog({
                 onClick={() => setSelection((prev) => ({ ...prev, priorities: toggle(prev.priorities, priority) }))}
               />
             ))}
-            <OrderBox order={order} onChange={setOrder} />
+            <OrderBox order={order} onChange={changeOrder} />
           </div>
 
           <div className="backlog-list">
