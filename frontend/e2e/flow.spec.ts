@@ -208,7 +208,7 @@ test('сайдбар стадии справа от схемы, дуги воз�
   await drawer.getByRole('button', { name: 'Править стадию «Приёмка»' }).click()
   await expect(page.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
   await expect(
-    page.getByRole('region', { name: 'Стадия «Приёмка»' }).getByRole('textbox', { name: 'Выход стадии' }),
+    page.getByRole('dialog', { name: 'Стадия «Приёмка»' }).getByRole('textbox', { name: 'Выход стадии' }),
   ).toHaveValue('ответ оператора «принято»')
 })
 
@@ -232,12 +232,22 @@ test('вкладка «Стадии»: стадии карточками по т
   expect(boxes[3]!.y).toBeGreaterThan(boxes[0]!.y + boxes[0]!.height)
 
   await cards.first().click()
-  const edit = page.getByRole('region', { name: 'Стадия «Критерий»' })
+  const edit = page.getByRole('dialog', { name: 'Стадия «Критерий»' })
+  // Правка — окном ограниченной ширины по центру, а не во всю ширину раздела; фокус — в названии
+  await expect(edit.getByRole('textbox', { name: 'Название стадии' })).toBeFocused()
+  const editBox = await edit.boundingBox()
+  const viewport = page.viewportSize()!
+  expect(editBox!.width).toBeLessThanOrEqual(800)
+  expect(Math.abs(editBox!.x + editBox!.width / 2 - viewport.width / 2)).toBeLessThan(2)
   // Стадию, стоящую во флоу, не удалить
   await expect(edit.getByRole('button', { name: 'Удалить стадию' })).toBeDisabled()
+  // «Готово» закрывает окно, фокус возвращается на карточку
+  await edit.getByRole('button', { name: 'Готово' }).click()
+  await expect(edit).toHaveCount(0)
+  await expect(cards.first()).toBeFocused()
 
   await list.getByRole('button', { name: /^Приёмка/ }).click()
-  const acceptance = page.getByRole('region', { name: 'Стадия «Приёмка»' })
+  const acceptance = page.getByRole('dialog', { name: 'Стадия «Приёмка»' })
   await acceptance.getByRole('textbox', { name: 'Пропуск стадии' }).fill('правка не меняет вида панели')
   await acceptance.getByRole('button', { name: 'Значок стадии' }).click()
   const icons = page.getByRole('group', { name: 'Значки стадии' })
@@ -246,6 +256,7 @@ test('вкладка «Стадии»: стадии карточками по т
   await expect(icons.getByRole('button', { name: 'Значок «проверка»' })).toHaveText('')
   await icons.getByRole('button', { name: 'Значок «проверка»' }).click()
   await expect(icons).toHaveCount(0)
+  await acceptance.getByRole('button', { name: 'Готово' }).click()
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
@@ -266,7 +277,10 @@ test('полоса сохранения внизу раздела: появля�
   await expect(page.locator('.save-bar')).toHaveCount(0)
 
   await page.getByRole('tab', { name: 'Стадии' }).click()
-  await page.getByRole('region', { name: 'Стадия «Критерий»' }).getByRole('textbox', { name: 'Выход стадии' }).fill(' ')
+  await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ }).click()
+  const edit = page.getByRole('dialog', { name: 'Стадия «Критерий»' })
+  await edit.getByRole('textbox', { name: 'Выход стадии' }).fill(' ')
+  await edit.getByRole('button', { name: 'Готово' }).click()
 
   const bar = page.locator('.save-bar')
   await expect(bar).toBeVisible()
@@ -343,8 +357,10 @@ test('описание стадии правится в окне по кнопк
   const calls = await mockApi(page)
   await openFlow(page)
   await page.getByRole('tab', { name: 'Стадии' }).click()
+  await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ }).click()
 
-  await page.getByRole('region', { name: 'Стадия «Критерий»' }).getByRole('button', { name: /Редактировать описание/ }).click()
+  const stage = page.getByRole('dialog', { name: 'Стадия «Критерий»' })
+  await stage.getByRole('button', { name: /Редактировать описание/ }).click()
   const dialog = page.getByRole('dialog', { name: 'Описание стадии «Критерий»' })
   const text = dialog.getByRole('textbox', { name: 'Описание стадии' })
   await expect(text).toBeFocused()
@@ -359,6 +375,7 @@ test('описание стадии правится в окне по кнопк
   await text.press('Enter')
   await dialog.getByRole('button', { name: 'Готово' }).click()
   await expect(dialog).toHaveCount(0)
+  await stage.getByRole('button', { name: 'Готово' }).click()
 
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
   await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
@@ -377,7 +394,7 @@ test('исполнитель, которого нет в базе, помече�
 
   await page.getByRole('tab', { name: 'Стадии' }).click()
   await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Ревью/ }).click()
-  const edit = page.getByRole('region', { name: 'Стадия «Ревью»' })
+  const edit = page.getByRole('dialog', { name: 'Стадия «Ревью»' })
   await expect(edit.getByRole('status')).toContainText('Выберите исполнителя из заведённых')
   // Имя руками не вписывается: в списке только заведённые в базе
   await edit.getByLabel('Имя субагента').selectOption('reviewer')

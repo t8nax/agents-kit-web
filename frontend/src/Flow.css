@@ -1134,22 +1134,206 @@ textarea.flow-input {
   stroke-linecap: round;
 }
 
-.flow-stage-edit {
-  flex: 1;
+/*
+ * Окно правки стадии — рамка окна исполнителя (modal-wizard, ask-head, ask-body, modal-footer):
+ * подписи слева, поля справа, под чертой «Работа» — выход, пропуск и описание (B-192).
+ * Правила идут от .flow-stage-modal: иначе общее `.modal-overlay svg` перебивает размеры значков.
+ */
+.flow-stage-modal {
+  max-height: min(760px, 90vh);
+  color: var(--text-primary);
+}
+
+.flow-stage-modal svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.flow-stage-modal .flow-card-mark svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 1.7;
+}
+
+.flow-stage-modal .ask-title h2.flow-stage-modal-title {
+  flex: 0 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.flow-stage-modal .btn-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.flow-stage-rows {
   display: flex;
   flex-direction: column;
-  background: var(--bg-surface);
+  gap: 12px;
+  padding: 0 16px;
 }
 
-.flow-stage-edit .flow-drawer-body {
-  padding: 18px 24px;
+/* Строка поля: подпись в колонке слева, поле и всё, что к нему, — справа. */
+.flow-stage-modal .flow-field {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  column-gap: 16px;
+  row-gap: 8px;
+  align-items: center;
+  min-height: 34px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
-.flow-stage-edit .flow-drawer-head,
-.flow-stage-edit .flow-drawer-foot {
-  padding-left: 24px;
-  padding-right: 24px;
+.flow-stage-modal .flow-field > :not(:first-child) {
+  grid-column: 2;
+}
+
+.flow-stage-modal .flow-field > :first-child {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  padding-top: 8px;
+}
+
+.flow-stage-modal .flow-input {
+  width: 100%;
+  min-height: 34px;
+  font-size: 13px;
+  background: var(--bg-base);
+  border-color: var(--border-strong);
+  padding: 6px 10px;
+}
+
+.flow-stage-modal .flow-input:focus {
+  border-color: var(--text-secondary);
+}
+
+.flow-stage-modal .flow-input[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+.flow-stage-modal textarea.flow-input {
+  min-height: 84px;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: none;
+}
+
+.flow-stage-modal .flow-stage-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.flow-stage-modal .flow-icons {
+  justify-self: start;
+}
+
+.flow-stage-modal .flow-icon-toggle {
+  height: 34px;
+  padding: 0 8px 0 3px;
+  border-color: var(--border-strong);
+  border-radius: 6px;
+}
+
+.flow-stage-modal .flow-icon-toggle .flow-node-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+
+.flow-stage-modal .flow-icon-toggle .flow-node-mark svg {
+  width: 15px;
+  height: 15px;
+}
+
+.flow-stage-modal .flow-icon-toggle > svg,
+.flow-stage-modal .flow-chip-remove svg {
+  width: 13px;
+  height: 13px;
+}
+
+.flow-stage-modal .flow-icon-menu .flow-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.flow-stage-modal .flow-chip {
+  height: 30px;
+  padding: 0 8px 0 12px;
+  font-family: var(--font-mono);
+}
+
+.flow-stage-modal .btn.flow-description-btn {
+  justify-self: start;
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.flow-stage-modal .flow-description-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Черта «Работа» между тем, кто проходит стадию, и тем, что она делает, — как в окне исполнителя. */
+.flow-stage-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 16px 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.flow-stage-sep::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.flow-stage-modal .flow-step-error {
+  padding: 0 16px;
+}
+
+.flow-stage-foot {
+  padding: 16px 40px;
+  justify-content: flex-start;
+}
+
+.flow-stage-foot .btn {
+  min-height: 42px;
+  padding-block: 0;
+}
+
+.flow-stage-foot .btn-danger:hover:not(:disabled) {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
+}
+
+.flow-stage-foot .btn-danger svg {
+  color: var(--accent-error-text);
+}
+
+.flow-stage-foot .flow-stage-done {
+  margin-left: auto;
+  min-width: 140px;
+  justify-content: center;
 }
 
 /* Вкладка «Флоу»: выбор флоу в углу холста, над схемой пусто. */
