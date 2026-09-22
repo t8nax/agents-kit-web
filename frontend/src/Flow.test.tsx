@@ -1200,9 +1200,25 @@ test('«Отказаться» в окне переписывания черно
 
 test('раздел, открытый с отметки просьбы в шапке, сразу показывает окно переписывания', async () => {
   stubApi(api([app], [], rewriteApi([])))
-  render(<Flow baseFor={app.base} rewriting />)
+  render(<Flow baseFor={app.base} rewriteAt={1} />)
 
   expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+})
+
+test('отметка в шапке при открытом разделе открывает окно переписывания, не сбрасывая несохранённые правки', async () => {
+  stubApi(api([app], [], rewriteApi([])))
+  const view = render(<Flow />)
+  await screen.findByRole('region', { name: 'Сценарий «полный»' })
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Критерий закрытия' } })
+  fireEvent.click(edit.getByRole('button', { name: 'Готово' }))
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument()
+
+  view.rerender(<Flow baseFor={app.base} rewriteAt={2} />)
+
+  expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument()
+  expect(within(screen.getByRole('list', { name: 'Стадии базы' })).getByRole('button', { name: /^Критерий закрытия/ })).toBeInTheDocument()
 })
 
 test('«Открыть в VS Code» просит API открыть флоу этой базы', async () => {

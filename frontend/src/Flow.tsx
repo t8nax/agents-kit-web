@@ -334,12 +334,15 @@ const invalidLabels: Record<string, string> = {
  */
 export default function Flow({
   baseFor = null,
-  rewriting = false,
+  rewriteAt = null,
   onPerformers,
 }: {
   baseFor?: string | null
-  /** Раздел открыт с отметки просьбы в шапке: сразу поверх него — окно переписывания стадий. */
-  rewriting?: boolean
+  /**
+   * Когда оператор щёлкнул отметку просьбы в шапке: поверх раздела — окно переписывания стадий. Раздел,
+   * уже открытый, не пересоздаётся, а только открывает окно: несохранённые правки остаются на месте.
+   */
+  rewriteAt?: number | null
   onPerformers?: () => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
@@ -365,7 +368,8 @@ export default function Flow({
   // Выбор до записи — по именам: перечитанный флоу собирается в форму заново, с новыми key.
   const [keep, setKeep] = useState<{ flow: string | null } | null>(null)
   // Какое окно открыто поверх раздела: описание стадии, выбор стадии во флоу или переписывание с Чудо-Юдо.
-  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(rewriting ? 'rewrite' : null)
+  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(rewriteAt !== null ? 'rewrite' : null)
+  const [rewriteSeen, setRewriteSeen] = useState(rewriteAt)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -429,6 +433,23 @@ export default function Flow({
   const savedApi = useMemo(() => JSON.stringify(toApi(saved)), [saved])
   const dirty =
     flow !== null && (JSON.stringify(toApi(draft)) !== savedApi || !sameIcons(toIcons(draft), flow.icons ?? {}))
+  // Отметка в шапке щёлкнута при открытом разделе: окно встаёт поверх, а проект переключается на проект
+  // просьбы, только если переключать нечего терять — как в выборе проекта. С несохранёнными правками окно
+  // остаётся на своём проекте и говорит, что просьба про другой.
+  if (rewriteAt !== rewriteSeen) {
+    setRewriteSeen(rewriteAt)
+    if (rewriteAt !== null) {
+      setModal('rewrite')
+      if (baseFor !== null && baseFor !== selected && !dirty) {
+        setSelected(baseFor)
+        setOpened(null)
+        setStageKey(null)
+        setStageOpen(false)
+        setFlowKey(null)
+        setKeep(null)
+      }
+    }
+  }
   const unread = flow?.unread ?? []
   const problem =
     unread.length > 0
