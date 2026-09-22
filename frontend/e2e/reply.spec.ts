@@ -89,6 +89,9 @@ test('оператор отвечает на вопросы копии лент�
   await expect(dialog.getByRole('status')).toHaveText(/Ответы отправлены агенту/)
   await expect(dialog.getByRole('button', { name: 'Отменить' })).toBeVisible()
   expect(posted).toBeNull()
+  // галочка строки — своего размера, а не общих 18px значков окна
+  const check = (await dialog.locator('.sent svg').boundingBox())!
+  expect([Math.round(check.width), Math.round(check.height)]).toEqual([14, 14])
 
   // после секунд с «Отменить» ответы записываются, и окно закрывается само
   await expect(dialog).toBeHidden({ timeout: 10000 })

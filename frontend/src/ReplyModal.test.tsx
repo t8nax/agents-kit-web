@@ -746,6 +746,9 @@ test.each([
   expect(await artifacts.findByRole('alert')).toHaveTextContent(text)
   // строка одна: окно ответа под окном артефактов её не повторяет
   expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1)
+  // и уходит вместе с окном артефактов, а не всплывает под шапкой окна ответа
+  fireEvent.click(artifacts.getByRole('button', { name: 'Закрыть' }))
+  expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0)
 })
 
 test('показывать нечего — кнопки нет: без артефактов нет «Артефактов», без критериев и «Не входит» — «Контекста задачи»', async () => {
@@ -788,7 +791,7 @@ test('Escape сначала закрывает окно поверх, потом
 
 // В разработке панель идёт в StrictMode: окно монтируется дважды, и отметка «окно открыто» должна это пережить —
 // иначе записанные ответы не закрывали окно, а отказ не показывался (поймано e2e на B-208).
-test('в StrictMode записанные ответы закрывают окно, а отказ показывается', async () => {
+test('в StrictMode отказ записи показывается', async () => {
   const calls = stubApi(rejectWith(409, { question: 'Подтвердить критерий?', problem: 'missing' }), { ...questions, questions: [questions.questions[0]] })
   render(
     <StrictMode>
@@ -825,4 +828,21 @@ test('запись, на которую панель не ответила за 
   expect(await dialog.findByRole('alert')).toHaveTextContent('Панель не ответила')
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeEnabled()
   expect(dialog.getByLabelText('Ответ')).toHaveValue('заменять')
+})
+
+test('в StrictMode записанные ответы закрывают окно', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }), { ...questions, questions: [questions.questions[0]] })
+  render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+  fireEvent.click(await screen.findByRole('button', { name: 'Ответить' }))
+  const dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerLast(dialog, 'принимаю')
+  waitOut()
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
+  expect(calls.filter((c) => c.url === '/api/answers')).toHaveLength(1)
 })
