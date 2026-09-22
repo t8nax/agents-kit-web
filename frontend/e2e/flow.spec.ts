@@ -373,6 +373,53 @@ test('окно стадии возвращает фокус: к описанию
   await expect(page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Приёмка/ })).toBeFocused()
 })
 
+test('окно стадии: Escape закрывает верхнее окно, под окнами Tab не проходит к разделу, значки своего размера', async ({ page }) => {
+  await mockApi(page)
+  await openFlow(page)
+  await page.getByRole('tab', { name: 'Стадии' }).click()
+  await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ }).click()
+  const stage = page.getByRole('dialog', { name: 'Стадия «Критерий»' })
+
+  // Значки в окне — своего размера, общее `.modal-overlay svg` их не перебивает
+  for (const mark of [stage.locator('.ask-title .flow-card-mark svg'), stage.locator('.flow-icon-toggle .flow-node-mark svg')])
+    await expect(async () => {
+      const box = (await mark.boundingBox())!
+      expect(Math.round(box.width)).toBe(15)
+    }).toPass()
+
+  // Под окном стадии Tab не попадает на вкладки, проект, карточки и полосу сохранения раздела
+  await stage.getByRole('textbox', { name: 'Выход стадии' }).fill('критерий в памяти задачи')
+  await expect(page.locator('.save-bar')).toHaveCount(1)
+  const under = () =>
+    page.evaluate(() => Boolean(document.activeElement?.closest('.vc-head, .flow-stage-grid, .save-bar')))
+  for (let i = 0; i < 30; i++) {
+    await page.keyboard.press('Tab')
+    expect(await under()).toBe(false)
+  }
+  await stage.getByRole('textbox', { name: 'Выход стадии' }).focus()
+
+  // Открытый список значков Escape закрывает первым
+  await stage.getByRole('button', { name: 'Значок стадии' }).click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('group', { name: 'Значки стадии' })).toHaveCount(0)
+  await expect(stage).toBeVisible()
+
+  // Поверх — окно описания: под ним окно стадии недоступно, Escape закрывает только описание
+  await stage.getByRole('button', { name: /Редактировать описание/ }).click()
+  const description = page.getByRole('dialog', { name: /^Описание стадии/ })
+  for (let i = 0; i < 8; i++) {
+    await page.keyboard.press('Tab')
+    expect(await stage.evaluate((el) => el.contains(document.activeElement))).toBe(false)
+  }
+  await description.getByRole('textbox', { name: 'Описание стадии' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(description).toHaveCount(0)
+  await expect(stage).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(stage).toHaveCount(0)
+})
+
 test('описание стадии правится в окне по кнопке со вкладки «Стадии»', async ({ page }) => {
   const calls = await mockApi(page)
   await openFlow(page)
