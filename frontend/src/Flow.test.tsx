@@ -300,11 +300,12 @@ test('левый щелчок по блоку стадии ничего не о�
 
   // Сайдбара стадии нет, а меню — только по правому щелчку: левый щелчок ничего не открывает — решение
   // оператора на приёмке. Enter и пробел, которые нажимают кнопку, проверяет e2e: jsdom щелчка из них не делает
-  fireEvent.click(block, { clientX: 50, clientY: 60, detail: 1 })
-  fireEvent.click(block, { detail: 0 })
-  expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
-  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  for (const detail of [1, 0]) {
+    fireEvent.click(block, { clientX: 50, clientY: 60, detail })
+    expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  }
 
   const menu = menuOf(region, 'Стадия 2: Ревью')
   expect(screen.getByRole('menu')).toHaveAccessibleName('Стадия «Ревью»')
@@ -342,6 +343,16 @@ test('с клавиатуры меню блока открывается Shift+F
   expect(screen.getByRole('menu')).not.toHaveStyle({ left: '300px' })
   fireEvent.mouseDown(document.body)
   expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+
+  // Нажатие на сам блок с открытым меню тоже закрывает его, а правый щелчок по соседнему открывает меню соседа
+  menuOf(region, 'Стадия 1: Критерий')
+  fireEvent.mouseDown(block)
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  menuOf(region, 'Стадия 1: Критерий')
+  fireEvent.mouseDown(region.getByRole('button', { name: 'Стадия 2: Ревью' }))
+  menuOf(region, 'Стадия 2: Ревью')
+  expect(screen.getAllByRole('menu')).toHaveLength(1)
+  expect(screen.getByRole('menu')).toHaveAccessibleName('Стадия «Ревью»')
 
   fireEvent.keyDown(block, { key: 'ContextMenu' })
   expect(screen.getByRole('menu', { name: 'Стадия «Критерий»' })).toBeInTheDocument()

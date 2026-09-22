@@ -199,9 +199,19 @@ test('меню стадии встаёт у курсора, окна возвр�
   const block = region.getByRole('button', { name: /^Стадия 3: Приёмка/ })
   await block.click()
   await expect(block).toBeFocused()
-  await page.keyboard.press('Enter')
-  await page.keyboard.press(' ')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  for (const key of ['Enter', ' ']) {
+    await page.keyboard.press(key)
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(block).toBeFocused()
+  }
   await expect(page.getByRole('complementary')).toHaveCount(0)
+
+  // Щелчок по самому блоку закрывает его открытое меню
+  await block.click({ button: 'right' })
+  await expect(page.getByRole('menu')).toHaveCount(1)
+  await block.click({ position: { x: 10, y: 10 } })
   await expect(page.getByRole('menu')).toHaveCount(0)
 
   // Правый щелчок ставит меню у курсора
