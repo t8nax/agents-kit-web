@@ -512,6 +512,9 @@ test('окно добавления: крестик пресета без рам
 
   await remove.click()
   await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
+  // Фокус ушёл на окно, обводки вокруг всего окна нет
+  await expect(adding).toBeFocused()
+  await expect(adding).toHaveCSS('outline-style', 'none')
   await page.keyboard.press('Escape')
   await expect(adding).toHaveCount(0)
 })

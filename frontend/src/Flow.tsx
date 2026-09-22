@@ -2538,7 +2538,7 @@ function AddStage({
               <p className="flow-presets-empty text-ter">Пресетов пока нет.</p>
             ) : (
               <ul className="flow-add-list">
-                {presets.map((preset) => (
+                {presets.map((preset, index) => (
                   <li key={preset.id}>
                     {/* У пресета своего значка нет: значок — по исполнителю. */}
                     <AddStageRow
@@ -2548,13 +2548,18 @@ function AddStage({
                       removable
                       onClick={() => onPick({ preset })}
                     />
-                    <span className="flow-preset-remove">
+                    <span className="flow-preset-remove" data-preset={preset.id}>
                       <IconButton
                         label={`Удалить пресет ${preset.title}`}
                         danger
                         onClick={() => {
-                          // Кнопка уйдёт вместе с пресетом: фокус остаётся в окне, и Escape его закрывает.
-                          box.current?.focus()
+                          // Кнопка уйдёт вместе с пресетом: фокус — на крестик соседнего пресета, чтобы с клавиатуры
+                          // удалять подряд, а без соседей — на окно, чтобы Escape его закрывал.
+                          const next = (presets[index + 1] ?? presets[index - 1])?.id
+                          const neighbour = next
+                            ? box.current?.querySelector<HTMLElement>(`[data-preset="${CSS.escape(next)}"] button`)
+                            : null
+                          ;(neighbour ?? box.current)?.focus()
                           onRemovePreset(preset)
                         }}
                       >

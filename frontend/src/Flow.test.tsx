@@ -889,6 +889,25 @@ test('окно добавления закрывают крестик, «Отм�
   expect(labels(region)).toEqual(before)
 })
 
+test('после удаления пресета фокус — на крестике соседнего: с клавиатуры пресеты удаляются подряд', async () => {
+  stubApi(
+    api(
+      [app],
+      [
+        { ...spare, title: 'Мерж', slug: null, id: 'p1' },
+        { ...spare, title: 'Ретро', slug: null, id: 'p2' },
+      ],
+      { 'DELETE /api/presets': () => new Response(null, { status: 204 }) },
+    ),
+  )
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Мерж' }))
+  await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Мерж' })).not.toBeInTheDocument())
+  expect(screen.getByRole('button', { name: 'Удалить пресет Ретро' })).toHaveFocus()
+})
+
 test('в окне добавления нет группы «Стадии базы», когда все стадии базы уже в сценарии', async () => {
   stubApi(api([{ ...app, stages: [criterion, review, acceptance] }]))
   await renderFlow()
