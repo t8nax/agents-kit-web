@@ -4,9 +4,9 @@ import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { TerminalIcon } from './TerminalIcon'
 import { VsCodeIcon } from './VsCodeIcon'
-import './Flow.css'
 import './Modal.css'
 import './ReplyModal.css'
+import './Tabs.css'
 
 export type QuestionVariant = {
   choice: string
