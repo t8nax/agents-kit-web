@@ -51,10 +51,15 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     const button = page.getByRole('button', { name: 'Новая копия' })
     await expect(button).toBeVisible()
-    // Кнопка стоит справа в заголовке раздела, над таблицей
-    const [buttonBox, tableBox] = await Promise.all([button.boundingBox(), page.getByRole('table').boundingBox()])
+    // Кнопка стоит в заголовке раздела сразу за его названием, над таблицей (B-205)
+    const [buttonBox, headingBox, tableBox] = await Promise.all([
+      button.boundingBox(),
+      page.getByRole('heading', { name: 'Рабочие копии' }).boundingBox(),
+      page.getByRole('table').boundingBox(),
+    ])
     expect(buttonBox!.y + buttonBox!.height).toBeLessThanOrEqual(tableBox!.y)
-    expect(buttonBox!.x + buttonBox!.width).toBeGreaterThan(tableBox!.x + tableBox!.width - 60)
+    expect(buttonBox!.x).toBeGreaterThan(headingBox!.x + headingBox!.width)
+    expect(buttonBox!.x).toBeLessThan(headingBox!.x + headingBox!.width + 40)
     await button.click()
 
     const dialog = page.getByRole('dialog', { name: 'Новая рабочая копия' })
