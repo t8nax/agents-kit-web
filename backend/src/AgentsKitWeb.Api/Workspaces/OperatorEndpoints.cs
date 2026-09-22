@@ -7,6 +7,7 @@ namespace AgentsKitWeb.Api.Workspaces;
 public sealed record QuestionsResponse(
     string Project,
     string Copy,
+    string? Branch,
     string? Task,
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
@@ -44,6 +45,7 @@ public static class OperatorEndpoints
             return Results.Ok(new QuestionsResponse(
                 ProjectName.Of(@base),
                 memory.Copy!,
+                memory.Branch,
                 memory.Task,
                 memory.Criteria,
                 memory.OutOfScope,
