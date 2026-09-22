@@ -474,6 +474,13 @@ for (const theme of ['dark', 'light'] as const) {
       own.evaluate((el) => getComputedStyle(el).color),
     ])
     expect(text).not.toBe(surface)
+    // Плюс в шапке — одним кольцом: рамка значка карточки погашена
+    await expect(adding.locator('.ask-title .flow-card-mark')).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+    // Значки своего размера: общее `.modal-overlay svg` их не перебивает
+    await expect(async () => {
+      expect(Math.round((await fresh.locator('svg').boundingBox())!.width)).toBe(18)
+      expect(Math.round((await own.locator('.flow-card-mark svg').boundingBox())!.width)).toBe(15)
+    }).toPass()
     await page.screenshot({ path: `test-results/flow-add-stage-${theme}.png` })
 
     await own.click()
@@ -481,6 +488,33 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeFocused()
   })
 }
+
+test('окно добавления: крестик пресета без рамки у края строки, после удаления Escape закрывает окно', async ({ page }) => {
+  await mockApi(page)
+  // Пресет уже есть; удаление отвечает, как API
+  await page.route('**/api/presets', (route) =>
+    route.fulfill({ json: [{ ...stages[1], title: 'Мерж', output: 'sha в dev', slug: null, id: 'p1' }] }),
+  )
+  await page.route('**/api/presets/*', (route) => route.fulfill({ status: 204 }))
+  await openFlow(page)
+
+  await page.getByRole('button', { name: 'Добавить стадию' }).click()
+  const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «полный»' })
+  const row = adding.getByRole('group', { name: 'Пресеты стадий' }).getByRole('button', { name: /^Мерж/ })
+  const remove = adding.getByRole('button', { name: 'Удалить пресет Мерж' })
+  await expect(remove).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
+  const [line, cross] = await Promise.all([row.boundingBox(), remove.boundingBox()])
+  // Крестик — внутри строки у её правого края
+  expect(cross!.x + cross!.width).toBeLessThanOrEqual(line!.x + line!.width)
+  expect(line!.x + line!.width - (cross!.x + cross!.width)).toBeLessThan(20)
+  expect(Math.round(cross!.width)).toBe(26)
+  await expect(async () => expect(Math.round((await remove.locator('svg').boundingBox())!.width)).toBe(14)).toPass()
+
+  await remove.click()
+  await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(adding).toHaveCount(0)
+})
 
 test('окно стадии возвращает фокус: к описанию — после его окна, к карточке — на вкладке «Стадии»', async ({ page }) => {
   await mockApi(page)
