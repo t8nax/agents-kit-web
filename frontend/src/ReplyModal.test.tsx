@@ -613,3 +613,142 @@ test.each([
     })
   },
 )
+
+const withArtifacts: QuestionsResponse = {
+  ...questions,
+  artifacts: [
+    { label: 'макет **окна** ответа', address: 'https://claude.ai/artifact/AbC123' },
+    { label: 'спецификация', address: 'docs/spec.md' },
+  ],
+}
+
+// Кнопка шапки открывает своё окно поверх окна ответа.
+function openShown(dialog: ReturnType<typeof within>, name: 'Контекст задачи' | 'Артефакты') {
+  fireEvent.click(dialog.getByRole('button', { name: new RegExp(`^${name}`) }))
+  return within(screen.getByRole('dialog', { name }))
+}
+
+test('«Контекст задачи» открывает своё окно поверх: критерии заголовком и текстом, отдельно «Не входит»', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  expect(dialog.queryByText('Критерии закрытия')).not.toBeInTheDocument()
+
+  const context = openShown(dialog, 'Контекст задачи')
+
+  const titles = [...document.querySelectorAll('.criterion-title')]
+  // номер критерия остаётся в заголовке, а не съедается разметкой как список
+  expect(titles.map((t) => t.textContent)).toEqual(['1. Окно есть', '2. Строка перестаёт ждать'])
+  const firstText = titles[0].parentElement!.querySelector('.criterion-text')
+  expect([...firstText!.querySelectorAll('p')].map((p) => p.textContent)).toEqual(['Оператор отвечает из панели.', 'Без IDE.'])
+  expect(titles[1].parentElement!.querySelector('.criterion-text')).toBeNull()
+  expect(context.getByText('Не входит')).toBeInTheDocument()
+  expect(context.getByText('Health баз.')).toBeInTheDocument()
+  // окно ответа под ним на месте, но недоступно, пока открыто окно поверх
+  expect(document.querySelector('.reply-window')).toHaveAttribute('inert')
+})
+
+test('критерии и «Не входит» размечены, адреса в них — ссылки в новую вкладку', async () => {
+  stubApi(() => new Response(null, { status: 204 }), {
+    ...questions,
+    criteria: [{ title: '1. Окно `ReplyModal` есть https://example.com/c-title', text: 'Текст с **выделением**.' }],
+    outOfScope: 'Разметка в *таблице копий* https://example.com/out',
+  })
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const context = openShown(dialog, 'Контекст задачи')
+
+  expect(document.querySelector('.criterion-title code')!.textContent).toBe('ReplyModal')
+  expect(document.querySelector('.criterion-text strong')!.textContent).toBe('выделением')
+  expect(context.getByText('таблице копий').tagName).toBe('EM')
+  const hrefs = context.getAllByRole('link').map((link) => {
+    expect(link).toHaveAttribute('target', '_blank')
+    return link.getAttribute('href')
+  })
+  expect(hrefs.sort()).toEqual(['https://example.com/c-title', 'https://example.com/out'])
+})
+
+test('«Артефакты» с их числом открывают своё окно: подпись, под ней адрес — ссылкой или кнопкой файла', async () => {
+  stubApi(() => new Response(null, { status: 204 }), withArtifacts)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  expect(dialog.getByRole('button', { name: /^Артефакты/ })).toHaveTextContent('Артефакты 2')
+  const artifacts = openShown(dialog, 'Артефакты')
+
+  const items = [...document.querySelectorAll('.artifacts li')]
+  expect(items.map((li) => li.querySelector('.artifact-label')!.textContent)).toEqual(['макет окна ответа', 'спецификация'])
+  expect(items[0].querySelector('.artifact-label strong')).toHaveTextContent('окна')
+  expect(artifacts.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })).toHaveAttribute('target', '_blank')
+  expect(items[1].querySelector('a')).toBeNull()
+  expect(artifacts.getByRole('button', { name: 'docs/spec.md' })).toBeInTheDocument()
+  expect(artifacts.queryByText('Критерии закрытия')).not.toBeInTheDocument()
+})
+
+test('щелчок по пути к файлу просит панель открыть этот артефакт в VS Code', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }), withArtifacts)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const artifacts = openShown(dialog, 'Артефакты')
+  fireEvent.click(artifacts.getByRole('button', { name: 'docs/spec.md' }))
+
+  await waitFor(() => expect(calls.some((c) => c.url === '/api/artifact/open')).toBe(true))
+  const call = calls.find((c) => c.url === '/api/artifact/open')!
+  // артефакт называется номером в памяти; адрес — чтобы панель не открыла другой, если память переписали
+  expect(JSON.parse(call.init!.body as string)).toEqual({ base: row.base, copy: row.path, index: 1, address: 'docs/spec.md' })
+  expect(artifacts.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test.each([
+  [() => new Response(JSON.stringify({ problem: 'missing' }), { status: 404 }), 'Файла нет на диске: docs/spec.md'],
+  [() => new Response(JSON.stringify({ problem: 'not-opened' }), { status: 502 }), 'Не удалось открыть файл в VS Code'],
+] as [Route, string][])('файл артефакта не открылся — окно артефактов говорит об этом строкой: %#', async (open, text) => {
+  stubApi(() => new Response(null, { status: 204 }), withArtifacts, undefined, undefined, open)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const artifacts = openShown(dialog, 'Артефакты')
+  fireEvent.click(artifacts.getByRole('button', { name: 'docs/spec.md' }))
+
+  expect(await artifacts.findByRole('alert')).toHaveTextContent(text)
+})
+
+test('показывать нечего — кнопки нет: без артефактов нет «Артефактов», без критериев и «Не входит» — «Контекста задачи»', async () => {
+  stubApi(() => new Response(null, { status: 204 }), { ...questions, criteria: [], outOfScope: null })
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  expect(dialog.queryByRole('button', { name: /^Артефакты/ })).not.toBeInTheDocument()
+  expect(dialog.queryByRole('button', { name: /^Контекст задачи/ })).not.toBeInTheDocument()
+})
+
+test('только «Не входит» без критериев — контекст есть, и в нём один этот раздел', async () => {
+  stubApi(() => new Response(null, { status: 204 }), { ...questions, criteria: [] })
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const context = openShown(dialog, 'Контекст задачи')
+  expect(context.getByText('Health баз.')).toBeInTheDocument()
+  expect(context.queryByText('Критерии закрытия')).not.toBeInTheDocument()
+})
+
+test('Escape сначала закрывает окно поверх, потом окно ответа; крестик окна поверх закрывает только его', async () => {
+  stubApi(() => new Response(null, { status: 204 }), withArtifacts)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  openShown(dialog, 'Контекст задачи')
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: 'Контекст задачи' })).not.toBeInTheDocument()
+  expect(document.querySelector('.reply-window')).not.toHaveAttribute('inert')
+
+  const artifacts = openShown(dialog, 'Артефакты')
+  fireEvent.click(artifacts.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog', { name: 'Артефакты' })).not.toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
+
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
