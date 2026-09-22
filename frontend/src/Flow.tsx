@@ -2472,6 +2472,7 @@ function AddStage({
   onCancel: () => void
   onRemovePreset: (preset: StagePreset) => void
 }) {
+  const box = useRef<HTMLElement>(null)
   const first = useRef<HTMLButtonElement>(null)
   // Фокус — в окне, иначе Escape его не закрывает: он ловится на самом окне.
   useEffect(() => first.current?.focus(), [])
@@ -2479,6 +2480,7 @@ function AddStage({
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
       <section
+        ref={box}
         className="modal-wizard flow-stage-modal flow-add-modal"
         role="dialog"
         aria-modal="true"
@@ -2547,7 +2549,15 @@ function AddStage({
                       onClick={() => onPick({ preset })}
                     />
                     <span className="flow-preset-remove">
-                      <IconButton label={`Удалить пресет ${preset.title}`} danger onClick={() => onRemovePreset(preset)}>
+                      <IconButton
+                        label={`Удалить пресет ${preset.title}`}
+                        danger
+                        onClick={() => {
+                          // Кнопка уйдёт вместе с пресетом: фокус остаётся в окне, и Escape его закрывает.
+                          box.current?.focus()
+                          onRemovePreset(preset)
+                        }}
+                      >
                         <CloseIcon />
                       </IconButton>
                     </span>
@@ -2559,7 +2569,7 @@ function AddStage({
         </div>
 
         <div className="modal-footer flow-stage-foot">
-          <button type="button" className="btn" onClick={onCancel}>
+          <button type="button" className="btn flow-stage-done" onClick={onCancel}>
             Отмена
           </button>
         </div>

@@ -1524,12 +1524,14 @@ textarea.flow-input {
   width: 600px;
 }
 
-.flow-add-body {
+/* Сильнее .ask-body (16px): при равной силе промежуток решал бы порядок подключения стилей. */
+.ask-body.flow-add-body {
   gap: 10px;
 }
 
-.flow-add-body > .flow-presets-group:first-of-type .flow-presets-label {
-  padding-top: 0;
+/* Плюс в шапке — одним кольцом: рамку значка карточки гасим, кольцо рисует .flow-mark-flow. */
+.flow-add-modal .flow-mark-flow.flow-card-mark {
+  border-color: transparent;
 }
 
 /* Стадии — списком, по карточке вкладки «Стадии» в строку: значок, название, справа исполнитель. */
@@ -1585,13 +1587,17 @@ textarea.flow-input {
   display: flex;
 }
 
+/* Крестик — без рамки и тише общей кнопки-значка: в покое он не спорит со строкой. */
+.flow-preset-remove .flow-icon-btn {
+  width: 26px;
+  height: 26px;
+  border-color: transparent;
+  color: var(--text-tertiary);
+}
+
 .flow-stage-modal .flow-preset-remove svg {
   width: 14px;
   height: 14px;
-}
-
-.flow-add-modal .flow-stage-foot {
-  justify-content: flex-end;
 }
 
 /* Проект без флоу: по центру раздела под строкой заголовка. */
