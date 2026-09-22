@@ -56,9 +56,9 @@ type Props = {
 type Failure = { text: string; git: boolean }
 
 /**
- * Окно исполнителя — в рамке окон ответа и записи в бэклог. Руками правятся только модель и инструменты:
- * имя, описание и задание пишет Чудо-Юдо по просьбе, и окно их только показывает; имя нового можно
- * поправить до записи — решения оператора на B-80.
+ * Окно исполнителя — в рамке окон ответа и записи в бэклог. Имя нового, описание, задание, модель и инструменты
+ * правятся руками, а Чудо-Юдо пишет их по просьбе; нового можно завести и вовсе без него — решения оператора
+ * на B-198, прежнее «пишет только агент» (B-80) ими отменено. Имя заведённого не меняется.
  */
 export default function PerformerModal({ bases, initial, editing, onClose, onSaved }: Props) {
   const [base, setBase] = useState(initial)
@@ -146,9 +146,11 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         ? 'taken'
         : 'idle'
   const asked = draft.asked || wish.trim()
-  // Основа есть, когда её написал агент или исполнитель уже заведён. Нового без задания не записать,
-  // а у заведённого модель и инструменты правятся, даже если задание в его файле пустое.
+  // Нового без задания не записать: исполнитель без задания ничего не умеет. У заведённого модель
+  // и инструменты правятся, даже если задание в его файле пустое.
   const hasBasis = editing !== null || prompt.trim().length > 0
+  // Поля нового ещё пусты: окно показывает примеры просьб, а поле просьбы стоит в полный рост.
+  const blank = !editing && !name.trim() && !description.trim() && !prompt.trim()
 
   const ask = useCallback(
     async (text: string) => {
@@ -328,7 +330,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           <textarea
             id="pf-wish"
             ref={field}
-            className={`custom-textarea pf-wish ${editing || hasBasis ? 'pf-wish-short' : ''}`}
+            className={`custom-textarea pf-wish ${blank ? '' : 'pf-wish-short'}`}
             value={phase === 'running' ? asked : wish}
             placeholder={
               editing
@@ -342,7 +344,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
             }}
           />
 
-          {phase === 'idle' && !editing && !hasBasis && !wish && (
+          {phase === 'idle' && blank && !wish && (
             <div className="ask-examples">
               <span className="ask-examples-title">Например</span>
               {examples.map((example) => (
@@ -395,81 +397,80 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
             </p>
           )}
 
-          {/* Основа — список терминов: подпись и значение связаны так, что их читает и программа для незрячих. */}
-          {hasBasis && (
-            <dl className="pf-basis">
-              {!editing && (
-                <div className="pf-row">
-                  <dt className="pf-label">
-                    <label htmlFor="pf-name">Имя</label>
-                  </dt>
-                  <dd className="pf-cell">
-                    <input
-                      id="pf-name"
-                      className="pf-name-input"
-                      type="text"
-                      value={name}
-                      autoComplete="off"
-                      spellCheck={false}
-                      disabled={locked}
-                      aria-invalid={occupied}
-                      onChange={(event) => setName(event.target.value)}
-                    />
-                    {/* Имя, уже занятое в базе проекта, панель бережёт: молча переписать чужого нельзя. */}
-                    {occupied && (
-                      <span className="pf-taken" role="status">
-                        Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или закройте
-                        окно и откройте его правку.
-                      </span>
-                    )}
-                  </dd>
-                </div>
-              )}
-              {/* Описание правится полем от четырёх строк (B-198), а в файл ложится одной строкой шапки:
-                  Enter новой строки не начинает, вставленные переводы строк сводятся в пробел. */}
-              <div className="pf-row pf-row-top">
+          {/* Основа — список терминов: подпись и значение связаны так, что их читает и программа для незрячих.
+              Она видна сразу, и у нового тоже: его можно завести руками, без просьбы (B-198). */}
+          <dl className="pf-basis">
+            {!editing && (
+              <div className="pf-row">
                 <dt className="pf-label">
-                  <label htmlFor="pf-description">Описание</label>
+                  <label htmlFor="pf-name">Имя</label>
                 </dt>
                 <dd className="pf-cell">
-                  <textarea
-                    id="pf-description"
-                    className="pf-desc"
-                    rows={4}
-                    value={description}
+                  <input
+                    id="pf-name"
+                    className="pf-name-input"
+                    type="text"
+                    value={name}
+                    autoComplete="off"
+                    spellCheck={false}
                     disabled={locked}
-                    onChange={(event) => setDescription(oneLine(event.target.value))}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter') event.preventDefault()
-                    }}
+                    aria-invalid={occupied}
+                    onChange={(event) => setName(event.target.value)}
                   />
-                </dd>
-              </div>
-              <div className="pf-row">
-                <dt className="pf-label">Задание</dt>
-                <dd className="pf-cell">
-                  {/* Пустое задание пишется сразу: окно задания встаёт в правке (B-198). */}
-                  {prompt.trim() ? (
-                    <button type="button" ref={taskButton} className="btn pf-small" onClick={() => setReading(true)}>
-                      <FileIcon />
-                      Показать задание
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      ref={taskButton}
-                      className="btn pf-small"
-                      disabled={locked}
-                      onClick={() => setReading(true)}
-                    >
-                      <PencilIcon />
-                      Написать задание
-                    </button>
+                  {/* Имя, уже занятое в базе проекта, панель бережёт: молча переписать чужого нельзя. */}
+                  {occupied && (
+                    <span className="pf-taken" role="status">
+                      Исполнитель с таким именем у этого проекта уже есть. Дайте другое имя или закройте
+                      окно и откройте его правку.
+                    </span>
                   )}
                 </dd>
               </div>
-            </dl>
-          )}
+            )}
+            {/* Описание правится полем от четырёх строк (B-198), а в файл ложится одной строкой шапки:
+                Enter новой строки не начинает, вставленные переводы строк сводятся в пробел. */}
+            <div className="pf-row pf-row-top">
+              <dt className="pf-label">
+                <label htmlFor="pf-description">Описание</label>
+              </dt>
+              <dd className="pf-cell">
+                <textarea
+                  id="pf-description"
+                  className="pf-desc"
+                  rows={4}
+                  value={description}
+                  disabled={locked}
+                  onChange={(event) => setDescription(oneLine(event.target.value))}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.preventDefault()
+                  }}
+                />
+              </dd>
+            </div>
+            <div className="pf-row">
+              <dt className="pf-label">Задание</dt>
+              <dd className="pf-cell">
+                {/* Пустое задание пишется сразу: окно задания встаёт в правке (B-198). */}
+                {prompt.trim() ? (
+                  <button type="button" ref={taskButton} className="btn pf-small" onClick={() => setReading(true)}>
+                    <FileIcon />
+                    Показать задание
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    ref={taskButton}
+                    className="btn pf-small"
+                    disabled={locked}
+                    onClick={() => setReading(true)}
+                  >
+                    <PencilIcon />
+                    Написать задание
+                  </button>
+                )}
+              </dd>
+            </div>
+          </dl>
 
           <div className="pf-settings">
             <div className="pf-row pf-row-set">

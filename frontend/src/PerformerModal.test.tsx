@@ -66,17 +66,49 @@ async function drafted(stream: ReturnType<typeof controlledStream<DraftEvent>>, 
   await screen.findByLabelText('Имя')
 }
 
-test('у нового до ответа Чудо-Юдо основы нет и сохранить нельзя', () => {
+test('у нового имя, описание и задание видны сразу, а сохранить можно, когда есть имя и задание', () => {
   stubSave(() => Response.json({ path: 'x' }))
   open()
 
   expect(screen.getByRole('heading', { name: 'Новый исполнитель' })).toBeInTheDocument()
-  // Руками заводится только модель и инструменты: имени, описания и задания в окне нет.
-  expect(screen.queryByLabelText('Имя')).not.toBeInTheDocument()
-  expect(screen.queryByText('Описание')).not.toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: /Показать задание/ })).not.toBeInTheDocument()
-  expect(screen.getByLabelText('Модель')).toBeInTheDocument()
+  expect(screen.getByLabelText('Имя')).toHaveValue('')
+  expect(screen.getByLabelText('Описание')).toHaveValue('')
+  expect(screen.getByRole('button', { name: 'Написать задание' })).toBeInTheDocument()
+  // Пока поля пусты, окно подсказывает просьбы примерами.
+  expect(screen.getByText('Например')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'release-notes' } })
+  expect(screen.queryByText('Например')).not.toBeInTheDocument()
+  // Имя без задания — ещё не исполнитель.
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('нового можно завести целиком руками, без просьбы к Чудо-Юдо', async () => {
+  const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
+  const onSaved = open()
+
+  fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'release-notes' } })
+  fireEvent.change(screen.getByLabelText('Описание'), { target: { value: 'Собирает заметки к версии.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Написать задание' }))
+  const task = screen.getByRole('dialog', { name: /Задание/ })
+  fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value: 'Ты собираешь заметки.' } })
+  fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+  fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+
+  const save = screen.getByRole('button', { name: 'Сохранить' })
+  expect(save).toBeEnabled()
+  fireEvent.click(save)
+
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('release-notes'))
+  expect(saved(fetchMock)).toMatchObject({
+    name: 'release-notes',
+    description: 'Собирает заметки к версии.',
+    prompt: 'Ты собираешь заметки.',
+    editing: null,
+  })
+  // Просьбы к агенту не было.
+  expect(fetchMock.mock.calls.some(([url]) => url === '/api/performers/draft')).toBe(false)
 })
 
 test('окно закрывается крестиком, отдельной «Отмены» нет', () => {
