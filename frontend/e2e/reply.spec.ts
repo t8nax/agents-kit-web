@@ -156,6 +156,61 @@ test('вопросы агента — пузыри слева, ответы оп
   }
 })
 
+test('пропущенный вопрос — пунктиром, у вариантов кружок выбора, значки шапки и строки ввода своего размера', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(
+    page,
+    [
+      plain('Подтвердить критерий?'),
+      {
+        title: 'Как быть с переносами?',
+        context: null,
+        variants: [
+          { choice: 'Заменять пробелами', effect: 'Абзацы теряются', recommended: true },
+          { choice: 'Не отправлять', effect: null, recommended: false },
+        ],
+        answer: null,
+      },
+    ],
+    { outOfScope: 'Health баз.', artifacts: [{ label: 'макет', address: 'https://claude.ai/artifact/AbC123' }] },
+  )
+
+  await page.goto('/')
+  const dialog = await openReply(page)
+  await dialog.getByRole('button', { name: 'Пропустить' }).click()
+  await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
+
+  const skipped = dialog.locator('.q-compact.is-skipped')
+  await expect(skipped).toHaveText(/Пропущен/)
+  await expect(skipped).toHaveCSS('border-top-style', 'dashed')
+
+  // кружок выбора: пустой у невыбранного, с точкой у выбранного
+  const option = dialog.getByRole('button', { name: /Заменять пробелами/ })
+  const dot = option.locator('.radio-dot')
+  const dotBox = (await dot.boundingBox())!
+  expect(Math.round(dotBox.width)).toBe(16)
+  expect(await dot.evaluate((el) => getComputedStyle(el, '::after').content)).toBe('none')
+  await option.click()
+  expect(await dot.evaluate((el) => getComputedStyle(el, '::after').content)).not.toBe('none')
+
+  // общее `.modal-overlay svg` (18px) перебивает правило компонента той же силы — размер меряется
+  const size = async (selector: string) => {
+    const box = (await dialog.locator(selector).first().boundingBox())!
+    return [Math.round(box.width), Math.round(box.height)]
+  }
+  await expect(async () => {
+    expect(await size('.strip-actions .btn-ghost svg')).toEqual([16, 16])
+    expect(await size('.composer-skip svg')).toEqual([16, 16])
+    expect(await size('.composer-send svg')).toEqual([16, 16])
+  }).toPass()
+
+  await dialog.getByLabel('Ответ').fill('')
+  // у пропущенного вопроса тоже есть «Ответить» — строка ввода отвечает кнопкой с этим именем целиком
+  await dialog.getByRole('button', { name: 'Ответить', exact: true }).click()
+  await expect(dialog.locator('.field-error')).toBeVisible()
+  expect(await size('.field-error svg')).toEqual([14, 14])
+})
+
 test('окна «Контекст задачи» и «Артефакты» открываются поверх, держат фокус и возвращают его на свою кнопку', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?')], {
