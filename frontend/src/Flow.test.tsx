@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import Flow, { type BaseFlow, type FlowStage, type NamedFlow, type StagePreset } from './Flow'
 
@@ -594,6 +594,78 @@ test('возвраты нарисованы дугами: у стадии с о�
 
   expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(1)
   expect(document.querySelector('.flow-arc-label')).toHaveTextContent('замечания')
+})
+
+// Флоу с кругами: у «Ревью» возврат к «Критерию», у «Приёмки» — два, к «Ревью» и к «Критерию».
+const circles: NamedFlow = {
+  name: 'круги',
+  when: 'много возвратов',
+  entries: [
+    { stage: 'Критерий' },
+    { stage: 'Ревью', returns: [{ condition: 'нет критерия', stage: 'Критерий' }] },
+    {
+      stage: 'Приёмка',
+      returns: [
+        { condition: 'замечания', stage: 'Ревью' },
+        { condition: 'другое', stage: 'Критерий' },
+      ],
+    },
+  ],
+}
+const lit = () => [...document.querySelectorAll('.flow-arc-open .flow-arc-label')].map((label) => label.textContent)
+
+test('мышь над блоком подсвечивает и подписывает только его возвраты, увёл — погасли', async () => {
+  stubApi(api([{ ...app, flows: [circles] }]))
+  const region = await renderFlow({}, 'круги')
+  const [, review, acceptance] = nodes(region)
+  expect(document.querySelectorAll('.flow-arc')).toHaveLength(3)
+  expect(lit()).toEqual([])
+
+  fireEvent.mouseEnter(acceptance)
+  expect(lit().sort()).toEqual(['другое', 'замечания'])
+
+  // Возврат «Приёмки» ведёт в «Ревью», но у «Ревью» подсвечен только свой
+  fireEvent.mouseLeave(acceptance)
+  fireEvent.mouseEnter(review)
+  expect(lit()).toEqual(['нет критерия'])
+
+  fireEvent.mouseLeave(review)
+  expect(lit()).toEqual([])
+})
+
+test('открытое меню блока держит его возвраты подсвеченными, мышь над другим добавляет его возвраты', async () => {
+  stubApi(api([{ ...app, flows: [circles] }]))
+  const region = await renderFlow({}, 'круги')
+  const [, review, acceptance] = nodes(region)
+
+  fireEvent.mouseEnter(review)
+  menuOf(region, /^Стадия 2: Ревью/)
+  fireEvent.mouseLeave(review)
+  expect(lit()).toEqual(['нет критерия'])
+
+  fireEvent.mouseEnter(acceptance)
+  expect(lit().sort()).toEqual(['другое', 'замечания', 'нет критерия'])
+  // Подсвеченные дуги нарисованы после приглушённых: поверх них
+  const arcs = [...document.querySelectorAll('.flow-arc')]
+  expect(arcs.every((arc) => arc.classList.contains('flow-arc-open'))).toBe(true)
+
+  fireEvent.mouseLeave(acceptance)
+  fireEvent.keyDown(screen.getByRole('menu', { name: /^Стадия «/ }), { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: /^Стадия «/ })).not.toBeInTheDocument()
+})
+
+test('курсор клавиатуры на блоке подсвечивает его возвраты, ушёл — погасли; приглушённые дуги идут первыми', async () => {
+  stubApi(api([{ ...app, flows: [circles] }]))
+  const region = await renderFlow({}, 'круги')
+  const [, review] = nodes(region)
+
+  act(() => review.focus())
+  expect(lit()).toEqual(['нет критерия'])
+  const arcs = [...document.querySelectorAll('.flow-arc')]
+  expect(arcs.map((arc) => arc.classList.contains('flow-arc-open'))).toEqual([false, false, true])
+
+  act(() => review.blur())
+  expect(lit()).toEqual([])
 })
 
 test('стадии флоу переставляются перетаскиванием и кнопками с клавиатуры', async () => {

@@ -1342,8 +1342,15 @@ function FlowTab({
   const [menu, setMenu] = useState<{ key: number; at: Point } | null>(null)
   const chain = useRef<HTMLDivElement>(null)
   const stageOf = (entry: DraftEntry) => draft.stages.find((stage) => stage.key === entry.stage) ?? null
+  // Блок под мышью и блок под курсором клавиатуры: их возвраты на схеме подсвечены (B-214).
+  const [hovered, setHovered] = useState<number | null>(null)
+  const [focused, setFocused] = useState<number | null>(null)
   const openedIndex = opened?.kind === 'returns' ? flow.entries.findIndex((entry) => entry.key === opened.key) : -1
   const menuIndex = menu ? flow.entries.findIndex((entry) => entry.key === menu.key) : -1
+  // Возвраты подсвечены у стадии с открытым окном возвратов, открытым меню, под мышью и под курсором клавиатуры.
+  const lit = flow.entries.flatMap((entry, index) =>
+    index === openedIndex || index === menuIndex || entry.key === hovered || entry.key === focused ? [index] : [],
+  )
 
   // Фокус встаёт на блок, когда закрылось окно, открытое из его меню: схема к этому времени уже не под подложкой.
   // Поставленный фокус забывается: иначе вкладка, открытая заново, снова дёрнула бы его и прокрутку к старому блоку.
@@ -1394,7 +1401,7 @@ function FlowTab({
 
         <div className="flow-scroll">
           <div className="flow-chain" ref={chain}>
-            <ReturnArcs flow={flow} opened={openedIndex} />
+            <ReturnArcs flow={flow} lit={lit} />
             <button
               type="button"
               className={`flow-start ${opened?.kind === 'flow' ? 'opened' : ''} ${
@@ -1433,6 +1440,8 @@ function FlowTab({
                     setMenu({ key: entry.key, at })
                   }}
                   onMove={move}
+                  onHover={(on) => setHovered((key) => (on ? entry.key : key === entry.key ? null : key))}
+                  onFocused={(on) => setFocused((key) => (on ? entry.key : key === entry.key ? null : key))}
                 />
               )
             })}
@@ -1534,9 +1543,13 @@ function returnArcs(flow: DraftFlow): ReturnArc[] {
 
 const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
 
-/** Круги работы слева от ленты: у стадии, чьё окно возвратов открыто, её дуга подсвечена и подписана условием. */
-function ReturnArcs({ flow, opened }: { flow: DraftFlow; opened: number }) {
-  const arcs = returnArcs(flow)
+/**
+ * Круги работы слева от ленты: свои дуги подсвеченных стадий — `lit`, по индексам — выделены и подписаны условием,
+ * ведущие в них остаются приглушёнными. Подсвеченные рисуются последними: поверх приглушённых их концы не закрыты.
+ */
+function ReturnArcs({ flow, lit }: { flow: DraftFlow; lit: number[] }) {
+  const open = (arc: ReturnArc) => lit.includes(arc.from)
+  const arcs = returnArcs(flow).sort((a, b) => Number(open(a)) - Number(open(b)))
   if (arcs.length === 0) return null
 
   const height = flow.entries.length * (NODE_HEIGHT + NODE_GAP)
@@ -1549,16 +1562,16 @@ function ReturnArcs({ flow, opened }: { flow: DraftFlow; opened: number }) {
           const lane = ARC_WIDTH - (arc.lane + 1) * ARC_LANE
           const y1 = arcCenter(arc.from)
           const y2 = arcCenter(arc.to)
-          const open = arc.from === opened
+          const lighted = open(arc)
           return (
-            <g key={`${arc.from}-${arc.to}-${arc.lane}`} className={`flow-arc ${open ? 'flow-arc-open' : ''}`}>
+            <g key={`${arc.from}-${arc.to}-${arc.lane}`} className={`flow-arc ${lighted ? 'flow-arc-open' : ''}`}>
               <path
                 d={`M ${ARC_WIDTH} ${y1} H ${lane + ARC_ROUND} Q ${lane} ${y1} ${lane} ${y1 - ARC_ROUND} V ${
                   y2 + ARC_ROUND
                 } Q ${lane} ${y2} ${lane + ARC_ROUND} ${y2} H ${ARC_WIDTH - 10}`}
               />
               <path d={`M ${ARC_WIDTH - 16} ${y2 - 5} L ${ARC_WIDTH - 6} ${y2} L ${ARC_WIDTH - 16} ${y2 + 5}`} />
-              {open && arc.condition.trim() && (
+              {lighted && arc.condition.trim() && (
                 <text className="flow-arc-label" x={lane - 8} y={(y1 + y2) / 2} textAnchor="end">
                   {arc.condition.trim()}
                 </text>
@@ -1589,6 +1602,8 @@ function StageNode({
   menu,
   onMenu,
   onMove,
+  onHover,
+  onFocused,
 }: {
   entry: number
   stage: DraftStage | null
@@ -1602,6 +1617,8 @@ function StageNode({
   menu: boolean
   onMenu: (at: Point) => void
   onMove: (from: number, to: number) => void
+  onHover: (on: boolean) => void
+  onFocused: (on: boolean) => void
 }) {
   const [dragging, setDragging] = useState(false)
   const [over, setOver] = useState(false)
@@ -1631,6 +1648,10 @@ function StageNode({
           aria-haspopup="menu"
           aria-expanded={menu}
           draggable
+          onMouseEnter={() => onHover(true)}
+          onMouseLeave={() => onHover(false)}
+          onFocus={() => onFocused(true)}
+          onBlur={() => onFocused(false)}
           onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
             event.preventDefault()
             // Клавиша меню и Shift+F10 уже открыли меню по нажатию; браузер следом шлёт contextmenu — его пропускаем.
