@@ -195,11 +195,9 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     timer.current = window.setTimeout(() => void write(given), UNDO_MS)
   }
 
-  // Отменённая отправка возвращает к переписке: ответы правят там.
   function undo() {
     window.clearTimeout(timer.current)
     setPhase('open')
-    setTab('feed')
   }
 
   // Все ответы пишутся разом и только все вместе; отказ оставляет окно и данные ответы на месте.
@@ -350,326 +348,324 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const question = questions[current]
 
   return (
-    <>
-      <div
-        className={`modal-overlay ${phase === 'leaving' ? 'is-leaving' : ''}`}
-        // длительность угасания живёт в коде: стили берут её отсюда, чтобы числа не разошлись
-        style={{ '--fade-ms': `${FADE_MS}ms` } as CSSProperties}
-        onMouseDown={(e) => e.target === e.currentTarget && phase === 'open' && onClose()}
-      >
-        <div className="modal-wizard reply-window" role="dialog" aria-modal="true" aria-label="Ответ оператора">
-          <div className="reply-head">
-            <div className="task-strip">
-              {data && (
-                <>
-                  {data.task && <div className="strip-task">{data.task}</div>}
-                  {/* Проект и копия — значками, без ветки: она почти повторяла имя копии (решение оператора). */}
-                  <div className="strip-meta">
-                    <span className="meta-item" title="Проект">
-                      <BoxIcon />
-                      <span className="strip-project">{data.project}</span>
-                    </span>
-                    <span className="meta-item" title="Рабочая копия">
-                      <FolderIcon />
-                      <span>{copyName(data.copy)}</span>
-                    </span>
-                  </div>
-                  <div className="strip-actions">
-                    <button
-                      type="button"
-                      className="btn-code"
-                      disabled={!data.backgroundSession || opening}
-                      title={
-                        data.backgroundSession
-                          ? 'Открыть терминал с сессией этой копии'
-                          : 'В этой копии не идёт фоновая сессия'
-                      }
-                      onClick={() => void openTerminal()}
-                    >
-                      <TerminalIcon />
-                      {data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-code"
-                      disabled={!data.vsCodeSession || opening}
-                      title={
-                        data.vsCodeSession ? 'Открыть окно VS Code этой копии' : 'Сессия этой копии не открыта в VS Code'
-                      }
-                      onClick={() => void openSession()}
-                    >
-                      <VsCodeIcon />
-                      {data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
-                    </button>
-                    {/* Пока ответы уходят, вкладок нет: окно показывает только отправку. */}
-                    {phase === 'open' && (
-                      <div className="vc-tabs reply-tabs" role="tablist" aria-label="Вкладки окна">
-                        {TABS.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            role="tab"
-                            id={`reply-tab-${t.id}`}
-                            aria-controls={`reply-panel-${t.id}`}
-                            aria-selected={tab === t.id}
-                            className={`flow-tab ${tab === t.id ? 'is-on' : ''}`}
-                            onClick={() => setTab(t.id)}
-                          >
-                            {t.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            {/* Пока ответы уходят, окно не закрывается ничем: закрытое сняло бы запись молча. */}
-            <button
-              type="button"
-              className="btn btn-icon"
-              aria-label="Закрыть"
-              disabled={phase !== 'open'}
-              onClick={onClose}
-            >
-              <CloseIcon />
-            </button>
+    <div
+      className={`modal-overlay ${phase === 'leaving' ? 'is-leaving' : ''}`}
+      // длительность угасания живёт в коде: стили берут её отсюда, чтобы числа не разошлись
+      style={{ '--fade-ms': `${FADE_MS}ms` } as CSSProperties}
+      onMouseDown={(e) => e.target === e.currentTarget && phase === 'open' && onClose()}
+    >
+      <div className="modal-wizard reply-window" role="dialog" aria-modal="true" aria-label="Ответ оператора">
+        <div className="reply-head">
+          <div className="task-strip">
+            {data && (
+              <>
+                {data.task && <div className="strip-task">{data.task}</div>}
+                {/* Проект и копия — значками, без ветки: она почти повторяла имя копии (решение оператора). */}
+                <div className="strip-meta">
+                  <span className="meta-item" title="Проект">
+                    <BoxIcon />
+                    <span className="strip-project">{data.project}</span>
+                  </span>
+                  <span className="meta-item" title="Рабочая копия">
+                    <FolderIcon />
+                    <span>{copyName(data.copy)}</span>
+                  </span>
+                </div>
+                <div className="strip-actions">
+                  <button
+                    type="button"
+                    className="btn-code"
+                    disabled={!data.backgroundSession || opening}
+                    title={
+                      data.backgroundSession
+                        ? 'Открыть терминал с сессией этой копии'
+                        : 'В этой копии не идёт фоновая сессия'
+                    }
+                    onClick={() => void openTerminal()}
+                  >
+                    <TerminalIcon />
+                    {data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-code"
+                    disabled={!data.vsCodeSession || opening}
+                    title={
+                      data.vsCodeSession ? 'Открыть окно VS Code этой копии' : 'Сессия этой копии не открыта в VS Code'
+                    }
+                    onClick={() => void openSession()}
+                  >
+                    <VsCodeIcon />
+                    {data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
+                  </button>
+                  {/* Пока ответы уходят, вкладок нет: окно показывает только отправку. */}
+                  {phase === 'open' && (
+                    <div className="vc-tabs reply-tabs" role="tablist" aria-label="Вкладки окна">
+                      {TABS.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          role="tab"
+                          id={`reply-tab-${t.id}`}
+                          // панель на месте одна — выбранной вкладки
+                          aria-controls={tab === t.id ? `reply-panel-${t.id}` : undefined}
+                          aria-selected={tab === t.id}
+                          className={`flow-tab ${tab === t.id ? 'is-on' : ''}`}
+                          onClick={() => setTab(t.id)}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
-
-          {openError && (
-            <p className="open-error error-text" role="alert">
-              <WarningIcon />
-              {openError}
-            </p>
-          )}
-
-          {phase !== 'open' ? (
-            // Ответы ушли: ленты не видно, на её месте — знак отправки, а внизу «Отменить».
-            <div className="reply-done" role="status">
-              <span className="done-mark">
-                <CheckIcon />
-              </span>
-              <p className="done-text">Ответы отправлены агенту</p>
-            </div>
-          ) : tab === 'context' ? (
-            <div
-              className={`tab-body ${hasContext ? '' : 'is-centered'}`}
-              role="tabpanel"
-              id="reply-panel-context"
-              aria-labelledby="reply-tab-context"
-            >
-              {data && hasContext ? (
-                <>
-                  {data.criteria.length > 0 && (
-                    <div className="ctx-section">
-                      <ul className="criteria">
-                        {data.criteria.map((criterion, i) => (
-                          <li key={i}>
-                            <div className="criterion-title">
-                              <InlineMarkdown text={criterion.title} />
-                            </div>
-                            {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {data.outOfScope && (
-                    <div className="ctx-section">
-                      <p className="acc-label">Не входит</p>
-                      <Markdown className="criterion-text scope-text" text={data.outOfScope} />
-                    </div>
-                  )}
-                </>
-              ) : (
-                loaded && <p className="modal-message">Контекста нет</p>
-              )}
-            </div>
-          ) : tab === 'artifacts' ? (
-            <div
-              className={`tab-body ${hasArtifacts ? '' : 'is-centered'}`}
-              role="tabpanel"
-              id="reply-panel-artifacts"
-              aria-labelledby="reply-tab-artifacts"
-            >
-              {data && hasArtifacts ? (
-                <>
-                  <ul className="artifacts">
-                    {data.artifacts.map((artifact, i) => (
-                      <li key={i}>
-                        <div className="artifact-label">
-                          <InlineMarkdown text={artifact.label} />
-                        </div>
-                        {/* ссылку на сайт открывает браузер, а файл — панель, в VS Code */}
-                        {/^https?:\/\//i.test(artifact.address) ? (
-                          <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
-                            {artifact.address}
-                          </a>
-                        ) : (
-                          <button
-                            type="button"
-                            className="artifact-address artifact-file"
-                            title="Открыть в VS Code"
-                            disabled={opening}
-                            onClick={() => void openArtifact(i, artifact.address)}
-                          >
-                            {artifact.address}
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                  {fileError && (
-                    <p className="open-error error-text" role="alert">
-                      <WarningIcon />
-                      {fileError}
-                    </p>
-                  )}
-                </>
-              ) : (
-                loaded && <p className="modal-message">Артефактов нет</p>
-              )}
-            </div>
-          ) : (
-            <div
-              className={`reply-feed ${!question ? 'is-centered' : ''}`}
-              ref={feed}
-              role="tabpanel"
-              id="reply-panel-feed"
-              aria-labelledby="reply-tab-feed"
-            >
-              {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
-              {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
-              {loaded && !question && <p className="modal-message">Вопросов без ответа нет</p>}
-              {questions.map((q, i) => {
-                const given = answers[i] ?? ''
-                const effect = q.variants.find((v) => v.choice === given)?.effect
-                return (
-                  <div className="feed-item" key={i} data-q={i}>
-                    {i === current ? (
-                      <section className="agent-q" aria-labelledby={`reply-q-${i}`}>
-                        <h2 className="q-title" id={`reply-q-${i}`}>
-                          <InlineMarkdown text={q.title} />
-                        </h2>
-                        {q.context && <Markdown className="q-context" text={q.context} />}
-                        {q.variants.length > 0 && (
-                          <div className="radio-list">
-                            {q.variants.map((v, k) => (
-                              <button
-                                key={k}
-                                type="button"
-                                className="radio-opt"
-                                aria-pressed={given === v.choice}
-                                // повторный щелчок по выбранному снимает ответ: иначе его не убрать
-                                onClick={() => {
-                                  setAnswer(given === v.choice ? '' : v.choice)
-                                  field.current?.focus()
-                                }}
-                              >
-                                <span className="radio-dot" aria-hidden="true" />
-                                <span className="opt-head">
-                                  <span className="opt-title">{v.choice}</span>
-                                  {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
-                                </span>
-                                {v.effect && <span className="opt-desc">{v.effect}</span>}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                    ) : (
-                      <button type="button" className="q-compact" onClick={() => go(i)}>
-                        <span className="qc-title">
-                          <InlineMarkdown text={q.title} plainLinks />
-                        </span>
-                      </button>
-                    )}
-                    {given.trim() && (
-                      <div className="op-row">
-                        <div className={`op-bubble ${i === current ? 'is-current' : ''}`}>
-                          {effect ? (
-                            <>
-                              <p className="ans-choice">{given}</p>
-                              <p className="ans-effect">{effect}</p>
-                            </>
-                          ) : (
-                            <p className="ans-text">{given}</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* строка ответа — только у переписки; на время отправки на её месте «Отменить» */}
-          {question && (phase !== 'open' || tab === 'feed') && (
-            <div className={`composer ${error ? 'has-error' : ''}`}>
-              {phase === 'open' ? (
-                <div className="composer-row">
-                  <button
-                    type="button"
-                    className="btn btn-icon"
-                    aria-label="Предыдущий вопрос"
-                    title="Предыдущий вопрос"
-                    disabled={current === 0}
-                    onClick={() => go(current - 1)}
-                  >
-                    <ChevronIcon direction="left" />
-                  </button>
-                  <input
-                    ref={field}
-                    id="reply-answer"
-                    className="composer-field"
-                    aria-label="Ответ"
-                    autoComplete="off"
-                    value={answers[current] ?? ''}
-                    placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    onKeyDown={onFieldKeyDown}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-icon"
-                    aria-label="Следующий вопрос"
-                    title="Следующий вопрос"
-                    disabled={current === questions.length - 1}
-                    onClick={() => go(current + 1)}
-                  >
-                    <ChevronIcon direction="right" />
-                  </button>
-                  <button type="button" className="btn btn-primary composer-send" onClick={send}>
-                    <SendIcon />
-                    Отправить
-                  </button>
-                </div>
-              ) : (
-                <div className="composer-row is-undo">
-                  <button
-                    ref={undoButton}
-                    type="button"
-                    className="btn composer-undo"
-                    disabled={phase !== 'sending'}
-                    onClick={undo}
-                  >
-                    Отменить
-                  </button>
-                </div>
-              )}
-              {error && (
-                <span className="field-error error-text" role="alert">
-                  <WarningIcon />
-                  <span>{error}</span>
-                </span>
-              )}
-            </div>
-          )}
+          {/* Пока ответы уходят, окно не закрывается ничем: закрытое сняло бы запись молча. */}
+          <button
+            type="button"
+            className="btn btn-icon"
+            aria-label="Закрыть"
+            disabled={phase !== 'open'}
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
         </div>
-      </div>
 
-    </>
+        {openError && (
+          <p className="open-error error-text" role="alert">
+            <WarningIcon />
+            {openError}
+          </p>
+        )}
+
+        {phase !== 'open' ? (
+          // Ответы ушли: ленты не видно, на её месте — знак отправки, а внизу «Отменить».
+          <div className="reply-done" role="status">
+            <span className="done-mark">
+              <CheckIcon />
+            </span>
+            <p className="done-text">Ответы отправлены агенту</p>
+          </div>
+        ) : tab === 'context' ? (
+          <div
+            className={`tab-body ${hasContext ? '' : 'is-centered'}`}
+            role="tabpanel"
+            id="reply-panel-context"
+            aria-labelledby="reply-tab-context"
+          >
+            {data && hasContext ? (
+              <>
+                {data.criteria.length > 0 && (
+                  <div className="ctx-section">
+                    <ul className="criteria">
+                      {data.criteria.map((criterion, i) => (
+                        <li key={i}>
+                          <div className="criterion-title">
+                            <InlineMarkdown text={criterion.title} />
+                          </div>
+                          {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {data.outOfScope && (
+                  <div className="ctx-section">
+                    <p className="acc-label">Не входит</p>
+                    <Markdown className="criterion-text scope-text" text={data.outOfScope} />
+                  </div>
+                )}
+              </>
+            ) : (
+              loaded && <p className="modal-message">Контекста нет</p>
+            )}
+          </div>
+        ) : tab === 'artifacts' ? (
+          <div
+            className={`tab-body ${hasArtifacts ? '' : 'is-centered'}`}
+            role="tabpanel"
+            id="reply-panel-artifacts"
+            aria-labelledby="reply-tab-artifacts"
+          >
+            {data && hasArtifacts ? (
+              <>
+                <ul className="artifacts">
+                  {data.artifacts.map((artifact, i) => (
+                    <li key={i}>
+                      <div className="artifact-label">
+                        <InlineMarkdown text={artifact.label} />
+                      </div>
+                      {/* ссылку на сайт открывает браузер, а файл — панель, в VS Code */}
+                      {/^https?:\/\//i.test(artifact.address) ? (
+                        <a className="artifact-address" href={artifact.address} target="_blank" rel="noopener noreferrer">
+                          {artifact.address}
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className="artifact-address artifact-file"
+                          title="Открыть в VS Code"
+                          disabled={opening}
+                          onClick={() => void openArtifact(i, artifact.address)}
+                        >
+                          {artifact.address}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {fileError && (
+                  <p className="open-error error-text" role="alert">
+                    <WarningIcon />
+                    {fileError}
+                  </p>
+                )}
+              </>
+            ) : (
+              loaded && <p className="modal-message">Артефактов нет</p>
+            )}
+          </div>
+        ) : (
+          <div
+            className={`reply-feed ${!question ? 'is-centered' : ''}`}
+            ref={feed}
+            role="tabpanel"
+            id="reply-panel-feed"
+            aria-labelledby="reply-tab-feed"
+          >
+            {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
+            {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
+            {loaded && !question && <p className="modal-message">Вопросов без ответа нет</p>}
+            {questions.map((q, i) => {
+              const given = answers[i] ?? ''
+              const effect = q.variants.find((v) => v.choice === given)?.effect
+              return (
+                <div className="feed-item" key={i} data-q={i}>
+                  {i === current ? (
+                    <section className="agent-q" aria-labelledby={`reply-q-${i}`}>
+                      <h2 className="q-title" id={`reply-q-${i}`}>
+                        <InlineMarkdown text={q.title} />
+                      </h2>
+                      {q.context && <Markdown className="q-context" text={q.context} />}
+                      {q.variants.length > 0 && (
+                        <div className="radio-list">
+                          {q.variants.map((v, k) => (
+                            <button
+                              key={k}
+                              type="button"
+                              className="radio-opt"
+                              aria-pressed={given === v.choice}
+                              // повторный щелчок по выбранному снимает ответ: иначе его не убрать
+                              onClick={() => {
+                                setAnswer(given === v.choice ? '' : v.choice)
+                                field.current?.focus()
+                              }}
+                            >
+                              <span className="radio-dot" aria-hidden="true" />
+                              <span className="opt-head">
+                                <span className="opt-title">{v.choice}</span>
+                                {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
+                              </span>
+                              {v.effect && <span className="opt-desc">{v.effect}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  ) : (
+                    <button type="button" className="q-compact" onClick={() => go(i)}>
+                      <span className="qc-title">
+                        <InlineMarkdown text={q.title} plainLinks />
+                      </span>
+                    </button>
+                  )}
+                  {given.trim() && (
+                    <div className="op-row">
+                      <div className={`op-bubble ${i === current ? 'is-current' : ''}`}>
+                        {effect ? (
+                          <>
+                            <p className="ans-choice">{given}</p>
+                            <p className="ans-effect">{effect}</p>
+                          </>
+                        ) : (
+                          <p className="ans-text">{given}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* строка ответа — только у переписки; на время отправки на её месте «Отменить» */}
+        {question && (phase !== 'open' || tab === 'feed') && (
+          <div className={`composer ${error ? 'has-error' : ''}`}>
+            {phase === 'open' ? (
+              <div className="composer-row">
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  aria-label="Предыдущий вопрос"
+                  title="Предыдущий вопрос"
+                  disabled={current === 0}
+                  onClick={() => go(current - 1)}
+                >
+                  <ChevronIcon direction="left" />
+                </button>
+                <input
+                  ref={field}
+                  id="reply-answer"
+                  className="composer-field"
+                  aria-label="Ответ"
+                  autoComplete="off"
+                  value={answers[current] ?? ''}
+                  placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  onKeyDown={onFieldKeyDown}
+                />
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  aria-label="Следующий вопрос"
+                  title="Следующий вопрос"
+                  disabled={current === questions.length - 1}
+                  onClick={() => go(current + 1)}
+                >
+                  <ChevronIcon direction="right" />
+                </button>
+                <button type="button" className="btn btn-primary composer-send" onClick={send}>
+                  <SendIcon />
+                  Отправить
+                </button>
+              </div>
+            ) : (
+              <div className="composer-row is-undo">
+                <button
+                  ref={undoButton}
+                  type="button"
+                  className="btn composer-undo"
+                  disabled={phase !== 'sending'}
+                  onClick={undo}
+                >
+                  Отменить
+                </button>
+              </div>
+            )}
+            {error && (
+              <span className="field-error error-text" role="alert">
+                <WarningIcon />
+                <span>{error}</span>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
