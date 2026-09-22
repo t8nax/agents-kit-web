@@ -1,5 +1,6 @@
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
+import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { TerminalIcon } from './TerminalIcon'
 import { VsCodeIcon } from './VsCodeIcon'
@@ -524,11 +525,6 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       </div>
     </div>
   )
-}
-
-// Копию называют по имени её каталога, как в таблице копий: полный путь в окне не нужен.
-function copyName(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
 }
 
 function WarningIcon() {
