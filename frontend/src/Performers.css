@@ -37,6 +37,33 @@
   outline-offset: 2px;
 }
 
+/* «Новый исполнитель» — пунктирной карточкой последней в сетке, как «Новая стадия» во «Флоу» (B-198);
+   ростом с соседние карточки, чтобы ряд не проседал. */
+.performer-card-add {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.performer-card-add:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+.performer-card-add svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
 .performer-top {
   display: flex;
   align-items: center;

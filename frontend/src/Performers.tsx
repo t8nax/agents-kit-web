@@ -30,8 +30,8 @@ type Load =
   | { kind: 'loaded'; bases: BasePerformers[] }
 
 /**
- * Раздел «Исполнители»: субагенты проектов панели. Строка — файл базы, поэтому в списке видны и те,
- * кого завели в базе помимо панели; проекты фильтруют чипы, где рядом стоит «Все».
+ * Раздел «Исполнители»: субагенты проектов панели. Карточка — файл базы, поэтому в сетке видны и те,
+ * кого завели в базе помимо панели; проект выбирается выпадающим списком, где первым стоит «Все».
  * draftFor — база просьбы, к которой вернулся оператор: окно исполнителя открывается сразу на ней.
  * draftSubject — кого просьба переписывает: тогда открывается правка этого исполнителя, а не окно нового.
  */
@@ -99,15 +99,6 @@ export default function Performers({
     <>
       <div className="content-head">
         <h2>Исполнители</h2>
-        <button
-          type="button"
-          className="bases-btn bases-btn-add head-end"
-          disabled={bases.length === 0}
-          onClick={() => setEditing({ performer: null, base: shown[0] ?? bases[0] })}
-        >
-          <PlusIcon />
-          Новый исполнитель
-        </button>
       </div>
 
       {load.kind === 'loading' && <p className="message text-sec">Загрузка исполнителей…</p>}
@@ -158,26 +149,27 @@ export default function Performers({
               {base.project}: {base.error}
             </p>
           ))}
-          {rows.length === 0 && errors.length === 0 && (
-            <p className="empty-message">
-              {project === null
-                ? 'Исполнителей ещё нет. Заводятся кнопкой «Новый исполнитель».'
-                : `У проекта «${shown[0]?.project ?? ''}» исполнителей нет. Заводятся кнопкой «Новый исполнитель».`}
-            </p>
-          )}
-          {rows.length > 0 && (
-            <div className="performer-grid">
-              {rows.map(({ base, performer }) => (
-                <PerformerCard
-                  key={`${base.base}|${performer.name}`}
-                  performer={performer}
-                  project={base.project}
-                  fresh={fresh.has(performer.name)}
-                  onEdit={() => setEditing({ performer, base })}
-                />
-              ))}
-            </div>
-          )}
+          {/* Новый исполнитель заводится пунктирной карточкой последней в сетке, как «Новая стадия» во «Флоу» (B-198).
+              У проекта без исполнителей она стоит в сетке одна: строки о пустом списке нет. */}
+          <div className="performer-grid">
+            {rows.map(({ base, performer }) => (
+              <PerformerCard
+                key={`${base.base}|${performer.name}`}
+                performer={performer}
+                project={base.project}
+                fresh={fresh.has(performer.name)}
+                onEdit={() => setEditing({ performer, base })}
+              />
+            ))}
+            <button
+              type="button"
+              className="performer-card performer-card-add"
+              onClick={() => setEditing({ performer: null, base: shown[0] ?? bases[0] })}
+            >
+              <PlusIcon />
+              Новый исполнитель
+            </button>
+          </div>
         </>
       )}
 
