@@ -463,3 +463,80 @@ test('у проекта без номеров колонки номера нет
 
   expect(section.querySelector('.entry-num-slot')).toBeNull()
 })
+
+const fielded: BaseBacklog[] = [
+  {
+    base: 'D:\Projects\app-knowledge',
+    project: 'Agents Kit Web',
+    entries: [
+      { number: 'B-1', title: 'Старый баг', text: null, type: 'баг', priority: 'средний' },
+      { number: 'B-2', title: 'Фича про импорт', text: null, type: 'фича', priority: 'блокер' },
+      { number: 'B-3', title: 'Срочный баг импорта', text: null, type: 'баг', priority: 'высокий' },
+      { number: 'B-4', title: 'Без полей', text: null },
+    ],
+    error: null,
+    letters: 'B',
+  },
+]
+
+/** Номера записей проекта в том порядке, в каком они видны. */
+function shownNumbers(project = 'Agents Kit Web') {
+  return Array.from(screen.getByRole('region', { name: project }).querySelectorAll('.entry-num')).map((n) => n.textContent)
+}
+
+test('чипы типа и приоритета отбирают записи, несколько значений в поле — любое из них', async () => {
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  const bar = within(screen.getByRole('group', { name: 'Отбор и порядок записей' }))
+
+  fireEvent.click(bar.getByRole('button', { name: 'высокий' }))
+  fireEvent.click(bar.getByRole('button', { name: 'блокер' }))
+  expect(bar.getByRole('button', { name: 'блокер' })).toHaveAttribute('aria-pressed', 'true')
+  expect(shownNumbers()).toEqual(['B-2', 'B-3'])
+
+  fireEvent.click(bar.getByRole('button', { name: 'баг' }))
+  expect(shownNumbers()).toEqual(['B-3'])
+
+  fireEvent.click(bar.getByRole('button', { name: 'баг' }))
+  fireEvent.click(bar.getByRole('button', { name: 'высокий' }))
+  fireEvent.click(bar.getByRole('button', { name: 'блокер' }))
+  expect(shownNumbers()).toEqual(['B-1', 'B-2', 'B-3', 'B-4'])
+})
+
+test('поиск по номеру и заголовку без различия регистра, крестик очищает поле', async () => {
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'ИМПОРТ' } })
+  expect(shownNumbers()).toEqual(['B-2', 'B-3'])
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'b-4' } })
+  expect(shownNumbers()).toEqual(['B-4'])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Очистить' }))
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+  expect(screen.queryByRole('button', { name: 'Очистить' })).not.toBeInTheDocument()
+  expect(shownNumbers()).toEqual(['B-1', 'B-2', 'B-3', 'B-4'])
+})
+
+test('порядок выбирается полем и кнопкой направления', async () => {
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('number')
+
+  fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
+  expect(shownNumbers()).toEqual(['B-4', 'B-3', 'B-2', 'B-1'])
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
+  expect(screen.getByRole('button', { name: 'По убыванию' })).toBeInTheDocument()
+  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'type' } })
+  expect(shownNumbers()).toEqual(['B-3', 'B-1', 'B-2', 'B-4'])
+})

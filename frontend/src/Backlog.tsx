@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
+import { arrange, defaultOrder, emptySelection, PRIORITIES, TYPES, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
@@ -48,6 +49,9 @@ export default function Backlog({
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [filter, setFilter] = useState<string | null>(writeFor)
+  // Отбор и порядок записей внутри каждого проекта
+  const [selection, setSelection] = useState<Selection>(emptySelection)
+  const [order, setOrder] = useState<Order>(defaultOrder)
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
   // Запись, которую берут в работу
@@ -166,6 +170,30 @@ export default function Backlog({
             </div>
           )}
 
+          <div className="filter-bar" role="group" aria-label="Отбор и порядок записей">
+            <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
+            <span className="tool-sep" />
+            {TYPES.map((type) => (
+              <FilterChip
+                key={type}
+                label={type}
+                icon={type === 'фича' ? <FeatureIcon className="chip-type-feature" /> : <BugIcon className="chip-type-bug" />}
+                active={selection.types.includes(type)}
+                onClick={() => setSelection((prev) => ({ ...prev, types: toggle(prev.types, type) }))}
+              />
+            ))}
+            <span className="tool-sep" />
+            {PRIORITIES.map((priority) => (
+              <FilterChip
+                key={priority}
+                label={priority}
+                active={selection.priorities.includes(priority)}
+                onClick={() => setSelection((prev) => ({ ...prev, priorities: toggle(prev.priorities, priority) }))}
+              />
+            ))}
+            <OrderBox order={order} onChange={setOrder} />
+          </div>
+
           <div className="backlog-list">
             {shown.map((backlog) => (
               <section
@@ -187,7 +215,7 @@ export default function Backlog({
                 {!backlog.error && backlog.entries.length === 0 && (
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
-                {backlog.entries.map((entry, index) => {
+                {arrange(backlog.entries, selection, order).map((entry, index) => {
                   const isFresh = entry.number !== null && fresh.has(`${backlog.base}|${entry.number}`)
                   return (
                     <div className={`entry-row ${isFresh ? 'entry-fresh' : ''}`} key={entry.number ?? `${backlog.base}-${index}`}>
@@ -356,9 +384,9 @@ function EntryFields({ entry }: { entry: BacklogEntry }) {
   )
 }
 
-function BugIcon() {
+function BugIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
       <circle cx="12" cy="12" r="9" />
       <line x1="12" y1="8" x2="12" y2="13" />
       <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -366,9 +394,9 @@ function BugIcon() {
   )
 }
 
-function FeatureIcon() {
+function FeatureIcon({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z" />
     </svg>
   )
@@ -382,11 +410,122 @@ function ChevronIcon() {
   )
 }
 
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function FilterChip({
+  label,
+  icon,
+  active,
+  onClick,
+}: {
+  label: string
+  icon?: ReactNode
+  active: boolean
+  onClick: () => void
+}) {
   return (
     <button type="button" className={`chip ${active ? 'active' : ''}`} aria-pressed={active} onClick={onClick}>
+      {icon}
       {label}
     </button>
+  )
+}
+
+function toggle(values: string[], value: string): string[] {
+  return values.includes(value) ? values.filter((v) => v !== value) : [...values, value]
+}
+
+function SearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="backlog-search">
+      <SearchIcon />
+      <input
+        type="text"
+        className={value ? 'filled' : ''}
+        placeholder="Поиск"
+        aria-label="Поиск"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value && (
+        <button type="button" className="backlog-search-clear" aria-label="Очистить" onClick={() => onChange('')}>
+          <CloseIcon />
+        </button>
+      )}
+    </label>
+  )
+}
+
+const SORT_LABEL: Record<SortField, string> = { number: 'По номеру', type: 'По типу', priority: 'По приоритету' }
+
+function OrderBox({ order, onChange }: { order: Order; onChange: (order: Order) => void }) {
+  return (
+    <div className="backlog-order">
+      <span className="backlog-order-select">
+        <select
+          aria-label="Порядок"
+          value={order.field}
+          onChange={(e) => onChange({ ...order, field: e.target.value as SortField })}
+        >
+          {(Object.keys(SORT_LABEL) as SortField[]).map((field) => (
+            <option key={field} value={field}>
+              {SORT_LABEL[field]}
+            </option>
+          ))}
+        </select>
+        <DownIcon />
+      </span>
+      <button
+        type="button"
+        className="bases-btn backlog-order-dir"
+        onClick={() => onChange({ ...order, direction: order.direction === 'asc' ? 'desc' : 'asc' })}
+      >
+        {order.direction === 'asc' ? <AscIcon /> : <DescIcon />}
+        {order.direction === 'asc' ? 'По возрастанию' : 'По убыванию'}
+      </button>
+    </div>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
+function DownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
+function AscIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="6 11 12 5 18 11" />
+    </svg>
+  )
+}
+
+function DescIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <polyline points="6 13 12 19 18 13" />
+    </svg>
   )
 }
 
