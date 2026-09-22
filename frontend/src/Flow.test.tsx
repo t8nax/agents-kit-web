@@ -302,6 +302,17 @@ test('стадия во флоу открывает сайдбар с её во�
   expect(dialog.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт по sha')
 })
 
+test('у первой стадии сценария блока «Возвраты» нет: вернуться ей некуда', async () => {
+  stubApi(api([app]))
+  const region = await renderFlow()
+
+  const first = await open(region, 'Стадия 1: Критерий')
+  expect(first.queryByText('Возвраты')).not.toBeInTheDocument()
+  expect(first.queryByRole('button', { name: 'Добавить возврат' })).not.toBeInTheDocument()
+  // Переход к правке стадии остаётся
+  expect(first.getByRole('button', { name: 'Править стадию «Критерий»' })).toBeInTheDocument()
+})
+
 test('возврат правится у стадии в своём флоу: цель — только стадии этого флоу, стоящие раньше', async () => {
   const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
