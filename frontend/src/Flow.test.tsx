@@ -1109,7 +1109,7 @@ test('база, которую панель не прочитала, назва�
 })
 
 test('с отметки в шапке у непрочитанного флоу раздел говорит, почему окна переписывания нет', async () => {
-  stubApi(api([{ ...nota, version: null, error: 'База не найдена на диске' }], [], rewriteApi([])))
+  stubApi(api([app, { ...nota, version: null, error: 'База не найдена на диске' }], [], rewriteApi([])))
   render(<Flow baseFor={nota.base} rewriteAt={1} />)
 
   expect(
@@ -1117,6 +1117,12 @@ test('с отметки в шапке у непрочитанного флоу �
       'Окно «Переписать с Чудо-Юдо» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.',
     ),
   ).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+
+  // Верх раздела не заперт: проект меняется, и окно на другом проекте само не встаёт.
+  fireEvent.click(screen.getByRole('button', { name: 'Проект: Nota' }))
+  fireEvent.click(within(screen.getByRole('listbox', { name: 'Проект' })).getByRole('option', { name: 'Agents Kit Web' }))
+  expect(await screen.findByRole('region', { name: 'Сценарий «полный»' })).toBeInTheDocument()
   expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 

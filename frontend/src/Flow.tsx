@@ -633,7 +633,9 @@ export default function Flow({
   const editable = flow !== null && !flow.error
   const empty = editable && draft.flows.length === 0
   // Открыто окно поверх раздела: верх, схема и полоса под подложкой недоступны — Tab не уходит из окна.
-  const covered = stageOpen || modal === 'description' || modal === 'rewrite' || opened?.kind === 'returns'
+  // Окно переписывания у непрочитанного флоу не встаёт — и верх раздела не запирает: проект можно сменить или обновить.
+  const covered =
+    stageOpen || modal === 'description' || (modal === 'rewrite' && editable) || opened?.kind === 'returns'
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
   const backToBlock = () => origin !== null && setFocus({ key: origin })
@@ -683,6 +685,8 @@ export default function Flow({
               disabled={dirty}
               onPick={(base) => {
                 setSelected(base)
+                // Выбор проекта доступен поверх окна переписывания, только если оно не встало: забыть и его.
+                setModal(null)
                 setOpened(null)
                 setStageKey(null)
                 setStageOpen(false)
