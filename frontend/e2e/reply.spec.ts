@@ -281,7 +281,11 @@ test('контекст и артефакты — вкладками в шапк�
   await dialog.getByRole('tab', { name: 'Контекст' }).click()
   await expect(dialog.getByText('Оператор отвечает из панели.')).toBeVisible()
   await expect(dialog.getByText('Health баз.')).toBeVisible()
-  await expect(dialog.getByText('Критерии закрытия')).toHaveCount(0)
+  // подпись над критериями — того же вида, что «Не входит»
+  const criteriaLabel = dialog.getByText('Критерии закрытия')
+  await expect(criteriaLabel).toBeVisible()
+  for (const prop of ['font-size', 'color', 'text-transform'])
+    await expect(criteriaLabel).toHaveCSS(prop, await dialog.getByText('Не входит').evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop))
   await expect(dialog.getByLabel('Ответ')).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(1)
   await edgeToEdge()
