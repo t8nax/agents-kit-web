@@ -871,7 +871,7 @@ textarea.flow-input {
   stroke-linejoin: round;
 }
 
-/* Дуга открытого шага подсвечена и подписана условием: круг разбирают по одному. */
+/* Свои дуги стадии под мышью, под курсором, с открытым меню или окном возвратов подсвечены и подписаны условием (B-214). */
 .flow-arc-open path {
   stroke: var(--accent-done-text);
 }
@@ -904,41 +904,6 @@ textarea.flow-input {
 .vc-head .head-end {
   margin-left: auto;
   align-self: center;
-}
-
-.vc-tabs {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  background: var(--bg-surface-hover);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-}
-
-.flow-tab {
-  font-size: 13px;
-  background: none;
-  border: 0;
-  border-radius: 5px;
-  padding: 4px 12px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.flow-tab:hover {
-  color: var(--text-primary);
-}
-
-.flow-tab.is-on {
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  box-shadow: 0 1px 2px var(--shadow-color);
-  font-weight: 500;
-}
-
-.flow-tab:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 1px;
 }
 
 /* Черта между вкладками и выбором проекта. */

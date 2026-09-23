@@ -76,7 +76,7 @@
   gap: 12px;
 }
 
-/* Шапка: чей это вопрос, куда перейти к его сессии, контекст и артефакты задачи. */
+/* Шапка: чей это вопрос, куда перейти к его сессии, и вкладки окна. */
 .task-strip {
   flex: 1;
   min-width: 0;
@@ -90,8 +90,13 @@
   overflow-wrap: anywhere;
 }
 
+/* Проект и копия — каждый со своим значком, без разделителя между ними. */
 .strip-meta {
   margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 16px;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.5;
@@ -99,15 +104,29 @@
   overflow-wrap: anywhere;
 }
 
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* длинное имя переносится внутри своего пункта, а не распирает шапку */
+.meta-item > span {
+  min-width: 0;
+}
+
+.modal-overlay .meta-item svg {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: var(--text-secondary);
+}
+
 .strip-project {
   font-family: var(--font-sans);
   font-weight: 500;
   color: var(--text-primary);
-}
-
-.strip-sep {
-  color: var(--text-tertiary);
-  margin: 0 6px;
 }
 
 .strip-actions {
@@ -118,11 +137,9 @@
   margin-top: 10px;
 }
 
-.strip-gap {
-  width: 1px;
-  height: 20px;
-  background: var(--border-subtle);
-  margin: 0 4px;
+/* Вкладки — общий переключатель панели (Tabs.css), справа от переходов в сессию. */
+.reply-tabs {
+  margin-left: auto;
 }
 
 /* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе с иконкой. */
@@ -155,41 +172,8 @@
   cursor: default;
 }
 
-.btn-ghost {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 11px;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: none;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: var(--bg-surface-hover);
-  color: var(--text-primary);
-}
-
-.btn-ghost:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.btn-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
 /* Значки кнопок шапки и строки ввода — сильнее общего `.modal-overlay svg` (ui-style.md). */
-.modal-overlay .btn-code svg,
-.modal-overlay .btn-ghost svg {
+.modal-overlay .btn-code svg {
   width: 16px;
   height: 16px;
 }
@@ -539,54 +523,30 @@
   }
 }
 
-/* ---------- окна поверх: контекст задачи и артефакты ---------- */
+/* ---------- вкладки контекста и артефактов — макет B-216: https://claude.ai/artifact/CaMcZtztetGzEctdvja5km ---------- */
 
-.reply-sub-overlay {
-  z-index: 1001;
-}
-
-.reply-sub {
-  width: 560px;
-}
-
-.reply-sub-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px 14px 22px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.reply-sub-head h2 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.reply-sub-body {
+/* Содержимое занимает всю область под шапкой: строки от края до края, между ними линии. */
+.tab-body {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 20px 22px 22px;
+  display: flex;
+  flex-direction: column;
 }
 
-.reply-sub-body .open-error {
-  padding: 16px 0 0;
-}
-
-/* Разделы контекста задачи разведены линиями и воздухом: вместе они и наезжали. */
-.ctx-section {
-  padding: 18px 0 20px;
-}
-
-.ctx-section:first-child {
-  padding-top: 0;
-}
-
-.ctx-section:last-child {
-  padding-bottom: 0;
+.tab-body.is-centered {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
 
 .ctx-section + .ctx-section {
   border-top: 1px solid var(--border-subtle);
+}
+
+/* «Не входит» — последний раздел и тянется до низа окна. */
+.ctx-section:last-child {
+  flex: 1;
 }
 
 .acc-label {
@@ -595,7 +555,8 @@
   letter-spacing: 0.08em;
   color: var(--text-tertiary);
   font-weight: 600;
-  margin: 0 0 12px;
+  margin: 0;
+  padding: 20px 24px 8px;
 }
 
 .criteria,
@@ -603,8 +564,31 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  display: grid;
-  gap: 16px;
+}
+
+.criteria li,
+.artifacts li {
+  padding: 14px 24px;
+}
+
+.criteria li + li,
+.artifacts li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.artifacts {
+  padding-top: 6px;
+}
+
+.scope-text {
+  padding: 0 24px 20px;
+}
+
+/* ошибка открытия файла — строкой на всю ширину под списком артефактов */
+.tab-body .open-error {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
 }
 
 .criterion-title,
@@ -658,7 +642,6 @@ a.artifact-address:hover,
 
 .radio-opt:focus-visible,
 .q-compact:focus-visible,
-.btn-ghost:focus-visible,
 .composer-undo:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
@@ -667,9 +650,18 @@ a.artifact-address:hover,
 @media (max-width: 760px) {
   .reply-head,
   .reply-feed,
-  .composer {
+  .composer,
+  .acc-label,
+  .criteria li,
+  .artifacts li,
+  .scope-text,
+  .tab-body .open-error {
     padding-left: 14px;
     padding-right: 14px;
+  }
+
+  .reply-tabs {
+    margin-left: 0;
   }
 
   .agent-q,

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
 import { ChoiceMark } from './ChoiceMark'
-import { plural } from './plural'
 import { WarningIcon } from './Problems'
 import './Modal.css'
 import './NewWorkspaceModal.css'
@@ -11,7 +10,6 @@ type Project = {
   base: string
   name: string
   source: WorkspaceRow | null
-  copies: number
   free: WorkspaceRow[]
 }
 
@@ -29,10 +27,9 @@ type Props = {
 function projectsOf(rows: WorkspaceRow[]): Project[] {
   const projects = new Map<string, Project>()
   for (const row of rows) {
-    const project = projects.get(row.base) ?? { base: row.base, name: row.project, source: null, copies: 0, free: [] }
+    const project = projects.get(row.base) ?? { base: row.base, name: row.project, source: null, free: [] }
     projects.set(row.base, project)
     if (row.error) continue
-    project.copies++
     if (row.copiesDir) project.source ??= row
     if (row.status === 'free') project.free.push(row)
   }
@@ -142,15 +139,8 @@ export default function NewWorkspaceModal({ rows, onClose, onCreated, onSettings
                           }}
                         />
                         <ChoiceMark />
-                        <span className="nw-project-text">
-                          <span className="nw-project-name choice-name">{p.name}</span>
-                          <span className="mono text-ter">{p.source ? p.source.path : 'копии проекта нет на диске'}</span>
-                        </span>
-                        <span className="nw-project-meta">
-                          {plural(p.copies, 'копия', 'копии', 'копий')}
-                          <br />
-                          {p.free.length > 0 ? `${p.free.length} ${p.free.length === 1 ? 'свободна' : 'свободны'}` : 'свободных нет'}
-                        </span>
+                        {/* Только имя: сколько копий и где лежит основная, оператору здесь не нужно (B-215) */}
+                        <span className="nw-project-name choice-name">{p.name}</span>
                       </label>
                     </li>
                   ))}
@@ -182,22 +172,6 @@ export default function NewWorkspaceModal({ rows, onClose, onCreated, onSettings
                   Строчная латиница и цифры через дефис.
                 </p>
               </div>
-
-              {project?.source && (
-                <dl className="nw-preview" aria-label="Что будет заведено">
-                  <dt>Папка</dt>
-                  <dd className="mono">
-                    {project.source.copiesDir}\{trimmed || <span className="text-ter">&lt;имя от кита&gt;</span>}
-                  </dd>
-                  <dt>Ветка</dt>
-                  <dd className="mono">{trimmed || <span className="text-ter">с тем же именем</span>}</dd>
-                  <dt>От ветки</dt>
-                  <dd className="mono">
-                    {project.source.branch ?? '—'}{' '}
-                    <span className="text-ter">· основная копия {project.source.path}</span>
-                  </dd>
-                </dl>
-              )}
 
               {project && project.free.length > 0 && !failure && !busy && (
                 <p className="nw-notice">

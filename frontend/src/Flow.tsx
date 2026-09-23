@@ -17,6 +17,10 @@ import './Backlog.css'
 import './PerformerModal.css'
 import './ReplyModal.css'
 import './Flow.css'
+import { AGENT_NAME } from './BacklogWriteModal'
+import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
+import type { RewrittenStage } from './flowChanges'
+import './Tabs.css'
 import { Markdown } from './Markdown'
 import type { BasePerformers } from './Performers'
 import { plural } from './plural'
@@ -331,8 +335,17 @@ const invalidLabels: Record<string, string> = {
  */
 export default function Flow({
   baseFor = null,
+  rewriteAt = null,
   onPerformers,
-}: { baseFor?: string | null; onPerformers?: () => void } = {}) {
+}: {
+  baseFor?: string | null
+  /**
+   * Когда оператор щёлкнул отметку просьбы в шапке: поверх раздела — окно переписывания стадий. Раздел,
+   * уже открытый, не пересоздаётся, а только открывает окно: несохранённые правки остаются на месте.
+   */
+  rewriteAt?: number | null
+  onPerformers?: () => void
+} = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [selected, setSelected] = useState<string | null>(baseFor)
   const [presets, setPresets] = useState<StagePreset[]>([])
@@ -355,8 +368,9 @@ export default function Flow({
   const [focus, setFocus] = useState<Focus>(null)
   // Выбор до записи — по именам: перечитанный флоу собирается в форму заново, с новыми key.
   const [keep, setKeep] = useState<{ flow: string | null } | null>(null)
-  // Какое окно открыто поверх раздела: описание стадии или выбор стадии во флоу.
-  const [modal, setModal] = useState<'description' | 'add' | null>(null)
+  // Какое окно открыто поверх раздела: описание стадии, выбор стадии во флоу или переписывание с Чудо-Юдо.
+  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(rewriteAt !== null ? 'rewrite' : null)
+  const [rewriteSeen, setRewriteSeen] = useState(rewriteAt)
   const [confirming, setConfirming] = useState(false)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
@@ -420,6 +434,23 @@ export default function Flow({
   const savedApi = useMemo(() => JSON.stringify(toApi(saved)), [saved])
   const dirty =
     flow !== null && (JSON.stringify(toApi(draft)) !== savedApi || !sameIcons(toIcons(draft), flow.icons ?? {}))
+  // Отметка в шапке щёлкнута при открытом разделе: окно встаёт поверх, а проект переключается на проект
+  // просьбы, только если переключать нечего терять — как в выборе проекта. С несохранёнными правками окно
+  // остаётся на своём проекте и говорит, что просьба про другой.
+  if (rewriteAt !== rewriteSeen) {
+    setRewriteSeen(rewriteAt)
+    if (rewriteAt !== null) {
+      setModal('rewrite')
+      if (baseFor !== null && baseFor !== selected && !dirty) {
+        setSelected(baseFor)
+        setOpened(null)
+        setStageKey(null)
+        setStageOpen(false)
+        setFlowKey(null)
+        setKeep(null)
+      }
+    }
+  }
   const unread = flow?.unread ?? []
   const problem =
     unread.length > 0
@@ -524,6 +555,39 @@ export default function Flow({
     return { added, stages: [...draft.stages, added] }
   }
 
+  /**
+   * Правки Чудо-Юдо ложатся на стадии черновика: переписанная сохраняет key, и пункты сценариев и возвраты,
+   * которые ссылаются на неё key, идут за новым названием сами — как при ручном переименовании. Новая стадия
+   * встаёт в конец вкладки «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
+   */
+  const applyRewritten = (rewritten: RewrittenStage[]) => {
+    let stages = draft.stages
+    for (const { of, stage } of rewritten) {
+      const fields = stageDraft(stage)
+      const was = of == null ? undefined : stages.find((one) => norm(one.title) === norm(of))
+      stages = was
+        ? stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
+        : [...stages, { ...fields, slug: null }]
+    }
+    setDraft({ ...draft, stages })
+    setModal(null)
+    if (rewritten.some((one) => one.of == null)) {
+      setTab('stages')
+      setOpened(null)
+    }
+  }
+
+  // Значок стадии в окне переписывания — тот же, что на её карточке.
+  const stageMark = (title: string) => {
+    const stage = draft.stages.find((one) => norm(one.title) === norm(title))
+    const kind = !stage ? 'orchestrator' : stage.kind === 'оркестратор' ? 'orchestrator' : stage.kind === 'оператор' ? 'operator' : 'agent'
+    return (
+      <span className={`flow-card-mark flow-mark-${kind}`} aria-hidden="true">
+        <StageIcon icon={stage?.icon ?? ''} kind={kind} />
+      </span>
+    )
+  }
+
   // Новая стадия на вкладке «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
   const newStage = () => {
     const { added, stages } = addStage(emptyStage)
@@ -570,7 +634,9 @@ export default function Flow({
   const editable = flow !== null && !flow.error
   const empty = editable && draft.flows.length === 0
   // Открыто окно поверх раздела: верх, схема и полоса под подложкой недоступны — Tab не уходит из окна.
-  const covered = stageOpen || modal === 'description' || opened?.kind === 'returns'
+  // Окно переписывания у непрочитанного флоу не встаёт — и верх раздела не запирает: проект можно сменить или обновить.
+  const covered =
+    stageOpen || modal === 'description' || (modal === 'rewrite' && editable) || opened?.kind === 'returns'
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
   const backToBlock = () => origin !== null && setFocus({ key: origin })
@@ -620,6 +686,8 @@ export default function Flow({
               disabled={dirty}
               onPick={(base) => {
                 setSelected(base)
+                // Выбор проекта доступен поверх окна переписывания, только если оно не встало: забыть и его.
+                setModal(null)
                 setOpened(null)
                 setStageKey(null)
                 setStageOpen(false)
@@ -631,6 +699,22 @@ export default function Flow({
           <RowMenu label="Ещё действия" title="Ещё действия" buttonClassName="bases-btn head-more">
             {(close) => (
               <>
+                {/* Правки агента ложатся в черновик поверх несохранённых: стадии он получает такими, как на экране.
+                    Без флоу вкладок нет, и новую стадию было бы не видно: пункта в пустом состоянии нет. */}
+                {editable && !empty && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="row-menu-item"
+                    onClick={() => {
+                      close()
+                      setModal('rewrite')
+                    }}
+                  >
+                    <RewriteIcon />
+                    Переписать с {AGENT_NAME}
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -689,6 +773,12 @@ export default function Flow({
       )}
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
+      {/* Правки агента ложатся только на прочитанный флоу: с отметки в шапке окно не встаёт — сказать почему. */}
+      {modal === 'rewrite' && flow?.error && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
+        </p>
+      )}
 
       {load.kind === 'loaded' && (
         <div className={withReveal('flow-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
@@ -801,6 +891,21 @@ export default function Flow({
             if (tab === 'flow' && !stageOpen) backToBlock()
           }}
           onDone={(description) => updateStage(currentStage.key, { description })}
+        />
+      )}
+
+      {modal === 'rewrite' && flow && editable && (
+        <FlowRewriteModal
+          base={flow.base}
+          project={flow.project}
+          stages={draft.stages.map(toStage)}
+          mark={stageMark}
+          scope={(title) => {
+            const stage = draft.stages.find((one) => norm(one.title) === norm(title))
+            return stage ? scopeWarning(draft, stage.key) : null
+          }}
+          onApply={applyRewritten}
+          onClose={() => setModal(null)}
         />
       )}
 
@@ -1342,8 +1447,15 @@ function FlowTab({
   const [menu, setMenu] = useState<{ key: number; at: Point } | null>(null)
   const chain = useRef<HTMLDivElement>(null)
   const stageOf = (entry: DraftEntry) => draft.stages.find((stage) => stage.key === entry.stage) ?? null
+  // Блок под мышью и блок под курсором клавиатуры: их возвраты на схеме подсвечены (B-214).
+  const [hovered, setHovered] = useState<number | null>(null)
+  const [focused, setFocused] = useState<number | null>(null)
   const openedIndex = opened?.kind === 'returns' ? flow.entries.findIndex((entry) => entry.key === opened.key) : -1
   const menuIndex = menu ? flow.entries.findIndex((entry) => entry.key === menu.key) : -1
+  // Возвраты подсвечены у стадии с открытым окном возвратов, открытым меню, под мышью и под курсором клавиатуры.
+  const lit = flow.entries.flatMap((entry, index) =>
+    index === openedIndex || index === menuIndex || entry.key === hovered || entry.key === focused ? [index] : [],
+  )
 
   // Фокус встаёт на блок, когда закрылось окно, открытое из его меню: схема к этому времени уже не под подложкой.
   // Поставленный фокус забывается: иначе вкладка, открытая заново, снова дёрнула бы его и прокрутку к старому блоку.
@@ -1394,7 +1506,7 @@ function FlowTab({
 
         <div className="flow-scroll">
           <div className="flow-chain" ref={chain}>
-            <ReturnArcs flow={flow} opened={openedIndex} />
+            <ReturnArcs flow={flow} lit={lit} />
             <button
               type="button"
               className={`flow-start ${opened?.kind === 'flow' ? 'opened' : ''} ${
@@ -1433,6 +1545,8 @@ function FlowTab({
                     setMenu({ key: entry.key, at })
                   }}
                   onMove={move}
+                  onHover={(on) => setHovered((key) => (on ? entry.key : key === entry.key ? null : key))}
+                  onFocused={(on) => setFocused((key) => (on ? entry.key : key === entry.key ? null : key))}
                 />
               )
             })}
@@ -1534,9 +1648,13 @@ function returnArcs(flow: DraftFlow): ReturnArc[] {
 
 const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
 
-/** Круги работы слева от ленты: у стадии, чьё окно возвратов открыто, её дуга подсвечена и подписана условием. */
-function ReturnArcs({ flow, opened }: { flow: DraftFlow; opened: number }) {
-  const arcs = returnArcs(flow)
+/**
+ * Круги работы слева от ленты: свои дуги подсвеченных стадий — `lit`, по индексам — выделены и подписаны условием,
+ * ведущие в них остаются приглушёнными. Подсвеченные рисуются последними: поверх приглушённых их концы не закрыты.
+ */
+function ReturnArcs({ flow, lit }: { flow: DraftFlow; lit: number[] }) {
+  const open = (arc: ReturnArc) => lit.includes(arc.from)
+  const arcs = returnArcs(flow).sort((a, b) => Number(open(a)) - Number(open(b)))
   if (arcs.length === 0) return null
 
   const height = flow.entries.length * (NODE_HEIGHT + NODE_GAP)
@@ -1549,16 +1667,16 @@ function ReturnArcs({ flow, opened }: { flow: DraftFlow; opened: number }) {
           const lane = ARC_WIDTH - (arc.lane + 1) * ARC_LANE
           const y1 = arcCenter(arc.from)
           const y2 = arcCenter(arc.to)
-          const open = arc.from === opened
+          const lighted = open(arc)
           return (
-            <g key={`${arc.from}-${arc.to}-${arc.lane}`} className={`flow-arc ${open ? 'flow-arc-open' : ''}`}>
+            <g key={`${arc.from}-${arc.to}-${arc.lane}`} className={`flow-arc ${lighted ? 'flow-arc-open' : ''}`}>
               <path
                 d={`M ${ARC_WIDTH} ${y1} H ${lane + ARC_ROUND} Q ${lane} ${y1} ${lane} ${y1 - ARC_ROUND} V ${
                   y2 + ARC_ROUND
                 } Q ${lane} ${y2} ${lane + ARC_ROUND} ${y2} H ${ARC_WIDTH - 10}`}
               />
               <path d={`M ${ARC_WIDTH - 16} ${y2 - 5} L ${ARC_WIDTH - 6} ${y2} L ${ARC_WIDTH - 16} ${y2 + 5}`} />
-              {open && arc.condition.trim() && (
+              {lighted && arc.condition.trim() && (
                 <text className="flow-arc-label" x={lane - 8} y={(y1 + y2) / 2} textAnchor="end">
                   {arc.condition.trim()}
                 </text>
@@ -1589,6 +1707,8 @@ function StageNode({
   menu,
   onMenu,
   onMove,
+  onHover,
+  onFocused,
 }: {
   entry: number
   stage: DraftStage | null
@@ -1602,6 +1722,8 @@ function StageNode({
   menu: boolean
   onMenu: (at: Point) => void
   onMove: (from: number, to: number) => void
+  onHover: (on: boolean) => void
+  onFocused: (on: boolean) => void
 }) {
   const [dragging, setDragging] = useState(false)
   const [over, setOver] = useState(false)
@@ -1631,6 +1753,10 @@ function StageNode({
           aria-haspopup="menu"
           aria-expanded={menu}
           draggable
+          onMouseEnter={() => onHover(true)}
+          onMouseLeave={() => onHover(false)}
+          onFocus={() => onFocused(true)}
+          onBlur={() => onFocused(false)}
           onContextMenu={(event: ReactMouseEvent<HTMLButtonElement>) => {
             event.preventDefault()
             // Клавиша меню и Shift+F10 уже открыли меню по нажатию; браузер следом шлёт contextmenu — его пропускаем.

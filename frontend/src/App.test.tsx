@@ -429,7 +429,7 @@ test('удаление копии открывает окно, а после у�
   })
 
   const dialog = await screen.findByRole('dialog', { name: 'Удалить рабочую копию' })
-  expect(dialog).toHaveTextContent('D:\\Projects\\app-wt')
+  expect(dialog).toHaveTextContent('Копия app-wt проекта')
   const polls = fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces').length
 
   await act(async () => {
@@ -1049,7 +1049,7 @@ test('«Бэклог» из сайдбара открывается списко
   expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
 })
 
-test('возврат к просьбе о флоу открывает раздел «Флоу»: переписывания в нём до B-179 нет', async () => {
+test('возврат к просьбе о флоу открывает раздел «Флоу» с окном переписывания, а сайдбар — без него', async () => {
   stubSections()
   render(<App />)
   await screen.findByRole('table')
@@ -1057,7 +1057,14 @@ test('возврат к просьбе о флоу открывает разде
   returnToRequest('flow', 'D:\\Projects\\app-knowledge')
 
   expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Переписать флоу' })).not.toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Флоу/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 
 test('«Исполнители» из сайдбара открываются списком, а не окном заведения после возврата к просьбе', async () => {

@@ -37,15 +37,14 @@ function renderModal(which: WorkspaceRow = row) {
   return props
 }
 
-test('окно называет копию, каталог и ветку, которая переживёт удаление', () => {
+test('окно называет копию и её проект, без пути и ветки', () => {
   renderModal()
 
   const dialog = screen.getByRole('dialog', { name: 'Удалить рабочую копию' })
-  expect(dialog).toHaveTextContent('Копия quiet-cedar уйдёт с диска. Вернуть её панель не сможет.')
-  const preview = within(dialog).getByLabelText('Что будет удалено')
-  expect(preview).toHaveTextContent('Agents Kit Web')
-  expect(preview).toHaveTextContent('D:\\Projects\\quiet-cedar')
-  expect(preview).toHaveTextContent('quiet-cedar — останется')
+  expect(dialog).toHaveTextContent('Копия quiet-cedar проекта Agents Kit Web уйдёт с диска. Вернуть её панель не сможет.')
+  expect(within(dialog).queryByLabelText('Что будет удалено')).not.toBeInTheDocument()
+  expect(dialog).not.toHaveTextContent('D:\\Projects')
+  expect(dialog).not.toHaveTextContent('останется')
 })
 
 test('«Удалить копию» зовёт API базой и копией, и удача закрывает окно', async () => {
@@ -119,10 +118,4 @@ test('Escape и «Отмена» закрывают окно, ничего не 
 
   expect(props.onClose).toHaveBeenCalledTimes(2)
   expect(posts).toEqual([])
-})
-
-test('у копии с отсоединённым HEAD вместо ветки сказано «отсоединён»', () => {
-  renderModal({ ...row, branch: null })
-
-  expect(screen.getByLabelText('Что будет удалено')).toHaveTextContent('отсоединён — останется')
 })

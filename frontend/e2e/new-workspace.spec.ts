@@ -26,8 +26,25 @@ const busyRow = {
   copiesDir: null,
 }
 const createdRow = { ...row, path: 'D:\\Projects\\quiet-cedar', branch: 'quiet-cedar', copiesDir: null }
+// Второй проект: без него в списке окна одна строка, и разделителей между строками не видно
+const notaRow = { ...row, project: 'Nota', base: 'D:\\Projects\\nota-knowledge', path: 'D:\\Projects\\nota', branch: 'main' }
+// Проект без копии на диске: заводить не от чего, и отличает его в окне только бледность (B-215)
+const goneRow = {
+  ...row,
+  project: 'Ledger',
+  base: 'D:\\Projects\\ledger-knowledge',
+  path: 'E:\\gone',
+  branch: null,
+  status: null,
+  error: 'Копия не найдена на диске',
+  copiesDir: null,
+}
 
-async function routeApi(page: Page, answer: (name: string | null) => { status: number; json: unknown }) {
+async function routeApi(
+  page: Page,
+  answer: (name: string | null) => { status: number; json: unknown },
+  extra: unknown[] = [],
+) {
   let created = false
   const posts: unknown[] = []
   await page.route('**/api/workspaces', async (route) => {
@@ -39,7 +56,7 @@ async function routeApi(page: Page, answer: (name: string | null) => { status: n
       await route.fulfill(reply)
       return
     }
-    await route.fulfill({ json: created ? [row, busyRow, createdRow] : [row, busyRow] })
+    await route.fulfill({ json: created ? [row, busyRow, createdRow, ...extra] : [row, busyRow, ...extra] })
   })
   return posts
 }
@@ -47,7 +64,7 @@ async function routeApi(page: Page, answer: (name: string | null) => { status: n
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`новая копия заводится из окна и отмечена в таблице (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme })
-    const posts = await routeApi(page, (name) => ({ status: 200, json: { name } }))
+    const posts = await routeApi(page, (name) => ({ status: 200, json: { name } }), [notaRow, goneRow])
     await page.goto('/')
 
     const button = page.getByRole('button', { name: 'Новая копия' })
@@ -72,12 +89,28 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expectChoice(project, true)
     await expectRingOnlyFromKeyboard(project)
     await dialog.getByLabel(/Имя копии/).fill('quiet-cedar')
-    const preview = dialog.getByLabel('Что будет заведено')
-    await expect(preview).toContainText('D:\\Projects\\quiet-cedar')
-    await expect(preview).toContainText('master · основная копия D:\\Projects\\agents-kit-web')
+    // У проекта только имя: ни числа копий, ни пути, и блока «что будет заведено» нет (B-215)
+    await expect(dialog.locator('.nw-project').first()).toHaveText('Agents Kit Web')
+    await expect(dialog).not.toContainText('D:\\Projects')
+    await expect(dialog.getByLabel('Что будет заведено')).toHaveCount(0)
+    // Проект без копии на диске не выбирается и заметно бледнее остальных
+    await expect(dialog.getByRole('radio', { name: /Ledger/ })).toBeDisabled()
+    await expect(dialog.locator('.nw-project', { hasText: 'Ledger' })).toHaveCSS('opacity', '0.6')
+    await expect(dialog.locator('.nw-project', { hasText: 'Nota' })).toHaveCSS('opacity', '1')
     await expect(dialog).toContainText('У проекта уже есть свободная копия master')
+    const transparent = 'rgba(0, 0, 0, 0)'
     // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
-    await expect(dialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(dialog).not.toHaveCSS('background-color', transparent)
+    // Вид «Легче» (B-215): шапка и подвал без полос и подкраски, список проектов без рамки
+    // и разделителей, напоминание — простая строка без рамки и фона
+    await expect(dialog.locator('.nw-head')).toHaveCSS('border-bottom-style', 'none')
+    await expect(dialog.locator('.nw-footer')).toHaveCSS('border-top-style', 'none')
+    await expect(dialog.locator('.nw-footer')).toHaveCSS('background-color', transparent)
+    await expect(dialog.locator('.nw-projects')).toHaveCSS('border-top-style', 'none')
+    await expect(dialog.locator('.nw-projects > li').nth(1)).toHaveCSS('border-top-style', 'none')
+    const notice = dialog.locator('.nw-notice')
+    await expect(notice).toHaveCSS('border-top-style', 'none')
+    await expect(notice).toHaveCSS('background-color', transparent)
 
     await dialog.getByRole('button', { name: 'Завести копию' }).click()
 

@@ -183,14 +183,14 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return new BacklogSaved(null, $"backlog.md не прочитан: {e.Message}");
         }
 
-        var (decoded, hasBom) = FlowFile.Decode(before);
+        var (decoded, hasBom) = FlowFolder.Decode(before);
         var (text, diverged) = proposal.Apply(decoded);
         if (text is null)
             return new BacklogSaved(null, $"Запись {diverged} изменилась после ответа {AgentRequests.AgentName} — ничего не записано");
 
         try
         {
-            await File.WriteAllBytesAsync(file, FlowFile.Encode(text, hasBom));
+            await File.WriteAllBytesAsync(file, FlowFolder.Encode(text, hasBom));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
