@@ -805,3 +805,34 @@ test('кнопка «Удалить» в вопросе при наведени�
   await remove.hover()
   await expect(remove).toHaveCSS('background-color', rest)
 })
+
+test('при правке в сайдбаре ни клавиатура, ни перетаскивание на схеме не пишут: сначала вопрос о сайдбаре', async ({ page }) => {
+  const calls = await mockApi(page)
+  const region = await openFlow(page)
+  await region.getByRole('button', { name: 'Сценарий «полный»: название и «когда»' }).click()
+  const drawer = page.getByRole('complementary')
+  await drawer.getByRole('textbox', { name: 'Когда брать сценарий' }).fill('крупная правка')
+  const asked = page.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })
+
+  // Enter на «выше»
+  await region.getByRole('button', { name: 'Стадия 3 выше' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(asked).toBeVisible()
+  await asked.getByRole('button', { name: 'Вернуться' }).click()
+
+  // Shift+F10 на блоке — меню блока не открывается
+  await region.getByRole('button', { name: 'Стадия 2: Ревью' }).focus()
+  await page.keyboard.press('Shift+F10')
+  await expect(asked).toBeVisible()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await asked.getByRole('button', { name: 'Вернуться' }).click()
+
+  // Перетаскивание
+  await region.getByRole('button', { name: 'Стадия 2: Ревью' }).dragTo(region.getByRole('button', { name: 'Стадия 1: Критерий' }))
+  await expect(asked).toBeVisible()
+  await asked.getByRole('button', { name: 'Вернуться' }).click()
+
+  await expect(region.getByRole('button', { name: 'Стадия 1: Критерий' })).toBeVisible()
+  expect(calls.flow).toHaveLength(0)
+  await expect(drawer.getByRole('textbox', { name: 'Когда брать сценарий' })).toHaveValue('крупная правка')
+})

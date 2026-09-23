@@ -937,17 +937,21 @@ test('описание стадии показано оформленным, п�
 
   const edit = await stagesTab('Ревью')
   fireEvent.click(edit.getByRole('button', { name: /Редактировать описание/ }))
-  const dialog = within(screen.getByRole('dialog', { name: 'Описание стадии «Ревью»' }))
+  let dialog = within(screen.getByRole('dialog', { name: 'Описание стадии «Ревью»' }))
   // Разметка оформлена: пункт списка, а не исходный текст; на вкладке «Стадии» предупреждения нет
   expect(dialog.getByRole('listitem')).toHaveTextContent('Собрать дифф всей ветки.')
   expect(dialog.queryByRole('textbox')).not.toBeInTheDocument()
   expect(dialog.queryByText(/Стадия стоит в сценариях/)).not.toBeInTheDocument()
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toHaveFocus()
 
-  // «Отмена» бросает набранное сразу, без вопроса, и возвращает к просмотру (приёмка B-226)
+  // «Отмена» бросает набранное и закрывает окно сразу, без вопроса (решение оператора на приёмке B-226)
   fireEvent.click(dialog.getByRole('button', { name: 'Редактировать' }))
   fireEvent.change(dialog.getByRole('textbox', { name: 'Описание стадии' }), { target: { value: 'черновик' } })
   fireEvent.click(dialog.getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: /^Описание стадии/ })).not.toBeInTheDocument()
+  fireEvent.click(edit.getByRole('button', { name: /Редактировать описание/ }))
+  dialog = within(screen.getByRole('dialog', { name: 'Описание стадии «Ревью»' }))
   expect(dialog.getByRole('listitem')).toHaveTextContent('Собрать дифф всей ветки.')
 
   fireEvent.click(dialog.getByRole('button', { name: 'Редактировать' }))
