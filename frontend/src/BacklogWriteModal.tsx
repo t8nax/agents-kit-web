@@ -79,6 +79,8 @@ export default function BacklogWriteModal({
   const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
   // Переспрос на месте поля ввода: несохранённое предложение не уходит молча — решение оператора на B-228.
   const [asking, setAsking] = useState<Asking | null>(null)
+  // Запись, про которую окно: после «Новой переписки» окно от «Изменить» становится общим окном её проекта.
+  const [own, setOwn] = useState(subject)
   // Окно от записи начинает свой разговор, а окно из шапки подхватывает идущий.
   const conversation = useAgentConversation<WriteEvent>('backlog', subject === null)
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
@@ -90,14 +92,14 @@ export default function BacklogWriteModal({
   const base = conversation.base ?? chosen
   const project = bases.find((b) => b.base === base)?.project ?? ''
   const firstReply = events.find((e) => e.type === 'reply')
-  const aboutNumber = subject?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
+  const aboutNumber = own?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
   const savedCount = events.filter((e) => e.type === 'saved').length
   const current = aboutNumber && base && findEntry ? (findEntry(base, aboutNumber) ?? null) : null
   // После «Сохранить» запись разговора показывается такой, какой её записали, а удалённая — отметкой «удалена».
   // Что с ней стало, говорит сохранённое предложение, а не список раздела: тот мог и не перечитаться.
   const saved = savedChange(events, aboutNumber)
   const aboutGone = saved?.kind === 'delete'
-  const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (subject?.entry ?? current)
+  const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (own?.entry ?? current)
 
   // Закрытое окно разговор не трогает: открытое снова, оно показывает его на месте, а кончает его только
   // «Новая переписка» — как в окне вопроса по базе, решение оператора на B-228.
@@ -144,7 +146,7 @@ export default function BacklogWriteModal({
     setFailure(null)
     const sent = talking
       ? await send(said)
-      : await start({ base, text: said, number: subject?.entry.number ?? undefined })
+      : await start({ base, text: said, number: own?.entry.number ?? undefined })
     if (sent.ok) {
       setText(null)
       return
@@ -170,6 +172,7 @@ export default function BacklogWriteModal({
 
   async function reset() {
     setAsking(null)
+    setOwn(null)
     setText(null)
     setSaveError(null)
     await forget()
@@ -227,7 +230,7 @@ export default function BacklogWriteModal({
               <WriteIcon />
               {AGENT_NAME}
             </div>
-            {!talking && !subject && bases.length > 1 ? (
+            {!talking && !own && bases.length > 1 ? (
               <div className="talk-bases" role="group" aria-label="Проект">
                 {bases.map((b) => (
                   <button

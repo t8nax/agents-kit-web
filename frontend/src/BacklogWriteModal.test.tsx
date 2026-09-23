@@ -508,6 +508,30 @@ test('без ждущего предложения «Новая переписк
   await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
 })
 
+test('окно от «Изменить» после «Новой переписки» становится общим окном проекта записи', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { posts } = stubFetch(stream)
+  renderModal({ subject: { base: bases[1].base, entry: B40 } })
+
+  await say('Это блокер')
+  stream.send({ type: 'reply', text: 'Это блокер', number: 'B-40' })
+  stream.send(answer({ text: 'Понял.' }))
+  await screen.findByText('Понял.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+
+  await waitFor(() => expect(screen.queryByText('Запись')).not.toBeInTheDocument())
+  expect(screen.queryByText('Показывать, сколько длится задача')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveAttribute(
+    'placeholder',
+    'Что записать, поменять, удалить или объединить',
+  )
+
+  await say('Запиши мысль')
+  expect(posts[1].body).toEqual({ base: bases[1].base, text: 'Запиши мысль' })
+})
+
 test('без текста отправить нельзя', async () => {
   stubFetch(controlledStream())
   renderModal()
