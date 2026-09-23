@@ -18,7 +18,10 @@ const copies: Record<string, AskCopy[]> = {
     { path: 'D:\\Projects\\agents-kit-web', name: 'agents-kit-web', branch: 'master', main: true },
     { path: 'D:\\Projects\\bright-sunny-glacier', name: 'bright-sunny-glacier', branch: 'b-130-ask-reads-code', main: false },
   ],
-  [bases[1].base]: [{ path: 'D:\\Projects\\nota', name: 'nota', branch: 'dev', main: true }],
+  [bases[1].base]: [
+    { path: 'D:\\Projects\\nota', name: 'nota', branch: 'dev', main: true },
+    { path: 'D:\\Projects\\nota-task', name: 'nota-task', branch: 'b-7-export', main: false },
+  ],
 }
 
 /** Панель разговора: базы, их копии, следующие реплики и остановка ответа — свои вызовы окна. */
@@ -87,7 +90,7 @@ test('вопрос уходит в выбранную базу, ход рабо�
   })
   stream.send({ type: 'reply', text: 'Почему опрос?' })
   expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
-  expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо читает базу и код Nota…')).toBeInTheDocument()
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })
   const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-Юдо' })
@@ -332,7 +335,8 @@ test('открытое заново окно показывает перепис
   const stream = controlledStream<AskEvent>()
   const { posts } = stubFetch(
     stream,
-    runningRequest('ask', 'Почему опрос?', bases[1].base, 'Nota', 42000, copies[bases[1].base][0].path),
+    // Копия задачи, а не основная: окно само выбрало бы основную, а показать надо ту, что у разговора.
+    runningRequest('ask', 'Почему опрос?', bases[1].base, 'Nota', 42000, copies[bases[1].base][1].path),
   )
   render(<AskModal onClose={() => {}} />)
 
@@ -340,8 +344,8 @@ test('открытое заново окно показывает перепис
   expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
   // Проект и копия — того разговора, что шёл без окна, и выбрать другие нельзя.
   expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeDisabled()
-  expect(await screen.findByRole('button', { name: 'Копия: nota' })).toBeDisabled()
-  expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: 'Копия: nota-task' })).toBeDisabled()
+  expect(await screen.findByText('Чудо-Юдо читает базу и код Nota…')).toBeInTheDocument()
   expect(screen.getByLabelText('Прошло времени')).toHaveTextContent('0:42')
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })

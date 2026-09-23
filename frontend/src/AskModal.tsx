@@ -227,7 +227,7 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
             <div className="ask-waiting" role="status">
               <span className="ask-spinner" aria-hidden="true" />
               <span className="ask-waiting-text">
-                {AGENT_NAME} читает базу {project}…
+                {AGENT_NAME} читает {activeCopy ? 'базу и код' : 'базу'} {project}…
               </span>
               {startedAt !== null && <Elapsed since={startedAt} />}
             </div>

@@ -276,7 +276,7 @@ test('закрытое окно разговор не теряет: ответ �
   const dialog = await openAsk(page)
   await dialog.getByLabel('Вопрос').fill('Почему опрос?')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
-  await expect(dialog.getByRole('status')).toContainText('Чудо-Юдо читает базу Agents Kit Web…')
+  await expect(dialog.getByRole('status')).toContainText('Чудо-Юдо читает базу и код Agents Kit Web…')
 
   // Оператор закрыл окно и занялся другим: агент работает дальше.
   await page.keyboard.press('Escape')
@@ -314,7 +314,7 @@ test('пока агент думает, идёт счётчик, а «Отмен
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
   const waiting = dialog.getByRole('status')
-  await expect(waiting).toContainText('Чудо-Юдо читает базу Agents Kit Web…')
+  await expect(waiting).toContainText('Чудо-Юдо читает базу и код Agents Kit Web…')
   await expect(waiting.getByLabel('Прошло времени')).toHaveText('0:01', { timeout: 5000 })
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()

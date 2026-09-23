@@ -64,15 +64,11 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
             return AskReplied.Answering;
 
         Turn? turn;
-        Turn? previous;
         lock (_gate)
-        {
-            previous = _turn?.Request == request ? _turn : null;
-            turn = previous is not null && request.Working ? previous : null;
-        }
+            turn = _turn?.Request == request && request.Working ? _turn : null;
 
-        // Новый агент читает ту же копию, что прежний: копия, как и база, одна на разговор.
-        turn ??= Restart(request, previous?.Copy);
+        // Новый агент читает ту же копию, что прежний: копия, как и база, одна на разговор, и помнит её просьба.
+        turn ??= Restart(request, request.Subject);
         Say(request, turn, text);
         return AskReplied.Sent;
     }

@@ -104,14 +104,15 @@ public sealed class AskEndpointsTests : IDisposable
     [Fact]
     public async Task Copies_ReturnsCopiesOfBaseOnDiskWithMainFirst()
     {
-        var main = WithCopies("app", "app-task");
+        // Копия задачи по имени идёт раньше основной: порядок «основная первой» ставит API, а не обход каталогов.
+        var main = WithCopies("app", "aaa-task");
 
         var copies = await Client(_base).GetFromJsonAsync<List<CopyJson>>($"/api/ask/copies?base={Uri.EscapeDataString(_base)}");
 
         Assert.NotNull(copies);
         Assert.Equal(2, copies.Count);
         Assert.Equal(new CopyJson(main[0], "app", "dev", true), copies[0]);
-        Assert.Equal(new CopyJson(main[1], "app-task", "dev", false), copies[1]);
+        Assert.Equal(new CopyJson(main[1], "aaa-task", "dev", false), copies[1]);
     }
 
     [Fact]
@@ -129,7 +130,8 @@ public sealed class AskEndpointsTests : IDisposable
         _agent.Answers =
         [
             [
-                Tool("Read", new { file_path = Path.Combine(copy, "src", "Program.cs") }),
+                // Путь через «/»: агент называет файлы и так.
+                Tool("Read", new { file_path = Path.Combine(copy, "src", "Program.cs").Replace('\\', '/') }),
                 Tool("Read", new { file_path = Path.Combine(_base, "product.md") }),
                 Result("По коду."),
             ],
