@@ -1626,3 +1626,17 @@ test('задача, пошедшая по сценарию, пока окно б
     'Флоу не сохранён: по сценарию «полный» идут задачи B-7 — пока они в работе, его и его стадии править нельзя.',
   )
 })
+
+test('в окне Чудо-Юдо стадии занятого сценария погашены с задачами', async () => {
+  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'мелкий' }] }], rewriteApi([])))
+  await renderFlow()
+
+  fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  fireEvent.click(modal.getByRole('button', { name: 'Стадии' }))
+  const list = within(modal.getByRole('listbox', { name: 'Стадии проекта' }))
+
+  expect(list.getByRole('option', { name: /Ревью/ })).toHaveAttribute('aria-disabled', 'true')
+  expect(list.getByRole('option', { name: /Ревью/ })).toHaveTextContent('занята: B-7')
+  expect(list.getByRole('option', { name: /Критерий/ })).not.toHaveAttribute('aria-disabled')
+})

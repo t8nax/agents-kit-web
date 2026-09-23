@@ -1070,6 +1070,10 @@ export default function Flow({
             const stage = saved.stages.find((one) => norm(one.title) === norm(title))
             return stage ? scopeWarning(saved, stage.key) : null
           }}
+          locked={(title) => {
+            const stage = saved.stages.find((one) => norm(one.title) === norm(title))
+            return (stage && lockOfStage(stage.key)?.tasks) || null
+          }}
           onApply={applyRewritten}
           onClose={() => setModal(null)}
         />

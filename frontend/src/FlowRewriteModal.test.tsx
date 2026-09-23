@@ -41,6 +41,8 @@ function renderModal() {
       scope={(title) =>
         title === 'Ревью' ? 'Стадия стоит в сценариях «полный» и «быстрый» — правка изменит её в обоих.' : null
       }
+      // Приёмку держат задачи в работе: к просьбе её не добавить
+      locked={(title) => (title === 'Приёмка' ? ['B-7', 'B-9'] : null)}
       onApply={onApply}
       onClose={onClose}
     />,
@@ -106,6 +108,23 @@ test('стадии добавляются в контекст списком с 
 
   fireEvent.click(screen.getByRole('button', { name: 'Убрать «Мерж»' }))
   fireEvent.click(screen.getByRole('button', { name: 'Убрать «Ревью»' }))
+  expect(screen.getByRole('button', { name: 'Написать стадию' })).toBeInTheDocument()
+})
+
+test('стадия, которую держат задачи в работе, в списке погашена, названы задачи, и к просьбе она не добавляется', async () => {
+  stubFetch(controlledStream())
+  renderModal()
+  await write('Поправь приёмку')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Стадии' }))
+  const held = within(screen.getByRole('listbox', { name: 'Стадии проекта' })).getByRole('option', { name: /Приёмка/ })
+  expect(held).toHaveAttribute('aria-disabled', 'true')
+  expect(held).toHaveTextContent('занята: B-7, B-9')
+  fireEvent.click(held)
+  fireEvent.keyDown(held, { key: 'Enter' })
+
+  expect(held).toHaveAttribute('aria-selected', 'false')
+  expect(screen.queryByRole('button', { name: 'Убрать «Приёмка»' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Написать стадию' })).toBeInTheDocument()
 })
 

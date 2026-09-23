@@ -21,6 +21,8 @@ type Props = {
   mark: (title: string) => ReactNode
   /** Строка о сценариях, которые заденет правка стадии; null — стадия стоит не больше чем в одном. */
   scope: (title: string) => string | null
+  /** Задачи, которые держат стадию: её не править, пока они в работе, и к просьбе она не добавляется (B-226). */
+  locked: (title: string) => string[] | null
   onApply: (stages: RewrittenStage[]) => void
   onClose: () => void
 }
@@ -56,7 +58,7 @@ const sameStage = (one: FlowStage, other: FlowStage) =>
   (one.description ?? null) === (other.description ?? null) &&
   (one.helpers ?? []).join(', ') === (other.helpers ?? []).join(', ')
 
-export default function FlowRewriteModal({ base, project, stages, mark, scope, onApply, onClose }: Props) {
+export default function FlowRewriteModal({ base, project, stages, mark, scope, locked, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
   // Стадии контекста — по названию: список раздела на время окна не меняется.
   const [context, setContext] = useState<string[]>([])
@@ -231,6 +233,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                     stages={stages}
                     chosen={context}
                     mark={mark}
+                    locked={locked}
                     onToggle={toggle}
                     onClose={() => setPicking(false)}
                   />
@@ -410,17 +413,22 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
   )
 }
 
-/** Список стадий проекта под кнопкой «Стадии»: поиск по названию, галочка добавляет стадию в просьбу. */
+/**
+ * Список стадий проекта под кнопкой «Стадии»: поиск по названию, галочка добавляет стадию в просьбу. Занятая
+ * задачами стадия погашена и называет их: переписанную её было бы не записать (макет B-226).
+ */
 function StagePicker({
   stages,
   chosen,
   mark,
+  locked,
   onToggle,
   onClose,
 }: {
   stages: FlowStage[]
   chosen: string[]
   mark: (title: string) => ReactNode
+  locked: (title: string) => string[] | null
   onToggle: (title: string) => void
   onClose: () => void
 }) {
@@ -451,16 +459,18 @@ function StagePicker({
         {found.length === 0 && <p className="rewrite-picker-empty">Стадий с таким названием нет</p>}
         {found.map((stage, i) => {
           const on = chosen.includes(stage.title)
+          const held = locked(stage.title)
           return (
             <div
               key={`${i}-${stage.title}`}
               role="option"
               aria-selected={on}
-              tabIndex={0}
-              className="rewrite-picker-row"
-              onClick={() => onToggle(stage.title)}
+              aria-disabled={held ? true : undefined}
+              tabIndex={held ? -1 : 0}
+              className={`rewrite-picker-row ${held ? 'is-off' : ''}`}
+              onClick={() => !held && onToggle(stage.title)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if (!held && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault()
                   onToggle(stage.title)
                 }
@@ -470,7 +480,15 @@ function StagePicker({
                 {on && <CheckIcon />}
               </span>
               {mark(stage.title)}
-              <span className="rewrite-picker-title">{stage.title}</span>
+              <span className="rewrite-picker-title">
+                <span>{stage.title}</span>
+                {held && (
+                  <span className="rewrite-why">
+                    <LockIcon />
+                    занята: {held.join(', ')}
+                  </span>
+                )}
+              </span>
               <span className="flow-stage-badge">{stage.executor || 'субагент'}</span>
             </div>
           )
