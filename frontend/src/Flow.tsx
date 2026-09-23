@@ -323,7 +323,9 @@ function unknownLock(tasks: FlowTask[]): Lock | null {
       ? one
         ? 'не называет своего сценария'
         : 'не называют своих сценариев'
-      : 'идут по сценариям, которых в проекте нет или которые не названы'
+      : one
+        ? 'идёт по сценарию, которого в проекте нет или который не назван'
+        : 'идут по сценариям, которых в проекте нет или которые не названы'
   return { before: one ? 'задача' : 'задачи', tasks: labels, after }
 }
 
@@ -440,6 +442,10 @@ export default function Flow({
   const [rewriteSeen, setRewriteSeen] = useState(rewriteAt)
   // Вопрос поверх окна: удалить стадию или сценарий, закрыть окно без сохранения.
   const [asking, setAsking] = useState<Asking | null>(null)
+  // Фокус запоминается, пока вопрос ещё не встал: под ним окно запирается, и браузер снимает фокус с поля раньше,
+  // чем вопрос успел бы его увидеть. «Вернуться» отдаёт фокус туда, где набирали.
+  const ask = (question: Omit<Asking, 'back'>) =>
+    setAsking({ ...question, back: document.activeElement as HTMLElement | null })
   const [saving, setSaving] = useState(false)
   // Почему не прошла запись действия на схеме или переписанных стадий; у окна отказ — в самом окне.
   const [notice, setNotice] = useState<string | null>(null)
@@ -584,7 +590,7 @@ export default function Flow({
       close()
       return
     }
-    setAsking({
+    ask({
       title: 'Закрыть без сохранения?',
       text: `Изменения ${what} не будут сохранены.`,
       cancel: 'Вернуться',
@@ -781,7 +787,7 @@ export default function Flow({
   }
 
   const deleteStage = (stage: DraftStage) =>
-    setAsking({
+    ask({
       title: `Удалить стадию «${stageName(stage)}»?`,
       cancel: 'Отмена',
       confirm: 'Удалить',
@@ -789,7 +795,7 @@ export default function Flow({
     })
 
   const deleteFlow = (target: DraftFlow) =>
-    setAsking({
+    ask({
       title: `Удалить сценарий «${flowName(target)}»?`,
       cancel: 'Отмена',
       confirm: 'Удалить',
@@ -812,8 +818,7 @@ export default function Flow({
   // Нет сценариев или стадий — пустое состояние только на своей вкладке: переключатель и другая вкладка остаются (B-222).
   const noFlows = editable && draft.flows.length === 0
   const noStages = editable && draft.stages.length === 0
-  // Открыто окно поверх раздела: верх и схема под подложкой недоступны — Tab не уходит из окна. Сайдбар
-  // с несохранённым запирает схему тоже: действие на ней записало бы и его правку.
+  // Открыто окно поверх раздела: верх и схема под подложкой недоступны — Tab не уходит из окна.
   // Окно переписывания у непрочитанного флоу не встаёт — и верх раздела не запирает: проект можно сменить или обновить.
   const overlaid =
     stageOpen ||
@@ -822,7 +827,8 @@ export default function Flow({
     (modal === 'rewrite' && editable) ||
     opened?.kind === 'returns' ||
     asking !== null
-  // Сайдбар с правкой запирает схему и всё вокруг, но не себя: в нём и правят (замечание оператора на приёмке B-226).
+  // Сайдбар с правкой запирает схему и всё вокруг — действие на схеме записало бы и его правку, — но не себя:
+  // в нём и правят (замечание оператора на приёмке B-226).
   const covered = overlaid || (opened?.kind === 'flow' && changed)
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
@@ -1129,7 +1135,7 @@ export default function Flow({
             if (tab === 'flow' && !stageOpen) backToBlock()
           }}
           onAsk={(close) =>
-            setAsking({
+            ask({
               title: 'Закрыть без сохранения?',
               text: `Изменения описания стадии «${stageName(currentStage)}» не будут сохранены.`,
               cancel: 'Вернуться',
@@ -1185,7 +1191,7 @@ export default function Flow({
           failure={failure}
           covered={asking !== null}
           onAsk={(close) =>
-            setAsking({
+            ask({
               title: 'Закрыть без сохранения?',
               text: 'Новый сценарий не будет сохранён.',
               cancel: 'Вернуться',
@@ -1229,7 +1235,15 @@ const noDraft: Draft = { stages: [], flows: [] }
 const snapshot = (draft: Draft) => JSON.stringify([toApi(draft), toIcons(draft)])
 
 /** Вопрос поверх окна: title — сам вопрос, confirm — кнопка, которая делает, cancel — которая оставляет как было. */
-type Asking = { title: string; text?: string; cancel: string; confirm: string; onConfirm: () => void }
+type Asking = {
+  title: string
+  text?: string
+  cancel: string
+  confirm: string
+  onConfirm: () => void
+  /** Куда вернуть фокус, когда вопрос закроют. */
+  back?: HTMLElement | null
+}
 
 type RejectedBody = { problem?: string; flow?: string | null; stage?: string | null; detail?: string | null }
 
@@ -3372,11 +3386,12 @@ function AddStageRow({
  */
 function ConfirmDialog({ asking, onClose }: { asking: Asking; onClose: () => void }) {
   const confirm = useRef<HTMLButtonElement>(null)
+  // Куда вернуть фокус, известно на открытии: вопрос за время жизни его не меняет.
+  const [back] = useState(() => asking.back ?? (document.activeElement as HTMLElement | null))
   useEffect(() => {
-    const back = document.activeElement as HTMLElement | null
     confirm.current?.focus()
     return () => back?.focus()
-  }, [])
+  }, [back])
 
   return (
     <div

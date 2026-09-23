@@ -775,6 +775,16 @@ test('в сайдбаре сценария название набирается
   await expect(name).toHaveValue('полный большой')
   await expect(name).toBeFocused()
   await expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
-  // Схема под сайдбаром с правкой заперта
+  // Схема, выбор сценария и «Новый сценарий» под сайдбаром с правкой заперты
   expect(await page.locator('.flow-scroll').evaluate((el) => el.closest('[inert]') !== null)).toBe(true)
+  expect(await page.getByRole('button', { name: 'Новый сценарий' }).evaluate((el) => el.closest('[inert]') !== null)).toBe(true)
+
+  // Под вопросом о несохранённом заперт и сайдбар; «Вернуться» отдаёт фокус полю, где набирали
+  await page.keyboard.press('Escape')
+  const asked = page.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })
+  await expect(asked).toBeVisible()
+  expect(await drawer.evaluate((el) => el.closest('[inert]') !== null)).toBe(true)
+  await asked.getByRole('button', { name: 'Вернуться' }).click()
+  await expect(name).toBeFocused()
+  await expect(name).toHaveValue('полный большой')
 })
