@@ -131,6 +131,25 @@ test('выбранный канал уходит в панель', async () => {
   expect(screen.getByRole('button', { name: 'Бета' }).getAttribute('aria-pressed')).toBe('true')
 })
 
+test('пока канал сменяется, карточка смотрит, что вышло, а не говорит, что GitHub молчит', async () => {
+  stubApi(api(installed, behind, idle, { 'PUT /api/panel/channel': () => new Response(null, { status: 204 }) }))
+
+  render(<PanelCard />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Бета' }))
+
+  expect(screen.getByText('Смотрим, что вышло…')).toBeTruthy()
+  expect(screen.queryByText(/GitHub не ответил/)).toBeNull()
+})
+
+test('в канале без выпусков карточка так и говорит, и кнопки нет', async () => {
+  stubApi(api(installed, { latest: null, releases: [] }))
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText('В канале «Стабильный» ещё нет ни одного выпуска.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Обновить' })).toBeNull()
+})
+
 test('кнопка запускает обновление и показывает, сколько скачано', async () => {
   let update: PanelUpdateState = idle
   stubApi(

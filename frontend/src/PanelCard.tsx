@@ -118,6 +118,8 @@ export default function PanelCard() {
     if (!panel || panel.channel === channel) return
     setPanel({ ...panel, channel })
     setUpdates(null)
+    // Пока канал сохраняется, карточка уже смотрит, что вышло, а не говорит, что GitHub молчит.
+    setChecking(true)
     fetch('/api/panel/channel', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
