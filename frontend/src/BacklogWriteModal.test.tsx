@@ -423,6 +423,32 @@ test('сбой агента назван, а реплика возвращает
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('Мысль')
 })
 
+test('«Новая переписка» убирает разговор, а окно оставляет открытым с прежним проектом', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  const { onClose } = renderModal({ initialBase: bases[1].base })
+
+  const fresh = await screen.findByRole('button', { name: 'Новая переписка' })
+  expect(fresh).toBeDisabled()
+  await say('Мысль')
+  stream.send({ type: 'reply', text: 'Мысль' })
+  await screen.findByText('Чудо-Юдо читает бэклог Nota…')
+  // Пока Чудо-Юдо отвечает, начать заново нельзя.
+  expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeDisabled()
+  stream.send(answer({ text: 'Записал.' }))
+  await screen.findByText('Записал.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(onClose).not.toHaveBeenCalled()
+  expect(screen.getByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
+  expect(screen.queryByText('Записал.')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeDisabled()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
+})
+
 test('без текста отправить нельзя', async () => {
   stubFetch(controlledStream())
   renderModal()

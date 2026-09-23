@@ -108,21 +108,31 @@
   padding-top: 2px;
 }
 
-.talk-row {
-  align-items: flex-end;
+/* Подвал по макету B-228: поле на всю ширину, под ним строка кнопок справа — как в окне вопроса по базе. */
+.talk-composer {
+  gap: 10px;
 }
 
 .talk-field {
+  display: block;
+  width: 100%;
+  height: 64px;
   resize: none;
   line-height: 1.45;
-  min-height: 42px;
 }
 
 .talk-field:disabled {
   opacity: 0.55;
 }
 
-.talk-row .composer-send {
+.talk-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.talk-buttons .composer-send {
   min-height: 42px;
 }
 

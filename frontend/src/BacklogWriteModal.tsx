@@ -157,6 +157,13 @@ export default function BacklogWriteModal({
     )
   }
 
+  /** «Новая переписка»: разговор уходит из панели, окно остаётся открытым для первой просьбы. */
+  async function newTalk() {
+    setText(null)
+    setSaveError(null)
+    await forget()
+  }
+
   async function save(id: string) {
     setSaving(id)
     setSaveError(null)
@@ -330,25 +337,36 @@ export default function BacklogWriteModal({
           )}
         </div>
 
-        <div className="composer">
-          <div className="composer-row talk-row">
-            <textarea
-              className="composer-field talk-field"
-              aria-label={`Просьба к ${AGENT_NAME}`}
-              rows={2}
-              autoFocus
-              value={value}
-              placeholder={placeholder}
-              // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
-              disabled={running || restoring || saving !== null}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault()
-                  void submit()
-                }
-              }}
-            />
+        {/* Поле на всю ширину, кнопки строкой под ним — как в окне вопроса по базе (макет B-228). */}
+        <div className="composer talk-composer">
+          <textarea
+            className="composer-field talk-field"
+            aria-label={`Просьба к ${AGENT_NAME}`}
+            rows={2}
+            autoFocus
+            value={value}
+            placeholder={placeholder}
+            // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
+            disabled={running || restoring || saving !== null}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                void submit()
+              }
+            }}
+          />
+          {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
+              а «Отменить» встаёт ровно туда, где была «Отправить». */}
+          <div className="talk-buttons">
+            <button
+              type="button"
+              className="btn composer-send"
+              disabled={!talking || running || restoring || saving !== null}
+              onClick={() => void newTalk()}
+            >
+              Новая переписка
+            </button>
             {running ? (
               <button type="button" className="btn composer-send" onClick={() => void stop()}>
                 Отменить
