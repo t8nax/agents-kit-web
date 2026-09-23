@@ -1965,7 +1965,7 @@ test('при правке в сайдбаре первый щелчок по с�
   expect(body(fetchMock, 'POST /api/flow').flows[0].when).toBe('новая возможность')
 })
 
-test('при правке в сайдбаре выбор проекта доступен и спрашивает, щелчок в пустое место — нет; после «Не сохранять» фокус на узле старта', async () => {
+test('при правке в сайдбаре выбор проекта доступен и спрашивает, щелчок в пустое место — нет; крестик сайдбара возвращает фокус узлу старта', async () => {
   stubApi(api([app, nota], saved()))
   const region = await renderFlow()
   const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
@@ -1978,8 +1978,11 @@ test('при правке в сайдбаре выбор проекта дост
   expect(project).toBeEnabled()
   fireEvent.click(project)
   expect(screen.queryByRole('listbox', { name: 'Проект' })).not.toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
 
+  // Закрытый своим крестиком сайдбар отдаёт фокус узлу старта: поле, где он был, уходит вместе с сайдбаром
+  fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   await vi.waitFor(() => expect(region.getByRole('button', { name: /^Сценарий «полный»/ })).toHaveFocus())
 })
@@ -2004,4 +2007,25 @@ test('«Принять правки» Чудо-Юдо при правке в с�
   expect(await modal.findByRole('alert')).toHaveTextContent('в боковой панели сценария несохранённая правка')
   expect(posts(fetchMock)).toBe(0)
   expect(drawer.getByRole('textbox', { name: 'Когда брать сценарий' })).toHaveValue('крупная правка')
+})
+
+test('«Принять правки» Чудо-Юдо при правке в открытом окне стадии не пишет и просит сначала закрыть окно', async () => {
+  const rewritten = [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }]
+  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
+  const view = render(<Flow />)
+  await screen.findByRole('region', { name: 'Сценарий «полный»' })
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий в памяти' } })
+
+  view.rerender(<Flow baseFor={app.base} rewriteAt={2} />)
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  fireEvent.change(modal.getByLabelText('Что поменять в стадиях'), { target: { value: 'Уточни ревью' } })
+  fireEvent.click(modal.getByRole('button', { name: 'Стадии' }))
+  fireEvent.click(within(modal.getByRole('listbox', { name: 'Стадии проекта' })).getByRole('option', { name: /Ревью/ }))
+  fireEvent.click(modal.getByRole('button', { name: 'Переписать' }))
+  fireEvent.click(await modal.findByRole('button', { name: 'Принять правки' }))
+
+  expect(await modal.findByRole('alert')).toHaveTextContent('в открытом окне несохранённая правка. Закройте это окно')
+  expect(posts(fetchMock)).toBe(0)
+  expect(edit.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('критерий в памяти')
 })
