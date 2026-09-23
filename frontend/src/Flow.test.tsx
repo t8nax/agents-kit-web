@@ -1721,3 +1721,24 @@ test('пока флоу не записать, действия на схеме 
   expect(menuOf(region, 'Стадия 1: Критерий').getByRole('menuitem', { name: 'Убрать из сценария' })).toBeDisabled()
   expect(posts(fetchMock)).toBe(0)
 })
+
+test('у единственного сценария без «когда», по которому идёт задача, «когда» вписывается в окне нового сценария', async () => {
+  const fetchMock = stubApi(api([{ ...app, flows: [{ ...full, when: null }], tasks: [{ task: 'B-7', flow: 'полный' }] }], saved()))
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Новый сценарий' }))
+  fireEvent.change(dialog.getByRole('textbox', { name: 'Название сценария' }), { target: { value: 'срочный' } })
+  fireEvent.change(dialog.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'ошибка на панели' } })
+  fireEvent.click(within(dialog.getByRole('radiogroup', { name: 'Первая стадия' })).getByRole('radio', { name: /Запас/ }))
+  expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  fireEvent.change(dialog.getByRole('textbox', { name: 'Когда брать сценарий «полный»' }), { target: { value: 'обычная задача' } })
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows.map((f: NamedFlow) => [f.name, f.when])).toEqual([
+    ['полный', 'обычная задача'],
+    ['срочный', 'ошибка на панели'],
+  ])
+  // Порядок и стадии занятого сценария не тронуты
+  expect(sent.flows[0].entries).toEqual(full.entries.map((entry) => ({ stage: entry.stage, returns: entry.returns ?? [] })))
+})

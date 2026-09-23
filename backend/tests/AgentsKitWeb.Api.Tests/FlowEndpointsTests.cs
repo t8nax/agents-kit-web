@@ -315,6 +315,33 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_BusyOnlyFlowWithoutWhen_TakesWhenOnlyAlongsideNewFlow()
+    {
+        // Один флоу — «когда» кит у него не требует
+        File.WriteAllText(_listPath, "# App — флоу\n\n## полный\n1. [Критерий](stages/criterion.md)\n2. [Приёмка](stages/acceptance.md)\n");
+        TestGit.Run(_base, "commit", "-am", "один флоу");
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка\nрабочая копия: D:\\a\nфлоу: полный\n");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+        var busy = flow.Flows[0];
+        var fresh = new NamedFlow("срочный", "ошибка на панели", [new FlowEntry("Критерий")]);
+
+        // «Когда» без нового флоу и «когда» вместе с другой правкой занятого — отказ
+        var whenAlone = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }]);
+        var whenAndOrder = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача", Entries = [.. busy.Entries.Reverse()] }, fresh]);
+        Assert.Equal(HttpStatusCode.Conflict, whenAlone.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, whenAndOrder.StatusCode);
+
+        var withNew = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }, fresh]);
+
+        Assert.Equal(HttpStatusCode.OK, withNew.StatusCode);
+        var list = File.ReadAllText(_listPath);
+        Assert.Contains("когда: обычная задача", list);
+        Assert.Contains("## срочный", list);
+    }
+
+    [Fact]
     public async Task Save_TaskWithUnknownFlow_HoldsEveryFlowAndStageButNotNewOnes()
     {
         Directory.CreateDirectory(Path.Combine(_base, "work"));

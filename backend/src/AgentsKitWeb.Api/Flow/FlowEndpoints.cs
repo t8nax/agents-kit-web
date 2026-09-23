@@ -190,7 +190,7 @@ public static class FlowEndpoints
             string.Join(", ", tasks.Where(t => t.Flow is null || t.Flow == flow).Select(t => t.Task));
 
         foreach (var flow in flows.Where(f => anyFlow || tasks.Any(t => t.Flow == f.Name)))
-            if (!request.Flows.Contains(flow))
+            if (!request.Flows.Contains(flow) && !WhenForNewFlow(flow, flows, request.Flows))
                 return new FlowRejectedResponse("busy", Flow: flow.Name, Detail: Holders(flow.Name));
 
         foreach (var stage in stages)
@@ -208,6 +208,16 @@ public static class FlowEndpoints
         }
         return null;
     }
+
+    /// <summary>
+    /// Единственная правка занятого флоу, которую запись пропускает: «когда» у флоу без него, когда рядом заводится
+    /// новый. Кит требует «когда» у каждого, как только флоу больше одного, и иначе второй флоу было бы не завести,
+    /// пока по первому идёт задача, — ответ оператора на ревью B-226.
+    /// </summary>
+    private static bool WhenForNewFlow(NamedFlow flow, IReadOnlyList<NamedFlow> before, IReadOnlyList<NamedFlow> after) =>
+        string.IsNullOrWhiteSpace(flow.When)
+        && after.Count > before.Count
+        && after.Any(f => !string.IsNullOrWhiteSpace(f.When) && f.Equals(flow with { When = f.When }));
 
     /// <summary>Задачи в работе по памятям work/*.md и флоу каждой: имя флоу сравнивается, как их сравнивает кит.</summary>
     private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows) =>

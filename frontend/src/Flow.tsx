@@ -1137,13 +1137,22 @@ export default function Flow({
             setFailure(null)
             setModal(null)
           }}
-          onSave={(created) =>
-            void keep({ ...saved, flows: [...saved.flows, created] }, () => {
-              setModal(null)
-              setFlowKey(created.key)
-              setTab('flow')
-              setOpened(null)
-            })
+          onSave={(created, earlier) =>
+            void keep(
+              {
+                ...saved,
+                flows: [
+                  ...saved.flows.map((f) => (earlier && f.key === earlier.key ? { ...f, when: earlier.when } : f)),
+                  created,
+                ],
+              },
+              () => {
+                setModal(null)
+                setFlowKey(created.key)
+                setTab('flow')
+                setOpened(null)
+              },
+            )
           }
         />
       )}
@@ -2546,10 +2555,15 @@ function NewFlowModal({
   covered: boolean
   onAsk: (discard: () => void) => void
   onClose: () => void
-  onSave: (created: DraftFlow) => void
+  /** earlier — «когда» прежнего сценария без него: пишется тем же разом, что и новый. */
+  onSave: (created: DraftFlow, earlier: { key: number; when: string } | null) => void
 }) {
   const [name, setName] = useState('')
   const [when, setWhen] = useState('')
+  // Сценарий без «когда» бывает, только пока он один: вторым кит его без «когда» не примет. Его «когда» вписывается
+  // здесь же — и когда по нему идёт задача: эту одну правку занятого оператор разрешил (ревью B-226).
+  const bare = draft.flows.find((f) => !f.when.trim()) ?? null
+  const [earlierWhen, setEarlierWhen] = useState('')
   const [stage, setStage] = useState<number | null>(null)
   // Сценарий и его первый пункт получают key сразу: после записи форма находит сценарий по нему.
   const [keys] = useState(() => ({ flow: nextKey++, entry: nextKey++ }))
@@ -2565,10 +2579,9 @@ function NewFlowModal({
   const errors = flowErrors(created, [...draft.flows, created]).map((error) =>
     error === 'во флоу нет стадий' ? 'не выбрана первая стадия' : error,
   )
-  // «Когда» кит требует у каждого сценария, как только их больше одного: прежний без него записать не даст.
-  const bare = draft.flows.find((f) => !f.when.trim())
-  if (bare) errors.push(`у сценария «${flowName(bare)}» не указано «когда» — впишите его в сайдбаре сценария`)
-  const changed = name.trim() !== '' || when.trim() !== '' || stage !== null
+  if (bare && !earlierWhen.trim()) errors.push(`у сценария «${flowName(bare)}» не указано «когда»`)
+  else if (bare && breaks(earlierWhen.trim())) errors.push(`«когда» сценария «${flowName(bare)}» — одна строка`)
+  const changed = name.trim() !== '' || when.trim() !== '' || stage !== null || earlierWhen.trim() !== ''
   const leave = () => (changed ? onAsk(onClose) : onClose())
 
   return (
@@ -2623,6 +2636,20 @@ function NewFlowModal({
                 onChange={(event) => setWhen(event.target.value)}
               />
             </label>
+            {bare && (
+              <label className="flow-field">
+                <span>Когда для «{flowName(bare)}»</span>
+                <textarea
+                  className="flow-input"
+                  aria-label={`Когда брать сценарий «${flowName(bare)}»`}
+                  placeholder="какие задачи вести этим сценарием"
+                  rows={2}
+                  value={earlierWhen}
+                  disabled={saving}
+                  onChange={(event) => setEarlierWhen(event.target.value)}
+                />
+              </label>
+            )}
             <div className="flow-field">
               <span>Первая стадия</span>
               {draft.stages.length === 0 ? (
@@ -2679,7 +2706,7 @@ function NewFlowModal({
             type="button"
             className="btn btn-primary flow-stage-pair"
             disabled={saving || blocked || errors.length > 0}
-            onClick={() => onSave(created)}
+            onClick={() => onSave(created, bare && { key: bare.key, when: earlierWhen })}
           >
             {saving ? 'Сохранение…' : 'Сохранить'}
           </button>
