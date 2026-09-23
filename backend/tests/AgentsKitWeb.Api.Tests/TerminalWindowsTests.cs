@@ -34,7 +34,7 @@ public sealed class TerminalWindowsTests
     {
         Assert.Equal(
             "claude attach 7339dced; " +
-            "try { if (@(claude agents --json | ConvertFrom-Json).id -notcontains '7339dced') { exit } } catch { }",
+            "try { if (@(claude agents --json | ConvertFrom-Json).id -notcontains '7339dced' -and $LASTEXITCODE -eq 0) { exit } } catch { }",
             WindowsTerminals.Command("7339dced"));
     }
 

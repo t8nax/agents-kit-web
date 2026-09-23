@@ -51,10 +51,12 @@ public sealed class WindowsTerminals : ITerminalWindows
     /// или она кончилась сама. Вышел оператор из живой сессии — окно остаётся с командной строкой, как и тогда,
     /// когда список сессий не прочитался: пустое окно лучше закрытого без причины — решение оператора на B-117.
     /// Погашенной сессии к выходу attach в `claude agents --json` уже нет — проверено живым запуском на B-117.
+    /// Не прочитался — это и не JSON в выводе (catch), и отказ claude с пустым выводом: пустой список сессию
+    /// не нашёл бы, поэтому код возврата сверяется после списка.
     /// </summary>
     public static string Command(string sessionId) =>
         $"claude attach {sessionId}; " +
-        $"try {{ if (@(claude agents --json | ConvertFrom-Json).id -notcontains '{sessionId}') {{ exit }} }} catch {{ }}";
+        $"try {{ if (@(claude agents --json | ConvertFrom-Json).id -notcontains '{sessionId}' -and $LASTEXITCODE -eq 0) {{ exit }} }} catch {{ }}";
 
     // -NoExit оставляет окно, из живой сессии которого оператор вышел: закрывает его только exit команды.
     private static void Attach(ProcessStartInfo startInfo, string command)
