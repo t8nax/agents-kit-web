@@ -733,14 +733,15 @@ test('проект без стадий и сценариев — вкладки 
   await expect(heading).toBeVisible()
   await expect(page.getByRole('tab')).toHaveText(['Стадии', 'Сценарии'])
   await expect(page.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
-  const centered = async () => {
-    const empty = await page.locator('.flow-empty').boundingBox()
-    const main = await page.getByRole('main').boundingBox()
-    const box = await page.locator('.flow-empty h3').boundingBox()
-    // По центру раздела под строкой заголовка
-    expect(Math.abs(box!.x + box!.width / 2 - (main!.x + main!.width / 2))).toBeLessThan(2)
-    expect(Math.abs(empty!.y + empty!.height - (main!.y + main!.height))).toBeLessThan(2)
-  }
+  // По центру раздела под строкой заголовка; замер — до совпадения: шрифт грузится после первой отрисовки
+  const centered = () =>
+    expect(async () => {
+      const empty = await page.locator('.flow-empty').boundingBox()
+      const main = await page.getByRole('main').boundingBox()
+      const box = await page.locator('.flow-empty h3').boundingBox()
+      expect(Math.abs(box!.x + box!.width / 2 - (main!.x + main!.width / 2))).toBeLessThan(2)
+      expect(Math.abs(empty!.y + empty!.height - (main!.y + main!.height))).toBeLessThan(2)
+    }).toPass()
   await centered()
   await expect(page.locator('.flow-empty').getByRole('button')).toHaveText(['Создать первый сценарий'])
 
