@@ -88,6 +88,8 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
         Assert.Equal("stream-json", args[args.IndexOf("--input-format") + 1]);
         Assert.Contains("--no-session-persistence", args);
+        // Копия не выбрана — разговор идёт по одной базе.
+        Assert.DoesNotContain("--add-dir", args);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
         // Флоу базы лежит в форме кита — список флоу и стадии по файлу: так агенту и сказано, где его читать.
@@ -97,6 +99,94 @@ public sealed class AskEndpointsTests : IDisposable
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);
         Assert.Equal("user", JsonDocument.Parse(sent).RootElement.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task Copies_ReturnsCopiesOfBaseOnDiskWithMainFirst()
+    {
+        // Копия задачи по имени идёт раньше основной: порядок «основная первой» ставит API, а не обход каталогов.
+        var main = WithCopies("app", "aaa-task");
+
+        var copies = await Client(_base).GetFromJsonAsync<List<CopyJson>>($"/api/ask/copies?base={Uri.EscapeDataString(_base)}");
+
+        Assert.NotNull(copies);
+        Assert.Equal(2, copies.Count);
+        Assert.Equal(new CopyJson(main[0], "app", "dev", true), copies[0]);
+        Assert.Equal(new CopyJson(main[1], "aaa-task", "dev", false), copies[1]);
+    }
+
+    [Fact]
+    public async Task Copies_OfUnknownBaseIsNotFound()
+    {
+        var response = await Client(_base).GetAsync($"/api/ask/copies?base={Uri.EscapeDataString(_root)}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Ask_WithCopyGivesItsCodeAsSecondReadOnlyDirectory()
+    {
+        var copy = WithCopies("app", "app-task")[1];
+        _agent.Answers =
+        [
+            [
+                // Путь через «/»: агент называет файлы и так.
+                Tool("Read", new { file_path = Path.Combine(copy, "src", "Program.cs").Replace('\\', '/') }),
+                Tool("Read", new { file_path = Path.Combine(_base, "product.md") }),
+                Result("По коду."),
+            ],
+        ];
+        var client = Client(_base);
+
+        await Ask(client, _base, "Что делает Program?", copy);
+        var events = await Read(client, 4);
+
+        var startInfo = Assert.Single(_agent.Starts);
+        // Агент остаётся в базе, а код копии получает вторым каталогом — с тем же набором только для чтения.
+        Assert.Equal(_base, startInfo.WorkingDirectory);
+        var args = startInfo.ArgumentList.ToList();
+        Assert.Equal(copy, args[args.IndexOf("--add-dir") + 1]);
+        Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
+        Assert.Contains(copy, args[args.IndexOf("--append-system-prompt") + 1]);
+        // Файлы копии видны путём от копии, вперемешку с файлами базы.
+        Assert.Equal(new AskEvent("step", "читает src/Program.cs"), events[1]);
+        Assert.Equal(["src/Program.cs", "product.md"], events[3].Files);
+        // Окно, открытое заново, узнаёт копию разговора по просьбе в списке панели.
+        var listed = await client.GetFromJsonAsync<List<AgentRequestSummary>>("/api/agent/requests", Json);
+        Assert.Equal(copy, Assert.Single(listed!).Subject);
+    }
+
+    [Fact]
+    public async Task Ask_WithDirectoryThatIsNotCopyOfBaseIsNotFound()
+    {
+        WithCopies("app");
+        var foreign = Directory.CreateDirectory(Path.Combine(_root, "elsewhere")).FullName;
+
+        using var response = await Client(_base).SendAsync(Post(_base, "Вопрос", foreign));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_agent.Starts);
+    }
+
+    [Fact]
+    public async Task Reply_RaisesNewAgentWithSameCopy()
+    {
+        var copy = WithCopies("app", "app-task")[1];
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        _agent.StopAfter = 1;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос", copy);
+        await Read(client, 2);
+        Assert.Equal(HttpStatusCode.NoContent, (await Reply(client, "Второй вопрос")).StatusCode);
+        await Read(client, 5);
+
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.All(_agent.Starts, start =>
+        {
+            var args = start.ArgumentList.ToList();
+            Assert.Equal(copy, args[args.IndexOf("--add-dir") + 1]);
+        });
     }
 
     [Fact]
@@ -373,12 +463,27 @@ public sealed class AskEndpointsTests : IDisposable
     {
         try
         {
+            // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
+            foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
             Directory.Delete(_root, recursive: true);
         }
-        catch (IOException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
         }
     }
+
+    /// <summary>Копии проекта на диске; первая в agents-kit.json — основная.</summary>
+    private string[] WithCopies(params string[] names)
+    {
+        var copies = names.Select(name => TestGit.Repository(Path.Combine(_root, name))).ToArray();
+        File.WriteAllText(
+            Path.Combine(_base, "agents-kit.json"),
+            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = copies }));
+        return copies;
+    }
+
+    private sealed record CopyJson(string Path, string Name, string? Branch, bool Main);
 
     private static string Tool(string name, object input) => JsonSerializer.Serialize(new
     {
@@ -394,12 +499,12 @@ public sealed class AskEndpointsTests : IDisposable
         result = text,
     });
 
-    private static HttpRequestMessage Post(string basePath, string question) =>
-        new(HttpMethod.Post, "/api/ask") { Content = JsonContent.Create(new AskRequest(basePath, question)) };
+    private static HttpRequestMessage Post(string basePath, string question, string? copy = null) =>
+        new(HttpMethod.Post, "/api/ask") { Content = JsonContent.Create(new AskRequest(basePath, question, copy)) };
 
-    private static async Task Ask(HttpClient client, string basePath, string question)
+    private static async Task Ask(HttpClient client, string basePath, string question, string? copy = null)
     {
-        using var started = await client.SendAsync(Post(basePath, question));
+        using var started = await client.SendAsync(Post(basePath, question, copy));
         Assert.Equal(HttpStatusCode.OK, started.StatusCode);
     }
 

@@ -47,6 +47,8 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
 ) {
   const [events, setEvents] = useState<E[]>([])
   const [base, setBase] = useState<string | null>(null)
+  // Про что разговор помимо базы: у вопроса по базе — копия проекта, чей код читает агент.
+  const [subject, setSubject] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
@@ -65,6 +67,7 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
     const controller = new AbortController()
     reading.current = controller
     setBase(summary.base)
+    setSubject(summary.subject ?? null)
     setFailure(null)
     if (from === 0) {
       setEvents([])
@@ -209,6 +212,7 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
     reading.current = null
     setEvents([])
     setBase(null)
+    setSubject(null)
     setRunning(false)
     setStartedAt(null)
     setFailure(null)
@@ -220,5 +224,5 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
     }
   }, [kind])
 
-  return { events, base, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure }
+  return { events, base, subject, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure }
 }
