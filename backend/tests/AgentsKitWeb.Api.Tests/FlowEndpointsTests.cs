@@ -86,7 +86,7 @@ public sealed class FlowEndpointsTests : IDisposable
         var flow = Assert.Single(flows, f => f.Base == _base);
         Assert.Equal("App", flow.Project);
         Assert.Null(flow.Error);
-        Assert.Equal(2, flow.ActiveTasks);
+        Assert.Equal(2, flow.Tasks!.Count);
         Assert.NotNull(flow.Version);
         Assert.Equal(["Приёмка", "Критерий"], flow.Stages.Select(s => s.Title));
         Assert.Equal("acceptance", flow.Stages[0].Slug);

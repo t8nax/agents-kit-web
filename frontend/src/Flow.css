@@ -583,8 +583,7 @@ textarea.flow-input {
   height: 16px;
 }
 
-/* Правка со схемы задевает все сценарии, где стоит стадия: строкой под заголовком окна, янтарём, как
-   предупреждение о задачах в работе при сохранении (B-202). */
+/* Правка со схемы задевает все сценарии, где стоит стадия: строкой под заголовком окна, янтарём (B-202). */
 .flow-scope-warning {
   margin: 0;
   padding: 8px 12px;
@@ -594,6 +593,94 @@ textarea.flow-input {
   background: var(--accent-waiting-bg);
   border: 1px solid var(--accent-waiting-border);
   border-radius: 6px;
+}
+
+/* Правка закрыта задачами в работе — строкой над разделом и в шапке окна только для чтения (макет B-226). */
+.flow-lock {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 24px;
+  font-size: 13px;
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border-bottom: 1px solid var(--accent-waiting-border);
+}
+
+.flow-lock svg,
+.flow-scope-lock svg {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+
+.flow-scope-warning.flow-scope-lock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.flow-task-tag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--accent-waiting-border);
+  color: var(--accent-waiting-text);
+  white-space: nowrap;
+}
+
+/* Замок и задачи в подвале карточки занятой стадии. */
+.flow-card-lock {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent-waiting-text);
+  white-space: nowrap;
+}
+
+.flow-card-lock svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Схема занятого сценария: блоки не перетаскиваются, и ручки у них нет. */
+.flow-canvas.is-locked .flow-grip {
+  display: none;
+}
+
+/* Поля окна одним набором: погашенный набор — окно только для чтения. Рамки и отступов у набора нет. */
+fieldset.flow-stage-set {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+/* В окне стадии набор — сам ряд полей: отступы ряда остаются его. */
+fieldset.flow-stage-set.flow-stage-rows {
+  padding: 0 16px;
+}
+
+.flow-drawer-body fieldset.flow-stage-set {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+}
+
+.flow-stage-set:disabled .flow-input,
+.flow-input:disabled {
+  color: var(--text-secondary);
+  background-color: transparent;
+  border-color: var(--border-subtle);
+  opacity: 1;
 }
 
 /* Меню блока стадии — меню строки, поставленное у курсора поверх страницы (B-202). */

@@ -7,7 +7,7 @@ namespace AgentsKitWeb.Api.Flow;
 /// Флоу одной базы: стадии flow/stages/ и флоу из flow/flow.md. Version — отпечаток всех этих файлов: запись
 /// принимается только поверх того, что оператор видел. У базы без flow/flow.md — и когда флоу в ней ещё старой
 /// формы — флоу нет, а стадии, если они лежат в flow/stages/, читаются: первая запись не должна их стереть.
-/// ActiveTasks — задачи в работе: памяти work/*.md базы. Error задан — флоу панель не прочитала. Icons — выбранные
+/// Error задан — флоу панель не прочитала. Icons — выбранные
 /// оператором значки стадий, они живут в настройках панели, а не в базе. Unread — строки файлов флоу, которые панель
 /// не сохранит («flow/flow.md, строка 7: «…»»): пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
 /// Tasks — задачи в работе и флоу, по которому каждая идёт: занятый флоу и его стадии не правятся.
@@ -17,7 +17,6 @@ public sealed record BaseFlow(
     string Project,
     IReadOnlyList<FlowStage> Stages,
     IReadOnlyList<NamedFlow> Flows,
-    int ActiveTasks,
     string? Version,
     string? Error,
     IReadOnlyDictionary<string, string> Icons,
@@ -146,7 +145,7 @@ public static class FlowEndpoints
         var project = ProjectName.Of(basePath);
 
         if (!Directory.Exists(basePath))
-            return new BaseFlow(basePath, project, [], [], 0, null, "База не найдена на диске", Empty);
+            return new BaseFlow(basePath, project, [], [], null, "База не найдена на диске", Empty);
 
         try
         {
@@ -160,7 +159,6 @@ public static class FlowEndpoints
                 project,
                 stages,
                 flows,
-                tasks.Count,
                 FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))),
                 null,
                 icons.Of(basePath),
@@ -169,7 +167,7 @@ public static class FlowEndpoints
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return new BaseFlow(basePath, project, [], [], 0, null, "Флоу базы не прочитан", Empty);
+            return new BaseFlow(basePath, project, [], [], null, "Флоу базы не прочитан", Empty);
         }
     }
 

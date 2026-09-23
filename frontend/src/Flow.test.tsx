@@ -58,7 +58,6 @@ const app: BaseFlow = {
   project: 'Agents Kit Web',
   stages: [criterion, review, acceptance, spare],
   flows: [full, small],
-  activeTasks: 0,
   version: 'v1',
   error: null,
   icons: { Критерий: 'target' },
@@ -68,7 +67,6 @@ const nota: BaseFlow = {
   project: 'Nota',
   stages: [],
   flows: [],
-  activeTasks: 0,
   version: 'v2',
   error: null,
   icons: {},
@@ -1533,4 +1531,98 @@ test('сорванная запись файла названа своим те�
   expect(
     await screen.findByText('Флоу не сохранён: файл флоу не записался, файлы возвращены как были. Файл занят.'),
   ).toBeInTheDocument()
+})
+
+test('сценарий, по которому идёт задача, только для чтения: строка называет задачи, действия на схеме погашены', async () => {
+  const fetchMock = stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'полный' }, { task: 'B-9', flow: 'полный' }] }], saved()))
+  const region = await renderFlow()
+
+  expect(screen.getByText(/^Правка сценария закрыта — по нему идут задачи/)).toHaveTextContent(
+    'Правка сценария закрыта — по нему идут задачи B-7B-9',
+  )
+  expect(region.getByRole('button', { name: 'Стадия 2 выше' })).toBeDisabled()
+  expect(region.getByRole('button', { name: 'Добавить стадию' })).toBeDisabled()
+  expect(menuOf(region, 'Стадия 2: Ревью').getByRole('menuitem', { name: 'Убрать из сценария' })).toBeDisabled()
+  // «Новый сценарий» не занят никем
+  expect(screen.getByRole('button', { name: 'Новый сценарий' })).toBeEnabled()
+
+  // Окна открываются, но только для чтения
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Править стадию «Ревью»' }))
+  const stage = within(await screen.findByRole('dialog', { name: 'Стадия «Ревью»' }))
+  expect(stage.getByText(/^Правка закрыта: по сценарию «полный» идут задачи/)).toBeInTheDocument()
+  expect(stage.getByRole('textbox', { name: 'Выход стадии' })).toBeDisabled()
+  expect(stage.getByRole('textbox', { name: 'Название стадии' })).toBeDisabled()
+  expect(stage.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+  expect(stage.queryByRole('button', { name: 'Удалить стадию' })).not.toBeInTheDocument()
+  // Крестик в шапке и «Закрыть» в подвале; фокус — на подвальной
+  const close = stage.getAllByRole('button', { name: 'Закрыть' }).at(-1)!
+  expect(close).toHaveFocus()
+  fireEvent.click(close)
+
+  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
+  expect(drawer.getByRole('textbox', { name: 'Название сценария' })).toBeDisabled()
+  expect(drawer.queryByRole('button', { name: 'Удалить сценарий' })).not.toBeInTheDocument()
+  expect(drawer.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+  fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
+
+  const returns = await returnsOf(region, /^Стадия 3: Приёмка/)
+  expect(returns.getByRole('button', { name: 'Добавить возврат' })).toBeDisabled()
+  expect(returns.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+  fireEvent.click(returns.getAllByRole('button', { name: 'Закрыть' }).at(-1)!)
+
+  fireEvent.click(menuOf(region, 'Стадия 2: Ревью').getByRole('menuitem', { name: 'Редактировать описание' }))
+  const description = within(await screen.findByRole('dialog', { name: 'Описание стадии «Ревью»' }))
+  expect(description.queryByRole('button', { name: 'Редактировать' })).not.toBeInTheDocument()
+  expect(posts(fetchMock)).toBe(0)
+})
+
+test('на вкладке «Стадии» занятые стадии с замком и задачами открываются для чтения, свободные правятся', async () => {
+  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'мелкий' }] }]))
+  await renderFlow()
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+
+  const list = within(screen.getByRole('list', { name: 'Стадии базы' }))
+  // Ревью и Приёмка стоят в «мелком», Критерий и Запас — нет
+  expect(list.getAllByLabelText('Правка закрыта: по сценарию «мелкий» идёт задача B-7')).toHaveLength(2)
+  expect(within(list.getByRole('button', { name: /^Критерий/ })).queryByText('B-7')).not.toBeInTheDocument()
+  // Строки над разделом на вкладке «Стадии» нет: сценарий назван, закрыт не весь проект
+  expect(screen.queryByText(/^Правка стадий и сценариев закрыта/)).not.toBeInTheDocument()
+
+  const free = await stagesTab('Запас')
+  expect(free.getByRole('textbox', { name: 'Выход стадии' })).toBeEnabled()
+  fireEvent.click(free.getByRole('button', { name: 'Отмена' }))
+  const held = await stagesTab('Приёмка')
+  expect(held.getByRole('textbox', { name: 'Выход стадии' })).toBeDisabled()
+})
+
+test('задача с неузнанным сценарием закрывает правку всего проекта, а новые стадия и сценарий заводятся', async () => {
+  stubApi(api([{ ...app, tasks: [{ task: 'B-130', flow: null }] }]))
+  const region = await renderFlow()
+
+  expect(screen.getByText(/^Правка стадий и сценариев закрыта/)).toHaveTextContent(
+    'Правка стадий и сценариев закрыта — не видно, по какому сценарию идёт задача B-130',
+  )
+  expect(region.getByRole('button', { name: 'Стадия 2 выше' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Новый сценарий' })).toBeEnabled()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  expect(screen.getByText(/^Правка стадий и сценариев закрыта/)).toBeInTheDocument()
+  // Замок на каждой карточке, и на стадии вне сценариев тоже
+  expect(within(screen.getByRole('list', { name: 'Стадии базы' })).getAllByText('B-130')).toHaveLength(4)
+  fireEvent.click(screen.getByRole('button', { name: 'Новая стадия' }))
+  const blank = within(await screen.findByRole('dialog', { name: 'Стадия «без названия»' }))
+  expect(blank.getByRole('textbox', { name: 'Название стадии' })).toBeEnabled()
+})
+
+test('задача, пошедшая по сценарию, пока окно было открыто: отказ записи назван задачами', async () => {
+  stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'busy', flow: 'полный', stage: 'Ревью', detail: 'B-7' }, 409) }))
+  await renderFlow()
+  const edit = await stagesTab('Ревью')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
+
+  fireEvent.click(edit.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await edit.findByRole('alert')).toHaveTextContent(
+    'Флоу не сохранён: по сценарию «полный» идут задачи B-7 — пока они в работе, его и его стадии править нельзя.',
+  )
 })

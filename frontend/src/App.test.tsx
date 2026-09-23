@@ -990,7 +990,6 @@ const flows = [
     project: 'app-knowledge',
     stages: [],
     flows: [],
-    activeTasks: 0,
     version: 'v1',
     error: null,
     icons: {},
