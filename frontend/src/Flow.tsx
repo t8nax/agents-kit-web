@@ -311,7 +311,9 @@ const going = (count: number) => (count === 1 ? 'идёт задача' : 'ид�
 function unknownLock(tasks: FlowTask[]): Lock | null {
   const unknown = tasks.filter((one) => one.flow === null)
   if (unknown.length === 0) return null
-  const one = unknown.length === 1
+  // Одну задачу могут назвать две памяти одной базы: номер в строке — один раз.
+  const labels = [...new Set(unknown.map((task) => task.task))]
+  const one = labels.length === 1
   // Как на макете: задача называет сценарий, которого в проекте нет, — или не называет никакого.
   const after = unknown.every((task) => task.named)
     ? one
@@ -322,7 +324,7 @@ function unknownLock(tasks: FlowTask[]): Lock | null {
         ? 'не называет своего сценария'
         : 'не называют своих сценариев'
       : 'идут по сценариям, которых в проекте нет или которые не названы'
-  return { before: one ? 'задача' : 'задачи', tasks: unknown.map((task) => task.task), after }
+  return { before: one ? 'задача' : 'задачи', tasks: labels, after }
 }
 
 /** Сценарий базы занят: по нему идёт задача. Сценарий, которого в базе ещё нет, не занят никем. */
@@ -331,7 +333,8 @@ function flowLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
   if (!flow) return null
   const unknown = unknownLock(tasks)
   if (unknown) return unknown
-  const held = tasks.filter((one) => one.flow !== null && norm(one.flow) === norm(flow.name)).map((one) => one.task)
+  // Одну задачу могут назвать две памяти одной базы: номер в строке — один раз.
+  const held = [...new Set(tasks.filter((one) => one.flow !== null && norm(one.flow) === norm(flow.name)).map((one) => one.task))]
   return held.length > 0 ? { before: `по нему ${going(held.length)}`, tasks: held } : null
 }
 

@@ -1904,3 +1904,10 @@ test('окно нового сценария открывается без от�
   fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
   expect(within(screen.getByRole('dialog', { name: 'Новый сценарий' })).queryByRole('alert')).not.toBeInTheDocument()
 })
+
+test('задачу, которую называют две памяти, строка занятости называет один раз', async () => {
+  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'полный' }, { task: 'B-7', flow: 'полный' }] }]))
+  await renderFlow()
+
+  expect(screen.getByText(/^Правка сценария закрыта/)).toHaveTextContent('Правка сценария закрыта — по нему идёт задача B-7')
+})
