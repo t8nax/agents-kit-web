@@ -31,11 +31,11 @@ public static class AgentRequestEndpoints
                 while (true)
                 {
                     var (lines, finished, written) = request.Since(index);
-                    foreach (var line in lines)
-                    {
-                        await response.WriteAsync(line + "\n", http.RequestAborted);
-                        index++;
-                    }
+                    // Накопленное уходит одной записью: окно, открытое заново, получает прошлую переписку целиком
+                    // и решает по ней, а не по её половине, — ждёт ли в ней предложение (B-228).
+                    if (lines.Count > 0)
+                        await response.WriteAsync(string.Concat(lines.Select(line => line + "\n")), http.RequestAborted);
+                    index += lines.Count;
                     await response.Body.FlushAsync(http.RequestAborted);
                     if (finished)
                         break;
