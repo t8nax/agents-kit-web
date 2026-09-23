@@ -788,3 +788,17 @@ test('в сайдбаре сценария название набирается
   await expect(name).toBeFocused()
   await expect(name).toHaveValue('полный большой')
 })
+
+test('кнопка «Удалить» в вопросе при наведении остаётся красной заливкой', async ({ page }) => {
+  // Стадия вне сценариев: её можно удалить
+  await mockApi(page, [], { stages: [...stages, { ...stages[2], title: 'Запас', slug: 'spare' }], flows })
+  await openFlow(page)
+  await page.getByRole('tab', { name: 'Стадии' }).click()
+  await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Запас/ }).click()
+  await page.getByRole('dialog', { name: 'Стадия «Запас»' }).getByRole('button', { name: 'Удалить стадию' }).click()
+  const remove = page.getByRole('alertdialog', { name: 'Удалить стадию «Запас»?' }).getByRole('button', { name: 'Удалить' })
+
+  const rest = await remove.evaluate((el) => getComputedStyle(el).backgroundColor)
+  await remove.hover()
+  await expect(remove).toHaveCSS('background-color', rest)
+})

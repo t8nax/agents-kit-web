@@ -783,6 +783,8 @@ fieldset.flow-stage-set.flow-stage-rows {
 
 .flow-confirm .bases-btn.bases-btn-danger:hover:not(:disabled) {
   color: var(--bg-surface);
+  background: var(--accent-error-text);
+  border-color: transparent;
   opacity: 0.9;
 }
 
