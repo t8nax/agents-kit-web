@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
+import { ChoiceMark } from './ChoiceMark'
 import { WarningIcon } from './Problems'
 import './Modal.css'
 import './NewWorkspaceModal.css'
@@ -125,7 +126,7 @@ export default function NewWorkspaceModal({ rows, onClose, onCreated, onSettings
                 <ul className="nw-projects">
                   {projects.map((p) => (
                     <li key={p.base}>
-                      <label className={`nw-project ${p.base === base ? 'is-on' : ''} ${p.source ? '' : 'is-off'}`}>
+                      <label className={`nw-project choice ${p.base === base ? 'is-on' : ''} ${p.source ? '' : 'is-off'}`}>
                         <input
                           type="radio"
                           name="nw-project"
@@ -137,9 +138,9 @@ export default function NewWorkspaceModal({ rows, onClose, onCreated, onSettings
                             if (failure?.kind !== 'kit') setFailure(null)
                           }}
                         />
-                        <span className="nw-radio" aria-hidden="true" />
+                        <ChoiceMark />
                         {/* Только имя: сколько копий и где лежит основная, оператору здесь не нужно (B-215) */}
-                        <span className="nw-project-name">{p.name}</span>
+                        <span className="nw-project-name choice-name">{p.name}</span>
                       </label>
                     </li>
                   ))}

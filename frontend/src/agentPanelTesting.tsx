@@ -64,6 +64,8 @@ export function stubPanel(
           state: 'running',
           // Как в API: просьба о правке исполнителя помнит, кого переписывает.
           subject: (body.current as { name?: string } | null | undefined)?.name ?? null,
+          // Как в API: просьба переписать стадии помнит, какие стадии ушли агенту.
+          ...(kind === 'flow' ? { stages: (body.stages as AgentRequestSummary['stages']) ?? [] } : {}),
         }
         return Promise.resolve(Response.json(request))
       }

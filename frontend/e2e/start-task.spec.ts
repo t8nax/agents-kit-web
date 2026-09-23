@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { expectChoice, expectRingOnlyFromKeyboard } from './choice.ts'
 
 // Запуск задачи e2e не делает по-настоящему: и список копий, и /api/tasks подменяются page.route.
 const freeRow = {
@@ -105,11 +106,20 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const flowBox = await flows.boundingBox()
     const copyBox = await dialog.getByRole('group', { name: 'Рабочая копия' }).boundingBox()
     expect(flowBox!.y + flowBox!.height).toBeLessThanOrEqual(copyBox!.y)
-    await flows.locator('label').filter({ hasText: 'мелкий' }).click()
+    // Выбранный — залитый кружок с галочкой и полужирное имя (B-212)
+    const full = flows.locator('label').filter({ hasText: 'полный' })
+    const small = flows.locator('label').filter({ hasText: 'мелкий' })
+    await expectChoice(full, true)
+    await expectChoice(small, false)
+    await small.click()
+    await expectChoice(small, true)
+    await expectChoice(full, false)
 
     // Занятая копия в выбор не попадает
     await expect(dialog.locator('label').filter({ hasText: 'noble-keen-walrus' })).toBeHidden()
-    await dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }).click()
+    const copy = dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' })
+    await expectRingOnlyFromKeyboard(copy)
+    await expectChoice(copy, true)
 
     // Начальные слова — последним разделом, под копией; Enter в поле — новая строка, Ctrl+Enter — запуск
     const words = dialog.getByRole('textbox', { name: 'Начальные слова' })

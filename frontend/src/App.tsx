@@ -292,9 +292,10 @@ function App() {
               }}
             />
           ) : section === 'flow' ? (
+            // Раздел не пересоздаётся возвратом к просьбе: в нём могут быть несохранённые правки флоу.
             <Flow
-              key={openRequest?.kind === 'flow' ? openRequest.at : 'flow'}
               baseFor={openRequest?.kind === 'flow' ? openRequest.base : null}
+              rewriteAt={openRequest?.kind === 'flow' ? openRequest.at : null}
               onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (

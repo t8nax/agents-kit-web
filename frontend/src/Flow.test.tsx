@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import Flow, { type BaseFlow, type FlowStage, type NamedFlow, type StagePreset } from './Flow'
 
@@ -596,6 +596,78 @@ test('возвраты нарисованы дугами: у стадии с о�
   expect(document.querySelector('.flow-arc-label')).toHaveTextContent('замечания')
 })
 
+// Флоу с кругами: у «Ревью» возврат к «Критерию», у «Приёмки» — два, к «Ревью» и к «Критерию».
+const circles: NamedFlow = {
+  name: 'круги',
+  when: 'много возвратов',
+  entries: [
+    { stage: 'Критерий' },
+    { stage: 'Ревью', returns: [{ condition: 'нет критерия', stage: 'Критерий' }] },
+    {
+      stage: 'Приёмка',
+      returns: [
+        { condition: 'замечания', stage: 'Ревью' },
+        { condition: 'другое', stage: 'Критерий' },
+      ],
+    },
+  ],
+}
+const lit = () => [...document.querySelectorAll('.flow-arc-open .flow-arc-label')].map((label) => label.textContent)
+
+test('мышь над блоком подсвечивает и подписывает только его возвраты, увёл — погасли', async () => {
+  stubApi(api([{ ...app, flows: [circles] }]))
+  const region = await renderFlow({}, 'круги')
+  const [, review, acceptance] = nodes(region)
+  expect(document.querySelectorAll('.flow-arc')).toHaveLength(3)
+  expect(lit()).toEqual([])
+
+  fireEvent.mouseEnter(acceptance)
+  expect(lit().sort()).toEqual(['другое', 'замечания'])
+
+  // Возврат «Приёмки» ведёт в «Ревью», но у «Ревью» подсвечен только свой
+  fireEvent.mouseLeave(acceptance)
+  fireEvent.mouseEnter(review)
+  expect(lit()).toEqual(['нет критерия'])
+
+  fireEvent.mouseLeave(review)
+  expect(lit()).toEqual([])
+})
+
+test('открытое меню блока держит его возвраты подсвеченными, мышь над другим добавляет его возвраты', async () => {
+  stubApi(api([{ ...app, flows: [circles] }]))
+  const region = await renderFlow({}, 'круги')
+  const [, review, acceptance] = nodes(region)
+
+  fireEvent.mouseEnter(review)
+  menuOf(region, /^Стадия 2: Ревью/)
+  fireEvent.mouseLeave(review)
+  expect(lit()).toEqual(['нет критерия'])
+
+  fireEvent.mouseEnter(acceptance)
+  expect(lit().sort()).toEqual(['другое', 'замечания', 'нет критерия'])
+  // Выделены все три дуги: «Ревью» держит меню, «Приёмка» — под мышью
+  const arcs = [...document.querySelectorAll('.flow-arc')]
+  expect(arcs.every((arc) => arc.classList.contains('flow-arc-open'))).toBe(true)
+
+  fireEvent.mouseLeave(acceptance)
+  fireEvent.keyDown(screen.getByRole('menu', { name: /^Стадия «/ }), { key: 'Escape' })
+  expect(screen.queryByRole('menu', { name: /^Стадия «/ })).not.toBeInTheDocument()
+})
+
+test('курсор клавиатуры на блоке подсвечивает его возвраты, ушёл — погасли; приглушённые дуги идут первыми', async () => {
+  stubApi(api([{ ...app, flows: [circles] }]))
+  const region = await renderFlow({}, 'круги')
+  const [, review] = nodes(region)
+
+  act(() => review.focus())
+  expect(lit()).toEqual(['нет критерия'])
+  const arcs = [...document.querySelectorAll('.flow-arc')]
+  expect(arcs.map((arc) => arc.classList.contains('flow-arc-open'))).toEqual([false, false, true])
+
+  act(() => review.blur())
+  expect(lit()).toEqual([])
+})
+
 test('стадии флоу переставляются перетаскиванием и кнопками с клавиатуры', async () => {
   const fetchMock = stubApi(api([app], [], saved()))
   const region = await renderFlow()
@@ -1108,17 +1180,171 @@ test('база, которую панель не прочитала, назва�
   expect(screen.queryByRole('heading', { name: 'В этом проекте нет флоу' })).not.toBeInTheDocument()
 })
 
-test('проект выбирается списком в шапке; «Переписать с Чудо-Юдо» в меню нет', async () => {
+test('с отметки в шапке у непрочитанного флоу раздел говорит, почему окна переписывания нет', async () => {
+  stubApi(api([app, { ...nota, version: null, error: 'База не найдена на диске' }], [], rewriteApi([])))
+  render(<Flow baseFor={nota.base} rewriteAt={1} />)
+
+  expect(
+    await screen.findByText(
+      'Окно «Переписать с Чудо-Юдо» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.',
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+
+  // Верх раздела не заперт: проект меняется, и окно на другом проекте само не встаёт.
+  fireEvent.click(screen.getByRole('button', { name: 'Проект: Nota' }))
+  fireEvent.click(within(screen.getByRole('listbox', { name: 'Проект' })).getByRole('option', { name: 'Agents Kit Web' }))
+  expect(await screen.findByRole('region', { name: 'Сценарий «полный»' })).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+})
+
+test('проект выбирается списком в шапке', async () => {
   stubApi(api([app, nota]))
   await renderFlow()
 
   expect(moreItem('Открыть в VS Code')).toBeEnabled()
-  expect(screen.queryByRole('menuitem', { name: /Переписать/ })).not.toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Проект: Agents Kit Web' }))
   fireEvent.click(within(screen.getByRole('listbox', { name: 'Проект' })).getByRole('option', { name: 'Nota' }))
 
   expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
+})
+
+/** Панель с просьбой переписывания: POST её заводит, поток сразу отдаёт итог events. */
+const rewriteApi = (events: unknown[]) => ({
+  'GET /api/agent/requests': () => json([]),
+  'POST /api/flow/rewrite': () =>
+    json({ kind: 'flow', id: 'r1', base: app.base, project: app.project, text: 'просьба', elapsedMs: 0, state: 'running', subject: null }),
+  'GET /api/agent/flow/stream?id=r1&from=0': () =>
+    new Response(events.map((event) => JSON.stringify(event) + '\n').join(''), {
+      headers: { 'Content-Type': 'application/x-ndjson' },
+    }),
+  'DELETE /api/agent/flow': () => new Response(null, { status: 204 }),
+})
+
+test('«Переписать с Чудо-Юдо» в меню «…» шлёт стадии как на экране, а принятые правки ложатся в черновик', async () => {
+  const rewritten = [
+    { of: 'Ревью', stage: { ...review, title: 'Проверка', output: 'вердикт по sha и тестам' } },
+    // Новая стадия приходит без of: пустые поля API не пишет.
+    { stage: { ...spare, title: 'Документация', executor: 'оператор', output: 'раздел', slug: null } },
+  ]
+  const fetchMock = stubApi(api([app], [], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
+  await renderFlow()
+  // Несохранённая правка пункт не глушит: агент получит стадию такой, какой её видно.
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Критерий закрытия' } })
+  fireEvent.click(edit.getByRole('button', { name: 'Готово' }))
+
+  fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  fireEvent.change(modal.getByLabelText('Что поменять в стадиях'), { target: { value: 'Переименуй ревью и заведи документацию' } })
+  fireEvent.click(modal.getByRole('button', { name: 'Стадии' }))
+  fireEvent.click(within(modal.getByRole('listbox', { name: 'Стадии проекта' })).getByRole('option', { name: /Ревью/ }))
+  fireEvent.click(modal.getByRole('button', { name: 'Переписать' }))
+
+  const changes = within(await modal.findByLabelText('Что изменилось в стадиях'))
+  // Ревью стоит в обоих сценариях: карточка говорит, что правка заденет оба.
+  expect(changes.getByText(/Стадия стоит в сценариях «полный» и «мелкий»/)).toBeInTheDocument()
+  const sent = body(fetchMock, 'POST /api/flow/rewrite')
+  expect(sent.base).toBe(app.base)
+  expect(sent.stages.map((stage: FlowStage) => stage.title)).toEqual(['Ревью'])
+  expect(sent.titles).toEqual(['Критерий закрытия', 'Ревью', 'Приёмка', 'Запас'])
+
+  fireEvent.click(modal.getByRole('button', { name: 'Принять правки' }))
+
+  // Новая стадия встаёт карточкой в конце вкладки «Стадии».
+  const list = within(await screen.findByRole('list', { name: 'Стадии базы' }))
+  expect(list.getByRole('button', { name: /^Документация/ })).toBeInTheDocument()
+  expect(list.getByRole('button', { name: /^Проверка/ })).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await vi.waitFor(() => expect(body(fetchMock, 'POST /api/flow')).toBeDefined())
+  const written = body(fetchMock, 'POST /api/flow')
+  // Переименование держит файл стадии и идёт за ней в сценарии и возвраты, как ручное.
+  expect(written.stages.find((stage: FlowStage) => stage.title === 'Проверка')).toMatchObject({
+    slug: 'review',
+    output: 'вердикт по sha и тестам',
+  })
+  expect(written.stages.find((stage: FlowStage) => stage.title === 'Документация')).toMatchObject({ slug: null })
+  expect(written.flows[1].entries).toEqual([
+    { stage: 'Проверка', returns: [] },
+    { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Проверка' }] },
+  ])
+})
+
+test('«Отказаться» в окне переписывания черновик не трогает', async () => {
+  const rewritten = [{ of: null, stage: { ...spare, title: 'Документация', slug: null } }]
+  stubApi(api([app], [], rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }])))
+  await renderFlow()
+
+  fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  fireEvent.change(modal.getByLabelText('Что поменять в стадиях'), { target: { value: 'Заведи документацию' } })
+  fireEvent.click(modal.getByRole('button', { name: 'Написать стадию' }))
+  fireEvent.click(await modal.findByRole('button', { name: 'Отказаться' }))
+
+  await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+})
+
+test('раздел, открытый с отметки просьбы в шапке, сразу показывает окно переписывания', async () => {
+  stubApi(api([app], [], rewriteApi([])))
+  render(<Flow baseFor={app.base} rewriteAt={1} />)
+
+  expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+})
+
+test('отметка в шапке при открытом разделе открывает окно переписывания, не сбрасывая несохранённые правки', async () => {
+  stubApi(api([app], [], rewriteApi([])))
+  const view = render(<Flow />)
+  await screen.findByRole('region', { name: 'Сценарий «полный»' })
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Критерий закрытия' } })
+  fireEvent.click(edit.getByRole('button', { name: 'Готово' }))
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument()
+
+  view.rerender(<Flow baseFor={app.base} rewriteAt={2} />)
+
+  expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument()
+  expect(within(screen.getByRole('list', { name: 'Стадии базы' })).getByRole('button', { name: /^Критерий закрытия/ })).toBeInTheDocument()
+})
+
+/** Просьба переписать стадии Nota, дождавшаяся оператора: к ней ведёт отметка в шапке. */
+const notaRewrite = {
+  ...rewriteApi([]),
+  'GET /api/agent/requests': () =>
+    json([{ kind: 'flow', id: 'r1', base: nota.base, project: nota.project, text: 'просьба', elapsedMs: 0, state: 'done' }]),
+}
+
+test('отметка в шапке без несохранённых правок переключает раздел на проект просьбы', async () => {
+  stubApi(api([app, nota], [], notaRewrite))
+  const view = render(<Flow />)
+  await screen.findByRole('region', { name: 'Сценарий «полный»' })
+
+  view.rerender(<Flow baseFor={nota.base} rewriteAt={2} />)
+
+  expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
+})
+
+test('отметка в шапке с несохранёнными правками оставляет раздел на своём проекте и предупреждает о чужой просьбе', async () => {
+  stubApi(api([app, nota], [], notaRewrite))
+  const view = render(<Flow />)
+  await screen.findByRole('region', { name: 'Сценарий «полный»' })
+  const edit = await stagesTab('Критерий')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Критерий закрытия' } })
+  fireEvent.click(edit.getByRole('button', { name: 'Готово' }))
+
+  view.rerender(<Flow baseFor={nota.base} rewriteAt={2} />)
+
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  expect(
+    await modal.findByText('Чудо-Юдо уже переписал стадии Nota: новая просьба отсюда уберёт этот ответ.'),
+  ).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeInTheDocument()
 })
 
 test('«Открыть в VS Code» просит API открыть флоу этой базы', async () => {

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { expectChoice, expectRingOnlyFromKeyboard } from './choice.ts'
 
 // Запись в репозиторий проекта e2e не делает: заведение копии подменяется page.route.
 const row = {
@@ -84,6 +85,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     const dialog = page.getByRole('dialog', { name: 'Новая рабочая копия' })
     await expect(dialog.getByRole('radio', { name: /Agents Kit Web/ })).toBeChecked()
+    const project = dialog.locator('label').filter({ hasText: 'Agents Kit Web' })
+    await expectChoice(project, true)
+    await expectRingOnlyFromKeyboard(project)
     await dialog.getByLabel(/Имя копии/).fill('quiet-cedar')
     // У проекта только имя: ни числа копий, ни пути, и блока «что будет заведено» нет (B-215)
     await expect(dialog.locator('.nw-project').first()).toHaveText('Agents Kit Web')

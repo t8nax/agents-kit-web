@@ -99,30 +99,6 @@
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  cursor: pointer;
-}
-
-.ns-copy.is-on,
-.ns-copy:hover {
-  background: var(--bg-surface-hover);
-}
-
-.ns-copy:focus-within {
-  outline: 2px solid var(--text-primary);
-  outline-offset: -2px;
-}
-
-.ns-radio {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  box-sizing: border-box;
-  border-radius: 50%;
-  border: 1.5px solid var(--border-strong);
-}
-
-.ns-copy.is-on .ns-radio {
-  border: 4px solid var(--text-primary);
 }
 
 .ns-copy-text {
