@@ -43,8 +43,8 @@ test('из окна вопроса оператор открывает сесс�
   await dialog.getByRole('button', { name: 'Открыть в VS Code' }).click()
 
   expect(opened).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
-  // щелчок по кнопке в шапке не раскрывает аккордеон и не трогает набранный ответ
-  await expect(dialog.getByText('Критерии закрытия')).toBeHidden()
+  // щелчок по кнопке в шапке не уводит с переписки и не трогает набранный ответ
+  await expect(dialog.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
   await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю')
 })
 
@@ -117,8 +117,8 @@ test('из окна вопроса оператор переходит в фон
   await dialog.getByRole('button', { name: 'Открыть в терминале' }).click()
 
   expect(attached).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
-  // переход не трогает ни аккордеон, ни набранный ответ
-  await expect(dialog.getByText('Критерии закрытия')).toBeHidden()
+  // переход не уводит с переписки и не трогает набранный ответ
+  await expect(dialog.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
   await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю')
 })
 

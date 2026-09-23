@@ -90,29 +90,37 @@ function collapsed(dialog: ReturnType<typeof within>, title: string) {
   return dialog.getByRole('button', { name: new RegExp(`^${title.replace(/[?.]/g, '\\$&')}`) })
 }
 
-test('над лентой — полоса с задачей, проектом, именем копии и веткой, без полного пути копии', async () => {
+test('в шапке — задача, проект и имя копии со значками, без ветки и полного пути копии', async () => {
   stubApi(() => new Response(null, { status: 204 }))
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   expect(document.querySelector('.strip-task')).toHaveTextContent('Окно ответа')
-  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledge·app·feat/reply')
+  const items = [...document.querySelectorAll('.strip-meta .meta-item')]
+  expect(items.map((item) => [item.getAttribute('title'), item.textContent])).toEqual([
+    ['Проект', 'app-knowledge'],
+    ['Рабочая копия', 'app'],
+  ])
+  // у каждого свой значок, а разделителя между ними нет
+  expect(items.every((item) => item.querySelector('svg'))).toBe(true)
+  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledgeapp')
+  expect(document.querySelector('.reply-window')!.textContent).not.toContain('feat/reply')
   expect(document.querySelector('.reply-window')!.textContent).not.toContain('D:\\Projects\\app')
 })
 
-test('задача не прочиталась — на её месте пусто, без тире; ветки нет — строка без неё', async () => {
-  stubApi(() => new Response(null, { status: 204 }), { ...questions, task: null, branch: null })
+test('задача не прочиталась — на её месте пусто, без тире', async () => {
+  stubApi(() => new Response(null, { status: 204 }), { ...questions, task: null })
 
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
   expect(document.querySelector('.strip-task')).toBeNull()
   expect(document.querySelector('.task-strip')!.textContent).not.toContain('—')
-  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledge·app')
+  expect(document.querySelector('.strip-meta')!.textContent).toBe('app-knowledgeapp')
 })
 
-test('все вопросы видны сразу: раскрыт первый, остальные свёрнуты, без номеров, счётчика, вкладок и шагов', async () => {
+test('все вопросы видны сразу: раскрыт первый, остальные свёрнуты, без номеров, счётчика и шагов', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
 
   const dialog = within(await openReply())
@@ -124,7 +132,6 @@ test('все вопросы видны сразу: раскрыт первый, 
   expect(collapsed(dialog, 'Как быть с переносами?')).not.toHaveTextContent('Пропущен')
   expect(dialog.queryByRole('heading', { name: 'Как быть с переносами?' })).not.toBeInTheDocument()
 
-  expect(dialog.queryByRole('tablist')).not.toBeInTheDocument()
   for (const name of ['Далее', 'Назад', 'Ответить', 'Пропустить']) {
     expect(dialog.queryByRole('button', { name })).not.toBeInTheDocument()
   }
@@ -500,6 +507,8 @@ test('«Отправить» показывает знак отправки с �
   fireEvent.keyDown(window, { key: 'Escape' })
   fireEvent.mouseDown(document.querySelector('.modal-overlay')!)
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
+  // «Отменить» держится полторы секунды
+  expect(UNDO_MS).toBe(1500)
   act(() => vi.advanceTimersByTime(UNDO_MS - 1))
   expect(calls.some((c) => c.url === '/api/answers')).toBe(false)
 
@@ -626,30 +635,58 @@ const withArtifacts: QuestionsResponse = {
   ],
 }
 
-// Кнопка шапки открывает своё окно поверх окна ответа.
-function openShown(dialog: ReturnType<typeof within>, name: 'Контекст задачи' | 'Артефакты') {
-  fireEvent.click(dialog.getByRole('button', { name: new RegExp(`^${name}`) }))
-  return within(screen.getByRole('dialog', { name }))
+// Вкладка шапки показывает свою часть окна на месте ленты.
+function openTab(dialog: ReturnType<typeof within>, name: 'Переписка' | 'Контекст' | 'Артефакты') {
+  fireEvent.click(dialog.getByRole('tab', { name }))
+  return within(dialog.getByRole('tabpanel'))
 }
 
-test('«Контекст задачи» открывает своё окно поверх: критерии заголовком и текстом, отдельно «Не входит»', async () => {
+test('в шапке вкладки «Переписка», «Контекст», «Артефакты», окно открывается на переписке, окон поверх нет', async () => {
+  stubApi(() => new Response(null, { status: 204 }), withArtifacts)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  const tabs = within(dialog.getByRole('tablist')).getAllByRole('tab')
+  expect(tabs.map((t) => t.textContent)).toEqual(['Переписка', 'Контекст', 'Артефакты'])
+  expect(dialog.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
+  expect(dialog.getByRole('tabpanel')).toHaveClass('reply-feed')
+  // прежних кнопок окон поверх нет, и числа у артефактов тоже
+  expect(dialog.queryByRole('button', { name: /^Контекст задачи/ })).not.toBeInTheDocument()
+  expect(dialog.queryByRole('button', { name: /^Артефакты/ })).not.toBeInTheDocument()
+
+  openTab(dialog, 'Артефакты')
+  expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  expect(document.querySelector('.reply-window')).not.toHaveAttribute('inert')
+})
+
+test('«Контекст» — подпись «Критерии закрытия», под ней критерии заголовком и текстом, отдельно «Не входит»; строки ответа нет', async () => {
   stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
-  expect(dialog.queryByText('Критерии закрытия')).not.toBeInTheDocument()
 
-  const context = openShown(dialog, 'Контекст задачи')
+  const context = openTab(dialog, 'Контекст')
 
+  expect(dialog.getByRole('tab', { name: 'Контекст' })).toHaveAttribute('aria-selected', 'true')
   const titles = [...document.querySelectorAll('.criterion-title')]
   // номер критерия остаётся в заголовке, а не съедается разметкой как список
   expect(titles.map((t) => t.textContent)).toEqual(['1. Окно есть', '2. Строка перестаёт ждать'])
   const firstText = titles[0].parentElement!.querySelector('.criterion-text')
   expect([...firstText!.querySelectorAll('p')].map((p) => p.textContent)).toEqual(['Оператор отвечает из панели.', 'Без IDE.'])
   expect(titles[1].parentElement!.querySelector('.criterion-text')).toBeNull()
-  expect(context.getByText('Не входит')).toBeInTheDocument()
+  // подпись над критериями того же вида, что у «Не входит» (решение оператора на приёмке B-216)
+  const label = context.getByText('Критерии закрытия')
+  expect(label).toHaveClass('acc-label')
+  expect(label.nextElementSibling).toHaveClass('criteria')
+  expect(context.getByText('Не входит')).toHaveClass('acc-label')
   expect(context.getByText('Health баз.')).toBeInTheDocument()
-  // окно ответа под ним на месте, но недоступно, пока открыто окно поверх
-  expect(document.querySelector('.reply-window')).toHaveAttribute('inert')
+  // строка ответа живёт только у переписки
+  expect(dialog.queryByLabelText('Ответ')).not.toBeInTheDocument()
+  expect(dialog.queryByRole('button', { name: 'Отправить' })).not.toBeInTheDocument()
+
+  // на переписке всё на месте: набранное, текущий вопрос и фокус в строке
+  openTab(dialog, 'Переписка')
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+  expect(dialog.getByLabelText('Ответ')).toHaveFocus()
 })
 
 test('критерии и «Не входит» размечены, адреса в них — ссылки в новую вкладку', async () => {
@@ -661,7 +698,7 @@ test('критерии и «Не входит» размечены, адреса
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  const context = openShown(dialog, 'Контекст задачи')
+  const context = openTab(dialog, 'Контекст')
 
   expect(document.querySelector('.criterion-title code')!.textContent).toBe('ReplyModal')
   expect(document.querySelector('.criterion-text strong')!.textContent).toBe('выделением')
@@ -673,13 +710,13 @@ test('критерии и «Не входит» размечены, адреса
   expect(hrefs.sort()).toEqual(['https://example.com/c-title', 'https://example.com/out'])
 })
 
-test('«Артефакты» с их числом открывают своё окно: подпись, под ней адрес — ссылкой или кнопкой файла', async () => {
+test('«Артефакты» — подпись, под ней адрес ссылкой или кнопкой файла; строки ответа нет', async () => {
   stubApi(() => new Response(null, { status: 204 }), withArtifacts)
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  expect(dialog.getByRole('button', { name: /^Артефакты/ })).toHaveTextContent('Артефакты 2')
-  const artifacts = openShown(dialog, 'Артефакты')
+  expect(dialog.getByRole('tab', { name: 'Артефакты' })).toHaveTextContent(/^Артефакты$/)
+  const artifacts = openTab(dialog, 'Артефакты')
 
   const items = [...document.querySelectorAll('.artifacts li')]
   expect(items.map((li) => li.querySelector('.artifact-label')!.textContent)).toEqual(['макет окна ответа', 'спецификация'])
@@ -687,7 +724,7 @@ test('«Артефакты» с их числом открывают своё о
   expect(artifacts.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })).toHaveAttribute('target', '_blank')
   expect(items[1].querySelector('a')).toBeNull()
   expect(artifacts.getByRole('button', { name: 'docs/spec.md' })).toBeInTheDocument()
-  expect(artifacts.queryByText('Критерии закрытия')).not.toBeInTheDocument()
+  expect(dialog.queryByLabelText('Ответ')).not.toBeInTheDocument()
 })
 
 test('щелчок по пути к файлу просит панель открыть этот артефакт в VS Code', async () => {
@@ -695,7 +732,7 @@ test('щелчок по пути к файлу просит панель отк�
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  const artifacts = openShown(dialog, 'Артефакты')
+  const artifacts = openTab(dialog, 'Артефакты')
   fireEvent.click(artifacts.getByRole('button', { name: 'docs/spec.md' }))
 
   await waitFor(() => expect(calls.some((c) => c.url === '/api/artifact/open')).toBe(true))
@@ -708,29 +745,43 @@ test('щелчок по пути к файлу просит панель отк�
 test.each([
   [() => new Response(JSON.stringify({ problem: 'missing' }), { status: 404 }), 'Файла нет на диске: docs/spec.md'],
   [() => new Response(JSON.stringify({ problem: 'not-opened' }), { status: 502 }), 'Не удалось открыть файл в VS Code'],
-] as [Route, string][])('файл артефакта не открылся — окно артефактов говорит об этом строкой: %#', async (open, text) => {
+] as [Route, string][])('файл артефакта не открылся — строка под артефактами держится до закрытия окна: %#', async (open, text) => {
   stubApi(() => new Response(null, { status: 204 }), withArtifacts, undefined, undefined, open)
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  const artifacts = openShown(dialog, 'Артефакты')
+  const artifacts = openTab(dialog, 'Артефакты')
   fireEvent.click(artifacts.getByRole('button', { name: 'docs/spec.md' }))
 
-  expect(await artifacts.findByRole('alert')).toHaveTextContent(text)
-  // строка одна: окно ответа под окном артефактов её не повторяет
+  const alert = await artifacts.findByRole('alert')
+  expect(alert).toHaveTextContent(text)
+  // строка стоит под списком артефактов и одна: под шапкой окна её нет
+  expect(alert.previousElementSibling).toHaveClass('artifacts')
   expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1)
-  // и уходит вместе с окном артефактов, а не всплывает под шапкой окна ответа
-  fireEvent.click(artifacts.getByRole('button', { name: 'Закрыть' }))
+
+  // уход на переписку и назад её не снимает
+  openTab(dialog, 'Переписка')
   expect(document.querySelectorAll('[role="alert"]')).toHaveLength(0)
+  expect(openTab(dialog, 'Артефакты').getByRole('alert')).toHaveTextContent(text)
+
+  // а закрытое окно её забывает
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Ответить' }))
+  const again = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
+  await again.findByRole('heading', { name: 'Подтвердить критерий?' })
+  expect(openTab(again, 'Артефакты').queryByRole('alert')).not.toBeInTheDocument()
 })
 
-test('показывать нечего — кнопки нет: без артефактов нет «Артефактов», без критериев и «Не входит» — «Контекста задачи»', async () => {
+test('показывать нечего — вкладки на месте, а в них серая надпись «Контекста нет» и «Артефактов нет»', async () => {
   stubApi(() => new Response(null, { status: 204 }), { ...questions, criteria: [], outOfScope: null })
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  expect(dialog.queryByRole('button', { name: /^Артефакты/ })).not.toBeInTheDocument()
-  expect(dialog.queryByRole('button', { name: /^Контекст задачи/ })).not.toBeInTheDocument()
+  const context = openTab(dialog, 'Контекст')
+  expect(context.getByText('Контекста нет')).toHaveClass('modal-message')
+  expect(dialog.getByRole('tabpanel')).toHaveClass('is-centered')
+  expect(openTab(dialog, 'Артефакты').getByText('Артефактов нет')).toHaveClass('modal-message')
 })
 
 test('только «Не входит» без критериев — контекст есть, и в нём один этот раздел', async () => {
@@ -738,28 +789,38 @@ test('только «Не входит» без критериев — конт�
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  const context = openShown(dialog, 'Контекст задачи')
+  const context = openTab(dialog, 'Контекст')
   expect(context.getByText('Health баз.')).toBeInTheDocument()
+  expect(context.queryByText('Контекста нет')).not.toBeInTheDocument()
+  expect(document.querySelector('.criteria')).toBeNull()
   expect(context.queryByText('Критерии закрытия')).not.toBeInTheDocument()
 })
 
-test('Escape сначала закрывает окно поверх, потом окно ответа; крестик окна поверх закрывает только его', async () => {
+test('Escape закрывает окно ответа с любой вкладки', async () => {
   stubApi(() => new Response(null, { status: 204 }), withArtifacts)
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  openShown(dialog, 'Контекст задачи')
-  fireEvent.keyDown(window, { key: 'Escape' })
-  expect(screen.queryByRole('dialog', { name: 'Контекст задачи' })).not.toBeInTheDocument()
-  expect(document.querySelector('.reply-window')).not.toHaveAttribute('inert')
-
-  const artifacts = openShown(dialog, 'Артефакты')
-  fireEvent.click(artifacts.getByRole('button', { name: 'Закрыть' }))
-  expect(screen.queryByRole('dialog', { name: 'Артефакты' })).not.toBeInTheDocument()
-  expect(screen.getByRole('dialog', { name: 'Ответ оператора' })).toBeInTheDocument()
-
+  openTab(dialog, 'Контекст')
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('пока ответы уходят, вкладок нет, а «Отменить» возвращает на переписку', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  answerWith(dialog, 'принимаю')
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  answerWith(dialog, 'заменять')
+  sendAll(dialog)
+  expect(dialog.queryByRole('tablist')).not.toBeInTheDocument()
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Отменить' }))
+  waitOut()
+  expect(dialog.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
+  expect(dialog.getByLabelText('Ответ')).toHaveValue('заменять')
 })
 
 // В разработке панель идёт в StrictMode: окно монтируется дважды, и отметка «окно открыто» должна это пережить —

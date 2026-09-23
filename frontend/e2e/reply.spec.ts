@@ -138,7 +138,8 @@ test('«Отменить» ничего не записывает, а лента
   await expect(page.locator('.modal-overlay.is-leaving')).toHaveCount(0)
   await expect(dialog.locator('.reply-feed')).toBeVisible()
   await expect(answer).toHaveValue('принимаю')
-  await page.waitForTimeout(3500)
+  // «Отменить» держится полторы секунды — после них запись всё равно не ушла
+  await page.waitForTimeout(2000)
   expect(posted).toBe(false)
   await expect(dialog).toBeVisible()
 })
@@ -229,7 +230,8 @@ test('свёрнутые вопросы одинаковы, у варианто�
     return [Math.round(box.width), Math.round(box.height)]
   }
   await expect(async () => {
-    expect(await size('.strip-actions .btn-ghost svg')).toEqual([16, 16])
+    expect(await size('.strip-actions .btn-code svg')).toEqual([16, 16])
+    expect(await size('.meta-item svg')).toEqual([13, 13])
     expect(await size('.composer-send svg')).toEqual([16, 16])
   }).toPass()
 
@@ -239,7 +241,7 @@ test('свёрнутые вопросы одинаковы, у варианто�
   expect(await size('.field-error svg')).toEqual([14, 14])
 })
 
-test('окна «Контекст задачи» и «Артефакты» открываются поверх, держат фокус и возвращают его на свою кнопку', async ({ page }) => {
+test('контекст и артефакты — вкладками в шапке: растянуты на всё окно, без строки ответа, окон поверх нет', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?')], {
     criteria: [{ title: '1. Окно есть', text: 'Оператор отвечает из панели.' }],
@@ -252,35 +254,47 @@ test('окна «Контекст задачи» и «Артефакты» от�
   let openedArtifact: unknown = null
   await page.route('**/api/artifact/open', async (route) => {
     openedArtifact = route.request().postDataJSON()
-    await route.fulfill({ status: 204 })
+    await route.fulfill({ status: 404, json: { problem: 'missing' } })
   })
 
   await page.goto('/')
   const dialog = await openReply(page)
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
+  await dialog.getByLabel('Ответ').fill('принимаю')
 
-  const contextButton = dialog.getByRole('button', { name: 'Контекст задачи' })
-  await contextButton.click()
-  const context = page.getByRole('dialog', { name: 'Контекст задачи' })
-  await expect(context.getByText('Оператор отвечает из панели.')).toBeVisible()
-  await expect(context.getByText('Health баз.')).toBeVisible()
-  // окно ответа под ним недоступно: Tab в него не заходит
-  for (let i = 0; i < 6; i++) {
-    await page.keyboard.press('Tab')
-    expect(await page.locator('.reply-window').evaluate((el) => el.contains(document.activeElement))).toBe(false)
+  // вкладки стоят в шапке справа от переходов в сессию, у артефактов нет числа
+  const tabs = dialog.getByRole('tab')
+  await expect(tabs).toHaveText(['Переписка', 'Контекст', 'Артефакты'])
+  const actions = (await dialog.locator('.strip-actions').boundingBox())!
+  const tablist = (await dialog.getByRole('tablist').boundingBox())!
+  const vsCode = (await dialog.locator('.btn-code').last().boundingBox())!
+  expect(tablist.x).toBeGreaterThan(vsCode.x + vsCode.width)
+  expect(Math.abs(tablist.x + tablist.width - (actions.x + actions.width))).toBeLessThan(2)
+
+  // содержимое вкладки — от края до края окна, без строки ответа и без окна поверх
+  const edgeToEdge = async (selector = '.tab-body li') => {
+    const frame = (await dialog.boundingBox())!
+    const line = (await dialog.locator(selector).first().boundingBox())!
+    expect(Math.abs(line.x - frame.x)).toBeLessThan(2)
+    expect(Math.abs(line.x + line.width - (frame.x + frame.width))).toBeLessThan(2)
   }
-  await page.keyboard.press('Escape')
-  await expect(context).toBeHidden()
-  await expect(dialog).toBeVisible()
-  await expect(contextButton).toBeFocused()
+  await dialog.getByRole('tab', { name: 'Контекст' }).click()
+  await expect(dialog.getByText('Оператор отвечает из панели.')).toBeVisible()
+  await expect(dialog.getByText('Health баз.')).toBeVisible()
+  // подпись над критериями — того же вида, что «Не входит»
+  const criteriaLabel = dialog.getByText('Критерии закрытия')
+  await expect(criteriaLabel).toBeVisible()
+  for (const prop of ['font-size', 'color', 'text-transform'])
+    await expect(criteriaLabel).toHaveCSS(prop, await dialog.getByText('Не входит').evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop))
+  await expect(dialog.getByLabel('Ответ')).toHaveCount(0)
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+  await edgeToEdge()
 
-  const artifactsButton = dialog.getByRole('button', { name: /^Артефакты/ })
-  await expect(artifactsButton).toHaveText(/Артефакты\s*2/)
-  await artifactsButton.click()
-  const artifacts = page.getByRole('dialog', { name: 'Артефакты' })
-  const link = artifacts.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
+  await dialog.getByRole('tab', { name: 'Артефакты' }).click()
+  const link = dialog.getByRole('link', { name: 'https://claude.ai/artifact/AbC123' })
   await expect(link).toHaveAttribute('target', '_blank')
-  await expect(artifacts.getByRole('link', { name: 'D:\\Projects\\app\\spec.md' })).toHaveCount(0)
+  await expect(dialog.getByRole('link', { name: 'D:\\Projects\\app\\spec.md' })).toHaveCount(0)
+  await edgeToEdge()
   // ссылка янтарная, как остальные ссылки панели, а путь — серый
   const tokenColor = (token: string) =>
     page.evaluate((name) => {
@@ -292,7 +306,7 @@ test('окна «Контекст задачи» и «Артефакты» от�
       return color
     }, token)
   await expect(link).toHaveCSS('color', await tokenColor('--accent-waiting-text'))
-  const file = artifacts.getByRole('button', { name: 'D:\\Projects\\app\\spec.md' })
+  const file = dialog.getByRole('button', { name: 'D:\\Projects\\app\\spec.md' })
   await expect(file).toHaveCSS('color', await tokenColor('--text-secondary'))
   await file.click()
   await expect.poll(() => openedArtifact).toEqual({
@@ -301,16 +315,50 @@ test('окна «Контекст задачи» и «Артефакты» от�
     index: 1,
     address: 'D:\\Projects\\app\\spec.md',
   })
+  // файла нет — строка под артефактами, и переход по вкладкам её не снимает
+  const alert = dialog.getByRole('alert')
+  await expect(alert).toHaveText('Файла нет на диске: D:\\Projects\\app\\spec.md')
+  // строка ошибки — под списком и на всю ширину окна
+  expect((await alert.boundingBox())!.y).toBeGreaterThan((await dialog.locator('.artifacts').boundingBox())!.y)
+  await edgeToEdge('.tab-body .open-error')
+  await dialog.getByRole('tab', { name: 'Переписка' }).click()
+  await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю')
+  await expect(dialog.getByLabel('Ответ')).toBeFocused()
+  await dialog.getByRole('tab', { name: 'Артефакты' }).click()
+  await expect(alert).toBeVisible()
 
-  await artifacts.getByRole('button', { name: 'Закрыть' }).click()
-  await expect(artifacts).toBeHidden()
-  await expect(artifactsButton).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
 })
 
+test('пустые «Контекст» и «Артефакты» — серая надпись по центру вкладки', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')])
+
+  await page.goto('/')
+  const dialog = await openReply(page)
+  await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
+
+  for (const [tab, text] of [['Контекст', 'Контекста нет'], ['Артефакты', 'Артефактов нет']]) {
+    await dialog.getByRole('tab', { name: tab }).click()
+    const label = dialog.getByText(text)
+    await expect(label).toHaveCSS('color', await label.evaluate(() => {
+      const probe = document.createElement('span')
+      probe.style.color = 'var(--text-secondary)'
+      document.body.append(probe)
+      const color = getComputedStyle(probe).color
+      probe.remove()
+      return color
+    }))
+    const panel = (await dialog.getByRole('tabpanel').boundingBox())!
+    const box = (await label.boundingBox())!
+    expect(Math.abs(box.x + box.width / 2 - (panel.x + panel.width / 2))).toBeLessThan(2)
+    expect(Math.abs(box.y + box.height / 2 - (panel.y + panel.height / 2))).toBeLessThan(2)
+  }
+})
+
 // Раньше шапка контекста была одной строкой, и длинный путь копии рвался на много строк рядом с кнопками перехода.
-test('длинные задача, копия и ветка в шапке не наезжают друг на друга, на кнопки и на ленту', async ({ page }) => {
+test('длинные задача и копия в шапке не наезжают друг на друга, на кнопки, вкладки и ленту; ветки в шапке нет', async ({ page }) => {
   const long = 'очень-длинное-имя-'.repeat(6)
   await page.route('**/api/workspaces', (route) =>
     route.fulfill({ json: [row('waiting', `D:\\Projects\\${long}copy`, `feat/${long}branch`)] }),
@@ -329,6 +377,7 @@ test('длинные задача, копия и ветка в шапке не �
   await expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeVisible()
   await expect(dialog.locator('.strip-meta')).toContainText(`${long}copy`)
   await expect(dialog.locator('.strip-meta')).not.toContainText('D:\\Projects')
+  await expect(dialog.locator('.strip-meta')).not.toContainText('branch')
 
   // шрифт панели грузится после первой отрисовки — замер повторяется, пока не сойдётся
   await expect(async () => {

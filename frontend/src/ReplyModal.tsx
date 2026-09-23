@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
@@ -6,6 +6,7 @@ import { TerminalIcon } from './TerminalIcon'
 import { VsCodeIcon } from './VsCodeIcon'
 import './Modal.css'
 import './ReplyModal.css'
+import './Tabs.css'
 
 export type QuestionVariant = {
   choice: string
@@ -51,6 +52,15 @@ type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 
 // leaving — записанные ответы уходят вместе с окном, и оно гаснет.
 type Phase = 'open' | 'sending' | 'writing' | 'leaving'
 
+// Вкладки окна: переписка с агентом, контекст задачи и её артефакты.
+type Tab = 'feed' | 'context' | 'artifacts'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'feed', label: 'Переписка' },
+  { id: 'context', label: 'Контекст' },
+  { id: 'artifacts', label: 'Артефакты' },
+]
+
 type Props = {
   base: string
   copy: string
@@ -60,8 +70,9 @@ type Props = {
 
 const EMPTY = 'Напишите свой ответ или выберите вариант'
 
-// Пока видно «Ответы отправлены агенту», отправку можно отменить: запись идёт после этих секунд.
-export const UNDO_MS = 3000
+// Пока видно «Ответы отправлены агенту», отправку можно отменить: запись идёт после этих полутора секунд —
+// три секунды оператору показались долгими.
+export const UNDO_MS = 1500
 
 // Записанные ответы уводят окно угасанием; обычное закрытие мгновенно — решение оператора.
 export const FADE_MS = 220
@@ -85,16 +96,14 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [phase, setPhase] = useState<Phase>('open')
   const [opening, setOpening] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
-  // Контекст задачи и артефакты — своими окнами поверх окна ответа.
-  const [shown, setShown] = useState<'context' | 'artifacts' | null>(null)
+  // Ошибка открытия файла стоит под артефактами до закрытия окна: переход по вкладкам её не снимает.
+  const [fileError, setFileError] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>('feed')
 
   const feed = useRef<HTMLDivElement>(null)
   const field = useRef<HTMLInputElement>(null)
   const undoButton = useRef<HTMLButtonElement>(null)
   const timer = useRef<number | undefined>(undefined)
-  const contextButton = useRef<HTMLButtonElement>(null)
-  const artifactsButton = useRef<HTMLButtonElement>(null)
-  const wasShown = useRef<'context' | 'artifacts' | null>(null)
 
   useEffect(() => {
     const params = new URLSearchParams({ base, copy })
@@ -130,41 +139,25 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     }
   }, [])
 
-  // Ошибка открытия файла из окна артефактов уходит вместе с ним: под шапкой окна ответа она бы повисла.
-  const hideShown = useCallback(() => {
-    setShown((open) => {
-      if (open === 'artifacts') setOpenError(null)
-      return null
-    })
-  }, [])
-
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      if (shown) hideShown()
-      else if (phase === 'open') onClose()
+      if (event.key === 'Escape' && phase === 'open') onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, shown, phase, hideShown])
-
-  // Закрытое окно поверх возвращает фокус на свою кнопку — после перерисовки: пока оно открыто,
-  // окно ответа inert, и фокус в него не встаёт.
-  useEffect(() => {
-    if (wasShown.current && !shown) (wasShown.current === 'context' ? contextButton : artifactsButton).current?.focus()
-    wasShown.current = shown
-  }, [shown])
+  }, [onClose, phase])
 
   const loaded = load.kind === 'loaded'
   const questions = loaded ? load.data.questions : []
 
   // Текущий вопрос встаёт в начало ленты, а строка ввода получает фокус: отвечают, не берясь за мышь.
+  // Со вкладок контекста и артефактов фокус не уводится: строки ввода там нет.
   useEffect(() => {
-    if (!loaded || phase !== 'open') return
+    if (!loaded || phase !== 'open' || tab !== 'feed') return
     const item = feed.current?.querySelector<HTMLElement>(`[data-q="${current}"]`)
     if (feed.current && item) feed.current.scrollTop = item.offsetTop - 16
     field.current?.focus()
-  }, [loaded, current, phase])
+  }, [loaded, current, phase, tab])
 
   // Строка ввода ушла вместе с фокусом: «Отменить» получает его, чтобы успеть отменить с клавиатуры.
   useEffect(() => {
@@ -236,7 +229,6 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         onAnswered()
         // окно уходит угасанием, а закрывается, когда оно закончилось
         if (!alive.current) return
-        setShown(null)
         setPhase('leaving')
         timer.current = window.setTimeout(onClose, FADE_MS)
         return
@@ -298,7 +290,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   // Файл-артефакт открывает панель: в окне VS Code копии задачи, а без него — в новом окне.
   async function openArtifact(index: number, address: string) {
     setOpening(true)
-    setOpenError(null)
+    setFileError(null)
     try {
       const response = await fetch('/api/artifact/open', {
         method: 'POST',
@@ -313,7 +305,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
               .then((body: { problem?: string }) => body.problem ?? null)
               .catch(() => null)
           : null
-      setOpenError(
+      setFileError(
         problem === 'missing'
           ? `Файла нет на диске: ${address}`
           : response.status === 404
@@ -321,7 +313,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             : 'Не удалось открыть файл в VS Code',
       )
     } catch {
-      setOpenError('Не удалось открыть файл в VS Code: нет связи с API')
+      setFileError('Не удалось открыть файл в VS Code: нет связи с API')
     } finally {
       setOpening(false)
     }
@@ -356,288 +348,151 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const question = questions[current]
 
   return (
-    <>
-      <div
-        className={`modal-overlay ${phase === 'leaving' ? 'is-leaving' : ''}`}
-        // длительность угасания живёт в коде: стили берут её отсюда, чтобы числа не разошлись
-        style={{ '--fade-ms': `${FADE_MS}ms` } as CSSProperties}
-        onMouseDown={(e) => e.target === e.currentTarget && !shown && phase === 'open' && onClose()}
-      >
-        <div
-          className="modal-wizard reply-window"
-          role="dialog"
-          aria-modal={!shown}
-          aria-label="Ответ оператора"
-          // Пока открыто окно поверх, окно ответа под ним недоступно: Tab и программа чтения — только в нём.
-          inert={!!shown}
-        >
-          <div className="reply-head">
-            <div className="task-strip">
-              {data && (
-                <>
-                  {data.task && <div className="strip-task">{data.task}</div>}
-                  <div className="strip-meta">
+    <div
+      className={`modal-overlay ${phase === 'leaving' ? 'is-leaving' : ''}`}
+      // длительность угасания живёт в коде: стили берут её отсюда, чтобы числа не разошлись
+      style={{ '--fade-ms': `${FADE_MS}ms` } as CSSProperties}
+      onMouseDown={(e) => e.target === e.currentTarget && phase === 'open' && onClose()}
+    >
+      <div className="modal-wizard reply-window" role="dialog" aria-modal="true" aria-label="Ответ оператора">
+        <div className="reply-head">
+          <div className="task-strip">
+            {data && (
+              <>
+                {data.task && <div className="strip-task">{data.task}</div>}
+                {/* Проект и копия — значками, без ветки: она почти повторяла имя копии (решение оператора). */}
+                <div className="strip-meta">
+                  <span className="meta-item" title="Проект">
+                    <BoxIcon />
                     <span className="strip-project">{data.project}</span>
-                    <span className="strip-sep">·</span>
-                    {copyName(data.copy)}
-                    {data.branch && (
-                      <>
-                        <span className="strip-sep">·</span>
-                        {data.branch}
-                      </>
-                    )}
-                  </div>
-                  <div className="strip-actions">
-                    <button
-                      type="button"
-                      className="btn-code"
-                      disabled={!data.backgroundSession || opening}
-                      title={
-                        data.backgroundSession
-                          ? 'Открыть терминал с сессией этой копии'
-                          : 'В этой копии не идёт фоновая сессия'
-                      }
-                      onClick={() => void openTerminal()}
-                    >
-                      <TerminalIcon />
-                      {data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-code"
-                      disabled={!data.vsCodeSession || opening}
-                      title={
-                        data.vsCodeSession ? 'Открыть окно VS Code этой копии' : 'Сессия этой копии не открыта в VS Code'
-                      }
-                      onClick={() => void openSession()}
-                    >
-                      <VsCodeIcon />
-                      {data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
-                    </button>
-                    {(hasContext || hasArtifacts) && <span className="strip-gap" aria-hidden="true" />}
-                    {hasContext && (
-                      <button
-                        ref={contextButton}
-                        type="button"
-                        className="btn-ghost"
-                        aria-haspopup="dialog"
-                        onClick={() => setShown('context')}
-                      >
-                        <DocIcon />
-                        Контекст задачи
-                      </button>
-                    )}
-                    {hasArtifacts && (
-                      <button
-                        ref={artifactsButton}
-                        type="button"
-                        className="btn-ghost"
-                        aria-haspopup="dialog"
-                        onClick={() => setShown('artifacts')}
-                      >
-                        <LinkIcon />
-                        Артефакты <span className="btn-count">{data.artifacts.length}</span>
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            {/* Пока ответы уходят, окно не закрывается ничем: закрытое сняло бы запись молча. */}
-            <button
-              type="button"
-              className="btn btn-icon"
-              aria-label="Закрыть"
-              disabled={phase !== 'open'}
-              onClick={onClose}
-            >
-              <CloseIcon />
-            </button>
+                  </span>
+                  <span className="meta-item" title="Рабочая копия">
+                    <FolderIcon />
+                    <span>{copyName(data.copy)}</span>
+                  </span>
+                </div>
+                <div className="strip-actions">
+                  <button
+                    type="button"
+                    className="btn-code"
+                    disabled={!data.backgroundSession || opening}
+                    title={
+                      data.backgroundSession
+                        ? 'Открыть терминал с сессией этой копии'
+                        : 'В этой копии не идёт фоновая сессия'
+                    }
+                    onClick={() => void openTerminal()}
+                  >
+                    <TerminalIcon />
+                    {data.backgroundSession ? 'Открыть в терминале' : 'Нет сессии в фоне'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-code"
+                    disabled={!data.vsCodeSession || opening}
+                    title={
+                      data.vsCodeSession ? 'Открыть окно VS Code этой копии' : 'Сессия этой копии не открыта в VS Code'
+                    }
+                    onClick={() => void openSession()}
+                  >
+                    <VsCodeIcon />
+                    {data.vsCodeSession ? 'Открыть в VS Code' : 'Нет сессии в VS Code'}
+                  </button>
+                  {/* Пока ответы уходят, вкладок нет: окно показывает только отправку. */}
+                  {phase === 'open' && (
+                    <div className="vc-tabs reply-tabs" role="tablist" aria-label="Вкладки окна">
+                      {TABS.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          role="tab"
+                          id={`reply-tab-${t.id}`}
+                          // панель на месте одна — выбранной вкладки
+                          aria-controls={tab === t.id ? `reply-panel-${t.id}` : undefined}
+                          aria-selected={tab === t.id}
+                          className={`flow-tab ${tab === t.id ? 'is-on' : ''}`}
+                          onClick={() => setTab(t.id)}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
-
-          {/* ошибку открытия артефакта говорит окно артефактов, пока оно открыто, а не окно под ним */}
-          {openError && shown !== 'artifacts' && (
-            <p className="open-error error-text" role="alert">
-              <WarningIcon />
-              {openError}
-            </p>
-          )}
-
-          {phase === 'open' ? (
-            <div className={`reply-feed ${!question ? 'is-centered' : ''}`} ref={feed}>
-              {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
-              {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
-              {loaded && !question && <p className="modal-message">Вопросов без ответа нет</p>}
-              {questions.map((q, i) => {
-                const given = answers[i] ?? ''
-                const effect = q.variants.find((v) => v.choice === given)?.effect
-                return (
-                  <div className="feed-item" key={i} data-q={i}>
-                    {i === current ? (
-                      <section className="agent-q" aria-labelledby={`reply-q-${i}`}>
-                        <h2 className="q-title" id={`reply-q-${i}`}>
-                          <InlineMarkdown text={q.title} />
-                        </h2>
-                        {q.context && <Markdown className="q-context" text={q.context} />}
-                        {q.variants.length > 0 && (
-                          <div className="radio-list">
-                            {q.variants.map((v, k) => (
-                              <button
-                                key={k}
-                                type="button"
-                                className="radio-opt"
-                                aria-pressed={given === v.choice}
-                                // повторный щелчок по выбранному снимает ответ: иначе его не убрать
-                                onClick={() => {
-                                  setAnswer(given === v.choice ? '' : v.choice)
-                                  field.current?.focus()
-                                }}
-                              >
-                                <span className="radio-dot" aria-hidden="true" />
-                                <span className="opt-head">
-                                  <span className="opt-title">{v.choice}</span>
-                                  {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
-                                </span>
-                                {v.effect && <span className="opt-desc">{v.effect}</span>}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </section>
-                    ) : (
-                      <button type="button" className="q-compact" onClick={() => go(i)}>
-                        <span className="qc-title">
-                          <InlineMarkdown text={q.title} plainLinks />
-                        </span>
-                      </button>
-                    )}
-                    {given.trim() && (
-                      <div className="op-row">
-                        <div className={`op-bubble ${i === current ? 'is-current' : ''}`}>
-                          {effect ? (
-                            <>
-                              <p className="ans-choice">{given}</p>
-                              <p className="ans-effect">{effect}</p>
-                            </>
-                          ) : (
-                            <p className="ans-text">{given}</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            // Ответы ушли: ленты не видно, на её месте — знак отправки, а внизу «Отменить».
-            <div className="reply-done" role="status">
-              <span className="done-mark">
-                <CheckIcon />
-              </span>
-              <p className="done-text">Ответы отправлены агенту</p>
-            </div>
-          )}
-
-          {question && (
-            <div className={`composer ${error ? 'has-error' : ''}`}>
-              {phase === 'open' ? (
-                <div className="composer-row">
-                  <button
-                    type="button"
-                    className="btn btn-icon"
-                    aria-label="Предыдущий вопрос"
-                    title="Предыдущий вопрос"
-                    disabled={current === 0}
-                    onClick={() => go(current - 1)}
-                  >
-                    <ChevronIcon direction="left" />
-                  </button>
-                  <input
-                    ref={field}
-                    id="reply-answer"
-                    className="composer-field"
-                    aria-label="Ответ"
-                    autoComplete="off"
-                    value={answers[current] ?? ''}
-                    placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
-                    onChange={(e) => setAnswer(e.target.value)}
-                    onKeyDown={onFieldKeyDown}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-icon"
-                    aria-label="Следующий вопрос"
-                    title="Следующий вопрос"
-                    disabled={current === questions.length - 1}
-                    onClick={() => go(current + 1)}
-                  >
-                    <ChevronIcon direction="right" />
-                  </button>
-                  <button type="button" className="btn btn-primary composer-send" onClick={send}>
-                    <SendIcon />
-                    Отправить
-                  </button>
-                </div>
-              ) : (
-                <div className="composer-row is-undo">
-                  <button
-                    ref={undoButton}
-                    type="button"
-                    className="btn composer-undo"
-                    disabled={phase !== 'sending'}
-                    onClick={undo}
-                  >
-                    Отменить
-                  </button>
-                </div>
-              )}
-              {error && (
-                <span className="field-error error-text" role="alert">
-                  <WarningIcon />
-                  <span>{error}</span>
-                </span>
-              )}
-            </div>
-          )}
+          {/* Пока ответы уходят, окно не закрывается ничем: закрытое сняло бы запись молча. */}
+          <button
+            type="button"
+            className="btn btn-icon"
+            aria-label="Закрыть"
+            disabled={phase !== 'open'}
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
         </div>
-      </div>
 
-      {data && shown && (
-        <div className="modal-overlay reply-sub-overlay" onMouseDown={(e) => e.target === e.currentTarget && hideShown()}>
-          <div className="modal-wizard reply-sub" role="dialog" aria-modal="true" aria-labelledby="reply-sub-title">
-            <div className="reply-sub-head">
-              <h2 id="reply-sub-title">{shown === 'context' ? 'Контекст задачи' : 'Артефакты'}</h2>
-              <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={hideShown}>
-                <CloseIcon />
-              </button>
-            </div>
-            <div className="reply-sub-body">
-              {shown === 'context' ? (
-                <>
-                  {data.criteria.length > 0 && (
-                    <div className="ctx-section">
-                      <p className="acc-label">Критерии закрытия</p>
-                      <ul className="criteria">
-                        {data.criteria.map((criterion, i) => (
-                          <li key={i}>
-                            <div className="criterion-title">
-                              <InlineMarkdown text={criterion.title} />
-                            </div>
-                            {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {data.outOfScope && (
-                    <div className="ctx-section">
-                      <p className="acc-label">Не входит</p>
-                      <Markdown className="criterion-text" text={data.outOfScope} />
-                    </div>
-                  )}
-                </>
-              ) : (
+        {openError && (
+          <p className="open-error error-text" role="alert">
+            <WarningIcon />
+            {openError}
+          </p>
+        )}
+
+        {phase !== 'open' ? (
+          // Ответы ушли: ленты не видно, на её месте — знак отправки, а внизу «Отменить».
+          <div className="reply-done" role="status">
+            <span className="done-mark">
+              <CheckIcon />
+            </span>
+            <p className="done-text">Ответы отправлены агенту</p>
+          </div>
+        ) : tab === 'context' ? (
+          <div
+            className={`tab-body ${hasContext ? '' : 'is-centered'}`}
+            role="tabpanel"
+            id="reply-panel-context"
+            aria-labelledby="reply-tab-context"
+          >
+            {data && hasContext ? (
+              <>
+                {data.criteria.length > 0 && (
+                  <div className="ctx-section">
+                    <p className="acc-label">Критерии закрытия</p>
+                    <ul className="criteria">
+                      {data.criteria.map((criterion, i) => (
+                        <li key={i}>
+                          <div className="criterion-title">
+                            <InlineMarkdown text={criterion.title} />
+                          </div>
+                          {criterion.text && <Markdown className="criterion-text" text={criterion.text} />}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {data.outOfScope && (
+                  <div className="ctx-section">
+                    <p className="acc-label">Не входит</p>
+                    <Markdown className="criterion-text scope-text" text={data.outOfScope} />
+                  </div>
+                )}
+              </>
+            ) : (
+              loaded && <p className="modal-message">Контекста нет</p>
+            )}
+          </div>
+        ) : tab === 'artifacts' ? (
+          <div
+            className={`tab-body ${hasArtifacts ? '' : 'is-centered'}`}
+            role="tabpanel"
+            id="reply-panel-artifacts"
+            aria-labelledby="reply-tab-artifacts"
+          >
+            {data && hasArtifacts ? (
+              <>
                 <ul className="artifacts">
                   {data.artifacts.map((artifact, i) => (
                     <li key={i}>
@@ -663,18 +518,155 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                     </li>
                   ))}
                 </ul>
-              )}
-              {openError && shown === 'artifacts' && (
-                <p className="open-error error-text" role="alert">
-                  <WarningIcon />
-                  {openError}
-                </p>
-              )}
-            </div>
+                {fileError && (
+                  <p className="open-error error-text" role="alert">
+                    <WarningIcon />
+                    {fileError}
+                  </p>
+                )}
+              </>
+            ) : (
+              loaded && <p className="modal-message">Артефактов нет</p>
+            )}
           </div>
-        </div>
-      )}
-    </>
+        ) : (
+          <div
+            className={`reply-feed ${!question ? 'is-centered' : ''}`}
+            ref={feed}
+            role="tabpanel"
+            id="reply-panel-feed"
+            aria-labelledby="reply-tab-feed"
+          >
+            {load.kind === 'loading' && <p className="modal-message">Загрузка вопросов…</p>}
+            {load.kind === 'failed' && <p className="modal-message error-text">{load.message}</p>}
+            {loaded && !question && <p className="modal-message">Вопросов без ответа нет</p>}
+            {questions.map((q, i) => {
+              const given = answers[i] ?? ''
+              const effect = q.variants.find((v) => v.choice === given)?.effect
+              return (
+                <div className="feed-item" key={i} data-q={i}>
+                  {i === current ? (
+                    <section className="agent-q" aria-labelledby={`reply-q-${i}`}>
+                      <h2 className="q-title" id={`reply-q-${i}`}>
+                        <InlineMarkdown text={q.title} />
+                      </h2>
+                      {q.context && <Markdown className="q-context" text={q.context} />}
+                      {q.variants.length > 0 && (
+                        <div className="radio-list">
+                          {q.variants.map((v, k) => (
+                            <button
+                              key={k}
+                              type="button"
+                              className="radio-opt"
+                              aria-pressed={given === v.choice}
+                              // повторный щелчок по выбранному снимает ответ: иначе его не убрать
+                              onClick={() => {
+                                setAnswer(given === v.choice ? '' : v.choice)
+                                field.current?.focus()
+                              }}
+                            >
+                              <span className="radio-dot" aria-hidden="true" />
+                              <span className="opt-head">
+                                <span className="opt-title">{v.choice}</span>
+                                {v.recommended && <span className="tag-rec">Рекомендовано ИИ</span>}
+                              </span>
+                              {v.effect && <span className="opt-desc">{v.effect}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  ) : (
+                    <button type="button" className="q-compact" onClick={() => go(i)}>
+                      <span className="qc-title">
+                        <InlineMarkdown text={q.title} plainLinks />
+                      </span>
+                    </button>
+                  )}
+                  {given.trim() && (
+                    <div className="op-row">
+                      <div className={`op-bubble ${i === current ? 'is-current' : ''}`}>
+                        {effect ? (
+                          <>
+                            <p className="ans-choice">{given}</p>
+                            <p className="ans-effect">{effect}</p>
+                          </>
+                        ) : (
+                          <p className="ans-text">{given}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* строка ответа — только у переписки; на время отправки на её месте «Отменить» */}
+        {question && (phase !== 'open' || tab === 'feed') && (
+          <div className={`composer ${error ? 'has-error' : ''}`}>
+            {phase === 'open' ? (
+              <div className="composer-row">
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  aria-label="Предыдущий вопрос"
+                  title="Предыдущий вопрос"
+                  disabled={current === 0}
+                  onClick={() => go(current - 1)}
+                >
+                  <ChevronIcon direction="left" />
+                </button>
+                <input
+                  ref={field}
+                  id="reply-answer"
+                  className="composer-field"
+                  aria-label="Ответ"
+                  autoComplete="off"
+                  value={answers[current] ?? ''}
+                  placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
+                  onChange={(e) => setAnswer(e.target.value)}
+                  onKeyDown={onFieldKeyDown}
+                />
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  aria-label="Следующий вопрос"
+                  title="Следующий вопрос"
+                  disabled={current === questions.length - 1}
+                  onClick={() => go(current + 1)}
+                >
+                  <ChevronIcon direction="right" />
+                </button>
+                <button type="button" className="btn btn-primary composer-send" onClick={send}>
+                  <SendIcon />
+                  Отправить
+                </button>
+              </div>
+            ) : (
+              <div className="composer-row is-undo">
+                <button
+                  ref={undoButton}
+                  type="button"
+                  className="btn composer-undo"
+                  disabled={phase !== 'sending'}
+                  onClick={undo}
+                >
+                  Отменить
+                </button>
+              </div>
+            )}
+            {error && (
+              <span className="field-error error-text" role="alert">
+                <WarningIcon />
+                <span>{error}</span>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -714,30 +706,29 @@ function SendIcon() {
   )
 }
 
+function BoxIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="16.5" y1="9.4" x2="7.5" y2="4.21" />
+      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+      <line x1="12" y1="22.08" x2="12" y2="12" />
+    </svg>
+  )
+}
+
+function FolderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </svg>
+  )
+}
+
 function CheckIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <polyline points="20 6 9 17 4 12" />
-    </svg>
-  )
-}
-
-function DocIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <line x1="8" y1="13" x2="16" y2="13" />
-      <line x1="8" y1="17" x2="13" y2="17" />
-    </svg>
-  )
-}
-
-function LinkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
     </svg>
   )
 }
