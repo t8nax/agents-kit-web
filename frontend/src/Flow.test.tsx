@@ -1199,7 +1199,7 @@ test('отказ API по форме кита назван с флоу и ста
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   expect(
     await screen.findByText(
-      'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окна без сохранения — когда они закрыты, раздел перечитает флоу, и правку можно будет сделать заново.',
+      'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения — раздел перечитает флоу, когда все окна будут закрыты, и правку можно будет сделать заново.',
     ),
   ).toBeInTheDocument()
 })
@@ -1629,7 +1629,7 @@ test('задача, пошедшая по сценарию, пока окно б
   fireEvent.click(edit.getByRole('button', { name: 'Сохранить' }))
 
   expect(await edit.findByRole('alert')).toHaveTextContent(
-    'Флоу не сохранён: по сценарию «полный» идёт задача B-7. Пока она в работе, сценарий и его стадии не правятся. Закройте окна — когда они закрыты, раздел перечитает флоу.',
+    'Флоу не сохранён: по сценарию «полный» идёт задача B-7. Пока она в работе, сценарий и его стадии не правятся. Закройте окно — раздел перечитает флоу, когда все окна будут закрыты.',
   )
   // Набранное в окне остаётся, а флоу до закрытия окна не перечитывается
   expect(edit.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт')
@@ -1832,4 +1832,46 @@ test('ошибку формы кита в занятой стадии видно
   await renderFlow()
 
   expect(screen.getByText('Не сохранить: стадия «Ревью» — не указан выход')).toBeInTheDocument()
+})
+
+test('открытый сайдбар переживает окно нового сценария: его правка сохраняется и спрашивается при закрытии', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  const region = await renderFlow()
+  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
+  fireEvent.click(within(screen.getByRole('dialog', { name: 'Новый сценарий' })).getByRole('button', { name: 'Отмена' }))
+  // Меню блока, из которого открывают описание, сайдбар закрывает само — этот путь сайдбар не переживает и не должен
+  expect(screen.getByRole('complementary')).toBeInTheDocument()
+
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'крупная правка' } })
+  expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  // Схема под сайдбаром с правкой заперта: перестановка не унесёт её в базу
+  expect(region.getByRole('button', { name: 'Стадия 3 выше' }).closest('[inert]')).not.toBeNull()
+  fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
+  expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
+  expect((await saveAndRead(fetchMock)).flows[0].when).toBe('крупная правка')
+})
+
+test('описание, открытое из окна стадии и не записанное, не уходит с её «Сохранить»', async () => {
+  let refuse = true
+  const fetchMock = stubApi(
+    api([app], { 'POST /api/flow': () => (refuse ? json({ problem: 'not-committed', detail: 'hook' }, 502) : json({ version: 'v3' })) }),
+  )
+  await renderFlow()
+  const edit = await stagesTab('Приёмка')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'принято' } })
+  fireEvent.click(edit.getByRole('button', { name: /Редактировать описание/ }))
+  const description = within(screen.getByRole('dialog', { name: 'Описание стадии «Приёмка»' }))
+  fireEvent.change(description.getByRole('textbox', { name: 'Описание стадии' }), { target: { value: 'черновик' } })
+  fireEvent.click(description.getByRole('button', { name: 'Сохранить' }))
+  await description.findByRole('alert')
+  fireEvent.click(description.getByRole('button', { name: 'Закрыть описание' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
+
+  refuse = false
+  const sent = await saveAndRead(fetchMock)
+  const acceptanceSent = sent.stages.find((stage: FlowStage) => stage.title === 'Приёмка')
+  expect(acceptanceSent).toMatchObject({ output: 'принято', description: null })
 })
