@@ -751,7 +751,7 @@ test('действие на схеме, которое не записалось
 
   fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
 
-  expect(await screen.findByText(/^Флоу не сохранён: флоу изменился в базе/)).toBeInTheDocument()
+  expect(await screen.findByText('Флоу не сохранён: его изменили в базе. Раздел перечитал флоу — повторите действие.')).toBeInTheDocument()
   expect(labels(region)).toEqual(['Стадия 1: Критерий', 'Стадия 2: Ревью', 'Стадия 3: Приёмка'])
 })
 
@@ -1197,7 +1197,11 @@ test('отказ API по форме кита назван с флоу и ста
   vi.unstubAllGlobals()
   stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'changed' }, 409) }))
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  expect(await screen.findByText(/флоу изменился в базе, пока вы его правили/)).toBeInTheDocument()
+  expect(
+    await screen.findByText(
+      'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения и откройте его снова — в нём будет то, что сейчас в базе.',
+    ),
+  ).toBeInTheDocument()
 })
 
 test('проект без стадий и сценариев — вкладки на месте, пустое состояние у каждой своё', async () => {
@@ -1538,7 +1542,7 @@ test('сценарий, по которому идёт задача, тольк�
   const region = await renderFlow()
 
   expect(screen.getByText(/^Правка сценария закрыта — по нему идут задачи/)).toHaveTextContent(
-    'Правка сценария закрыта — по нему идут задачи B-7B-9',
+    'Правка сценария закрыта — по нему идут задачи B-7, B-9',
   )
   expect(region.getByRole('button', { name: 'Стадия 2 выше' })).toBeDisabled()
   expect(region.getByRole('button', { name: 'Добавить стадию' })).toBeDisabled()
@@ -1600,7 +1604,7 @@ test('задача с неузнанным сценарием закрывает
   const region = await renderFlow()
 
   expect(screen.getByText(/^Правка стадий и сценариев закрыта/)).toHaveTextContent(
-    'Правка стадий и сценариев закрыта — не видно, по какому сценарию идёт задача B-130',
+    'Правка стадий и сценариев закрыта — задача B-130 не называет своего сценария',
   )
   expect(region.getByRole('button', { name: 'Стадия 2 выше' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Новый сценарий' })).toBeEnabled()
@@ -1623,7 +1627,7 @@ test('задача, пошедшая по сценарию, пока окно б
   fireEvent.click(edit.getByRole('button', { name: 'Сохранить' }))
 
   expect(await edit.findByRole('alert')).toHaveTextContent(
-    'Флоу не сохранён: по сценарию «полный» идут задачи B-7 — пока они в работе, его и его стадии править нельзя.',
+    'Флоу не сохранён: по сценарию «полный» идёт задача B-7. Пока она в работе, сценарий и его стадии не правятся.',
   )
 })
 
@@ -1695,4 +1699,23 @@ test('у новой, ещё не записанной стадии удалят�
   fireEvent.click(description.getByRole('button', { name: 'Закрыть' }))
 
   expect(edit.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('задача, чей сценарий назван, но его в проекте нет, названа так, как на макете', async () => {
+  stubApi(api([{ ...app, tasks: [{ task: 'B-130', flow: null, named: 'Старый' }] }]))
+  await renderFlow()
+
+  expect(screen.getByText(/^Правка стадий и сценариев закрыта/)).toHaveTextContent(
+    'Правка стадий и сценариев закрыта — задача B-130 идёт по сценарию, которого в проекте нет',
+  )
+})
+
+test('пока флоу не записать, действия на схеме погашены так же, как «Сохранить» в окнах', async () => {
+  const fetchMock = stubApi(api([{ ...app, stages: [criterion, { ...review, executor: 'doc-writer' }, acceptance, spare] }], saved()))
+  const region = await renderFlow()
+
+  expect(screen.getByText(/^Не сохранить: стадия «Ревью»/)).toBeInTheDocument()
+  expect(region.getByRole('button', { name: 'Стадия 3 выше' })).toBeDisabled()
+  expect(menuOf(region, 'Стадия 1: Критерий').getByRole('menuitem', { name: 'Убрать из сценария' })).toBeDisabled()
+  expect(posts(fetchMock)).toBe(0)
 })

@@ -26,9 +26,10 @@ public sealed record BaseFlow(
 /// <summary>
 /// Задача в работе: Task — её номер из бэклога, а без номера — заголовок памяти или имя файла; Flow — флоу базы,
 /// названный строкой «флоу:» памяти. Flow null — флоу не назван или такого в базе нет: такая задача может идти
-/// по любому флоу и держит их все — решение оператора на B-226.
+/// по любому флоу и держит их все — решение оператора на B-226. Named — как флоу назван в памяти: по нему панель
+/// отличает флоу, которого в базе нет, от не названного вовсе.
 /// </summary>
-public sealed record FlowTask(string Task, string? Flow);
+public sealed record FlowTask(string Task, string? Flow, string? Named = null);
 
 /// <summary>Стадии и флоу базы целиком: стадия без слага заведена в панели, стадии, которой нет в списке, удаляются.</summary>
 public sealed record SaveFlowRequest(
@@ -215,7 +216,8 @@ public static class FlowEndpoints
                 TaskLabel(entry.Memory.Task, entry.File),
                 entry.Memory.Flow is { } named
                     ? flows.FirstOrDefault(f => FlowFolder.Key(f.Name) == FlowFolder.Key(named))?.Name
-                    : null))
+                    : null,
+                string.IsNullOrWhiteSpace(entry.Memory.Flow) ? null : entry.Memory.Flow))
             .OrderBy(t => t.Task, StringComparer.Ordinal)
             .ToList();
 

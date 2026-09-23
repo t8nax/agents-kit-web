@@ -487,7 +487,7 @@ test('сценарий, по которому идут задачи: строк�
   const region = await openFlow(page)
 
   const lock = page.locator('.flow-lock')
-  await expect(lock).toHaveText('Правка сценария закрыта — по нему идут задачи B-7B-9')
+  await expect(lock).toHaveText('Правка сценария закрыта — по нему идут задачи B-7, B-9')
   // Строка — между верхом раздела и холстом, во всю его ширину
   const [lockBox, canvas] = await Promise.all([lock.boundingBox(), page.locator('.flow-canvas').boundingBox()])
   expect(lockBox!.y + lockBox!.height).toBeLessThanOrEqual(canvas!.y + 1)

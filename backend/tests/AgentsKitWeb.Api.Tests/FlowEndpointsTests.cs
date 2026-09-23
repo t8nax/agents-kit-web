@@ -117,7 +117,7 @@ public sealed class FlowEndpointsTests : IDisposable
         var flow = Assert.Single(await GetFlows(Client(_base)));
 
         Assert.Equal(
-            [new FlowTask("B-7", "полный"), new FlowTask("c", null), new FlowTask("Задача без номера", null)],
+            [new FlowTask("B-7", "полный", "Полный"), new FlowTask("c", null), new FlowTask("Задача без номера", null, "старый")],
             flow.Tasks);
     }
 

@@ -54,9 +54,10 @@ export type NamedFlow = { name: string; when: string | null; entries: FlowEntry[
 
 /**
  * Задача в работе: task — её номер из бэклога, а без номера — заголовок; flow — сценарий, по которому она идёт.
- * flow null — сценарий не назван или его в проекте нет: такая задача может идти по любому (B-226).
+ * flow null — сценарий не назван или его в проекте нет: такая задача может идти по любому (B-226). named — как
+ * сценарий назван в памяти задачи: по нему видно, назван ли он вовсе.
  */
-export type FlowTask = { task: string; flow: string | null }
+export type FlowTask = { task: string; flow: string | null; named?: string | null }
 
 export type BaseFlow = {
   base: string
@@ -289,17 +290,30 @@ function firstProblem(draft: Draft, known: string[] | null): string | null {
   return null
 }
 
-/** Почему правка закрыта: tasks — номера задач, которые держат, text — фраза перед ними. */
-type Lock = { text: string; tasks: string[] }
+/** Почему правка закрыта: tasks — номера задач, которые держат, before и after — фраза вокруг них. */
+type Lock = { before: string; tasks: string[]; after?: string }
+
+/** Причина одной строкой: так её читает программа чтения экрана с карточки стадии. */
+const lockText = (lock: Lock) => [lock.before, lock.tasks.join(', '), lock.after].filter(Boolean).join(' ')
 
 const going = (count: number) => (count === 1 ? 'идёт задача' : 'идут задачи')
 
 /** Задачи, чей сценарий не узнан: они могут идти по любому и закрывают правку всего проекта. */
 function unknownLock(tasks: FlowTask[]): Lock | null {
-  const unknown = tasks.filter((one) => one.flow === null).map((one) => one.task)
-  return unknown.length > 0
-    ? { text: `не видно, по какому сценарию ${going(unknown.length)}`, tasks: unknown }
-    : null
+  const unknown = tasks.filter((one) => one.flow === null)
+  if (unknown.length === 0) return null
+  const one = unknown.length === 1
+  // Как на макете: задача называет сценарий, которого в проекте нет, — или не называет никакого.
+  const after = unknown.every((task) => task.named)
+    ? one
+      ? 'идёт по сценарию, которого в проекте нет'
+      : 'идут по сценариям, которых в проекте нет'
+    : unknown.every((task) => !task.named)
+      ? one
+        ? 'не называет своего сценария'
+        : 'не называют своих сценариев'
+      : 'идут по сценариям, которых в проекте нет или которые не названы'
+  return { before: one ? 'задача' : 'задачи', tasks: unknown.map((task) => task.task), after }
 }
 
 /** Сценарий базы занят: по нему идёт задача. Сценарий, которого в базе ещё нет, не занят никем. */
@@ -309,7 +323,7 @@ function flowLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
   const unknown = unknownLock(tasks)
   if (unknown) return unknown
   const held = tasks.filter((one) => one.flow !== null && norm(one.flow) === norm(flow.name)).map((one) => one.task)
-  return held.length > 0 ? { text: `по нему ${going(held.length)}`, tasks: held } : null
+  return held.length > 0 ? { before: `по нему ${going(held.length)}`, tasks: held } : null
 }
 
 /**
@@ -324,7 +338,7 @@ function stageLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
   if (flows.length === 0) return null
   const held = [...new Set(flows.flatMap((f) => flowLock(tasks, saved, f.key)!.tasks))]
   const names = flows.map((f) => `«${flowName(f)}»`).join(', ')
-  return { text: `по ${flows.length === 1 ? 'сценарию' : 'сценариям'} ${names} ${going(held.length)}`, tasks: held }
+  return { before: `по ${flows.length === 1 ? 'сценарию' : 'сценариям'} ${names} ${going(held.length)}`, tasks: held }
 }
 
 const entryTitle = (draft: Draft, entry: DraftEntry) => {
@@ -497,12 +511,13 @@ export default function Flow({
     }
   }
   const unread = flow?.unread ?? []
-  // Строку, которую панель не воспроизведёт, любая запись стёрла бы: пока её не поправили руками, записи нет.
-  const blocked = unread.length > 0
   const problem =
     unread.length > 0
       ? `в файлах флоу есть строка, которую панель не сохранит, — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
       : firstProblem(draft, known)
+  // Флоу, который не записать, не пишет ничего: строку, которую панель не воспроизведёт, запись стёрла бы, а ошибку
+  // формы — унесла бы в базу вместе с любой правкой. Окно, которое её чинит, записать можно: его правка в форме.
+  const blocked = problem !== null
 
   const currentFlow = draft.flows.find((f) => f.key === flowKey) ?? draft.flows[0] ?? null
   // Стадия выбрана, только пока её правят окном: оно открывается вместе с выбором карточки (B-192).
@@ -571,7 +586,7 @@ export default function Flow({
    * но отличается от базы только сделанной правкой — её API и перепишет. Пока запись идёт, форма уже
    * показывает правку сделанной.
    */
-  async function commit(next: Draft): Promise<string | null> {
+  async function commit(next: Draft, from: Source): Promise<string | null> {
     if (!flow) return 'Флоу не сохранён'
     setDraft(next)
     setSaving(true)
@@ -589,7 +604,10 @@ export default function Flow({
         return null
       }
       const body = (await response.json().catch(() => null)) as RejectedBody | null
-      return saveError(response.status, body)
+      // Занятое и изменённое в базе видно только в перечитанном флоу: замок встанет сам. Окно своё изменённым
+      // флоу не перечитывает — поля в нём пропали бы, — и говорит, как быть.
+      if (response.status === 409 && (body?.problem === 'busy' || from !== 'window')) await loadFlows()
+      return saveError(response.status, body, from)
     } catch {
       return 'Флоу не сохранён: нет связи с API'
     } finally {
@@ -600,7 +618,7 @@ export default function Flow({
   /** Действие без окна пишется сразу; не записалось — схема возвращается к базе, а отказ назван над ней. */
   async function act(next: Draft) {
     if (saving) return
-    const failed = await commit(next)
+    const failed = await commit(next, 'action')
     if (failed) {
       setEdits(null)
       setNotice(failed)
@@ -614,7 +632,7 @@ export default function Flow({
   async function keep(next: Draft, close: () => void) {
     if (saving) return false
     setFailure(null)
-    const failed = await commit(next)
+    const failed = await commit(next, 'window')
     if (failed) {
       setFailure(failed)
       return false
@@ -652,7 +670,7 @@ export default function Flow({
         ? stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
         : [...stages, { ...fields, slug: null }]
     }
-    const failed = await commit({ ...saved, stages })
+    const failed = await commit({ ...saved, stages }, 'rewrite')
     if (failed) {
       setEdits(null)
       return failed
@@ -1065,7 +1083,7 @@ export default function Flow({
           // Описание пишется вместе со стадией: открытое из окна правки, оно уносит и её несохранённые поля.
           onSave={async (description) => {
             const next = { ...draft, stages: draft.stages.map((s) => (s.key === currentStage.key ? { ...s, description } : s)) }
-            return commit(next)
+            return commit(next, 'window')
           }}
         />
       )}
@@ -1145,12 +1163,24 @@ type Asking = { title: string; text?: string; cancel: string; confirm: string; o
 
 type RejectedBody = { problem?: string; flow?: string | null; stage?: string | null; detail?: string | null }
 
-function saveError(status: number, body: RejectedBody | null) {
-  // Задача пошла по сценарию, пока окно было открыто: запись отклонена, а занятое панель покажет, перечитав флоу.
-  if (status === 409 && body?.problem === 'busy')
-    return `Флоу не сохранён: ${body.flow ? `по сценарию «${body.flow}»` : 'по сценарию проекта'} идут задачи ${body.detail ?? ''} — пока они в работе, его и его стадии править нельзя.`
+/** Откуда запись: окно со своими полями, действие на схеме или принятые правки Чудо-Юдо. */
+type Source = 'window' | 'action' | 'rewrite'
+
+function saveError(status: number, body: RejectedBody | null, from: Source) {
+  // Задача пошла по сценарию, пока его правили: запись отклонена, а флоу перечитан, и замок уже стоит.
+  if (status === 409 && body?.problem === 'busy') {
+    const count = (body.detail ?? '').split(',').filter((one) => one.trim()).length
+    const one = count === 1
+    return body.flow
+      ? `Флоу не сохранён: по сценарию «${body.flow}» ${going(count)} ${body.detail ?? ''}. Пока ${one ? 'она' : 'они'} в работе, сценарий и его стадии не правятся.`
+      : `Флоу не сохранён: ${one ? 'задача' : 'задачи'} ${body.detail ?? ''} ${one ? 'идёт' : 'идут'} по сценарию, которого панель не узнала. Пока ${one ? 'она' : 'они'} в работе, стадии и сценарии проекта не правятся.`
+  }
   if (status === 409)
-    return 'Флоу не сохранён: флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
+    return from === 'window'
+      ? 'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения и откройте его снова — в нём будет то, что сейчас в базе.'
+      : from === 'rewrite'
+        ? `Флоу не сохранён: его изменили в базе, пока ${AGENT_NAME} работал. Раздел перечитал флоу — примите правки ещё раз.`
+        : 'Флоу не сохранён: его изменили в базе. Раздел перечитал флоу — повторите действие.'
   // Страховка: при том же отпечатке такие строки уже пришли с флоу, и «Сохранить» заперта раньше, чем дойдёт до API.
   if (status === 400 && body?.problem === 'unread')
     return `Флоу не сохранён: в файлах флоу есть строка, которую панель не сохранит, — ${body.detail ?? ''}`.trim()
@@ -1348,7 +1378,7 @@ function StagesTab({
                 </span>
                 {/* Занятая стадия: замок и задачи, которые её держат, — макет B-226. */}
                 {lockOf(stage.key) && (
-                  <span className="flow-card-lock" aria-label={`Правка закрыта: ${lockOf(stage.key)!.text} ${lockOf(stage.key)!.tasks.join(', ')}`}>
+                  <span className="flow-card-lock" aria-label={`Правка закрыта: ${lockText(lockOf(stage.key)!)}`}>
                     <LockIcon />
                     {lockOf(stage.key)!.tasks.join(', ')}
                   </span>
@@ -3364,9 +3394,11 @@ function ChevronDownIcon() {
 function TaskTags({ tasks }: { tasks: string[] }) {
   return (
     <>
-      {tasks.map((task) => (
-        <span key={task} className="flow-task-tag">
-          {task}
+      {tasks.map((task, i) => (
+        <span key={task}>
+          {/* Плашки стоят рядом, а текстом строки читаются через запятую. */}
+          {i > 0 && <span className="visually-hidden">, </span>}
+          <span className="flow-task-tag">{task}</span>
         </span>
       ))}
     </>
@@ -3378,7 +3410,8 @@ function LockLine({ lock, what }: { lock: Lock; what: string }) {
   return (
     <p className="flow-lock" role="status">
       <LockIcon />
-      {what} — {lock.text} <TaskTags tasks={lock.tasks} />
+      {what} — {lock.before} <TaskTags tasks={lock.tasks} />
+      {lock.after && ` ${lock.after}`}
     </p>
   )
 }
@@ -3388,7 +3421,8 @@ function LockNote({ lock }: { lock: Lock }) {
   return (
     <p className="flow-scope-warning flow-scope-lock" role="status">
       <LockIcon />
-      Правка закрыта: {lock.text} <TaskTags tasks={lock.tasks} />
+      Правка закрыта: {lock.before} <TaskTags tasks={lock.tasks} />
+      {lock.after && ` ${lock.after}`}
     </p>
   )
 }
