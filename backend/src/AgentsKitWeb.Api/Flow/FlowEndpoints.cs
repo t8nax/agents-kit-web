@@ -42,8 +42,9 @@ public sealed record SaveFlowRequest(
 public sealed record FlowSavedResponse(string Version);
 
 /// <summary>
-/// Problem: changed · not-written · not-committed · not-restored · unread · проблема из FlowFolder.Validate; Flow и Stage —
-/// где она, Detail — что сказали запись или git, или первая строка, которую панель не сохранит.
+/// Problem: changed · not-written · not-committed · not-restored · unread · busy · проблема из FlowFolder.Validate; Flow и Stage —
+/// где она, Detail — что сказали запись или git, первая строка, которую панель не сохранит, или задачи, которые держат
+/// тронутый флоу.
 /// </summary>
 public sealed record FlowRejectedResponse(string Problem, string? Flow = null, string? Stage = null, string? Detail = null);
 
@@ -79,6 +80,10 @@ public static class FlowEndpoints
 
             if (FlowFolder.Validate(request.Stages, request.Flows) is { } rejection)
                 return Results.BadRequest(new FlowRejectedResponse(rejection.Problem, rejection.Flow, rejection.Stage));
+
+            // Флоу, по которому идёт задача, и его стадии не правятся: задача дошла бы по другим стадиям, чем начала.
+            if (Busy(basePath, files, request) is { } busy)
+                return Results.Conflict(busy);
 
             var writes = Plan(basePath, files, request);
             // Значки живут в настройках панели: файлы могли не измениться, а значок стадии — да.
@@ -181,6 +186,43 @@ public static class FlowEndpoints
         {
             return new BaseFlow(basePath, project, [], [], 0, null, "Флоу базы не прочитан", Empty);
         }
+    }
+
+    /// <summary>
+    /// Тронутое занятое: флоу, по которому идёт задача, изменён или убран, или изменена либо удалена стоящая в нём
+    /// стадия. Задача без узнанного флоу держит все флоу и стадии базы; новые стадия и флоу не заняты никем.
+    /// </summary>
+    private static FlowRejectedResponse? Busy(string basePath, List<FlowFileBytes> files, SaveFlowRequest request)
+    {
+        var stages = Stages(files);
+        var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
+        var flows = list is null ? [] : FlowFolder.ParseList(Text(list.Bytes), Titles(stages)).Flows;
+        var tasks = Tasks(basePath, flows);
+        if (tasks.Count == 0)
+            return null;
+
+        var anyFlow = tasks.Any(t => t.Flow is null);
+        string Holders(string? flow) =>
+            string.Join(", ", tasks.Where(t => t.Flow is null || t.Flow == flow).Select(t => t.Task));
+
+        foreach (var flow in flows.Where(f => anyFlow || tasks.Any(t => t.Flow == f.Name)))
+            if (!request.Flows.Contains(flow))
+                return new FlowRejectedResponse("busy", Flow: flow.Name, Detail: Holders(flow.Name));
+
+        foreach (var stage in stages)
+        {
+            // Задача без узнанного флоу держит стадию сама, флоу у неё нет; иначе стадию держит занятый флоу, где она стоит.
+            string? holder = null;
+            if (!anyFlow)
+            {
+                holder = flows.FirstOrDefault(f => tasks.Any(t => t.Flow == f.Name) && f.Entries.Any(e => e.Stage == stage.Title))?.Name;
+                if (holder is null)
+                    continue;
+            }
+            if (!request.Stages.Contains(stage))
+                return new FlowRejectedResponse("busy", Flow: holder, Stage: stage.Title, Detail: Holders(holder));
+        }
+        return null;
     }
 
     /// <summary>Задачи в работе по памятям work/*.md и флоу каждой: имя флоу сравнивается, как их сравнивает кит.</summary>

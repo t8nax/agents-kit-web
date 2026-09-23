@@ -280,6 +280,61 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_TouchingFlowTaskGoesByOrItsStage_IsRejectedAndTheRestIsWritten()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: мелкий\n");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+
+        // «Приёмка» стоит и в свободном «полном», но занятый «мелкий» держит её для всех флоу.
+        var stage = await Save(client, flow, flow.Stages.Select(s => s.Title == "Приёмка" ? s with { Output = "принято" } : s).ToList());
+        var list = await Save(client, flow, flow.Stages, [flow.Flows[0], flow.Flows[1] with { When = "другое" }]);
+        var gone = await Save(client, flow, flow.Stages, [flow.Flows[0]]);
+
+        var stages = new List<string?>();
+        foreach (var response in new[] { stage, list, gone })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            var rejected = (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
+            Assert.Equal(("busy", "мелкий", "B-7"), (rejected.Problem, rejected.Flow, rejected.Detail));
+            stages.Add(rejected.Stage);
+        }
+        Assert.Equal(["Приёмка", null, null], stages);
+        Assert.Equal(Acceptance.ReplaceLineEndings("\n"), File.ReadAllText(Stage("acceptance")));
+        Assert.Equal(List.ReplaceLineEndings("\n"), File.ReadAllText(_listPath));
+
+        // Свободное пишется: стадия только свободного флоу и новый флоу.
+        var free = await Save(client, flow,
+            flow.Stages.Select(s => s.Title == "Критерий" ? s with { Output = "критерий" } : s).ToList(),
+            [.. flow.Flows, new NamedFlow("новый", "другое", [new FlowEntry("Критерий")])]);
+
+        Assert.Equal(HttpStatusCode.OK, free.StatusCode);
+        Assert.Contains("выход: критерий\n", File.ReadAllText(Stage("criterion")));
+        Assert.Contains("## новый", File.ReadAllText(_listPath));
+    }
+
+    [Fact]
+    public async Task Save_TaskWithUnknownFlow_HoldsEveryFlowAndStageButNotNewOnes()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: переименованный\n");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+
+        var stage = await Save(client, flow, flow.Stages.Select(s => s.Title == "Критерий" ? s with { Output = "критерий" } : s).ToList());
+
+        Assert.Equal(HttpStatusCode.Conflict, stage.StatusCode);
+        var rejected = (await stage.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
+        Assert.Equal(("busy", null, "Критерий", "B-7"), (rejected.Problem, rejected.Flow, rejected.Stage, rejected.Detail));
+
+        var fresh = await Save(client, flow, [.. flow.Stages, new FlowStage("Мерж", "оркестратор", "смержено", null, null)]);
+
+        Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(_base, "flow", "stages")).Length);
+    }
+
+    [Fact]
     public async Task Save_AnyFlowFileChangedSinceRead_IsRejectedAndFilesUntouched()
     {
         var client = Client(_base);
