@@ -632,7 +632,9 @@ export default function Flow({
   }
 
   const editable = flow !== null && !flow.error
-  const empty = editable && draft.flows.length === 0
+  // Нет сценариев или стадий — пустое состояние только на своей вкладке: переключатель и другая вкладка остаются (B-222).
+  const noFlows = editable && draft.flows.length === 0
+  const noStages = editable && draft.stages.length === 0
   // Открыто окно поверх раздела: верх, схема и полоса под подложкой недоступны — Tab не уходит из окна.
   // Окно переписывания у непрочитанного флоу не встаёт — и верх раздела не запирает: проект можно сменить или обновить.
   const covered =
@@ -647,7 +649,7 @@ export default function Flow({
       <div className="vc-head" inert={covered}>
         <h2>Флоу</h2>
         <div className="head-end flow-actions">
-          {editable && !empty && (
+          {editable && (
             <>
               <div className="vc-tabs" role="tablist" aria-label="Части флоу">
                 {(['stages', 'flow'] as const).map((one) => (
@@ -700,8 +702,8 @@ export default function Flow({
             {(close) => (
               <>
                 {/* Правки агента ложатся в черновик поверх несохранённых: стадии он получает такими, как на экране.
-                    Без флоу вкладок нет, и новую стадию было бы не видно: пункта в пустом состоянии нет. */}
-                {editable && !empty && (
+                    Вкладка «Стадии» видна и без сценариев, поэтому пункт есть и у проекта без них (B-222). */}
+                {editable && (
                   <button
                     type="button"
                     role="menuitem"
@@ -782,21 +784,35 @@ export default function Flow({
 
       {load.kind === 'loaded' && (
         <div className={withReveal('flow-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
-          {empty && (
+          {noFlows && tab === 'flow' && (
             <div className="flow-empty">
               <span className="flow-empty-mark" aria-hidden="true">
                 <FlowIcon />
               </span>
-              <h3>В этом проекте нет флоу</h3>
-              <p>Флоу — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
+              <h3>В этом проекте нет сценариев</h3>
+              <p>Сценарий — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
               <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
                 <PlusIcon />
-                Создать первый флоу
+                Создать первый сценарий
               </button>
             </div>
           )}
 
-          {editable && !empty && tab === 'stages' && (
+          {noStages && tab === 'stages' && (
+            <div className="flow-empty">
+              <span className="flow-empty-mark" aria-hidden="true">
+                <FlowIcon />
+              </span>
+              <h3>В этом проекте нет стадий</h3>
+              <p>Стадия — шаг работы над задачей: кто его делает и что должно получиться. Сценарии собираются из стадий.</p>
+              <button type="button" className="bases-btn bases-btn-primary" onClick={newStage}>
+                <PlusIcon />
+                Создать первую стадию
+              </button>
+            </div>
+          )}
+
+          {editable && !noStages && tab === 'stages' && (
             <StagesTab
               draft={draft}
               current={currentStage}
@@ -823,7 +839,7 @@ export default function Flow({
             />
           )}
 
-          {editable && !empty && tab === 'flow' && currentFlow && (
+          {editable && tab === 'flow' && currentFlow && (
             <FlowTab
               draft={draft}
               flow={currentFlow}
@@ -921,9 +937,8 @@ export default function Flow({
       )}
 
       {/* Полоса сохранения стоит внизу раздела и видна при правках — вариант оператора, — а ещё когда флоу
-          в базе уже сломан: иначе не видно, почему его не сохранить. С правками она стоит и в пустом
-          состоянии: удалённый последний флоу иначе не сохранить и не отменить. */}
-      {editable && (dirty || (problem && !empty)) && (
+          в базе уже сломан: иначе не видно, почему его не сохранить. */}
+      {editable && (dirty || problem) && (
         <div className="save-bar" inert={covered}>
           <div className="save-bar-state">
             {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
