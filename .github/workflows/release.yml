@@ -65,7 +65,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $flags = if ('${{ steps.release.outputs.channel }}' -eq 'dev') { @('--prerelease') } else { @('--latest') }
-          gh release create '${{ steps.release.outputs.tag }}' build/agents-kit-web-win-x64.zip `
-            --target '${{ github.sha }}' --title '${{ steps.release.outputs.version }}' `
-            --notes-file build/notes.md @flags
+          $arguments = @(
+            'release', 'create', '${{ steps.release.outputs.tag }}', 'build/agents-kit-web-win-x64.zip',
+            '--target', '${{ github.sha }}', '--title', '${{ steps.release.outputs.version }}',
+            '--notes-file', 'build/notes.md'
+          )
+          $arguments += if ('${{ steps.release.outputs.channel }}' -eq 'dev') { '--prerelease' } else { '--latest' }
+          gh @arguments
