@@ -815,14 +815,15 @@ export default function Flow({
   // Открыто окно поверх раздела: верх и схема под подложкой недоступны — Tab не уходит из окна. Сайдбар
   // с несохранённым запирает схему тоже: действие на ней записало бы и его правку.
   // Окно переписывания у непрочитанного флоу не встаёт — и верх раздела не запирает: проект можно сменить или обновить.
-  const covered =
+  const overlaid =
     stageOpen ||
     modal === 'description' ||
     modal === 'new-flow' ||
     (modal === 'rewrite' && editable) ||
     opened?.kind === 'returns' ||
-    (opened?.kind === 'flow' && changed) ||
     asking !== null
+  // Сайдбар с правкой запирает схему и всё вокруг, но не себя: в нём и правят (замечание оператора на приёмке B-226).
+  const covered = overlaid || (opened?.kind === 'flow' && changed)
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
   const backToBlock = () => origin !== null && setFocus({ key: origin })
@@ -1047,6 +1048,7 @@ export default function Flow({
               opened={opened}
               known={known}
               covered={covered}
+              overlaid={overlaid}
               busy={saving || unread.length > 0 || currentLock !== null}
               locked={currentLock !== null}
               focus={focus}
@@ -1778,6 +1780,7 @@ function FlowTab({
   opened,
   known,
   covered,
+  overlaid,
   busy,
   locked,
   focus,
@@ -1796,7 +1799,10 @@ function FlowTab({
   flow: DraftFlow
   opened: Opened
   known: string[] | null
+  /** Схема под окном или под сайдбаром с правкой: недоступна для мыши и Tab. */
   covered: boolean
+  /** Поверх раздела окно: недоступен и сайдбар. */
+  overlaid: boolean
   /** Идёт запись: перестановка, добавление и уборка стадии недоступны, пока флоу не перечитан. */
   busy: boolean
   /** По сценарию идёт задача: схема только для чтения, у блоков нет ручки перетаскивания. */
@@ -1865,8 +1871,8 @@ function FlowTab({
 
   return (
     <>
-      <section className={`flow-canvas ${locked ? 'is-locked' : ''}`} aria-label={`Сценарий «${flowName(flow)}»`} inert={covered}>
-        <div className="flow-canvas-pick">
+      <section className={`flow-canvas ${locked ? 'is-locked' : ''}`} aria-label={`Сценарий «${flowName(flow)}»`} inert={overlaid}>
+        <div className="flow-canvas-pick" inert={covered}>
           <PickMenu
             label="Сценарий"
             value={flowName(flow)}
@@ -1880,7 +1886,7 @@ function FlowTab({
           </button>
         </div>
 
-        <div className="flow-scroll">
+        <div className="flow-scroll" inert={covered}>
           <div className="flow-chain" ref={chain}>
             <ReturnArcs flow={flow} lit={lit} />
             <button

@@ -1683,6 +1683,8 @@ test('сайдбар после «Сохранить» остаётся откр
   expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
   // Схема под сайдбаром с несохранённым заперта: перестановка записала бы и его правку
   expect(region.getByRole('button', { name: 'Стадия 3 выше' }).closest('[inert]')).not.toBeNull()
+  // …а сам сайдбар — нет: в нём правят (замечание оператора на приёмке B-226)
+  expect(screen.getByRole('complementary').closest('[inert]')).toBeNull()
   fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
   expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
@@ -1848,6 +1850,8 @@ test('открытый сайдбар переживает окно нового
   expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
   // Схема под сайдбаром с правкой заперта: перестановка не унесёт её в базу
   expect(region.getByRole('button', { name: 'Стадия 3 выше' }).closest('[inert]')).not.toBeNull()
+  // …а сам сайдбар — нет: в нём правят (замечание оператора на приёмке B-226)
+  expect(screen.getByRole('complementary').closest('[inert]')).toBeNull()
   fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
   expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))

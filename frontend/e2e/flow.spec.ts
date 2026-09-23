@@ -760,3 +760,21 @@ test('проект без стадий и сценариев — вкладки 
   await expect(dialog.getByText(/В проекте нет стадий\. Заведите первую на вкладке «Стадии»/)).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
+
+test('в сайдбаре сценария название набирается целиком: правка запирает схему, но не сам сайдбар', async ({ page }) => {
+  await mockApi(page)
+  const region = await openFlow(page)
+  await region.getByRole('button', { name: 'Сценарий «полный»: название и «когда»' }).click()
+  const drawer = page.getByRole('complementary')
+  const name = drawer.getByRole('textbox', { name: 'Название сценария' })
+
+  await name.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' большой')
+
+  await expect(name).toHaveValue('полный большой')
+  await expect(name).toBeFocused()
+  await expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  // Схема под сайдбаром с правкой заперта
+  expect(await page.locator('.flow-scroll').evaluate((el) => el.closest('[inert]') !== null)).toBe(true)
+})
