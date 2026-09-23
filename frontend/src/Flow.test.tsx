@@ -1353,9 +1353,9 @@ test('«Переписать с Чудо-Юдо» в меню «…» шлёт �
   ])
 })
 
-test('«Отказаться» в окне переписывания черновик не трогает', async () => {
+test('«Отказаться» в окне переписывания ничего не пишет в базу и новой стадии не заводит', async () => {
   const rewritten = [{ of: null, stage: { ...spare, title: 'Документация', slug: null } }]
-  stubApi(api([app], rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }])))
+  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
   await renderFlow()
 
   fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
@@ -1365,7 +1365,9 @@ test('«Отказаться» в окне переписывания черно
   fireEvent.click(await modal.findByRole('button', { name: 'Отказаться' }))
 
   await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument())
-  expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+  expect(posts(fetchMock)).toBe(0)
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  expect(within(screen.getByRole('list', { name: 'Стадии базы' })).queryByText('Документация')).not.toBeInTheDocument()
 })
 
 test('раздел, открытый с отметки просьбы в шапке, сразу показывает окно переписывания', async () => {
