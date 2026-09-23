@@ -39,21 +39,19 @@ async function alive(kind: ConversationKind, id: string) {
 /**
  * Разговор с агентом. Переписку держит панель, а окно её только показывает: открытое заново, оно читает её
  * с начала — вместе с ответом, пришедшим без него. Закрытие окна разговор не трогает, убирает его только
- * forget — решения оператора на B-79. restore — подхватить ли идущий разговор при открытии окна.
+ * forget — решения оператора на B-79; окна бэклога это касается с B-228.
  */
-export function useAgentConversation<E extends ConversationEvent = AskEvent>(
-  kind: ConversationKind = 'ask',
-  restore = true,
-) {
+export function useAgentConversation<E extends ConversationEvent = AskEvent>(kind: ConversationKind = 'ask') {
   const [events, setEvents] = useState<E[]>([])
   const [base, setBase] = useState<string | null>(null)
-  // Про что разговор помимо базы: у вопроса по базе — копия проекта, чей код читает агент.
+  // Про что разговор помимо базы: у вопроса по базе — копия проекта, чей код читает агент, у разговора о бэклоге —
+  // запись, от которой он открыт.
   const [subject, setSubject] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [retry, setRetry] = useState<string | null>(null)
-  const [restoring, setRestoring] = useState(restore)
+  const [restoring, setRestoring] = useState(true)
   const reading = useRef<AbortController | null>(null)
 
   // wasAnswering — дочитывание оборванного потока: идёт ли ответ, знает прошлое чтение, а не сводка, взятая
@@ -143,7 +141,6 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
 
   // Окно открылось: идущий или дождавшийся разговор подхватывается с начала.
   useEffect(() => {
-    if (!restore) return
     let alive = true
     fetch('/api/agent/requests')
       .then((response) => (response.ok ? (response.json() as Promise<AgentRequestSummary[]>) : []))
@@ -161,7 +158,7 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(
       // Закрытое окно перестаёт читать поток, но разговор не трогает: агент остаётся с ним.
       reading.current?.abort()
     }
-  }, [follow, kind, restore])
+  }, [follow, kind])
 
   /** Первая реплика: заводит разговор по выбранной базе — тело просьбы у каждого вида своё. */
   const start = useCallback(

@@ -96,8 +96,10 @@ export default function BacklogWriteModal({
   const feed = useRef<HTMLDivElement>(null)
 
   const talking = events.length > 0
-  // Пока окно от записи не решило, какой разговор показывать, чужую переписку оно не показывает.
-  const waiting = restoring || deciding
+  // Пока окно от записи не решило, какой разговор показывать, и пока заменяемый разговор не убран, чужую
+  // переписку оно не показывает.
+  const hidden = deciding || (verdict === 'other' && talking)
+  const waiting = restoring || hidden
   // Реплика, на которой агент сорвался, возвращается в поле: отправить её снова — одно нажатие.
   const value = text ?? retry ?? ''
   const base = conversation.base ?? chosen
@@ -137,12 +139,12 @@ export default function BacklogWriteModal({
     .filter((number): number is string => number !== null)
     .join(' ')
   useEffect(() => {
-    if (base && added) onEntries(base, added.split(' '))
-  }, [base, added, onEntries])
+    if (base && added && !hidden) onEntries(base, added.split(' '))
+  }, [base, added, hidden, onEntries])
 
   useEffect(() => {
-    if (base && savedCount > 0) onSaved?.(base)
-  }, [base, savedCount, onSaved])
+    if (base && savedCount > 0 && !hidden) onSaved?.(base)
+  }, [base, savedCount, hidden, onSaved])
 
   const states = proposalStates(events)
   const pendingProposal =
@@ -189,6 +191,8 @@ export default function BacklogWriteModal({
   async function restart(to: Props['subject']) {
     setAsking(null)
     setOwn(to ?? null)
+    // Проект нового разговора — тот, о котором шёл прежний, даже если окно подхватило его из шапки.
+    setChosen(to?.base ?? conversation.base ?? chosen)
     setText(null)
     setSaveError(null)
     await forget()
@@ -305,7 +309,7 @@ export default function BacklogWriteModal({
         </div>
 
         {/* Ждущее предложение — полосой под шапкой, а не в переписке: в ленте только его карточки (макет B-228). */}
-        {pendingProposal && !deciding && (
+        {pendingProposal && !hidden && (
           <div className="talk-pending" role="status">
             <ClockIcon />
             <span>{pendingTitle(pendingProposal)}</span>
@@ -349,7 +353,7 @@ export default function BacklogWriteModal({
               </ul>
             </div>
           )}
-          {(deciding ? [] : events).map((event, i) => {
+          {(hidden ? [] : events).map((event, i) => {
             switch (event.type) {
               case 'reply':
                 return (
@@ -393,7 +397,7 @@ export default function BacklogWriteModal({
                 return null
             }
           })}
-          {running && !deciding && (
+          {running && !hidden && (
             <div className="agent-q talk-agent">
               <div className="ask-waiting talk-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />

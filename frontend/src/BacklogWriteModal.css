@@ -141,10 +141,10 @@
   min-height: 42px;
 }
 
-/* Переспрос на месте поля — той же высоты, чтобы подвал не прыгал. Подтверждение красное: выброшенное
-   предложение не вернуть. */
+/* Переспрос на месте поля — не ниже его, чтобы подвал не прыгал; длинный текст растит его, а не лезет на кнопки.
+   Подтверждение красное (общее .btn.btn-danger): выброшенное предложение не вернуть. */
 .talk-confirm {
-  height: 64px;
+  min-height: 64px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -161,16 +161,6 @@
   font-size: 13px;
   line-height: 1.45;
   color: var(--text-secondary);
-}
-
-.talk-buttons .btn-danger {
-  color: var(--accent-error-text);
-  background: var(--accent-error-bg);
-  border-color: var(--accent-error-border);
-}
-
-.talk-buttons .btn-danger:hover {
-  border-color: var(--accent-error-text);
 }
 
 /* ---------- записи ---------- */

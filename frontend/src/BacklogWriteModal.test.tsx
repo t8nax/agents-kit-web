@@ -613,6 +613,19 @@ test('кнопки ждущего предложения стоят полосо
   expect(within(bar).getByRole('button', { name: 'Отказаться' })).toBeDisabled()
 })
 
+test('после «Новой переписки» в подхваченном разговоре выбран его проект, а не первый', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, { running: runningRequest('backlog', 'поправь', bases[1].base, 'Nota') })
+  renderModal()
+
+  stream.send({ type: 'reply', text: 'поправь' })
+  stream.send(answer({ text: 'Готово.' }))
+  await screen.findByText('Готово.')
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+
+  expect(await screen.findByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+})
+
 test('без текста отправить нельзя', async () => {
   stubFetch(controlledStream())
   renderModal()
