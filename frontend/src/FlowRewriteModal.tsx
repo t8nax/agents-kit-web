@@ -76,10 +76,11 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || applying) return
+      if (event.key !== 'Escape') return
       if (description) setDescription(null)
       else if (picking) setPicking(false)
-      else onClose()
+      // Пока правки пишутся, окно не закрывается; вложенное чтение описания и выбор стадий записи не мешают.
+      else if (!applying) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

@@ -278,14 +278,16 @@ function firstProblem(
   known: string[] | null,
   held: { stage: (key: number) => boolean; flow: (key: number) => boolean } = { stage: () => false, flow: () => false },
 ): string | null {
-  // Занятые стадию и сценарий запись не меняет и починить их сейчас нельзя: их ошибка остальное не запирает (ревью B-226).
+  // Занятые стадию и сценарий запись не меняет и починить их сейчас нельзя: ошибка, которую видит только панель, —
+  // незаведённый исполнитель или помощник, — остальное не запирает (ревью B-226). Ошибку формы кита проверит и API:
+  // её запись не обойдёт, и о ней лучше знать заранее.
   for (const stage of draft.stages) {
-    if (held.stage(stage.key)) continue
-    const errors = stageErrors(stage, draft.stages, known)
+    const errors = stageErrors(stage, draft.stages, known).filter(
+      (error) => !held.stage(stage.key) || !panelOnly.includes(error),
+    )
     if (errors.length > 0) return `стадия «${stageName(stage)}» — ${errors.join(', ')}`
   }
   for (const flow of draft.flows) {
-    if (held.flow(flow.key)) continue
     const errors = flowErrors(flow, draft.flows)
     if (errors.length > 0) return `флоу «${flowName(flow)}» — ${errors.join(', ')}`
     for (let index = 0; index < flow.entries.length; index++) {
@@ -347,6 +349,9 @@ function stageLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
   const names = flows.map((f) => `«${flowName(f)}»`).join(', ')
   return { before: `по ${flows.length === 1 ? 'сценарию' : 'сценариям'} ${names} ${going(held.length)}`, tasks: held }
 }
+
+/** Ошибки стадии, которых не проверяет API: исполнитель и помощник, которых нет в базе проекта. */
+const panelOnly = ['исполнителя нет в базе', 'помощника нет в базе']
 
 const entryTitle = (draft: Draft, entry: DraftEntry) => {
   const stage = draft.stages.find((s) => s.key === entry.stage)
@@ -601,7 +606,11 @@ export default function Flow({
   async function commit(next: Draft, from: Source): Promise<string | null> {
     if (!flow) return 'Флоу не сохранён'
     const reason = cannot(next)
-    if (reason) return `Не сохранить: ${reason}`
+    // Ошибка, которая уже названа над разделом, второй раз не повторяется: действие просто не записано.
+    if (reason)
+      return reason === problem
+        ? 'Действие не записано: флоу остался бы с ошибкой, названной выше.'
+        : `Не сохранить: ${reason}`
     setDraft(next)
     setSaving(true)
     setNotice(null)
@@ -1209,7 +1218,7 @@ type Source = 'window' | 'action' | 'rewrite'
 function saveError(status: number, body: RejectedBody | null, from: Source) {
   // Задача пошла по сценарию, пока его правили: запись отклонена, а флоу перечитан, и замок уже стоит.
   // Окно своё перечитает, когда его закроют; действие и правки агента перечитали флоу сразу.
-  const reread = from === 'window' ? ' Закройте окно — раздел перечитает флоу.' : ''
+  const reread = from === 'window' ? ' Закройте окна — когда они закрыты, раздел перечитает флоу.' : ''
   if (status === 409 && body?.problem === 'busy') {
     const count = (body.detail ?? '').split(',').filter((one) => one.trim()).length
     const one = count === 1
@@ -1219,7 +1228,7 @@ function saveError(status: number, body: RejectedBody | null, from: Source) {
   }
   if (status === 409)
     return from === 'window'
-      ? 'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения — раздел перечитает флоу, и правку можно будет сделать заново.'
+      ? 'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окна без сохранения — когда они закрыты, раздел перечитает флоу, и правку можно будет сделать заново.'
       : from === 'rewrite'
         ? `Флоу не сохранён: его изменили в базе, пока ${AGENT_NAME} работал. Раздел перечитал флоу — примите правки ещё раз.`
         : 'Флоу не сохранён: его изменили в базе. Раздел перечитал флоу — повторите действие.'
