@@ -37,16 +37,30 @@ public sealed class VersionHooksTests : IDisposable
     }
 
     [Fact]
-    public void MergeIntoDev_WithShortenedSameVersion_IsRefused()
+    public void MergeIntoDev_WithSameVersionWrittenInFull_IsRefused()
     {
-        // «0.10» — тот же номер, что «0.10.0», а не меньший.
+        // «0.10» — тот же номер, что «0.10.0»: дописанный ноль номер не поднимает.
         var repository = Repository();
-        Task(repository, "feat/short", "0.10");
+        Commit(repository, "version.txt", "0.10");
+        Task(repository, "feat/full", "0.10.0");
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/short", "-m", "Merge feat/short");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/full", "-m", "Merge feat/full");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("в dev 0.10.0, после слияния 0.10", errors);
+        Assert.Contains("в dev 0.10, после слияния 0.10.0", errors);
+    }
+
+    [Fact]
+    public void MergeIntoDev_WithFourPartVersion_IsRefusedWithExplanation()
+    {
+        // Номер — три числа: четвёртое молча отброшенным не остаётся.
+        var repository = Repository();
+        Task(repository, "feat/four", "0.10.0.1");
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/four", "-m", "Merge feat/four");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("не номер версии: «0.10.0.1»", errors);
     }
 
     [Fact]

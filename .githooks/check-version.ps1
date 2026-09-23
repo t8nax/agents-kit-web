@@ -34,10 +34,11 @@ function Get-Text($revision) {
     ($text | Out-String).Trim()
 }
 
-# Номер числами; недостающие цифры — нули: иначе «0.11» вышло бы меньше «0.11.0». Не номер — $null.
+# Номер числами; недостающие цифры — нули: иначе «0.11» вышло бы меньше «0.11.0». Не номер — $null,
+# и четыре числа тоже: номер панели — три числа, а четвёртое сравнение отбросило бы молча.
 function ConvertTo-Version($text) {
     $version = $null
-    if (-not [version]::TryParse($text, [ref]$version)) { return $null }
+    if (-not [version]::TryParse($text, [ref]$version) -or $version.Revision -ge 0) { return $null }
     [version]::new($version.Major, $version.Minor, [Math]::Max($version.Build, 0))
 }
 
