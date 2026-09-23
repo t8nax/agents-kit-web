@@ -460,6 +460,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
               <>
                 {data.criteria.length > 0 && (
                   <div className="ctx-section">
+                    <p className="acc-label">Критерии закрытия</p>
                     <ul className="criteria">
                       {data.criteria.map((criterion, i) => (
                         <li key={i}>

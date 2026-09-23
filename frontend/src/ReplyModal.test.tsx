@@ -659,7 +659,7 @@ test('в шапке вкладки «Переписка», «Контекст»,
   expect(document.querySelector('.reply-window')).not.toHaveAttribute('inert')
 })
 
-test('«Контекст» — критерии заголовком и текстом без подписи над ними, отдельно «Не входит»; строки ответа нет', async () => {
+test('«Контекст» — подпись «Критерии закрытия», под ней критерии заголовком и текстом, отдельно «Не входит»; строки ответа нет', async () => {
   stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
@@ -673,8 +673,11 @@ test('«Контекст» — критерии заголовком и текс
   const firstText = titles[0].parentElement!.querySelector('.criterion-text')
   expect([...firstText!.querySelectorAll('p')].map((p) => p.textContent)).toEqual(['Оператор отвечает из панели.', 'Без IDE.'])
   expect(titles[1].parentElement!.querySelector('.criterion-text')).toBeNull()
-  expect(context.queryByText('Критерии закрытия')).not.toBeInTheDocument()
-  expect(context.getByText('Не входит')).toBeInTheDocument()
+  // подпись над критериями того же вида, что у «Не входит» (решение оператора на приёмке B-216)
+  const label = context.getByText('Критерии закрытия')
+  expect(label).toHaveClass('acc-label')
+  expect(label.nextElementSibling).toHaveClass('criteria')
+  expect(context.getByText('Не входит')).toHaveClass('acc-label')
   expect(context.getByText('Health баз.')).toBeInTheDocument()
   // строка ответа живёт только у переписки
   expect(dialog.queryByLabelText('Ответ')).not.toBeInTheDocument()
@@ -790,6 +793,7 @@ test('только «Не входит» без критериев — конт�
   expect(context.getByText('Health баз.')).toBeInTheDocument()
   expect(context.queryByText('Контекста нет')).not.toBeInTheDocument()
   expect(document.querySelector('.criteria')).toBeNull()
+  expect(context.queryByText('Критерии закрытия')).not.toBeInTheDocument()
 })
 
 test('Escape закрывает окно ответа с любой вкладки', async () => {
