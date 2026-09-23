@@ -526,12 +526,13 @@ test('раздел держится в экране: прокручиваетс�
 
 test('подвал сайдбара сценария — в одну строку: «Удалить сценарий» не переносится', async ({ page }) => {
   await mockApi(page)
+  // Без въезда сбоку: сайдбар меряется там, где встал, а не на полпути
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   const region = await openFlow(page)
   await region.getByRole('button', { name: /^Сценарий «полный»/ }).click()
 
   // Название сайдбара идёт за набранным названием сценария
   const drawer = page.getByRole('complementary', { name: /^Сценарий «полный/ })
-  // Сайдбар въезжает сбоку: кнопки меряются, когда он встал
   await expect(async () => {
     const [remove, cancel, save] = (
       await Promise.all(
@@ -567,6 +568,26 @@ test('подвал сайдбара сценария — в одну строк�
   expect(box.x + box.width).toBeLessThanOrEqual(edge.x + edge.width)
   expect(box.y).toBe(remove.y)
   release()
+})
+
+test('в узком окне подвал сайдбара сценария переносится, а не вылезает за край', async ({ page }) => {
+  await mockApi(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  // Холст уже сайдбара: сайдбар сжимается по нему, а кнопкам подвала в ряд места нет
+  await page.setViewportSize({ width: 480, height: 700 })
+  const region = await openFlow(page)
+  await region.getByRole('button', { name: /^Сценарий «полный»/ }).click()
+
+  const drawer = page.getByRole('complementary', { name: 'Сценарий «полный»' })
+  await expect(async () => {
+    const edge = (await drawer.boundingBox())!
+    expect(edge.width).toBeLessThan(470)
+    for (const name of ['Удалить сценарий', 'Отмена', 'Сохранить']) {
+      const box = (await drawer.getByRole('button', { name }).boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(edge.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(edge.x + edge.width)
+    }
+  }).toPass()
 })
 
 for (const theme of ['dark', 'light'] as const) {
