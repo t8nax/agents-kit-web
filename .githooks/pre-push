@@ -1,0 +1,3 @@
+#!/bin/sh
+# Отправка dev и master: номер версии панели должен вырасти против сервера — check-version.ps1 рядом.
+exec pwsh -NoProfile -File "$(dirname "$0")/check-version.ps1" -Mode Push

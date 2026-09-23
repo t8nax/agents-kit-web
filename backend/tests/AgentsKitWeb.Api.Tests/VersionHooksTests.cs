@@ -92,6 +92,64 @@ public sealed class VersionHooksTests : IDisposable
         Assert.True(exitCode == 0, errors);
     }
 
+    [Theory]
+    [InlineData("dev")]
+    [InlineData("master")]
+    public void PushOfChannel_WithoutNewVersion_IsRefused(string channel)
+    {
+        // Так ловится и то, что попало в канал мимо слияния, — прямой коммит.
+        var repository = Pushed(channel);
+        Commit(repository, "fix.txt", "быстрая починка");
+
+        var (exitCode, errors) = Git(repository, "push", "origin", channel);
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains($"на сервере в {channel} 0.10.0, в отправляемом 0.10.0", errors);
+    }
+
+    [Theory]
+    [InlineData("dev")]
+    [InlineData("master")]
+    public void PushOfChannel_WithNewVersion_Passes(string channel)
+    {
+        var repository = Pushed(channel);
+        Commit(repository, "fix.txt", "починка");
+        Commit(repository, "version.txt", "0.10.1");
+
+        var (exitCode, errors) = Git(repository, "push", "origin", channel);
+
+        Assert.True(exitCode == 0, errors);
+    }
+
+    [Fact]
+    public void PushOfTaskBranch_IsNotChecked()
+    {
+        var repository = Pushed("dev");
+        TestGit.Run(repository, "switch", "-c", "feat/task");
+        Commit(repository, "task.txt", "правка задачи");
+        Git(repository, "push", "origin", "feat/task");
+        Commit(repository, "task2.txt", "ещё правка");
+
+        var (exitCode, errors) = Git(repository, "push", "origin", "feat/task");
+
+        Assert.True(exitCode == 0, errors);
+    }
+
+    /// <summary>Репозиторий с сервером-заглушкой, куда <paramref name="channel"/> уже отправлен с номером 0.10.0.</summary>
+    private string Pushed(string channel)
+    {
+        var repository = Repository();
+        if (channel != "dev")
+            TestGit.Run(repository, "switch", "-c", channel);
+        var server = Path.Combine(_root, "server.git");
+        TestGit.Run(_root, "init", "--bare", server);
+        TestGit.Run(repository, "remote", "add", "origin", server);
+        // Ветки на сервере ещё нет — сравнивать не с чем, и первая отправка проходит.
+        var (exitCode, errors) = Git(repository, "push", "origin", channel);
+        Assert.True(exitCode == 0, errors);
+        return repository;
+    }
+
     /// <summary>Репозиторий на dev с номером 0.10.0 и хуками из .githooks этого репозитория.</summary>
     private string Repository()
     {
