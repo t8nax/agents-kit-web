@@ -136,6 +136,38 @@
   min-height: 42px;
 }
 
+/* Переспрос на месте поля — той же высоты, чтобы подвал не прыгал. Подтверждение красное: выброшенное
+   предложение не вернуть. */
+.talk-confirm {
+  height: 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.talk-confirm strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.talk-confirm span {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.talk-buttons .btn-danger {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
+}
+
+.talk-buttons .btn-danger:hover {
+  border-color: var(--accent-error-text);
+}
+
 /* ---------- записи ---------- */
 
 .write-entries {

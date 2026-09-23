@@ -450,6 +450,64 @@ test('«Новая переписка» убирает разговор, а ок
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
 })
 
+test('при ждущем предложении «Новая переписка» переспрашивает: «Отмена» оставляет разговор, «Начать новую» его убирает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  renderModal()
+
+  await say('B-36 и B-40 — одно')
+  stream.send({ type: 'reply', text: 'B-36 и B-40 — одно' })
+  stream.send(
+    answer({
+      proposal: {
+        id: 'p2',
+        changes: [
+          { kind: 'change', number: 'B-40', entry: B40 },
+          { kind: 'delete', number: 'B-36', entry: B36, into: 'B-40' },
+        ],
+      },
+    }),
+  )
+  await screen.findByText('Уйдёт в B-40')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  const asking = screen.getByRole('alertdialog', { name: 'Начать новую переписку?' })
+  expect(
+    within(asking).getByText('Предложение объединить 2 записи в одну не сохранено — в новой переписке его не будет.'),
+  ).toBeInTheDocument()
+  // Вопрос стоит на месте поля ввода.
+  expect(screen.queryByLabelText('Просьба к Чудо-Юдо')).not.toBeInTheDocument()
+  expect(deletes).toEqual([])
+
+  fireEvent.click(within(asking).getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByText('Уйдёт в B-40')).toBeInTheDocument()
+  expect(deletes).toEqual([])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Начать новую' }))
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.queryByText('Уйдёт в B-40')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeInTheDocument()
+})
+
+test('без ждущего предложения «Новая переписка» не переспрашивает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  renderModal()
+
+  await say('Убери B-36')
+  stream.send({ type: 'reply', text: 'Убери B-36' })
+  stream.send(answer({ proposal }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Отказаться' }))
+  stream.send({ type: 'refused', text: '', proposalId: 'p1' })
+  await screen.findAllByText('отказались')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+})
+
 test('без текста отправить нельзя', async () => {
   stubFetch(controlledStream())
   renderModal()

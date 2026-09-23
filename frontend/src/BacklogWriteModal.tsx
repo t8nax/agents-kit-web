@@ -43,6 +43,9 @@ export type WriteEvent =
   | { type: 'saved'; text: string; commit?: string | null; proposalId: string }
   | { type: 'refused'; text: string; proposalId: string }
 
+/** Переспрос на месте поля ввода: вопрос и красная кнопка, которая выбрасывает ждущее предложение. */
+type Asking = { question: string; yes: string; onYes: () => void }
+
 /** Что стало с предложением: ждёт, сохранено, отклонено или заменено следующей просьбой. */
 type ProposalState = 'pending' | 'saved' | 'refused' | 'replaced'
 
@@ -74,6 +77,8 @@ export default function BacklogWriteModal({
   const [text, setText] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
+  // Переспрос на месте поля ввода: несохранённое предложение не уходит молча — решение оператора на B-228.
+  const [asking, setAsking] = useState<Asking | null>(null)
   // Окно от записи начинает свой разговор, а окно из шапки подхватывает идущий.
   const conversation = useAgentConversation<WriteEvent>('backlog', subject === null)
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
@@ -127,7 +132,11 @@ export default function BacklogWriteModal({
   }, [base, savedCount, onSaved])
 
   const states = proposalStates(events)
-  const pending = [...states.entries()].some(([, state]) => state === 'pending')
+  const pendingProposal =
+    events
+      .flatMap((e) => (e.type === 'answer' && e.proposal ? [e.proposal] : []))
+      .find((p) => states.get(p.id) === 'pending') ?? null
+  const pending = pendingProposal !== null
 
   async function submit() {
     const said = value.trim()
@@ -154,7 +163,13 @@ export default function BacklogWriteModal({
   }
 
   /** «Новая переписка»: разговор уходит из панели, окно остаётся открытым для первой просьбы. */
-  async function newTalk() {
+  function newTalk() {
+    if (pending) setAsking({ question: 'Начать новую переписку?', yes: 'Начать новую', onYes: () => void reset() })
+    else void reset()
+  }
+
+  async function reset() {
+    setAsking(null)
     setText(null)
     setSaveError(null)
     await forget()
@@ -333,53 +348,75 @@ export default function BacklogWriteModal({
           )}
         </div>
 
-        {/* Поле на всю ширину, кнопки строкой под ним — как в окне вопроса по базе (макет B-228). */}
-        <div className="composer talk-composer">
-          <textarea
-            className="composer-field talk-field"
-            aria-label={`Просьба к ${AGENT_NAME}`}
-            rows={2}
-            autoFocus
-            value={value}
-            placeholder={placeholder}
-            // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
-            disabled={running || restoring || saving !== null}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault()
-                void submit()
-              }
-            }}
-          />
-          {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
-              а «Отменить» встаёт ровно туда, где была «Отправить». */}
-          <div className="talk-buttons">
-            <button
-              type="button"
-              className="btn composer-send"
-              disabled={!talking || running || restoring || saving !== null}
-              onClick={() => void newTalk()}
-            >
-              Новая переписка
-            </button>
-            {running ? (
-              <button type="button" className="btn composer-send" onClick={() => void stop()}>
-                Отменить
+        {/* Поле на всю ширину, кнопки строкой под ним — как в окне вопроса по базе (макет B-228). Переспрос встаёт
+            на место поля той же высоты, а его кнопки — на места двух кнопок. */}
+        {asking ? (
+          <div className="composer talk-composer" role="alertdialog" aria-label={asking.question}>
+            <div className="talk-confirm">
+              <strong>{asking.question}</strong>
+              {pendingProposal && (
+                <span>
+                  Предложение {pendingParts(pendingProposal).join(', ')} не сохранено — в новой переписке его не будет.
+                </span>
+              )}
+            </div>
+            <div className="talk-buttons">
+              <button type="button" className="btn composer-send" autoFocus onClick={() => setAsking(null)}>
+                Отмена
               </button>
-            ) : (
+              <button type="button" className="btn btn-danger composer-send" onClick={asking.onYes}>
+                {asking.yes}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="composer talk-composer">
+            <textarea
+              className="composer-field talk-field"
+              aria-label={`Просьба к ${AGENT_NAME}`}
+              rows={2}
+              autoFocus
+              value={value}
+              placeholder={placeholder}
+              // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
+              disabled={running || restoring || saving !== null}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault()
+                  void submit()
+                }
+              }}
+            />
+            {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
+                а «Отменить» встаёт ровно туда, где была «Отправить». */}
+            <div className="talk-buttons">
               <button
                 type="button"
-                className="btn btn-primary composer-send"
-                disabled={!base || !value.trim() || restoring || saving !== null}
-                onClick={() => void submit()}
+                className="btn composer-send"
+                disabled={!talking || running || restoring || saving !== null}
+                onClick={newTalk}
               >
-                <SendIcon />
-                Отправить
+                Новая переписка
               </button>
-            )}
+              {running ? (
+                <button type="button" className="btn composer-send" onClick={() => void stop()}>
+                  Отменить
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary composer-send"
+                  disabled={!base || !value.trim() || restoring || saving !== null}
+                  onClick={() => void submit()}
+                >
+                  <SendIcon />
+                  Отправить
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
@@ -598,6 +635,12 @@ function stepsOfTurn(events: WriteEvent[]) {
 }
 
 function pendingTitle(proposal: Proposal) {
+  const parts = pendingParts(proposal)
+  return `${parts.length === 1 ? 'Ждёт' : 'Ждут'} сохранения: ${parts.join(', ')}`
+}
+
+/** Что предлагается, словами: «изменить 1», «удалить 2», «объединить 2 записи в одну». */
+function pendingParts(proposal: Proposal) {
   const into = proposal.changes.filter((c) => c.kind === 'delete' && c.into)
   const targets = new Set(into.map((c) => c.into!))
   const changes = proposal.changes.filter((c) => c.kind === 'change' && !targets.has(c.number)).length
@@ -609,8 +652,8 @@ function pendingTitle(proposal: Proposal) {
       const count = 1 + into.filter((c) => c.into === target).length
       return `объединить ${count} ${plural(count, 'запись', 'записи', 'записей')} в одну`
     }),
-  ].filter(Boolean)
-  return `${parts.length === 1 ? 'Ждёт' : 'Ждут'} сохранения: ${parts.join(', ')}`
+  ].filter((part): part is string => Boolean(part))
+  return parts
 }
 
 function plural(count: number, one: string, few: string, many: string) {
