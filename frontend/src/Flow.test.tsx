@@ -1738,7 +1738,7 @@ test('действие, после которого флоу остался бы
   // Перестановка ошибку не убирает — записи нет, отказ назван
   fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
   // Над разделом — строка о флоу и отказ самого действия
-  expect(await screen.findAllByText(/^Не сохранить: флоу «полный», стадия «Сборка»/)).toHaveLength(2)
+  await vi.waitFor(() => expect(screen.getAllByText(/^Не сохранить: флоу «полный», стадия «Сборка»/)).toHaveLength(2))
   expect(posts(fetchMock)).toBe(0)
 
   // Уборка стадии, которой нет в базе, флоу чинит — пишется
