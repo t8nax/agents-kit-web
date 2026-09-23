@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type SyntheticEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import './Modal.css'
@@ -828,9 +829,14 @@ export default function Flow({
     (modal === 'rewrite' && editable) ||
     opened?.kind === 'returns' ||
     asking !== null
-  // Сайдбар с правкой запирает схему и всё вокруг — действие на схеме записало бы и его правку, — но не себя:
-  // в нём и правят (замечание оператора на приёмке B-226).
-  const covered = overlaid || (opened?.kind === 'flow' && changed)
+  const covered = overlaid
+  // Сайдбар с правкой: схема, выбор сценария и шапка доступны, но первое действие на них закрывает сайдбар, спросив
+  // о несохранённом, — действие на схеме пишется сразу и унесло бы и его правку. Сам сайдбар при этом рабочий
+  // (решение оператора на приёмке B-226).
+  const guard =
+    opened?.kind === 'flow' && changed && currentFlow
+      ? () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null))
+      : null
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
   const backToBlock = () => origin !== null && setFocus({ key: origin })
@@ -856,7 +862,7 @@ export default function Flow({
   return (
     <>
       {/* Пока открыто окно, верх раздела под подложкой недоступен: окно запирает Tab. */}
-      <div className="vc-head" inert={covered}>
+      <div className="vc-head" inert={covered} {...intercept(guard)}>
         <h2>Флоу</h2>
         <div className="head-end flow-actions">
           {editable && (
@@ -1057,6 +1063,7 @@ export default function Flow({
               known={known}
               covered={covered}
               overlaid={overlaid}
+              guard={guard}
               busy={saving || unread.length > 0 || currentLock !== null}
               locked={currentLock !== null}
               focus={focus}
@@ -1233,6 +1240,28 @@ export default function Flow({
 }
 
 const noDraft: Draft = { stages: [], flows: [] }
+
+/**
+ * Перехват действий в части раздела: пока guard задан, щелчок, меню, перетаскивание и нажатие Enter, пробела или
+ * клавиши меню не доходят до цели, а зовут guard. Tab ходит по-прежнему.
+ */
+function intercept(guard: (() => void) | null) {
+  if (!guard) return {}
+  const stop = (event: SyntheticEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    guard()
+  }
+  return {
+    onClickCapture: stop,
+    onContextMenuCapture: stop,
+    onDragStartCapture: stop,
+    onKeyDownCapture: (event: KeyboardEvent) => {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))
+        stop(event)
+    },
+  }
+}
 
 /** Форма, как её запишет API, вместе со значками: по этому снимку видно, изменилось ли что-то. */
 const snapshot = (draft: Draft) => JSON.stringify([toApi(draft), toIcons(draft)])
@@ -1806,6 +1835,7 @@ function FlowTab({
   known,
   covered,
   overlaid,
+  guard,
   busy,
   locked,
   focus,
@@ -1828,6 +1858,8 @@ function FlowTab({
   covered: boolean
   /** Поверх раздела окно: недоступен и сайдбар. */
   overlaid: boolean
+  /** Сайдбар с несохранённой правкой: первое действие на схеме закрывает его с вопросом, а само не выполняется. */
+  guard: (() => void) | null
   /** Идёт запись: перестановка, добавление и уборка стадии недоступны, пока флоу не перечитан. */
   busy: boolean
   /** По сценарию идёт задача: схема только для чтения, у блоков нет ручки перетаскивания. */
@@ -1897,7 +1929,7 @@ function FlowTab({
   return (
     <>
       <section className={`flow-canvas ${locked ? 'is-locked' : ''}`} aria-label={`Сценарий «${flowName(flow)}»`} inert={overlaid}>
-        <div className="flow-canvas-pick" inert={covered}>
+        <div className="flow-canvas-pick" inert={covered} {...intercept(guard)}>
           <PickMenu
             label="Сценарий"
             value={flowName(flow)}
@@ -1911,7 +1943,7 @@ function FlowTab({
           </button>
         </div>
 
-        <div className="flow-scroll" inert={covered}>
+        <div className="flow-scroll" inert={covered} {...intercept(guard)}>
           <div className="flow-chain" ref={chain}>
             <ReturnArcs flow={flow} lit={lit} />
             <button

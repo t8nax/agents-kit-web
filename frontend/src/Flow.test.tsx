@@ -518,7 +518,8 @@ test('«Править стадию» из меню открывает окно 
 
   expect((await saveAndRead(fetchMock)).stages[1].output).toBe('вердикт')
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  expect(region.getByRole('button', { name: 'Стадия 2: Ревью' })).toHaveFocus()
+  // Фокус возвращает блоку эффект схемы — следующим проходом отрисовки после закрытия окна
+  await vi.waitFor(() => expect(region.getByRole('button', { name: 'Стадия 2: Ревью' })).toHaveFocus())
 
   // Стадия одного сценария задевает только его — предупреждения нет
   fireEvent.click(menuOf(region, 'Стадия 1: Критерий').getByRole('menuitem', { name: 'Править стадию «Критерий»' }))
@@ -1676,9 +1677,12 @@ test('сайдбар после «Сохранить» остаётся откр
   expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'крупная правка' } })
   expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
-  // Схема под сайдбаром с несохранённым заперта: перестановка записала бы и его правку
-  expect(region.getByRole('button', { name: 'Стадия 3 выше' }).closest('[inert]')).not.toBeNull()
-  // …а сам сайдбар — нет: в нём правят (замечание оператора на приёмке B-226)
+  // Первый щелчок по схеме при несохранённом в сайдбаре не переставляет, а спрашивает, закрыть ли сайдбар:
+  // перестановка записала бы и его правку (решение оператора на приёмке B-226)
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
+  expect(posts(fetchMock)).toBe(1)
   expect(screen.getByRole('complementary').closest('[inert]')).toBeNull()
   fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
   expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
@@ -1842,9 +1846,10 @@ test('открытый сайдбар переживает окно нового
 
   fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'крупная правка' } })
   expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
-  // Схема под сайдбаром с правкой заперта: перестановка не унесёт её в базу
-  expect(region.getByRole('button', { name: 'Стадия 3 выше' }).closest('[inert]')).not.toBeNull()
-  // …а сам сайдбар — нет: в нём правят (замечание оператора на приёмке B-226)
+  // Схема доступна, но первый щелчок по ней лишь спрашивает, закрыть ли сайдбар с правкой
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
+  expect(posts(fetchMock)).toBe(0)
   expect(screen.getByRole('complementary').closest('[inert]')).toBeNull()
   fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
   expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
@@ -1933,4 +1938,25 @@ test('«Отмена» закрывает окно с правкой сразу,
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   expect(screen.queryByRole('dialog', { name: 'Стадия «Ревью»' })).not.toBeInTheDocument()
   expect(posts(fetchMock)).toBe(0)
+})
+
+test('при правке в сайдбаре первый щелчок по схеме закрывает его с вопросом, дальше схема работает', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  const region = await renderFlow()
+  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'крупная правка' } })
+
+  // Шапка тоже: вкладка не переключается, пока сайдбар не закрыт
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  expect(screen.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
+
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
+  expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+  expect(posts(fetchMock)).toBe(0)
+
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
+  expect(body(fetchMock, 'POST /api/flow').flows[0].when).toBe('новая возможность')
 })
