@@ -626,6 +626,33 @@ test('после «Новой переписки» в подхваченном �
   expect(await screen.findByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
 })
 
+test('окно от «Изменить», не дочитавшее разговор про ту же запись, говорит о сбое и его не убирает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubPanel('backlog', stream, {
+    running: runningRequest('backlog', 'поправь', bases[0].base, 'Agents Kit Web', 0, 'B-40'),
+    others: (url) => (url.startsWith('/api/agent/backlog/stream') ? new Response(null, { status: 404 }) : null),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  expect(await screen.findByText('Панель потеряла разговор: его больше нет в списке. Текст остался в поле.')).toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  expect(deletes).toEqual([])
+})
+
+test('окно от «Изменить», не дочитавшее другой разговор, заменяет его новым про свою запись', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubPanel('backlog', stream, {
+    running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web', 0, 'B-36'),
+    others: (url) => (url.startsWith('/api/agent/backlog/stream') ? new Response(null, { status: 404 }) : null),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+})
+
 test('без текста отправить нельзя', async () => {
   stubFetch(controlledStream())
   renderModal()
