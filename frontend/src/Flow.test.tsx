@@ -1784,3 +1784,37 @@ test('у единственного сценария без «когда», по
   // Порядок и стадии занятого сценария не тронуты
   expect(sent.flows[0].entries).toEqual(full.entries.map((entry) => ({ stage: entry.stage, returns: entry.returns ?? [] })))
 })
+
+test('незаписанный новый сценарий и описание со схемы уходят с окном: следующее действие их не записывает', async () => {
+  let refuse = true
+  const fetchMock = stubApi(
+    api([app], { 'POST /api/flow': () => (refuse ? json({ problem: 'not-committed', detail: 'hook' }, 502) : json({ version: 'v3' })) }),
+  )
+  const region = await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Новый сценарий' }))
+  fireEvent.change(dialog.getByRole('textbox', { name: 'Название сценария' }), { target: { value: 'срочный' } })
+  fireEvent.change(dialog.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'ошибка' } })
+  fireEvent.click(within(dialog.getByRole('radiogroup', { name: 'Первая стадия' })).getByRole('radio', { name: /Запас/ }))
+  fireEvent.click(dialog.getByRole('button', { name: 'Сохранить' }))
+  await dialog.findByRole('alert')
+  fireEvent.click(dialog.getByRole('button', { name: 'Отмена' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
+
+  fireEvent.click(menuOf(region, 'Стадия 3: Приёмка').getByRole('menuitem', { name: 'Редактировать описание' }))
+  const text = await screen.findByRole('textbox', { name: 'Описание стадии' })
+  fireEvent.change(text, { target: { value: 'черновик' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await screen.findByRole('alert')
+  fireEvent.click(screen.getByRole('button', { name: 'Закрыть описание' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
+  await settled()
+
+  refuse = false
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(3))
+  const sent = body(fetchMock, 'POST /api/flow')
+  expect(sent.flows.map((f: NamedFlow) => f.name)).toEqual(['полный', 'мелкий'])
+  expect(sent.stages.find((stage: FlowStage) => stage.title === 'Приёмка').description).toBeNull()
+})

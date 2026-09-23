@@ -1092,6 +1092,9 @@ export default function Flow({
           covered={asking !== null}
           onClose={() => {
             setModal(null)
+            // Открытое из меню на схеме описание — само себе окно: его незаписанная правка уходит вместе с ним, иначе
+            // её записало бы следующее действие на схеме. Открытое из окна стадии оставляет правку тому окну.
+            if (!stageOpen) end()
             // Описание, открытое из окна правки, возвращает фокус окну; открытое из меню — блоку на схеме.
             if (tab === 'flow' && !stageOpen) backToBlock()
           }}
@@ -1107,7 +1110,10 @@ export default function Flow({
           // Описание пишется вместе со стадией: открытое из окна правки, оно уносит и её несохранённые поля.
           onSave={async (description) => {
             const next = { ...draft, stages: draft.stages.map((s) => (s.key === currentStage.key ? { ...s, description } : s)) }
-            return commit(next, 'window')
+            const failed = await commit(next, 'window')
+            // Набранное живёт в поле окна описания: не записанное, оно не остаётся в форме раздела.
+            if (failed) setDraft(draft)
+            return failed
           }}
         />
       )}
@@ -1158,7 +1164,8 @@ export default function Flow({
             })
           }
           onClose={() => {
-            setFailure(null)
+            // Сценарий, который не записался, уходит вместе с окном: иначе его записало бы следующее действие.
+            end()
             setModal(null)
           }}
           onSave={(created, earlier) =>
