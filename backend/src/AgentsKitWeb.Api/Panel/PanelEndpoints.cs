@@ -36,7 +36,7 @@ public static class PanelEndpoints
             return Results.NoContent();
         });
 
-        // Идёт на GitHub. Панель спрашивает его по кнопке и при открытии «Настроек», а не таймером
+        // Идёт на GitHub. Панель спрашивает его при открытии «Настроек» и смене канала, а не таймером
         // таблицы копий. GitHub не ответил — 502: сравнить сейчас не с чем, и кнопки нет.
         app.MapGet("/api/panel/updates", async (
             InstalledPanel installed, PanelChannelStore channels, IPanelReleases releases,
