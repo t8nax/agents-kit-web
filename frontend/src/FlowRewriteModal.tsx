@@ -15,7 +15,7 @@ export type RewriteEvent =
 type Props = {
   base: string
   project: string
-  /** Стадии раздела такими, какими их видно, с несохранёнными правками: их агент и получает. */
+  /** Стадии проекта такими, какие они в базе: их агент и получает, а принятые правки пишутся поверх них. */
   stages: FlowStage[]
   /** Значок стадии — тот же, что на карточке вкладки «Стадии». */
   mark: (title: string) => ReactNode
@@ -210,7 +210,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                     <PlusIcon />
                     Стадии
                   </button>
-                  {/* В черновике до «Сохранить» названия могут совпасть: ключ — с местом стадии. */}
+                  {/* Названия в списке могут совпасть, пока стадия правится: ключ — с местом стадии. */}
                   {picked.map((stage, i) => (
                     <span key={`${i}-${stage.title}`} className="rewrite-token">
                       {mark(stage.title)}
@@ -333,11 +333,11 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
         </div>
 
         <div className="modal-footer ask-footer">
-          {/* Не подсказка, а состояние: пока правки не сохранены, стадии базы прежние. */}
+          {/* Не подсказка, а состояние: пока правки не приняты, стадии базы прежние. */}
           {phase === 'rewritten' && (
             <span className="ask-hint">
               <LockIcon />
-              Стадии в базе не записаны: правки лягут в черновик, сохранит их кнопка «Сохранить»
+              Стадии в базе ещё не изменены: «Принять правки» запишет их сразу
             </span>
           )}
           <div className="footer-right">

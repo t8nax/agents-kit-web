@@ -20,21 +20,6 @@
   border-color: var(--border-strong);
 }
 
-.flow-done {
-  color: var(--accent-active-text);
-}
-
-.flow-blocked {
-  color: var(--accent-error-text);
-  font-size: 13px;
-}
-
-/* Несохранённые правки: пока их видно, флоу в базе прежний. */
-.flow-dirty {
-  color: var(--accent-waiting-text);
-  font-size: 13px;
-}
-
 /* Раздел занимает экран: прокручивается холст со схемой, сайдбар шага стоит рядом целиком. */
 .flow-canvas {
   flex: 1;
@@ -338,7 +323,8 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.flow-drawer-delete {
+/* «Удалить сценарий» — у левого края, «Отмена» и «Сохранить» — у правого, как в подвале окна стадии (макет B-226). */
+.flow-drawer-push {
   margin-left: auto;
 }
 
@@ -674,7 +660,7 @@ textarea.flow-input {
   color: var(--text-tertiary);
 }
 
-/* Окно подтверждения сохранения */
+/* Вопрос поверх окна: удалить стадию или сценарий, закрыть окно без сохранения */
 .flow-confirm {
   width: 480px;
   max-width: 100%;
@@ -699,12 +685,18 @@ textarea.flow-input {
   font-size: 14px;
 }
 
-.flow-confirm-warning {
-  color: var(--accent-waiting-text);
-  background: var(--accent-waiting-bg);
-  border: 1px solid var(--accent-waiting-border);
-  border-radius: 6px;
-  padding: 10px 12px;
+/* Кнопка, которая делает, — заливкой цвета ошибки, как «Удалить» у рабочей копии: её не спутать с «Вернуться».
+   Два класса: Settings.css с `.bases-btn-danger` грузится позже и иначе перебивает заливку. */
+.flow-confirm .bases-btn.bases-btn-danger {
+  background: var(--accent-error-text);
+  color: var(--bg-surface);
+  border-color: transparent;
+  font-weight: 500;
+}
+
+.flow-confirm .bases-btn.bases-btn-danger:hover:not(:disabled) {
+  color: var(--bg-surface);
+  opacity: 0.9;
 }
 
 .flow-confirm-actions {
@@ -902,41 +894,6 @@ textarea.flow-input {
   height: 20px;
   margin: 0 4px;
   background: var(--border-subtle);
-}
-
-/* Полоса сохранения внизу раздела: видна, только пока есть правки. */
-.save-bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 24px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  box-shadow: 0 -14px 28px -24px var(--shadow-color);
-}
-
-.save-bar-state {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.save-bar .flow-dirty {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-
-.save-bar .flow-dirty::before {
-  content: '';
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent-waiting-text);
 }
 
 /* Выбор из списка: проект в шапке и флоу в углу холста. */
@@ -1358,8 +1315,8 @@ textarea.flow-input {
   padding-block: 0;
 }
 
-/* Удаление в покое — контурное, как в макете: красная заливка общего `.btn.btn-danger` (Sessions.css) — для
-   необратимого, а здесь правку отменяет полоса сохранения. Красным кнопка становится под мышью. */
+/* Удаление в покое — контурное, как в макете: красная заливка — у кнопки вопроса, который оно задаёт перед
+   записью. Красным кнопка становится под мышью и нажатой, пока раскрыто пояснение, почему удалить нельзя. */
 .flow-stage-foot .btn.btn-danger,
 .flow-drawer .btn.btn-danger {
   color: var(--text-primary);
@@ -1367,7 +1324,8 @@ textarea.flow-input {
   border-color: var(--border-strong);
 }
 
-.flow-stage-foot .btn-danger:hover:not(:disabled) {
+.flow-stage-foot .btn-danger:hover:not(:disabled),
+.flow-stage-foot .btn-danger.is-pressed {
   color: var(--accent-error-text);
   background: var(--accent-error-bg);
   border-color: var(--accent-error-border);
@@ -1377,10 +1335,134 @@ textarea.flow-input {
   color: var(--accent-error-text);
 }
 
-.flow-stage-foot .flow-stage-done {
-  margin-left: auto;
+/* Новый сценарий: первая стадия — строками выбора в рамке поля (макет B-226). */
+.modal-wizard.flow-new-flow {
+  width: 640px;
+}
+
+.flow-choice-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-base);
+}
+
+.flow-choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+
+.flow-choice .flow-card-mark {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+}
+
+.flow-choice .flow-card-mark svg {
+  width: 13px;
+  height: 13px;
+}
+
+.flow-choice-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-choice.is-on .flow-choice-name {
+  font-weight: 500;
+}
+
+.flow-new-flow-empty {
+  margin: 0;
+  padding-top: 8px;
+}
+
+.flow-stage-foot .flow-stage-pair {
   min-width: 140px;
   justify-content: center;
+}
+
+.flow-stage-foot .flow-stage-push {
+  margin-left: auto;
+}
+
+/* Почему стадию нельзя удалить: блок над подвалом, раскрывается нажатием «Удалить стадию» (вариант Б макета B-226). */
+.flow-delete-note {
+  margin: 0 40px 20px;
+  padding: 14px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  border: 1px solid var(--accent-error-border);
+  background: var(--accent-error-bg);
+  border-radius: 8px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.flow-delete-note > svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  color: var(--accent-error-text);
+}
+
+.flow-delete-note-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flow-delete-note-text p {
+  margin: 0;
+}
+
+.flow-delete-note-text strong {
+  font-weight: 600;
+}
+
+.flow-delete-note-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flow-delete-note-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.flow-delete-note-list svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+}
+
+.flow-delete-note .btn-icon {
+  padding: 2px;
 }
 
 /* Вкладка «Флоу»: выбор флоу в углу холста, над схемой пусто. */
