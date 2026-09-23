@@ -640,8 +640,10 @@ export default function Flow({
    * Правки Чудо-Юдо ложатся на стадии базы и пишутся сразу одной записью: переписанная сохраняет key, и пункты
    * сценариев и возвраты, которые ссылаются на неё key, идут за новым названием сами — как при ручном
    * переименовании. Новая стадия встаёт в конец вкладки «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
+   * Не записалось — форма возвращается к базе, а причину называет окно, где остаётся итог агента.
    */
-  const applyRewritten = (rewritten: RewrittenStage[]) => {
+  const applyRewritten = async (rewritten: RewrittenStage[]) => {
+    if (saving) return 'Флоу ещё записывается: примите правки, когда запись закончится.'
     let stages = saved.stages
     for (const { of, stage } of rewritten) {
       const fields = stageDraft(stage)
@@ -650,12 +652,16 @@ export default function Flow({
         ? stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
         : [...stages, { ...fields, slug: null }]
     }
-    setModal(null)
+    const failed = await commit({ ...saved, stages })
+    if (failed) {
+      setEdits(null)
+      return failed
+    }
     if (rewritten.some((one) => one.of == null)) {
       setTab('stages')
       setOpened(null)
     }
-    void act({ ...saved, stages })
+    return null
   }
 
   // Значок стадии в окне переписывания — тот же, что на её карточке.

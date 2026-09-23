@@ -29,8 +29,8 @@ function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: Retur
   return stubPanel('flow', stream, { running, project: 'Agents Kit Web' })
 }
 
-function renderModal() {
-  const onApply = vi.fn()
+function renderModal(apply: () => Promise<string | null> = async () => null) {
+  const onApply = vi.fn(apply)
   const onClose = vi.fn()
   const view = render(
     <FlowRewriteModal
@@ -332,4 +332,43 @@ test('«Попросить снова» уходит со стадиями та�
 
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(posts[0].body).toMatchObject({ stages: [review, stage('Запас')] })
+})
+
+test('запись, которая не прошла, оставляет итог в окне с причиной, и принять его можно снова', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  const failures = ['Флоу не сохранён: флоу изменился в базе, пока вы его правили.', null]
+  const { onApply, onClose } = renderModal(async () => failures.shift() ?? null)
+
+  await write('Уточни выход ревью')
+  pick('Ревью')
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
+  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Правки не записаны')
+  expect(alert).toHaveTextContent('флоу изменился в базе')
+  // Итог на месте, окно не закрыто
+  expect(screen.getByLabelText('Что изменилось в стадиях')).toHaveTextContent('вердикт')
+  expect(onClose).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
+  await waitFor(() => expect(onClose).toHaveBeenCalled())
+  expect(onApply).toHaveBeenCalledTimes(2)
+})
+
+test('правку занятой стадии принять нельзя: окно называет стадию и задачи', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  const { onApply } = renderModal()
+
+  await write('Поправь всё')
+  fireEvent.click(screen.getByRole('button', { name: 'Написать стадию' }))
+  // Агент переписал и занятую Приёмку: её он получает по названию среди стадий проекта
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Приёмка', stage: { ...acceptance, output: 'принято' } }] })
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('«Приёмка» — B-7, B-9')
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
+  expect(onApply).not.toHaveBeenCalled()
 })

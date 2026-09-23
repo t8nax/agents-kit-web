@@ -23,7 +23,8 @@ type Props = {
   scope: (title: string) => string | null
   /** Задачи, которые держат стадию: её не править, пока они в работе, и к просьбе она не добавляется (B-226). */
   locked: (title: string) => string[] | null
-  onApply: (stages: RewrittenStage[]) => void
+  /** Записать принятые стадии в базу; вернуть, почему не записались, или null. */
+  onApply: (stages: RewrittenStage[]) => Promise<string | null>
   onClose: () => void
 }
 
@@ -139,12 +140,32 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
   }
   const untouched = changes.filter((change) => change.kind === 'same')
 
+  // Стадию, которую держат задачи в работе, не записать: ответ про неё принять нельзя, и окно говорит почему.
+  const held = changed.flatMap((change) => {
+    const tasks = change.of === null ? null : locked(change.of)
+    return tasks ? [`«${change.of}» — ${tasks.join(', ')}`] : []
+  })
+  const [applying, setApplying] = useState(false)
+  const [applyFailure, setApplyFailure] = useState<string | null>(null)
+
+  /**
+   * Принятые правки пишутся в базу сразу; просьба снимается, только когда запись прошла. Не прошла — итог
+   * остаётся в окне с причиной: ответ агента не пропадает, его можно принять снова или отказаться (B-226).
+   */
   async function apply() {
     const taken = rewritten?.stages.filter((one) =>
       changed.some((change) => change.stage === one.stage),
     )
+    setApplying(true)
+    setApplyFailure(null)
+    const failed = await onApply(taken ?? [])
+    setApplying(false)
+    if (failed) {
+      setApplyFailure(failed)
+      return
+    }
     await forget()
-    onApply(taken ?? [])
+    onClose()
   }
 
   async function close() {
@@ -326,6 +347,19 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
             </div>
           )}
 
+          {rewritten && phase === 'rewritten' && held.length > 0 && (
+            <div className="ask-error" role="alert">
+              <strong>Правки не записать: стадии заняты задачами в работе</strong>
+              <span>{held.join('; ')}. Пока задачи идут, эти стадии не правятся.</span>
+            </div>
+          )}
+          {rewritten && phase === 'rewritten' && applyFailure && (
+            <div className="ask-error" role="alert">
+              <strong>Правки не записаны</strong>
+              <span>{applyFailure}</span>
+            </div>
+          )}
+
           {phase === 'failed' && (
             <div className="ask-error" role="alert">
               <strong>{AGENT_NAME} не переписал стадии</strong>
@@ -362,10 +396,10 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={changed.length === 0}
+                  disabled={changed.length === 0 || held.length > 0 || applying}
                   onClick={() => void apply()}
                 >
-                  Принять правки
+                  {applying ? 'Запись…' : 'Принять правки'}
                 </button>
               </>
             )}
