@@ -6,7 +6,7 @@ name: Выпуск панели
 
 on:
   push:
-    branches: [master, dev]
+    branches: [master, dev, b-231-release-build]
 
 permissions:
   contents: write
