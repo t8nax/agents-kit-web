@@ -36,6 +36,38 @@
   opacity: 0.6;
 }
 
+/* Проект и копия разговора — выпадающими списками в ряд, с подписью у каждого (макет B-130). */
+.ask-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+}
+
+.ask-pick-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ask-pick-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Плашку ставит gap кнопки и пункта: свой отступ плашки из таблицы копий здесь удвоил бы просвет. */
+.ask-pick .main-tag {
+  margin-left: 0;
+}
+
+/* Сильнее общего `.modal-overlay svg`: правило той же силы зависит от порядка подключения стилей. */
+.ask-pick .flow-pick svg {
+  width: 14px;
+  height: 14px;
+}
+
 .ask-body {
   flex: 1;
   overflow-y: auto;
@@ -268,12 +300,6 @@
   padding-block: 0;
   justify-content: center;
   white-space: nowrap;
-}
-
-.ask-bases-hint {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-tertiary);
 }
 
 .ask-hint {

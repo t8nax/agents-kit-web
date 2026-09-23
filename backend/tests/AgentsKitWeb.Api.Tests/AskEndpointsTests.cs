@@ -149,6 +149,9 @@ public sealed class AskEndpointsTests : IDisposable
         // Файлы копии видны путём от копии, вперемешку с файлами базы.
         Assert.Equal(new AskEvent("step", "читает src/Program.cs"), events[1]);
         Assert.Equal(["src/Program.cs", "product.md"], events[3].Files);
+        // Окно, открытое заново, узнаёт копию разговора по просьбе в списке панели.
+        var listed = await client.GetFromJsonAsync<List<AgentRequestSummary>>("/api/agent/requests", Json);
+        Assert.Equal(copy, Assert.Single(listed!).Subject);
     }
 
     [Fact]

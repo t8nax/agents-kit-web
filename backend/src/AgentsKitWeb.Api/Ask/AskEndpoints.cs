@@ -44,7 +44,9 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
             ProjectName.Of(basePath),
             question,
             (asking, cancellationToken) => RunAsync(basePath, replies.Reader, turn, asking, cancellationToken),
-            continues: true);
+            continues: true,
+            // Копию разговора окно, открытое заново, берёт отсюда: выбрать другую посреди разговора нельзя.
+            subject: copyPath);
 
         turn.Request = request;
         lock (_gate)
