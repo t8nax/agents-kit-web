@@ -45,7 +45,7 @@ async function mockApi(page: Page) {
       return route.fulfill({ json: { version: 'v2' } })
     }
     return route.fulfill({
-      json: [{ base, project: 'Agents Kit Web', stages: [review, merge], flows, activeTasks: 0, version: 'v1', error: null, icons: {} }],
+      json: [{ base, project: 'Agents Kit Web', stages: [review, merge], flows, version: 'v1', error: null, icons: {} }],
     })
   })
   const panel = await mockAgentPanel(page, 'flow', '/api/flow/rewrite')
@@ -103,7 +103,7 @@ test('оператор просит Чудо-Юдо переписать ста�
   await expect(list.getByRole('button', { name: /^Документация/ })).toBeVisible()
   await expect(list.getByRole('button', { name: /^Проверка/ })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Сохранить' }).click()
+  // «Принять правки» пишет переписанное сразу, без полосы сохранения (B-226)
   await expect.poll(() => saved.length).toBe(1)
   expect(saved[0]).toMatchObject({
     flows: [

@@ -57,7 +57,9 @@ const flows: Flow[] = [
 ]
 
 // /api подменяется: прогон работает с живыми базами оператора, и запись флоу попала бы в них.
-async function mockApi(page: Page, activeTasks = 0, own: { stages: Stage[]; flows: Flow[] } = { stages, flows }) {
+type FlowTask = { task: string; flow: string | null }
+
+async function mockApi(page: Page, tasks: FlowTask[] = [], own: { stages: Stage[]; flows: Flow[] } = { stages, flows }) {
   const calls: { flow: unknown[]; open: unknown[] } = { flow: [], open: [] }
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
@@ -72,7 +74,7 @@ async function mockApi(page: Page, activeTasks = 0, own: { stages: Stage[]; flow
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
           ...own,
-          activeTasks,
+          tasks,
           version: 'v1',
           error: null,
           icons: { Критерий: 'target' },
@@ -82,7 +84,6 @@ async function mockApi(page: Page, activeTasks = 0, own: { stages: Stage[]; flow
           project: 'Nota',
           stages: [],
           flows: [],
-          activeTasks: 0,
           version: 'v0',
           error: null,
           icons: {},
@@ -257,14 +258,15 @@ test('меню стадии встаёт у курсора, окна возвр�
   await expect(error).toHaveCount(0)
   await expect(region.locator('.flow-arc-open')).toHaveCount(1)
   await returns.getByRole('textbox', { name: 'Условие возврата 1' }).fill('замечания оператора')
-  await expect(page.locator('.save-bar')).toHaveCount(1)
-  const under = () => page.evaluate(() => Boolean(document.activeElement?.closest('.vc-head, .flow-canvas, .save-bar')))
+  const under = () => page.evaluate(() => Boolean(document.activeElement?.closest('.vc-head, .flow-canvas')))
   for (let i = 0; i < 12; i++) {
     await page.keyboard.press('Tab')
     expect(await under()).toBe(false)
   }
   await returns.getByRole('textbox', { name: 'Условие возврата 1' }).focus()
+  // С правкой Escape спрашивает; «Не сохранять» закрывает окно, фокус — на блоке
   await page.keyboard.press('Escape')
+  await page.getByRole('alertdialog', { name: 'Закрыть без сохранения?' }).getByRole('button', { name: 'Не сохранять' }).click()
   await expect(returns).toHaveCount(0)
   await expect(block).toBeFocused()
 
@@ -277,14 +279,15 @@ test('меню стадии встаёт у курсора, окна возвр�
   await expect(stage.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('ответ оператора «принято»')
   await expect(page.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
   await expect(stage.getByText('Стадия стоит в сценариях «полный» и «мелкий» — правка изменит её в обоих.')).toBeVisible()
-  await stage.getByRole('button', { name: 'Готово' }).click()
+  // Ничего не правили — «Отмена» закрывает окно без вопроса
+  await stage.getByRole('button', { name: 'Отмена' }).click()
   await expect(stage).toHaveCount(0)
   await expect(block).toBeFocused()
 })
 
 test('возвраты блока подсвечены под мышью и под курсором клавиатуры, ведущие в него — нет', async ({ page }) => {
   // У «Ревью» возврат к «Критерию», у «Приёмки» — к «Ревью» и к «Критерию»
-  await mockApi(page, 0, {
+  await mockApi(page, [], {
     stages,
     flows: [
       {
@@ -398,12 +401,17 @@ test('вкладка «Стадии»: стадии карточками по т
   const viewport = page.viewportSize()!
   expect(editBox!.width).toBeLessThanOrEqual(800)
   expect(Math.abs(editBox!.x + editBox!.width / 2 - viewport.width / 2)).toBeLessThan(2)
-  // Стадию, стоящую во флоу, не удалить; кнопка в покое контурная, не красная заливка
+  // Кнопка удаления в покое контурная, не красная заливка; у стадии во флоу она объясняет, почему не удалить
   const remove = edit.getByRole('button', { name: 'Удалить стадию' })
-  await expect(remove).toBeDisabled()
   await expect(remove).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  // «Готово» закрывает окно, фокус возвращается на карточку
-  await edit.getByRole('button', { name: 'Готово' }).click()
+  await remove.click()
+  const note = edit.locator('.flow-delete-note')
+  await expect(note).toContainText('Стадию «Критерий» нельзя удалить.')
+  // Пояснение — над подвалом окна, во всю его ширину за вычетом отступов
+  const [noteBox, footBox] = await Promise.all([note.boundingBox(), edit.locator('.flow-stage-foot').boundingBox()])
+  expect(noteBox!.y + noteBox!.height).toBeLessThanOrEqual(footBox!.y + 1)
+  // «Отмена» без правок закрывает окно, фокус возвращается на карточку
+  await edit.getByRole('button', { name: 'Отмена' }).click()
   await expect(edit).toHaveCount(0)
   await expect(cards.first()).toBeFocused()
 
@@ -417,10 +425,12 @@ test('вкладка «Стадии»: стадии карточками по т
   await expect(icons.getByRole('button', { name: 'Значок «проверка»' })).toHaveText('')
   await icons.getByRole('button', { name: 'Значок «проверка»' }).click()
   await expect(icons).toHaveCount(0)
-  await acceptance.getByRole('button', { name: 'Готово' }).click()
+  await acceptance.getByRole('button', { name: 'Сохранить' }).click()
 
-  await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
-  await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
+  // Окно пишет стадию само и закрывается; сообщения о записи нет — замечание оператора к макету B-226
+  await expect(acceptance).toHaveCount(0)
+  await expect.poll(() => calls.flow.length).toBe(1)
+  await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toHaveCount(0)
   expect(calls.flow).toEqual([
     {
       base: 'D:\\Projects\\app-knowledge',
@@ -432,36 +442,30 @@ test('вкладка «Стадии»: стадии карточками по т
   ])
 })
 
-test('полоса сохранения внизу раздела: появляется с правками, причина стоит одной строкой', async ({ page }) => {
+test('окно стадии: полосы внизу раздела нет, «Сохранить» погашена, пока стадию не записать, причина — в окне', async ({ page }) => {
   await mockApi(page)
   await openFlow(page)
-  await expect(page.locator('.save-bar')).toHaveCount(0)
 
   await page.getByRole('tab', { name: 'Стадии' }).click()
   await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ }).click()
   const edit = page.getByRole('dialog', { name: 'Стадия «Критерий»' })
+  await expect(edit.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   await edit.getByRole('textbox', { name: 'Выход стадии' }).fill(' ')
-  await edit.getByRole('button', { name: 'Готово' }).click()
 
-  const bar = page.locator('.save-bar')
-  await expect(bar).toBeVisible()
-  await expect(bar).toBeInViewport({ ratio: 1 })
-  const main = await page.getByRole('main').boundingBox()
-  const box = await bar.boundingBox()
-  expect(Math.abs(box!.y + box!.height - (main!.y + main!.height))).toBeLessThan(2)
-  const blocked = bar.getByText('Не сохранить: стадия «Критерий» — не указан выход')
-  await expect(async () => {
-    const fontSize = await blocked.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
-    expect((await blocked.boundingBox())!.height).toBeLessThan(fontSize * 2)
-  }).toPass()
-  await expect(bar.getByRole('button', { name: 'Сохранить', exact: true })).toBeDisabled()
-
-  await bar.getByRole('button', { name: 'Отменить правки' }).click()
-  await expect(bar).toHaveCount(0)
+  await expect(edit.getByText('Стадию не сохранить: не указан выход.')).toBeVisible()
+  await expect(edit.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  await expect(page.locator('.save-bar')).toHaveCount(0)
+  // «Отмена» и «Сохранить» — у правого края подвала, удаление — у левого
+  const [remove, cancel, save] = await Promise.all(
+    ['Удалить стадию', 'Отмена', 'Сохранить'].map((name) => edit.getByRole('button', { name }).boundingBox()),
+  )
+  expect(remove!.x).toBeLessThan(cancel!.x)
+  expect(cancel!.x).toBeLessThan(save!.x)
+  expect(save!.x - (cancel!.x + cancel!.width)).toBeLessThan(20)
 })
 
-test('блок перетаскивается мышью, при задачах в работе сохранение спрашивает подтверждение', async ({ page }) => {
-  const calls = await mockApi(page, 2)
+test('блок перетаскивается мышью, и перестановка пишется сразу', async ({ page }) => {
+  const calls = await mockApi(page)
   const region = await openFlow(page)
 
   // Двигается «Ревью»: возврат «Приёмки» к нему по-прежнему ведёт назад, и флоу остаётся годным
@@ -470,14 +474,37 @@ test('блок перетаскивается мышью, при задачах 
   // Перетаскивание — не щелчок: меню блока не открывается
   await expect(page.getByRole('menu')).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Сохранить флоу Agents Kit Web?' })
-  await expect(dialog.getByText(/На проекте 2 задачи в работе/)).toBeVisible()
-  await dialog.getByRole('button', { name: 'Сохранить' }).click()
-
-  await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
+  await expect.poll(() => calls.flow.length).toBe(1)
   const sent = calls.flow[0] as { flows: Flow[] }
   expect(sent.flows[0].entries.map((entry) => entry.stage)).toEqual(['Ревью', 'Критерий', 'Приёмка'])
+})
+
+test('сценарий, по которому идут задачи: строка с номерами над схемой, у блоков нет ручки, и они не перетаскиваются', async ({ page }) => {
+  const calls = await mockApi(page, [
+    { task: 'B-7', flow: 'полный' },
+    { task: 'B-9', flow: 'полный' },
+  ])
+  const region = await openFlow(page)
+
+  const lock = page.locator('.flow-lock')
+  await expect(lock).toHaveText('Правка сценария закрыта — по нему идут задачи B-7B-9')
+  // Строка — между верхом раздела и холстом, во всю его ширину
+  const [lockBox, canvas] = await Promise.all([lock.boundingBox(), page.locator('.flow-canvas').boundingBox()])
+  expect(lockBox!.y + lockBox!.height).toBeLessThanOrEqual(canvas!.y + 1)
+  await expect(page.locator('.flow-task-tag')).toHaveCount(2)
+
+  const block = region.getByRole('button', { name: 'Стадия 2: Ревью' })
+  await expect(block.locator('.flow-grip')).toBeHidden()
+  await expect(block).toHaveAttribute('draggable', 'false')
+  await block.dragTo(region.getByRole('button', { name: 'Стадия 1: Критерий' }))
+  await expect(region.getByRole('button', { name: 'Стадия 2: Ревью' })).toBeVisible()
+  expect(calls.flow).toHaveLength(0)
+
+  // На вкладке «Стадии» — замок и номера на карточках занятых стадий
+  await page.getByRole('tab', { name: 'Стадии' }).click()
+  const card = page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Критерий/ })
+  await expect(card.locator('.flow-card-lock')).toHaveText('B-7, B-9')
+  await expect(card.locator('.flow-card-lock svg')).toBeVisible()
 })
 
 test('раздел держится в экране: прокручивается схема, шапка и сайдбар стоят на месте', async ({ page }) => {
@@ -515,7 +542,8 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(adding.getByRole('heading', { name: 'Добавить стадию' })).toBeVisible()
     await expect(adding.getByRole('button', { name: 'Закрыть' })).toBeVisible()
     await expect(adding.getByRole('button', { name: 'Отмена' })).toBeVisible()
-    await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
+    // Пресетов в окне больше нет (B-226)
+    await expect(adding.getByRole('group', { name: 'Пресеты стадий' })).toHaveCount(0)
     // «Новая стадия» — пунктирной строкой, стадии базы — карточками с рамкой
     const fresh = adding.getByRole('button', { name: 'Новая стадия' })
     await expect(fresh).toHaveCSS('border-top-style', 'dashed')
@@ -555,10 +583,10 @@ test('окно стадии возвращает фокус: к описанию
   await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Приёмка/ }).click()
   const stage = page.getByRole('dialog', { name: 'Стадия «Приёмка»' })
   await stage.getByRole('button', { name: /Редактировать описание/ }).click()
-  // Пустое описание открыто в правке: «Отменить» закрывает окно
-  await page.getByRole('dialog', { name: /^Описание стадии/ }).getByRole('button', { name: 'Отменить' }).click()
+  // Пустое описание открыто в правке: «Отмена» без набранного закрывает окно
+  await page.getByRole('dialog', { name: /^Описание стадии/ }).getByRole('button', { name: 'Отмена' }).click()
   await expect(stage.getByRole('button', { name: /Редактировать описание/ })).toBeFocused()
-  await stage.getByRole('button', { name: 'Готово' }).click()
+  await stage.getByRole('button', { name: 'Отмена' }).click()
   await expect(stage).toHaveCount(0)
   await expect(page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Приёмка/ })).toBeFocused()
 })
@@ -596,11 +624,9 @@ test('окно стадии: Escape закрывает верхнее окно, 
       expect(Math.round(box.width)).toBe(15)
     }).toPass()
 
-  // Под окном стадии Tab не попадает на вкладки, проект, карточки и полосу сохранения раздела
+  // Под окном стадии Tab не попадает на вкладки, проект и карточки раздела
   await stage.getByRole('textbox', { name: 'Выход стадии' }).fill('критерий в памяти задачи')
-  await expect(page.locator('.save-bar')).toHaveCount(1)
-  const under = () =>
-    page.evaluate(() => Boolean(document.activeElement?.closest('.vc-head, .flow-stage-grid, .save-bar')))
+  const under = () => page.evaluate(() => Boolean(document.activeElement?.closest('.vc-head, .flow-stage-grid')))
   for (let i = 0; i < 30; i++) {
     await page.keyboard.press('Tab')
     expect(await under()).toBe(false)
@@ -625,7 +651,24 @@ test('окно стадии: Escape закрывает верхнее окно, 
   await expect(description).toHaveCount(0)
   await expect(stage).toBeVisible()
 
+  // С правкой Escape спрашивает: вопрос встаёт поверх окна и держит фокус, его Escape — «Вернуться»
   await page.keyboard.press('Escape')
+  const asked = page.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })
+  await expect(asked).toBeVisible()
+  await expect(asked.getByRole('button', { name: 'Не сохранять' })).toBeFocused()
+  const box = (await asked.boundingBox())!
+  const onTop = await page.evaluate(
+    ([x, y]) => Boolean(document.elementFromPoint(x, y)?.closest('.flow-confirm')),
+    [box.x + box.width / 2, box.y + box.height / 2],
+  )
+  expect(onTop).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(asked).toHaveCount(0)
+  await expect(stage).toBeVisible()
+  await expect(stage.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('критерий в памяти задачи')
+
+  await page.keyboard.press('Escape')
+  await asked.getByRole('button', { name: 'Не сохранять' }).click()
   await expect(stage).toHaveCount(0)
 })
 
@@ -652,26 +695,26 @@ test('описание стадии правится в окне по кнопк
   await text.press('Enter')
   await text.pressSequentially('- проверяемый;')
   await text.press('Enter')
-  await dialog.getByRole('button', { name: 'Готово' }).click()
+  // «Сохранить» пишет описание сразу и возвращает к просмотру
+  await dialog.getByRole('button', { name: 'Сохранить' }).click()
   await expect(dialog.getByText('Критерий пишется до кода.')).toBeVisible()
+  await expect.poll(() => calls.flow.length).toBe(1)
   await dialog.getByRole('button', { name: 'Закрыть', exact: true }).click()
   await expect(dialog).toHaveCount(0)
-  await stage.getByRole('button', { name: 'Готово' }).click()
-
-  await page.getByRole('button', { name: 'Сохранить', exact: true }).click()
-  await expect(page.getByText('Флоу сохранён и закоммичен в базу')).toBeVisible()
+  await stage.getByRole('button', { name: 'Отмена' }).click()
+  await expect(stage).toHaveCount(0)
   expect((calls.flow[0] as { stages: Stage[] }).stages[0].description).toBe(
     'Критерий пишется до кода.\n\n- проверяемый;\n1. Написать критерий.',
   )
 })
 
 test('исполнитель, которого нет в базе, помечен на схеме и в стадии, и флоу не сохранить', async ({ page }) => {
-  await mockApi(page, 0, { stages: [stages[0], { ...stages[1], executor: 'doc-writer' }, stages[2]], flows })
+  await mockApi(page, [], { stages: [stages[0], { ...stages[1], executor: 'doc-writer' }, stages[2]], flows })
   const region = await openFlow(page)
 
   const review = region.getByRole('button', { name: 'Стадия 2: Ревью' })
   await expect(review.locator('.flow-node-missing')).toBeVisible()
-  await expect(page.locator('.save-bar').getByText(/Не сохранить: стадия «Ревью»/)).toContainText('исполнителя нет в базе')
+  await expect(page.getByText(/Не сохранить: стадия «Ревью»/)).toContainText('исполнителя нет в базе')
 
   await page.getByRole('tab', { name: 'Стадии' }).click()
   await page.getByRole('list', { name: 'Стадии базы' }).getByRole('button', { name: /^Ревью/ }).click()
@@ -679,7 +722,7 @@ test('исполнитель, которого нет в базе, помече�
   await expect(edit.getByRole('status')).toContainText('Выберите исполнителя из заведённых')
   // Имя руками не вписывается: в списке только заведённые в базе
   await edit.getByLabel('Имя субагента').selectOption('reviewer')
-  await expect(page.locator('.save-bar').getByText(/Не сохранить/)).toHaveCount(0)
+  await expect(page.getByText(/Не сохранить/)).toHaveCount(0)
 })
 
 test('проект без стадий и сценариев — вкладки на месте, пустое состояние по центру своей вкладки', async ({ page }) => {
@@ -711,7 +754,9 @@ test('проект без стадий и сценариев — вкладки 
   await expect(page.locator('.flow-empty').getByRole('button')).toHaveText(['Создать первую стадию'])
 
   await page.getByRole('tab', { name: 'Сценарии' }).click()
+  // Пустой сценарий кит не примет: «Создать первый сценарий» открывает окно, а без стадий записать нечего
   await page.getByRole('button', { name: 'Создать первый сценарий' }).click()
-  await expect(page.getByRole('region', { name: 'Сценарий «новый сценарий»' })).toBeVisible()
-  await expect(page.getByRole('complementary').getByRole('textbox', { name: 'Название сценария' })).toHaveValue('новый сценарий')
+  const dialog = page.getByRole('dialog', { name: 'Новый сценарий' })
+  await expect(dialog.getByText(/В проекте нет стадий\. Заведите первую на вкладке «Стадии»/)).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
