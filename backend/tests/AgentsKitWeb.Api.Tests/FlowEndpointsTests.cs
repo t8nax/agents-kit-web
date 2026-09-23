@@ -106,6 +106,22 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Flow_NamesTaskInWorkByBacklogNumberWithTheFlowItGoesBy()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        // Флоу памяти сравнивается, как у кита: без регистра и со схлопнутыми пробелами.
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу:  Полный \n");
+        File.WriteAllText(Path.Combine(_base, "work", "b.md"), "# Задача без номера\nрабочая копия: D:\\b\nфлоу: старый\n");
+        File.WriteAllText(Path.Combine(_base, "work", "c.md"), "рабочая копия: D:\\c\n");
+
+        var flow = Assert.Single(await GetFlows(Client(_base)));
+
+        Assert.Equal(
+            [new FlowTask("B-7", "полный"), new FlowTask("c", null), new FlowTask("Задача без номера", null)],
+            flow.Tasks);
+    }
+
+    [Fact]
     public async Task Save_ChangedStage_RewritesOnlyItsFileOnceForAllFlowsAndCommitsIt()
     {
         var client = Client(_base);

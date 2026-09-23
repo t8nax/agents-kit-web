@@ -10,6 +10,7 @@ namespace AgentsKitWeb.Api.Flow;
 /// ActiveTasks — задачи в работе: памяти work/*.md базы. Error задан — флоу панель не прочитала. Icons — выбранные
 /// оператором значки стадий, они живут в настройках панели, а не в базе. Unread — строки файлов флоу, которые панель
 /// не сохранит («flow/flow.md, строка 7: «…»»): пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
+/// Tasks — задачи в работе и флоу, по которому каждая идёт: занятый флоу и его стадии не правятся.
 /// </summary>
 public sealed record BaseFlow(
     string Base,
@@ -20,7 +21,15 @@ public sealed record BaseFlow(
     string? Version,
     string? Error,
     IReadOnlyDictionary<string, string> Icons,
-    IReadOnlyList<string>? Unread = null);
+    IReadOnlyList<string>? Unread = null,
+    IReadOnlyList<FlowTask>? Tasks = null);
+
+/// <summary>
+/// Задача в работе: Task — её номер из бэклога, а без номера — заголовок памяти или имя файла; Flow — флоу базы,
+/// названный строкой «флоу:» памяти. Flow null — флоу не назван или такого в базе нет: такая задача может идти
+/// по любому флоу и держит их все — решение оператора на B-226.
+/// </summary>
+public sealed record FlowTask(string Task, string? Flow);
 
 /// <summary>Стадии и флоу базы целиком: стадия без слага заведена в панели, стадии, которой нет в списке, удаляются.</summary>
 public sealed record SaveFlowRequest(
@@ -155,21 +164,43 @@ public static class FlowEndpoints
             var stages = Stages(files);
             var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
             var flows = list is null ? [] : FlowFolder.ParseList(Text(list.Bytes), Titles(stages)).Flows;
+            var tasks = Tasks(basePath, flows);
             return new BaseFlow(
                 basePath,
                 project,
                 stages,
                 flows,
-                WorkspaceCollector.MemoryFiles(basePath).Count,
+                tasks.Count,
                 FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))),
                 null,
                 icons.Of(basePath),
-                Unread(files));
+                Unread(files),
+                tasks);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return new BaseFlow(basePath, project, [], [], 0, null, "Флоу базы не прочитан", Empty);
         }
+    }
+
+    /// <summary>Задачи в работе по памятям work/*.md и флоу каждой: имя флоу сравнивается, как их сравнивает кит.</summary>
+    private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows) =>
+        WorkspaceCollector.MemoryFiles(basePath).Values
+            .Select(entry => new FlowTask(
+                TaskLabel(entry.Memory.Task, entry.File),
+                entry.Memory.Flow is { } named
+                    ? flows.FirstOrDefault(f => FlowFolder.Key(f.Name) == FlowFolder.Key(named))?.Name
+                    : null))
+            .OrderBy(t => t.Task, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>Номер записи бэклога в начале заголовка; без него — заголовок, а без заголовка — имя файла памяти.</summary>
+    private static string TaskLabel(string? title, string file)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            return System.IO.Path.GetFileNameWithoutExtension(file);
+        var first = title.Split(' ', 2)[0];
+        return BacklogNumber.Normalize(first) ?? title;
     }
 
     private static List<FlowStage> Stages(IEnumerable<FlowFileBytes> files) =>
