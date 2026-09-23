@@ -1640,3 +1640,59 @@ test('в окне Чудо-Юдо стадии занятого сценария
   expect(list.getByRole('option', { name: /Ревью/ })).toHaveTextContent('занята: B-7')
   expect(list.getByRole('option', { name: /Критерий/ })).not.toHaveAttribute('aria-disabled')
 })
+
+test('сайдбар после «Сохранить» остаётся открытым и дальше считает свои правки: пишет их и спрашивает при закрытии', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  const region = await renderFlow()
+  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Название сценария' }), { target: { value: 'большой' } })
+  await saveAndRead(fetchMock)
+
+  expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'крупная правка' } })
+  expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  // Схема под сайдбаром с несохранённым заперта: перестановка записала бы и его правку
+  expect(region.getByRole('button', { name: 'Стадия 3 выше' }).closest('[inert]')).not.toBeNull()
+  fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
+  expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
+
+  expect((await saveAndRead(fetchMock)).flows[0]).toMatchObject({ name: 'большой', when: 'крупная правка' })
+})
+
+test('действие на схеме при открытом сайдбаре без правок не делает его правку несохранённой', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  const region = await renderFlow()
+  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
+
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
+  await settled()
+
+  expect(drawer.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
+})
+
+test('у новой, ещё не записанной стадии удалять нечего, а записанное описание не делает окно несохранённым', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  await renderFlow()
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Новая стадия' }))
+  const edit = within(await screen.findByRole('dialog', { name: 'Стадия «без названия»' }))
+  expect(edit.queryByRole('button', { name: 'Удалить стадию' })).not.toBeInTheDocument()
+  fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Мерж' } })
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'sha в dev' } })
+
+  fireEvent.click(edit.getByRole('button', { name: /Редактировать описание/ }))
+  const description = within(screen.getByRole('dialog', { name: 'Описание стадии «Мерж»' }))
+  fireEvent.change(description.getByRole('textbox', { name: 'Описание стадии' }), { target: { value: 'Смержить в dev.' } })
+  fireEvent.click(description.getByRole('button', { name: 'Сохранить' }))
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
+  expect(body(fetchMock, 'POST /api/flow').stages.at(-1)).toMatchObject({ title: 'Мерж', description: 'Смержить в dev.' })
+  await settled()
+  fireEvent.click(description.getByRole('button', { name: 'Закрыть' }))
+
+  expect(edit.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})

@@ -391,8 +391,9 @@ export default function Flow({
   // Правка поверх прочитанного флоу: поля открытого окна или запись, которая ещё идёт. Ключ — база и её
   // отпечаток: перечитанный после записи флоу правку сменяет сам.
   const [edits, setEdits] = useState<{ key: string; draft: Draft } | null>(null)
-  // Форма, какой она была, когда окно открылось: несохранённое в окне — то, чем форма от неё отличается.
-  const [baseline, setBaseline] = useState<string | null>(null)
+  // Форма, какой она была, когда окно открылось или записало своё, — снимком и отпечатком флоу, при котором снята:
+  // несохранённое в окне — то, чем форма от неё отличается. Флоу перечитан после записи — отсчёт от него.
+  const [baseline, setBaseline] = useState<{ key: string; snap: string } | null>(null)
   const [tab, setTab] = useState<Tab>('flow')
   // Выбранные стадия вкладки «Стадии» и флоу вкладки «Сценарии» — по key, как в форме.
   const [stageKey, setStageKey] = useState<number | null>(null)
@@ -478,7 +479,8 @@ export default function Flow({
   // Правка ещё не записана: проект не переключается, а флоу не перечитывается — иначе она пропала бы молча.
   const dirty = flow !== null && snapshot(draft) !== savedSnapshot
   // В открытом окне изменили поля: закрыть его молча нельзя.
-  const changed = baseline !== null && snapshot(draft) !== baseline
+  const changed =
+    baseline !== null && snapshot(draft) !== (baseline.key === baseKey ? baseline.snap : savedSnapshot)
   // Отметка в шапке щёлкнута при открытом разделе: окно встаёт поверх, а проект переключается на проект
   // просьбы, только если переключать нечего терять — как в выборе проекта.
   if (rewriteAt !== rewriteSeen) {
@@ -521,7 +523,7 @@ export default function Flow({
   /** Открывается окно правки: то, что в форме сейчас, — точка отсчёта его несохранённого. */
   const begin = (from: Draft = draft) => {
     setFailure(null)
-    setBaseline(snapshot(from))
+    setBaseline({ key: baseKey, snap: snapshot(from) })
   }
 
   /** Окно закрыто: правка, которую оно не записало, выбрасывается. */
@@ -581,6 +583,8 @@ export default function Flow({
         body: JSON.stringify({ base: flow.base, version: flow.version, ...toApi(next), icons: toIcons(next) }),
       })
       if (response.ok) {
+        // Записанное — новая точка отсчёта открытого окна: сайдбар остаётся открытым и дальше считает свои правки.
+        setBaseline((was) => was && { key: baseKey, snap: snapshot(next) })
         await loadFlows()
         return null
       }
@@ -615,7 +619,6 @@ export default function Flow({
       setFailure(failed)
       return false
     }
-    setBaseline(null)
     close()
     return true
   }
@@ -703,6 +706,7 @@ export default function Flow({
   }
 
   const closeStage = () => {
+    setBaseline(null)
     setStageOpen(false)
     setStageKey(null)
   }
@@ -722,6 +726,7 @@ export default function Flow({
       confirm: 'Удалить',
       onConfirm: () =>
         void keep({ ...saved, flows: saved.flows.filter((f) => f.key !== target.key) }, () => {
+          setBaseline(null)
           setFlowKey(null)
           setOpened(null)
         }),
@@ -988,6 +993,7 @@ export default function Flow({
               onNew={() => setModal('new-flow')}
               onOpen={(next) => {
                 if (next) begin()
+                else setBaseline(null)
                 setOpened(next)
               }}
               onChange={(change) => void act(withFlow(draft, currentFlow.key, change))}
@@ -1053,9 +1059,7 @@ export default function Flow({
           // Описание пишется вместе со стадией: открытое из окна правки, оно уносит и её несохранённые поля.
           onSave={async (description) => {
             const next = { ...draft, stages: draft.stages.map((s) => (s.key === currentStage.key ? { ...s, description } : s)) }
-            const failed = await commit(next)
-            if (!failed && stageOpen) setBaseline(snapshot(next))
-            return failed
+            return commit(next)
           }}
         />
       )}
@@ -1473,7 +1477,7 @@ function StageModal({
 
         <div className="ask-body">
           {/* Занятую стадию видно целиком, но поля погашены: правка закрыта, пока задачи идут по её сценарию. */}
-          <fieldset className="flow-stage-rows flow-stage-set" disabled={lock !== null}>
+          <fieldset className="flow-stage-rows flow-stage-set" disabled={lock !== null || saving}>
             <div className="flow-field">
               <span>Значок</span>
               <IconPicker stage={stage} onPick={(icon) => onChange({ icon })} />
@@ -1530,7 +1534,7 @@ function StageModal({
                 aria-label="Выход стадии"
                 placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
                 aria-invalid={!stage.output.trim()}
-                disabled={lock !== null}
+                disabled={lock !== null || saving}
                 rows={3}
                 value={stage.output}
                 onChange={(event) => onChange({ output: event.target.value })}
@@ -1543,7 +1547,7 @@ function StageModal({
                 className="flow-input"
                 aria-label="Пропуск стадии"
                 placeholder="нет — стадия проходится всегда"
-                disabled={lock !== null}
+                disabled={lock !== null || saving}
                 value={stage.skip}
                 onChange={(event) => onChange({ skip: event.target.value })}
               />
@@ -1604,16 +1608,19 @@ function StageModal({
           </div>
         ) : (
           <div className="modal-footer flow-stage-foot">
-            <button
-              type="button"
-              className={`btn btn-danger ${why && usedIn.length > 0 ? 'is-pressed' : ''}`}
-              aria-expanded={usedIn.length > 0 ? why : undefined}
-              disabled={saving}
-              onClick={() => (usedIn.length > 0 ? setWhy(!why) : onDelete())}
-            >
-              <TrashIcon />
-              Удалить стадию
-            </button>
+            {/* Стадии, которой ещё нет в базе, удалять нечего: её не оставляет «Отмена». */}
+            {stage.slug !== null && (
+              <button
+                type="button"
+                className={`btn btn-danger ${why && usedIn.length > 0 ? 'is-pressed' : ''}`}
+                aria-expanded={usedIn.length > 0 ? why : undefined}
+                disabled={saving}
+                onClick={() => (usedIn.length > 0 ? setWhy(!why) : onDelete())}
+              >
+                <TrashIcon />
+                Удалить стадию
+              </button>
+            )}
             <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onClose}>
               Отмена
             </button>
@@ -2320,7 +2327,7 @@ function ReturnsModal({
         </div>
 
         <div className="ask-body">
-          <fieldset className="flow-stage-set" disabled={lock !== null}>
+          <fieldset className="flow-stage-set" disabled={lock !== null || saving}>
             <ReturnsField
               returns={entry.returns}
               earlier={earlierStages(draft, flow, index)}
@@ -2418,7 +2425,7 @@ function FlowDrawer({
 
       <div className="flow-drawer-body">
         {lock && <LockNote lock={lock} />}
-        <fieldset className="flow-stage-set" disabled={lock !== null}>
+        <fieldset className="flow-stage-set" disabled={lock !== null || saving}>
           <label className="flow-field">
             <span>Название сценария</span>
             <input
@@ -2564,6 +2571,7 @@ function NewFlowModal({
                 aria-label="Название сценария"
                 placeholder="Название сценария"
                 value={name}
+                disabled={saving}
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
@@ -2575,6 +2583,7 @@ function NewFlowModal({
                 placeholder="какие задачи вести этим сценарием"
                 rows={2}
                 value={when}
+                disabled={saving}
                 onChange={(event) => setWhen(event.target.value)}
               />
             </label>
@@ -2594,6 +2603,7 @@ function NewFlowModal({
                           name="flow-first-stage"
                           className="visually-hidden"
                           checked={one.key === stage}
+                          disabled={saving}
                           onChange={() => setStage(one.key)}
                         />
                         <ChoiceMark />
@@ -2974,6 +2984,8 @@ function DescriptionEditor({
               className="custom-textarea pf-task-edit"
               aria-label="Описание стадии"
               spellCheck={false}
+              // Пока описание пишется, набранное поверх него пропало бы: поле погашено.
+              disabled={saving}
               value={text}
               onChange={(event) => setText(event.target.value)}
             />
