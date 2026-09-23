@@ -529,7 +529,8 @@ test('подвал сайдбара сценария — в одну строк�
   const region = await openFlow(page)
   await region.getByRole('button', { name: /^Сценарий «полный»/ }).click()
 
-  const drawer = page.getByRole('complementary', { name: 'Сценарий «полный»' })
+  // Название сайдбара идёт за набранным названием сценария
+  const drawer = page.getByRole('complementary', { name: /^Сценарий «полный/ })
   // Сайдбар въезжает сбоку: кнопки меряются, когда он встал
   await expect(async () => {
     const [remove, cancel, save] = (
@@ -548,6 +549,24 @@ test('подвал сайдбара сценария — в одну строк�
     expect(remove.x + remove.width).toBeLessThan(cancel.x)
     expect(cancel.x + cancel.width).toBeLessThan(save.x)
   }).toPass()
+
+  // «Сохранение…» на время записи длиннее «Сохранить», но подвал за край не выводит
+  let release = () => {}
+  await page.route('**/api/flow', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await new Promise<void>((resolve) => (release = resolve))
+    return route.fulfill({ json: { version: 'v2' } })
+  })
+  await drawer.getByRole('textbox', { name: 'Название сценария' }).fill('полный сценарий')
+  await drawer.getByRole('button', { name: 'Сохранить' }).click()
+  const saving = drawer.getByRole('button', { name: 'Сохранение…' })
+  await expect(saving).toBeVisible()
+  const edge = (await drawer.boundingBox())!
+  const box = (await saving.boundingBox())!
+  const remove = (await drawer.getByRole('button', { name: 'Удалить сценарий' }).boundingBox())!
+  expect(box.x + box.width).toBeLessThanOrEqual(edge.x + edge.width)
+  expect(box.y).toBe(remove.y)
+  release()
 })
 
 for (const theme of ['dark', 'light'] as const) {
