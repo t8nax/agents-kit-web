@@ -449,7 +449,7 @@ export default function BacklogWriteModal({
             <textarea
               className="composer-field talk-field"
               aria-label={`Просьба к ${AGENT_NAME}`}
-              rows={2}
+              rows={3}
               autoFocus
               value={value}
               placeholder={placeholder}

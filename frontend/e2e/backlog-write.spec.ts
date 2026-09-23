@@ -272,6 +272,8 @@ test('подвал: поле во всю ширину, под ним кнопк�
     // Кнопки строкой под полем, а не рядом с ним: поле во всю ширину подвала.
     expect(left!.y).toBeGreaterThanOrEqual(box!.y + box!.height)
     expect(right!.x + right!.width).toBeCloseTo(box!.x + box!.width, 0)
+    // Поле — в три строки текста: замечание оператора на приёмке B-228.
+    expect(box!.height).toBe(84)
   }).toPass({ timeout: 5000 })
 
   await say(dialog, 'Убери B-2')
@@ -293,6 +295,7 @@ test('подвал: поле во всю ширину, под ним кнопк�
   const asking = dialog.getByRole('alertdialog', { name: 'Начать новую переписку?' })
   await expect(asking).toBeVisible()
   expect((await footer.boundingBox())!.height).toBe(before)
+  expect((await asking.locator('.talk-confirm').boundingBox())!.height).toBe(84)
   await expect(bar.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 
   await asking.getByRole('button', { name: 'Отмена' }).click()
