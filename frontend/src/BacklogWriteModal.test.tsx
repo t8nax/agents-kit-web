@@ -592,6 +592,27 @@ test('окно от «Изменить» после «Новой перепис�
   expect(posts[1].body).toEqual({ base: bases[1].base, text: 'Запиши мысль' })
 })
 
+test('кнопки ждущего предложения стоят полосой под шапкой, а не в переписке, и гаснут на время переспроса', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('Убери B-36')
+  stream.send({ type: 'reply', text: 'Убери B-36' })
+  stream.send(answer({ text: 'Сохраню, когда скажете.', proposal }))
+
+  const bar = (await screen.findByText('Ждут сохранения: изменить 1, удалить 1')).closest('.talk-pending') as HTMLElement
+  expect(bar.previousElementSibling).toHaveClass('reply-head')
+  expect(within(bar).getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  const said = screen.getByText('Сохраню, когда скажете.').closest('.talk-agent') as HTMLElement
+  expect(within(said).queryByRole('button')).not.toBeInTheDocument()
+  expect(within(said).getByRole('list', { name: 'Изменения' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  expect(within(bar).getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  expect(within(bar).getByRole('button', { name: 'Отказаться' })).toBeDisabled()
+})
+
 test('без текста отправить нельзя', async () => {
   stubFetch(controlledStream())
   renderModal()

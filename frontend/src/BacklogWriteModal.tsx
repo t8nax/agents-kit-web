@@ -304,6 +304,37 @@ export default function BacklogWriteModal({
           </button>
         </div>
 
+        {/* Ждущее предложение — полосой под шапкой, а не в переписке: в ленте только его карточки (макет B-228). */}
+        {pendingProposal && !deciding && (
+          <div className="talk-pending" role="status">
+            <ClockIcon />
+            <span>{pendingTitle(pendingProposal)}</span>
+            <button
+              type="button"
+              className="btn"
+              disabled={saving !== null || asking !== null}
+              onClick={() => void refuse(pendingProposal.id)}
+            >
+              Отказаться
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={saving !== null || asking !== null}
+              onClick={() => void save(pendingProposal.id)}
+            >
+              Сохранить
+            </button>
+          </div>
+        )}
+        {pendingProposal && saveError?.id === pendingProposal.id && (
+          <div className="ask-error talk-pending-error" role="alert">
+            <strong>Не сохранено</strong>
+            <span>{saveError.text}</span>
+            {saveError.output && <pre>{saveError.output}</pre>}
+          </div>
+        )}
+
         <div className="reply-feed talk-feed" ref={feed}>
           {waiting && <p className="modal-message">Загрузка…</p>}
           {about && (
@@ -339,10 +370,6 @@ export default function BacklogWriteModal({
                     key={i}
                     event={event}
                     state={event.proposal ? (states.get(event.proposal.id) ?? 'replaced') : null}
-                    saving={saving}
-                    saveError={saveError}
-                    onSave={(id) => void save(id)}
-                    onRefuse={(id) => void refuse(id)}
                   />
                 )
               case 'error':
@@ -466,21 +493,13 @@ export default function BacklogWriteModal({
   )
 }
 
-/** Ответ Чудо-Юдо: его слова, записи, добавленные сразу, и предложение, которое ждёт «Сохранить». */
+/** Ответ Чудо-Юдо: его слова, записи, добавленные сразу, и карточки предложения; его кнопки — в полосе под шапкой. */
 function Answer({
   event,
   state,
-  saving,
-  saveError,
-  onSave,
-  onRefuse,
 }: {
   event: Extract<WriteEvent, { type: 'answer' }>
   state: ProposalState | null
-  saving: string | null
-  saveError: { id: string; text: string; output?: string | null } | null
-  onSave: (id: string) => void
-  onRefuse: (id: string) => void
 }) {
   const entries = event.entries ?? []
   const proposal = event.proposal ?? null
@@ -496,35 +515,7 @@ function Answer({
       )}
       {proposal && state && (
         <div className={`talk-group ${state === 'refused' || state === 'replaced' ? 'is-void' : ''}`}>
-          {state === 'pending' && (
-            <div className="talk-pending" role="status">
-              <ClockIcon />
-              <span>{pendingTitle(proposal)}</span>
-            </div>
-          )}
           <ProposalEntries proposal={proposal} state={state} />
-          {state === 'pending' && saveError?.id === proposal.id && (
-            <div className="ask-error" role="alert">
-              <strong>Не сохранено</strong>
-              <span>{saveError.text}</span>
-              {saveError.output && <pre>{saveError.output}</pre>}
-            </div>
-          )}
-          {state === 'pending' && (
-            <div className="talk-actions">
-              <button type="button" className="btn" disabled={saving !== null} onClick={() => onRefuse(proposal.id)}>
-                Отказаться
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={saving !== null}
-                onClick={() => onSave(proposal.id)}
-              >
-                Сохранить
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>

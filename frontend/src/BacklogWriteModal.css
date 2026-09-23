@@ -89,23 +89,28 @@
 
 .talk-pending {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--accent-waiting-border);
-  border-radius: 8px;
+  gap: 8px 12px;
+  padding: 10px 20px 10px 24px;
+  border-bottom: 1px solid var(--accent-waiting-border);
   background: var(--accent-waiting-bg);
   color: var(--accent-waiting-text);
   font-size: 14px;
   font-weight: 500;
 }
 
-.talk-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 2px;
+.talk-pending > span {
+  flex: 1;
+  min-width: 200px;
+}
+
+.talk-pending .btn {
+  padding: 6px 14px;
+}
+
+.talk-pending-error {
+  margin: 10px 20px 0 24px;
 }
 
 /* Подвал по макету B-228: поле на всю ширину, под ним строка кнопок справа — как в окне вопроса по базе. */
