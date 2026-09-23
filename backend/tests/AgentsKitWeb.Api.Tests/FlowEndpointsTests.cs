@@ -113,11 +113,19 @@ public sealed class FlowEndpointsTests : IDisposable
         File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу:  Полный \n");
         File.WriteAllText(Path.Combine(_base, "work", "b.md"), "# Задача без номера\nрабочая копия: D:\\b\nфлоу: старый\n");
         File.WriteAllText(Path.Combine(_base, "work", "c.md"), "рабочая копия: D:\\c\n");
+        // Слово вида номера с чужими буквами номером не становится: у проекта буквы B
+        File.WriteAllText(Path.Combine(_base, "work", "d.md"), "# UTF-8 в выгрузке\nрабочая копия: D:\\d\nфлоу: полный\n");
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
 
         var flow = Assert.Single(await GetFlows(Client(_base)));
 
         Assert.Equal(
-            [new FlowTask("B-7", "полный", "Полный"), new FlowTask("c", null), new FlowTask("Задача без номера", null, "старый")],
+            [
+                new FlowTask("B-7", "полный", "Полный"),
+                new FlowTask("UTF-8 в выгрузке", "полный", "полный"),
+                new FlowTask("c", null),
+                new FlowTask("Задача без номера", null, "старый"),
+            ],
             flow.Tasks);
     }
 
@@ -283,6 +291,7 @@ public sealed class FlowEndpointsTests : IDisposable
     public async Task Save_TouchingFlowTaskGoesByOrItsStage_IsRejectedAndTheRestIsWritten()
     {
         Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
         File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: мелкий\n");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
@@ -348,6 +357,7 @@ public sealed class FlowEndpointsTests : IDisposable
     public async Task Save_TaskWithUnknownFlow_HoldsEveryFlowAndStageButNotNewOnes()
     {
         Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
         File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: переименованный\n");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));

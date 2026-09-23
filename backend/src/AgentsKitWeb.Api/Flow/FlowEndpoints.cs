@@ -221,24 +221,30 @@ public static class FlowEndpoints
         && after.Any(f => !string.IsNullOrWhiteSpace(f.When) && f.Equals(flow with { When = f.When }));
 
     /// <summary>Задачи в работе по памятям work/*.md и флоу каждой: имя флоу сравнивается, как их сравнивает кит.</summary>
-    private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows) =>
-        WorkspaceCollector.MemoryFiles(basePath).Values
+    private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
+    {
+        var letters = Backlog.ReadLetters(basePath);
+        return WorkspaceCollector.MemoryFiles(basePath).Values
             .Select(entry => new FlowTask(
-                TaskLabel(entry.Memory.Task, entry.File),
+                TaskLabel(entry.Memory.Task, entry.File, letters),
                 entry.Memory.Flow is { } named
                     ? flows.FirstOrDefault(f => FlowFolder.Key(f.Name) == FlowFolder.Key(named))?.Name
                     : null,
                 string.IsNullOrWhiteSpace(entry.Memory.Flow) ? null : entry.Memory.Flow))
             .OrderBy(t => t.Task, StringComparer.Ordinal)
             .ToList();
+    }
 
-    /// <summary>Номер записи бэклога в начале заголовка; без него — заголовок, а без заголовка — имя файла памяти.</summary>
-    private static string TaskLabel(string? title, string file)
+    /// <summary>
+    /// Номер записи бэклога в начале заголовка — только с буквами своего проекта (decisions/backlog-numbers.md):
+    /// «UTF-8 в выгрузке» номером не становится. Без номера — заголовок, а без заголовка — имя файла памяти.
+    /// </summary>
+    private static string TaskLabel(string? title, string file, string? letters)
     {
         if (string.IsNullOrWhiteSpace(title))
             return System.IO.Path.GetFileNameWithoutExtension(file);
-        var first = title.Split(' ', 2)[0];
-        return BacklogNumber.Normalize(first) ?? title;
+        var number = BacklogNumber.Normalize(title.Split(' ', 2)[0]);
+        return number is not null && BacklogNumber.Letters(number) == letters ? number : title;
     }
 
     private static List<FlowStage> Stages(IEnumerable<FlowFileBytes> files) =>
