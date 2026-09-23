@@ -59,6 +59,7 @@ builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
 builder.Services.AddSingleton<IAgentChat, AgentChat>();
 builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<AskConversations>();
+builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());

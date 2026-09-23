@@ -8,6 +8,12 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// </summary>
 public sealed record BacklogEntry(string? Number, string Title, string? Text, string? Priority = null, string? Type = null);
 
+/// <summary>
+/// Запись бэклога как она лежит в файле: от строки «## » до следующей такой строки или конца файла. Start и End —
+/// смещения в тексте файла; Text — её строки без пустых в конце, через «\n». Number — номер в виде кита.
+/// </summary>
+public sealed record BacklogBlock(string? Number, int Start, int End, string Text);
+
 public static partial class Backlog
 {
     private const string AgentSection = "Агенту";
@@ -93,6 +99,40 @@ public static partial class Backlog
 
         Close();
         return entries;
+    }
+
+    /// <summary>
+    /// Записи файла с их границами: по ним панель заменяет или вырезает ровно одну запись и сверяет, что её
+    /// текст не менялся. Пустые строки после записи входят в её границы, но не в текст.
+    /// </summary>
+    public static IReadOnlyList<BacklogBlock> Blocks(string text)
+    {
+        var blocks = new List<BacklogBlock>();
+        var lines = MemoryText.Lines(text);
+        int? open = null;
+
+        void Close(int end)
+        {
+            if (open is not { } first)
+                return;
+            var own = lines.Skip(first).Take(end - first).Select(l => l.Text.TrimEnd()).ToList();
+            while (own.Count > 1 && own[^1].Length == 0)
+                own.RemoveAt(own.Count - 1);
+            var match = NumberedTitle.Match(own[0][3..].Trim());
+            var number = match.Success ? BacklogNumber.Normalize(match.Groups["number"].Value) : null;
+            blocks.Add(new BacklogBlock(
+                number, lines[first].Start, end < lines.Count ? lines[end].Start : text.Length, string.Join("\n", own)));
+        }
+
+        for (var i = 0; i < lines.Count; i++)
+        {
+            if (!lines[i].Text.StartsWith("## "))
+                continue;
+            Close(i);
+            open = i;
+        }
+        Close(lines.Count);
+        return blocks;
     }
 
     /// <summary>

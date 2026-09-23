@@ -127,7 +127,7 @@ test('пока бэклог читается, на месте записей з�
   expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
   expect(screen.getByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Обновить' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: /Добавить с помощью/ })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Попросить Чудо-Юдо/ })).toBeDisabled()
 
   answer(backlogs)
 
@@ -325,20 +325,21 @@ test('сбой запроса показан строкой, а не пусты�
   expect(await screen.findByRole('alert')).toHaveTextContent('Нет связи с API')
 })
 
-test('кнопка «Добавить с помощью Чудо-Юдо» открывает окно записи, новые записи отмечены до «Обновить»', async () => {
+test('«Попросить Чудо-Юдо» открывает разговор, новые записи отмечены до «Обновить»', async () => {
   const withNew: BaseBacklog[] = [
     { ...backlogs[0], entries: [...backlogs[0].entries, { number: 'B-32', title: 'Добавлена агентом', text: null }] },
     backlogs[1],
   ]
   const body = new TextEncoder().encode(
-    JSON.stringify({
-      type: 'written',
-      text: 'ok',
-      entries: [{ number: 'B-32', title: 'Добавлена агентом', text: null }],
-    }) + '\n',
+    [
+      { type: 'reply', text: 'Мысль' },
+      { type: 'answer', text: 'ok', entries: [{ number: 'B-32', title: 'Добавлена агентом', text: null }] },
+    ]
+      .map((event) => JSON.stringify(event) + '\n')
+      .join(''),
   )
   const fetchMock = vi.fn((url: string) => {
-    // Окно записи спрашивает панель, не идёт ли уже такая просьба.
+    // Окно Чудо-Юдо спрашивает панель, не идёт ли уже разговор о бэклоге.
     if (url === '/api/agent/requests') return Promise.resolve(Response.json([]))
     if (url === '/api/backlog/write') {
       return Promise.resolve(
@@ -346,6 +347,7 @@ test('кнопка «Добавить с помощью Чудо-Юдо» отк
       )
     }
     if (url.startsWith('/api/agent/backlog/stream')) return Promise.resolve(new Response(body))
+    if (url === '/api/agent/backlog') return Promise.resolve(new Response(null, { status: 204 }))
     const calls = fetchMock.mock.calls.filter(([u]) => u === '/api/backlog').length
     return Promise.resolve(Response.json(calls === 1 ? backlogs : withNew))
   })
@@ -353,13 +355,13 @@ test('кнопка «Добавить с помощью Чудо-Юдо» отк
 
   render(<Backlog />)
   await screen.findByText('B-1')
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' }))
 
-  const dialog = within(screen.getByRole('dialog', { name: 'Запись в бэклог' }))
-  fireEvent.change(await dialog.findByLabelText('Что записать'), { target: { value: 'Мысль' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Добавить' }))
-  await dialog.findByText('Добавлено 1 запись')
-  fireEvent.click(dialog.getByRole('button', { name: 'К бэклогу' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Чудо-Юдо' }))
+  fireEvent.change(await dialog.findByLabelText('Просьба к Чудо-Юдо'), { target: { value: 'Мысль' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
+  await dialog.findByText('добавлена')
+  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
 
   const added = await screen.findByRole('button', { name: /B-32 Добавлена агентом/ })
   expect(within(added).getByText('новая')).toBeInTheDocument()
@@ -370,13 +372,36 @@ test('кнопка «Добавить с помощью Чудо-Юдо» отк
   expect(screen.queryByText('новая')).not.toBeInTheDocument()
 })
 
+test('«Изменить» есть только у записи с номером и открывает разговор про неё', async () => {
+  const withLoose: BaseBacklog[] = [
+    { ...backlogs[0], entries: [...backlogs[0].entries, { number: null, title: 'Мысль без номера', text: null }] },
+    backlogs[1],
+  ]
+  stubFetch(withLoose)
+
+  render(<Backlog />)
+  const loose = (await screen.findByRole('button', { name: /Мысль без номера/ })).closest('.entry-row') as HTMLElement
+  expect(within(loose).queryByRole('button', { name: 'Изменить' })).not.toBeInTheDocument()
+
+  const row = screen.getByRole('button', { name: /B-13 / }).closest('.entry-row') as HTMLElement
+  fireEvent.click(within(row).getByRole('button', { name: 'Изменить' }))
+
+  const dialog = within(screen.getByRole('dialog', { name: 'Чудо-Юдо' }))
+  expect(dialog.getByText('Запись')).toBeInTheDocument()
+  expect(dialog.getByText('У панели есть светлая тема')).toBeInTheDocument()
+  expect(dialog.getByLabelText('Просьба к Чудо-Юдо')).toHaveAttribute(
+    'placeholder',
+    'Что поменять в B-13 — или почему она больше не нужна',
+  )
+})
+
 test('без баз добавлять некуда', async () => {
   stubFetch([])
 
   render(<Backlog />)
   await screen.findByText(/Нет отслеживаемых баз/)
 
-  expect(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toBeDisabled()
 })
 
 test('«Взять задачу» запускает свою запись в выбранную копию и возвращает фокус кнопке', async () => {

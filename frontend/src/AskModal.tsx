@@ -77,7 +77,7 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
     if (!active || !said || running) return
 
     setText(null)
-    const sent = started ? await send(said) : await start(active, said)
+    const sent = started ? await send(said) : await start({ base: active, question: said })
     if (sent.ok) return
 
     // Реплика не ушла — она возвращается в поле, чтобы отправить её ещё раз.

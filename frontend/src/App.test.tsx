@@ -1031,20 +1031,20 @@ function sidebarButtons() {
   return within(screen.getByRole('navigation', { name: 'Разделы панели' }))
 }
 
-test('«Бэклог» из сайдбара открывается списком, а не окном записи после возврата к просьбе', async () => {
+test('«Бэклог» из сайдбара открывается списком, а не окном Чудо-Юдо после возврата к просьбе', async () => {
   stubSections()
   render(<App />)
   await screen.findByRole('table')
 
   returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
 
   const sidebar = sidebarButtons()
   fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
   fireEvent.click(sidebar.getByRole('button', { name: /Бэклог/ }))
 
   expect(await screen.findByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Запись в бэклог' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Чудо-Юдо' })).not.toBeInTheDocument()
   // Фильтр по проекту забыт вместе с окном: в списке снова все проекты
   expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
 })
@@ -1089,13 +1089,13 @@ test('возврат к просьбе из шапки открывает раз
   await screen.findByRole('table')
 
   returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
 
   fireEvent.click(sidebarButtons().getByRole('button', { name: /Рабочие копии/ }))
   await screen.findByRole('table')
 
   returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
   // Раздел встал на базе просьбы: записи соседнего проекта список не показывает
   expect(screen.queryByText('Запись соседнего проекта')).not.toBeInTheDocument()
 })

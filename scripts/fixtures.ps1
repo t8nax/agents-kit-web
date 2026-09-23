@@ -394,27 +394,86 @@ if ($system -and $system -match 'стадии флоу проекта') {
 
 $baseDir = Get-Argument '--add-dir'
 
-# Запись в бэклог: панель узнаёт итог по файлу — новым номерам закоммиченного backlog.md.
+# Разговор о бэклоге: реплики приходят строками stream-json. Новую запись агент дописывает и коммитит,
+# изменение, удаление и объединение только предлагает блоками ~~~backlog — пишет их панель по «Сохранить».
+# Запись, названная без номера, уточняется вопросом; «да» в ответ делает прежнюю просьбу с этой записью.
 if ($baseDir) {
     $backlog = Join-Path $baseDir 'backlog.md'
-    Write-Step 'Read' @{ file_path = $backlog }
-    if ($mode -eq 'truncated') { exit 0 }
+    $asked = $null
+    function Get-Block([string]$Text, [string]$Number) {
+        $found = [regex]::Match($Text, "(?ms)^## $([regex]::Escape($Number))\s.*?(?=^## |\z)")
+        if ($found.Success) { return $found.Value.TrimEnd() } else { return $null }
+    }
+    while ($null -ne ($line = $stdinReader.ReadLine())) {
+        if (-not $line.Trim()) { continue }
+        $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text).Trim() } catch { $line.Trim() }
+        # Панель зовёт навык кита первой репликой и называет запись, от которой открыт разговор.
+        $said = ($said -replace '^\s*/[\w:-]+\s*', '').Trim()
+        $about = if ($said -match '^Про запись (\S+):\s*') { $Matches[1] } else { $null }
+        $said = ($said -replace '^Про запись \S+:\s*', '').Trim()
+        if (-not $said) { $said = 'Оператор ничего не сказал.' }
 
-    $text = [IO.File]::ReadAllText($backlog)
-    # Буквы номеров у каждой базы свои: их держит счётчик, как у кита.
-    $letters, $number = if ($text -match '(?m)^следующий номер:\s*([A-Z][A-Z0-9]*)-(\d+)\s*$') { $Matches[1], [int]$Matches[2] } else { 'B', 1 }
-    # Панель шлёт агенту вызов навыка кита с текстом оператора: заголовок записи — сам текст.
-    $said = ($stdin -replace '(?m)^\s*/[\w:-]+\s*', '').Trim()
-    if (-not $said) { $said = 'Оператор ничего не сказал.' }
-    $title = ($said -split "`n")[0]
-    if ($title.Length -gt 70) { $title = $title.Substring(0, 70) }
-    $text = $text -replace "(?m)^следующий номер:\s*[A-Z][A-Z0-9]*-\d+\s*$", "следующий номер: $letters-$($number + 1)"
-    $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом @@OF@@`n"
-    [IO.File]::WriteAllText($backlog, $text, [Text.UTF8Encoding]::new($false))
+        Write-Step 'Read' @{ file_path = $backlog }
+        if ($mode -eq 'truncated') { exit 0 }
+        $text = [IO.File]::ReadAllText($backlog)
+        $letters, $number = if ($text -match '(?m)^следующий номер:\s*([A-Z][A-Z0-9]*)-(\d+)\s*$') { $Matches[1], [int]$Matches[2] } else { 'B', 1 }
 
-    Write-Step 'Edit' @{ file_path = $backlog }
-    git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md
-    Write-Result "Записал $letters-$number."
+        if ($asked -and $said -match '^да\b') { $said = $asked.Said; $numbers = @($asked.Number) }
+        else { $numbers = @([regex]::Matches($said, "\b$letters-\d+\b") | ForEach-Object Value) }
+        if ($about -and $numbers.Count -eq 0) { $numbers = @($about) }
+        $asked = $null
+        $verb = if ($said -match 'объедин') { 'merge' } elseif ($said -match 'удал') { 'delete' } elseif ($said -match 'измен|поправ|переимен|перепиш') { 'change' } else { $null }
+
+        if ($verb -and $numbers.Count -eq 0) {
+            $first = [regex]::Match($text, "(?m)^## ($letters-\d+)\s+(.+)$")
+            if ($first.Success) {
+                $asked = @{ Said = $said; Number = $first.Groups[1].Value }
+                Write-Result "Нашёл запись $($first.Groups[1].Value) «$($first.Groups[2].Value.Trim())». Та ли это? Ответьте «да» или назовите номер."
+                continue
+            }
+        }
+
+        if ($verb) {
+            $blocks = @()
+            $missing = $numbers | Where-Object { -not (Get-Block $text $_) }
+            if ($missing) {
+                Write-Result "Записи $($missing -join ', ') в бэклоге нет."
+                continue
+            }
+            if ($verb -eq 'merge' -and $numbers.Count -ge 2) {
+                $keep, $gone = $numbers[0], $numbers[1]
+                $keptBlock = Get-Block $text $keep
+                $goneTitle = ((Get-Block $text $gone) -split "`n")[0] -replace "^## $gone\s+", ''
+                $keptLines = $keptBlock -split "`n"
+                $keptLines[0] = "$($keptLines[0].TrimEnd()) и $($goneTitle.Trim())"
+                $blocks += "~~~backlog`nизменить $keep`n$($keptLines -join "`n")`n~~~"
+                $blocks += "~~~backlog`nудалить $gone в $keep`n~~~"
+                $reply = "Объединю $gone в $keep."
+            } elseif ($verb -eq 'delete') {
+                $blocks += $numbers | ForEach-Object { "~~~backlog`nудалить $_`n~~~" }
+                $reply = "Удалю $($numbers -join ', ')."
+            } else {
+                foreach ($n in $numbers) {
+                    $lines = (Get-Block $text $n) -split "`n"
+                    $lines[0] = "$($lines[0].TrimEnd()) (изменено)"
+                    $blocks += "~~~backlog`nизменить $n`n$($lines -join "`n")`n~~~"
+                }
+                $reply = "Изменю $($numbers -join ', ')."
+            }
+            Write-Result ("$reply Сохраните, если так.`n`n" + ($blocks -join "`n"))
+            continue
+        }
+
+        # Буквы номеров у каждой базы свои: их держит счётчик, как у кита. Заголовок записи — сам текст.
+        $title = ($said -split "`n")[0]
+        if ($title.Length -gt 70) { $title = $title.Substring(0, 70) }
+        $text = $text -replace "(?m)^следующий номер:\s*[A-Z][A-Z0-9]*-\d+\s*$", "следующий номер: $letters-$($number + 1)"
+        $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом @@OF@@`n"
+        [IO.File]::WriteAllText($backlog, $text, [Text.UTF8Encoding]::new($false))
+        Write-Step 'Edit' @{ file_path = $backlog }
+        git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md
+        Write-Result "Записал $letters-$number."
+    }
     exit 0
 }
 
