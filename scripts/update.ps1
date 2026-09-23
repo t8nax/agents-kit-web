@@ -29,7 +29,11 @@ param(
     [int]$Port = 5080,
     [string]$TaskName = 'agents-kit-web panel',
     [Parameter(Mandatory)]
-    [string]$Log
+    [string]$Log,
+    # Адреса GitHub и срок, за который должна прийти очередная порция архива, — для проверок скрипта.
+    [string]$Api = 'https://api.github.com',
+    [string]$Downloads = 'https://github.com',
+    [int]$StallSeconds = 60
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,7 +56,7 @@ try {
         $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+)-dev$' } else { '^v(\d+\.\d+\.\d+)$' }
         $found = @()
         for ($page = 1; $page -le 5 -and -not $found; $page++) {
-            $answer = Invoke-RestMethod "https://api.github.com/repos/$Releases/releases?per_page=100&page=$page" `
+            $answer = Invoke-RestMethod "$Api/repos/$Releases/releases?per_page=100&page=$page" `
                 -Headers @{ 'User-Agent' = 'agents-kit-web' }
             # Массив ответа приходит одним объектом — foreach его разворачивает.
             $batch = @(foreach ($release in $answer) { $release })
@@ -66,7 +70,7 @@ try {
     Write-Log "выпуск $Tag"
 
     # Скачивание — потоком, с отметками хода: архив весит десятки мегабайт, и оператор видит, сколько осталось.
-    $response = $client.GetAsync("https://github.com/$Releases/releases/download/$Tag/$Asset",
+    $response = $client.GetAsync("$Downloads/$Releases/releases/download/$Tag/$Asset",
         [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
     $response.EnsureSuccessStatusCode() | Out-Null
     $total = [long]$response.Content.Headers.ContentLength
@@ -76,8 +80,15 @@ try {
         $buffer = [byte[]]::new(81920)
         $done = [long]0
         $marked = [Diagnostics.Stopwatch]::StartNew()
+        # Срок клиента стережёт только заголовки: оборванная без закрытия связь повесила бы чтение навсегда,
+        # а с ним и окно обновления. Каждая порция должна прийти за свой срок.
+        $wait = [Threading.CancellationTokenSource]::new()
         Write-Log "[скачано] 0 из $total"
-        while (($read = $source.Read($buffer, 0, $buffer.Length)) -gt 0) {
+        while ($true) {
+            $wait.CancelAfter([TimeSpan]::FromSeconds($StallSeconds))
+            try { $read = $source.ReadAsync($buffer, 0, $buffer.Length, $wait.Token).GetAwaiter().GetResult() }
+            catch [OperationCanceledException] { throw "скачивание встало: за $StallSeconds с не пришло ни байта" }
+            if ($read -le 0) { break }
             $file.Write($buffer, 0, $read)
             $done += $read
             if ($marked.ElapsedMilliseconds -ge 500) {
@@ -88,6 +99,7 @@ try {
         Write-Log "[скачано] $done из $total"
     }
     finally {
+        $wait.Dispose()
         $file.Dispose()
         $source.Dispose()
     }
