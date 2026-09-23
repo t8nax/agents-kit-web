@@ -6,6 +6,7 @@ import { useReveal, withReveal } from './reveal'
 export type PanelBuild = {
   channel: string
   sha: string
+  version: string
   builtAt: string
 }
 
@@ -16,12 +17,14 @@ export type Panel = {
 }
 
 export type PanelRelease = {
-  sha: string
-  title: string
+  version: string
+  tag: string
+  tasks: string[]
 }
 
+/** Latest — самый свежий выпуск канала, releases — выпуски новее стоящей панели, новые первыми. */
 export type PanelUpdates = {
-  sha: string
+  latest: string | null
   releases: PanelRelease[]
 }
 
@@ -29,9 +32,19 @@ export type PanelUpdateState = {
   state: 'none' | 'running' | 'done' | 'failed'
   log: string[]
   file: string
+  release?: string | null
+  downloaded?: number | null
+  total?: number | null
+  installing?: boolean
 }
 
-const channels = ['master', 'dev'] as const
+/** Ветки каналов оператору ничего не говорят: в карточке они названы по тому, что в них выходит. */
+const channels = [
+  { id: 'master', name: 'Стабильный' },
+  { id: 'dev', name: 'Бета' },
+] as const
+
+const channelName = (id: string) => channels.find((channel) => channel.id === id)?.name ?? id
 
 /** Пока идёт обновление, панель подменяется и на минуту перестаёт отвечать — опрос это переживает. */
 const pollMs = 1500
@@ -39,8 +52,9 @@ const pollMs = 1500
 const built = (at: string) =>
   new Date(at).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
 
-/** Код сборки на месте номера версии: он и говорит, чем одна панель отличается от другой. */
-const code = (build: PanelBuild) => `${build.channel} ${build.sha.slice(0, 7)}`
+/** «11,2 из 18,4 МБ» — сколько архива выпуска скачано. */
+const megabytes = (bytes: number) =>
+  (bytes / 1024 / 1024).toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
 /** «1 задача ждёт», «2 задачи ждут», «5 задач ждут» — иначе счёт читается не по-русски. */
 const waiting = (count: number) => {
@@ -51,9 +65,9 @@ const waiting = (count: number) => {
 }
 
 /**
- * Карточка «Панель» в «Настройках»: какой панель собрана, что лежит в канале и кнопка обновления.
- * Номерами версий карточка не говорит: номер поднимают руками и пропускают, а свежесть панели
- * считается кодом канала. В запуске для разработки обновлять нечего — панель говорит это вместо кнопки.
+ * Карточка «Панель» в «Настройках»: какой номер стоит, какой вышел в канале, что приехало с каждым
+ * выпуском и кнопка обновления — она скачивает готовую сборку с GitHub. В запуске для разработки
+ * обновлять нечего — панель говорит это вместо кнопки.
  */
 export default function PanelCard() {
   const [panel, setPanel] = useState<Panel | null>(null)
@@ -140,12 +154,9 @@ export default function PanelCard() {
       </PanelShell>
     )
 
-  // Отстала панель или нет, видно только по коду канала: номер версии поднимает человек, и он
-  // его пропускает — по номерам ушедший вперёд канал выглядел бы прежним.
-  const behind = !!updates && !!panel.published && updates.sha !== panel.published.sha
   const releases = updates?.releases ?? []
-  // Исходников проекта на месте нет — собрать обновление не из чего, и кнопка ничего не сделает.
-  const unavailable = panel.installed && !checking && !updates
+  const behind = releases.length > 0
+  const tasks = releases.reduce((count, release) => count + release.tasks.length, 0)
 
   return (
     <PanelShell>
@@ -155,13 +166,13 @@ export default function PanelCard() {
           <div className="panel-channels" role="group" aria-label="Канал панели">
             {channels.map((channel) => (
               <button
-                key={channel}
+                key={channel.id}
                 type="button"
-                aria-pressed={panel.channel === channel}
-                className={panel.channel === channel ? 'panel-channel panel-channel-on' : 'panel-channel'}
-                onClick={() => chooseChannel(channel)}
+                aria-pressed={panel.channel === channel.id}
+                className={panel.channel === channel.id ? 'panel-channel panel-channel-on' : 'panel-channel'}
+                onClick={() => chooseChannel(channel.id)}
               >
-                {channel}
+                {channel.name}
               </button>
             ))}
           </div>
@@ -171,36 +182,43 @@ export default function PanelCard() {
 
         <div className="panel-row">
           <span className="panel-label">Стоит</span>
-          <span className="panel-build">{panel.published ? code(panel.published) : 'рабочая копия'}</span>
+          <span className="panel-build">{panel.published ? panel.published.version : 'рабочая копия'}</span>
           {panel.published && <span className="panel-hint">собрана {built(panel.published.builtAt)}</span>}
         </div>
 
         {panel.installed && (
-          <div className="panel-row panel-row-top">
-            <span className="panel-label">В канале</span>
+          <div className={behind ? 'panel-row panel-row-top' : 'panel-row'}>
+            <span className="panel-label">Вышла</span>
             {checking && <span className="panel-hint">Смотрим, что вышло…</span>}
-            {!checking && !updates && (
-              <span className="panel-hint">Исходники проекта недоступны — сравнить не с чем.</span>
+            {!checking && !updates && <span className="panel-hint">GitHub не ответил — сравнить сейчас не с чем.</span>}
+            {!checking && updates && !updates.latest && (
+              <span className="panel-hint">В канале «{channelName(panel.channel)}» ещё нет ни одного выпуска.</span>
             )}
-            {!checking && updates && !behind && (
-              <span className="panel-current">Новее в канале {panel.channel} пока нет</span>
+            {!checking && updates?.latest && !behind && (
+              <>
+                <span className="panel-build">{updates.latest}</span>
+                <span className="panel-current">Новее в канале «{channelName(panel.channel)}» пока нет</span>
+              </>
             )}
-            {!checking && updates && behind && releases.length > 0 && (
-              <div className="panel-releases">
-                <span className="panel-arrived">{waiting(releases.length)}</span>
-                <ul>
-                  {releases.map((release) => (
-                    <li key={release.sha}>{release.title}</li>
-                  ))}
-                </ul>
+            {!checking && updates?.latest && behind && (
+              <div className="panel-news">
+                <div className="panel-news-top">
+                  <span className="panel-build">{updates.latest}</span>
+                  {tasks > 0 && <span className="panel-arrived">{waiting(tasks)}</span>}
+                </div>
+                <div className="panel-releases">
+                  {releases.length === 1 ? (
+                    <Tasks tasks={releases[0].tasks} />
+                  ) : (
+                    releases.map((release) => (
+                      <div key={release.tag} className="panel-release">
+                        <span className="panel-release-num">{release.version}</span>
+                        <Tasks tasks={release.tasks} />
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            )}
-            {!checking && updates && behind && releases.length === 0 && (
-              // Код разошёлся, а назвать нечего: панель собрана не из канала — так стоит приёмочная
-              // сборка из ветки задачи. Считать ей задачи не по чему, а обновление вернёт её в канал.
-              <span className="panel-arrived">
-                Панель собрана не из канала {panel.channel} — обновление вернёт её в него
-              </span>
             )}
           </div>
         )}
@@ -208,7 +226,7 @@ export default function PanelCard() {
         {update?.state === 'failed' && !running && (
           <div className="panel-failed" role="alert">
             <strong>Обновление не удалось — панель осталась прежней</strong>
-            <p>Сборка сорвалась до подмены, поэтому панель работает прежним кодом и ничего не потеряла.</p>
+            <p>Установка сорвалась до подмены, поэтому панель работает прежней сборкой и ничего не потеряла.</p>
             <pre>{update.log.join('\n')}</pre>
             <div className="panel-failed-actions">
               <button type="button" className="bases-btn" onClick={copyLog}>
@@ -223,30 +241,23 @@ export default function PanelCard() {
 
         {error && <p className="bases-error" role="alert">{error}</p>}
 
-        <div className="panel-row panel-row-actions">
-          {!panel.installed && (
+        {!panel.installed && (
+          <div className="panel-row panel-row-actions">
             <span className="panel-development">
               Это запуск для разработки — обновлять тут нечего. Обновляется постоянная панель, и кнопка живёт в ней.
             </span>
-          )}
-          {unavailable && (
-            <span className="panel-development">
-              Панель собирает обновление из исходников проекта. Их нет на месте, которое записано при установке, —
-              обновиться отсюда не получится.
+          </div>
+        )}
+        {panel.installed && behind && (
+          <div className="panel-row panel-row-actions">
+            <span className="panel-hint panel-hint-grow">
+              На время обновления панель станет недоступна — страница дождётся её сама.
             </span>
-          )}
-          {panel.installed && !unavailable && (
-            <>
-              <span className="panel-hint panel-hint-grow">
-                Обновление собирает панель заново и подменяет её: минуты две она будет недоступна, страница дождётся
-                её сама.
-              </span>
-              <button type="button" className="bases-btn panel-primary" onClick={start}>
-                {behind ? 'Обновить' : 'Собрать заново'}
-              </button>
-            </>
-          )}
-        </div>
+            <button type="button" className="bases-btn panel-primary" onClick={start}>
+              Обновить
+            </button>
+          </div>
+        )}
       </div>
 
       {running && <UpdateProgress onFailed={(state) => {
@@ -254,6 +265,16 @@ export default function PanelCard() {
         setUpdate(state)
       }} />}
     </PanelShell>
+  )
+}
+
+function Tasks({ tasks }: { tasks: string[] }) {
+  return (
+    <ul>
+      {tasks.map((task, index) => (
+        <li key={index}>{task}</li>
+      ))}
+    </ul>
   )
 }
 
@@ -297,8 +318,9 @@ function PanelShell({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Окно хода обновления. В середине панель подменяется и перестаёт отвечать — это часть работы,
- * а не поломка: окно ждёт её возвращения и перезагружает страницу уже на новой сборке.
+ * Окно хода обновления: два шага — скачать сборку, сколько скачано из скольких, и поставить её.
+ * В середине панель подменяется и перестаёт отвечать — это часть работы, а не поломка: окно ждёт
+ * её возвращения и перезагружает страницу уже на новой сборке.
  */
 function UpdateProgress({ onFailed }: { onFailed: (state: PanelUpdateState) => void }) {
   const [state, setState] = useState<PanelUpdateState | null>(null)
@@ -346,7 +368,21 @@ function UpdateProgress({ onFailed }: { onFailed: (state: PanelUpdateState) => v
             ответит, страница перезагрузится сама.
           </p>
         ) : (
-          <pre className="panel-log">{state?.log.join('\n') ?? 'Запускаем обновление…'}</pre>
+          <ul className="panel-steps">
+            <li className={state?.installing ? 'done' : 'now'}>
+              <span className="mark" />
+              Скачать сборку{state?.release ? ` ${state.release}` : ''}
+              {state?.total ? (
+                <span className="size">
+                  {megabytes(state.downloaded ?? 0)} из {megabytes(state.total)} МБ
+                </span>
+              ) : null}
+            </li>
+            <li className={state?.installing ? 'now' : undefined}>
+              <span className="mark" />
+              Поставить сборку
+            </li>
+          </ul>
         )}
       </div>
     </div>

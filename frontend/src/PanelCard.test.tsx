@@ -13,20 +13,23 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 const installed: Panel = {
   installed: true,
   channel: 'master',
-  published: { channel: 'master', sha: '4189d1f0000', builtAt: '2026-09-12T16:40:00Z' },
+  published: { channel: 'master', sha: '4189d1f0000', version: '0.10.1', builtAt: '2026-09-12T16:40:00Z' },
 }
 
 const development: Panel = { installed: false, channel: 'master', published: null }
 
 const behind: PanelUpdates = {
-  sha: 'e5c1a2b0000',
+  latest: '0.10.2',
   releases: [
-    { sha: 'e5c1a2b0000', title: 'Исполнитель синхронизируется по копиям' },
-    { sha: 'a71fe3d0000', title: 'Переход строки ведёт в сессию задачи' },
+    {
+      version: '0.10.2',
+      tag: 'v0.10.2',
+      tasks: ['Исполнитель синхронизируется по копиям', 'Переход строки ведёт в сессию задачи'],
+    },
   ],
 }
 
-const current: PanelUpdates = { sha: '4189d1f0000', releases: [] }
+const current: PanelUpdates = { latest: '0.10.1', releases: [] }
 
 const idle: PanelUpdateState = { state: 'none', log: [], file: 'C:\\app\\update.log' }
 
@@ -50,56 +53,61 @@ const api = (panel: Panel, updates: PanelUpdates, update: PanelUpdateState = idl
   ...extra,
 })
 
-test('карточка показывает код сборки и задачи, которые приедут', async () => {
+test('карточка показывает номер стоящей и вышедшей сборки и задачи, которые приедут', async () => {
   stubApi(api(installed, behind))
 
   render(<PanelCard />)
 
-  expect(await screen.findByText('master 4189d1f')).toBeTruthy()
+  expect(await screen.findByText('0.10.1')).toBeTruthy()
   expect(screen.getByText(/собрана 12 сентября/)).toBeTruthy()
-  expect(await screen.findByText('2 задачи ждут обновления')).toBeTruthy()
+  expect(await screen.findByText('0.10.2')).toBeTruthy()
+  expect(screen.getByText('2 задачи ждут обновления')).toBeTruthy()
   expect(screen.getByText('Исполнитель синхронизируется по копиям')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
-  // Номерами версий карточка не говорит вовсе.
-  expect(screen.queryByText(/\d+\.\d+\.\d+/)).toBeNull()
 })
 
-test('панель, собранная не из канала, зовёт вернуться в него', async () => {
-  // Так стоит приёмочная сборка из ветки задачи: код разошёлся, а называть нечего.
-  stubApi(api(installed, { sha: 'e5c1a2b0000', releases: [] }))
+test('несколько вышедших сборок — задачи под номером каждой, свежая сверху', async () => {
+  stubApi(
+    api(installed, {
+      latest: '0.10.3',
+      releases: [
+        { version: '0.10.3', tag: 'v0.10.3', tasks: ['Сессии задачи видны в окне ответа'] },
+        { version: '0.10.2', tag: 'v0.10.2', tasks: ['Бэклог держит порядок записей', 'Поиск находит записи по номеру'] },
+      ],
+    }),
+  )
 
   render(<PanelCard />)
 
-  expect(await screen.findByText(/Панель собрана не из канала master/)).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
+  expect(await screen.findByText('3 задачи ждут обновления')).toBeTruthy()
+  const numbers = [...document.querySelectorAll('.panel-release-num')].map((node) => node.textContent)
+  expect(numbers).toEqual(['0.10.3', '0.10.2'])
 })
 
-test('панель на последней версии говорит, что новее нет', async () => {
+test('панель на последней сборке говорит, что новее нет, и кнопки не показывает', async () => {
   stubApi(api(installed, current))
 
   render(<PanelCard />)
 
-  expect(await screen.findByText(/Новее в канале master пока нет/)).toBeTruthy()
-  expect(screen.getByRole('button', { name: 'Собрать заново' })).toBeTruthy()
+  expect(await screen.findByText('Новее в канале «Стабильный» пока нет')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Обновить' })).toBeNull()
 })
 
 test('одна задача в канале посчитана по-русски', async () => {
-  stubApi(api(installed, { sha: 'e5c1a2b0000', releases: [{ sha: 'e5c1a2b0000', title: 'Копия удаляется из панели' }] }))
+  stubApi(api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: ['Копия удаляется из панели'] }] }))
 
   render(<PanelCard />)
 
   expect(await screen.findByText('1 задача ждёт обновления')).toBeTruthy()
 })
 
-test('без исходников проекта кнопки обновления нет', async () => {
-  stubApi(api(installed, current, idle, { 'GET /api/panel/updates': () => new Response(null, { status: 404 }) }))
+test('GitHub не ответил — сравнить не с чем, и кнопки нет', async () => {
+  stubApi(api(installed, current, idle, { 'GET /api/panel/updates': () => new Response(null, { status: 502 }) }))
 
   render(<PanelCard />)
 
-  expect(await screen.findByText(/Исходники проекта недоступны/)).toBeTruthy()
-  expect(screen.getByText(/обновиться отсюда не получится/)).toBeTruthy()
-  expect(screen.queryByRole('button', { name: /Обновить/ })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Собрать заново' })).toBeNull()
+  expect(await screen.findByText('GitHub не ответил — сравнить сейчас не с чем.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Обновить' })).toBeNull()
 })
 
 test('в запуске для разработки кнопки обновления нет', async () => {
@@ -109,27 +117,26 @@ test('в запуске для разработки кнопки обновле�
 
   expect(await screen.findByText(/Это запуск для разработки/)).toBeTruthy()
   expect(screen.queryByRole('button', { name: /Обновить/ })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Собрать заново' })).toBeNull()
 })
 
 test('выбранный канал уходит в панель', async () => {
   const fetchMock = stubApi(api(installed, behind, idle, { 'PUT /api/panel/channel': () => new Response(null, { status: 204 }) }))
 
   render(<PanelCard />)
-  fireEvent.click(await screen.findByRole('button', { name: 'dev' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Бета' }))
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith('/api/panel/channel', expect.objectContaining({ method: 'PUT' })),
   )
-  expect(screen.getByRole('button', { name: 'dev' }).getAttribute('aria-pressed')).toBe('true')
+  expect(screen.getByRole('button', { name: 'Бета' }).getAttribute('aria-pressed')).toBe('true')
 })
 
-test('кнопка запускает обновление и показывает его ход', async () => {
+test('кнопка запускает обновление и показывает, сколько скачано', async () => {
   let update: PanelUpdateState = idle
   stubApi(
     api(installed, behind, idle, {
       'POST /api/panel/update': () => {
-        update = { state: 'running', log: ['npm ci'], file: idle.file }
+        update = { state: 'running', log: [], file: idle.file, release: '0.10.2', downloaded: 11744051, total: 19293798 }
         return new Response(null, { status: 202 })
       },
       'GET /api/panel/update': () => json(update),
@@ -140,7 +147,21 @@ test('кнопка запускает обновление и показывае
   fireEvent.click(await screen.findByRole('button', { name: 'Обновить' }))
 
   expect(await screen.findByRole('dialog', { name: 'Панель обновляется' })).toBeTruthy()
-  expect(await screen.findByText('npm ci')).toBeTruthy()
+  expect(await screen.findByText('11,2 из 18,4 МБ')).toBeTruthy()
+  expect(screen.getByText(/Скачать сборку 0\.10\.2/).className).toBe('now')
+  expect(screen.getByText('Поставить сборку').className).toBe('')
+})
+
+test('скачанная сборка ставится — текущий шаг второй', async () => {
+  const installing: PanelUpdateState = {
+    state: 'running', log: [], file: idle.file, release: '0.10.2', downloaded: 100, total: 100, installing: true,
+  }
+  stubApi(api(installed, behind, installing))
+
+  render(<PanelCard />)
+
+  expect(await screen.findByRole('dialog', { name: 'Панель обновляется' })).toBeTruthy()
+  expect((await screen.findByText('Поставить сборку')).className).toBe('now')
 })
 
 test('пропавшая панель в окне обновления — часть обновления, а не сбой', async () => {
@@ -162,7 +183,7 @@ test('пропавшая панель в окне обновления — ча�
 test('сорвавшееся обновление видно в карточке вместе с журналом', async () => {
   const failed: PanelUpdateState = {
     state: 'failed',
-    log: ['npm run build', 'ELIFECYCLE Command failed with exit code 2'],
+    log: ['выпуск v0.10.2', 'Связь с GitHub оборвалась: время ожидания истекло'],
     file: 'C:\\app\\update.log',
   }
   stubApi(api(installed, behind, failed))
@@ -170,6 +191,6 @@ test('сорвавшееся обновление видно в карточке
   render(<PanelCard />)
 
   expect(await screen.findByText('Обновление не удалось — панель осталась прежней')).toBeTruthy()
-  expect(screen.getByText(/ELIFECYCLE/)).toBeTruthy()
+  expect(screen.getByText(/Связь с GitHub оборвалась/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy()
 })
