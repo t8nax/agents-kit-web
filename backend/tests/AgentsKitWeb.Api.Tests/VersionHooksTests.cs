@@ -49,6 +49,34 @@ public sealed class VersionHooksTests : IDisposable
     }
 
     [Fact]
+    public void FastForwardMergeIntoDev_WithoutNewVersion_IsRefused()
+    {
+        // dev не двигался с тех пор, как от него отрезали задачу: без --no-ff в настройке git сдвинул бы dev
+        // вперёд, не создавая коммита слияния, и хуки слияния не позвал бы вовсе.
+        var repository = Repository();
+        Task(repository, "feat/forgot", "0.10.0");
+
+        var (exitCode, errors) = Git(repository, "merge", "feat/forgot", "-m", "Merge feat/forgot");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("в dev 0.10.0, после слияния 0.10.0", errors);
+    }
+
+    [Fact]
+    public void FastForwardOnlySyncOfDev_Passes()
+    {
+        // Шаг «Мерж» сперва подтягивает dev к серверу через --ff-only: ключ в команде сильнее --no-ff в настройке.
+        var repository = Repository();
+        TestGit.Run(repository, "switch", "-c", "server-dev");
+        Commit(repository, "server.txt", "слито на сервере");
+        TestGit.Run(repository, "switch", "dev");
+
+        var (exitCode, errors) = Git(repository, "merge", "--ff-only", "server-dev");
+
+        Assert.True(exitCode == 0, errors);
+    }
+
+    [Fact]
     public void MergeIntoTaskBranch_IsNotChecked()
     {
         // Задача подтягивает dev к себе перед мержем — номер при этом не её забота.
@@ -150,11 +178,12 @@ public sealed class VersionHooksTests : IDisposable
         return repository;
     }
 
-    /// <summary>Репозиторий на dev с номером 0.10.0 и хуками из .githooks этого репозитория.</summary>
+    /// <summary>Репозиторий на dev с номером 0.10.0 и настройкой из CLAUDE.md: хуки из .githooks, слияние в dev — коммитом.</summary>
     private string Repository()
     {
         var repository = TestGit.Repository(Path.Combine(_root, "repo"));
         TestGit.Run(repository, "config", "core.hooksPath", Hooks);
+        TestGit.Run(repository, "config", "branch.dev.mergeOptions", "--no-ff");
         Commit(repository, "version.txt", "0.10.0");
         return repository;
     }
