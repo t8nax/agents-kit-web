@@ -52,9 +52,12 @@ try {
     if (Test-Path $work) { git -C $repo worktree remove --force $work }
     git -C $repo worktree add --detach $work $sha
 
-    & (Join-Path $work 'scripts\build.ps1') -Source $work -Output $staging -Channel $channelName -Ref $Ref
-    # Постановка — скриптом из worktree, а не из сборки: сборку он сам переносит на место панели.
-    & (Join-Path $work 'scripts\deploy.ps1') -Source $staging -Target $Target -Port $Port -TaskName $TaskName
+    # Сборка и постановка — скриптами собираемого ref, а у ветки, отрезанной до них, — этими, рядом.
+    # Постановка идёт не из сборки: сборку она сама переносит на место панели.
+    $scripts = Join-Path $work 'scripts'
+    if (-not (Test-Path (Join-Path $scripts 'build.ps1'))) { $scripts = $PSScriptRoot }
+    & (Join-Path $scripts 'build.ps1') -Source $work -Output $staging -Channel $channelName -Ref $Ref
+    & (Join-Path $scripts 'deploy.ps1') -Source $staging -Target $Target -Port $Port -TaskName $TaskName
 }
 finally {
     if (Test-Path $work) { git -C $repo worktree remove --force $work }

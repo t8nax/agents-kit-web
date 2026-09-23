@@ -51,7 +51,10 @@ Copy-Item (Join-Path $Source 'frontend\dist') (Join-Path $Output 'wwwroot') -Rec
 # Обновление идёт этими же скриптами из самой панели: исходников рядом с ней нет.
 $scripts = New-Item -ItemType Directory -Path (Join-Path $Output 'scripts')
 foreach ($name in 'deploy.ps1', 'update.ps1') {
-    Copy-Item (Join-Path $Source "scripts\$name") $scripts
+    # Ветка, отрезанная до готовых сборок, их не несёт — берутся эти, рядом.
+    $from = Join-Path $Source "scripts\$name"
+    if (-not (Test-Path $from)) { $from = Join-Path $PSScriptRoot $name }
+    Copy-Item $from $scripts
 }
 
 $build = [ordered]@{
