@@ -384,8 +384,9 @@ $designBlock$artifactsBlock$question
 }
 
 # Выдуманная база знаний: та же раскладка, что у настоящей, — панель читает её теми же правилами.
+# $StagesOnly — стадии без списка флоу, $NoFlow — ни стадий, ни флоу.
 function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
-    [switch]$Orders) {
+    [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow) {
     New-Repo $Path
     if (-not $NoProduct) {
         Write-Utf8 (Join-Path $Path 'product.md') @"
@@ -403,7 +404,8 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
     else {
         Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; workspaces = $Copies })
     }
-    if (-not $FlowUncommitted) { New-Flow $Path }
+    if (-not $FlowUncommitted -and -not $NoFlow) { New-Flow $Path }
+    if ($StagesOnly) { Remove-Item -LiteralPath (Join-Path $Path 'flow\flow.md') }
     New-Agents $Path
     New-Backlog $Path -Orders:$Orders
     New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
@@ -522,6 +524,18 @@ New-Base $brokenJsonBase 'Битый список копий' @() -BrokenJson
 $bases.Add($brokenJsonBase)
 $findings.Add([pscustomobject]@{ base = $brokenJsonBase; findings = @(
     [pscustomobject]@{ severity = 'FAIL'; file = 'agents-kit.json'; message = 'список копий не разобран' }) })
+
+# База со стадиями без сценариев и база без стадий и сценариев: на них видны пустые состояния
+# вкладок раздела «Флоу» — у каждой своё, а переключатель вкладок на месте.
+$stagesOnlyBase = Join-Path $basesDir 'stages-only'
+New-Base $stagesOnlyBase 'Стадии без сценариев' @() -StagesOnly
+$bases.Add($stagesOnlyBase)
+$findings.Add([pscustomobject]@{ base = $stagesOnlyBase; findings = @() })
+
+$noFlowBase = Join-Path $basesDir 'no-flow'
+New-Base $noFlowBase 'Без флоу' @() -NoFlow
+$bases.Add($noFlowBase)
+$findings.Add([pscustomobject]@{ base = $noFlowBase; findings = @() })
 
 # Кривые копии: одной нет на диске, вторая не под git, третья с кириллицей в пути,
 # четвёртая записана через «..».

@@ -1154,17 +1154,34 @@ test('отказ API по форме кита назван с флоу и ста
   expect(await screen.findByText(/флоу изменился в базе, пока вы его правили/)).toBeInTheDocument()
 })
 
-test('проект без флоу — пустое состояние с одной кнопкой «Создать первый флоу»', async () => {
+test('проект без стадий и сценариев — вкладки на месте, пустое состояние у каждой своё', async () => {
   stubApi(api([nota]))
   render(<Flow />)
 
-  expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
-  expect(screen.queryByRole('tab')).not.toBeInTheDocument()
-  // Открывать в VS Code нечего: в меню одно «Обновить»
+  // Первой открыта вкладка «Сценарии», пустое состояние — только на ней
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет сценариев' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getAllByRole('tab')).toHaveLength(2)
+  // Открывать в VS Code нечего, а переписать стадии словами можно
   expect(moreItem('Обновить')).toBeEnabled()
-  expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+  expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Переписать с Чудо-Юдо', 'Обновить'])
+  fireEvent.click(screen.getByRole('button', { name: 'Ещё действия' }))
 
-  fireEvent.click(screen.getByRole('button', { name: 'Создать первый флоу' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  expect(screen.getByRole('heading', { name: 'В этом проекте нет стадий' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'В этом проекте нет сценариев' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Создать первую стадию' }))
+  expect(await screen.findByRole('dialog', { name: 'Стадия «без названия»' })).toBeInTheDocument()
+  closeStage()
+  // Стадия есть — вкладка «Стадии» обычная, с карточкой и «Новой стадией»
+  expect(screen.queryByRole('heading', { name: 'В этом проекте нет стадий' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Новая стадия' })).toBeInTheDocument()
+  // Отменённая стадия возвращает пустое состояние
+  fireEvent.click(screen.getByRole('button', { name: 'Отменить правки' }))
+  expect(screen.getByRole('heading', { name: 'В этом проекте нет стадий' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Создать первый сценарий' }))
 
   expect(await screen.findByRole('region', { name: 'Сценарий «новый сценарий»' })).toBeInTheDocument()
   expect(screen.getByRole('complementary')).toHaveAttribute('aria-label', 'Сценарий «новый сценарий»')
@@ -1172,12 +1189,30 @@ test('проект без флоу — пустое состояние с одн
   expect(screen.getByText('Не сохранить: флоу «новый сценарий» — во флоу нет стадий')).toBeInTheDocument()
 })
 
+test('стадии проекта без сценариев видны на вкладке «Стадии», правятся и сохраняются', async () => {
+  const fetchMock = stubApi(api([{ ...app, flows: [] }], [], saved()))
+  render(<Flow />)
+
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет сценариев' })).toBeInTheDocument()
+  // Пока правок нет, полосы сохранения нет
+  expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+
+  const edit = await stagesTab('Запас')
+  expect(within(screen.getByRole('list', { name: 'Стадии базы' })).getAllByRole('button')).toHaveLength(5)
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'отчёт' } })
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows).toEqual([])
+  expect(sent.stages.find((stage: FlowStage) => stage.title === 'Запас')?.output).toBe('отчёт')
+})
+
 test('база, которую панель не прочитала, названа словами', async () => {
   stubApi(api([{ ...nota, version: null, error: 'База не найдена на диске' }]))
   render(<Flow />)
 
   expect(await screen.findByText('База не найдена на диске')).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'В этом проекте нет флоу' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'В этом проекте нет сценариев' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('tab')).not.toBeInTheDocument()
 })
 
 test('с отметки в шапке у непрочитанного флоу раздел говорит, почему окна переписывания нет', async () => {
@@ -1207,7 +1242,7 @@ test('проект выбирается списком в шапке', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Проект: Agents Kit Web' }))
   fireEvent.click(within(screen.getByRole('listbox', { name: 'Проект' })).getByRole('option', { name: 'Nota' }))
 
-  expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет сценариев' })).toBeInTheDocument()
 })
 
 /** Панель с просьбой переписывания: POST её заводит, поток сразу отдаёт итог events. */
@@ -1383,8 +1418,12 @@ test('удалённый единственный флоу сохраняетс�
 
   fireEvent.click((await open(region, /^Сценарий «полный»/)).getByRole('button', { name: 'Удалить сценарий' }))
 
-  expect(await screen.findByRole('heading', { name: 'В этом проекте нет флоу' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'В этом проекте нет сценариев' })).toBeInTheDocument()
   expect(screen.getByText('есть несохранённые правки')).toBeInTheDocument()
+  // Раздел не пропал: стадии на своей вкладке
+  fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
+  expect(within(screen.getByRole('list', { name: 'Стадии базы' })).getByRole('button', { name: /^Запас/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
   fireEvent.click(screen.getByRole('button', { name: 'Отменить правки' }))
   expect(await screen.findByRole('region', { name: 'Сценарий «полный»' })).toBeInTheDocument()
 

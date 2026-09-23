@@ -722,25 +722,36 @@ test('исполнитель, которого нет в базе, помече�
   await expect(page.locator('.save-bar').getByText(/Не сохранить/)).toHaveCount(0)
 })
 
-test('проект без флоу — пустое состояние по центру раздела и одна кнопка', async ({ page }) => {
+test('проект без стадий и сценариев — вкладки на месте, пустое состояние по центру своей вкладки', async ({ page }) => {
   await mockApi(page)
   await openFlow(page)
 
   await page.getByRole('button', { name: 'Проект: Agents Kit Web' }).click()
   await page.getByRole('listbox', { name: 'Проект' }).getByRole('option', { name: 'Nota' }).click()
 
-  const heading = page.getByRole('heading', { name: 'В этом проекте нет флоу' })
+  const heading = page.getByRole('heading', { name: 'В этом проекте нет сценариев' })
   await expect(heading).toBeVisible()
-  await expect(page.getByRole('tab')).toHaveCount(0)
-  const empty = await page.locator('.flow-empty').boundingBox()
-  const main = await page.getByRole('main').boundingBox()
-  const box = await heading.boundingBox()
-  // По центру раздела под строкой заголовка
-  expect(Math.abs(box!.x + box!.width / 2 - (main!.x + main!.width / 2))).toBeLessThan(2)
-  expect(Math.abs(empty!.y + empty!.height - (main!.y + main!.height))).toBeLessThan(2)
-  await expect(page.locator('.flow-empty').getByRole('button')).toHaveText(['Создать первый флоу'])
+  await expect(page.getByRole('tab')).toHaveText(['Стадии', 'Сценарии'])
+  await expect(page.getByRole('tab', { name: 'Сценарии' })).toHaveAttribute('aria-selected', 'true')
+  // По центру раздела под строкой заголовка; замер — до совпадения: шрифт грузится после первой отрисовки
+  const centered = () =>
+    expect(async () => {
+      const empty = await page.locator('.flow-empty').boundingBox()
+      const main = await page.getByRole('main').boundingBox()
+      const box = await page.locator('.flow-empty h3').boundingBox()
+      expect(Math.abs(box!.x + box!.width / 2 - (main!.x + main!.width / 2))).toBeLessThan(2)
+      expect(Math.abs(empty!.y + empty!.height - (main!.y + main!.height))).toBeLessThan(2)
+    }).toPass()
+  await centered()
+  await expect(page.locator('.flow-empty').getByRole('button')).toHaveText(['Создать первый сценарий'])
 
-  await page.getByRole('button', { name: 'Создать первый флоу' }).click()
+  await page.getByRole('tab', { name: 'Стадии' }).click()
+  await expect(page.getByRole('heading', { name: 'В этом проекте нет стадий' })).toBeVisible()
+  await centered()
+  await expect(page.locator('.flow-empty').getByRole('button')).toHaveText(['Создать первую стадию'])
+
+  await page.getByRole('tab', { name: 'Сценарии' }).click()
+  await page.getByRole('button', { name: 'Создать первый сценарий' }).click()
   await expect(page.getByRole('region', { name: 'Сценарий «новый сценарий»' })).toBeVisible()
   await expect(page.getByRole('complementary').getByRole('textbox', { name: 'Название сценария' })).toHaveValue('новый сценарий')
 })
