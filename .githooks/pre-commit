@@ -1,0 +1,5 @@
+#!/bin/sh
+# Слияние в dev, остановленное конфликтом, git доводит обычным коммитом, и хук слияния тогда не зовётся.
+# Обычный коммит не проверяется: прямой коммит в dev ловит отправка.
+git rev-parse --quiet --verify MERGE_HEAD >/dev/null || exit 0
+exec pwsh -NoProfile -File "$(dirname "$0")/check-version.ps1" -Mode Merge
