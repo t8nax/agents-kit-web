@@ -146,6 +146,8 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal(new BacklogWriteEvent("reply", "поправь приоритет", Number: "B-1"), events[0]);
         Assert.Equal("/agents-kit:backlog Про запись B-1: поправь приоритет", Said(_agent.Input[0]));
         Assert.Equal(new BacklogWriteEvent("answer", "Что поменять в B-1?", DurationMs: 1000), events[1]);
+        var listed = await client.GetFromJsonAsync<AgentRequestSummary[]>("/api/agent/requests", Json);
+        Assert.Equal("B-1", Assert.Single(listed!).Subject);
     }
 
     [Fact]

@@ -17,11 +17,16 @@
   color: var(--text-secondary);
 }
 
-.talk-bases {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.talk-pick {
   margin-top: 8px;
+}
+
+/* Каталог базы — справа от списка проектов, мелко: по нему видно, в какую базу уйдёт правка. */
+.pick-folder {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
 }
 
 /* Ответ Чудо-Юдо — входящая реплика слева, как вопрос агента, но шириной в ленту записей. */
@@ -89,41 +94,79 @@
 
 .talk-pending {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid var(--accent-waiting-border);
-  border-radius: 8px;
+  gap: 8px 12px;
+  padding: 10px 20px 10px 24px;
+  border-bottom: 1px solid var(--accent-waiting-border);
   background: var(--accent-waiting-bg);
   color: var(--accent-waiting-text);
   font-size: 14px;
   font-weight: 500;
 }
 
-.talk-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 2px;
+.talk-pending > span {
+  flex: 1;
+  min-width: 200px;
 }
 
-.talk-row {
-  align-items: flex-end;
+.talk-pending .btn {
+  padding: 6px 14px;
+}
+
+.talk-pending-error {
+  margin: 10px 20px 0 24px;
+}
+
+/* Подвал по макету B-228: поле на всю ширину, под ним строка кнопок справа — как в окне вопроса по базе. */
+.talk-composer {
+  gap: 10px;
 }
 
 .talk-field {
+  display: block;
+  width: 100%;
+  /* Три строки текста — замечание оператора на приёмке B-228. */
+  height: 84px;
   resize: none;
   line-height: 1.45;
-  min-height: 42px;
 }
 
 .talk-field:disabled {
   opacity: 0.55;
 }
 
-.talk-row .composer-send {
+.talk-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.talk-buttons .composer-send {
   min-height: 42px;
+}
+
+/* Переспрос на месте поля — не ниже его, чтобы подвал не прыгал; длинный текст растит его, а не лезет на кнопки.
+   Подтверждение красное (общее .btn.btn-danger): выброшенное предложение не вернуть. */
+.talk-confirm {
+  min-height: 84px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 2px;
+}
+
+.talk-confirm strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.talk-confirm span {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 
 /* ---------- записи ---------- */

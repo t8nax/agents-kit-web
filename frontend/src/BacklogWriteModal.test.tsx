@@ -84,15 +84,16 @@ test('просьба из шапки уходит в выбранный прое
   const { onEntries } = renderModal({ initialBase: bases[1].base })
 
   expect(screen.getByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  // Пока окно узнаёт, не идёт ли разговор, проект не выбрать.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
   await say('  Хочу видеть ожидание  ')
 
   expect(posts[0].url).toBe('/api/backlog/write')
   expect(posts[0].body).toEqual({ base: bases[1].base, text: 'Хочу видеть ожидание' })
   stream.send({ type: 'reply', text: 'Хочу видеть ожидание' })
   expect(await screen.findByText('Чудо-Юдо читает бэклог Nota…')).toBeInTheDocument()
-  // После первой просьбы на месте чипов — проект и каталог его базы.
-  expect(screen.queryByRole('group', { name: 'Проект' })).not.toBeInTheDocument()
+  // После первой просьбы проект не сменить, а рядом виден каталог его базы.
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeDisabled()
   expect(screen.getByText('nota-knowledge')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeDisabled()
@@ -125,7 +126,7 @@ test('окно от записи показывает её первой, наз�
   expect(screen.getByText('Запись')).toBeInTheDocument()
   expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
   expect(screen.getByText('высокий')).toBeInTheDocument()
-  expect(screen.queryByRole('group', { name: 'Проект' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveAttribute(
     'placeholder',
     'Что поменять в B-40 — или почему она больше не нужна',
@@ -366,7 +367,7 @@ test('«Отменить» обрывает ответ, а переписку о
   expect(deletes).toEqual([])
 })
 
-test('закрытое посреди ответа окно агента не трогает, а после ответа убирает разговор', async () => {
+test('закрытое окно разговор не трогает — ни посреди ответа, ни после него', async () => {
   const stream = controlledStream<WriteEvent>()
   const { deletes } = stubFetch(stream)
   const { onClose } = renderModal()
@@ -376,23 +377,85 @@ test('закрытое посреди ответа окно агента не т
   await screen.findByText('Чудо-Юдо читает бэклог Agents Kit Web…')
   fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
   expect(onClose).toHaveBeenCalledTimes(1)
-  expect(deletes).toEqual([])
 
   stream.send(answer({ text: 'Готово.' }))
   await screen.findByText('Готово.')
   fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
-  expect(deletes).toEqual(['/api/agent/backlog'])
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(onClose).toHaveBeenCalledTimes(3)
+  expect(deletes).toEqual([])
 })
 
-test('окно от записи, закрытое без просьбы, не трогает разговор, который идёт в панели', async () => {
+test('«Изменить» у записи, про которую идёт разговор, открывает его как есть', async () => {
   const stream = controlledStream<WriteEvent>()
-  const { deletes } = stubFetch(stream, { running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web') })
+  const { deletes, posts } = stubFetch(stream, {
+    running: runningRequest('backlog', 'поправь', bases[0].base, 'Agents Kit Web', 0, 'B-40'),
+  })
   renderModal({ subject: { base: bases[0].base, entry: B40 } })
 
-  await screen.findByLabelText('Просьба к Чудо-Юдо')
-  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+  stream.send({ type: 'reply', text: 'поправь', number: 'B-40' })
+  stream.send(answer({ text: 'Что именно?' }))
 
+  expect(await screen.findByText('Что именно?')).toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  await say('Приоритет')
+  expect(posts).toEqual([])
   expect(deletes).toEqual([])
+})
+
+test('«Изменить» у другой записи заменяет идущий разговор новым про неё', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream, {
+    running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web', 0, 'B-36'),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  stream.send({ type: 'reply', text: 'другое', number: 'B-36' })
+  stream.send(answer({ text: 'Готово.' }))
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.queryByText('Готово.')).not.toBeInTheDocument()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+})
+
+test('«Изменить» у другой записи при ждущем предложении переспрашивает, «Отмена» оставляет прежний разговор', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream, { running: runningRequest('backlog', 'убери', bases[0].base, 'Agents Kit Web') })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  stream.send({ type: 'reply', text: 'убери' })
+  stream.send(answer({ text: 'Сохраню, когда скажете.', proposal }))
+
+  const asking = await screen.findByRole('alertdialog', { name: 'Начать переписку про B-40?' })
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
+  expect(within(asking).getByText('Предложение изменить 1, удалить 1 не сохранено — в новой переписке его не будет.')).toBeInTheDocument()
+  // Окно показывает прежний разговор, а не запись.
+  expect(screen.getByText('Сохраню, когда скажете.')).toBeInTheDocument()
+  expect(screen.queryByText('Запись')).not.toBeInTheDocument()
+
+  fireEvent.click(within(asking).getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByText('Сохраню, когда скажете.')).toBeInTheDocument()
+  expect(deletes).toEqual([])
+})
+
+test('«Начать про …» выбрасывает ждущее предложение и начинает разговор про запись', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes, posts } = stubFetch(stream, {
+    running: runningRequest('backlog', 'убери', bases[0].base, 'Agents Kit Web'),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  stream.send({ type: 'reply', text: 'убери' })
+  stream.send(answer({ proposal }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Начать про B-40' }))
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  await say('Это блокер')
+  expect(posts[0].body).toEqual({ base: bases[0].base, text: 'Это блокер', number: 'B-40' })
 })
 
 test('открытое заново окно показывает разговор с его записью и ход, который шёл без него', async () => {
@@ -421,6 +484,190 @@ test('сбой агента назван, а реплика возвращает
   expect(within(alert).getByText('Чудо-Юдо завершился без ответа')).toBeInTheDocument()
   expect(within(alert).getByText('код выхода 1')).toBeInTheDocument()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('Мысль')
+})
+
+test('«Новая переписка» убирает разговор, а окно оставляет открытым с прежним проектом', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  const { onClose } = renderModal({ initialBase: bases[1].base })
+
+  const fresh = await screen.findByRole('button', { name: 'Новая переписка' })
+  expect(fresh).toBeDisabled()
+  await say('Мысль')
+  stream.send({ type: 'reply', text: 'Мысль' })
+  await screen.findByText('Чудо-Юдо читает бэклог Nota…')
+  // Пока Чудо-Юдо отвечает, начать заново нельзя.
+  expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeDisabled()
+  stream.send(answer({ text: 'Записал.' }))
+  await screen.findByText('Записал.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(onClose).not.toHaveBeenCalled()
+  expect(screen.getByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
+  expect(screen.queryByText('Записал.')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeDisabled()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
+})
+
+test('при ждущем предложении «Новая переписка» переспрашивает: «Отмена» оставляет разговор, «Начать новую» его убирает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  renderModal()
+
+  await say('B-36 и B-40 — одно')
+  stream.send({ type: 'reply', text: 'B-36 и B-40 — одно' })
+  stream.send(
+    answer({
+      proposal: {
+        id: 'p2',
+        changes: [
+          { kind: 'change', number: 'B-40', entry: B40 },
+          { kind: 'delete', number: 'B-36', entry: B36, into: 'B-40' },
+        ],
+      },
+    }),
+  )
+  await screen.findByText('Уйдёт в B-40')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  const asking = screen.getByRole('alertdialog', { name: 'Начать новую переписку?' })
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
+  expect(
+    within(asking).getByText('Предложение объединить 2 записи в одну не сохранено — в новой переписке его не будет.'),
+  ).toBeInTheDocument()
+  // Вопрос стоит на месте поля ввода.
+  expect(screen.queryByLabelText('Просьба к Чудо-Юдо')).not.toBeInTheDocument()
+  expect(deletes).toEqual([])
+
+  fireEvent.click(within(asking).getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByText('Уйдёт в B-40')).toBeInTheDocument()
+  expect(deletes).toEqual([])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Начать новую' }))
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.queryByText('Уйдёт в B-40')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeInTheDocument()
+})
+
+test('без ждущего предложения «Новая переписка» не переспрашивает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  renderModal()
+
+  await say('Убери B-36')
+  stream.send({ type: 'reply', text: 'Убери B-36' })
+  stream.send(answer({ proposal }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Отказаться' }))
+  stream.send({ type: 'refused', text: '', proposalId: 'p1' })
+  await screen.findAllByText('отказались')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+})
+
+test('окно от «Изменить» после «Новой переписки» становится общим окном проекта записи', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { posts } = stubFetch(stream)
+  renderModal({ subject: { base: bases[1].base, entry: B40 } })
+
+  await say('Это блокер')
+  stream.send({ type: 'reply', text: 'Это блокер', number: 'B-40' })
+  stream.send(answer({ text: 'Понял.' }))
+  await screen.findByText('Понял.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+
+  await waitFor(() => expect(screen.queryByText('Запись')).not.toBeInTheDocument())
+  expect(screen.queryByText('Показывать, сколько длится задача')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveAttribute(
+    'placeholder',
+    'Что записать, поменять, удалить или объединить',
+  )
+
+  await say('Запиши мысль')
+  expect(posts[1].body).toEqual({ base: bases[1].base, text: 'Запиши мысль' })
+})
+
+test('кнопки ждущего предложения стоят полосой под шапкой, а не в переписке, и гаснут на время переспроса', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('Убери B-36')
+  stream.send({ type: 'reply', text: 'Убери B-36' })
+  stream.send(answer({ text: 'Сохраню, когда скажете.', proposal }))
+
+  const bar = (await screen.findByText('Ждут сохранения: изменить 1, удалить 1')).closest('.talk-pending') as HTMLElement
+  expect(bar.previousElementSibling).toHaveClass('reply-head')
+  expect(within(bar).getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  const said = screen.getByText('Сохраню, когда скажете.').closest('.talk-agent') as HTMLElement
+  expect(within(said).queryByRole('button')).not.toBeInTheDocument()
+  expect(within(said).getByRole('list', { name: 'Изменения' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  expect(within(bar).getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  expect(within(bar).getByRole('button', { name: 'Отказаться' })).toBeDisabled()
+})
+
+test('после «Новой переписки» в подхваченном разговоре выбран его проект, а не первый', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, { running: runningRequest('backlog', 'поправь', bases[1].base, 'Nota') })
+  renderModal()
+
+  stream.send({ type: 'reply', text: 'поправь' })
+  stream.send(answer({ text: 'Готово.' }))
+  await screen.findByText('Готово.')
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+
+  expect(await screen.findByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
+})
+
+test('окно от «Изменить», не дочитавшее разговор про ту же запись, говорит о сбое и его не убирает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubPanel('backlog', stream, {
+    running: runningRequest('backlog', 'поправь', bases[0].base, 'Agents Kit Web', 0, 'B-40'),
+    others: (url) => (url.startsWith('/api/agent/backlog/stream') ? new Response(null, { status: 404 }) : null),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  expect(await screen.findByText('Панель потеряла разговор: его больше нет в списке. Текст остался в поле.')).toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  expect(deletes).toEqual([])
+})
+
+test('окно от «Изменить», не дочитавшее другой разговор, заменяет его новым про свою запись', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubPanel('backlog', stream, {
+    running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web', 0, 'B-36'),
+    others: (url) => (url.startsWith('/api/agent/backlog/stream') ? new Response(null, { status: 404 }) : null),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+})
+
+test('проект выбирается выпадающим списком, и просьба уходит в выбранный', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { posts } = stubFetch(stream)
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Проект: Agents Kit Web' }))
+  fireEvent.click(within(screen.getByRole('listbox', { name: 'Проект' })).getByRole('option', { name: /Nota/ }))
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
+  expect(screen.getByText('nota-knowledge')).toBeInTheDocument()
+
+  await say('Мысль')
+  expect(posts[0].body).toEqual({ base: bases[1].base, text: 'Мысль' })
 })
 
 test('без текста отправить нельзя', async () => {

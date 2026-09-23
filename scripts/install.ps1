@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-Ставит панель на компьютер, где её исходников ещё нет.
+Ставит панель готовой сборкой с GitHub.
 
 .DESCRIPTION
 Скрипт для другого компьютера: его скачивают и запускают одной строкой в Windows PowerShell,
@@ -8,9 +8,10 @@
 
 Сначала проверяет, есть ли установленный кит и Claude Code со входом в аккаунт: без них
 панели работать не с чем, и тогда он говорит, что поставить, и больше ничего не делает.
-Затем ставит через winget недостающее для сборки — git, PowerShell 7, .NET SDK 10, Node.js,
-клонирует репозиторий панели и зовёт из клона scripts/publish.ps1. Клон остаётся на диске:
-по нему поставленная панель потом обновляет себя из себя, кнопкой в «Настройках».
+Затем ставит через winget то, без чего панель не работает, — git и PowerShell 7: ими она пишет
+в базы и зовёт скрипты кита. Ничего не собирает: скачивает готовую сборку последнего выпуска
+канала, раскладывает её и ставит тем же deploy.ps1 из сборки, которым ставит себя обновление.
+Дальше панель обновляет себя сама, кнопкой в «Настройках».
 
 Список баз и путь к киту не переносятся: их задают в «Настройках» панели.
 
@@ -21,24 +22,28 @@ iex ((irm https://raw.githubusercontent.com/t8nax/agents-kit-web/master/scripts/
 а скачанный строкой, он нёс бы BOM перед param и не разобрался бы — отсюда TrimStart.
 
 .EXAMPLE
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Repository D:\tmp\akw-src -Target D:\tmp\akw-app -Port 5099 -TaskName 'akw probe'
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1 -Channel dev -Target D:\tmp\akw-app -Port 5099 -TaskName 'akw probe'
 #>
 param(
-    [string]$Repository = (Join-Path $env:LOCALAPPDATA 'agents-kit-web\source'),
-    [string]$Source = 'https://github.com/t8nax/agents-kit-web.git',
+    [string]$Releases = 't8nax/agents-kit-web',
     [ValidateSet('master', 'dev')]
     [string]$Channel = 'master',
-    [string]$Ref,
-    [string]$Target,
-    [int]$Port,
-    [string]$TaskName
+    # Выпуск, который ставить; не назван — самый свежий выпуск канала.
+    [string]$Tag,
+    [string]$Target = (Join-Path $env:LOCALAPPDATA 'agents-kit-web\app'),
+    [int]$Port = 5080,
+    [string]$TaskName = 'agents-kit-web panel'
 )
 
 # Всё внутри функции: строкой «irm | iex» скрипт идёт в сессии оператора, и exit закрыл бы ему окно.
 function Install-AgentsKitPanel {
-    param($Repository, $Source, $Channel, $Ref, $Target, $Port, $TaskName)
+    param($Releases, $Channel, $Tag, $Target, $Port, $TaskName)
 
     $ErrorActionPreference = 'Stop'
+    # Полоса хода Invoke-WebRequest в Windows PowerShell замедляет скачивание в разы.
+    $ProgressPreference = 'SilentlyContinue'
+    # Windows PowerShell 5.1 без этого может не договориться с GitHub.
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
     # Кит — там, где его ищет сама панель: каталог навыков профиля и установленные плагины Claude Code.
     # Признак кита тот же, что у неё: скрипты проверок в scripts\.
@@ -71,40 +76,6 @@ function Install-AgentsKitPanel {
     }
 
     function Test-Command($name) { [bool](Get-Command $name -ErrorAction SilentlyContinue) }
-
-    # SDK годится тот, что принимает global.json исходников: его и спрашивают, запустив dotnet в их каталоге.
-    function Test-DotnetSdk {
-        if (-not (Test-Command 'dotnet')) { return $false }
-        $ErrorActionPreference = 'Continue'
-        Push-Location (Join-Path $Repository 'backend')
-        try { dotnet --version 2>&1 | Out-Null; return $LASTEXITCODE -eq 0 }
-        finally { Pop-Location }
-    }
-
-    # Старый Node на компьютере сборку не выдержит: vite требует ^20.19 || ^22.12 || >=24.
-    function Test-Node {
-        if (-not ((Test-Command 'node') -and (Test-Command 'npm'))) { return $false }
-        $v = [version]((node --version) -replace '^v', '')
-        ($v.Major -eq 20 -and $v.Minor -ge 19) -or ($v.Major -eq 22 -and $v.Minor -ge 12) -or $v.Major -ge 24
-    }
-
-    function Get-NodeFound {
-        if (-not (Test-Command 'node')) { return $null }
-        if (-not (Test-Command 'npm')) { return "Node.js $(node --version) есть, но без npm" }
-        "Node.js $(node --version) есть, но сборке нужен 20.19+, 22.12+ или 24+"
-    }
-
-    function Get-DotnetFound {
-        if (-not (Test-Command 'dotnet')) { return $null }
-        $sdks = @(dotnet --list-sdks | ForEach-Object { ($_ -split ' ')[0] })
-        $need = (Get-Content (Join-Path $Repository 'backend\global.json') -Raw | ConvertFrom-Json).sdk.version
-        $major = ([version]$need).Major
-        # Подходящий SDK есть, а dotnet всё равно отказал — дело не в версии, а в самой установке.
-        $fit = $sdks | Where-Object { ([version]$_).Major -eq $major -and [version]$_ -ge [version]$need } | Select-Object -First 1
-        if ($fit) { return "есть .NET SDK $fit, но dotnet не принял backend\global.json исходников — посмотрите вывод dotnet --version в $(Join-Path $Repository 'backend')" }
-        $have = if ($sdks) { "есть .NET SDK $($sdks -join ', ')" } else { 'есть .NET без SDK' }
-        "$have, но исходникам нужен $need или новее той же версии $major"
-    }
 
     function Install-Tool($tool) {
         if (& $tool.Test) { return $true }
@@ -160,63 +131,78 @@ function Install-AgentsKitPanel {
         return $false
     }
 
-    # git — первым: без него не скачать исходники, а по ним видно, какой SDK нужен.
-    if (-not (Install-Tool @{ Name = 'git'; Id = 'Git.Git'; Test = { Test-Command 'git' } })) { return $false }
-
-    if (Test-Path (Join-Path $Repository '.git')) {
-        Write-Host "Исходники уже есть: $Repository"
-    }
-    elseif ((Test-Path $Repository) -and (Get-ChildItem $Repository -Force | Select-Object -First 1)) {
-        Write-Host "В $Repository уже лежит что-то, кроме исходников панели. Укажите другой каталог параметром -Repository." -ForegroundColor Red
-        return $false
-    }
-    else {
-        Write-Host "Скачиваю исходники в $Repository…"
-        git clone --quiet $Source $Repository
-        if ($LASTEXITCODE) {
-            Write-Host 'Исходники не скачались.' -ForegroundColor Red
-            return $false
-        }
-        # Метка «клон установщика»: такой клон update.ps1 перед обновлением доводит до вершины канала —
-        # иначе свежий код собирали бы скрипты дня установки. Рабочую копию разработчика он не трогает.
-        git -C $Repository config agents-kit-web.installer true
-    }
-    if ((git -C $Repository config --get agents-kit-web.installer) -eq 'true') {
-        git -C $Repository fetch --quiet origin
-        git -C $Repository checkout --quiet --detach --force $(if ($Ref) { $Ref } else { "origin/$Channel" })
-        if ($LASTEXITCODE) {
-            Write-Host 'Исходники не удалось довести до свежих.' -ForegroundColor Red
-            return $false
-        }
-    }
-
     $tools = @(
-        @{ Name = 'PowerShell 7'; Id = 'Microsoft.PowerShell'; Test = { Test-Command 'pwsh' } },
-        @{ Name = '.NET SDK 10'; Id = 'Microsoft.DotNet.SDK.10'; Test = { Test-DotnetSdk }; Found = { Get-DotnetFound } },
-        @{ Name = 'Node.js'; Id = 'OpenJS.NodeJS.LTS'; Test = { Test-Node }; Found = { Get-NodeFound } }
+        @{ Name = 'git'; Id = 'Git.Git'; Test = { Test-Command 'git' } },
+        @{ Name = 'PowerShell 7'; Id = 'Microsoft.PowerShell'; Test = { Test-Command 'pwsh' } }
     )
     foreach ($tool in $tools) { if (-not (Install-Tool $tool)) { return $false } }
 
-    $arguments = @('-NoProfile', '-File', (Join-Path $Repository 'scripts\publish.ps1'), '-Channel', $Channel)
-    if ($Ref) { $arguments += @('-Ref', $Ref) }
-    if ($Target) { $arguments += @('-Target', $Target) }
-    if ($Port) { $arguments += @('-Port', $Port) }
-    if ($TaskName) { $arguments += @('-TaskName', $TaskName) }
-    # Вывод публикации — оператору на экран, а не в результат функции.
-    & pwsh @arguments | Out-Host
-    if ($LASTEXITCODE) {
-        Write-Host 'Сборка или постановка панели не удалась — причина выше.' -ForegroundColor Red
+    $headers = @{ 'User-Agent' = 'agents-kit-web' }
+    if (-not $Tag) {
+        # Выпуски master — обычные v<номер>, выпуски dev — предварительные v<номер>-dev. Выпуск dev выходит
+        # на каждое слияние, и master бывает дальше первой сотни: страницы листаются, пока канал не найден.
+        $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+)-dev$' } else { '^v(\d+\.\d+\.\d+)$' }
+        $found = @()
+        for ($page = 1; $page -le 5 -and -not $found; $page++) {
+            try { $answer = Invoke-RestMethod "https://api.github.com/repos/$Releases/releases?per_page=100&page=$page" -Headers $headers }
+            catch {
+                Write-Host "GitHub не ответил: $($_.Exception.Message)" -ForegroundColor Red
+                return $false
+            }
+            # Windows PowerShell отдаёт массив ответа одним объектом — foreach его разворачивает.
+            $batch = @(foreach ($release in $answer) { $release })
+            $found = @($batch | Where-Object { $_.tag_name -match $pattern -and -not $_.draft })
+            if ($batch.Count -lt 100) { break }
+        }
+        $Tag = $found | Sort-Object { [version]($_.tag_name -replace $pattern, '$1') } |
+            Select-Object -Last 1 -ExpandProperty tag_name
+        if (-not $Tag) {
+            Write-Host "В канале $Channel на GitHub нет ни одного выпуска панели." -ForegroundColor Red
+            return $false
+        }
+    }
+
+    # Сборка раскладывается рядом с каталогом панели: подмена — перенос каталога в пределах одного диска.
+    $archive = "$Target.zip"
+    $staging = "$Target.new"
+    $scripts = Join-Path ([IO.Path]::GetTempPath()) 'agents-kit-web-install'
+    New-Item -ItemType Directory -Force -Path (Split-Path $Target -Parent) | Out-Null
+    try {
+        Write-Host "Скачиваю готовую панель $Tag…"
+        Invoke-WebRequest "https://github.com/$Releases/releases/download/$Tag/agents-kit-web-win-x64.zip" `
+            -OutFile $archive -Headers $headers -UseBasicParsing
+        if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+        Expand-Archive -LiteralPath $archive -DestinationPath $staging
+
+        # Постановка — скриптом из сборки, но запущенным из копии: сборку он сам переносит на место панели.
+        if (Test-Path $scripts) { Remove-Item $scripts -Recurse -Force }
+        New-Item -ItemType Directory -Path $scripts | Out-Null
+        Copy-Item (Join-Path $staging 'scripts\deploy.ps1') $scripts
+        & pwsh -NoProfile -File (Join-Path $scripts 'deploy.ps1') -Source $staging -Target $Target -Port $Port -TaskName $TaskName |
+            Out-Host
+        if ($LASTEXITCODE) {
+            Write-Host 'Постановка панели не удалась — причина выше.' -ForegroundColor Red
+            return $false
+        }
+    }
+    catch {
+        Write-Host "Панель не поставлена: $($_.Exception.Message)" -ForegroundColor Red
         return $false
+    }
+    finally {
+        if (Test-Path $archive) { Remove-Item $archive -Force }
+        if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+        if (Test-Path $scripts) { Remove-Item $scripts -Recurse -Force }
     }
 
     Write-Host ''
-    $url = "http://localhost:$(if ($Port) { $Port } else { 5080 })"
+    $url = "http://localhost:$Port"
     Write-Host "Панель поставлена: $url — и будет запускаться при входе. Базы знаний добавьте в её «Настройках»." -ForegroundColor Green
     Start-Process $url
     return $true
 }
 
-$installed = Install-AgentsKitPanel -Repository $Repository -Source $Source -Channel $Channel -Ref $Ref `
+$installed = Install-AgentsKitPanel -Releases $Releases -Channel $Channel -Tag $Tag `
     -Target $Target -Port $Port -TaskName $TaskName
 # Запуск файлом — код выхода для того, кто позвал; строкой «irm | iex» — ничего, окно оператора остаётся.
 if (-not $installed -and $PSCommandPath) { exit 1 }

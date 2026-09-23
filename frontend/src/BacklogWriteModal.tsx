@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { EntryFields } from './EntryFields'
 import { InlineMarkdown, Markdown } from './Markdown'
+import PickMenu from './PickMenu'
 import { useAgentConversation } from './agentConversation'
 import './Modal.css'
 import './ReplyModal.css'
@@ -43,6 +44,15 @@ export type WriteEvent =
   | { type: 'saved'; text: string; commit?: string | null; proposalId: string }
   | { type: 'refused'; text: string; proposalId: string }
 
+/**
+ * Что окно от «Изменить» сделало с разговором, который шёл в панели: none — разговора не было, same — он про ту же
+ * запись и показан, other — заменён новым, ask — в нём ждёт предложение, и окно переспрашивает.
+ */
+type Verdict = 'none' | 'same' | 'other' | 'ask'
+
+/** Переспрос на месте поля ввода: вопрос и красная кнопка, которая выбрасывает ждущее предложение. */
+type Asking = { question: string; yes: string; onYes: () => void }
+
 /** Что стало с предложением: ждёт, сохранено, отклонено или заменено следующей просьбой. */
 type ProposalState = 'pending' | 'saved' | 'refused' | 'replaced'
 
@@ -74,33 +84,40 @@ export default function BacklogWriteModal({
   const [text, setText] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
-  // Окно от записи начинает свой разговор, а окно из шапки подхватывает идущий.
-  const conversation = useAgentConversation<WriteEvent>('backlog', subject === null)
+  // Переспрос на месте поля ввода: несохранённое предложение не уходит молча — решение оператора на B-228.
+  const [asking, setAsking] = useState<Asking | null>(null)
+  // Запись, про которую окно: после «Новой переписки» окно от «Изменить» становится общим окном её проекта.
+  const [own, setOwn] = useState(subject)
+  // Окно от записи сначала смотрит, какой разговор идёт в панели: про ту же запись — показывает его, другой —
+  // заменяет новым про свою запись, переспросив, если в нём ждёт предложение (B-228).
+  const [verdict, setVerdict] = useState<Verdict | null>(subject === null ? 'none' : null)
+  const deciding = verdict === null
+  const conversation = useAgentConversation<WriteEvent>('backlog')
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
   const feed = useRef<HTMLDivElement>(null)
 
   const talking = events.length > 0
+  // Пока окно от записи не решило, какой разговор показывать, и пока заменяемый разговор не убран, чужую
+  // переписку оно не показывает.
+  const hidden = deciding || (verdict === 'other' && talking)
+  const waiting = restoring || hidden
   // Реплика, на которой агент сорвался, возвращается в поле: отправить её снова — одно нажатие.
   const value = text ?? retry ?? ''
   const base = conversation.base ?? chosen
   const project = bases.find((b) => b.base === base)?.project ?? ''
   const firstReply = events.find((e) => e.type === 'reply')
-  const aboutNumber = subject?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
+  const aboutNumber = own?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
   const savedCount = events.filter((e) => e.type === 'saved').length
   const current = aboutNumber && base && findEntry ? (findEntry(base, aboutNumber) ?? null) : null
   // После «Сохранить» запись разговора показывается такой, какой её записали, а удалённая — отметкой «удалена».
   // Что с ней стало, говорит сохранённое предложение, а не список раздела: тот мог и не перечитаться.
   const saved = savedChange(events, aboutNumber)
   const aboutGone = saved?.kind === 'delete'
-  const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (subject?.entry ?? current)
+  const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (own?.entry ?? current)
 
-  // Закрытое окно убирает свой разговор, если агент не занят: несохранённое предложение уходит вместе с ним.
-  // Разговора, которого окно не показывает — окно от записи до первой реплики, окно, ещё читающее панель, —
-  // закрытие не трогает: это чужая работа агента.
-  const close = useCallback(() => {
-    if (talking && !restoring && !running) void forget()
-    onClose()
-  }, [talking, restoring, running, forget, onClose])
+  // Закрытое окно разговор не трогает: открытое снова, оно показывает его на месте, а кончает его только
+  // «Новая переписка» — как в окне вопроса по базе, решение оператора на B-228.
+  const close = onClose
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -123,15 +140,19 @@ export default function BacklogWriteModal({
     .filter((number): number is string => number !== null)
     .join(' ')
   useEffect(() => {
-    if (base && added) onEntries(base, added.split(' '))
-  }, [base, added, onEntries])
+    if (base && added && !hidden) onEntries(base, added.split(' '))
+  }, [base, added, hidden, onEntries])
 
   useEffect(() => {
-    if (base && savedCount > 0) onSaved?.(base)
-  }, [base, savedCount, onSaved])
+    if (base && savedCount > 0 && !hidden) onSaved?.(base)
+  }, [base, savedCount, hidden, onSaved])
 
   const states = proposalStates(events)
-  const pending = [...states.entries()].some(([, state]) => state === 'pending')
+  const pendingProposal =
+    events
+      .flatMap((e) => (e.type === 'answer' && e.proposal ? [e.proposal] : []))
+      .find((p) => states.get(p.id) === 'pending') ?? null
+  const pending = pendingProposal !== null
 
   async function submit() {
     const said = value.trim()
@@ -139,7 +160,7 @@ export default function BacklogWriteModal({
     setFailure(null)
     const sent = talking
       ? await send(said)
-      : await start({ base, text: said, number: subject?.entry.number ?? undefined })
+      : await start({ base, text: said, number: own?.entry.number ?? undefined })
     if (sent.ok) {
       setText(null)
       return
@@ -156,6 +177,52 @@ export default function BacklogWriteModal({
             : 'Панель не приняла текст',
     )
   }
+
+  /** «Новая переписка»: разговор уходит из панели, окно остаётся открытым для первой просьбы. */
+  function newTalk() {
+    if (pending) setAsking({ question: 'Начать новую переписку?', yes: 'Начать новую', onYes: () => void reset() })
+    else void reset()
+  }
+
+  function reset() {
+    return restart(null)
+  }
+
+  /** Разговор уходит из панели; окно остаётся — общим или про запись to. */
+  async function restart(to: Props['subject']) {
+    setAsking(null)
+    setOwn(to ?? null)
+    // Проект нового разговора — тот, о котором шёл прежний, даже если окно подхватило его из шапки.
+    setChosen(to?.base ?? conversation.base ?? chosen)
+    setText(null)
+    setSaveError(null)
+    await forget()
+  }
+
+  // Какой разговор идёт в панели, окно от записи решает один раз — когда дочитало его события.
+  const live = conversation.base !== null
+  if (verdict === null && subject && !restoring && (!live || talking || failure)) {
+    const next: Verdict = !live
+      ? 'none'
+      : conversation.subject === subject.entry.number && conversation.base === subject.base
+        ? 'same'
+        : pending
+          ? 'ask'
+          : 'other'
+    setVerdict(next)
+    if (next === 'ask') {
+      setOwn(null)
+      setAsking({
+        question: `Начать переписку про ${subject.entry.number}?`,
+        yes: `Начать про ${subject.entry.number}`,
+        onYes: () => void restart(subject),
+      })
+    }
+  }
+  // Другой разговор без ждущего предложения заменяется сразу: окно от записи — про неё.
+  useEffect(() => {
+    if (verdict === 'other') void forget()
+  }, [verdict, forget])
 
   async function save(id: string) {
     setSaving(id)
@@ -209,29 +276,25 @@ export default function BacklogWriteModal({
               <WriteIcon />
               {AGENT_NAME}
             </div>
-            {!talking && !subject && bases.length > 1 ? (
-              <div className="talk-bases" role="group" aria-label="Проект">
-                {bases.map((b) => (
-                  <button
-                    key={b.base}
-                    type="button"
-                    className={`chip ${b.base === chosen ? 'active' : ''}`}
-                    aria-pressed={b.base === chosen}
-                    title={b.base}
-                    onClick={() => setChosen(b.base)}
-                  >
-                    {b.project}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              base && (
-                <div className="strip-meta">
-                  <span className="strip-project">{project}</span>
-                  <span className="strip-sep">·</span>
-                  {folderName(base)}
+            {/* Проект — выпадающим списком, как в окне вопроса по базе (замечание оператора на приёмке B-228):
+                выбирается до первой просьбы, посреди переписки и в окне от записи неактивен. */}
+            {bases.length > 0 && (
+              <div className="ask-pick talk-pick">
+                <div className="ask-pick-field">
+                  <span className="ask-pick-label" aria-hidden="true">
+                    Проект
+                  </span>
+                  <PickMenu
+                    label="Проект"
+                    value={project}
+                    options={bases.map((b) => ({ id: b.base, label: b.project, title: b.base }))}
+                    selected={base}
+                    disabled={talking || running || conversation.base !== null || own !== null || asking !== null || waiting}
+                    onPick={setChosen}
+                  />
                 </div>
-              )
+                {base && <span className="pick-folder">{folderName(base)}</span>}
+              </div>
             )}
           </div>
           <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={close}>
@@ -242,8 +305,39 @@ export default function BacklogWriteModal({
           </button>
         </div>
 
+        {/* Ждущее предложение — полосой под шапкой, а не в переписке: в ленте только его карточки (макет B-228). */}
+        {pendingProposal && !hidden && (
+          <div className="talk-pending" role="status">
+            <ClockIcon />
+            <span>{pendingTitle(pendingProposal)}</span>
+            <button
+              type="button"
+              className="btn"
+              disabled={saving !== null || asking !== null}
+              onClick={() => void refuse(pendingProposal.id)}
+            >
+              Отказаться
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={saving !== null || asking !== null}
+              onClick={() => void save(pendingProposal.id)}
+            >
+              Сохранить
+            </button>
+          </div>
+        )}
+        {pendingProposal && saveError?.id === pendingProposal.id && (
+          <div className="ask-error talk-pending-error" role="alert">
+            <strong>Не сохранено</strong>
+            <span>{saveError.text}</span>
+            {saveError.output && <pre>{saveError.output}</pre>}
+          </div>
+        )}
+
         <div className="reply-feed talk-feed" ref={feed}>
-          {restoring && <p className="modal-message">Загрузка…</p>}
+          {waiting && <p className="modal-message">Загрузка…</p>}
           {about && (
             <div className="talk-subject">
               <p className="talk-label">Запись</p>
@@ -256,7 +350,7 @@ export default function BacklogWriteModal({
               </ul>
             </div>
           )}
-          {events.map((event, i) => {
+          {(hidden ? [] : events).map((event, i) => {
             switch (event.type) {
               case 'reply':
                 return (
@@ -277,10 +371,6 @@ export default function BacklogWriteModal({
                     key={i}
                     event={event}
                     state={event.proposal ? (states.get(event.proposal.id) ?? 'replaced') : null}
-                    saving={saving}
-                    saveError={saveError}
-                    onSave={(id) => void save(id)}
-                    onRefuse={(id) => void refuse(id)}
                   />
                 )
               case 'error':
@@ -304,7 +394,7 @@ export default function BacklogWriteModal({
                 return null
             }
           })}
-          {running && (
+          {running && !hidden && (
             <div className="agent-q talk-agent">
               <div className="ask-waiting talk-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
@@ -330,17 +420,38 @@ export default function BacklogWriteModal({
           )}
         </div>
 
-        <div className="composer">
-          <div className="composer-row talk-row">
+        {/* Поле на всю ширину, кнопки строкой под ним — как в окне вопроса по базе (макет B-228). Переспрос встаёт
+            на место поля той же высоты, а его кнопки — на места двух кнопок. */}
+        {asking ? (
+          <div className="composer talk-composer" role="alertdialog" aria-label={asking.question}>
+            <div className="talk-confirm">
+              <strong>{asking.question}</strong>
+              {pendingProposal && (
+                <span>
+                  Предложение {pendingParts(pendingProposal).join(', ')} не сохранено — в новой переписке его не будет.
+                </span>
+              )}
+            </div>
+            <div className="talk-buttons">
+              <button type="button" className="btn composer-send" autoFocus onClick={() => setAsking(null)}>
+                Отмена
+              </button>
+              <button type="button" className="btn btn-danger composer-send" onClick={asking.onYes}>
+                {asking.yes}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="composer talk-composer">
             <textarea
               className="composer-field talk-field"
               aria-label={`Просьба к ${AGENT_NAME}`}
-              rows={2}
+              rows={3}
               autoFocus
               value={value}
               placeholder={placeholder}
               // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
-              disabled={running || restoring || saving !== null}
+              disabled={running || waiting || saving !== null}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -349,43 +460,47 @@ export default function BacklogWriteModal({
                 }
               }}
             />
-            {running ? (
-              <button type="button" className="btn composer-send" onClick={() => void stop()}>
-                Отменить
-              </button>
-            ) : (
+            {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
+                а «Отменить» встаёт ровно туда, где была «Отправить». */}
+            <div className="talk-buttons">
               <button
                 type="button"
-                className="btn btn-primary composer-send"
-                disabled={!base || !value.trim() || restoring || saving !== null}
-                onClick={() => void submit()}
+                className="btn composer-send"
+                disabled={!talking || running || waiting || saving !== null}
+                onClick={newTalk}
               >
-                <SendIcon />
-                Отправить
+                Новая переписка
               </button>
-            )}
+              {running ? (
+                <button type="button" className="btn composer-send" onClick={() => void stop()}>
+                  Отменить
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-primary composer-send"
+                  disabled={!base || !value.trim() || waiting || saving !== null}
+                  onClick={() => void submit()}
+                >
+                  <SendIcon />
+                  Отправить
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
 }
 
-/** Ответ Чудо-Юдо: его слова, записи, добавленные сразу, и предложение, которое ждёт «Сохранить». */
+/** Ответ Чудо-Юдо: его слова, записи, добавленные сразу, и карточки предложения; его кнопки — в полосе под шапкой. */
 function Answer({
   event,
   state,
-  saving,
-  saveError,
-  onSave,
-  onRefuse,
 }: {
   event: Extract<WriteEvent, { type: 'answer' }>
   state: ProposalState | null
-  saving: string | null
-  saveError: { id: string; text: string; output?: string | null } | null
-  onSave: (id: string) => void
-  onRefuse: (id: string) => void
 }) {
   const entries = event.entries ?? []
   const proposal = event.proposal ?? null
@@ -401,35 +516,7 @@ function Answer({
       )}
       {proposal && state && (
         <div className={`talk-group ${state === 'refused' || state === 'replaced' ? 'is-void' : ''}`}>
-          {state === 'pending' && (
-            <div className="talk-pending" role="status">
-              <ClockIcon />
-              <span>{pendingTitle(proposal)}</span>
-            </div>
-          )}
           <ProposalEntries proposal={proposal} state={state} />
-          {state === 'pending' && saveError?.id === proposal.id && (
-            <div className="ask-error" role="alert">
-              <strong>Не сохранено</strong>
-              <span>{saveError.text}</span>
-              {saveError.output && <pre>{saveError.output}</pre>}
-            </div>
-          )}
-          {state === 'pending' && (
-            <div className="talk-actions">
-              <button type="button" className="btn" disabled={saving !== null} onClick={() => onRefuse(proposal.id)}>
-                Отказаться
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={saving !== null}
-                onClick={() => onSave(proposal.id)}
-              >
-                Сохранить
-              </button>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -584,6 +671,12 @@ function stepsOfTurn(events: WriteEvent[]) {
 }
 
 function pendingTitle(proposal: Proposal) {
+  const parts = pendingParts(proposal)
+  return `${parts.length === 1 ? 'Ждёт' : 'Ждут'} сохранения: ${parts.join(', ')}`
+}
+
+/** Что предлагается, словами: «изменить 1», «удалить 2», «объединить 2 записи в одну». */
+function pendingParts(proposal: Proposal) {
   const into = proposal.changes.filter((c) => c.kind === 'delete' && c.into)
   const targets = new Set(into.map((c) => c.into!))
   const changes = proposal.changes.filter((c) => c.kind === 'change' && !targets.has(c.number)).length
@@ -595,8 +688,8 @@ function pendingTitle(proposal: Proposal) {
       const count = 1 + into.filter((c) => c.into === target).length
       return `объединить ${count} ${plural(count, 'запись', 'записи', 'записей')} в одну`
     }),
-  ].filter(Boolean)
-  return `${parts.length === 1 ? 'Ждёт' : 'Ждут'} сохранения: ${parts.join(', ')}`
+  ].filter((part): part is string => Boolean(part))
+  return parts
 }
 
 function plural(count: number, one: string, few: string, many: string) {

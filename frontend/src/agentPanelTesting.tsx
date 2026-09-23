@@ -62,11 +62,14 @@ export function stubPanel(
           text: String(body.question ?? body.text ?? body.wish ?? ''),
           elapsedMs: 0,
           state: 'running',
-          // Как в API: просьба о правке исполнителя помнит, кого переписывает, а разговор — копию проекта.
+          // Как в API: просьба о правке исполнителя помнит, кого переписывает, разговор по базе — копию проекта,
+          // а разговор о бэклоге — запись, от которой открыт.
           subject:
             kind === 'ask'
               ? ((body.copy as string | undefined) ?? null)
-              : ((body.current as { name?: string } | null | undefined)?.name ?? null),
+              : kind === 'backlog'
+                ? ((body.number as string | undefined) ?? null)
+                : ((body.current as { name?: string } | null | undefined)?.name ?? null),
           // Как в API: просьба переписать стадии помнит, какие стадии ушли агенту.
           ...(kind === 'flow' ? { stages: (body.stages as AgentRequestSummary['stages']) ?? [] } : {}),
         }

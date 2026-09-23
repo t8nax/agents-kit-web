@@ -1,4 +1,4 @@
-/* Карточка «Панель» в «Настройках» и окно хода обновления — по макету задачи B-81. */
+/* Карточка «Панель» в «Настройках» и окно хода обновления — по макетам задач B-81 и B-231. */
 
 .panel-card-body {
   padding: 16px;
@@ -29,7 +29,7 @@
 }
 
 .panel-row-top .panel-label {
-  padding-top: 4px;
+  padding-top: 1px;
 }
 
 .panel-divider {
@@ -81,12 +81,13 @@
   flex-grow: 1;
 }
 
-/* Код сборки стоит там, где раньше стоял номер версии, и набран моноширинным, как коды в панели. */
+/* Номер сборки набран моноширинным, как коды в панели, и цифры стоят ровно. */
 .panel-build {
   font-family: var(--font-mono);
   font-size: 14px;
   font-weight: 500;
   letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
 .panel-arrived {
@@ -102,10 +103,38 @@
   color: var(--accent-active-text);
 }
 
+/* Вышедшее: номер свежего выпуска со счётом задач, ниже задачи — под номером каждого выпуска, если их несколько. */
+.panel-news {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.panel-news-top {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .panel-releases {
   display: flex;
   flex-direction: column;
+  gap: 12px;
+}
+
+.panel-release {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+}
+
+.panel-release-num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
 }
 
 .panel-releases ul {
@@ -169,8 +198,7 @@
   line-height: 1.55;
 }
 
-.panel-failed pre,
-.panel-log {
+.panel-failed pre {
   margin: 0;
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
@@ -248,4 +276,64 @@
   100% {
     margin-left: 0;
   }
+}
+
+/* Шаги окна обновления: текущий отмечен янтарной точкой, у скачивания справа — сколько скачано. */
+.panel-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.panel-steps .mark {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1.5px solid var(--border-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel-steps .now {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.panel-steps .now .mark {
+  border-color: var(--accent-waiting-fill);
+}
+
+.panel-steps .now .mark::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent-waiting-fill);
+}
+
+.panel-steps .done .mark {
+  border-color: var(--accent-done-text);
+  background: var(--accent-done-text);
+}
+
+.panel-steps .size {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
 }

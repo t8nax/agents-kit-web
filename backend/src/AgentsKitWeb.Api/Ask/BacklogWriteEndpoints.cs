@@ -64,7 +64,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             ProjectName.Of(basePath),
             text,
             (writing, cancellationToken) => RunAsync(basePath, replies.Reader, turn, writing, cancellationToken),
-            continues: true);
+            continues: true,
+            // Запись разговора видна в списке просьб: «Изменить» у той же записи открывает этот разговор (B-228).
+            subject: number);
 
         turn.Request = request;
         lock (_gate)

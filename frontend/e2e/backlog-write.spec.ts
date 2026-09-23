@@ -82,6 +82,8 @@ async function mockApi(page: Page) {
       text: String(body.text ?? ''),
       elapsedMs: 0,
       state: 'running',
+      // Как в API: разговор помнит запись, от которой открыт.
+      subject: body.number ?? null,
     }
     panel.state = 'running'
     await route.fulfill({ json: { ...panel.request } })
@@ -182,11 +184,15 @@ test('новая запись сохраняется сразу, отмечен�
   await expect(entries.getByText('добавлена')).toBeVisible()
   await expect(entries.locator('strong')).toHaveText('как давно')
 
+  // Закрытое окно разговор не трогает: открытое снова из шапки, оно показывает его на месте (B-228).
   await dialog.getByRole('button', { name: 'Закрыть' }).click()
   await expect(dialog).toHaveCount(0)
-  expect(panel.deletes).toBe(1)
+  expect(panel.deletes).toBe(0)
   const fresh = page.getByRole('button', { name: /B-32 Таблица показывает/ })
   await expect(fresh.getByText('новая')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Попросить Чудо-Юдо' }).click()
+  await expect(dialog.getByText('Записал B-32.')).toBeVisible()
 })
 
 test('«Изменить» открывает разговор про запись, изменение и удаление пишутся по «Сохранить»', async ({ page }) => {
@@ -247,6 +253,61 @@ test('запись, названная словами, уточняется в �
   await expect(dialog.getByText('Чудо-Юдо остановлен: ответа на эту реплику не будет')).toBeVisible()
   expect(panel.stops).toBe(1)
   expect(panel.replies).toEqual(['Да'])
+})
+
+test('подвал: поле во всю ширину, под ним кнопки одного роста, переспрос той же высоты, что поле', async ({ page }) => {
+  const panel = await mockApi(page)
+  const dialog = await openFromHead(page)
+  const field = dialog.getByLabel('Просьба к Чудо-Юдо')
+  const fresh = dialog.getByRole('button', { name: 'Новая переписка' })
+  const send = dialog.getByRole('button', { name: 'Отправить' })
+  await expect(fresh).toBeDisabled()
+
+  // Замер с повтором: пока грузится шрифт, подвал успевает померяться на запасной гарнитуре.
+  await expect(async () => {
+    const [box, left, right] = await Promise.all([field.boundingBox(), fresh.boundingBox(), send.boundingBox()])
+    expect(left!.height).toBe(right!.height)
+    expect(left!.y).toBe(right!.y)
+    expect(Number.isInteger(left!.height)).toBe(true)
+    // Кнопки строкой под полем, а не рядом с ним: поле во всю ширину подвала.
+    expect(left!.y).toBeGreaterThanOrEqual(box!.y + box!.height)
+    expect(right!.x + right!.width).toBeCloseTo(box!.x + box!.width, 0)
+    // Поле — в три строки текста: замечание оператора на приёмке B-228.
+    expect(box!.height).toBe(84)
+  }).toPass({ timeout: 5000 })
+
+  await say(dialog, 'Убери B-2')
+  panel.answer({ type: 'answer', text: 'Сохраню, когда скажете.', proposal })
+  // Ждущее предложение — полосой под шапкой, над лентой.
+  const bar = dialog.getByRole('status').filter({ hasText: 'Ждут сохранения' })
+  await expect(bar.getByRole('button', { name: 'Сохранить' })).toBeVisible()
+  const [head, barBox, feed] = await Promise.all([
+    dialog.locator('.reply-head').boundingBox(),
+    bar.boundingBox(),
+    dialog.locator('.talk-feed').boundingBox(),
+  ])
+  expect(barBox!.y).toBeGreaterThanOrEqual(head!.y + head!.height - 1)
+  expect(feed!.y).toBeGreaterThanOrEqual(barBox!.y + barBox!.height - 1)
+
+  const footer = dialog.locator('.talk-composer')
+  const before = (await footer.boundingBox())!.height
+  await fresh.click()
+  const asking = dialog.getByRole('alertdialog', { name: 'Начать новую переписку?' })
+  await expect(asking).toBeVisible()
+  expect((await footer.boundingBox())!.height).toBe(before)
+  expect((await asking.locator('.talk-confirm').boundingBox())!.height).toBe(84)
+  await expect(bar.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+
+  await asking.getByRole('button', { name: 'Отмена' }).click()
+  await expect(asking).toHaveCount(0)
+  expect(panel.deletes).toBe(0)
+
+  await fresh.click()
+  await dialog.getByRole('button', { name: 'Начать новую' }).click()
+  await expect(dialog.getByText('Сохраню, когда скажете.')).toHaveCount(0)
+  await expect(field).toHaveValue('')
+  await expect(dialog.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeEnabled()
+  expect(panel.deletes).toBe(1)
 })
 
 for (const theme of ['dark', 'light'] as const) {
