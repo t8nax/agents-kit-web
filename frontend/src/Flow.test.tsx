@@ -1729,14 +1729,39 @@ test('задача, чей сценарий назван, но его в про�
   )
 })
 
-test('пока флоу не записать, действия на схеме погашены так же, как «Сохранить» в окнах', async () => {
-  const fetchMock = stubApi(api([{ ...app, stages: [criterion, { ...review, executor: 'doc-writer' }, acceptance, spare] }], saved()))
+test('действие, после которого флоу остался бы с ошибкой, не пишется и называет её; действие, которое её убирает, пишется', async () => {
+  const broken: NamedFlow = { ...full, entries: [...full.entries, { stage: 'Сборка' }] }
+  const fetchMock = stubApi(api([{ ...app, flows: [broken, small] }], saved()))
   const region = await renderFlow()
+  expect(screen.getByText(/^Не сохранить: флоу «полный», стадия «Сборка» — стадии нет в базе/)).toBeInTheDocument()
 
-  expect(screen.getByText(/^Не сохранить: стадия «Ревью»/)).toBeInTheDocument()
-  expect(region.getByRole('button', { name: 'Стадия 3 выше' })).toBeDisabled()
-  expect(menuOf(region, 'Стадия 1: Критерий').getByRole('menuitem', { name: 'Убрать из сценария' })).toBeDisabled()
+  // Перестановка ошибку не убирает — записи нет, отказ назван
+  fireEvent.click(region.getByRole('button', { name: 'Стадия 3 выше' }))
+  // Над разделом — строка о флоу и отказ самого действия
+  expect(await screen.findAllByText(/^Не сохранить: флоу «полный», стадия «Сборка»/)).toHaveLength(2)
   expect(posts(fetchMock)).toBe(0)
+
+  // Уборка стадии, которой нет в базе, флоу чинит — пишется
+  fireEvent.click(menuOf(region, /^Стадия 4: Сборка/).getByRole('menuitem', { name: 'Убрать из сценария' }))
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
+  expect(body(fetchMock, 'POST /api/flow').flows[0].entries.map((entry: { stage: string }) => entry.stage)).toEqual([
+    'Критерий',
+    'Ревью',
+    'Приёмка',
+  ])
+})
+
+test('ошибка в занятой стадии не запирает запись остального проекта', async () => {
+  const fetchMock = stubApi(
+    api([{ ...app, stages: [criterion, { ...review, executor: 'doc-writer' }, acceptance, spare], tasks: [{ task: 'B-7', flow: 'мелкий' }] }], saved()),
+  )
+  await renderFlow()
+  // Ревью стоит в занятом «мелком»: её не починить, пока задача идёт, — и её ошибка не останавливает остальное
+  expect(screen.queryByText(/^Не сохранить/)).not.toBeInTheDocument()
+
+  const free = await stagesTab('Запас')
+  fireEvent.change(free.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'кое-что' } })
+  expect((await saveAndRead(fetchMock)).stages[3].output).toBe('кое-что')
 })
 
 test('у единственного сценария без «когда», по которому идёт задача, «когда» вписывается в окне нового сценария', async () => {

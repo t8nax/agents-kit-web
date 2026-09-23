@@ -273,12 +273,19 @@ const stageName = (stage: DraftStage) => stage.title.trim() || 'без назв�
 const flowName = (flow: DraftFlow) => flow.name.trim() || 'без названия'
 
 /** Первое, из-за чего флоу не записать, — словами для строки над разделом; null — всё годится. */
-function firstProblem(draft: Draft, known: string[] | null): string | null {
+function firstProblem(
+  draft: Draft,
+  known: string[] | null,
+  held: { stage: (key: number) => boolean; flow: (key: number) => boolean } = { stage: () => false, flow: () => false },
+): string | null {
+  // Занятые стадию и сценарий запись не меняет и починить их сейчас нельзя: их ошибка остальное не запирает (ревью B-226).
   for (const stage of draft.stages) {
+    if (held.stage(stage.key)) continue
     const errors = stageErrors(stage, draft.stages, known)
     if (errors.length > 0) return `стадия «${stageName(stage)}» — ${errors.join(', ')}`
   }
   for (const flow of draft.flows) {
+    if (held.flow(flow.key)) continue
     const errors = flowErrors(flow, draft.flows)
     if (errors.length > 0) return `флоу «${flowName(flow)}» — ${errors.join(', ')}`
     for (let index = 0; index < flow.entries.length; index++) {
@@ -514,21 +521,23 @@ export default function Flow({
     }
   }
   const unread = flow?.unread ?? []
-  const problem =
+  // Пока по сценарию идёт задача, ни он, ни его стадии не правятся: окна открываются только для чтения (B-226).
+  const tasks = flow?.tasks ?? []
+  const lockOfFlow = (key: number) => flowLock(tasks, saved, key)
+  const lockOfStage = (key: number) => stageLock(tasks, saved, key)
+  const held = { stage: (key: number) => lockOfStage(key) !== null, flow: (key: number) => lockOfFlow(key) !== null }
+  // Строку, которую панель не воспроизведёт, стёрла бы любая запись. Ошибка формы запирает только ту запись,
+  // после которой она останется во флоу: правка, которая её чинит, — окном или уборкой со схемы — проходит.
+  const cannot = (next: Draft) =>
     unread.length > 0
       ? `в файлах флоу есть строка, которую панель не сохранит, — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
-      : firstProblem(draft, known)
-  // Флоу, который не записать, не пишет ничего: строку, которую панель не воспроизведёт, запись стёрла бы, а ошибку
-  // формы — унесла бы в базу вместе с любой правкой. Окно, которое её чинит, записать можно: его правка в форме.
+      : firstProblem(next, known, held)
+  const problem = cannot(draft)
   const blocked = problem !== null
 
   const currentFlow = draft.flows.find((f) => f.key === flowKey) ?? draft.flows[0] ?? null
   // Стадия выбрана, только пока её правят окном: оно открывается вместе с выбором карточки (B-192).
   const currentStage = draft.stages.find((s) => s.key === stageKey) ?? null
-  // Пока по сценарию идёт задача, ни он, ни его стадии не правятся: окна открываются только для чтения (B-226).
-  const tasks = flow?.tasks ?? []
-  const lockOfFlow = (key: number) => flowLock(tasks, saved, key)
-  const lockOfStage = (key: number) => stageLock(tasks, saved, key)
   const currentLock = currentFlow ? lockOfFlow(currentFlow.key) : null
   const projectLock = unknownLock(tasks)
 
@@ -591,6 +600,8 @@ export default function Flow({
    */
   async function commit(next: Draft, from: Source): Promise<string | null> {
     if (!flow) return 'Флоу не сохранён'
+    const reason = cannot(next)
+    if (reason) return `Не сохранить: ${reason}`
     setDraft(next)
     setSaving(true)
     setNotice(null)
@@ -1008,7 +1019,7 @@ export default function Flow({
               opened={opened}
               known={known}
               covered={covered}
-              busy={saving || blocked || currentLock !== null}
+              busy={saving || unread.length > 0 || currentLock !== null}
               locked={currentLock !== null}
               focus={focus}
               drawer={{
@@ -1134,7 +1145,7 @@ export default function Flow({
           project={flow.project}
           draft={saved}
           saving={saving}
-          blocked={blocked}
+          blocked={unread.length > 0}
           failure={failure}
           covered={asking !== null}
           onAsk={(close) =>
