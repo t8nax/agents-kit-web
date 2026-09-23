@@ -615,7 +615,8 @@ export default function Flow({
   async function commit(next: Draft, from: Source): Promise<string | null> {
     if (!flow) return 'Флоу не сохранён'
     const reason = cannot(next)
-    // Ошибка, которая уже названа над разделом, второй раз не повторяется: действие просто не записано.
+    // Ошибка, которая уже названа над разделом, второй раз не повторяется: действие на схеме просто не записано.
+    // Окну строка над разделом не видна — её закрывает подложка, — и оно называет причину целиком.
     if (reason)
       return from === 'action' && reason === problem
         ? 'Действие не записано: флоу остался бы с ошибкой, названной выше.'
@@ -732,6 +733,12 @@ export default function Flow({
     begin()
     setStageKey(key)
     setStageOpen(true)
+  }
+
+  // Окно нового сценария открывается без чужого отказа: прошлый мог остаться от сайдбара.
+  const newFlow = () => {
+    setFailure(null)
+    setModal('new-flow')
   }
 
   // Новая стадия на вкладке «Стадии» — пустым окном; в базу она уходит его «Сохранить».
@@ -996,7 +1003,7 @@ export default function Flow({
               </span>
               <h3>В этом проекте нет сценариев</h3>
               <p>Сценарий — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
-              <button type="button" className="bases-btn bases-btn-primary" onClick={() => setModal('new-flow')}>
+              <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
                 <PlusIcon />
                 Создать первый сценарий
               </button>
@@ -1056,7 +1063,7 @@ export default function Flow({
                 setFlowKey(key)
                 setOpened(null)
               }}
-              onNew={() => setModal('new-flow')}
+              onNew={newFlow}
               onOpen={(next) => {
                 if (next) begin()
                 else setBaseline(null)

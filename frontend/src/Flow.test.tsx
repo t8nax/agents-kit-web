@@ -1890,3 +1890,17 @@ test('окно, запись которого остановила ошибка 
 
   expect(await dialog.findByRole('alert')).toHaveTextContent(/^Не сохранить: флоу «полный», стадия «Сборка» — стадии нет в базе/)
 })
+
+test('окно нового сценария открывается без отказа, оставшегося от сайдбара', async () => {
+  stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'not-committed', detail: 'hook' }, 502) }))
+  const region = await renderFlow()
+  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'крупная правка' } })
+  fireEvent.click(drawer.getByRole('button', { name: 'Сохранить' }))
+  await drawer.findByRole('alert')
+  // Вернули поле к исходному — сайдбар чист, схема отперта
+  fireEvent.change(drawer.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'новая возможность' } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
+  expect(within(screen.getByRole('dialog', { name: 'Новый сценарий' })).queryByRole('alert')).not.toBeInTheDocument()
+})
