@@ -70,8 +70,6 @@ export type BaseFlow = {
   unread?: string[]
 }
 
-export type StagePreset = FlowStage & { id: string }
-
 type Load =
   | { kind: 'loading' }
   | { kind: 'failed'; message: string }
@@ -290,16 +288,6 @@ const sameIcons = (a: Record<string, string>, b: Record<string, string>) => {
   return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
 }
 
-/** Стадия без помощников и слага: пресет общий для всех проектов, а помощники — исполнители своего. */
-const presetStage = (stage: FlowStage): FlowStage => ({ ...stage, helpers: [], slug: null })
-
-const samePreset = (a: FlowStage, b: FlowStage) =>
-  a.title === b.title &&
-  a.executor === b.executor &&
-  a.output === b.output &&
-  (a.skip ?? null) === (b.skip ?? null) &&
-  (a.description ?? null) === (b.description ?? null)
-
 /** Имя, которого нет среди флоу: «новый флоу», «новый флоу 2»… */
 function freeName(flows: DraftFlow[]) {
   for (let n = 1; ; n++) {
@@ -348,7 +336,6 @@ export default function Flow({
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [selected, setSelected] = useState<string | null>(baseFor)
-  const [presets, setPresets] = useState<StagePreset[]>([])
   // Заведённые в базах исполнители: из них стадии и выбирают субагента. null — ещё не прочитаны.
   const [performers, setPerformers] = useState<BasePerformers[] | null>(null)
   // Список не прочитан: стадии не метятся и запись не запирается, но сказать об этом оператору надо.
@@ -397,12 +384,6 @@ export default function Flow({
 
   // Флоу читается при открытии раздела и пунктом «Обновить», как бэклог.
   useEffect(loadFlows, [loadFlows])
-
-  useEffect(() => {
-    fetch('/api/presets')
-      .then((response) => (response.ok ? (response.json() as Promise<StagePreset[]>) : []))
-      .then(setPresets, () => setPresets([]))
-  }, [])
 
   // Не прочитали список — оставляем null: пустой список пометил бы незаведёнными все стадии разом
   // и запер бы сохранение флоу из-за временного отказа API.
@@ -519,31 +500,6 @@ export default function Flow({
     }
   }
 
-  async function saveAsPreset(stage: FlowStage) {
-    try {
-      const response = await fetch('/api/presets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(stage),
-      })
-      if (!response.ok) throw new Error()
-      const preset = (await response.json()) as StagePreset
-      setPresets((current) => (current.some((p) => p.id === preset.id) ? current : [...current, preset]))
-    } catch {
-      setNotice({ kind: 'error', text: 'Пресет не сохранён' })
-    }
-  }
-
-  async function removePreset(preset: StagePreset) {
-    try {
-      const response = await fetch(`/api/presets/${encodeURIComponent(preset.id)}`, { method: 'DELETE' })
-      if (!response.ok && response.status !== 404) throw new Error()
-      setPresets((current) => current.filter((p) => p.id !== preset.id))
-    } catch {
-      setNotice({ kind: 'error', text: 'Пресет не удалён' })
-    }
-  }
-
   const updateStage = (key: number, patch: Partial<DraftStage>) =>
     setDraft({ ...draft, stages: draft.stages.map((stage) => (stage.key === key ? { ...stage, ...patch } : stage)) })
 
@@ -604,29 +560,23 @@ export default function Flow({
     setOpened({ kind: 'flow' })
   }
 
-  /** Стадия встаёт в конец флоу: своя стадия базы, новая пустая или из пресета — две последних заводятся в базе. */
-  const placeStage = (target: DraftFlow, choice: { stage: number } | { preset: FlowStage } | 'new') => {
+  /** Стадия встаёт в конец флоу: своя стадия базы или новая пустая — она заводится в базе. */
+  const placeStage = (target: DraftFlow, choice: { stage: number } | 'new') => {
     const entry = (stage: number): DraftEntry => ({ key: nextKey++, stage, title: '', returns: [] })
     const withEntry = (flowsOf: DraftFlow[], stage: number) =>
       flowsOf.map((f) => (f.key === target.key ? { ...f, entries: [...f.entries, entry(stage)] } : f))
 
-    if (typeof choice === 'object' && 'stage' in choice) {
+    if (choice !== 'new') {
       const placed = entry(choice.stage)
       setDraft({ ...draft, flows: draft.flows.map((f) => (f.key === target.key ? { ...f, entries: [...f.entries, placed] } : f)) })
       setFocus({ key: placed.key })
     } else {
-      const { added, stages } = addStage(choice === 'new' ? emptyStage : choice.preset)
-      const next = { stages, flows: withEntry(draft.flows, added.key) }
-      setDraft(next)
-      if (choice === 'new') {
-        // Новую стадию ещё заполнять: её правка — на вкладке «Стадии».
-        setStageKey(added.key)
-        setStageOpen(true)
-        setTab('stages')
-      } else {
-        const placed = next.flows.find((f) => f.key === target.key)!.entries.at(-1)!
-        setFocus({ key: placed.key })
-      }
+      const { added, stages } = addStage(emptyStage)
+      setDraft({ stages, flows: withEntry(draft.flows, added.key) })
+      // Новую стадию ещё заполнять: её правка — на вкладке «Стадии».
+      setStageKey(added.key)
+      setStageOpen(true)
+      setTab('stages')
     }
     setModal(null)
   }
@@ -817,7 +767,6 @@ export default function Flow({
               draft={draft}
               current={currentStage}
               known={known}
-              presets={presets}
               open={stageOpen}
               covered={modal === 'description'}
               onPerformers={onPerformers}
@@ -829,7 +778,6 @@ export default function Flow({
               onNew={newStage}
               onChange={(patch) => currentStage && updateStage(currentStage.key, patch)}
               onEditDescription={() => setModal('description')}
-              onSaveAsPreset={() => currentStage && void saveAsPreset(presetStage(toStage(currentStage)))}
               onDelete={() => {
                 if (!currentStage) return
                 setDraft({ ...draft, stages: draft.stages.filter((stage) => stage.key !== currentStage.key) })
@@ -882,7 +830,6 @@ export default function Flow({
           stage={currentStage}
           draft={draft}
           known={known}
-          presets={presets}
           covered={modal === 'description'}
           warning={scope}
           onPerformers={onPerformers}
@@ -890,7 +837,6 @@ export default function Flow({
           onReturnFocus={backToBlock}
           onChange={(patch) => updateStage(currentStage.key, patch)}
           onEditDescription={() => setModal('description')}
-          onSaveAsPreset={() => void saveAsPreset(presetStage(toStage(currentStage)))}
           // Стадия на схеме стоит во флоу, и «Удалить стадию» в окне погашена: удалять здесь нечего.
           onDelete={() => undefined}
         />
@@ -929,10 +875,8 @@ export default function Flow({
         <AddStage
           flow={currentFlow}
           stages={draft.stages.filter((stage) => !currentFlow.entries.some((entry) => entry.stage === stage.key))}
-          presets={presets}
           onCancel={() => setModal(null)}
           onPick={(choice) => placeStage(currentFlow, choice)}
-          onRemovePreset={(preset) => void removePreset(preset)}
         />
       )}
 
@@ -1123,7 +1067,6 @@ function StagesTab({
   draft,
   current,
   known,
-  presets,
   open,
   covered,
   onPerformers,
@@ -1132,13 +1075,11 @@ function StagesTab({
   onNew,
   onChange,
   onEditDescription,
-  onSaveAsPreset,
   onDelete,
 }: {
   draft: Draft
   current: DraftStage | null
   known: string[] | null
-  presets: StagePreset[]
   open: boolean
   covered: boolean
   onPerformers?: () => void
@@ -1147,7 +1088,6 @@ function StagesTab({
   onNew: () => void
   onChange: (patch: Partial<DraftStage>) => void
   onEditDescription: () => void
-  onSaveAsPreset: () => void
   onDelete: () => void
 }) {
   const grid = useRef<HTMLUListElement>(null)
@@ -1202,7 +1142,6 @@ function StagesTab({
           stage={current}
           draft={draft}
           known={known}
-          presets={presets}
           covered={covered}
           onPerformers={onPerformers}
           onClose={onClose}
@@ -1212,7 +1151,6 @@ function StagesTab({
           }
           onChange={onChange}
           onEditDescription={onEditDescription}
-          onSaveAsPreset={onSaveAsPreset}
           onDelete={onDelete}
         />
       )}
@@ -1228,7 +1166,6 @@ function StageModal({
   stage,
   draft,
   known,
-  presets,
   covered,
   warning = null,
   onPerformers,
@@ -1236,13 +1173,11 @@ function StageModal({
   onReturnFocus,
   onChange,
   onEditDescription,
-  onSaveAsPreset,
   onDelete,
 }: {
   stage: DraftStage
   draft: Draft
   known: string[] | null
-  presets: StagePreset[]
   covered: boolean
   warning?: string | null
   onPerformers?: () => void
@@ -1250,13 +1185,11 @@ function StageModal({
   onReturnFocus: (key: number) => void
   onChange: (patch: Partial<DraftStage>) => void
   onEditDescription: () => void
-  onSaveAsPreset: () => void
   onDelete: () => void
 }) {
   // Стадию, которая стоит хоть в одном флоу, не удалить: сначала её убирают из флоу — ответ оператора.
   const used = draft.flows.some((f) => f.entries.some((entry) => entry.stage === stage.key))
   const errors = stageErrors(stage, draft.stages, known)
-  const isPreset = presets.some((preset) => samePreset(preset, presetStage(toStage(stage))))
   const title = useRef<HTMLInputElement>(null)
   const describe = useRef<HTMLButtonElement>(null)
   // Фокус возвращается туда, откуда правили стадию: к её карточке или, если окно открыли из меню на схеме,
@@ -1401,16 +1334,6 @@ function StageModal({
         </div>
 
         <div className="modal-footer flow-stage-foot">
-          <button
-            type="button"
-            className="btn"
-            disabled={errors.length > 0 || isPreset}
-            aria-pressed={isPreset}
-            onClick={onSaveAsPreset}
-          >
-            <BookmarkIcon />
-            {isPreset ? 'Стадия в пресетах' : 'В пресеты'}
-          </button>
           <button type="button" className="btn btn-danger" disabled={used} onClick={onDelete}>
             <TrashIcon />
             Удалить стадию
@@ -2595,25 +2518,20 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
 }
 
 /**
- * Стадия во флоу выбирается своим окном: новая, своя стадия базы, которой во флоу ещё нет, или пресет.
+ * Стадия во флоу выбирается своим окном: новая или своя стадия базы, которой во флоу ещё нет.
  * Рамка — окна правки стадии и возвратов, стадии — списком строк в виде карточек вкладки «Стадии» (B-209).
  */
 function AddStage({
   flow,
   stages,
-  presets,
   onPick,
   onCancel,
-  onRemovePreset,
 }: {
   flow: DraftFlow
   stages: DraftStage[]
-  presets: StagePreset[]
-  onPick: (choice: { stage: number } | { preset: FlowStage } | 'new') => void
+  onPick: (choice: { stage: number } | 'new') => void
   onCancel: () => void
-  onRemovePreset: (preset: StagePreset) => void
 }) {
-  const box = useRef<HTMLElement>(null)
   const first = useRef<HTMLButtonElement>(null)
   // Фокус — в окне, иначе Escape его не закрывает: он ловится на самом окне.
   useEffect(() => first.current?.focus(), [])
@@ -2621,7 +2539,6 @@ function AddStage({
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
       <section
-        ref={box}
         className="modal-wizard flow-stage-modal flow-add-modal"
         role="dialog"
         aria-modal="true"
@@ -2657,8 +2574,8 @@ function AddStage({
             </li>
           </ul>
           {stages.length > 0 && (
-            <div role="group" aria-label="Стадии базы" className="flow-presets-group">
-              <div className="flow-presets-label">Стадии базы</div>
+            <div role="group" aria-label="Стадии базы" className="flow-add-group">
+              <div className="flow-add-label">Стадии базы</div>
               <ul className="flow-add-list">
                 {stages.map((stage) => (
                   <li key={stage.key}>
@@ -2673,45 +2590,6 @@ function AddStage({
               </ul>
             </div>
           )}
-          <div role="group" aria-label="Пресеты стадий" className="flow-presets-group">
-            <div className="flow-presets-label">Пресеты</div>
-            {presets.length === 0 ? (
-              <p className="flow-presets-empty text-ter">Пресетов пока нет.</p>
-            ) : (
-              <ul className="flow-add-list">
-                {presets.map((preset, index) => (
-                  <li key={preset.id}>
-                    {/* У пресета своего значка нет: значок — по исполнителю. */}
-                    <AddStageRow
-                      title={preset.title}
-                      icon=""
-                      executor={preset.executor}
-                      removable
-                      onClick={() => onPick({ preset })}
-                    />
-                    <span className="flow-preset-remove" data-preset={preset.id}>
-                      <IconButton
-                        label={`Удалить пресет ${preset.title}`}
-                        danger
-                        onClick={() => {
-                          // Кнопка уйдёт вместе с пресетом: фокус — на крестик соседнего пресета, чтобы с клавиатуры
-                          // удалять подряд, а без соседей — на окно, чтобы Escape его закрывал.
-                          const next = (presets[index + 1] ?? presets[index - 1])?.id
-                          const neighbour = next
-                            ? box.current?.querySelector<HTMLElement>(`[data-preset="${CSS.escape(next)}"] button`)
-                            : null
-                          ;(neighbour ?? box.current)?.focus()
-                          onRemovePreset(preset)
-                        }}
-                      >
-                        <CloseIcon />
-                      </IconButton>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
 
         <div className="modal-footer flow-stage-foot">
@@ -2729,18 +2607,16 @@ function AddStageRow({
   title,
   icon,
   executor,
-  removable = false,
   onClick,
 }: {
   title: string
   icon: string
   executor: string
-  removable?: boolean
   onClick: () => void
 }) {
   const kind = executor === 'оркестратор' ? 'orchestrator' : executor === 'оператор' ? 'operator' : 'agent'
   return (
-    <button type="button" className={`flow-stage-card ${removable ? 'has-remove' : ''}`} onClick={onClick}>
+    <button type="button" className="flow-stage-card" onClick={onClick}>
       <span className={`flow-card-mark flow-mark-${kind}`} aria-hidden="true">
         <StageIcon icon={icon} kind={kind} />
       </span>
@@ -2799,21 +2675,19 @@ function IconButton({
   label,
   disabled = false,
   pressed,
-  danger = false,
   onClick,
   children,
 }: {
   label: string
   disabled?: boolean
   pressed?: boolean
-  danger?: boolean
   onClick: () => void
   children: ReactNode
 }) {
   return (
     <button
       type="button"
-      className={`flow-icon-btn ${danger ? 'danger' : ''}`}
+      className="flow-icon-btn"
       aria-label={label}
       title={label}
       aria-pressed={pressed}
@@ -2859,14 +2733,6 @@ function ChevronDownIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <polyline points="6 9 12 15 18 9" />
-    </svg>
-  )
-}
-
-function BookmarkIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
     </svg>
   )
 }

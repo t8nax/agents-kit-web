@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import Flow, { type BaseFlow, type FlowStage, type NamedFlow, type StagePreset } from './Flow'
+import Flow, { type BaseFlow, type FlowStage, type NamedFlow } from './Flow'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -81,7 +81,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 function stubApi(handlers: Record<string, Handler>) {
   const fetchMock = vi.fn((input: string, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${input}`
-    const handler = handlers[key] ?? (key.startsWith('DELETE /api/presets/') ? handlers['DELETE /api/presets'] : undefined)
+    const handler = handlers[key]
     if (!handler) throw new Error(`Нет обработчика ${key}`)
     return Promise.resolve(handler(init))
   })
@@ -110,9 +110,8 @@ const performers = (names: string[]) => [
   },
 ]
 
-const api = (flows: BaseFlow[], presets: StagePreset[] = [], extra: Record<string, Handler> = {}) => ({
+const api = (flows: BaseFlow[], extra: Record<string, Handler> = {}) => ({
   'GET /api/flow': () => json(flows),
-  'GET /api/presets': () => json(presets),
   // Флоу, зовущий незаведённого исполнителя, не сохраняется — поэтому по умолчанию заведены все, кого зовут стадии.
   'GET /api/performers': () => json(performers(['reviewer', 'scout', 'check-runner', 'e2e-runner'])),
   ...extra,
@@ -270,7 +269,7 @@ test('флоу выбирается списком в углу холста: в 
 })
 
 test('узел старта открывает сайдбар флоу: название и «когда» правятся, флоу удаляется', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
 
   const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
@@ -428,7 +427,7 @@ test('пункт «Возвраты» следует за местом стад�
 })
 
 test('возвраты правятся окном поверх схемы: «Готово» закрывает его, фокус — на блоке, правка ждёт в полосе', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
 
   const dialog = await returnsOf(region, 'Стадия 2: Ревью')
@@ -459,7 +458,7 @@ test('возвраты правятся окном поверх схемы: «Г
 })
 
 test('«Править стадию» из меню открывает окно правки поверх сценария, не уходя на вкладку «Стадии»', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
 
   fireEvent.click(menuOf(region, 'Стадия 2: Ревью').getByRole('menuitem', { name: 'Править стадию «Ревью»' }))
@@ -544,7 +543,7 @@ test('Escape закрывает окно описания и в правке, н
 })
 
 test('возврат правится у стадии в своём флоу: цель — только стадии этого флоу, стоящие раньше', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
   const drawer = await returnsOf(region, 'Стадия 3: Приёмка')
 
@@ -669,7 +668,7 @@ test('курсор клавиатуры на блоке подсвечивает
 })
 
 test('стадии флоу переставляются перетаскиванием и кнопками с клавиатуры', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
   const [first, , third] = nodes(region)
   const data: Record<string, string> = {}
@@ -695,7 +694,7 @@ test('стадии флоу переставляются перетаскива�
 })
 
 test('стадия убирается из флоу пунктом меню, а в базе остаётся', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
 
   fireEvent.click(menuOf(region, 'Стадия 1: Критерий').getByRole('menuitem', { name: 'Убрать из сценария' }))
@@ -708,7 +707,7 @@ test('стадия убирается из флоу пунктом меню, а 
 })
 
 test('вкладка «Стадии»: все стадии базы, и правка стадии видна во всех флоу, где она стоит', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   await renderFlow()
 
   const edit = await stagesTab('Ревью')
@@ -736,7 +735,7 @@ test('вкладка «Стадии»: все стадии базы, и прав
 })
 
 test('стадию, стоящую во флоу, не удалить; стоящую вне флоу — удалить', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   await renderFlow()
 
   const used = await stagesTab('Ревью')
@@ -751,7 +750,7 @@ test('стадию, стоящую во флоу, не удалить; стоя�
 })
 
 test('новая стадия заводится на вкладке «Стадии» и без названия и выхода не сохраняется', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   await renderFlow()
   fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
 
@@ -785,7 +784,7 @@ test('две стадии с одним названием не сохранит
 })
 
 test('стадия правится окном по щелчку на карточке: «Готово» закрывает окно, правка ждёт в полосе сохранения', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   await renderFlow()
   fireEvent.click(screen.getByRole('tab', { name: 'Стадии' }))
   // Пока карточку не выбрали, окна нет
@@ -799,7 +798,6 @@ test('стадия правится окном по щелчку на карто
     expect(edit.getByRole('textbox', { name })).toBeInTheDocument()
   expect(edit.getByRole('combobox', { name: 'Исполнитель стадии' })).toBeInTheDocument()
   expect(edit.getByRole('button', { name: 'Значок стадии' })).toBeInTheDocument()
-  expect(edit.getByRole('button', { name: 'В пресеты' })).toBeInTheDocument()
   expect(edit.getByRole('button', { name: 'Удалить стадию' })).toBeDisabled()
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
 
@@ -829,7 +827,7 @@ test('стадия правится окном по щелчку на карто
 })
 
 test('описание стадии показано оформленным, правится по «Редактировать»; у стадии без описания кнопка приглушена', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   await renderFlow()
 
   const empty = (await stagesTab('Приёмка')).getByRole('button', { name: /Редактировать описание/ })
@@ -870,7 +868,7 @@ test('описание стадии показано оформленным, п�
 })
 
 test('значок стадии выбирается из списка значков и уходит в запись', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   await renderFlow()
   const edit = await stagesTab('Приёмка')
 
@@ -883,8 +881,8 @@ test('значок стадии выбирается из списка знач�
   expect((await saveAndRead(fetchMock)).icons).toEqual({ Критерий: 'target', Приёмка: 'check' })
 })
 
-test('в окне добавления — новая стадия, стадии базы, которых во флоу нет, и пресеты', async () => {
-  const fetchMock = stubApi(api([app], [{ ...spare, title: 'Мерж', output: 'sha в dev', slug: null, id: 'p1' }], saved()))
+test('в окне добавления — новая стадия и стадии базы, которых во флоу нет', async () => {
+  const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
   await open(region, 'Сценарий «полный»: название и «когда»')
   fireEvent.click(screen.getByRole('button', { name: 'Сценарий: полный' }))
@@ -909,15 +907,13 @@ test('в окне добавления — новая стадия, стадии
   // Фокус — на блоке добавленной стадии
   expect(small.getByRole('button', { name: 'Стадия 3: Критерий' })).toHaveFocus()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
-  fireEvent.click(within(screen.getByRole('group', { name: 'Пресеты стадий' })).getByRole('button', { name: /^Мерж/ }))
-  expect(labels(small)).toContain('Стадия 4: Мерж')
+  // Пресетов в окне нет: их убрали из панели на B-226
+  expect(screen.queryByRole('group', { name: 'Пресеты стадий' })).not.toBeInTheDocument()
 
   const sent = await saveAndRead(fetchMock)
-  expect(sent.flows[1].entries.map((entry: { stage: string }) => entry.stage)).toEqual(['Ревью', 'Приёмка', 'Критерий', 'Мерж'])
-  // Стадия из пресета заводится в базе новой, стадия базы — нет
-  expect(sent.stages.map((stage: FlowStage) => stage.title)).toEqual(['Критерий', 'Ревью', 'Приёмка', 'Запас', 'Мерж'])
-  expect(sent.stages[4].slug).toBeNull()
+  expect(sent.flows[1].entries.map((entry: { stage: string }) => entry.stage)).toEqual(['Ревью', 'Приёмка', 'Критерий'])
+  // Стадия базы в базе новой не заводится
+  expect(sent.stages.map((stage: FlowStage) => stage.title)).toEqual(['Критерий', 'Ревью', 'Приёмка', 'Запас'])
 })
 
 test('«Новая стадия» из окна добавления ставится во флоу и открывается на вкладке «Стадии»', async () => {
@@ -926,7 +922,6 @@ test('«Новая стадия» из окна добавления стави�
 
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
   const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию в сценарий «полный»' }))
-  expect(dialog.getByText('Пресетов пока нет.')).toBeInTheDocument()
   fireEvent.click(dialog.getByRole('button', { name: /^Новая стадия/ }))
 
   expect(screen.getByRole('tab', { name: 'Стадии' })).toHaveAttribute('aria-selected', 'true')
@@ -961,25 +956,6 @@ test('окно добавления закрывают крестик, «Отм�
   expect(labels(region)).toEqual(before)
 })
 
-test('после удаления пресета фокус — на крестике соседнего: с клавиатуры пресеты удаляются подряд', async () => {
-  stubApi(
-    api(
-      [app],
-      [
-        { ...spare, title: 'Мерж', slug: null, id: 'p1' },
-        { ...spare, title: 'Ретро', slug: null, id: 'p2' },
-      ],
-      { 'DELETE /api/presets': () => new Response(null, { status: 204 }) },
-    ),
-  )
-  await renderFlow()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Мерж' }))
-  await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Мерж' })).not.toBeInTheDocument())
-  expect(screen.getByRole('button', { name: 'Удалить пресет Ретро' })).toHaveFocus()
-})
-
 test('в окне добавления нет группы «Стадии базы», когда все стадии базы уже в сценарии', async () => {
   stubApi(api([{ ...app, stages: [criterion, review, acceptance] }]))
   await renderFlow()
@@ -987,37 +963,11 @@ test('в окне добавления нет группы «Стадии баз
   fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
   const dialog = within(screen.getByRole('dialog', { name: 'Добавить стадию в сценарий «полный»' }))
   expect(dialog.queryByRole('group', { name: 'Стадии базы' })).not.toBeInTheDocument()
-  expect(dialog.getByRole('group', { name: 'Пресеты стадий' })).toBeInTheDocument()
-})
-
-test('пресет сохраняется со вкладки «Стадии» без помощников и удаляется из окна добавления', async () => {
-  const fetchMock = stubApi(
-    api([{ ...app, stages: [{ ...criterion, helpers: ['scout'] }, review, acceptance, spare] }], [], {
-      'POST /api/presets': () => json({ ...criterion, helpers: [], slug: null, id: 'p1' }),
-      'DELETE /api/presets': () => new Response(null, { status: 204 }),
-    }),
-  )
-  await renderFlow()
-  const edit = await stagesTab('Критерий')
-
-  fireEvent.click(edit.getByRole('button', { name: 'В пресеты' }))
-
-  expect(await screen.findByRole('button', { name: 'Стадия в пресетах' })).toBeDisabled()
-  expect(body(fetchMock, 'POST /api/presets')).toMatchObject({ title: 'Критерий', helpers: [], slug: null })
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить стадию' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Удалить пресет Критерий' }))
-  await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Удалить пресет Критерий' })).not.toBeInTheDocument())
-  // Кнопки уже нет, фокус остался в окне: Escape его закрывает
-  const dialog = screen.getByRole('dialog', { name: /^Добавить стадию/ })
-  expect(dialog).toHaveFocus()
-  fireEvent.keyDown(dialog, { key: 'Escape' })
-  expect(screen.queryByRole('dialog', { name: /^Добавить стадию/ })).not.toBeInTheDocument()
+  expect(dialog.getByRole('button', { name: 'Новая стадия' })).toBeInTheDocument()
 })
 
 test('исполнитель стадии выбирается из заведённых, незаведённый не даёт сохранить флоу', async () => {
-  stubApi(api([app], [], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
+  stubApi(api([app], { 'GET /api/performers': () => json(performers(['e2e-runner'])) }))
   const onPerformers = vi.fn()
   const region = await renderFlow({ onPerformers })
 
@@ -1039,7 +989,7 @@ test('исполнитель стадии выбирается из заведё
 })
 
 test('отказ чтения исполнителей не метит стадии незаведёнными', async () => {
-  stubApi(api([app], [], { 'GET /api/performers': () => new Response('', { status: 500 }) }))
+  stubApi(api([app], { 'GET /api/performers': () => new Response('', { status: 500 }) }))
   const region = await renderFlow()
 
   expect(await screen.findByText(/Список исполнителей не прочитан/)).toBeInTheDocument()
@@ -1049,7 +999,7 @@ test('отказ чтения исполнителей не метит стад�
 })
 
 test('помощники есть только у стадии оркестратора и стираются при смене исполнителя', async () => {
-  const fetchMock = stubApi(api([{ ...app, stages: [{ ...criterion, helpers: ['scout'] }, review, acceptance, spare] }], [], saved()))
+  const fetchMock = stubApi(api([{ ...app, stages: [{ ...criterion, helpers: ['scout'] }, review, acceptance, spare] }], saved()))
   await renderFlow()
   const edit = await stagesTab('Критерий')
 
@@ -1072,7 +1022,7 @@ test('помощник, которого нет в базе, отмечен ян
 })
 
 test('при задачах в работе сохранение спрашивает подтверждение и говорит, сколько их', async () => {
-  const fetchMock = stubApi(api([{ ...app, activeTasks: 2 }], [], saved()))
+  const fetchMock = stubApi(api([{ ...app, activeTasks: 2 }], saved()))
   await renderFlow()
   const edit = await stagesTab('Критерий')
   fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий в памяти' } })
@@ -1090,7 +1040,7 @@ test('при задачах в работе сохранение спрашив�
 })
 
 test('запись уходит целиком: база, отпечаток, стадии, флоу и значки', async () => {
-  const fetchMock = stubApi(api([app], [], saved()))
+  const fetchMock = stubApi(api([app], saved()))
   await renderFlow()
   const edit = await stagesTab('Приёмка')
   fireEvent.change(edit.getByRole('textbox', { name: 'Пропуск стадии' }), { target: { value: 'правка без вида' } })
@@ -1125,7 +1075,7 @@ test('«Отменить правки» возвращает флоу базы �
 })
 
 test('отказы записи названы словами, а правки остаются', async () => {
-  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'not-committed', detail: 'сверка: флоу не прошёл' }, 502) }))
+  stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'not-committed', detail: 'сверка: флоу не прошёл' }, 502) }))
   await renderFlow()
   const edit = await stagesTab('Критерий')
   fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Критерий закрытия' } })
@@ -1139,7 +1089,7 @@ test('отказы записи названы словами, а правки �
 })
 
 test('отказ API по форме кита назван с флоу и стадией; изменённый в базе флоу не перезаписан молча', async () => {
-  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'stage-twice', flow: 'мелкий', stage: 'Ревью' }, 400) }))
+  stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'stage-twice', flow: 'мелкий', stage: 'Ревью' }, 400) }))
   await renderFlow()
   fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
 
@@ -1149,7 +1099,7 @@ test('отказ API по форме кита назван с флоу и ста
   ).toBeInTheDocument()
 
   vi.unstubAllGlobals()
-  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'changed' }, 409) }))
+  stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'changed' }, 409) }))
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   expect(await screen.findByText(/флоу изменился в базе, пока вы его правили/)).toBeInTheDocument()
 })
@@ -1190,7 +1140,7 @@ test('проект без стадий и сценариев — вкладки 
 })
 
 test('стадии проекта без сценариев видны на вкладке «Стадии», правятся и сохраняются', async () => {
-  const fetchMock = stubApi(api([{ ...app, flows: [] }], [], saved()))
+  const fetchMock = stubApi(api([{ ...app, flows: [] }], saved()))
   render(<Flow />)
 
   expect(await screen.findByRole('heading', { name: 'В этом проекте нет сценариев' })).toBeInTheDocument()
@@ -1216,7 +1166,7 @@ test('база, которую панель не прочитала, назва�
 })
 
 test('с отметки в шапке у непрочитанного флоу раздел говорит, почему окна переписывания нет', async () => {
-  stubApi(api([app, { ...nota, version: null, error: 'База не найдена на диске' }], [], rewriteApi([])))
+  stubApi(api([app, { ...nota, version: null, error: 'База не найдена на диске' }], rewriteApi([])))
   render(<Flow baseFor={nota.base} rewriteAt={1} />)
 
   expect(
@@ -1263,7 +1213,7 @@ test('«Переписать с Чудо-Юдо» в меню «…» шлёт �
     // Новая стадия приходит без of: пустые поля API не пишет.
     { stage: { ...spare, title: 'Документация', executor: 'оператор', output: 'раздел', slug: null } },
   ]
-  const fetchMock = stubApi(api([app], [], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
+  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
   await renderFlow()
   // Несохранённая правка пункт не глушит: агент получит стадию такой, какой её видно.
   const edit = await stagesTab('Критерий')
@@ -1310,7 +1260,7 @@ test('«Переписать с Чудо-Юдо» в меню «…» шлёт �
 
 test('«Отказаться» в окне переписывания черновик не трогает', async () => {
   const rewritten = [{ of: null, stage: { ...spare, title: 'Документация', slug: null } }]
-  stubApi(api([app], [], rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }])))
+  stubApi(api([app], rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }])))
   await renderFlow()
 
   fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
@@ -1324,14 +1274,14 @@ test('«Отказаться» в окне переписывания черно
 })
 
 test('раздел, открытый с отметки просьбы в шапке, сразу показывает окно переписывания', async () => {
-  stubApi(api([app], [], rewriteApi([])))
+  stubApi(api([app], rewriteApi([])))
   render(<Flow baseFor={app.base} rewriteAt={1} />)
 
   expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
 })
 
 test('отметка в шапке при открытом разделе открывает окно переписывания, не сбрасывая несохранённые правки', async () => {
-  stubApi(api([app], [], rewriteApi([])))
+  stubApi(api([app], rewriteApi([])))
   const view = render(<Flow />)
   await screen.findByRole('region', { name: 'Сценарий «полный»' })
   const edit = await stagesTab('Критерий')
@@ -1354,7 +1304,7 @@ const notaRewrite = {
 }
 
 test('отметка в шапке без несохранённых правок переключает раздел на проект просьбы', async () => {
-  stubApi(api([app, nota], [], notaRewrite))
+  stubApi(api([app, nota], notaRewrite))
   const view = render(<Flow />)
   await screen.findByRole('region', { name: 'Сценарий «полный»' })
 
@@ -1365,7 +1315,7 @@ test('отметка в шапке без несохранённых право�
 })
 
 test('отметка в шапке с несохранёнными правками оставляет раздел на своём проекте и предупреждает о чужой просьбе', async () => {
-  stubApi(api([app, nota], [], notaRewrite))
+  stubApi(api([app, nota], notaRewrite))
   const view = render(<Flow />)
   await screen.findByRole('region', { name: 'Сценарий «полный»' })
   const edit = await stagesTab('Критерий')
@@ -1383,7 +1333,7 @@ test('отметка в шапке с несохранёнными правка�
 })
 
 test('«Открыть в VS Code» просит API открыть флоу этой базы', async () => {
-  const fetchMock = stubApi(api([app], [], { 'POST /api/flow/open': () => new Response(null, { status: 204 }) }))
+  const fetchMock = stubApi(api([app], { 'POST /api/flow/open': () => new Response(null, { status: 204 }) }))
   await renderFlow()
 
   fireEvent.click(moreItem('Открыть в VS Code'))
@@ -1413,7 +1363,7 @@ test('стадии стоят карточками в порядке флоу, �
 })
 
 test('удалённый единственный флоу сохраняется или отменяется из полосы внизу пустого состояния', async () => {
-  const fetchMock = stubApi(api([{ ...app, flows: [full] }], [], saved()))
+  const fetchMock = stubApi(api([{ ...app, flows: [full] }], saved()))
   const region = await renderFlow()
 
   fireEvent.click((await open(region, /^Сценарий «полный»/)).getByRole('button', { name: 'Удалить сценарий' }))
@@ -1483,7 +1433,7 @@ test('скобки и кавычки в названии стадии не пу�
 })
 
 test('сорванная запись файла названа своим текстом, а не отказом коммита', async () => {
-  stubApi(api([app], [], { 'POST /api/flow': () => json({ problem: 'not-written', detail: 'Файл занят.' }, 502) }))
+  stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'not-written', detail: 'Файл занят.' }, 502) }))
   await renderFlow()
   fireEvent.change((await stagesTab('Критерий')).getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'критерий' } })
 

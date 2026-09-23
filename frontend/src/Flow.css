@@ -561,11 +561,6 @@ textarea.flow-input {
   border-color: var(--accent-done-text);
 }
 
-.flow-icon-btn.danger:hover:not(:disabled) {
-  color: var(--accent-error-text);
-  border-color: var(--accent-error-border);
-}
-
 .flow-icon-btn:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
@@ -671,17 +666,12 @@ textarea.flow-input {
   justify-content: flex-end;
 }
 
-.flow-presets-label {
+.flow-add-label {
   padding: 8px 2px 0;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-tertiary);
-}
-
-.flow-presets-empty {
-  margin: 0;
-  padding: 0 2px 4px;
 }
 
 /* Окно подтверждения сохранения */
@@ -1477,7 +1467,7 @@ textarea.flow-input {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
-.flow-presets-group {
+.flow-add-group {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1489,7 +1479,7 @@ textarea.flow-input {
   width: 600px;
 }
 
-/* Окно берёт фокус само, когда удалён последний пресет: обводки вокруг всего окна при этом нет. */
+/* Окно держит фокус и при щелчке мимо строк: обводки вокруг всего окна при этом нет. */
 .flow-add-modal:focus {
   outline: none;
 }
@@ -1515,7 +1505,6 @@ textarea.flow-input {
 }
 
 .flow-add-list > li {
-  position: relative;
   display: flex;
 }
 
@@ -1542,32 +1531,6 @@ textarea.flow-input {
   margin-top: 0;
   flex-shrink: 0;
   max-width: 45%;
-}
-
-/* Крестик пресета стоит поверх строки у правого края: место под него строка оставляет справа. */
-.flow-add-list .flow-stage-card.has-remove {
-  padding-right: 48px;
-}
-
-.flow-preset-remove {
-  position: absolute;
-  top: 50%;
-  right: 12px;
-  transform: translateY(-50%);
-  display: flex;
-}
-
-/* Крестик — без рамки и тише общей кнопки-значка: в покое он не спорит со строкой. */
-.flow-preset-remove .flow-icon-btn {
-  width: 26px;
-  height: 26px;
-  border-color: transparent;
-  color: var(--text-tertiary);
-}
-
-.flow-stage-modal .flow-preset-remove svg {
-  width: 14px;
-  height: 14px;
 }
 
 /* Проект без флоу: по центру раздела под строкой заголовка. */

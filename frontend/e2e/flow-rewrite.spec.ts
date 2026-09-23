@@ -26,7 +26,6 @@ const flows = [
 async function mockApi(page: Page) {
   const saved: unknown[] = []
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
-  await page.route('**/api/presets', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/performers', (route) =>
     route.fulfill({
       json: [

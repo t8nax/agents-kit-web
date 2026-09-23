@@ -56,10 +56,9 @@ const flows: Flow[] = [
   { name: 'мелкий', when: 'правка в одном месте', entries: [{ stage: 'Ревью', returns: [] }, { stage: 'Приёмка', returns: [] }] },
 ]
 
-// /api подменяется: прогон работает с живыми базами оператора, и запись флоу или пресета попала бы в них.
+// /api подменяется: прогон работает с живыми базами оператора, и запись флоу попала бы в них.
 async function mockApi(page: Page, activeTasks = 0, own: { stages: Stage[]; flows: Flow[] } = { stages, flows }) {
-  const calls: { flow: unknown[]; presets: unknown[]; open: unknown[] } = { flow: [], presets: [], open: [] }
-  let presets: (Stage & { id: string })[] = []
+  const calls: { flow: unknown[]; open: unknown[] } = { flow: [], open: [] }
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/flow', (route) => {
@@ -118,15 +117,6 @@ async function mockApi(page: Page, activeTasks = 0, own: { stages: Stage[]; flow
       ],
     }),
   )
-  await page.route('**/api/presets', (route) => {
-    if (route.request().method() === 'POST') {
-      const preset = { ...(route.request().postDataJSON() as Stage), id: `p${presets.length + 1}` }
-      calls.presets.push(preset)
-      presets = [...presets, preset]
-      return route.fulfill({ json: preset })
-    }
-    return route.fulfill({ json: presets })
-  })
   return calls
 }
 
@@ -556,36 +546,6 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(region.getByRole('button', { name: 'Стадия 3: Критерий' })).toBeFocused()
   })
 }
-
-test('окно добавления: крестик пресета без рамки у края строки, после удаления Escape закрывает окно', async ({ page }) => {
-  await mockApi(page)
-  // Пресет уже есть; удаление отвечает, как API
-  await page.route('**/api/presets', (route) =>
-    route.fulfill({ json: [{ ...stages[1], title: 'Мерж', output: 'sha в dev', slug: null, id: 'p1' }] }),
-  )
-  await page.route('**/api/presets/*', (route) => route.fulfill({ status: 204 }))
-  await openFlow(page)
-
-  await page.getByRole('button', { name: 'Добавить стадию' }).click()
-  const adding = page.getByRole('dialog', { name: 'Добавить стадию в сценарий «полный»' })
-  const row = adding.getByRole('group', { name: 'Пресеты стадий' }).getByRole('button', { name: /^Мерж/ })
-  const remove = adding.getByRole('button', { name: 'Удалить пресет Мерж' })
-  await expect(remove).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)')
-  const [line, cross] = await Promise.all([row.boundingBox(), remove.boundingBox()])
-  // Крестик — внутри строки у её правого края
-  expect(cross!.x + cross!.width).toBeLessThanOrEqual(line!.x + line!.width)
-  expect(line!.x + line!.width - (cross!.x + cross!.width)).toBeLessThan(20)
-  expect(Math.round(cross!.width)).toBe(26)
-  await expect(async () => expect(Math.round((await remove.locator('svg').boundingBox())!.width)).toBe(14)).toPass()
-
-  await remove.click()
-  await expect(adding.getByText('Пресетов пока нет.')).toBeVisible()
-  // Фокус ушёл на окно, обводки вокруг всего окна нет
-  await expect(adding).toBeFocused()
-  await expect(adding).toHaveCSS('outline-style', 'none')
-  await page.keyboard.press('Escape')
-  await expect(adding).toHaveCount(0)
-})
 
 test('окно стадии возвращает фокус: к описанию — после его окна, к карточке — на вкладке «Стадии»', async ({ page }) => {
   await mockApi(page)
