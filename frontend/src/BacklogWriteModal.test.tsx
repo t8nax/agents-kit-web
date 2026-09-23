@@ -366,7 +366,7 @@ test('«Отменить» обрывает ответ, а переписку о
   expect(deletes).toEqual([])
 })
 
-test('закрытое посреди ответа окно агента не трогает, а после ответа убирает разговор', async () => {
+test('закрытое окно разговор не трогает — ни посреди ответа, ни после него', async () => {
   const stream = controlledStream<WriteEvent>()
   const { deletes } = stubFetch(stream)
   const { onClose } = renderModal()
@@ -376,12 +376,13 @@ test('закрытое посреди ответа окно агента не т
   await screen.findByText('Чудо-Юдо читает бэклог Agents Kit Web…')
   fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
   expect(onClose).toHaveBeenCalledTimes(1)
-  expect(deletes).toEqual([])
 
   stream.send(answer({ text: 'Готово.' }))
   await screen.findByText('Готово.')
   fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
-  expect(deletes).toEqual(['/api/agent/backlog'])
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(onClose).toHaveBeenCalledTimes(3)
+  expect(deletes).toEqual([])
 })
 
 test('окно от записи, закрытое без просьбы, не трогает разговор, который идёт в панели', async () => {

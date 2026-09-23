@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { EntryFields } from './EntryFields'
 import { InlineMarkdown, Markdown } from './Markdown'
@@ -94,13 +94,9 @@ export default function BacklogWriteModal({
   const aboutGone = saved?.kind === 'delete'
   const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (subject?.entry ?? current)
 
-  // Закрытое окно убирает свой разговор, если агент не занят: несохранённое предложение уходит вместе с ним.
-  // Разговора, которого окно не показывает — окно от записи до первой реплики, окно, ещё читающее панель, —
-  // закрытие не трогает: это чужая работа агента.
-  const close = useCallback(() => {
-    if (talking && !restoring && !running) void forget()
-    onClose()
-  }, [talking, restoring, running, forget, onClose])
+  // Закрытое окно разговор не трогает: открытое снова, оно показывает его на месте, а кончает его только
+  // «Новая переписка» — как в окне вопроса по базе, решение оператора на B-228.
+  const close = onClose
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
