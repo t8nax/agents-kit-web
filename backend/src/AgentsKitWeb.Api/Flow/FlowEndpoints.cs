@@ -185,13 +185,14 @@ public static class FlowEndpoints
         if (tasks.Count == 0)
             return null;
 
+        // Задача с неузнанным флоу держит всё: отказ называет её, а флоу не называет — про него она ничего не говорит.
         var anyFlow = tasks.Any(t => t.Flow is null);
         string Holders(string? flow) =>
-            string.Join(", ", tasks.Where(t => t.Flow is null || t.Flow == flow).Select(t => t.Task));
+            string.Join(", ", tasks.Where(t => anyFlow ? t.Flow is null : t.Flow == flow).Select(t => t.Task));
 
         foreach (var flow in flows.Where(f => anyFlow || tasks.Any(t => t.Flow == f.Name)))
             if (!request.Flows.Contains(flow) && !WhenForNewFlow(flow, flows, request.Flows))
-                return new FlowRejectedResponse("busy", Flow: flow.Name, Detail: Holders(flow.Name));
+                return new FlowRejectedResponse("busy", Flow: anyFlow ? null : flow.Name, Detail: Holders(flow.Name));
 
         foreach (var stage in stages)
         {

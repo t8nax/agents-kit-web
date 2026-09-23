@@ -330,8 +330,11 @@ public sealed class FlowEndpointsTests : IDisposable
         // «Когда» без нового флоу и «когда» вместе с другой правкой занятого — отказ
         var whenAlone = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }]);
         var whenAndOrder = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача", Entries = [.. busy.Entries.Reverse()] }, fresh]);
-        Assert.Equal(HttpStatusCode.Conflict, whenAlone.StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, whenAndOrder.StatusCode);
+        foreach (var rejected in new[] { whenAlone, whenAndOrder })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+            Assert.Equal("busy", (await rejected.Content.ReadFromJsonAsync<FlowRejectedResponse>())!.Problem);
+        }
 
         var withNew = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }, fresh]);
 
@@ -354,6 +357,11 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, stage.StatusCode);
         var rejected = (await stage.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
         Assert.Equal(("busy", null, "Критерий", "B-7"), (rejected.Problem, rejected.Flow, rejected.Stage, rejected.Detail));
+
+        // Отказ по флоу не называет флоу: про задачу с неузнанным флоу неизвестно, что она идёт по нему
+        var list = await Save(client, flow, flow.Stages, [flow.Flows[0] with { When = "другое" }, flow.Flows[1]]);
+        var flowRejected = (await list.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
+        Assert.Equal(("busy", null, "B-7"), (flowRejected.Problem, flowRejected.Flow, flowRejected.Detail));
 
         var fresh = await Save(client, flow, [.. flow.Stages, new FlowStage("Мерж", "оркестратор", "смержено", null, null)]);
 

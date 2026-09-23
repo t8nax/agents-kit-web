@@ -337,7 +337,7 @@ test('«Попросить снова» уходит со стадиями та�
 test('запись, которая не прошла, оставляет итог в окне с причиной, и принять его можно снова', async () => {
   const stream = controlledStream()
   stubFetch(stream)
-  const failures = ['Флоу не сохранён: флоу изменился в базе, пока вы его правили.', null]
+  const failures = ['Флоу не сохранён: его изменили в базе, пока Чудо-Юдо работал. Раздел перечитал флоу — примите правки ещё раз.', null]
   const { onApply, onClose } = renderModal(async () => failures.shift() ?? null)
 
   await write('Уточни выход ревью')
@@ -348,7 +348,7 @@ test('запись, которая не прошла, оставляет ито�
 
   const alert = await screen.findByRole('alert')
   expect(alert).toHaveTextContent('Правки не записаны')
-  expect(alert).toHaveTextContent('флоу изменился в базе')
+  expect(alert).toHaveTextContent('его изменили в базе')
   // Итог на месте, окно не закрыто
   expect(screen.getByLabelText('Что изменилось в стадиях')).toHaveTextContent('вердикт')
   expect(onClose).not.toHaveBeenCalled()
@@ -371,4 +371,26 @@ test('правку занятой стадии принять нельзя: ок
   expect(await screen.findByRole('alert')).toHaveTextContent('«Приёмка» — B-7, B-9')
   expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
   expect(onApply).not.toHaveBeenCalled()
+})
+
+test('пока принятые правки пишутся, окно не закрыть: ни «Отказаться», ни крестиком, ни Escape', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  let finish: (failed: string | null) => void = () => undefined
+  const { onClose } = renderModal(() => new Promise((resolve) => (finish = resolve)))
+
+  await write('Уточни выход ревью')
+  pick('Ревью')
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
+  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+
+  expect(screen.getByRole('button', { name: 'Отказаться' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(onClose).not.toHaveBeenCalled()
+
+  finish('Флоу не сохранён: нет связи с API')
+  expect(await screen.findByRole('alert')).toHaveTextContent('нет связи с API')
+  expect(screen.getByRole('button', { name: 'Отказаться' })).toBeEnabled()
 })

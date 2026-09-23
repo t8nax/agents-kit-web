@@ -66,6 +66,9 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
   const [picking, setPicking] = useState(false)
   // Описание стадии читается своим окном поверх разбора: в карточке стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
+  // Принятые правки пишутся: окно не закрывается, пока запись не кончилась, — иначе отказ записи был бы некому
+  // показать, а итог агента пропал бы вместе с окном.
+  const [applying, setApplying] = useState(false)
   // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
   // Своя просьба — только своего проекта: ответ про стадии другого лёг бы на одноимённые стадии этого.
   const { asked, request, steps: agentSteps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure } =
@@ -73,14 +76,14 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || applying) return
       if (description) setDescription(null)
       else if (picking) setPicking(false)
       else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, description, picking])
+  }, [onClose, description, picking, applying])
 
   const picked = context
     .map((title) => stages.find((stage) => norm(stage.title) === norm(title)))
@@ -145,7 +148,6 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
     const tasks = change.of === null ? null : locked(change.of)
     return tasks ? [`«${change.of}» — ${tasks.join(', ')}`] : []
   })
-  const [applying, setApplying] = useState(false)
   const [applyFailure, setApplyFailure] = useState<string | null>(null)
 
   /**
@@ -182,7 +184,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
     setContext((now) => (now.includes(title) ? now.filter((one) => one !== title) : [...now, title]))
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && !applying && onClose()}>
       <div
         className="modal-wizard ask-modal"
         role="dialog"
@@ -193,7 +195,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
           <div className="ask-title">
             <RewriteIcon />
             <h2>Переписать с {AGENT_NAME}</h2>
-            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onClose}>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть" disabled={applying} onClick={onClose}>
               <CloseIcon />
             </button>
           </div>
@@ -390,7 +392,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
             )}
             {rewritten && phase === 'rewritten' && (
               <>
-                <button type="button" className="btn" onClick={() => void close()}>
+                <button type="button" className="btn" disabled={applying} onClick={() => void close()}>
                   Отказаться
                 </button>
                 <button
