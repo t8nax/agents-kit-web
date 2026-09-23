@@ -1875,3 +1875,18 @@ test('описание, открытое из окна стадии и не за
   const acceptanceSent = sent.stages.find((stage: FlowStage) => stage.title === 'Приёмка')
   expect(acceptanceSent).toMatchObject({ output: 'принято', description: null })
 })
+
+test('окно, запись которого остановила ошибка флоу, называет её полностью, а не отсылает к строке за подложкой', async () => {
+  const broken: NamedFlow = { ...full, entries: [...full.entries, { stage: 'Сборка' }] }
+  stubApi(api([{ ...app, flows: [broken, small] }], saved()))
+  await renderFlow()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Новый сценарий' }))
+  fireEvent.change(dialog.getByRole('textbox', { name: 'Название сценария' }), { target: { value: 'срочный' } })
+  fireEvent.change(dialog.getByRole('textbox', { name: 'Когда брать сценарий' }), { target: { value: 'ошибка' } })
+  fireEvent.click(within(dialog.getByRole('radiogroup', { name: 'Первая стадия' })).getByRole('radio', { name: /Запас/ }))
+  fireEvent.click(dialog.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await dialog.findByRole('alert')).toHaveTextContent(/^Не сохранить: флоу «полный», стадия «Сборка» — стадии нет в базе/)
+})

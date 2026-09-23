@@ -394,3 +394,24 @@ test('пока принятые правки пишутся, окно не за�
   expect(await screen.findByRole('alert')).toHaveTextContent('нет связи с API')
   expect(screen.getByRole('button', { name: 'Отказаться' })).toBeEnabled()
 })
+
+test('пока правки пишутся, Escape закрывает вложенное описание, но не само окно', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  let finish: (failed: string | null) => void = () => undefined
+  const { onClose } = renderModal(() => new Promise((resolve) => (finish = resolve)))
+
+  await write('Уточни ревью')
+  pick('Ревью')
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, description: '1. Собрать дифф.' } }] })
+  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Открыть описание' }))
+  expect(await screen.findByRole('dialog', { name: 'Описание стадии «Ревью»' })).toBeInTheDocument()
+
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: 'Описание стадии «Ревью»' })).not.toBeInTheDocument()
+  expect(onClose).not.toHaveBeenCalled()
+  finish(null)
+  await waitFor(() => expect(onClose).toHaveBeenCalled())
+})
