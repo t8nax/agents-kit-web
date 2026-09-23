@@ -48,8 +48,18 @@ builder.Services.AddSingleton(services =>
 {
     var config = services.GetRequiredService<IConfiguration>();
     return new PanelUpdateRunner(
-        config["UpdateLogFile"] ?? PanelUpdateRunner.FileBeside(config["PublishedFile"] ?? InstalledPanel.DefaultFile));
+        config["UpdateLogFile"] ?? PanelUpdateRunner.FileBeside(config["PublishedFile"] ?? InstalledPanel.DefaultFile),
+        config["UpdateScriptsDir"] ?? PanelUpdateRunner.ScriptsInBuild);
 });
+// GitHub без ключа требует имя клиента и отвечает быстро; карточка не должна висеть на открытии.
+builder.Services.AddHttpClient(GitHubReleases.Client, client =>
+{
+    client.BaseAddress = new Uri("https://api.github.com/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
+    client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+});
+builder.Services.AddSingleton<IPanelReleases, GitHubReleases>();
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>

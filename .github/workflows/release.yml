@@ -1,0 +1,76 @@
+# Выпуск готовой панели: код пришёл в канал — сборка ложится в выпуски GitHub, откуда её ставят
+# install.ps1 и кнопка «Обновить». master — выпуск v<номер>, dev — предварительный v<номер>-dev.
+# Номер — version.txt; выпущенный в канале номер второй раз не выходит, и сборка краснеет:
+# так виден номер, который забыли поднять.
+name: Выпуск панели
+
+on:
+  push:
+    branches: [master, dev]
+
+permissions:
+  contents: write
+
+# Приходы в канал не выпускаются наперегонки за один номер. Ждать своей очереди GitHub оставляет только
+# последнему: пришло третье, пока выпускается первое, — ждавшее второе отменяется, его номер выпуском
+# не выходит, а его задачи попадают в описание третьего — перечень считается от прошлого выпуска.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Вся история и теги: перечень задач считается от прошлого выпуска канала.
+          fetch-depth: 0
+
+      - name: Номер и тег выпуска
+        id: release
+        run: |
+          $channel = if ('${{ github.ref_name }}' -eq 'master') { 'master' } else { 'dev' }
+          $version = (Get-Content version.txt -Raw).Trim()
+          $tag = if ($channel -eq 'dev') { "v$version-dev" } else { "v$version" }
+          if (git tag --list $tag) {
+            Write-Output "::error::Выпуск $tag уже есть: номер в version.txt не подняли"
+            exit 1
+          }
+          "channel=$channel" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+
+      - name: Сборка
+        run: |
+          ./scripts/build.ps1 -Output build/agents-kit-web -Channel '${{ steps.release.outputs.channel }}' `
+            -Ref '${{ github.ref_name }}' -Releases '${{ github.repository }}'
+          Compress-Archive -Path build/agents-kit-web/* -DestinationPath build/agents-kit-web-win-x64.zip
+
+      - name: Перечень задач
+        run: ./scripts/release-notes.ps1 -Channel '${{ steps.release.outputs.channel }}' | Set-Content build/notes.md -Encoding utf8NoBOM
+
+      - name: Выпуск
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $arguments = @(
+            'release', 'create', '${{ steps.release.outputs.tag }}', 'build/agents-kit-web-win-x64.zip',
+            '--target', '${{ github.sha }}', '--title', '${{ steps.release.outputs.version }}',
+            '--notes-file', 'build/notes.md'
+          )
+          $arguments += if ('${{ steps.release.outputs.channel }}' -eq 'dev') { '--prerelease' } else { '--latest' }
+          gh @arguments

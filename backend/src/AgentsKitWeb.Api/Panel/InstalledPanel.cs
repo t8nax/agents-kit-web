@@ -5,8 +5,9 @@ using System.Text.Json.Serialization;
 namespace AgentsKitWeb.Api.Panel;
 
 /// <summary>
-/// Что скрипт публикации записал рядом с exe поставленной панели: из какого канала она собрана,
-/// каким кодом и где лежит репозиторий, по которому считают вышедшие версии.
+/// Что постановка записала рядом с exe поставленной панели: из какого канала она собрана, каким кодом
+/// и в каком репозитории GitHub (owner/repo) лежат выпуски, которыми она обновляется. Releases нет
+/// у сборки, поставленной до выпусков на GitHub.
 /// </summary>
 public sealed record PublishedPanel(
     string Channel,
@@ -14,14 +15,14 @@ public sealed record PublishedPanel(
     string Sha,
     string Version,
     DateTimeOffset BuiltAt,
-    string Repository,
+    string? Releases,
     string Target,
     int Port,
     string TaskName);
 
 /// <summary>
 /// Поставленная панель против запуска для разработки. Признак один — файл публикации рядом с exe:
-/// его кладёт publish.ps1, и больше его положить некому.
+/// его кладёт deploy.ps1, и больше его положить некому.
 /// </summary>
 public sealed class InstalledPanel(string file)
 {

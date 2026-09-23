@@ -1,18 +1,15 @@
 <#
 .SYNOPSIS
-Публикует панель для постоянной работы и ставит её автозапуск.
+Собирает панель из исходников и ставит её — для разработки и приёмки ветки задачи.
 
 .DESCRIPTION
-Собирает канал (по умолчанию master) во временном git worktree, не трогая рабочую
-копию: фронт — в wwwroot, API — dotnet publish. Затем останавливает запущенную
-панель, подменяет каталог публикации, регистрирует задачу Планировщика заданий
-«при входе пользователя» и запускает панель.
+Пользователь ставит и обновляет панель готовой сборкой с GitHub (install.ps1, update.ps1); этот
+скрипт — для того, у кого исходники под рукой. Собирает канал (по умолчанию master) или любой ref
+во временном git worktree, не трогая рабочую копию, тем же build.ps1, что и сборка выпуска,
+и ставит собранное через deploy.ps1: останавливает запущенную панель, подменяет каталог,
+регистрирует задачу Планировщика заданий «при входе пользователя» и запускает панель.
 
-Рядом с exe остаётся published.json: по нему панель знает свою версию, свой канал
-и репозиторий, по которому считает вышедшие версии. Панель обновляет себя этим же
-скриптом, поэтому он не должен зависеть от того, кто его запустил.
-
-Панель работает под текущим пользователем: читает тот же bases.json из %APPDATA%.
+Поставленная так панель обновляется кнопкой, как любая другая, — готовой сборкой своего канала.
 
 .EXAMPLE
 pwsh -NoProfile -File scripts/publish.ps1
@@ -32,9 +29,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
-$ExeName = 'AgentsKitWeb.Api.exe'
 $repo = Split-Path $PSScriptRoot -Parent
-$url = "http://localhost:$Port"
 
 # Ref задан руками — ставят не канал, а именно его (приёмка ветки задачи), и в published.json
 # каналом стоит он сам: иначе панель звала бы веткой задачи чужое имя.
@@ -57,71 +52,12 @@ try {
     if (Test-Path $work) { git -C $repo worktree remove --force $work }
     git -C $repo worktree add --detach $work $sha
 
-    Push-Location (Join-Path $work 'frontend')
-    try {
-        npm ci
-        npm run build
-    }
-    finally {
-        Pop-Location
-    }
-
-    if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
-    # WinExe: задача Планировщика не открывает консольное окно при входе.
-    dotnet publish (Join-Path $work 'backend\src\AgentsKitWeb.Api') -c Release -o $staging -p:OutputType=WinExe
-    Copy-Item (Join-Path $work 'frontend\dist') (Join-Path $staging 'wwwroot') -Recurse
-    # Панель читает этот файл о самой себе: версия — та, что собрана, репозиторий — тот,
-    # в котором она потом считает вышедшие версии и собирает следующее обновление.
-    $published = [ordered]@{
-        channel = $channelName
-        ref = $Ref
-        sha = $sha
-        version = (Get-Content (Join-Path $work 'version.txt') -Raw).Trim()
-        builtAt = (Get-Date).ToUniversalTime().ToString('o')
-        repository = $repo
-        # Куда, на какой порт и какой задачей поставлена панель: обновление зовёт публикацию
-        # с теми же значениями, а гадать ему не по чему — рядом может стоять вторая панель.
-        target = $Target
-        port = $Port
-        taskName = $TaskName
-    }
-    Set-Content (Join-Path $staging 'published.json') ($published | ConvertTo-Json)
-
-    if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-        Stop-ScheduledTask -TaskName $TaskName
-    }
-    $exe = Join-Path $Target $ExeName
-    Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($ExeName)) -ErrorAction SilentlyContinue |
-        Where-Object Path -eq $exe |
-        ForEach-Object { $_ | Stop-Process -Force; $_.WaitForExit() }
-
-    if (Test-Path $Target) { Remove-Item $Target -Recurse -Force }
-    Move-Item $staging $Target
-
-    # localhost — только петлевые адреса: панель пишет в базы и не должна быть видна из сети.
-    $action = New-ScheduledTaskAction -Execute $exe -WorkingDirectory $Target `
-        -Argument "--urls $url --contentRoot `"$Target`""
-    $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
-    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew `
-        -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal `
-        -Settings $settings -Description "Панель agents-kit-web на $url" -Force | Out-Null
-    Start-ScheduledTask -TaskName $TaskName
-
-    $deadline = (Get-Date).AddSeconds(30)
-    while ($true) {
-        try {
-            Invoke-RestMethod "$url/api/ping" | Out-Null
-            break
-        }
-        catch {
-            if ((Get-Date) -gt $deadline) { throw "Панель не ответила на $url/api/ping за 30 секунд" }
-            Start-Sleep -Milliseconds 500
-        }
-    }
-    Write-Host "Панель запущена: $url ($sha)"
+    # Сборка и постановка — скриптами собираемого ref, а у ветки, отрезанной до них, — этими, рядом.
+    # Постановка идёт не из сборки: сборку она сама переносит на место панели.
+    $scripts = Join-Path $work 'scripts'
+    if (-not (Test-Path (Join-Path $scripts 'build.ps1'))) { $scripts = $PSScriptRoot }
+    & (Join-Path $scripts 'build.ps1') -Source $work -Output $staging -Channel $channelName -Ref $Ref
+    & (Join-Path $scripts 'deploy.ps1') -Source $staging -Target $Target -Port $Port -TaskName $TaskName
 }
 finally {
     if (Test-Path $work) { git -C $repo worktree remove --force $work }

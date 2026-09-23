@@ -1,129 +1,139 @@
-using AgentsKitWeb.Api.Workspaces;
+using System.Collections.Concurrent;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AgentsKitWeb.Api.Panel;
 
-/// <summary>Законченная задача, уехавшая в канал: заголовок, которым она туда пришла.</summary>
-public sealed record PanelRelease(string Sha, string Title);
+/// <summary>Выпуск канала на GitHub: номер, тег, по которому его скачивают, и задачи, приехавшие с ним.</summary>
+public sealed record PanelRelease(string Version, string Tag, IReadOnlyList<string> Tasks);
 
 /// <summary>
-/// Что в канале есть сверх стоящей панели. Sha — код, на котором стоит канал: отстала панель или нет,
-/// видно только по нему, потому что номер версии поднимает человек и пропускает его. Releases — задачи
-/// от стоящей панели до вершины канала, новые первыми.
+/// Что в канале есть сверх стоящей панели. Latest — номер самого свежего выпуска канала, null — выпусков
+/// в канале нет. Releases — выпуски новее стоящей панели, новые первыми: панель сравнивает себя
+/// с каналом по номеру, а номер поднимает агент при слиянии, и повтор номера сборка на GitHub не выпускает.
 /// </summary>
-public sealed record PanelUpdate(string Sha, IReadOnlyList<PanelRelease> Releases);
+public sealed record PanelUpdate(string? Latest, IReadOnlyList<PanelRelease> Releases);
 
-/// <summary>
-/// Что приедет с обновлением, считается по репозиторию проекта, который назвал published.json:
-/// задачи, приехавшие в канал после того, как панель собрали.
-/// </summary>
+/// <summary>Выпуски канала, свежие первыми; null — GitHub не ответил, и сравнить сейчас не с чем.</summary>
+public interface IPanelReleases
+{
+    Task<IReadOnlyList<PanelRelease>?> ReadAsync(string repository, string channel, CancellationToken cancellationToken);
+}
+
 public static class PanelUpdates
 {
-    private static readonly TimeSpan FetchTimeout = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(30);
+    /// <summary>Репозиторий выпусков, если сборка его не назвала: сборка из исходников до этой правки.</summary>
+    public const string DefaultRepository = "t8nax/agents-kit-web";
 
-    /// <summary>Больше полусотни задач без обновления панели не разбираем: перечень всё равно не читают.</summary>
-    private const int Limit = 50;
-
-    private const char Separator = '\u001f';
-
-    private sealed record Commit(string Sha, string[] Parents, string Title);
-
-    public static async Task<PanelUpdate?> ReadAsync(
-        string repository, string channel, string sha, CancellationToken cancellationToken)
+    public static PanelUpdate Newer(IReadOnlyList<PanelRelease> releases, string installed)
     {
-        if (!Directory.Exists(repository))
-            return null;
-
-        var fetched = await GitRunner.RunAsync(repository, FetchTimeout, cancellationToken, "fetch", "origin");
-        if (fetched.ExitCode != 0)
-            return null;
-
-        if (await RevisionAsync(repository, $"origin/{channel}", cancellationToken) is not { } head)
-            return null;
-
-        return new PanelUpdate(head, await ReleasesAsync(repository, sha, head, cancellationToken));
+        var standing = Number(installed);
+        return new PanelUpdate(
+            releases.FirstOrDefault()?.Version,
+            releases.Where(release => standing is null || Number(release.Version) > standing).ToList());
     }
 
-    private static async Task<IReadOnlyList<PanelRelease>> ReleasesAsync(
-        string repository, string sha, string head, CancellationToken cancellationToken)
+    public static Version? Number(string version) =>
+        Version.TryParse(version.Split('-', '+')[0], out var number) ? number : null;
+}
+
+/// <summary>
+/// Выпуски канала со страницы выпусков GitHub. Без ключа GitHub отвечает шестьдесят раз в час, а карточку
+/// открывают и переключают канал, поэтому ответ держится пару минут — один на оба канала: GitHub отдаёт
+/// выпуски обоих каналов вперемешку, новые первыми.
+/// </summary>
+public sealed partial class GitHubReleases(IHttpClientFactory clients, TimeProvider time) : IPanelReleases
+{
+    public const string Client = "github";
+
+    private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Выпуск dev выходит на каждое слияние задачи, и между выпусками master их набирается много:
+    /// страницы листаются, пока не найдутся оба канала, но не дальше пятисот выпусков.
+    /// </summary>
+    private const int PageSize = 100;
+    private const int Pages = 5;
+
+    private readonly ConcurrentDictionary<string, (DateTimeOffset At, IReadOnlyList<JsonElement> Releases)> _cache = new();
+
+    public async Task<IReadOnlyList<PanelRelease>?> ReadAsync(
+        string repository, string channel, CancellationToken cancellationToken)
     {
-        var arrived = new List<PanelRelease>();
-        // Панель стоит на коде, которого в этом репозитории нет, — назвать нечего, но отставание уже видно.
-        foreach (var commit in await FirstParentAsync(repository, $"{sha}..{head}", cancellationToken))
+        if (!_cache.TryGetValue(repository, out var cached) || time.GetUtcNow() - cached.At >= Fresh)
         {
-            if (!Mechanical(commit.Title))
-            {
-                arrived.Add(new PanelRelease(commit.Sha, Arrived(commit.Title)));
-                continue;
-            }
-
-            // Пачка: в master одним слиянием приезжает всё, что накопилось в dev, а задачи лежат внутри
-            // неё. Разворачиваем пачку в то, что она привезла, иначе перечень — череда одинаковых строк.
-            if (commit.Parents.Length < 2)
-                continue;
-            var inside = await FirstParentAsync(
-                repository, $"{commit.Parents[0]}..{commit.Parents[1]}", cancellationToken);
-            arrived.AddRange(inside
-                .Where(task => !Mechanical(task.Title))
-                .Select(task => new PanelRelease(task.Sha, Arrived(task.Title))));
+            if (await FetchAsync(repository, cancellationToken) is not { } fetched)
+                return null;
+            cached = (time.GetUtcNow(), fetched);
+            _cache[repository] = cached;
         }
+        return Parse(cached.Releases, channel);
+    }
 
-        return arrived.Take(Limit).ToList();
+    private async Task<IReadOnlyList<JsonElement>?> FetchAsync(string repository, CancellationToken cancellationToken)
+    {
+        var releases = new List<JsonElement>();
+        try
+        {
+            var client = clients.CreateClient(Client);
+            for (var page = 1; page <= Pages; page++)
+            {
+                using var response = await client.GetAsync(
+                    $"repos/{repository}/releases?per_page={PageSize}&page={page}", cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                    return null;
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                var batch = document.RootElement.EnumerateArray().Select(release => release.Clone()).ToList();
+                releases.AddRange(batch);
+                if (batch.Count < PageSize
+                    || (Parse(releases, PanelChannelStore.Master).Count > 0 && Parse(releases, PanelChannelStore.Dev).Count > 0))
+                    break;
+            }
+            return releases;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException
+                                              || (exception is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            return null;
+        }
     }
 
     /// <summary>
-    /// Череда первых родителей: так в канал и приезжает работа. Слияние, которым задача подтянула
-    /// канал к себе перед мержем, лежит в стороне от этой череды и в перечень не попадает.
+    /// Выпуски master — обычные v&lt;номер&gt;, выпуски dev — предварительные v&lt;номер&gt;-dev. Задачи —
+    /// строки «- …» описания выпуска: их пишет сборка на GitHub.
     /// </summary>
-    private static async Task<IReadOnlyList<Commit>> FirstParentAsync(
-        string repository, string range, CancellationToken cancellationToken)
+    public static IReadOnlyList<PanelRelease> Parse(string json, string channel)
     {
-        var log = await GitRunner.RunAsync(
-            repository, ReadTimeout, cancellationToken,
-            "log", "--first-parent", "-n", Limit.ToString(), $"--format=%H{Separator}%P{Separator}%s", range);
-        if (log.ExitCode != 0)
-            return [];
+        using var document = JsonDocument.Parse(json);
+        return Parse(document.RootElement.EnumerateArray().ToList(), channel);
+    }
 
-        return log.Output
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Select(line => line.Split(Separator))
-            .Where(parts => parts.Length == 3)
-            .Select(parts => new Commit(
-                parts[0], parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries), parts[2]))
+    private static List<PanelRelease> Parse(IEnumerable<JsonElement> releases, string channel)
+    {
+        var tag = channel == PanelChannelStore.Dev ? DevTag() : MasterTag();
+        return releases
+            .Where(release => !(release.TryGetProperty("draft", out var draft) && draft.GetBoolean()))
+            .Select(release => (Tag: release.GetProperty("tag_name").GetString() ?? "", Release: release))
+            .Select(release => (release.Tag, Match: tag.Match(release.Tag), release.Release))
+            .Where(release => release.Match.Success)
+            .Select(release => new PanelRelease(
+                release.Match.Groups[1].Value,
+                release.Tag,
+                Tasks(release.Release.TryGetProperty("body", out var body) ? body.GetString() : null)))
+            .OrderByDescending(release => PanelUpdates.Number(release.Version))
             .ToList();
     }
 
-    /// <summary>
-    /// Слияние, чей заголовок git написал сам, — «Merge dev into master», «Merge branch …»: оператору
-    /// оно не говорит ничего, и в перечне вместо него стоят задачи, которые оно привезло.
-    /// </summary>
-    private static bool Mechanical(string title) =>
-        title.StartsWith("Merge branch ", StringComparison.Ordinal)
-        || title.StartsWith("Merge remote-tracking branch ", StringComparison.Ordinal)
-        || (title.StartsWith("Merge ", StringComparison.Ordinal)
-            && title.Contains(" into ", StringComparison.Ordinal)
-            && !title.Contains(": ", StringComparison.Ordinal));
+    private static List<string> Tasks(string? body) =>
+        (body ?? "")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => line.StartsWith("- ", StringComparison.Ordinal))
+            .Select(line => line[2..].Trim())
+            .ToList();
 
-    /// <summary>
-    /// «Merge fix/some-task: что сделано» — приставка слияния оператору не говорит ничего, и в карточке
-    /// остаётся только сама фраза о правке.
-    /// </summary>
-    private static string Arrived(string title)
-    {
-        if (!title.StartsWith("Merge ", StringComparison.Ordinal))
-            return title;
-        var colon = title.IndexOf(": ", StringComparison.Ordinal);
-        // Имя ветки — одно слово; пробел в нём значит, что это не приставка, а обычный заголовок.
-        return colon > 0 && !title[6..colon].Contains(' ') ? title[(colon + 2)..] : title;
-    }
+    [GeneratedRegex(@"^v(\d+\.\d+\.\d+)$")]
+    private static partial Regex MasterTag();
 
-    /// <summary>Код, на котором стоит ревизия: им панель и сравнивает себя с каналом.</summary>
-    private static async Task<string?> RevisionAsync(string repository, string revision, CancellationToken cancellationToken)
-    {
-        var shown = await GitRunner.RunAsync(repository, ReadTimeout, cancellationToken, "rev-parse", $"{revision}^{{commit}}");
-        if (shown.ExitCode != 0)
-            return null;
-        var sha = shown.Output.Trim();
-        return sha.Length == 0 ? null : sha;
-    }
+    [GeneratedRegex(@"^v(\d+\.\d+\.\d+)-dev$")]
+    private static partial Regex DevTag();
 }

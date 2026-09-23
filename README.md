@@ -14,9 +14,10 @@ iex ((irm https://raw.githubusercontent.com/t8nax/agents-kit-web/master/scripts/
 ```
 
 Установщик сначала проверяет, что на машине есть кит и Claude Code с выполненным входом. Если чего-то не хватает, он
-говорит, что поставить, и больше ничего не делает. Потом через winget ставит недостающее для сборки — git,
-PowerShell 7, .NET SDK 10, Node.js, — скачивает исходники в `%LOCALAPPDATA%\agents-kit-web\source` и ставит панель.
-В конце открывается http://localhost:5080.
+говорит, что поставить, и больше ничего не делает. Потом через winget ставит недостающее из того, чем панель работает, —
+git и PowerShell 7, — скачивает готовую сборку последнего выпуска с GitHub и ставит её в
+`%LOCALAPPDATA%\agents-kit-web\app`. Ничего не собирается: .NET и Node.js на машине не нужны. В конце открывается
+http://localhost:5080.
 
 Вход в Claude Code установщик узнаёт по ключу, который появляется после обычного входа командой `/login`. Если Claude
 Code у вас работает иначе — например, через корпоративный шлюз с токеном в настройках, — установщик сочтёт, что входа
@@ -30,8 +31,6 @@ Code у вас работает иначе — например, через ко
 - [PowerShell 7](https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows) — команда `pwsh`.
   Встроенного Windows PowerShell 5.1 мало.
 - [git](https://git-scm.com/).
-- [.NET 10 SDK](https://dotnet.microsoft.com/download).
-- [Node.js](https://nodejs.org/) актуальной LTS-версии вместе с `npm`.
 - [Claude Code](https://docs.claude.com/claude-code), в котором выполнен вход: команда `claude` в новом окне PowerShell
   должна запускаться и отвечать.
 - Установленный agents-kit и хотя бы одна база знаний под ним.
@@ -42,22 +41,22 @@ Code у вас работает иначе — например, через ко
 - [VS Code](https://code.visualstudio.com/) — им панель открывает рабочие копии и файлы. Другие редакторы, в том числе
   Cursor, панель открывать не умеет.
 
-### Сборка и запуск
+### Постановка
+
+Скачайте `agents-kit-web-win-x64.zip` последнего выпуска со страницы
+[выпусков](https://github.com/t8nax/agents-kit-web/releases/latest) и поставьте его:
 
 ```powershell
-git clone https://github.com/t8nax/agents-kit-web
-cd agents-kit-web
-pwsh -NoProfile -File scripts/publish.ps1
+$target = "$env:LOCALAPPDATA\agents-kit-web\app"
+Expand-Archive agents-kit-web-win-x64.zip "$target.new"
+Copy-Item "$target.new\scripts\deploy.ps1" $env:TEMP
+pwsh -NoProfile -File "$env:TEMP\deploy.ps1" -Source "$target.new" -Target $target
 ```
 
-Скрипт собирает панель из ветки `master`, ставит её в `%LOCALAPPDATA%\agents-kit-web\app` и запускает. Первый раз это
-занимает несколько минут: скачиваются пакеты фронта и .NET. Когда в конце появится «Панель запущена», откройте
-http://localhost:5080.
+Когда появится «Панель запущена», откройте http://localhost:5080.
 
-Панель запускается сама при каждом входе в Windows — для этого скрипт заводит задачу Планировщика заданий
+Панель запускается сама при каждом входе в Windows — для этого заводится задача Планировщика заданий
 `agents-kit-web panel`. Прав администратора не нужно.
-
-Каталог, куда вы склонировали репозиторий, не удаляйте: из него панель потом собирает свои обновления.
 
 ## Первоначальная настройка
 
@@ -81,8 +80,10 @@ http://localhost:5080.
 
 ## Обновление
 
-Панель сама подсказывает, когда вышла новая версия, и обновляется кнопкой в «Настройках». Обновить руками — снова
-запустить `scripts/publish.ps1` из каталога исходников.
+Панель сама подсказывает, когда на GitHub вышла сборка новее, и обновляется кнопкой в «Настройках»: скачивает готовую
+сборку и ставит её. Канал выбирается там же: «Стабильный» — выложенные выпуски, «Бета» — свежие, ещё не выложенные.
+
+Панель, поставленная раньше сборкой из исходников, переходит на готовые сборки тем же обновлением кнопкой.
 
 ## Если Claude Code запускается у вас по-особому
 
