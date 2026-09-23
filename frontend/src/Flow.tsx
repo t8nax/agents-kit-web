@@ -766,8 +766,7 @@ export default function Flow({
   const windowOpen = stageOpen || modal === 'description' || modal === 'new-flow' || opened !== null
   useEffect(() => {
     if (!stale || windowOpen) return
-    setStale(false)
-    void loadFlows()
+    void loadFlows().then(() => setStale(false))
   }, [stale, windowOpen, loadFlows])
 
   const editable = flow !== null && !flow.error
