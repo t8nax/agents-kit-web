@@ -1199,7 +1199,7 @@ test('отказ API по форме кита назван с флоу и ста
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
   expect(
     await screen.findByText(
-      'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения и откройте его снова — в нём будет то, что сейчас в базе.',
+      'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения — раздел перечитает флоу, и правку можно будет сделать заново.',
     ),
   ).toBeInTheDocument()
 })
@@ -1629,8 +1629,25 @@ test('задача, пошедшая по сценарию, пока окно б
   fireEvent.click(edit.getByRole('button', { name: 'Сохранить' }))
 
   expect(await edit.findByRole('alert')).toHaveTextContent(
-    'Флоу не сохранён: по сценарию «полный» идёт задача B-7. Пока она в работе, сценарий и его стадии не правятся.',
+    'Флоу не сохранён: по сценарию «полный» идёт задача B-7. Пока она в работе, сценарий и его стадии не правятся. Закройте окно — раздел перечитает флоу.',
   )
+})
+
+test('после отказа записи окно держит набранное, а флоу перечитывается, когда окно закрыли', async () => {
+  const fetchMock = stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'changed' }, 409) }))
+  await renderFlow()
+  const reads = () => fetchMock.mock.calls.filter(([url, init]) => url === '/api/flow' && !init?.method).length
+  const edit = await stagesTab('Ревью')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
+
+  fireEvent.click(edit.getByRole('button', { name: 'Сохранить' }))
+  await edit.findByRole('alert')
+  expect(edit.getByRole('textbox', { name: 'Выход стадии' })).toHaveValue('вердикт')
+  expect(reads()).toBe(1)
+
+  fireEvent.click(edit.getByRole('button', { name: 'Отмена' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
+  await vi.waitFor(() => expect(reads()).toBe(2))
 })
 
 test('в окне Чудо-Юдо стадии занятого сценария погашены с задачами', async () => {
