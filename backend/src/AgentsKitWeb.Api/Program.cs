@@ -14,11 +14,6 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddSingleton(services =>
 {
     var config = services.GetRequiredService<IConfiguration>();
-    return new PresetsStore(config["PresetsFile"] ?? PresetsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
-});
-builder.Services.AddSingleton(services =>
-{
-    var config = services.GetRequiredService<IConfiguration>();
     return new FlowIconsStore(config["FlowIconsFile"] ?? FlowIconsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
 builder.Services.AddSingleton(services =>

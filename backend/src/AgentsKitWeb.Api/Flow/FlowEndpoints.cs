@@ -100,21 +100,6 @@ public static class FlowEndpoints
             return Results.Ok(new FlowSavedResponse(FlowFolder.Fingerprint(Files(basePath).Select(f => (f.Path, f.Bytes)))));
         });
 
-        app.MapGet("/api/presets", (PresetsStore presets) => presets.List());
-
-        // Пресет — стадия в форме кита: иначе выбранная из списка она не сохранится во флоу.
-        app.MapPost("/api/presets", (FlowStage stage, PresetsStore presets) =>
-        {
-            // Помощники в пресет не уходят: они исполнители своего проекта, и в чужом их нет — решение оператора.
-            var plain = stage with { Helpers = [], Slug = null };
-            return FlowFolder.StageProblem(plain) is { } problem
-                ? Results.BadRequest(new FlowRejectedResponse(problem))
-                : Results.Ok(presets.Add(plain));
-        });
-
-        app.MapDelete("/api/presets/{id}", (string id, PresetsStore presets) =>
-            presets.Remove(id) ? Results.NoContent() : Results.NotFound());
-
         // Флоу целиком читают в VS Code, в окне на каталоге базы: список флоу, а без него — первую стадию,
         // чтобы строку, которую панель не сохранит, было где поправить.
         app.MapPost("/api/flow/open", async (
