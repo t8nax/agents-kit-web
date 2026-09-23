@@ -47,7 +47,26 @@ function stubFetch(...responses: BasePerformers[][]) {
   return fetchMock
 }
 
-test('показывает исполнителя именем, описанием и путём файла в базе', async () => {
+test('пока исполнители читаются, на месте карточек заготовка, а заголовок раздела уже виден', async () => {
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(Response.json(bases))))),
+  )
+
+  render(<Performers />)
+
+  expect(screen.getByRole('status', { name: 'Загрузка исполнителей' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Исполнители' })).toBeInTheDocument()
+
+  answer()
+
+  expect(await screen.findByText('reviewer')).toBeInTheDocument()
+  expect(screen.queryByRole('status', { name: 'Загрузка исполнителей' })).not.toBeInTheDocument()
+})
+
+test('карточка показывает имя, описание и модель, а путь файла и инструменты — нет', async () => {
   const fetchMock = stubFetch(bases)
 
   render(<Performers />)
@@ -55,9 +74,11 @@ test('показывает исполнителя именем, описание
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/api/performers')
   expect(screen.getByText('Читает дифф ветки задачи и возвращает вердикт.')).toBeInTheDocument()
-  expect(screen.getByText('D:\\Projects\\app-knowledge\\agents\\reviewer.md')).toBeInTheDocument()
   expect(screen.getByText('opus')).toBeInTheDocument()
-  expect(screen.getByText('Read, Glob, Grep')).toBeInTheDocument()
+  // Путь и инструменты живут в окне исполнителя: в карточке их нет (B-80).
+  expect(screen.queryByText('D:\\Projects\\app-knowledge\\agents\\reviewer.md')).not.toBeInTheDocument()
+  expect(screen.queryByText('Read, Glob, Grep')).not.toBeInTheDocument()
+  expect(screen.queryByText('все инструменты')).not.toBeInTheDocument()
 })
 
 test('«Все» показывает исполнителей всех проектов, и каждый назван своим', async () => {
@@ -68,48 +89,92 @@ test('«Все» показывает исполнителей всех прое
   // Раздел открывается на «Всех»: исполнитель принадлежит проекту той базой, где лежит его файл.
   expect(await screen.findByText('reviewer')).toBeInTheDocument()
   expect(screen.getByText('spec-writer')).toBeInTheDocument()
-  // Название проекта стоит и чипом фильтра, и у строки исполнителя: по ней видно, чей он.
+  // Название проекта стоит и пунктом списка, и у карточки исполнителя: по ней видно, чей он.
   expect(screen.getAllByText('Agents Kit Web')).toHaveLength(2)
   expect(screen.getAllByText('Nota')).toHaveLength(2)
-  expect(screen.getByRole('button', { name: 'Все' })).toHaveAttribute('aria-pressed', 'true')
+  // Проект выбирается выпадающим списком, а не чипами; открывается раздел на «Всех».
+  expect(screen.getByRole('combobox', { name: 'Проект' })).toHaveDisplayValue('Все')
+  expect(screen.queryByRole('button', { name: 'Все' })).not.toBeInTheDocument()
 })
 
-test('править панель даёт каждого исполнителя списка', async () => {
-  stubFetch(bases)
+test('кнопки «Править» нет: окно исполнителя открывает клик по карточке', async () => {
+  // Открытое окно само спрашивает API о просьбах к агенту: им хватает пустого списка.
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
 
   render(<Performers />)
 
-  const buttons = await screen.findAllByRole('button', { name: 'Править' })
-  expect(buttons).toHaveLength(2)
-  for (const button of buttons) expect(button).toBeEnabled()
+  const card = await screen.findByRole('button', { name: 'spec-writer, Nota' })
+  expect(screen.getByRole('button', { name: 'reviewer, Agents Kit Web' })).toBeEnabled()
+  // Описание и модель карточки программа чтения слышит её описанием, а не теряет за именем кнопки.
+  expect(screen.getByRole('button', { name: 'reviewer, Agents Kit Web' })).toHaveAccessibleDescription(
+    'Читает дифф ветки задачи и возвращает вердикт.opus',
+  )
+  expect(screen.queryByRole('button', { name: 'Править' })).not.toBeInTheDocument()
+
+  fireEvent.click(card)
+
+  expect(await screen.findByRole('dialog')).toHaveTextContent('spec-writer')
 })
 
-test('чипы переключают проект, и список меняется', async () => {
+test('выпадающий список переключает проект, и сетка меняется', async () => {
   stubFetch(bases)
 
   render(<Performers />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Nota' }))
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Проект' }), { target: { value: bases[1].base } })
 
   expect(screen.queryByText('reviewer')).not.toBeInTheDocument()
   expect(screen.getByText('spec-writer')).toBeInTheDocument()
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Проект' }), { target: { value: '' } })
+  expect(screen.getByText('reviewer')).toBeInTheDocument()
 })
 
-test('у проекта без исполнителей сказано, чем их заводят', async () => {
-  stubFetch([bases[0], { ...bases[1], performers: [] }])
+test('новый исполнитель заводится карточкой последней в сетке, а не кнопкой в шапке', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
+
+  const { container } = render(<Performers />)
+
+  const add = await screen.findByRole('button', { name: 'Новый исполнитель' })
+  expect(container.querySelector('.performer-grid')?.lastElementChild).toBe(add)
+  expect(container.querySelector('.content-head button')).toBeNull()
+
+  // На «Всех» окно встаёт на первом проекте.
+  fireEvent.click(add)
+  expect(await screen.findByRole('dialog')).toContainElement(screen.getByLabelText('Проект', { selector: '#pf-base' }))
+  expect(screen.getByLabelText('Проект', { selector: '#pf-base' })).toHaveDisplayValue('Agents Kit Web')
+})
+
+test('карточка добавления открывает окно на выбранном проекте', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
 
   render(<Performers />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Nota' }))
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Проект' }), { target: { value: bases[1].base } })
+  fireEvent.click(screen.getByRole('button', { name: 'Новый исполнитель' }))
 
-  expect(screen.getByText(/У проекта «Nota» исполнителей нет/)).toBeInTheDocument()
+  expect(await screen.findByRole('dialog')).toBeInTheDocument()
+  expect(screen.getByLabelText('Проект', { selector: '#pf-base' })).toHaveDisplayValue('Nota')
 })
 
-test('без отслеживаемых баз раздел говорит, где их добавить', async () => {
+test('у проекта без исполнителей в сетке одна карточка добавления и нет строки о пустом списке', async () => {
+  stubFetch([bases[0], { ...bases[1], performers: [] }])
+
+  const { container } = render(<Performers />)
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Проект' }), { target: { value: bases[1].base } })
+
+  const grid = container.querySelector('.performer-grid')
+  expect(grid?.children).toHaveLength(1)
+  expect(grid).toContainElement(screen.getByRole('button', { name: 'Новый исполнитель' }))
+  expect(screen.queryByText(/исполнителей нет/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Заводятся/)).not.toBeInTheDocument()
+})
+
+test('без отслеживаемых баз раздел говорит, где их добавить, и карточки добавления нет', async () => {
   stubFetch([])
 
   render(<Performers />)
 
   expect(await screen.findByText(/Нет отслеживаемых баз/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /Новый исполнитель/ })).toBeDisabled()
+  expect(screen.queryByRole('button', { name: /Новый исполнитель/ })).not.toBeInTheDocument()
 })
 
 test('сбой запроса виден строкой', async () => {
@@ -128,4 +193,21 @@ test('ошибка по проекту показана вместе с его �
   render(<Performers />)
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Имя проекта не записать латиницей')
+})
+
+test('итог из шапки про исполнителя, которого нет, сказан строкой, а не пустым окном нового', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
+
+  render(<Performers draftFor={bases[0].base} draftSubject="gone" />)
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Исполнителя gone в проекте больше нет')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('итог из шапки про заведённого открывается его правкой', async () => {
+  stubFetch(bases).mockResolvedValue(new Response('[]', { status: 200 }))
+
+  render(<Performers draftFor={bases[0].base} draftSubject="reviewer" />)
+
+  expect(await screen.findByRole('dialog', { name: 'reviewer' })).toBeInTheDocument()
 })

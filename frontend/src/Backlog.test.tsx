@@ -3,7 +3,11 @@ import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
 import Backlog, { type BaseBacklog } from './Backlog'
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  // Порядок записей раздел помнит в браузере: каждый тест начинает с порядка по умолчанию
+  localStorage.clear()
+})
 
 const backlogs: BaseBacklog[] = [
   {
@@ -61,6 +65,8 @@ function stubFetch(...responses: BaseBacklog[][]) {
       return Promise.resolve(taskReply ?? Response.json({ session: '7339dced' }))
     }
     if (url === '/api/workspaces') return Promise.resolve(Response.json(rows))
+    // Окно записи, открытое с раздела, спрашивает, не идёт ли уже просьба
+    if (url === '/api/agent/requests') return Promise.resolve(Response.json([]))
     // Окно запуска предлагает флоу базы записи: у каждой базы здесь флоу один.
     if (url === '/api/flow')
       return Promise.resolve(
@@ -102,6 +108,31 @@ test('показывает записи бэклога группами по п�
 
   const second = within(screen.getByRole('region', { name: 'Nota' }))
   expect(second.getByText('Экспорт заметок')).toBeInTheDocument()
+})
+
+test('пока бэклог читается, на месте записей заготовка, а шапка раздела уже видна', async () => {
+  let answer: (backlogs: BaseBacklog[]) => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) =>
+      url === '/api/backlog'
+        ? new Promise<Response>((resolve) => (answer = (value) => resolve(Response.json(value))))
+        : Promise.resolve(Response.json([])),
+    ),
+  )
+
+  render(<Backlog />)
+
+  expect(screen.getByRole('status', { name: 'Загрузка бэклога' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Обновить' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /Попросить Чудо-Юдо/ })).toBeDisabled()
+
+  answer(backlogs)
+
+  expect(await screen.findByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
+  expect(screen.queryByRole('status', { name: 'Загрузка бэклога' })).not.toBeInTheDocument()
 })
 
 test('клик по записи открывает окно с номером, заголовком и размеченным текстом', async () => {
@@ -294,20 +325,21 @@ test('сбой запроса показан строкой, а не пусты�
   expect(await screen.findByRole('alert')).toHaveTextContent('Нет связи с API')
 })
 
-test('кнопка «Добавить с помощью Чудо-Юдо» открывает окно записи, новые записи отмечены до «Обновить»', async () => {
+test('«Попросить Чудо-Юдо» открывает разговор, новые записи отмечены до «Обновить»', async () => {
   const withNew: BaseBacklog[] = [
     { ...backlogs[0], entries: [...backlogs[0].entries, { number: 'B-32', title: 'Добавлена агентом', text: null }] },
     backlogs[1],
   ]
   const body = new TextEncoder().encode(
-    JSON.stringify({
-      type: 'written',
-      text: 'ok',
-      entries: [{ number: 'B-32', title: 'Добавлена агентом', text: null }],
-    }) + '\n',
+    [
+      { type: 'reply', text: 'Мысль' },
+      { type: 'answer', text: 'ok', entries: [{ number: 'B-32', title: 'Добавлена агентом', text: null }] },
+    ]
+      .map((event) => JSON.stringify(event) + '\n')
+      .join(''),
   )
   const fetchMock = vi.fn((url: string) => {
-    // Окно записи спрашивает панель, не идёт ли уже такая просьба.
+    // Окно Чудо-Юдо спрашивает панель, не идёт ли уже разговор о бэклоге.
     if (url === '/api/agent/requests') return Promise.resolve(Response.json([]))
     if (url === '/api/backlog/write') {
       return Promise.resolve(
@@ -315,6 +347,7 @@ test('кнопка «Добавить с помощью Чудо-Юдо» отк
       )
     }
     if (url.startsWith('/api/agent/backlog/stream')) return Promise.resolve(new Response(body))
+    if (url === '/api/agent/backlog') return Promise.resolve(new Response(null, { status: 204 }))
     const calls = fetchMock.mock.calls.filter(([u]) => u === '/api/backlog').length
     return Promise.resolve(Response.json(calls === 1 ? backlogs : withNew))
   })
@@ -322,13 +355,13 @@ test('кнопка «Добавить с помощью Чудо-Юдо» отк
 
   render(<Backlog />)
   await screen.findByText('B-1')
-  fireEvent.click(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' }))
 
-  const dialog = within(screen.getByRole('dialog', { name: 'Запись в бэклог' }))
-  fireEvent.change(await dialog.findByLabelText('Что записать'), { target: { value: 'Мысль' } })
-  fireEvent.click(dialog.getByRole('button', { name: 'Добавить' }))
-  await dialog.findByText('Добавлено 1 запись')
-  fireEvent.click(dialog.getByRole('button', { name: 'К бэклогу' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Чудо-Юдо' }))
+  fireEvent.change(await dialog.findByLabelText('Просьба к Чудо-Юдо'), { target: { value: 'Мысль' } })
+  fireEvent.click(dialog.getByRole('button', { name: 'Отправить' }))
+  await dialog.findByText('добавлена')
+  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
 
   const added = await screen.findByRole('button', { name: /B-32 Добавлена агентом/ })
   expect(within(added).getByText('новая')).toBeInTheDocument()
@@ -339,13 +372,36 @@ test('кнопка «Добавить с помощью Чудо-Юдо» отк
   expect(screen.queryByText('новая')).not.toBeInTheDocument()
 })
 
+test('«Изменить» есть только у записи с номером и открывает разговор про неё', async () => {
+  const withLoose: BaseBacklog[] = [
+    { ...backlogs[0], entries: [...backlogs[0].entries, { number: null, title: 'Мысль без номера', text: null }] },
+    backlogs[1],
+  ]
+  stubFetch(withLoose)
+
+  render(<Backlog />)
+  const loose = (await screen.findByRole('button', { name: /Мысль без номера/ })).closest('.entry-row') as HTMLElement
+  expect(within(loose).queryByRole('button', { name: 'Изменить' })).not.toBeInTheDocument()
+
+  const row = screen.getByRole('button', { name: /B-13 / }).closest('.entry-row') as HTMLElement
+  fireEvent.click(within(row).getByRole('button', { name: 'Изменить' }))
+
+  const dialog = within(screen.getByRole('dialog', { name: 'Чудо-Юдо' }))
+  expect(dialog.getByText('Запись')).toBeInTheDocument()
+  expect(dialog.getByText('У панели есть светлая тема')).toBeInTheDocument()
+  expect(dialog.getByLabelText('Просьба к Чудо-Юдо')).toHaveAttribute(
+    'placeholder',
+    'Что поменять в B-13 — или почему она больше не нужна',
+  )
+})
+
 test('без баз добавлять некуда', async () => {
   stubFetch([])
 
   render(<Backlog />)
   await screen.findByText(/Нет отслеживаемых баз/)
 
-  expect(screen.getByRole('button', { name: 'Добавить с помощью Чудо-Юдо' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toBeDisabled()
 })
 
 test('«Взять задачу» запускает свою запись в выбранную копию и возвращает фокус кнопке', async () => {
@@ -462,4 +518,170 @@ test('у проекта без номеров колонки номера нет
   const section = await screen.findByRole('region', { name: 'Agents Kit Web' })
 
   expect(section.querySelector('.entry-num-slot')).toBeNull()
+})
+
+const fielded: BaseBacklog[] = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'Agents Kit Web',
+    entries: [
+      { number: 'B-1', title: 'Старый баг', text: null, type: 'баг', priority: 'средний' },
+      { number: 'B-2', title: 'Фича про импорт', text: null, type: 'фича', priority: 'блокер' },
+      { number: 'B-3', title: 'Срочный баг импорта', text: null, type: 'баг', priority: 'высокий' },
+      { number: 'B-4', title: 'Без полей', text: null },
+    ],
+    error: null,
+    letters: 'B',
+  },
+]
+
+/** Номера записей проекта в том порядке, в каком они видны. */
+function shownNumbers(project = 'Agents Kit Web') {
+  return Array.from(screen.getByRole('region', { name: project }).querySelectorAll('.entry-num')).map((n) => n.textContent)
+}
+
+test('чипы типа и приоритета отбирают записи, несколько значений в поле — любое из них', async () => {
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  const bar = within(screen.getByRole('group', { name: 'Отбор и порядок записей' }))
+
+  fireEvent.click(bar.getByRole('button', { name: 'высокий' }))
+  fireEvent.click(bar.getByRole('button', { name: 'блокер' }))
+  expect(bar.getByRole('button', { name: 'блокер' })).toHaveAttribute('aria-pressed', 'true')
+  expect(shownNumbers()).toEqual(['B-2', 'B-3'])
+
+  fireEvent.click(bar.getByRole('button', { name: 'баг' }))
+  expect(shownNumbers()).toEqual(['B-3'])
+
+  fireEvent.click(bar.getByRole('button', { name: 'баг' }))
+  fireEvent.click(bar.getByRole('button', { name: 'высокий' }))
+  fireEvent.click(bar.getByRole('button', { name: 'блокер' }))
+  expect(shownNumbers()).toEqual(['B-1', 'B-2', 'B-3', 'B-4'])
+})
+
+test('поиск по номеру и заголовку без различия регистра, крестик очищает поле', async () => {
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'ИМПОРТ' } })
+  expect(shownNumbers()).toEqual(['B-2', 'B-3'])
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'b-4' } })
+  expect(shownNumbers()).toEqual(['B-4'])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Очистить' }))
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveFocus()
+  expect(screen.queryByRole('button', { name: 'Очистить' })).not.toBeInTheDocument()
+  expect(shownNumbers()).toEqual(['B-1', 'B-2', 'B-3', 'B-4'])
+})
+
+test('порядок выбирается полем и кнопкой направления', async () => {
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('number')
+
+  fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
+  expect(shownNumbers()).toEqual(['B-4', 'B-3', 'B-2', 'B-1'])
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
+  expect(screen.getByRole('button', { name: 'По убыванию' })).toBeInTheDocument()
+  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'type' } })
+  expect(shownNumbers()).toEqual(['B-3', 'B-1', 'B-2', 'B-4'])
+})
+
+test('порядок помнится между открытиями раздела, а фильтры и поиск — нет', async () => {
+  stubFetch(fielded)
+
+  const { unmount } = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
+  fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'импорт' } })
+  unmount()
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('priority')
+  expect(screen.getByRole('button', { name: 'По убыванию' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
+})
+
+test('проект, где под отбор ничего не подошло, скрыт; не подошло нигде — строка на месте списка', async () => {
+  stubFetch([...fielded, backlogs[1]])
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(screen.getByRole('region', { name: 'Agents Kit Web' })).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Nota' })).not.toBeInTheDocument()
+  expect(screen.queryByText('Под фильтр записей нет')).not.toBeInTheDocument()
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'нет такого' } })
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
+  expect(screen.getByText('Под фильтр записей нет')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Очистить' }))
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(screen.getByRole('region', { name: 'Nota' })).toBeInTheDocument()
+})
+
+test('открытие с проектом просьбы ставит фильтр его проекта, отбор при этом пуст', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog writeFor={backlogs[1].base} />)
+  await screen.findByRole('heading', { name: 'Nota' })
+
+  // Окно записи открыто на той же базе; чип проекта — в строке фильтра раздела
+  const projects = within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  expect(projects.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+})
+
+test('недоступное хранилище не мешает выбирать порядок', async () => {
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('blocked')
+  })
+  stubFetch(fielded)
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Agents Kit Web' })
+  expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('number')
+
+  fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
+  fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
+  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
+  vi.restoreAllMocks()
+})
+
+test('проект, чей бэклог не читается, при отборе остаётся со строкой ошибки', async () => {
+  stubFetch([...fielded, { ...backlogs[1], entries: [], error: 'В базе нет backlog.md' }])
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(within(screen.getByRole('region', { name: 'Nota' })).getByText('В базе нет backlog.md')).toBeInTheDocument()
+  expect(screen.queryByText('Под фильтр записей нет')).not.toBeInTheDocument()
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'нет такого' } })
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Nota' })).toBeInTheDocument()
+  expect(screen.getByText('Под фильтр записей нет')).toBeInTheDocument()
 })

@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import PerformerModal from './PerformerModal'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import PerformerModal, { Select } from './PerformerModal'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal, withReveal } from './reveal'
 import './Performers.css'
 
 /**
@@ -30,12 +32,17 @@ type Load =
   | { kind: 'loaded'; bases: BasePerformers[] }
 
 /**
- * Раздел «Исполнители»: субагенты проектов панели. Строка — файл базы, поэтому в списке видны и те,
- * кого завели в базе помимо панели; проекты фильтруют чипы, где рядом стоит «Все».
+ * Раздел «Исполнители»: субагенты проектов панели. Карточка — файл базы, поэтому в сетке видны и те,
+ * кого завели в базе помимо панели; проект выбирается выпадающим списком, где первым стоит «Все».
  * draftFor — база просьбы, к которой вернулся оператор: окно исполнителя открывается сразу на ней.
+ * draftSubject — кого просьба переписывает: тогда открывается правка этого исполнителя, а не окно нового.
  */
-export default function Performers({ draftFor = null }: { draftFor?: string | null } = {}) {
+export default function Performers({
+  draftFor = null,
+  draftSubject = null,
+}: { draftFor?: string | null; draftSubject?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
+  const reveal = useReveal(load.kind === 'loading')
   const [project, setProject] = useState<string | null>(draftFor)
   // Окно открыто: заводится новый (performer null) или правится заведённый; base — чей он проект.
   const [editing, setEditing] = useState<{ performer: Performer | null; base: BasePerformers | undefined } | null>(null)
@@ -72,10 +79,20 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
   useEffect(() => {
     if (draftFor === null || opened.current || load.kind !== 'loaded') return
     opened.current = true
-    setEditing({ performer: null, base: load.bases.find((b) => b.base === draftFor) })
-  }, [draftFor, load])
+    const base = load.bases.find((b) => b.base === draftFor)
+    const performer = draftSubject ? (base?.performers.find((p) => p.name === draftSubject) ?? null) : null
+    // Переписывали заведённого, а его уже нет: окно нового его просьбу не подхватит и встало бы пустым.
+    setEditing(draftSubject && !performer ? null : { performer, base })
+  }, [draftFor, draftSubject, load])
 
   const bases = load.kind === 'loaded' ? load.bases : []
+  // Итог переписывания исполнителя, которого в проекте уже нет: окна для него нет, и об этом сказано строкой.
+  const lost =
+    draftSubject !== null &&
+    load.kind === 'loaded' &&
+    !bases.find((b) => b.base === draftFor)?.performers.some((p) => p.name === draftSubject)
+      ? draftSubject
+      : null
   // Выбран проект — его исполнители; выбран «Все» (project === null) — исполнители всех проектов.
   const shown = project === null ? bases : bases.filter((b) => b.base === project)
   const rows = shown.flatMap((base) => base.performers.map((performer) => ({ base, performer })))
@@ -85,18 +102,9 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
     <>
       <div className="content-head">
         <h2>Исполнители</h2>
-        <button
-          type="button"
-          className="bases-btn bases-btn-add head-end"
-          disabled={bases.length === 0}
-          onClick={() => setEditing({ performer: null, base: shown[0] ?? bases[0] })}
-        >
-          <PlusIcon />
-          Новый исполнитель
-        </button>
       </div>
 
-      {load.kind === 'loading' && <p className="message text-sec">Загрузка исполнителей…</p>}
+      {load.kind === 'loading' && <PerformersSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -108,28 +116,27 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
       )}
 
       {bases.length > 1 && (
-        <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
-          {/* Исполнитель принадлежит проекту своей базой: «Все» показывает исполнителей всех баз. */}
-          <button
-            type="button"
-            className={`chip ${project === null ? 'active' : ''}`}
-            aria-pressed={project === null}
-            onClick={() => setProject(null)}
-          >
-            Все
-          </button>
-          {bases.map((base) => (
-            <button
-              type="button"
-              key={base.base}
-              className={`chip ${base.base === project ? 'active' : ''}`}
-              aria-pressed={base.base === project}
-              onClick={() => setProject(base.base)}
-            >
-              {base.project}
-            </button>
-          ))}
+        <div className={withReveal('filter-bar performer-filter', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
+          {/* Проект выбирается выпадающим списком, как в окне исполнителя, — замечание оператора на приёмке B-80.
+              Исполнитель принадлежит проекту своей базой: «Все» показывает исполнителей всех баз. */}
+          <label className="performer-filter-label" htmlFor="performer-project">
+            Проект
+          </label>
+          <Select id="performer-project" value={project ?? ''} onChange={(value) => setProject(value || null)} wide>
+            <option value="">Все</option>
+            {bases.map((base) => (
+              <option key={base.base} value={base.base}>
+                {base.project}
+              </option>
+            ))}
+          </Select>
         </div>
+      )}
+
+      {lost && (
+        <p className="message warning-text" role="alert">
+          Исполнителя {lost} в проекте больше нет: переписанное открыть не в чем.
+        </p>
       )}
 
       {saved && (
@@ -139,28 +146,33 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
       )}
 
       {load.kind === 'loaded' && bases.length > 0 && (
-        <div className="performer-list">
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {errors.map((base) => (
             <p className="message warning-text" key={base.base} role="alert">
               {base.project}: {base.error}
             </p>
           ))}
-          {rows.length === 0 && errors.length === 0 && (
-            <p className="empty-message">
-              {project === null
-                ? 'Исполнителей ещё нет. Заводятся кнопкой «Новый исполнитель».'
-                : `У проекта «${shown[0]?.project ?? ''}» исполнителей нет. Заводятся кнопкой «Новый исполнитель».`}
-            </p>
-          )}
-          {rows.map(({ base, performer }) => (
-            <PerformerRow
-              key={`${base.base}|${performer.name}`}
-              performer={performer}
-              project={base.project}
-              fresh={fresh.has(performer.name)}
-              onEdit={() => setEditing({ performer, base })}
-            />
-          ))}
+          {/* Новый исполнитель заводится пунктирной карточкой последней в сетке, как «Новая стадия» во «Флоу» (B-198).
+              У проекта без исполнителей она стоит в сетке одна: строки о пустом списке нет. */}
+          <div className="performer-grid">
+            {rows.map(({ base, performer }) => (
+              <PerformerCard
+                key={`${base.base}|${performer.name}`}
+                performer={performer}
+                project={base.project}
+                fresh={fresh.has(performer.name)}
+                onEdit={() => setEditing({ performer, base })}
+              />
+            ))}
+            <button
+              type="button"
+              className="performer-card performer-card-add"
+              onClick={() => setEditing({ performer: null, base: shown[0] ?? bases[0] })}
+            >
+              <PlusIcon />
+              Новый исполнитель
+            </button>
+          </div>
         </div>
       )}
 
@@ -182,7 +194,52 @@ export default function Performers({ draftFor = null }: { draftFor?: string | nu
   )
 }
 
-function PerformerRow({
+/** Исполнители, пока они читаются в первый раз: выбор проекта и сетка карточек полосами (макет B-201). */
+function PerformersSkeleton({ shown }: { shown: boolean }) {
+  const card = (name: number, source: number, last: string) => (
+    <div className="performer-card sk-frame">
+      <span className="performer-top">
+        <Sk w={26} h={26} style={{ borderRadius: 7 }} />
+        <span style={{ flex: 1 }}>
+          <Sk w={name} h={12} />
+        </span>
+        <Sk w={source} h={18} className="sk-pill" />
+      </span>
+      <span className="performer-details">
+        <span style={{ display: 'grid', gap: 7 }}>
+          <Sk w="100%" h={9} className="sk-block" />
+          <Sk w="92%" h={9} className="sk-block" />
+          <Sk w={last} h={9} className="sk-block" />
+        </span>
+        <span className="performer-foot">
+          <Sk w={58} h={18} className="sk-pill" />
+        </span>
+      </span>
+    </div>
+  )
+  return (
+    <Skeleton label="Загрузка исполнителей" shown={shown}>
+      <div className="filter-bar performer-filter">
+        <Sk w={52} h={11} />
+        <Sk w={200} h={30} style={{ borderRadius: 6 }} />
+      </div>
+      <div className="performer-grid">
+        {card(90, 96, '64%')}
+        {card(74, 96, '48%')}
+        {card(84, 96, '70%')}
+        {card(100, 72, '56%')}
+        {card(70, 72, '40%')}
+        {card(96, 96, '62%')}
+      </div>
+    </Skeleton>
+  )
+}
+
+/**
+ * Карточка исполнителя: имя, проект, описание в три строки и модель — остальное живёт в окне,
+ * которое открывает клик по карточке (B-80: в прежней строке было слишком много всего).
+ */
+function PerformerCard({
   performer,
   project,
   fresh,
@@ -193,29 +250,32 @@ function PerformerRow({
   fresh: boolean
   onEdit: () => void
 }) {
+  // Имя кнопки — исполнитель и проект, а описание, модель и пометка читаются её описанием.
+  const details = useId()
   return (
-    <div className={`performer ${fresh ? 'performer-fresh' : ''}`}>
-      <span className="performer-mark" aria-hidden="true">
-        <PerformerIcon />
+    <button
+      type="button"
+      className={`performer-card ${fresh ? 'performer-fresh' : ''}`}
+      aria-label={`${performer.name}, ${project}`}
+      aria-describedby={details}
+      onClick={onEdit}
+    >
+      <span className="performer-top">
+        <span className="performer-mark" aria-hidden="true">
+          <PerformerIcon />
+        </span>
+        <span className="performer-name">{performer.name}</span>
+        {/* Проект у карточки — та база, в которой лежит файл исполнителя. */}
+        <span className="performer-source">{project}</span>
       </span>
-      <div className="performer-body">
-        <div className="performer-title">
-          <span className="performer-name">{performer.name}</span>
-          {/* Проект у строки — та база, в которой лежит файл исполнителя. */}
-          <span className="performer-source">{project}</span>
+      <span id={details} className="performer-details">
+        {performer.description && <span className="performer-desc">{performer.description}</span>}
+        <span className="performer-foot">
+          {performer.model && <span className="performer-badge">{performer.model}</span>}
           {fresh && <span className="performer-fresh-mark">записан</span>}
-        </div>
-        {performer.description && <p className="performer-desc">{performer.description}</p>}
-        <span className="performer-path">{performer.path}</span>
-      </div>
-      <div className="performer-end">
-        {performer.model && <span className="performer-badge">{performer.model}</span>}
-        <span className="performer-badge">{performer.tools ?? 'все инструменты'}</span>
-        <button type="button" className="bases-btn" onClick={onEdit}>
-          Править
-        </button>
-      </div>
-    </div>
+        </span>
+      </span>
+    </button>
   )
 }
 

@@ -1,22 +1,6 @@
-/* Окно ответа — по согласованному макету design/reply.html */
+/* Окно ответа — лента по макету B-208, вид Б: https://claude.ai/artifact/BZkQMpQgLxWDXiJgup5hTj */
 
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--overlay-deep);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 16px;
-}
-
-.modal-overlay svg {
-  width: 18px;
-  height: 18px;
-}
-
+/* Рамка окна, сообщение на месте содержимого, поле и подвал — общие с другими окнами панели. */
 .modal-wizard {
   background: var(--bg-surface);
   border: 1px solid var(--border-strong);
@@ -30,309 +14,9 @@
   overflow: hidden;
 }
 
-.wizard-stepper {
-  padding: 24px 40px;
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.stepper-main {
-  flex: 1;
-  min-width: 0;
-}
-
-.step-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--accent-waiting-text);
-  font-weight: 600;
-  margin-bottom: 8px;
-  font-variant-numeric: tabular-nums;
-}
-
-.steps {
-  display: flex;
-  gap: 8px;
-}
-
-.step-indicator {
-  flex: 1;
-  height: 12px;
-  padding: 4px 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  border-radius: 2px;
-}
-
-.step-indicator::before {
-  content: '';
-  display: block;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border-subtle);
-}
-
-.step-indicator[aria-current='step']::before {
-  background: var(--accent-waiting-fill);
-}
-
-.step-indicator:hover::before {
-  filter: brightness(1.3);
-}
-
-.modal-scroll-area {
-  flex: 1;
-  overflow-y: auto;
-  padding: 40px;
-  min-height: 560px;
-}
-
-.modal-scroll-area.is-centered {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-scroll-area.is-centered .central-column {
-  width: 100%;
-}
-
-.central-column {
-  max-width: 640px;
-  margin: 0 auto;
-}
-
 .modal-message {
   margin: 0;
   text-align: center;
-  color: var(--text-secondary);
-}
-
-.context-accordion {
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  margin-bottom: 32px;
-}
-
-.context-accordion summary {
-  padding: 12px 16px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-  color: var(--text-secondary);
-  font-weight: 500;
-  list-style: none;
-}
-
-.context-accordion summary::-webkit-details-marker {
-  display: none;
-}
-
-.context-accordion summary svg {
-  transition: transform 0.15s;
-}
-
-.context-accordion[open] summary svg {
-  transform: rotate(180deg);
-}
-
-.acc-title {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.acc-task {
-  color: var(--text-primary);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.context-accordion[open] .acc-task {
-  white-space: normal;
-}
-
-.acc-copy {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--accent-done-text);
-  font-weight: 400;
-  overflow-wrap: anywhere;
-}
-
-/* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе с иконкой. */
-.btn-code {
-  --code-blue: #0098ff;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding: 6px 12px;
-  border: 1px solid rgba(0, 152, 255, 0.35);
-  border-radius: 6px;
-  background: rgba(0, 152, 255, 0.12);
-  color: var(--code-blue);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.btn-code:hover:not(:disabled) {
-  background: rgba(0, 152, 255, 0.22);
-}
-
-.btn-code:disabled {
-  border-color: var(--border-subtle);
-  background: none;
-  color: var(--text-tertiary);
-  cursor: default;
-}
-
-.modal-overlay .btn-code svg {
-  width: 16px;
-  height: 16px;
-}
-
-.open-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: -24px 0 24px;
-}
-
-.accordion-content {
-  padding: 12px 16px 16px;
-  border-top: 1px solid var(--border-subtle);
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.acc-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-  margin: 0 0 8px;
-}
-
-.criteria {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 12px;
-}
-
-.criterion-title {
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 2px;
-}
-
-/* текст критерия — размеченный markdown, структуру задаёт Markdown.css */
-.criterion-text {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-.out-of-scope-label,
-.design-label {
-  margin-top: 16px;
-}
-
-.massive-title {
-  font-size: 32px;
-  font-weight: 700;
-  line-height: 1.2;
-  margin: 0 0 24px;
-  text-wrap: balance;
-}
-
-.question-box {
-  font-size: 16px;
-  line-height: 1.6;
-  margin-bottom: 24px;
-  padding-left: 16px;
-  border-left: 4px solid var(--accent-waiting-text);
-}
-
-.options-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.option-card {
-  font: inherit;
-  text-align: left;
-  color: inherit;
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  padding: 16px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition:
-    border-color 0.2s,
-    background 0.2s;
-  display: grid;
-  gap: 4px;
-  align-content: start;
-}
-
-.option-card:hover {
-  border-color: var(--accent-waiting-text);
-  background: var(--accent-waiting-bg);
-}
-
-.option-card[aria-pressed='true'] {
-  border-color: var(--accent-waiting-text);
-  box-shadow: 0 0 0 1px var(--accent-waiting-text);
-}
-
-.option-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.option-title {
-  font-weight: 600;
-}
-
-.option-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.tag-rec {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 4px;
-  color: var(--accent-waiting-text);
-  background: var(--accent-waiting-bg);
-  border: 1px solid var(--accent-waiting-border);
-}
-
-.input-group label {
-  display: block;
-  margin-bottom: 12px;
-  font-weight: 500;
   color: var(--text-secondary);
 }
 
@@ -353,22 +37,6 @@
 
 .custom-textarea:focus {
   border-color: var(--accent-waiting-text);
-}
-
-.field-status {
-  margin-top: 10px;
-  font-size: 12px;
-  min-height: 18px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-tertiary);
-}
-
-.field-status svg,
-.footer-msg svg {
-  width: 14px;
-  height: 14px;
 }
 
 .error-text {
@@ -393,57 +61,625 @@
   margin-left: auto;
 }
 
-.footer-msg {
+/* ---------- окно ответа ---------- */
+
+/* Высота постоянная: лента прокручивается внутри, а строка ввода стоит внизу. */
+.reply-window {
+  height: min(780px, 90vh);
+}
+
+.reply-head {
+  padding: 14px 20px 14px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+/* Шапка: чей это вопрос, куда перейти к его сессии, и вкладки окна. */
+.task-strip {
+  flex: 1;
+  min-width: 0;
+}
+
+.strip-task {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Проект и копия — каждый со своим значком, без разделителя между ними. */
+.strip-meta {
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 16px;
+  font-family: var(--font-mono);
   font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.meta-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
-.btn {
-  font: inherit;
-  padding: 10px 20px;
-  border-radius: 6px;
-  font-weight: 600;
-  cursor: pointer;
-  border: 1px solid var(--border-strong);
-  background: transparent;
+/* длинное имя переносится внутри своего пункта, а не распирает шапку */
+.meta-item > span {
+  min-width: 0;
+}
+
+.modal-overlay .meta-item svg {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  color: var(--text-secondary);
+}
+
+.strip-project {
+  font-family: var(--font-sans);
+  font-weight: 500;
   color: var(--text-primary);
+}
+
+.strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Вкладки — общий переключатель панели (Tabs.css), справа от переходов в сессию. */
+.reply-tabs {
+  margin-left: auto;
+}
+
+/* Синий — цвет самого VS Code, а не тема панели: кнопка узнаётся по нему вместе с иконкой. */
+.btn-code {
+  --code-blue: #0098ff;
   display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 5px 11px;
+  border: 1px solid rgba(0, 152, 255, 0.35);
+  border-radius: 6px;
+  background: rgba(0, 152, 255, 0.12);
+  color: var(--code-blue);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-code:hover:not(:disabled) {
+  background: rgba(0, 152, 255, 0.22);
+}
+
+.btn-code:disabled {
+  border-color: var(--border-subtle);
+  background: none;
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/* Значки кнопок шапки и строки ввода — сильнее общего `.modal-overlay svg` (ui-style.md). */
+.modal-overlay .btn-code svg {
+  width: 16px;
+  height: 16px;
+}
+
+.open-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 24px 0;
+  font-size: 13px;
+}
+
+.modal-overlay .open-error svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---------- лента ---------- */
+
+.reply-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+}
+
+.reply-feed.is-centered {
+  justify-content: center;
+}
+
+.feed-item {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Вопрос агента — входящая реплика слева: серый пузырь, острый угол слева снизу. */
+.agent-q {
+  align-self: flex-start;
+  max-width: min(620px, 92%);
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px;
+  border-radius: 18px;
+  border-bottom-left-radius: 4px;
+  background: var(--bg-surface-hover);
+}
+
+.q-title {
+  font-size: 20px;
+  line-height: 1.3;
+  font-weight: 600;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.q-context {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.agent-q code,
+.agent-q pre {
+  background: var(--bg-surface);
+}
+
+.radio-list {
+  display: grid;
+  gap: 8px;
+}
+
+.radio-opt {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 4px 12px;
+  transition:
+    border-color 0.2s,
+    background 0.2s;
+}
+
+.radio-opt:hover {
+  border-color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+}
+
+.radio-opt[aria-pressed='true'] {
+  border-color: var(--accent-waiting-text);
+  box-shadow: 0 0 0 1px var(--accent-waiting-text);
+}
+
+.radio-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  margin-top: 2px;
+  display: grid;
+  place-items: center;
+}
+
+.radio-opt[aria-pressed='true'] .radio-dot {
+  border-color: var(--accent-waiting-text);
+}
+
+.radio-opt[aria-pressed='true'] .radio-dot::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-waiting-fill);
+}
+
+.opt-head {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 
-.btn:hover:not(:disabled) {
-  background: var(--bg-surface-hover);
+.opt-title {
+  font-weight: 600;
+  font-size: 14px;
 }
 
-.btn-primary {
-  background: var(--accent-waiting-fill);
-  border-color: var(--accent-waiting-fill);
-  color: var(--accent-waiting-on);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-waiting-fill);
-  filter: brightness(1.08);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-icon {
-  border: none;
-  padding: 5px;
+.opt-desc {
+  grid-column: 2;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--text-secondary);
 }
 
-.btn:focus-visible,
-.option-card:focus-visible,
-.step-indicator:focus-visible,
-.context-accordion summary:focus-visible {
+.tag-rec {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border: 1px solid var(--accent-waiting-border);
+  white-space: nowrap;
+}
+
+/* Свёрнутый вопрос — серая капсула по ширине текста; все свёрнутые одинаковы. */
+.q-compact {
+  align-self: flex-start;
+  max-width: min(620px, 92%);
+  font: inherit;
+  text-align: left;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  border-bottom-left-radius: 6px;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.q-compact:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.qc-title {
+  color: var(--text-primary);
+  font-weight: 500;
+  min-width: 0;
+}
+
+/* Ответ оператора — пузырь справа, нейтральный: янтарь в панели значит ожидание — правка оператора. */
+.op-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.op-bubble {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  max-width: min(460px, 85%);
+  padding: 12px 14px;
+  border-radius: 14px;
+  border-top-right-radius: 4px;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.op-bubble.is-current {
+  border-color: var(--border-strong);
+}
+
+.ans-choice {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ans-effect {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.ans-text {
+  font-size: 14px;
+  margin: 0;
+}
+
+/* Ответы ушли: ленты не видно, на её месте знак отправки, а внизу «Отменить». */
+.reply-done {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  text-align: center;
+}
+
+.done-mark {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--accent-active-text);
+  background: var(--accent-active-bg);
+  border: 2px solid var(--accent-active-border);
+}
+
+.modal-overlay .done-mark svg {
+  width: 34px;
+  height: 34px;
+  stroke-width: 2.5;
+}
+
+.done-text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+/* ---------- строка ввода ---------- */
+
+.composer {
+  border-top: 1px solid var(--border-subtle);
+  padding: 12px 20px 14px;
+  display: grid;
+  gap: 6px;
+  background: var(--footer-tint);
+}
+
+.composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.composer-field {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  outline: none;
+}
+
+.composer-field:focus {
+  border-color: var(--accent-waiting-text);
+}
+
+.composer.has-error .composer-field {
+  border-color: var(--accent-error-text);
+}
+
+.composer-row.is-undo {
+  justify-content: flex-end;
+}
+
+.composer-undo {
+  padding: 9px 16px;
+}
+
+.composer-send {
+  padding: 9px 16px;
+  white-space: nowrap;
+}
+
+.modal-overlay .composer-send svg {
+  width: 16px;
+  height: 16px;
+}
+
+.field-error {
+  font-size: 12px;
+  display: inline-flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.modal-overlay .field-error svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+
+/* Записанные ответы уводят окно угасанием; обычное закрытие мгновенно — решение оператора. */
+.modal-overlay.is-leaving {
+  opacity: 0;
+  /* длительность приходит из кода окна (FADE_MS): иначе числа разойдутся и окно мигнёт */
+  transition: opacity var(--fade-ms) ease;
+  /* пока окно гаснет, щелчки идут таблице под ним, а не в прозрачный слой */
+  pointer-events: none;
+}
+
+.modal-overlay.is-leaving .reply-window {
+  transform: scale(0.985);
+  transition: transform var(--fade-ms) ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay.is-leaving .reply-window {
+    transform: none;
+  }
+}
+
+/* ---------- вкладки контекста и артефактов — макет B-216: https://claude.ai/artifact/CaMcZtztetGzEctdvja5km ---------- */
+
+/* Содержимое занимает всю область под шапкой: строки от края до края, между ними линии. */
+.tab-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-body.is-centered {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.ctx-section + .ctx-section {
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* «Не входит» — последний раздел и тянется до низа окна. */
+.ctx-section:last-child {
+  flex: 1;
+}
+
+.acc-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  margin: 0;
+  padding: 20px 24px 8px;
+}
+
+.criteria,
+.artifacts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.criteria li,
+.artifacts li {
+  padding: 14px 24px;
+}
+
+.criteria li + li,
+.artifacts li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.artifacts {
+  padding-top: 6px;
+}
+
+.scope-text {
+  padding: 0 24px 20px;
+}
+
+/* ошибка открытия файла — строкой на всю ширину под списком артефактов */
+.tab-body .open-error {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.criterion-title,
+.artifact-label {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* текст критерия — размеченный markdown, структуру задаёт Markdown.css */
+.criterion-text {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.artifact-address {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+a.artifact-address {
+  color: var(--accent-waiting-text);
+  text-decoration: none;
+}
+
+a.artifact-address:hover,
+.artifact-file:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+/* путь к файлу — кнопка открытия в VS Code, но выглядит строкой адреса */
+.artifact-file {
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifact-file:disabled {
+  cursor: default;
+}
+
+.radio-opt:focus-visible,
+.q-compact:focus-visible,
+.composer-undo:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .reply-head,
+  .reply-feed,
+  .composer,
+  .acc-label,
+  .criteria li,
+  .artifacts li,
+  .scope-text,
+  .tab-body .open-error {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .reply-tabs {
+    margin-left: 0;
+  }
+
+  .agent-q,
+  .q-compact,
+  .op-bubble {
+    max-width: 100%;
+  }
+
+  .agent-q {
+    padding: 14px;
+  }
+
+  .composer-row {
+    flex-wrap: wrap;
+  }
+
+  .composer-field {
+    flex-basis: 100%;
+    order: -1;
+  }
 }

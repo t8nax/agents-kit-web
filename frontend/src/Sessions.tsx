@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useCollapsedGroups } from './collapsedGroups'
 import NewSessionModal from './NewSessionModal'
 import { PlusIcon } from './NewWorkspaceModal'
 import RowMenu from './RowMenu'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
+import './Modal.css'
 import './Sessions.css'
 import { TerminalIcon } from './TerminalIcon'
 import { uptime } from './uptime'
@@ -58,6 +61,7 @@ const columnCount = 5
 export default function Sessions() {
   const [rows, setRows] = useState<SessionRow[] | null>(null)
   const [failed, setFailed] = useState(false)
+  const reveal = useReveal(rows === null && !failed)
   const [copy, setCopy] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -173,7 +177,8 @@ export default function Sessions() {
     <>
       <div className="content-head">
         <h2>Сессии</h2>
-        {/* Кнопка стоит там же и выглядит так же, как «Новая копия» в таблице копий — решение оператора */}
+        {/* Кнопка выглядит так же, как «Новая копия» в таблице копий, но стоит у правого края: к заголовку
+            переехала только «Новая копия» — решения оператора, B-205 */}
         <button type="button" className="bases-btn bases-btn-add head-end" onClick={() => setStarting(true)}>
           <PlusIcon />
           Новая сессия
@@ -186,127 +191,124 @@ export default function Sessions() {
           {error}
         </p>
       )}
-      {rows && rows.length > 0 && (
-        <div className="filter-bar" role="group" aria-label="Фильтр по копиям">
-          <FilterChip label="Все копии" active={copy === null} onClick={() => setCopy(null)} />
-          {copies.map((path) => (
-            <FilterChip
-              key={path}
-              label={copyName(path)}
-              title={path}
-              active={copy === path}
-              onClick={() => setCopy(path)}
-            />
-          ))}
-        </div>
-      )}
-      {rows && rows.length === 0 && <p className="empty-message">Живых сессий Claude Code нет.</p>}
-      {shown && shown.length > 0 && (
-        <table>
-          <thead>
-            <tr>
-              <th>Копия</th>
-              <th>Сессия</th>
-              <th>Состояние</th>
-              <th>Живёт</th>
-              <th className="actions-col">Действия</th>
-            </tr>
-          </thead>
-          {groupByProject(shown).map((group) => {
-            const collapsed = groups.isCollapsed(group.key)
-            return (
-              <tbody key={group.key}>
-                <tr className="group-row">
-                  {/* Сворачивает клик по всей шапке, как в таблице рабочих копий; кнопка-стрелка — клавиатуре */}
-                  <th scope="rowgroup" colSpan={columnCount} onClick={() => groups.toggle(group.key)}>
-                    <div className="group-head">
-                      <button
-                        type="button"
-                        className="group-toggle"
-                        aria-expanded={!collapsed}
-                        aria-label={`${collapsed ? 'Развернуть' : 'Свернуть'} ${group.project}`}
-                        title={collapsed ? 'Развернуть' : 'Свернуть'}
-                      >
-                        <ChevronIcon />
-                      </button>
-                      <span className="group-name">{group.project}</span>
-                    </div>
-                  </th>
-                </tr>
-                {!collapsed &&
-                  group.rows.map((row) => (
-                    <tr key={rowKey(row)}>
-                      <td title={row.path}>{copyName(row.path)}</td>
-                      <td>
-                        <div>{row.name ?? '—'}</div>
-                        <div className="mono text-sec sub">
-                          {row.background ? `фоновая · ${row.session}` : 'в своём окне'}
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`status-badge ${stateBadges[row.state]}`}>{stateLabels[row.state]}</span>
-                      </td>
-                      <td className="mono text-sec">{uptime(row.startedAt, now)}</td>
-                      <td>
-                        <div className="row-actions">
-                          <RowMenu
-                            label={`Действия с сессией в ${copyName(row.path)}`}
-                            // Ждёт ответа API только та строка, над которой идёт действие
-                            disabled={busy === rowKey(row)}
+      {rows === null && !failed && <SessionsSkeleton shown={reveal.shown} />}
+      {rows && (
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
+          {rows.length > 0 && (
+            <div className="filter-bar" role="group" aria-label="Фильтр по копиям">
+              <FilterChip label="Все копии" active={copy === null} onClick={() => setCopy(null)} />
+              {copies.map((path) => (
+                <FilterChip
+                  key={path}
+                  label={copyName(path)}
+                  title={path}
+                  active={copy === path}
+                  onClick={() => setCopy(path)}
+                />
+              ))}
+            </div>
+          )}
+          {rows.length === 0 && <p className="empty-message">Живых сессий Claude Code нет.</p>}
+          {shown && shown.length > 0 && (
+            <table>
+              <SessionsHead />
+              {groupByProject(shown).map((group) => {
+                const collapsed = groups.isCollapsed(group.key)
+                return (
+                  <tbody key={group.key}>
+                    <tr className="group-row">
+                      {/* Сворачивает клик по всей шапке, как в таблице рабочих копий; кнопка-стрелка — клавиатуре */}
+                      <th scope="rowgroup" colSpan={columnCount} onClick={() => groups.toggle(group.key)}>
+                        <div className="group-head">
+                          <button
+                            type="button"
+                            className="group-toggle"
+                            aria-expanded={!collapsed}
+                            aria-label={`${collapsed ? 'Развернуть' : 'Свернуть'} ${group.project}`}
+                            title={collapsed ? 'Развернуть' : 'Свернуть'}
                           >
-                            {(close) => (
-                              <>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  className="row-menu-item"
-                                  onClick={() => {
-                                    close()
-                                    void openInEditor(row)
-                                  }}
-                                >
-                                  <VsCodeIcon />
-                                  Открыть в VS Code
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  className="row-menu-item"
-                                  disabled={!row.background}
-                                  onClick={() => {
-                                    close()
-                                    void openInTerminal(row)
-                                  }}
-                                >
-                                  <TerminalIcon />
-                                  Войти в сессию
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  className="row-menu-item row-menu-danger"
-                                  disabled={!row.background}
-                                  onClick={() => {
-                                    close()
-                                    // Через вопрос гасят и занятую, и ждущую ответа сессию; сразу — только простаивающую: решение оператора
-                                    if (row.state === 'idle') void stop(row)
-                                    else setConfirming(row)
-                                  }}
-                                >
-                                  <PowerIcon />
-                                  Погасить сессию
-                                </button>
-                              </>
-                            )}
-                          </RowMenu>
+                            <ChevronIcon />
+                          </button>
+                          <span className="group-name">{group.project}</span>
                         </div>
-                      </td>
+                      </th>
                     </tr>
-                  ))}
-              </tbody>
-            )
-          })}
-        </table>
+                    {!collapsed &&
+                      group.rows.map((row) => (
+                        <tr key={rowKey(row)}>
+                          <td title={row.path}>{copyName(row.path)}</td>
+                          <td>
+                            <div>{row.name ?? '—'}</div>
+                            <div className="mono text-sec sub">
+                              {row.background ? `фоновая · ${row.session}` : 'в своём окне'}
+                            </div>
+                          </td>
+                          <td>
+                            <span className={`status-badge ${stateBadges[row.state]}`}>{stateLabels[row.state]}</span>
+                          </td>
+                          <td className="mono text-sec">{uptime(row.startedAt, now)}</td>
+                          <td>
+                            <div className="row-actions">
+                              <RowMenu
+                                label={`Действия с сессией в ${copyName(row.path)}`}
+                                // Ждёт ответа API только та строка, над которой идёт действие
+                                disabled={busy === rowKey(row)}
+                              >
+                                {(close) => (
+                                  <>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      className="row-menu-item"
+                                      onClick={() => {
+                                        close()
+                                        void openInEditor(row)
+                                      }}
+                                    >
+                                      <VsCodeIcon />
+                                      Открыть в VS Code
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      className="row-menu-item"
+                                      disabled={!row.background}
+                                      onClick={() => {
+                                        close()
+                                        void openInTerminal(row)
+                                      }}
+                                    >
+                                      <TerminalIcon />
+                                      Войти в сессию
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      className="row-menu-item row-menu-danger"
+                                      disabled={!row.background}
+                                      onClick={() => {
+                                        close()
+                                        // Через вопрос гасят и занятую, и ждущую ответа сессию; сразу — только простаивающую: решение оператора
+                                        if (row.state === 'idle') void stop(row)
+                                        else setConfirming(row)
+                                      }}
+                                    >
+                                      <PowerIcon />
+                                      Погасить сессию
+                                    </button>
+                                  </>
+                                )}
+                              </RowMenu>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                )
+              })}
+            </table>
+          )}
+        </div>
       )}
       {starting && (
         <NewSessionModal
@@ -336,6 +338,80 @@ export default function Sessions() {
         />
       )}
     </>
+  )
+}
+
+function SessionsHead() {
+  return (
+    <thead>
+      <tr>
+        <th>Копия</th>
+        <th>Сессия</th>
+        <th>Состояние</th>
+        <th>Живёт</th>
+        <th className="actions-col">Действия</th>
+      </tr>
+    </thead>
+  )
+}
+
+/**
+ * Перечень, пока сессии читаются в первый раз: чипы копий и строки таблицы полосами под настоящей
+ * шапкой колонок (макет B-201). Прежде до первого ответа раздел стоял пустым.
+ */
+function SessionsSkeleton({ shown }: { shown: boolean }) {
+  const row = (copy: number, name: number, sub: number, badge: number) => (
+    <tr className="sk-frame" key={`${copy}-${name}`}>
+      <td>
+        <Sk w={copy} h={11} />
+      </td>
+      <td>
+        <div>
+          <Sk w={name} h={11} />
+        </div>
+        <div className="sub">
+          <Sk w={sub} h={8} />
+        </div>
+      </td>
+      <td>
+        <Sk w={badge} h={22} />
+      </td>
+      <td>
+        <Sk w={52} h={10} />
+      </td>
+      <td>
+        <div className="row-actions">
+          <Sk w={24} h={24} />
+        </div>
+      </td>
+    </tr>
+  )
+  const group = (width: number, rows: ReactNode[]) => (
+    <tbody>
+      <tr className="group-row sk-frame">
+        <th colSpan={columnCount}>
+          <div className="group-head">
+            <Sk w={14} h={14} />
+            <Sk w={width} h={12} />
+          </div>
+        </th>
+      </tr>
+      {rows}
+    </tbody>
+  )
+  return (
+    <Skeleton label="Загрузка сессий" shown={shown}>
+      <div className="filter-bar">
+        {[86, 130, 116, 124].map((w) => (
+          <Sk key={w} w={w} h={28} className="sk-pill" />
+        ))}
+      </div>
+      <table>
+        <SessionsHead />
+        {group(118, [row(120, 170, 118, 80), row(104, 140, 96, 118)])}
+        {group(86, [row(112, 160, 118, 100)])}
+      </table>
+    </Skeleton>
   )
 }
 

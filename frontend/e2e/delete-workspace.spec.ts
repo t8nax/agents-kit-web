@@ -56,12 +56,28 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await item.click()
 
     const dialog = page.getByRole('dialog', { name: 'Удалить рабочую копию' })
-    await expect(dialog).toContainText('Копия quiet-cedar уйдёт с диска')
-    const preview = dialog.getByLabel('Что будет удалено')
-    await expect(preview).toContainText('D:\\Projects\\quiet-cedar')
-    await expect(preview).toContainText('quiet-cedar — останется')
+    // Копия и её проект — в первой строке; пути и ветки окно не показывает (B-215)
+    await expect(dialog).toContainText('Копия quiet-cedar проекта Agents Kit Web уйдёт с диска')
+    await expect(dialog.getByLabel('Что будет удалено')).toHaveCount(0)
+    await expect(dialog).not.toContainText('D:\\Projects')
+    await expect(dialog).not.toContainText('останется')
+    const transparent = 'rgba(0, 0, 0, 0)'
     // Окно непрозрачно в обеих темах: таблица под ним не просвечивает
-    await expect(dialog).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(dialog).not.toHaveCSS('background-color', transparent)
+    // Значки окна — общие 18px окон: выносом общих стилей в Modal.css они было сжались до 16px (B-199)
+    const icon = dialog.locator('.dw-head-icon svg')
+    await expect(async () => expect((await icon.boundingBox())!.width).toBe(18)).toPass()
+    // Вид «Легче», как у окна новой копии (B-215): шапка и подвал без полос и подкраски
+    await expect(dialog.locator('.dw-head')).toHaveCSS('border-bottom-style', 'none')
+    await expect(dialog.locator('.dw-footer')).toHaveCSS('border-top-style', 'none')
+    await expect(dialog.locator('.dw-footer')).toHaveCSS('background-color', transparent)
+    // Необратимое действие залито, а не обведено: общий стиль кнопок уже однажды перебивал заливку (B-215)
+    const cancelBackground = await dialog
+      .getByRole('button', { name: 'Отмена' })
+      .evaluate((node) => getComputedStyle(node).backgroundColor)
+    const danger = dialog.getByRole('button', { name: 'Удалить копию' })
+    await expect(danger).not.toHaveCSS('background-color', transparent)
+    await expect(danger).not.toHaveCSS('background-color', cancelBackground)
 
     await dialog.getByRole('button', { name: 'Удалить копию' }).click()
 

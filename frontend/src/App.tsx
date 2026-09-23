@@ -10,18 +10,15 @@ import type { AgentKind } from './agentRequest'
 import Flow, { FlowIcon } from './Flow'
 import NewWorkspaceModal, { PlusIcon } from './NewWorkspaceModal'
 import Performers, { PerformerIcon } from './Performers'
-import {
-  notificationsActive,
-  notifyStatusChange,
-  useNotifications,
-  type NotificationPermissionState,
-} from './notifications'
+import { notificationsActive, notifyStatusChange } from './notifications'
 import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask } from './taskTitle'
@@ -123,11 +120,17 @@ type Section =
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
+  const reveal = useReveal(state.rows === null && !state.failed)
   const [section, setSection] = useState<Section>('workspaces')
   const [replyTo, setReplyTo] = useState<WorkspaceRow | null>(null)
   const [asking, setAsking] = useState(false)
   // Просьба, к которой оператор вернулся из шапки: раздел с её окном открывается заново, с её базой.
-  const [openRequest, setOpenRequest] = useState<{ kind: AgentKind; base: string; at: number } | null>(null)
+  const [openRequest, setOpenRequest] = useState<{
+    kind: AgentKind
+    base: string
+    subject?: string | null
+    at: number
+  } | null>(null)
   const [creating, setCreating] = useState(false)
   // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
   const [started, setStarted] = useState<string | null>(null)
@@ -139,7 +142,6 @@ function App() {
   const inFlight = useRef(0)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
-  const notifications = useNotifications()
   const theme = useTheme()
 
   const loadRows = useCallback(() => {
@@ -218,12 +220,6 @@ function App() {
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
         </svg>
         <h3>Agents Kit Web</h3>
-        <NotificationsControl
-          permission={notifications.permission}
-          muted={notifications.muted}
-          onRequest={notifications.request}
-          onToggle={notifications.setEnabled}
-        />
         <AgentBar
           onOpen={(request) => {
             if (request.kind === 'ask') {
@@ -231,7 +227,7 @@ function App() {
               return
             }
             setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
-            setOpenRequest({ kind: request.kind, base: request.base, at: Date.now() })
+            setOpenRequest({ kind: request.kind, base: request.base, subject: request.subject, at: Date.now() })
           }}
         />
         <button type="button" className="bases-btn" onClick={() => setAsking(true)}>
@@ -256,7 +252,7 @@ function App() {
                 <h2>Рабочие копии</h2>
                 <button
                   type="button"
-                  className="bases-btn bases-btn-add head-end"
+                  className="bases-btn bases-btn-add head-btn"
                   disabled={!state.rows}
                   onClick={() => setCreating(true)}
                 >
@@ -265,15 +261,18 @@ function App() {
                 </button>
               </div>
               {state.failed && <p className="message warning-text">Нет связи с API</p>}
+              {state.rows === null && !state.failed && <WorkspacesSkeleton shown={reveal.shown} />}
               {state.rows && (
-                <WorkspacesTable
-                  rows={state.rows}
-                  fresh={fresh}
-                  onReply={setReplyTo}
-                  onRemove={setRemoving}
-                  onProblems={() => setSection('problems')}
-                  onSettings={() => setSection('settings')}
-                />
+                <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
+                  <WorkspacesTable
+                    rows={state.rows}
+                    fresh={fresh}
+                    onReply={setReplyTo}
+                    onRemove={setRemoving}
+                    onProblems={() => setSection('problems')}
+                    onSettings={() => setSection('settings')}
+                  />
+                </div>
               )}
               {state.rows?.length === 0 && (
                 <p className="empty-message">
@@ -293,9 +292,10 @@ function App() {
               }}
             />
           ) : section === 'flow' ? (
+            // Раздел не пересоздаётся возвратом к просьбе: в нём могут быть несохранённые правки флоу.
             <Flow
-              key={openRequest?.kind === 'flow' ? openRequest.at : 'flow'}
               baseFor={openRequest?.kind === 'flow' ? openRequest.base : null}
+              rewriteAt={openRequest?.kind === 'flow' ? openRequest.at : null}
               onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (
@@ -303,6 +303,7 @@ function App() {
             <Performers
               key={openRequest?.kind === 'performer' ? openRequest.at : 'performers'}
               draftFor={openRequest?.kind === 'performer' ? openRequest.base : null}
+              draftSubject={openRequest?.kind === 'performer' ? (openRequest.subject ?? null) : null}
             />
           ) : section === 'sessions' ? (
             <Sessions />
@@ -540,48 +541,6 @@ function GearIcon() {
   )
 }
 
-function NotificationsControl({
-  permission,
-  muted,
-  onRequest,
-  onToggle,
-}: {
-  permission: NotificationPermissionState
-  muted: boolean
-  onRequest: () => void
-  onToggle: (enabled: boolean) => void
-}) {
-  if (permission === 'default') {
-    return (
-      <button type="button" className="bases-btn header-start" onClick={onRequest}>
-        <BellIcon />
-        Включить уведомления
-      </button>
-    )
-  }
-  if (permission === 'granted') {
-    return (
-      <button type="button" className="bases-btn header-start" onClick={() => onToggle(muted)}>
-        {muted ? <BellOffIcon /> : <BellIcon />}
-        {muted ? 'Включить уведомления' : 'Выключить уведомления'}
-      </button>
-    )
-  }
-  if (permission === 'denied') {
-    return <span className="header-start header-note text-ter">Уведомления запрещены в браузере</span>
-  }
-  return <span className="header-start" />
-}
-
-function BellIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-    </svg>
-  )
-}
-
 function SunIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -595,18 +554,6 @@ function MoonIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z" />
-    </svg>
-  )
-}
-
-function BellOffIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-      <path d="M18.63 13A17.89 17.89 0 0 1 18 8" />
-      <path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" />
-      <path d="M18 8a6 6 0 0 0-9.33-5" />
-      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   )
 }
@@ -630,6 +577,89 @@ function TaskCells({ task, letters }: { task: string | null; letters: string | n
       </td>
       <td className="task-col">{title}</td>
     </>
+  )
+}
+
+function WorkspacesHead() {
+  return (
+    <thead>
+      <tr>
+        <th>Копия</th>
+        <th className="num-col">№</th>
+        <th>Задача</th>
+        <th>Стадия флоу</th>
+        <th>Прогресс</th>
+        <th>Статус</th>
+        <th>Проблемы</th>
+        <th className="actions-col">Действия</th>
+      </tr>
+    </thead>
+  )
+}
+
+/**
+ * Таблица копий, пока её не опросили в первый раз: группы и строки полосами под настоящей шапкой
+ * колонок (макет B-201). Прежде до первого ответа раздел стоял пустым.
+ */
+function WorkspacesSkeleton({ shown }: { shown: boolean }) {
+  const row = (name: number, branch: number, task: string, stage: number, badge: number) => (
+    <tr className="sk-frame" key={`${name}-${branch}`}>
+      <td className="copy-col">
+        <div className="proj">
+          <Sk w={8} h={8} className="sk-round" />
+          <Sk w={name} h={11} />
+        </div>
+        <div className="sub">
+          <Sk w={branch} h={8} />
+        </div>
+      </td>
+      <td className="num-col">
+        <Sk w={46} h={18} />
+      </td>
+      <td className="task-col">
+        <Sk w={task} h={11} />
+      </td>
+      <td>
+        <Sk w={stage} h={11} />
+      </td>
+      <td>
+        <div className="progress-container">
+          <Sk w="100%" h={4} style={{ flex: 1, width: 'auto' }} />
+          <Sk w={26} h={9} />
+        </div>
+      </td>
+      <td>
+        <Sk w={badge} h={22} />
+      </td>
+      <td />
+      <td>
+        <div className="row-actions">
+          <Sk w={24} h={24} />
+        </div>
+      </td>
+    </tr>
+  )
+  const group = (width: number, rows: ReactNode[]) => (
+    <tbody>
+      <tr className="group-row sk-frame">
+        <th colSpan={columnCount}>
+          <div className="group-head">
+            <Sk w={14} h={14} />
+            <Sk w={width} h={12} />
+          </div>
+        </th>
+      </tr>
+      {rows}
+    </tbody>
+  )
+  return (
+    <Skeleton label="Загрузка рабочих копий" shown={shown}>
+      <table>
+        <WorkspacesHead />
+        {group(118, [row(104, 150, '72%', 84, 84), row(88, 124, '58%', 96, 104), row(96, 138, '64%', 70, 72)])}
+        {group(86, [row(70, 110, '48%', 84, 84), row(92, 132, '66%', 90, 104)])}
+      </table>
+    </Skeleton>
   )
 }
 
@@ -707,18 +737,7 @@ function WorkspacesTable({
       {kitState && <KitNotice kit={kitState === 'kit-not-set' ? 'not-set' : 'not-found'} onSettings={onSettings} />}
       {openError && <p className="message warning-text">{openError}</p>}
       <table>
-        <thead>
-          <tr>
-            <th>Копия</th>
-            <th className="num-col">№</th>
-            <th>Задача</th>
-            <th>Стадия флоу</th>
-            <th>Прогресс</th>
-            <th>Статус</th>
-            <th>Проблемы</th>
-            <th className="actions-col">Действия</th>
-          </tr>
-        </thead>
+        <WorkspacesHead />
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
           const waiting = group.rows.some((row) => row.status === 'waiting')

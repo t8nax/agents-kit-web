@@ -46,6 +46,8 @@ export async function mockAgentPanel(page: Page, kind: AgentKind, postUrl: strin
       text: String(body.question ?? body.text ?? body.wish ?? ''),
       elapsedMs: 0,
       state: 'running',
+      // Как в API: просьба о правке исполнителя помнит, кого переписывает.
+      subject: (body.current as { name?: string } | null | undefined)?.name ?? null,
     }
     panel.state = 'running'
     await route.fulfill({ json: { ...panel.request } })

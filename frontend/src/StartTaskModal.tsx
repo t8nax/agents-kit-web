@@ -2,7 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
 import type { BacklogEntry } from './Backlog'
 import { copyName, freeCopies } from './copies'
+import { ChoiceMark } from './ChoiceMark'
 import type { BaseFlow, NamedFlow } from './Flow'
+import { readStartWords, saveStartWords } from './startWords'
+import './Modal.css'
+import './ReplyModal.css'
 import './StartTaskModal.css'
 
 type Props = {
@@ -13,7 +17,10 @@ type Props = {
   onStarted: (copy: string) => void
 }
 
-type Problem = 'copy-busy' | 'copy-starting' | 'record-unknown' | 'flow-unknown' | 'agent'
+type Problem = 'copy-busy' | 'copy-starting' | 'record-unknown' | 'flow-unknown' | 'words-too-long' | 'agent'
+
+/** Слова уходят сессии аргументом командной строки, а её длину Windows ограничивает — предел с большим запасом. */
+export const WORDS_LIMIT = 8000
 
 type Load =
   | { kind: 'loading' }
@@ -30,6 +37,8 @@ function failureOf(problem: Problem, message: string | null): string {
       return 'В этой копии панель уже запустила задачу — агент ещё не завёл её память.'
     case 'record-unknown':
       return 'Этой записи больше нет в бэклоге: её взяли или удалили. Закройте окно и откройте заново.'
+    case 'words-too-long':
+      return `Начальные слова длиннее ${WORDS_LIMIT} знаков — сократите их.`
     case 'flow-unknown':
       return 'Этого флоу в базе больше нет: его переименовали или удалили. Закройте окно и откройте заново.'
     default:
@@ -39,13 +48,15 @@ function failureOf(problem: Problem, message: string | null): string {
 
 /**
  * Окно запуска задачи: запись выбрана в бэклоге, оператор выбирает флоу, которым её вести, и свободную копию
- * её проекта. Выбор флоу виден всегда, даже при одном флоу, первым выбран первый — ответ оператора.
+ * её проекта. Выбор флоу виден всегда, даже при одном флоу, первым выбран первый — ответ оператора. Последним
+ * разделом — необязательные начальные слова сессии; набранные помнятся у записи, пока задачу не запустили.
  */
 export default function StartTaskModal({ base, entry, onClose, onStarted }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [path, setPath] = useState<string | null>(null)
   const [flows, setFlows] = useState<Flows>({ kind: 'loading' })
   const [flow, setFlow] = useState<string | null>(null)
+  const [words, setWords] = useState(() => readStartWords(base, entry.number))
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -131,9 +142,11 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base, copy: chosen.path, number: entry.number, flow }),
+        body: JSON.stringify({ base, copy: chosen.path, number: entry.number, flow, words: words.trim() === '' ? undefined : words }),
       })
       if (response.ok) {
+        // Задача запущена — слова ушли сессии, черновик больше не нужен; неудача его оставляет.
+        saveStartWords(base, entry.number, '')
         onStarted(copyName(chosen.path))
         return
       }
@@ -194,7 +207,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                 {/* Два флоу с одним именем кит считает поломкой, но показать их надо оба — ключ по месту. */}
                 {flows.flows.map((one, index) => (
                   <li key={index}>
-                    <label className={`st-copy ${one.name === flow ? 'is-on' : ''}`}>
+                    <label className={`st-copy choice ${one.name === flow ? 'is-on' : ''}`}>
                       <input
                         type="radio"
                         name="st-flow"
@@ -206,9 +219,9 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                           setFailure(null)
                         }}
                       />
-                      <span className="st-radio" aria-hidden="true" />
+                      <ChoiceMark />
                       <span className="st-copy-text">
-                        <span className="st-copy-name">{one.name}</span>
+                        <span className="st-copy-name choice-name">{one.name}</span>
                         {one.when && <span className="st-copy-sub text-ter">когда: {one.when}</span>}
                       </span>
                     </label>
@@ -229,7 +242,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               <ul className="st-list">
                 {copies.map((row) => (
                   <li key={row.path}>
-                    <label className={`st-copy ${row.path === path ? 'is-on' : ''}`} title={row.path}>
+                    <label className={`st-copy choice ${row.path === path ? 'is-on' : ''}`} title={row.path}>
                       <input
                         type="radio"
                         name="st-copy"
@@ -241,9 +254,9 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                           setFailure(null)
                         }}
                       />
-                      <span className="st-radio" aria-hidden="true" />
+                      <ChoiceMark />
                       <span className="st-copy-text">
-                        <span className="st-copy-name">{copyName(row.path)}</span>
+                        <span className="st-copy-name choice-name">{copyName(row.path)}</span>
                         {/* Моноширинным идёт только имя ветки — как в строке таблицы копий */}
                         <span className="st-copy-sub text-ter">
                           {row.branch ? <>ветка <span className="mono">{row.branch}</span></> : 'ветка неизвестна'}
@@ -255,6 +268,31 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
               </ul>
             )}
           </fieldset>
+
+          {/* Слова уходят сессии той же просьбой, что номер и флоу, — с новой строки под ними. */}
+          <div className="st-field">
+            <label className="st-label" htmlFor="st-words">
+              Начальные слова
+            </label>
+            <textarea
+              id="st-words"
+              className="custom-textarea st-words"
+              value={words}
+              disabled={busy}
+              maxLength={WORDS_LIMIT}
+              placeholder="На что обратить внимание, с чего начать, что уже решено"
+              onChange={(e) => {
+                setWords(e.target.value)
+                saveStartWords(base, entry.number, e.target.value)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault()
+                  e.currentTarget.form?.requestSubmit()
+                }
+              }}
+            />
+          </div>
         </div>
 
         <div className="st-footer">

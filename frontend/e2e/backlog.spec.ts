@@ -168,9 +168,53 @@ for (const colorScheme of ['light', 'dark'] as const) {
       }
     }).toPass()
 
-    await expect(rows.nth(0).getByRole('button', { name: 'Взять задачу' })).toBeEnabled()
-    await expect(rows.nth(1).locator('.entry-num')).toHaveText('B-7')
-    await expect(rows.nth(1).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
-    await expect(rows.nth(2).getByRole('button', { name: 'Взять задачу' })).toHaveCount(0)
+    // Строки ищутся по номеру: по умолчанию записи стоят по номеру, а не как в файле (B-78)
+    const row = (text: string) => rows.filter({ hasText: text })
+    await expect(row('ORD-15').getByRole('button', { name: 'Взять задачу' })).toBeEnabled()
+    await expect(row('B-7').getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+    await expect(row('часовыми поясами').getByRole('button', { name: 'Взять задачу' })).toHaveCount(0)
   })
 }
+
+test('записи отбираются чипами и поиском, порядок выбирается и помнится после перезагрузки', async ({ page }) => {
+  await mockApi(page, [
+    { number: 'B-1', title: 'Старый баг', text: null, type: 'баг', priority: 'средний' },
+    { number: 'B-2', title: 'Фича про импорт', text: null, type: 'фича', priority: 'блокер' },
+    { number: 'B-3', title: 'Срочный баг импорта', text: null, type: 'баг', priority: 'высокий' },
+  ])
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+  const bar = page.getByRole('group', { name: 'Отбор и порядок записей' })
+  const numbers = page.getByRole('region', { name: 'Agents Kit Web' }).locator('.entry-num')
+  await expect(numbers).toHaveText(['B-1', 'B-2', 'B-3'])
+
+  // Строка стоит одной линией: поиск слева, порядок прижат вправо
+  const search = await bar.getByRole('textbox', { name: 'Поиск' }).boundingBox()
+  const order = await bar.getByRole('combobox', { name: 'Порядок' }).boundingBox()
+  expect(Math.abs(search!.y + search!.height / 2 - (order!.y + order!.height / 2))).toBeLessThan(2)
+  expect(order!.x).toBeGreaterThan(search!.x + 400)
+
+  await bar.getByRole('button', { name: 'высокий' }).click()
+  await bar.getByRole('button', { name: 'блокер' }).click()
+  await expect(numbers).toHaveText(['B-2', 'B-3'])
+  // Под отбор по полю у Nota ничего не подошло — проект скрыт
+  await expect(page.getByRole('region', { name: 'Nota' })).toHaveCount(0)
+
+  await bar.getByRole('textbox', { name: 'Поиск' }).fill('баг')
+  await expect(numbers).toHaveText(['B-3'])
+  await bar.getByRole('textbox', { name: 'Поиск' }).fill('нет такого')
+  await expect(page.getByText('Под фильтр записей нет')).toBeVisible()
+  await bar.getByRole('button', { name: 'Очистить' }).click()
+
+  await bar.getByRole('combobox', { name: 'Порядок' }).selectOption('По приоритету')
+  await bar.getByRole('button', { name: 'По возрастанию' }).click()
+  await expect(numbers).toHaveText(['B-2', 'B-3'])
+
+  await page.reload()
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+  await expect(bar.getByRole('combobox', { name: 'Порядок' })).toHaveValue('priority')
+  await expect(bar.getByRole('button', { name: 'По убыванию' })).toBeVisible()
+  await expect(bar.getByRole('button', { name: 'блокер' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(numbers).toHaveText(['B-2', 'B-3', 'B-1'])
+})

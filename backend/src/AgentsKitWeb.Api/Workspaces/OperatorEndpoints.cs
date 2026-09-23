@@ -7,10 +7,11 @@ namespace AgentsKitWeb.Api.Workspaces;
 public sealed record QuestionsResponse(
     string Project,
     string Copy,
+    string? Branch,
     string? Task,
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
-    string? Design,
+    IReadOnlyList<TaskArtifact> Artifacts,
     IReadOnlyList<OperatorQuestion> Questions,
     bool VsCodeSession,
     bool BackgroundSession);
@@ -27,6 +28,10 @@ public sealed record OpenWorkspaceRequest(string Base, string Copy);
 
 public sealed record OpenWorkspaceFailedResponse(string Problem);
 
+public sealed record OpenArtifactRequest(string Base, string Copy, int Index, string Address);
+
+public sealed record OpenArtifactFailedResponse(string Problem);
+
 public static class OperatorEndpoints
 {
     public static void MapOperatorEndpoints(this IEndpointRouteBuilder app)
@@ -40,10 +45,11 @@ public static class OperatorEndpoints
             return Results.Ok(new QuestionsResponse(
                 ProjectName.Of(@base),
                 memory.Copy!,
+                memory.Branch,
                 memory.Task,
                 memory.Criteria,
                 memory.OutOfScope,
-                memory.Design,
+                memory.Artifacts,
                 memory.Questions.Where(q => q.Answer is null).ToList(),
                 sessions.VsCodeIn(memory.Copy!) is not null,
                 sessions.BackgroundIn(memory.Copy!, tasks.SessionIn(memory.Copy!)) is not null));
@@ -109,6 +115,44 @@ public static class OperatorEndpoints
                 : Results.Json(new OpenSessionFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
         });
 
+        // Файл-артефакт задачи открывается в VS Code, в окне копии задачи, — решение оператора на B-87.
+        // Запрос называет артефакт номером в памяти, а не путём: файл, которого нет в «Артефактах»
+        // памяти копии, по HTTP не открыть.
+        app.MapPost("/api/artifact/open", async (
+            OpenArtifactRequest request,
+            BasesStore bases,
+            IEditorWindows windows,
+            CancellationToken cancellationToken) =>
+        {
+            if (FindMemory(bases, request.Base, request.Copy) is not { Memory: var memory }
+                || request.Index < 0 || request.Index >= memory.Artifacts.Count
+                // Окно шлёт номер из памяти, прочитанной при его открытии; агент мог с тех пор переписать
+                // «Артефакты» — тогда под этим номером другой адрес, и открывать его нельзя.
+                || memory.Artifacts[request.Index].Address != request.Address)
+                return Results.NotFound();
+
+            // Адрес без корня — путь от копии задачи; ссылки на сайт открывает браузер, а не панель.
+            var address = memory.Artifacts[request.Index].Address;
+            if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+                return Results.BadRequest(new OpenArtifactFailedResponse("not-a-file"));
+            // VS Code запускается через cmd /c, а .NET берёт аргумент в кавычки только из-за пробела:
+            // & | < > ^ % и кавычку в пути cmd разобрал бы сам — открыл бы не тот файл или выполнил
+            // хвост имени командой. Путь из памяти такой запрос не передаёт.
+            if (address.IndexOfAny(CmdSpecial) >= 0)
+                return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
+            var path = Path.GetFullPath(Path.Combine(memory.Copy!, address));
+            // Артефактом бывает и папка: она открывается своим окном VS Code, как копия.
+            var opened = File.Exists(path) ? windows.OpenFileAsync(memory.Copy!, path, cancellationToken)
+                : Directory.Exists(path) ? windows.OpenAsync(path, cancellationToken)
+                : null;
+            if (opened is null)
+                return Results.NotFound(new OpenArtifactFailedResponse("missing"));
+
+            return await opened
+                ? Results.NoContent()
+                : Results.Json(new OpenArtifactFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
+        });
+
         app.MapPost("/api/answers", async (AnswersRequest request, BasesStore bases, CancellationToken cancellationToken) =>
         {
             if (FindMemory(bases, request.Base, request.Copy) is not { } found)
@@ -123,6 +167,8 @@ public static class OperatorEndpoints
             };
         });
     }
+
+    private static readonly char[] CmdSpecial = ['&', '|', '<', '>', '^', '%', '"'];
 
     // Пишется только память копии из work/ базы, которая есть в списке баз панели:
     // путь к файлу панель не принимает, а собирает сама.

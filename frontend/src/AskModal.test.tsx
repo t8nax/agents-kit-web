@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import AskModal, { type AskBase, type AskEvent } from './AskModal'
+import AskModal, { type AskBase, type AskCopy, type AskEvent } from './AskModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 
 afterEach(() => {
@@ -12,8 +12,24 @@ const bases: AskBase[] = [
   { base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
-/** Панель разговора: базы, следующие реплики и остановка ответа — свои вызовы окна. */
-function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: ReturnType<typeof runningRequest>) {
+/** Копии баз: у первой — основная и копия задачи, у второй — одна основная. */
+const copies: Record<string, AskCopy[]> = {
+  [bases[0].base]: [
+    { path: 'D:\\Projects\\agents-kit-web', name: 'agents-kit-web', branch: 'master', main: true },
+    { path: 'D:\\Projects\\bright-sunny-glacier', name: 'bright-sunny-glacier', branch: 'b-130-ask-reads-code', main: false },
+  ],
+  [bases[1].base]: [
+    { path: 'D:\\Projects\\nota', name: 'nota', branch: 'dev', main: true },
+    { path: 'D:\\Projects\\nota-task', name: 'nota-task', branch: 'b-7-export', main: false },
+  ],
+}
+
+/** Панель разговора: базы, их копии, следующие реплики и остановка ответа — свои вызовы окна. */
+function stubFetch(
+  stream: { body: ReadableStream<Uint8Array> },
+  running?: ReturnType<typeof runningRequest>,
+  copiesOf: Record<string, AskCopy[]> = copies,
+) {
   const replies: string[] = []
   const stops: string[] = []
   const panel = stubPanel('ask', stream, {
@@ -21,6 +37,9 @@ function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: Retur
     project: 'Nota',
     others: (url, init) => {
       if (url === '/api/ask/bases') return Response.json(bases)
+      if (url.startsWith('/api/ask/copies?base=')) {
+        return Response.json(copiesOf[decodeURIComponent(url.slice('/api/ask/copies?base='.length))] ?? [])
+      }
       if (url === '/api/ask/reply') {
         replies.push(String((JSON.parse(String(init?.body)) as { text: string }).text))
         return new Response(null, { status: 204 })
@@ -35,9 +54,20 @@ function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: Retur
   return { ...panel, replies, stops }
 }
 
+/** Первый вопрос уходит, когда копии проекта прочитаны: до того «Отправить» приглушена. */
 async function ask(text: string) {
   fireEvent.change(await screen.findByLabelText('Вопрос'), { target: { value: text } })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled())
   fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+}
+
+/** Выбор из выпадающего списка окна: «Проект» или «Копия». */
+async function pick(list: 'Проект' | 'Копия', option: string) {
+  const button = await screen.findByRole('button', { name: new RegExp(`^${list}: `) })
+  // Список копий открывается, когда копии проекта прочитаны.
+  await waitFor(() => expect(button).toBeEnabled())
+  fireEvent.click(button)
+  fireEvent.click(within(screen.getByRole('listbox', { name: list })).getByRole('option', { name: new RegExp(option) }))
 }
 
 async function say(text: string) {
@@ -50,13 +80,17 @@ test('вопрос уходит в выбранную базу, ход рабо�
   const { posts } = stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Nota' }))
+  await pick('Проект', 'Nota')
   await ask('Почему опрос?')
 
-  expect(posts[0].body).toEqual({ base: 'D:\\Projects\\nota-knowledge', question: 'Почему опрос?' })
+  expect(posts[0].body).toEqual({
+    base: 'D:\\Projects\\nota-knowledge',
+    copy: 'D:\\Projects\\nota',
+    question: 'Почему опрос?',
+  })
   stream.send({ type: 'reply', text: 'Почему опрос?' })
   expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
-  expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо читает базу и код Nota…')).toBeInTheDocument()
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })
   const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-Юдо' })
@@ -120,18 +154,82 @@ test('кнопки подвала не съезжают: «Отправить» 
   expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeEnabled()
 })
 
-test('база выбирается один раз: посреди разговора кнопки проектов не нажимаются', async () => {
+test('база и копия выбираются один раз: посреди разговора оба списка неактивны, и надписи об этом нет', async () => {
   const stream = controlledStream<AskEvent>()
   stubFetch(stream)
   render(<AskModal onClose={() => {}} />)
 
-  expect(await screen.findByRole('button', { name: 'Nota' })).toBeEnabled()
+  expect(await screen.findByRole('button', { name: 'Проект: Agents Kit Web' })).toBeEnabled()
+  expect(await screen.findByRole('button', { name: 'Копия: agents-kit-web' })).toBeEnabled()
   await ask('Вопрос')
   stream.send({ type: 'reply', text: 'Вопрос' })
   await screen.findByText('Вопрос')
 
-  expect(screen.getByRole('button', { name: 'Nota' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: 'Agents Kit Web' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Копия: agents-kit-web' })).toBeDisabled()
+  expect(screen.queryByText(/не меняю?тся/)).not.toBeInTheDocument()
+})
+
+test('копия: первой выбрана основная, в списке у копий ветки, выбранная уходит в разговор', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { posts } = stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+
+  // На свёрнутом списке — имя и плашка основной, без ветки.
+  const button = await screen.findByRole('button', { name: 'Копия: agents-kit-web' })
+  expect(within(button).getByText('Основная')).toBeInTheDocument()
+  expect(within(button).queryByText('master')).not.toBeInTheDocument()
+
+  fireEvent.click(button)
+  const options = within(screen.getByRole('listbox', { name: 'Копия' })).getAllByRole('option')
+  expect(options.map((o) => o.textContent)).toEqual([
+    'agents-kit-webОсновнаяmaster',
+    'bright-sunny-glacierb-130-ask-reads-code',
+  ])
+  expect(options[0]).toHaveAttribute('aria-selected', 'true')
+  fireEvent.click(options[1])
+
+  await ask('Что делает Program?')
+  expect(posts[0].body).toEqual({
+    base: bases[0].base,
+    copy: 'D:\\Projects\\bright-sunny-glacier',
+    question: 'Что делает Program?',
+  })
+})
+
+test('сменили проект — в списке его копии, и снова выбрана основная', async () => {
+  const stream = controlledStream<AskEvent>()
+  stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+
+  await pick('Копия', 'bright-sunny-glacier')
+  expect(await screen.findByRole('button', { name: 'Копия: bright-sunny-glacier' })).toBeInTheDocument()
+  await pick('Проект', 'Nota')
+  expect(await screen.findByRole('button', { name: 'Копия: nota' })).toBeInTheDocument()
+  await pick('Проект', 'Agents Kit Web')
+  expect(await screen.findByRole('button', { name: 'Копия: agents-kit-web' })).toBeInTheDocument()
+})
+
+test('копий проекта на диске нет — список пуст и неактивен, а разговор идёт по одной базе', async () => {
+  const stream = controlledStream<AskEvent>()
+  const { posts } = stubFetch(stream, undefined, {})
+  render(<AskModal onClose={() => {}} />)
+
+  expect(await screen.findByRole('button', { name: 'Копия: нет на диске' })).toBeDisabled()
+  await ask('Вопрос')
+  expect(posts[0].body).toEqual({ base: bases[0].base, question: 'Вопрос' })
+})
+
+test('ответ без открытых файлов так и говорит: «Файлы не открывались»', async () => {
+  const stream = controlledStream<AskEvent>()
+  stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Вопрос')
+  stream.send({ type: 'reply', text: 'Вопрос' })
+  stream.send({ type: 'answer', text: 'Ответ', files: [], durationMs: 1000 })
+
+  expect(await screen.findByText('Файлы не открывались')).toBeInTheDocument()
 })
 
 test('сбой посреди переписки её не рушит: прежние ответы на месте, реплика вернулась в поле', async () => {
@@ -235,12 +333,19 @@ test('закрытое окно разговор не теряет: просьб
 
 test('открытое заново окно показывает переписку, которая шла без него', async () => {
   const stream = controlledStream<AskEvent>()
-  const { posts } = stubFetch(stream, runningRequest('ask', 'Почему опрос?', bases[1].base, 'Nota', 42000))
+  const { posts } = stubFetch(
+    stream,
+    // Копия задачи, а не основная: окно само выбрало бы основную, а показать надо ту, что у разговора.
+    runningRequest('ask', 'Почему опрос?', bases[1].base, 'Nota', 42000, copies[bases[1].base][1].path),
+  )
   render(<AskModal onClose={() => {}} />)
 
   stream.send({ type: 'reply', text: 'Почему опрос?' })
   expect(await screen.findByText('Почему опрос?')).toBeInTheDocument()
-  expect(await screen.findByText('Чудо-Юдо читает базу Nota…')).toBeInTheDocument()
+  // Проект и копия — того разговора, что шёл без окна, и выбрать другие нельзя.
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeDisabled()
+  expect(await screen.findByRole('button', { name: 'Копия: nota-task' })).toBeDisabled()
+  expect(await screen.findByText('Чудо-Юдо читает базу и код Nota…')).toBeInTheDocument()
   expect(screen.getByLabelText('Прошло времени')).toHaveTextContent('0:42')
 
   stream.send({ type: 'step', text: 'читает decisions/ui.md' })

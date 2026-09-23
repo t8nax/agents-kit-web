@@ -9,26 +9,34 @@ const refreshIntervalMs = 3000
 // Имя агента панели носят все просьбы, вопрос по базе тоже, — замечание оператора на приёмке B-52.
 const running: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} читает базу ${project}`,
-  backlog: (project) => `${AGENT_NAME} пишет в бэклог ${project}`,
-  flow: (project) => `${AGENT_NAME} переписывает флоу ${project}`,
+  backlog: (project) => `${AGENT_NAME} разбирает бэклог ${project}`,
+  flow: (project) => `${AGENT_NAME} переписывает стадии ${project}`,
   performer: (project) => `${AGENT_NAME} заводит исполнителя ${project}`,
 }
 
 const done: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} ответил по базе ${project}`,
-  backlog: (project) => `${AGENT_NAME} записал в бэклог ${project}`,
-  flow: (project) => `${AGENT_NAME} переписал флоу ${project}`,
+  backlog: (project) => `${AGENT_NAME} ответил по бэклогу ${project}`,
+  flow: (project) => `${AGENT_NAME} переписал стадии ${project}`,
   performer: (project) => `${AGENT_NAME} завёл исполнителя ${project}`,
 }
 
 const failed: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} не ответил по базе ${project}`,
-  backlog: (project) => `${AGENT_NAME} не записал в бэклог ${project}`,
-  flow: (project) => `${AGENT_NAME} не переписал флоу ${project}`,
+  backlog: (project) => `${AGENT_NAME} не ответил по бэклогу ${project}`,
+  flow: (project) => `${AGENT_NAME} не переписал стадии ${project}`,
   performer: (project) => `${AGENT_NAME} не завёл исполнителя ${project}`,
 }
 
+// Просьба о правке заведённого исполнителя называет его: по ней отметка ведёт в его правку, а не в нового (B-80).
+const rewriting = {
+  running: (name: string, project: string) => `${AGENT_NAME} переписывает исполнителя ${name} ${project}`,
+  done: (name: string, project: string) => `${AGENT_NAME} переписал исполнителя ${name} ${project}`,
+  failed: (name: string, project: string) => `${AGENT_NAME} не переписал исполнителя ${name} ${project}`,
+}
+
 function title(request: AgentRequestSummary) {
+  if (request.kind === 'performer' && request.subject) return rewriting[request.state](request.subject, request.project)
   const words = request.state === 'running' ? running : request.state === 'done' ? done : failed
   return words[request.kind](request.project)
 }

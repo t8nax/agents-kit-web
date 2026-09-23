@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import { type AgentKind, type AgentRequestSummary } from './agentRequest'
+import NotificationsCard from './NotificationsCard'
 import { applyChosenTheme } from './theme'
 
 // Индикатор просьб к агенту опрашивает панель сам и проверяется своим тестом: здесь он молчит,
@@ -86,6 +87,26 @@ const rows: WorkspaceRow[] = [
     error: 'Копия не найдена на диске',
   },
 ]
+
+test('до первого опроса таблица копий стоит заготовкой под шапкой колонок, а не пустой', async () => {
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(Response.json(rows))))),
+  )
+
+  render(<App />)
+
+  const skeleton = screen.getByRole('status', { name: 'Загрузка рабочих копий' })
+  expect(skeleton).toHaveAttribute('aria-busy', 'true')
+  expect(within(skeleton.querySelector('thead')!).getAllByRole('columnheader', { hidden: true })).toHaveLength(8)
+  expect(screen.getByRole('button', { name: 'Новая копия' })).toBeDisabled()
+
+  await act(async () => answer())
+
+  expect(screen.queryByRole('status', { name: 'Загрузка рабочих копий' })).not.toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
+})
 
 test('показывает рабочие копии из /api/workspaces', async () => {
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 }))
@@ -408,7 +429,7 @@ test('удаление копии открывает окно, а после у�
   })
 
   const dialog = await screen.findByRole('dialog', { name: 'Удалить рабочую копию' })
-  expect(dialog).toHaveTextContent('D:\\Projects\\app-wt')
+  expect(dialog).toHaveTextContent('Копия app-wt проекта')
   const polls = fetchMock.mock.calls.filter(([url]) => url === '/api/workspaces').length
 
   await act(async () => {
@@ -771,37 +792,27 @@ function workspaceResponses(...lists: WorkspaceRow[][]) {
 
 const inWork: WorkspaceRow = { ...rows[0], status: 'in-work' }
 
-test('без поддержки уведомлений браузером шапка их не предлагает', async () => {
+test('шапка уведомлениями не управляет: их включают в «Настройках»', async () => {
+  stubNotification('default')
   workspaceResponses(rows)
 
   render(<App />)
 
   await findTableRows()
-  expect(screen.queryByRole('button', { name: 'Включить уведомления' })).not.toBeInTheDocument()
-  expect(screen.queryByText(/Уведомления/)).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /уведомления/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('switch')).not.toBeInTheDocument()
+  expect(screen.queryByText('Уведомления запрещены в браузере')).not.toBeInTheDocument()
 })
 
-test('кнопка в шапке запрашивает разрешение на уведомления', async () => {
-  const { FakeNotification } = stubNotification('default', 'granted')
-  workspaceResponses(rows)
-
-  render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
-
-  expect(await screen.findByRole('button', { name: 'Выключить уведомления' })).toBeInTheDocument()
-  expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1)
-  expect(screen.queryByRole('button', { name: 'Включить уведомления' })).not.toBeInTheDocument()
-})
-
-test('выключенные из шапки уведомления не показываются и не держат опрос скрытой вкладки', async () => {
+test('выключенные в «Настройках» уведомления не показываются и не держат опрос скрытой вкладки', async () => {
   fakeInterval()
-  const { shown, FakeNotification } = stubNotification('granted')
+  // Так переключатель карточки «Уведомления» помнит, что уведомления выключены
+  localStorage.setItem('agents-kit-web.notifications-muted', 'true')
+  const { shown } = stubNotification('granted')
   const fetchMock = workspaceResponses([inWork], [rows[0]])
 
   render(<App />)
   await screen.findByText('В работе')
-  fireEvent.click(screen.getByRole('button', { name: 'Выключить уведомления' }))
-  expect(screen.getByRole('button', { name: 'Включить уведомления' })).toBeInTheDocument()
 
   setVisibility('hidden')
   await tick(30000)
@@ -810,39 +821,31 @@ test('выключенные из шапки уведомления не пок�
   await act(async () => setVisibility('visible'))
   expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
   expect(shown).toHaveLength(0)
-  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
 })
 
-test('уведомления включаются обратно без нового запроса разрешения, выбор помнится', async () => {
+test('выключенные и снова включённые переключателем уведомления приходят без нового запроса разрешения', async () => {
   fakeInterval()
   const { shown, FakeNotification } = stubNotification('granted')
-  workspaceResponses(rows)
-
-  const { unmount } = render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Выключить уведомления' }))
-  unmount()
-
   workspaceResponses([inWork], [rows[0]])
-  render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
-  expect(screen.getByRole('button', { name: 'Выключить уведомления' })).toBeInTheDocument()
-  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
 
+  // Карточка «Уведомления» стоит в «Настройках»; здесь она рядом с таблицей, чтобы щелчок по ней шёл в ту же панель
+  render(
+    <>
+      <App />
+      <NotificationsCard />
+    </>,
+  )
   await screen.findByText('В работе')
+  const toggle = screen.getByRole('switch', { name: 'Показывать уведомления' })
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-checked', 'false')
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-checked', 'true')
+
   await tick(3000)
   expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
   expect(shown).toHaveLength(1)
-})
-
-test('при отказе в разрешении шапка это показывает, а таблица работает', async () => {
-  stubNotification('default', 'denied')
-  workspaceResponses(rows)
-
-  render(<App />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Включить уведомления' }))
-
-  expect(await screen.findByText('Уведомления запрещены в браузере')).toBeInTheDocument()
-  expect(await findTableRows()).toHaveLength(4)
+  expect(FakeNotification.requestPermission).not.toHaveBeenCalled()
 })
 
 test('уведомляет, когда копия начала ждать оператора, и не шлёт на первом опросе', async () => {
@@ -943,7 +946,7 @@ test('опрос не закрывает окно ответа и не сбра�
     task: 'Таблица рабочих копий',
     criteria: [],
     outOfScope: null,
-    design: null,
+    artifacts: [],
     questions: [{ title: 'Какой интервал?', context: null, variants: [], answer: null }],
   }
   const fetchMock = vi.fn(async (url: string) =>
@@ -1028,25 +1031,25 @@ function sidebarButtons() {
   return within(screen.getByRole('navigation', { name: 'Разделы панели' }))
 }
 
-test('«Бэклог» из сайдбара открывается списком, а не окном записи после возврата к просьбе', async () => {
+test('«Бэклог» из сайдбара открывается списком, а не окном Чудо-Юдо после возврата к просьбе', async () => {
   stubSections()
   render(<App />)
   await screen.findByRole('table')
 
   returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
 
   const sidebar = sidebarButtons()
   fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
   fireEvent.click(sidebar.getByRole('button', { name: /Бэклог/ }))
 
   expect(await screen.findByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Запись в бэклог' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Чудо-Юдо' })).not.toBeInTheDocument()
   // Фильтр по проекту забыт вместе с окном: в списке снова все проекты
   expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
 })
 
-test('возврат к просьбе о флоу открывает раздел «Флоу»: переписывания в нём до B-179 нет', async () => {
+test('возврат к просьбе о флоу открывает раздел «Флоу» с окном переписывания, а сайдбар — без него', async () => {
   stubSections()
   render(<App />)
   await screen.findByRole('table')
@@ -1054,7 +1057,14 @@ test('возврат к просьбе о флоу открывает разде
   returnToRequest('flow', 'D:\\Projects\\app-knowledge')
 
   expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
-  expect(screen.queryByRole('heading', { name: 'Переписать флоу' })).not.toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
+
+  const sidebar = sidebarButtons()
+  fireEvent.click(sidebar.getByRole('button', { name: /Рабочие копии/ }))
+  fireEvent.click(sidebar.getByRole('button', { name: /Флоу/ }))
+
+  expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 
 test('«Исполнители» из сайдбара открываются списком, а не окном заведения после возврата к просьбе', async () => {
@@ -1079,13 +1089,13 @@ test('возврат к просьбе из шапки открывает раз
   await screen.findByRole('table')
 
   returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
 
   fireEvent.click(sidebarButtons().getByRole('button', { name: /Рабочие копии/ }))
   await screen.findByRole('table')
 
   returnToRequest('backlog', 'D:\\Projects\\app-knowledge')
-  expect(await screen.findByRole('heading', { name: 'Запись в бэклог' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
   // Раздел встал на базе просьбы: записи соседнего проекта список не показывает
   expect(screen.queryByText('Запись соседнего проекта')).not.toBeInTheDocument()
 })

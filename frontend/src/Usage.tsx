@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
 import './Usage.css'
 
 /** Окно лимита: свой счёт панели по журналам и процент лимита из учётной записи. */
@@ -55,6 +57,7 @@ export default function Usage() {
   const [view, setView] = useState<UsageView | null>(null)
   const [failed, setFailed] = useState(false)
   const [loading, setLoading] = useState(false)
+  const reveal = useReveal(view === null && !failed)
 
   const load = useCallback(() => {
     fetch('/api/usage')
@@ -91,7 +94,7 @@ export default function Usage() {
             className="usage-refresh"
             disabled={loading}
             onClick={() => {
-              // Работу показывает только кнопка: при открытии раздела на её месте «Загрузка…»
+              // Работу показывает только кнопка: при открытии раздела на месте содержимого заготовка
               setLoading(true)
               load()
             }}
@@ -102,10 +105,10 @@ export default function Usage() {
       </div>
 
       {failed && <p className="message warning-text">Нет связи с API</p>}
-      {view === null && !failed && <p className="empty-message">Загрузка…</p>}
+      {view === null && !failed && <UsageSkeleton shown={reveal.shown} />}
 
       {view && (
-        <>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {view.limitsProblem && (
             <p className="usage-failure">
               <b>Проценты лимита сейчас недоступны.</b> {view.limitsProblem} Панель спрашивает их тем же способом,
@@ -133,15 +136,7 @@ export default function Usage() {
             ) : (
               <div className="usage-table-wrap">
                 <table>
-                  <thead>
-                    <tr>
-                      <th>Модель</th>
-                      <th className="num">Токенов</th>
-                      <th className="num">По ценам API</th>
-                      <th className="num">Вес</th>
-                      <th className="num">Доля израсходованного</th>
-                    </tr>
-                  </thead>
+                  <ModelsHead />
                   <tbody>
                     {view.models.map((model) => (
                       <tr key={model.model}>
@@ -178,9 +173,96 @@ export default function Usage() {
               </div>
             )}
           </section>
-        </>
+        </div>
       )}
     </div>
+  )
+}
+
+function ModelsHead() {
+  return (
+    <thead>
+      <tr>
+        <th>Модель</th>
+        <th className="num">Токенов</th>
+        <th className="num">По ценам API</th>
+        <th className="num">Вес</th>
+        <th className="num">Доля израсходованного</th>
+      </tr>
+    </thead>
+  )
+}
+
+/** Расход, пока он читается в первый раз: три окна лимита и таблица моделей полосами (макет B-201). */
+function UsageSkeleton({ shown }: { shown: boolean }) {
+  const limit = (label: number, when: number, day = false) => (
+    <section className={`usage-window ${day ? 'day' : ''}`}>
+      <div className="usage-window-head">
+        <Sk w={label} h={10} />
+        <span className="usage-when">
+          <Sk w={when} h={9} />
+        </span>
+      </div>
+      <div className="usage-share-line" style={{ alignItems: 'center' }}>
+        <Sk w={64} h={32} style={{ borderRadius: 6 }} />
+        <Sk w={day ? 90 : 140} h={10} />
+      </div>
+      {!day && <Sk w="100%" h={8} className="sk-pill sk-block" style={{ marginTop: 12 }} />}
+      <div className="usage-window-foot" style={{ marginTop: day ? 30 : 12 }}>
+        <Sk w={160} h={9} />
+      </div>
+    </section>
+  )
+  const row = (model: number) => (
+    <tr className="sk-frame" key={model}>
+      <td>
+        <Sk w={model} h={10} />
+      </td>
+      <td className="num">
+        <Sk w={56} h={10} />
+      </td>
+      <td className="num">
+        <Sk w={52} h={10} />
+      </td>
+      <td className="num">
+        <Sk w={28} h={10} />
+      </td>
+      <td className="num">
+        <span className="usage-share">
+          <Sk w={64} h={6} className="sk-pill" />
+          <Sk w={34} h={10} />
+        </span>
+      </td>
+    </tr>
+  )
+  return (
+    <Skeleton label="Загрузка расхода" shown={shown}>
+      <div className="usage-windows">
+        {limit(150, 110)}
+        {limit(130, 150)}
+        {limit(70, 110, true)}
+      </div>
+      <p className="usage-prices">
+        <Sk w={150} h={9} />
+      </p>
+      <section className="usage-card">
+        <div className="usage-card-head">
+          <Sk w={140} h={12} />
+          <span className="sub">
+            <Sk w={140} h={9} />
+          </span>
+        </div>
+        <div className="usage-table-wrap">
+          <table>
+            <ModelsHead />
+            <tbody>{[150, 170, 130].map(row)}</tbody>
+          </table>
+        </div>
+        <div className="usage-card-foot">
+          <Sk w={170} h={9} />
+        </div>
+      </section>
+    </Skeleton>
   )
 }
 

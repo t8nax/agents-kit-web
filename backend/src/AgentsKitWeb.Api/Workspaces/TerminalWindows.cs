@@ -26,14 +26,15 @@ public sealed class WindowsTerminals : ITerminalWindows
         await RunAsync(WindowsTerminal(copyPath, sessionId), cancellationToken)
         || await RunAsync(PowerShellWindow(copyPath, sessionId), cancellationToken);
 
-    /// <summary>`wt -d &lt;копия&gt; pwsh -NoExit -Command claude attach &lt;id&gt;` — вкладка Windows Terminal на копии.</summary>
+    /// <summary>`wt -d &lt;копия&gt; pwsh -NoExit -Command &lt;команда окна&gt;` — вкладка Windows Terminal на копии.</summary>
     public static ProcessStartInfo WindowsTerminal(string copyPath, string sessionId)
     {
         var startInfo = new ProcessStartInfo("wt.exe") { UseShellExecute = false, WorkingDirectory = copyPath };
         startInfo.ArgumentList.Add("-d");
         startInfo.ArgumentList.Add(copyPath);
         startInfo.ArgumentList.Add("pwsh");
-        Attach(startInfo, sessionId);
+        // «;» wt считает началом новой вкладки, а «\;» передаёт команде как «;».
+        Attach(startInfo, Command(sessionId).Replace(";", @"\;"));
         return startInfo;
     }
 
@@ -41,16 +42,28 @@ public sealed class WindowsTerminals : ITerminalWindows
     public static ProcessStartInfo PowerShellWindow(string copyPath, string sessionId)
     {
         var startInfo = new ProcessStartInfo("pwsh.exe") { UseShellExecute = false, WorkingDirectory = copyPath };
-        Attach(startInfo, sessionId);
+        Attach(startInfo, Command(sessionId));
         return startInfo;
     }
 
-    // -NoExit оставляет окно после выхода из сессии: иначе прощальные строки агента негде прочитать.
-    private static void Attach(ProcessStartInfo startInfo, string sessionId)
+    /// <summary>
+    /// Что делает окно: входит в сессию, а когда из неё вышли — закрывается, если сессии больше нет, — её погасили
+    /// или она кончилась сама. Вышел оператор из живой сессии — окно остаётся с командной строкой, как и тогда,
+    /// когда список сессий не прочитался: пустое окно лучше закрытого без причины — решение оператора на B-117.
+    /// Погашенной сессии к выходу attach в `claude agents --json` уже нет — проверено живым запуском на B-117.
+    /// Не прочитался — это и не JSON в выводе (catch), и отказ claude с пустым выводом: пустой список сессию
+    /// не нашёл бы, поэтому код возврата сверяется после списка.
+    /// </summary>
+    public static string Command(string sessionId) =>
+        $"claude attach {sessionId}; " +
+        $"try {{ if (@(claude agents --json | ConvertFrom-Json).id -notcontains '{sessionId}' -and $LASTEXITCODE -eq 0) {{ exit }} }} catch {{ }}";
+
+    // -NoExit оставляет окно, из живой сессии которого оператор вышел: закрывает его только exit команды.
+    private static void Attach(ProcessStartInfo startInfo, string command)
     {
         startInfo.ArgumentList.Add("-NoExit");
         startInfo.ArgumentList.Add("-Command");
-        startInfo.ArgumentList.Add($"claude attach {sessionId}");
+        startInfo.ArgumentList.Add(command);
     }
 
     private static async Task<bool> RunAsync(ProcessStartInfo startInfo, CancellationToken cancellationToken)

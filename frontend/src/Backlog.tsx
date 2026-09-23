@@ -1,10 +1,15 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
+import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal } from './reveal'
+import { BugIcon, EntryFields, FeatureIcon } from './EntryFields'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
+import { forgetGoneStartWords } from './startWords'
 import { numberLetters } from './taskTitle'
 
 export type BacklogEntry = {
@@ -48,8 +53,18 @@ export default function Backlog({
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [filter, setFilter] = useState<string | null>(writeFor)
+  // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, отбор каждое открытие раздела пуст
+  const [selection, setSelection] = useState<Selection>(emptySelection)
+  const [order, setOrder] = useState<Order>(readOrder)
+
+  const changeOrder = useCallback((next: Order) => {
+    setOrder(next)
+    writeOrder(next)
+  }, [])
   const [opened, setOpened] = useState<BacklogEntry | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
+  // Запись, от которой окно Чудо-Юдо открыто кнопкой «Изменить»; null — окно из шапки раздела.
+  const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry } | null>(null)
   // Запись, которую берут в работу
   const [starting, setStarting] = useState<Started | null>(null)
   // Копии всех баз: по ним видно, есть ли у проекта записи куда запускать. null — ещё не прочитаны.
@@ -75,6 +90,7 @@ export default function Backlog({
       .then(
         (backlogs) => {
           setLoad({ kind: 'loaded', backlogs })
+          forgetGoneStartWords(backlogs)
           // База могла уйти из списка, пока раздел был открыт: показываем тогда все проекты.
           setFilter((current) => (backlogs.some((b) => b.base === current) ? current : null))
         },
@@ -115,10 +131,22 @@ export default function Backlog({
     [loadBacklogs],
   )
 
-  const closeWrite = useCallback(() => setWriting(false), [])
+  const closeWrite = useCallback(() => {
+    setWriting(false)
+    setEditing(null)
+  }, [])
+
+  // Панель записала изменения по «Сохранить» — список показывает новый бэклог.
+  const markSaved = useCallback(() => loadBacklogs(), [loadBacklogs])
 
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
-  const shown = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
+  const reveal = useReveal(load.kind === 'loading')
+  // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
+  // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
+  const filtering = isFiltering(selection)
+  const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
+    .map((backlog) => ({ backlog, entries: arrange(backlog.entries, selection, order) }))
+    .filter(({ backlog, entries }) => entries.length > 0 || !filtering || backlog.error)
 
   return (
     <>
@@ -127,11 +155,14 @@ export default function Backlog({
         <button
           type="button"
           className="bases-btn bases-btn-add head-end"
-          onClick={() => setWriting(true)}
+          onClick={() => {
+            setEditing(null)
+            setWriting(true)
+          }}
           disabled={backlogs.length === 0}
         >
           <WriteIcon />
-          Добавить с помощью {AGENT_NAME}
+          Попросить {AGENT_NAME}
         </button>
         <button type="button" className="bases-btn" onClick={refresh} disabled={load.kind === 'loading'}>
           <RefreshIcon />
@@ -139,7 +170,7 @@ export default function Backlog({
         </button>
       </div>
 
-      {load.kind === 'loading' && <p className="message text-sec">Загрузка бэклога…</p>}
+      {load.kind === 'loading' && <BacklogSkeleton shown={reveal.shown} />}
       {load.kind === 'failed' && (
         <p className="message warning-text" role="alert">
           {load.message}
@@ -151,7 +182,7 @@ export default function Backlog({
       )}
 
       {load.kind === 'loaded' && backlogs.length > 0 && (
-        <>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           {backlogs.length > 1 && (
             <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
               <FilterChip label="Все проекты" active={filter === null} onClick={() => setFilter(null)} />
@@ -166,8 +197,36 @@ export default function Backlog({
             </div>
           )}
 
+          <div className="filter-bar" role="group" aria-label="Отбор и порядок записей">
+            <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
+            <span className="tool-sep" />
+            {TYPES.map((type) => (
+              <FilterChip
+                key={type}
+                label={type}
+                icon={type === 'фича' ? <FeatureIcon className="chip-type-feature" /> : <BugIcon className="chip-type-bug" />}
+                active={selection.types.includes(type)}
+                onClick={() => setSelection((prev) => ({ ...prev, types: toggle(prev.types, type) }))}
+              />
+            ))}
+            <span className="tool-sep" />
+            {PRIORITIES.map((priority) => (
+              <FilterChip
+                key={priority}
+                label={priority}
+                active={selection.priorities.includes(priority)}
+                onClick={() => setSelection((prev) => ({ ...prev, priorities: toggle(prev.priorities, priority) }))}
+              />
+            ))}
+            <OrderBox order={order} onChange={changeOrder} />
+          </div>
+
+          {filtering && shown.every(({ entries }) => entries.length === 0) && (
+            <p className="empty-message">Под фильтр записей нет</p>
+          )}
+
           <div className="backlog-list">
-            {shown.map((backlog) => (
+            {shown.map(({ backlog, entries }) => (
               <section
                 key={backlog.base}
                 aria-label={backlog.project}
@@ -187,7 +246,7 @@ export default function Backlog({
                 {!backlog.error && backlog.entries.length === 0 && (
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
-                {backlog.entries.map((entry, index) => {
+                {entries.map((entry, index) => {
                   const isFresh = entry.number !== null && fresh.has(`${backlog.base}|${entry.number}`)
                   return (
                     <div className={`entry-row ${isFresh ? 'entry-fresh' : ''}`} key={entry.number ?? `${backlog.base}-${index}`}>
@@ -210,7 +269,21 @@ export default function Backlog({
                         {isFresh && <span className="entry-fresh-badge">новая</span>}
                         <ChevronIcon />
                       </button>
-                      {/* Запуск адресует запись номером, поэтому у записи без номера его нет вовсе */}
+                      {/* Правку и запуск адресует номер записи, поэтому у записи без номера их нет вовсе */}
+                      {entry.number && (
+                        <button
+                          type="button"
+                          className="entry-start"
+                          onClick={(e) => {
+                            opener.current = e.currentTarget
+                            setEditing({ base: backlog.base, entry })
+                            setWriting(true)
+                          }}
+                        >
+                          <WriteIcon />
+                          Изменить
+                        </button>
+                      )}
                       {entry.number && (
                         <button
                           type="button"
@@ -238,7 +311,7 @@ export default function Backlog({
               </section>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {opened && <EntryModal entry={opened} onClose={closeEntry} />}
@@ -265,8 +338,13 @@ export default function Backlog({
         <BacklogWriteModal
           bases={backlogs.map((b) => ({ base: b.base, project: b.project }))}
           initialBase={filter}
+          subject={editing}
+          findEntry={(base, number) =>
+            backlogs.find((b) => b.base === base)?.entries.find((entry) => entry.number === number)
+          }
           onClose={closeWrite}
           onEntries={markWritten}
+          onSaved={markSaved}
         />
       )}
     </>
@@ -323,55 +401,65 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
   )
 }
 
-// Значения полей задаёт кит; своё значение панель не судит, а показывает плашкой без цвета.
-const PRIORITY_CLASS: Record<string, string> = {
-  низкий: 'entry-prio-low',
-  средний: 'entry-prio-mid',
-  высокий: 'entry-prio-high',
-  блокер: 'entry-prio-blocker',
+/** Бэклог, пока он читается в первый раз: чипы проектов, строка отбора и записи проектов полосами (макет B-201). */
+function BacklogSkeleton({ shown }: { shown: boolean }) {
+  const round = { borderRadius: 6 }
+  const entry = (title: string) => (
+    <div className="entry-row sk-frame" key={title}>
+      <div className="entry">
+        <span className="entry-num-slot">
+          <Sk w={46} h={18} />
+        </span>
+        <Sk w={54} h={12} />
+        <Sk w={66} h={18} className="sk-pill" />
+        <span style={{ flex: 1 }}>
+          <Sk w={title} h={13} />
+        </span>
+        <Sk w={18} h={18} />
+      </div>
+      <Sk w={118} h={30} style={{ alignSelf: 'center', ...round }} />
+    </div>
+  )
+  const project = (width: number, titles: string[]) => (
+    <section style={{ '--entry-num-width': '5ch' } as CSSProperties}>
+      <div className="base-head">
+        <Sk w={width} h={13} style={{ marginBottom: 6 }} />
+      </div>
+      {titles.map(entry)}
+    </section>
+  )
+  return (
+    <Skeleton label="Загрузка бэклога" shown={shown}>
+      <div className="filter-bar">
+        {[92, 104, 80].map((w) => (
+          <Sk key={w} w={w} h={28} className="sk-pill" />
+        ))}
+      </div>
+      <div className="filter-bar">
+        <Sk w={220} h={30} style={round} />
+        <span className="tool-sep" />
+        <Sk w={64} h={28} className="sk-pill" />
+        <Sk w={72} h={28} className="sk-pill" />
+        <span className="tool-sep" />
+        {[74, 80, 76, 70].map((w) => (
+          <Sk key={w} w={w} h={28} className="sk-pill" />
+        ))}
+        <span className="backlog-order">
+          <Sk w={150} h={30} style={round} />
+          <Sk w={110} h={30} style={round} />
+        </span>
+      </div>
+      <div className="backlog-list">
+        {project(120, ['58%', '44%', '66%', '38%'])}
+        {project(84, ['52%', '40%'])}
+      </div>
+    </Skeleton>
+  )
 }
-
-const TYPE_CLASS: Record<string, string> = { баг: 'entry-type-bug', фича: 'entry-type-feature' }
 
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */
 function numberWidth(entries: BacklogEntry[]): number {
   return Math.max(0, ...entries.map((entry) => entry.number?.length ?? 0))
-}
-
-/** Тип и приоритет записи: тип — значок со словом, приоритет — плашка, цвет которой растёт со срочностью. */
-function EntryFields({ entry }: { entry: BacklogEntry }) {
-  return (
-    <>
-      {/* Пробелы не видны во flex-строке, но разделяют плашки в имени кнопки записи */}
-      {entry.type && (
-        <span className={`entry-type ${TYPE_CLASS[entry.type] ?? ''}`}>
-          {entry.type === 'фича' ? <FeatureIcon /> : <BugIcon />}
-          {entry.type}
-        </span>
-      )}{' '}
-      {entry.priority && (
-        <span className={`entry-prio ${PRIORITY_CLASS[entry.priority] ?? ''}`}>{entry.priority}</span>
-      )}
-    </>
-  )
-}
-
-function BugIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <line x1="12" y1="8" x2="12" y2="13" />
-      <line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  )
-}
-
-function FeatureIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z" />
-    </svg>
-  )
 }
 
 function ChevronIcon() {
@@ -382,11 +470,133 @@ function ChevronIcon() {
   )
 }
 
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function FilterChip({
+  label,
+  icon,
+  active,
+  onClick,
+}: {
+  label: string
+  icon?: ReactNode
+  active: boolean
+  onClick: () => void
+}) {
   return (
     <button type="button" className={`chip ${active ? 'active' : ''}`} aria-pressed={active} onClick={onClick}>
+      {icon}
       {label}
     </button>
+  )
+}
+
+function toggle(values: string[], value: string): string[] {
+  return values.includes(value) ? values.filter((v) => v !== value) : [...values, value]
+}
+
+function SearchBox({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const input = useRef<HTMLInputElement>(null)
+  return (
+    <label className="backlog-search">
+      <SearchIcon />
+      <input
+        ref={input}
+        type="text"
+        className={value ? 'filled' : ''}
+        placeholder="Поиск"
+        aria-label="Поиск"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {value && (
+        <button
+          type="button"
+          className="backlog-search-clear"
+          aria-label="Очистить"
+          onClick={() => {
+            onChange('')
+            // Кнопка с очисткой пропадает: клавиатура остаётся в поле, а не уходит в начало страницы
+            input.current?.focus()
+          }}
+        >
+          <CloseIcon />
+        </button>
+      )}
+    </label>
+  )
+}
+
+const SORT_LABEL: Record<SortField, string> = { number: 'По номеру', type: 'По типу', priority: 'По приоритету' }
+
+function OrderBox({ order, onChange }: { order: Order; onChange: (order: Order) => void }) {
+  return (
+    <div className="backlog-order">
+      <span className="backlog-order-select">
+        <select
+          aria-label="Порядок"
+          value={order.field}
+          onChange={(e) => onChange({ ...order, field: e.target.value as SortField })}
+        >
+          {(Object.keys(SORT_LABEL) as SortField[]).map((field) => (
+            <option key={field} value={field}>
+              {SORT_LABEL[field]}
+            </option>
+          ))}
+        </select>
+        <DownIcon />
+      </span>
+      <button
+        type="button"
+        className="bases-btn backlog-order-dir"
+        onClick={() => onChange({ ...order, direction: order.direction === 'asc' ? 'desc' : 'asc' })}
+      >
+        {order.direction === 'asc' ? <AscIcon /> : <DescIcon />}
+        {order.direction === 'asc' ? 'По возрастанию' : 'По убыванию'}
+      </button>
+    </div>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  )
+}
+
+function DownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+}
+
+function AscIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="6 11 12 5 18 11" />
+    </svg>
+  )
+}
+
+function DescIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <polyline points="6 13 12 19 18 13" />
+    </svg>
   )
 }
 

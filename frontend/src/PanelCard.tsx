@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './PanelCard.css'
+import { Sk, Skeleton } from './Skeleton'
+import { useReveal, withReveal } from './reveal'
 
 export type PanelBuild = {
   channel: string
@@ -60,6 +62,7 @@ export default function PanelCard() {
   const [update, setUpdate] = useState<PanelUpdateState | null>(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const reveal = useReveal(panel === null && !error)
   const [copied, setCopied] = useState(false)
 
   const loadUpdates = useCallback((installed: boolean) => {
@@ -133,7 +136,7 @@ export default function PanelCard() {
   if (!panel)
     return (
       <PanelShell>
-        {error ? <p className="bases-error">{error}</p> : <p className="settings-lead">Загрузка…</p>}
+        {error ? <p className="bases-error">{error}</p> : <PanelSkeleton shown={reveal.shown} />}
       </PanelShell>
     )
 
@@ -146,7 +149,7 @@ export default function PanelCard() {
 
   return (
     <PanelShell>
-      <div className="panel-card-body">
+      <div className={withReveal('panel-card-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
         <div className="panel-row">
           <span className="panel-label">Канал</span>
           <div className="panel-channels" role="group" aria-label="Канал панели">
@@ -251,6 +254,31 @@ export default function PanelCard() {
         setUpdate(state)
       }} />}
     </PanelShell>
+  )
+}
+
+/** Карточка, пока панель читает, какая она: канал, сборка и кнопка полосами (макет B-201). */
+function PanelSkeleton({ shown }: { shown: boolean }) {
+  const row = (label: number, value: number, height = 12) => (
+    <div className="panel-row">
+      <span className="panel-label">
+        <Sk w={label} h={10} />
+      </span>
+      <Sk w={value} h={height} />
+    </div>
+  )
+  return (
+    <Skeleton label="Загрузка сведений о панели" shown={shown} className="panel-card-body">
+      {row(46, 170, 36)}
+      <div className="panel-divider" />
+      {row(40, 150)}
+      {row(58, 210)}
+      <div className="panel-row">
+        <Sk w="60%" h={9} />
+        <span style={{ flex: 1 }} />
+        <Sk w={120} h={32} style={{ borderRadius: 6 }} />
+      </div>
+    </Skeleton>
   )
 }
 

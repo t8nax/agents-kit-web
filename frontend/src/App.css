@@ -7,21 +7,11 @@
   padding: 0 24px;
 }
 
+/* Отступ справа у названия прижимает кнопки к краю: итогов агента в шапке бывает и нет */
 .app-header h3 {
-  margin: 0;
+  margin: 0 auto 0 0;
   font-size: 14px;
   font-weight: 500;
-}
-
-.header-start {
-  margin-left: auto;
-}
-
-.header-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
 }
 
 svg {
@@ -205,6 +195,13 @@ svg {
 .content-head .head-end {
   margin-left: auto;
   align-self: center;
+}
+
+/* Кнопка сразу за заголовком раздела, а не у правого края, и её подпись в линию с заголовком (B-205).
+   Отрицательный отступ сверху не даёт кнопке опустить заголовок ниже, чем в других разделах. */
+.content-head .head-btn {
+  align-self: baseline;
+  margin-top: -8px;
 }
 
 .message {

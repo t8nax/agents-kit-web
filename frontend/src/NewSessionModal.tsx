@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
+import { ChoiceMark } from './ChoiceMark'
 import { plural } from './plural'
 import type { SessionRow } from './Sessions'
 import { splitTask } from './taskTitle'
+import './Modal.css'
 import './NewSessionModal.css'
 
 type Props = {
@@ -131,7 +133,7 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
               <ul className="ns-list">
                 {copies.map((row) => (
                   <li key={row.path}>
-                    <label className={`ns-copy ${row.path === path ? 'is-on' : ''}`} title={row.path}>
+                    <label className={`ns-copy choice ${row.path === path ? 'is-on' : ''}`} title={row.path}>
                       <input
                         type="radio"
                         name="ns-copy"
@@ -143,10 +145,10 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
                           setFailure(null)
                         }}
                       />
-                      <span className="ns-radio" aria-hidden="true" />
+                      <ChoiceMark />
                       <span className="ns-copy-text">
                         <span className="ns-copy-head">
-                          <span className="ns-copy-name">{copyName(row.path)}</span>
+                          <span className="ns-copy-name choice-name">{copyName(row.path)}</span>
                           {/* В плашке только номер: заголовок задачи длинный, и целиком он в предупреждении ниже */}
                           {row.task && <span className="ns-task">идёт задача {splitTask(row.task, row.letters).number ?? row.task}</span>}
                         </span>

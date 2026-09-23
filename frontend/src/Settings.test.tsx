@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App from './App'
 import type { FolderListing } from './FolderBrowser'
@@ -53,6 +53,33 @@ const api = (extra: Record<string, Handler> = {}) => ({
   ...extra,
 })
 
+test('пока карточки настроек читаются, в каждой заготовка, а заголовки карточек уже видны', async () => {
+  const handlers: Record<string, Handler> = api()
+  const waiting: (() => void)[] = []
+  const held = ['GET /api/bases', 'GET /api/kit', 'GET /api/panel']
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: string, init?: RequestInit) => {
+      const key = `${init?.method ?? 'GET'} ${input.split('?')[0]}`
+      if (!held.includes(key)) return Promise.resolve(handlers[key]())
+      return new Promise<Response>((resolve) => waiting.push(() => resolve(handlers[key]())))
+    }),
+  )
+
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Настройки' }))
+
+  for (const name of ['Загрузка списка баз', 'Загрузка пути к киту', 'Загрузка сведений о панели'])
+    expect(await screen.findByRole('status', { name })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
+  for (const name of ['Базы знаний', 'Кит', 'Панель']) expect(screen.getByRole('heading', { name })).toBeInTheDocument()
+
+  await act(async () => waiting.forEach((answer) => answer()))
+
+  expect(await screen.findByRole('list', { name: 'Базы знаний' })).toBeInTheDocument()
+  expect(screen.queryByRole('status', { name: /^Загрузка/ })).not.toBeInTheDocument()
+})
+
 test('раздел «Настройки» показывает список баз', async () => {
   stubApi(api())
 
@@ -62,6 +89,16 @@ test('раздел «Настройки» показывает список ба
   expect(within(list).getByText('D:\\Projects\\app-knowledge')).toBeInTheDocument()
   expect(within(list).getByText('2 коп.')).toBeInTheDocument()
   expect(within(list).getByRole('button', { name: 'Удалить D:\\Projects\\app-knowledge' })).toBeInTheDocument()
+})
+
+test('карточка «Уведомления» стоит в разделе последней, под «Панелью»', async () => {
+  stubApi(api())
+
+  await openSettings()
+
+  const cards = screen.getAllByRole('region').map((card) => card.getAttribute('aria-labelledby'))
+  expect(cards.slice(-2)).toEqual(['settings-panel', 'settings-notifications'])
+  expect(screen.getByRole('region', { name: 'Уведомления' })).toBeInTheDocument()
 })
 
 test('добавленная база появляется в списке', async () => {

@@ -42,6 +42,26 @@ const withPercents: UsageView = {
   pricesDate: '2026-09-21',
 }
 
+test('пока расход читается в первый раз, на месте окон и таблицы заготовка, а «Обновить» уже на месте', async () => {
+  let answer: () => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise<Response>((resolve) => (answer = () => resolve(Response.json(withPercents))))),
+  )
+
+  render(<Usage />)
+
+  expect(screen.getByRole('status', { name: 'Загрузка расхода' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.queryByText(/Загрузка/)).toBeNull()
+  expect(screen.getByRole('heading', { name: 'Расход' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
+
+  answer()
+
+  expect(await screen.findByRole('heading', { name: 'Пятичасовое окно' })).toBeTruthy()
+  expect(screen.queryByRole('status', { name: 'Загрузка расхода' })).toBeNull()
+})
+
 test('показывает проценты окон, их сброс, токены и доллары', async () => {
   stubUsage(withPercents)
 

@@ -1,0 +1,63 @@
+/* Общее у окон панели: затемнение под окном и кнопки */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay-deep);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-overlay svg {
+  width: 18px;
+  height: 18px;
+}
+
+.btn {
+  font: inherit;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+}
+
+.btn-primary {
+  background: var(--accent-waiting-fill);
+  border-color: var(--accent-waiting-fill);
+  color: var(--accent-waiting-on);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-waiting-fill);
+  filter: brightness(1.08);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-icon {
+  border: none;
+  padding: 5px;
+  color: var(--text-secondary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
