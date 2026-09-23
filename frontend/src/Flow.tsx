@@ -109,7 +109,8 @@ type Tab = 'stages' | 'flow'
 // перетаскиванием, — или сайдбар сценария.
 type Opened = { kind: 'returns'; key: number } | { kind: 'flow' } | null
 // Куда вернуть фокус на схеме: блок пункта по key, а null — «Добавить стадию», когда блока уже нет.
-type Focus = { key: number | null } | null
+// start — узел старта: на него встаёт фокус, когда закрыли сайдбар сценария.
+type Focus = { key: number | null; start?: boolean } | null
 
 const kinds: DraftStage['kind'][] = ['оркестратор', 'оператор', 'субагент']
 
@@ -708,6 +709,9 @@ export default function Flow({
    * Не записалось — форма возвращается к базе, а причину называет окно, где остаётся итог агента.
    */
   const applyRewritten = async (rewritten: RewrittenStage[]) => {
+    // Запись пишет флоу базы и сбросила бы набранное в сайдбаре молча: сначала его судьба (ревью B-226).
+    if (opened?.kind === 'flow' && changed)
+      return 'Правки не записаны: в боковой панели сценария несохранённая правка. Сохраните или отмените её и примите правки снова.'
     if (saving) return 'Флоу ещё записывается: примите правки, когда запись закончится.'
     let stages = saved.stages
     for (const { of, stage } of rewritten) {
@@ -829,13 +833,17 @@ export default function Flow({
     (modal === 'rewrite' && editable) ||
     opened?.kind === 'returns' ||
     asking !== null
-  const covered = overlaid
   // Сайдбар с правкой: схема, выбор сценария и шапка доступны, но первое действие на них закрывает сайдбар, спросив
   // о несохранённом, — действие на схеме пишется сразу и унесло бы и его правку. Сам сайдбар при этом рабочий
   // (решение оператора на приёмке B-226).
+  // Сайдбар закрыт — фокус на узле старта, с которого его открыли: поле сайдбара, где он был, уже ушло.
+  const closeDrawer = () => {
+    setOpened(null)
+    setFocus({ key: null, start: true })
+  }
   const guard =
     opened?.kind === 'flow' && changed && currentFlow
-      ? () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null))
+      ? () => leave(`сценария «${flowName(currentFlow)}»`, closeDrawer)
       : null
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
@@ -862,7 +870,7 @@ export default function Flow({
   return (
     <>
       {/* Пока открыто окно, верх раздела под подложкой недоступен: окно запирает Tab. */}
-      <div className="vc-head" inert={covered} {...intercept(guard)}>
+      <div className="vc-head" inert={overlaid} {...intercept(guard)}>
         <h2>Флоу</h2>
         <div className="head-end flow-actions">
           {editable && (
@@ -900,8 +908,9 @@ export default function Flow({
               value={flow?.project ?? ''}
               options={flows.map((f) => ({ id: f.base, label: f.project }))}
               selected={selected}
-              // Правка идёт по флоу одной базы: пока она не записана, проект не переключается.
-              disabled={dirty}
+              // Правка идёт по флоу одной базы: пока она не записана, проект не переключается. Правка сайдбара
+              // выбор не гасит: первый щелчок по нему закрывает сайдбар с вопросом, как и по схеме.
+              disabled={dirty && !guard}
               onPick={(base) => {
                 setSelected(base)
                 // Выбор проекта доступен поверх окна переписывания, только если оно не встало: забыть и его.
@@ -1061,7 +1070,6 @@ export default function Flow({
               flow={currentFlow}
               opened={opened}
               known={known}
-              covered={covered}
               overlaid={overlaid}
               guard={guard}
               busy={saving || unread.length > 0 || currentLock !== null}
@@ -1075,8 +1083,8 @@ export default function Flow({
                 failure,
                 onChange: (patch) => setDraft(withFlow(draft, currentFlow.key, (f) => ({ ...f, ...patch }))),
                 onSave: () => void keep(draft, () => undefined),
-                onCancel: () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null), false),
-                onClose: () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null)),
+                onCancel: () => leave(`сценария «${flowName(currentFlow)}»`, closeDrawer, false),
+                onClose: () => leave(`сценария «${flowName(currentFlow)}»`, closeDrawer),
                 onDelete: () => deleteFlow(currentFlow),
               }}
               onFocus={setFocus}
@@ -1242,23 +1250,26 @@ export default function Flow({
 const noDraft: Draft = { stages: [], flows: [] }
 
 /**
- * Перехват действий в части раздела: пока guard задан, щелчок, меню, перетаскивание и нажатие Enter, пробела или
- * клавиши меню не доходят до цели, а зовут guard. Tab ходит по-прежнему.
+ * Перехват действий в части раздела: пока guard задан, щелчок по кнопке, вкладке или пункту списка, меню,
+ * перетаскивание и нажатие Enter, пробела или клавиши меню на них не доходят до цели, а зовут guard. Щелчок в пустое
+ * место и Tab проходят как обычно.
  */
 function intercept(guard: (() => void) | null) {
   if (!guard) return {}
+  const acts = (event: SyntheticEvent) =>
+    (event.target as Element).closest?.('button, [role="option"], [role="tab"], [role="menuitem"], [draggable="true"]') != null
   const stop = (event: SyntheticEvent) => {
     event.preventDefault()
     event.stopPropagation()
     guard()
   }
   return {
-    onClickCapture: stop,
-    onContextMenuCapture: stop,
+    onClickCapture: (event: SyntheticEvent) => acts(event) && stop(event),
+    onContextMenuCapture: (event: SyntheticEvent) => acts(event) && stop(event),
     onDragStartCapture: stop,
     onKeyDownCapture: (event: KeyboardEvent) => {
-      if (event.key === 'Enter' || event.key === ' ' || event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey))
-        stop(event)
+      const key = event.key === 'Enter' || event.key === ' ' || event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)
+      if (key && acts(event)) stop(event)
     },
   }
 }
@@ -1833,7 +1844,6 @@ function FlowTab({
   flow,
   opened,
   known,
-  covered,
   overlaid,
   guard,
   busy,
@@ -1854,9 +1864,7 @@ function FlowTab({
   flow: DraftFlow
   opened: Opened
   known: string[] | null
-  /** Схема под окном или под сайдбаром с правкой: недоступна для мыши и Tab. */
-  covered: boolean
-  /** Поверх раздела окно: недоступен и сайдбар. */
+  /** Поверх раздела окно: вся вкладка со схемой и сайдбаром недоступна для мыши и Tab. */
   overlaid: boolean
   /** Сайдбар с несохранённой правкой: первое действие на схеме закрывает его с вопросом, а само не выполняется. */
   guard: (() => void) | null
@@ -1903,7 +1911,11 @@ function FlowTab({
   // Поставленный фокус забывается: иначе вкладка, открытая заново, снова дёрнула бы его и прокрутку к старому блоку.
   useEffect(() => {
     if (!focus) return
-    const block = focus.key === null ? null : chain.current?.querySelector<HTMLElement>(`[data-entry="${focus.key}"]`)
+    const block = focus.start
+      ? chain.current?.querySelector<HTMLElement>('.flow-start')
+      : focus.key === null
+        ? null
+        : chain.current?.querySelector<HTMLElement>(`[data-entry="${focus.key}"]`)
     ;(block ?? chain.current?.querySelector<HTMLElement>('.flow-node-add'))?.focus()
     onFocus(null)
   }, [focus, onFocus])
@@ -1929,7 +1941,7 @@ function FlowTab({
   return (
     <>
       <section className={`flow-canvas ${locked ? 'is-locked' : ''}`} aria-label={`Сценарий «${flowName(flow)}»`} inert={overlaid}>
-        <div className="flow-canvas-pick" inert={covered} {...intercept(guard)}>
+        <div className="flow-canvas-pick" {...intercept(guard)}>
           <PickMenu
             label="Сценарий"
             value={flowName(flow)}
@@ -1943,7 +1955,7 @@ function FlowTab({
           </button>
         </div>
 
-        <div className="flow-scroll" inert={covered} {...intercept(guard)}>
+        <div className="flow-scroll" {...intercept(guard)}>
           <div className="flow-chain" ref={chain}>
             <ReturnArcs flow={flow} lit={lit} />
             <button
