@@ -2,13 +2,14 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Performers;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Ask;
 
 public sealed record AskBase(string Base, string Project);
 
-public sealed record AskRequest(string? Base, string? Question);
+public sealed record AskRequest(string? Base, string? Question, string? Copy = null);
 
 public sealed record AskReply(string? Text);
 
@@ -21,7 +22,7 @@ public enum AskReplied
 }
 
 /// <summary>
-/// Разговор оператора с агентом по одной базе. Переписку держит просьба панели, память разговора — живой
+/// Разговор оператора с агентом по одной базе и коду одной копии её проекта. Переписку держит просьба панели, память разговора — живой
 /// процесс агента: реплики уходят ему в stdin по одной, и сессия на диск не ложится — решения оператора
 /// на B-79. Разом идёт один разговор: новый останавливает прежний.
 /// </summary>
@@ -33,17 +34,19 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     private readonly object _gate = new();
     private Turn? _turn;
 
-    public AgentRequestSummary Start(string basePath, string question)
+    public AgentRequestSummary Start(string basePath, string? copyPath, string question)
     {
         var replies = Channel.CreateUnbounded<string>();
-        var turn = new Turn(replies.Writer);
+        var turn = new Turn(replies.Writer, copyPath);
         var request = requests.Start(
             AgentRequests.Ask,
             basePath,
             ProjectName.Of(basePath),
             question,
             (asking, cancellationToken) => RunAsync(basePath, replies.Reader, turn, asking, cancellationToken),
-            continues: true);
+            continues: true,
+            // Копию разговора окно, открытое заново, берёт отсюда: выбрать другую посреди разговора нельзя.
+            subject: copyPath);
 
         turn.Request = request;
         lock (_gate)
@@ -64,7 +67,8 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         lock (_gate)
             turn = _turn?.Request == request && request.Working ? _turn : null;
 
-        turn ??= Restart(request);
+        // Новый агент читает ту же копию, что прежний: копия, как и база, одна на разговор, и помнит её просьба.
+        turn ??= Restart(request, request.Subject);
         Say(request, turn, text);
         return AskReplied.Sent;
     }
@@ -93,10 +97,10 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     /// Процесс прежнего разговора кончился — сорвался или остановлен. Переписка остаётся на экране, новый
     /// процесс поднимается на следующей реплике, и панель честно говорит, что прошлого он не помнит.
     /// </summary>
-    private Turn Restart(AgentRequest request)
+    private Turn Restart(AgentRequest request, string? copyPath)
     {
         var replies = Channel.CreateUnbounded<string>();
-        var turn = new Turn(replies.Writer) { Request = request };
+        var turn = new Turn(replies.Writer, copyPath) { Request = request };
         lock (_gate)
             _turn = turn;
 
@@ -124,11 +128,11 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, turn.Timeout.Token);
-        var stream = new ClaudeStream(basePath);
+        var stream = new ClaudeStream(basePath, turn.Copy);
         try
         {
             var exit = await agent.RunAsync(
-                StartInfo(basePath),
+                StartInfo(basePath, turn.Copy),
                 replies,
                 line =>
                 {
@@ -138,7 +142,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                     {
                         // Реплика отвечена: следующей ждём сколько угодно, а прочитанные файлы считаются заново.
                         turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
-                        stream = new ClaudeStream(basePath);
+                        stream = new ClaudeStream(basePath, turn.Copy);
                     }
                     return Task.CompletedTask;
                 },
@@ -167,9 +171,10 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
 
     /// <summary>
     /// Агент только читает: набор инструментов сужен до чтения, а не одобрен поверх остальных. Реплики уходят
-    /// в stdin, а не в аргументы: текст оператора не должен стать флагом или командой.
+    /// в stdin, а не в аргументы: текст оператора не должен стать флагом или командой. Копия проекта подана
+    /// вторым каталогом: агент остаётся в базе, а код читает рядом с ней — тоже только чтением.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string basePath)
+    public static ProcessStartInfo StartInfo(string basePath, string? copyPath = null)
     {
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, basePath);
         foreach (var arg in new[]
@@ -181,9 +186,14 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                      "--tools", "Read,Grep,Glob",
                      "--no-session-persistence",
                      "--strict-mcp-config",
-                     "--append-system-prompt", AskEndpoints.SystemPrompt,
+                     "--append-system-prompt", AskEndpoints.Prompt(copyPath),
                  })
             startInfo.ArgumentList.Add(arg);
+        if (copyPath is not null)
+        {
+            startInfo.ArgumentList.Add("--add-dir");
+            startInfo.ArgumentList.Add(copyPath);
+        }
         return startInfo;
     }
 
@@ -200,9 +210,12 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     }
 
     /// <summary>Живой процесс разговора: кому уходят реплики, сколько ждать ответа и не остановлен ли он.</summary>
-    private sealed class Turn(ChannelWriter<string> replies)
+    private sealed class Turn(ChannelWriter<string> replies, string? copy)
     {
         public ChannelWriter<string> Replies { get; } = replies;
+
+        /// <summary>Копия проекта, чей код читает агент; копий на диске нет — разговор идёт по одной базе.</summary>
+        public string? Copy { get; } = copy;
 
         public CancellationTokenSource Timeout { get; } = new();
 
@@ -227,22 +240,51 @@ public static class AskEndpoints
         стоит ответ. Оператор переспрашивает и уточняет: помни, о чём шёл разговор.
         """;
 
+    /// <summary>Без копии агент знает только базу; с копией ему названо, где код проекта.</summary>
+    internal static string Prompt(string? copyPath) => copyPath is null
+        ? SystemPrompt
+        : $"""
+            {SystemPrompt}
+            Код проекта — в каталоге {copyPath}: это рабочая копия проекта, её тоже только читай. Вопрос о коде
+            проверяй по самому коду, а не по пересказу в базе.
+            """;
+
     public static void MapAskEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapGet("/api/ask/bases", (BasesStore bases) =>
             bases.List().Select(b => new AskBase(b, ProjectName.Of(b))).ToList());
 
+        // Копии проекта, чей код может читать агент разговора: основная первой — её окно и выбирает.
+        app.MapGet("/api/ask/copies", async (string? @base, BasesStore bases, CancellationToken cancellationToken) =>
+        {
+            var basePath = Configured(bases, @base);
+            if (basePath is null || !Directory.Exists(basePath))
+                return Results.NotFound();
+            return Results.Ok(await CopiesAsync(basePath, cancellationToken));
+        });
+
         // Разговор держит панель: POST его заводит и отдаёт сводку, а переписку окно читает потоком просьбы.
-        app.MapPost("/api/ask", (AskRequest request, BasesStore bases, AskConversations conversations) =>
+        app.MapPost("/api/ask", async (
+            AskRequest request, BasesStore bases, AskConversations conversations, CancellationToken cancellationToken) =>
         {
             // Агент запускается только в базе из списка панели: путь запроса сверяется со списком.
-            var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
+            var basePath = Configured(bases, request.Base);
             if (basePath is null || !Directory.Exists(basePath))
                 return Results.NotFound();
             if (string.IsNullOrWhiteSpace(request.Question))
                 return Results.BadRequest();
 
-            return Results.Ok(conversations.Start(basePath, request.Question.Trim()));
+            // Копия — только из копий этой базы на диске: запрос не должен уметь подать агенту чужой каталог.
+            string? copyPath = null;
+            if (request.Copy is not null)
+            {
+                var copies = await CopiesAsync(basePath, cancellationToken);
+                copyPath = copies.FirstOrDefault(c => BasesStore.SamePath(c.Path, request.Copy))?.Path;
+                if (copyPath is null)
+                    return Results.NotFound();
+            }
+
+            return Results.Ok(conversations.Start(basePath, copyPath, request.Question.Trim()));
         });
 
         // Следующая реплика идёт в тот же разговор: база и агент у него свои, менять их не с чего.
@@ -263,4 +305,10 @@ public static class AskEndpoints
         app.MapPost("/api/ask/stop", (AskConversations conversations) =>
             conversations.Stop() ? Results.NoContent() : Results.NotFound());
     }
+
+    private static string? Configured(BasesStore bases, string? requested) =>
+        requested is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, requested));
+
+    private static async Task<List<PerformerCopy>> CopiesAsync(string basePath, CancellationToken cancellationToken) =>
+        (await PerformersEndpoints.CopiesAsync(basePath, cancellationToken)).OrderByDescending(c => c.Main).ToList();
 }

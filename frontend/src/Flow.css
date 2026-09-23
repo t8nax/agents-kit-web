@@ -949,98 +949,10 @@ textarea.flow-input {
   background: var(--accent-waiting-text);
 }
 
-/* Выбор из списка: проект в шапке и флоу в углу холста. */
-.flow-pick {
-  position: relative;
-}
-
-.flow-pick-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px 5px 12px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.flow-pick-btn:hover:not(:disabled) {
-  background: var(--bg-surface-hover);
-  border-color: var(--border-strong);
-}
-
-.flow-pick-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.flow-pick-btn:focus-visible {
-  outline: 2px solid var(--text-primary);
-  outline-offset: 2px;
-}
-
-.flow-pick-btn svg {
-  width: 14px;
-  height: 14px;
-  color: var(--text-tertiary);
-}
-
-.flow-pick-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 5;
-  min-width: 180px;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 12px 28px -8px var(--shadow-color);
-}
-
+/* Список выбора в шапке раздела раскрывается влево: он стоит у правого края. */
 .head-end .flow-pick-menu {
   left: auto;
   right: 0;
-}
-
-.flow-pick-menu li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 13px;
-  color: var(--text-primary);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.flow-pick-menu li:hover,
-.flow-pick-menu li:focus-visible {
-  background: var(--bg-surface-hover);
-  outline: none;
-}
-
-.flow-pick-menu li[aria-selected='true'] {
-  background: var(--bg-surface-hover);
-  font-weight: 500;
-}
-
-.flow-pick-check {
-  margin-left: auto;
-  display: inline-flex;
-  color: var(--text-secondary);
-}
-
-.flow-pick-check svg {
-  width: 14px;
-  height: 14px;
 }
 
 /* Вкладка «Стадии»: стадии сеткой карточек по три в ряд, как исполнители (B-192), — прокручивается сетка. */

@@ -5,6 +5,15 @@ const bases = [
   { base: 'D:\\Projects\\nota-knowledge', project: 'Nota' },
 ]
 
+/** Копии баз: у первой — основная и копия задачи, у второй — одна основная. */
+const copies: Record<string, { path: string; name: string; branch: string | null; main: boolean }[]> = {
+  [bases[0].base]: [
+    { path: 'D:\\Projects\\agents-kit-web', name: 'agents-kit-web', branch: 'master', main: true },
+    { path: 'D:\\Projects\\bright-sunny-glacier', name: 'bright-sunny-glacier', branch: 'b-130-ask-reads-code', main: false },
+  ],
+  [bases[1].base]: [{ path: 'D:\\Projects\\nota', name: 'nota', branch: 'dev', main: true }],
+}
+
 type Said = { type: string; text: string; files?: string[]; durationMs?: number; output?: string }
 
 /**
@@ -47,6 +56,9 @@ async function mockConversation(page: Page, project = 'Agents Kit Web') {
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/ask/bases', (route) => route.fulfill({ json: bases }))
+  await page.route('**/api/ask/copies*', (route) =>
+    route.fulfill({ json: copies[new URL(route.request().url()).searchParams.get('base') ?? ''] ?? [] }),
+  )
 
   await page.route('**/api/ask', async (route) => {
     const body = route.request().postDataJSON() as Record<string, unknown>
@@ -60,6 +72,8 @@ async function mockConversation(page: Page, project = 'Agents Kit Web') {
       text: String(body.question ?? ''),
       elapsedMs: 0,
       state: 'running',
+      // Как в API: разговор помнит копию проекта, чей код читает агент.
+      subject: body.copy ?? null,
     }
     panel.state = 'running'
     await route.fulfill({ json: { ...panel.request } })
@@ -114,11 +128,20 @@ async function openAsk(page: Page) {
   return page.getByRole('dialog', { name: 'Разговор с Чудо-Юдо' })
 }
 
+/** Выбор из выпадающего списка окна: «Проект» или «Копия». */
+async function pick(dialog: ReturnType<Page['getByRole']>, list: 'Проект' | 'Копия', option: string) {
+  const button = dialog.getByRole('button', { name: new RegExp(`^${list}: `) })
+  await expect(button).toBeEnabled()
+  await button.click()
+  await dialog.getByRole('listbox', { name: list }).getByRole('option', { name: new RegExp(option) }).click()
+}
+
 test('оператор спрашивает базу из шапки и читает ответ с прочитанными файлами', async ({ page }) => {
   const panel = await mockConversation(page, 'Nota')
 
   const dialog = await openAsk(page)
-  await dialog.getByRole('button', { name: 'Nota', exact: true }).click()
+  await pick(dialog, 'Проект', 'Nota')
+  await expect(dialog.getByRole('button', { name: 'Копия: nota' })).toBeEnabled()
   await dialog.getByLabel('Вопрос').fill('Почему таблица обновляется опросом?')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
@@ -139,7 +162,7 @@ test('оператор спрашивает базу из шапки и чита
   await expect(dialog.getByText('product.md')).toBeVisible()
   await expect(dialog.getByText('31 с')).toBeVisible()
   expect(panel.posts).toEqual([
-    { base: 'D:\\Projects\\nota-knowledge', question: 'Почему таблица обновляется опросом?' },
+    { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota', question: 'Почему таблица обновляется опросом?' },
   ])
 
   await dialog.getByRole('button', { name: 'Новая переписка' }).click()
@@ -148,6 +171,39 @@ test('оператор спрашивает базу из шапки и чита
 
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
+})
+
+test('копия выбирается из списка с ветками, и код выбранной копии уходит в разговор', async ({ page }) => {
+  const panel = await mockConversation(page)
+
+  const dialog = await openAsk(page)
+  const button = dialog.getByRole('button', { name: 'Копия: agents-kit-web' })
+  await expect(button).toBeEnabled()
+  // Значок списка — свой, а не общий значок окна: правило окна той же силы его перебивало бы.
+  const chevron = await button.locator('svg').boundingBox()
+  expect([chevron?.width, chevron?.height]).toEqual([14, 14])
+
+  await button.click()
+  const list = dialog.getByRole('listbox', { name: 'Копия' })
+  await expect(list.getByRole('option')).toHaveText(['agents-kit-webОсновнаяmaster', 'bright-sunny-glacierb-130-ask-reads-code'])
+  await expect(list).toBeInViewport()
+  await list.getByRole('option', { name: /bright-sunny-glacier/ }).click()
+  await expect(dialog.getByRole('button', { name: 'Копия: bright-sunny-glacier' })).toBeVisible()
+
+  await dialog.getByLabel('Вопрос').fill('Что делает AskEndpoints?')
+  await dialog.getByRole('button', { name: 'Отправить' }).click()
+  panel.answer({
+    type: 'answer',
+    text: 'Запускает агента.',
+    files: ['backend/src/AgentsKitWeb.Api/Ask/AskEndpoints.cs', 'decisions/base-agent.md'],
+    durationMs: 2000,
+  })
+
+  await expect(dialog.getByText('backend/src/AgentsKitWeb.Api/Ask/AskEndpoints.cs')).toBeVisible()
+  expect(panel.posts).toEqual([
+    { base: bases[0].base, copy: 'D:\\Projects\\bright-sunny-glacier', question: 'Что делает AskEndpoints?' },
+  ])
+  await expect(dialog.getByRole('button', { name: 'Копия: bright-sunny-glacier' })).toBeDisabled()
 })
 
 test('кнопки подвала одного размера и на своих местах во всём разговоре', async ({ page }) => {
@@ -197,8 +253,9 @@ test('разговор продолжается: переспросить мож
   panel.answer({ type: 'answer', text: 'Панель пишет только ответы и бэклог.', files: [], durationMs: 4000 })
   await expect(dialog.getByText('Панель пишет только ответы и бэклог.')).toBeVisible()
 
-  // База разговора выбрана один раз и посреди переписки не меняется.
-  await expect(dialog.getByRole('button', { name: 'Nota', exact: true })).toBeDisabled()
+  // База и копия разговора выбраны один раз и посреди переписки не меняются.
+  await expect(dialog.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Копия: agents-kit-web' })).toBeDisabled()
 
   await dialog.getByLabel('Следующая реплика').fill('А коммитит кто?')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
@@ -219,7 +276,7 @@ test('закрытое окно разговор не теряет: ответ �
   const dialog = await openAsk(page)
   await dialog.getByLabel('Вопрос').fill('Почему опрос?')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
-  await expect(dialog.getByRole('status')).toContainText('Чудо-Юдо читает базу Agents Kit Web…')
+  await expect(dialog.getByRole('status')).toContainText('Чудо-Юдо читает базу и код Agents Kit Web…')
 
   // Оператор закрыл окно и занялся другим: агент работает дальше.
   await page.keyboard.press('Escape')
@@ -257,7 +314,7 @@ test('пока агент думает, идёт счётчик, а «Отмен
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
   const waiting = dialog.getByRole('status')
-  await expect(waiting).toContainText('Чудо-Юдо читает базу Agents Kit Web…')
+  await expect(waiting).toContainText('Чудо-Юдо читает базу и код Agents Kit Web…')
   await expect(waiting.getByLabel('Прошло времени')).toHaveText('0:01', { timeout: 5000 })
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()

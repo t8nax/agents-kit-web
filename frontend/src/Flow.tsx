@@ -23,6 +23,7 @@ import type { RewrittenStage } from './flowChanges'
 import './Tabs.css'
 import { Markdown } from './Markdown'
 import type { BasePerformers } from './Performers'
+import PickMenu, { ChevronDownIcon, ChevronUpIcon } from './PickMenu'
 import { plural } from './plural'
 import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
@@ -1005,84 +1006,6 @@ const executorOf = (stage: DraftStage) =>
 
 const executorKind = (stage: DraftStage) =>
   stage.kind === 'оркестратор' ? 'orchestrator' : stage.kind === 'оператор' ? 'operator' : 'agent'
-
-/**
- * Выбор из списка кнопкой: проект в шапке раздела и флоу в углу холста. В раскрытом списке —
- * только названия, у выбранного — галочка.
- */
-function PickMenu({
-  label,
-  value,
-  options,
-  selected,
-  disabled = false,
-  onPick,
-}: {
-  label: string
-  value: string
-  options: { id: string; label: string }[]
-  selected: string | null
-  disabled?: boolean
-  onPick: (id: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const box = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const onMouseDown = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onMouseDown)
-    return () => document.removeEventListener('mousedown', onMouseDown)
-  }, [open])
-
-  return (
-    <div className="flow-pick" ref={box} onKeyDown={(event) => event.key === 'Escape' && setOpen(false)}>
-      <button
-        type="button"
-        className="flow-pick-btn"
-        aria-label={`${label}: ${value}`}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={() => setOpen(!open)}
-      >
-        {value}
-        {open ? <ChevronUpIcon /> : <ChevronDownIcon />}
-      </button>
-      {open && (
-        <ul className="flow-pick-menu" role="listbox" aria-label={label}>
-          {options.map((option) => (
-            <li
-              key={option.id}
-              role="option"
-              aria-selected={option.id === selected}
-              tabIndex={0}
-              onClick={() => {
-                onPick(option.id)
-                setOpen(false)
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter' && event.key !== ' ') return
-                event.preventDefault()
-                onPick(option.id)
-                setOpen(false)
-              }}
-            >
-              {option.label}
-              {option.id === selected && (
-                <span className="flow-pick-check">
-                  <TickIcon />
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  )
-}
 
 /** Флоу, пока он читается в первый раз: выбор сценария и цепочка стадий полосами (макет B-201). */
 function FlowSkeleton({ shown }: { shown: boolean }) {
@@ -2847,22 +2770,6 @@ function GripIcon() {
   )
 }
 
-function ChevronUpIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <polyline points="18 15 12 9 6 15" />
-    </svg>
-  )
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
-  )
-}
-
 function BookmarkIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3028,14 +2935,6 @@ export function FlowIcon() {
       <circle cx="18" cy="12" r="2" />
       <line x1="6" y1="7" x2="6" y2="17" />
       <path d="M6 12h10" />
-    </svg>
-  )
-}
-
-function TickIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <polyline points="20 6 9 17 4 12" />
     </svg>
   )
 }
