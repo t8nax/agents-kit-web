@@ -2615,7 +2615,7 @@ function FlowDrawer({
       </div>
 
       <div className="flow-drawer-body">
-        {lock && <LockNote lock={lock} />}
+        {/* Задачи, что держат сценарий, называет строка над разделом — своей строки у сайдбара нет (приёмка B-226). */}
         <fieldset className="flow-stage-set" disabled={lock !== null || saving}>
           <label className="flow-field">
             <span>Название сценария</span>

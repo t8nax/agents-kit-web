@@ -524,6 +524,32 @@ test('раздел держится в экране: прокручиваетс�
   await expect(page.getByRole('button', { name: 'Удалить сценарий' })).toBeInViewport({ ratio: 1 })
 })
 
+test('подвал сайдбара сценария — в одну строку: «Удалить сценарий» не переносится', async ({ page }) => {
+  await mockApi(page)
+  const region = await openFlow(page)
+  await region.getByRole('button', { name: /^Сценарий «полный»/ }).click()
+
+  const drawer = page.getByRole('complementary', { name: 'Сценарий «полный»' })
+  // Сайдбар въезжает сбоку: кнопки меряются, когда он встал
+  await expect(async () => {
+    const [remove, cancel, save] = (
+      await Promise.all(
+        ['Удалить сценарий', 'Отмена', 'Сохранить'].map((name) => drawer.getByRole('button', { name }).boundingBox()),
+      )
+    ).map((box) => box!)
+    const edge = (await drawer.boundingBox())!
+    // Одна высота у всех трёх — надпись не ушла на вторую строку; один верх — кнопки стоят в ряд, не налезая
+    // и не вылезая за край сайдбара
+    expect(remove.x).toBeGreaterThanOrEqual(edge.x)
+    expect(save.x + save.width).toBeLessThanOrEqual(edge.x + edge.width)
+    expect(remove.height).toBe(save.height)
+    expect(cancel.y).toBe(remove.y)
+    expect(save.y).toBe(remove.y)
+    expect(remove.x + remove.width).toBeLessThan(cancel.x)
+    expect(cancel.x + cancel.width).toBeLessThan(save.x)
+  }).toPass()
+})
+
 for (const theme of ['dark', 'light'] as const) {
   test(`окно добавления в теме ${theme}: рамка соседних окон, стадии строками; стадия встаёт в конец флоу`, async ({
     page,

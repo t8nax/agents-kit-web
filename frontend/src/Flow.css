@@ -249,7 +249,8 @@
 
 .flow-drawer {
   animation: flow-drawer-in 0.18s ease;
-  width: 400px;
+  /* Такой ширины хватает, чтобы подвал «Удалить сценарий», «Отмена», «Сохранить» встал в одну строку (приёмка B-226). */
+  width: 480px;
   max-width: 100%;
   flex: none;
   display: flex;
@@ -321,6 +322,11 @@
   padding: 18px 28px;
   background: var(--footer-tint);
   border-top: 1px solid var(--border-subtle);
+}
+
+.flow-drawer-foot .btn {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* «Удалить сценарий» — у левого края, «Отмена» и «Сохранить» — у правого, как в подвале окна стадии (макет B-226). */

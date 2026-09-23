@@ -1569,6 +1569,8 @@ test('сценарий, по которому идёт задача, тольк�
 
   const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
   expect(drawer.getByRole('textbox', { name: 'Название сценария' })).toBeDisabled()
+  // Задачи называет строка над разделом, своей строки у сайдбара нет
+  expect(drawer.queryByText(/^Правка закрыта/)).not.toBeInTheDocument()
   expect(drawer.queryByRole('button', { name: 'Удалить сценарий' })).not.toBeInTheDocument()
   expect(drawer.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
   fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
