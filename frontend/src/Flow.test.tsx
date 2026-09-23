@@ -316,7 +316,6 @@ test('закрыть сайдбар с несохранённым можно т�
   expect(drawer.getByRole('textbox', { name: 'Название сценария' })).toHaveValue('большой')
 
   fireEvent.click(drawer.getByRole('button', { name: 'Отмена' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
   expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
   expect(screen.getByRole('region', { name: 'Сценарий «полный»' })).toBeInTheDocument()
   expect(posts(fetchMock)).toBe(0)
@@ -944,11 +943,10 @@ test('описание стадии показано оформленным, п�
   expect(dialog.queryByText(/Стадия стоит в сценариях/)).not.toBeInTheDocument()
   expect(dialog.getByRole('button', { name: 'Закрыть' })).toHaveFocus()
 
-  // «Отмена» с набранным спрашивает и бросает правку, возвращая к просмотру
+  // «Отмена» бросает набранное сразу, без вопроса, и возвращает к просмотру (приёмка B-226)
   fireEvent.click(dialog.getByRole('button', { name: 'Редактировать' }))
   fireEvent.change(dialog.getByRole('textbox', { name: 'Описание стадии' }), { target: { value: 'черновик' } })
   fireEvent.click(dialog.getByRole('button', { name: 'Отмена' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
   expect(dialog.getByRole('listitem')).toHaveTextContent('Собрать дифф всей ветки.')
 
   fireEvent.click(dialog.getByRole('button', { name: 'Редактировать' }))
@@ -1043,7 +1041,6 @@ test('«Отмена» у новой стадии со схемы не оста�
   const edit = within(screen.getByRole('dialog', { name: 'Стадия «без названия»' }))
   fireEvent.change(edit.getByRole('textbox', { name: 'Название стадии' }), { target: { value: 'Мерж' } })
   fireEvent.click(edit.getByRole('button', { name: 'Отмена' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
 
   expect(within(screen.getByRole('list', { name: 'Стадии базы' })).queryByText('Мерж')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('tab', { name: 'Сценарии' }))
@@ -1636,7 +1633,6 @@ test('задача, пошедшая по сценарию, пока окно б
   const reads = () => fetchMock.mock.calls.filter(([url, init]) => url === '/api/flow' && !init?.method).length
   expect(reads()).toBe(1)
   fireEvent.click(edit.getByRole('button', { name: 'Отмена' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
   await vi.waitFor(() => expect(reads()).toBe(2))
 })
 
@@ -1653,7 +1649,6 @@ test('после отказа записи окно держит набранн�
   expect(reads()).toBe(1)
 
   fireEvent.click(edit.getByRole('button', { name: 'Отмена' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
   await vi.waitFor(() => expect(reads()).toBe(2))
 })
 
@@ -1810,7 +1805,6 @@ test('незаписанный новый сценарий и описание �
   fireEvent.click(dialog.getByRole('button', { name: 'Сохранить' }))
   await dialog.findByRole('alert')
   fireEvent.click(dialog.getByRole('button', { name: 'Отмена' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Не сохранять' }))
 
   fireEvent.click(menuOf(region, 'Стадия 3: Приёмка').getByRole('menuitem', { name: 'Редактировать описание' }))
   const text = await screen.findByRole('textbox', { name: 'Описание стадии' })
@@ -1923,4 +1917,20 @@ test('задачу с неузнанным сценарием, которую н
   expect(screen.getByText(/^Правка стадий и сценариев закрыта/)).toHaveTextContent(
     'Правка стадий и сценариев закрыта — задача B-7 идёт по сценарию, которого в проекте нет или который не назван',
   )
+})
+
+test('«Отмена» закрывает окно с правкой сразу, без вопроса; крестик спрашивает', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  await renderFlow()
+  const edit = await stagesTab('Ревью')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход стадии' }), { target: { value: 'вердикт' } })
+  fireEvent.click(edit.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.getByRole('alertdialog', { name: 'Закрыть без сохранения?' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Вернуться' }))
+
+  fireEvent.click(edit.getByRole('button', { name: 'Отмена' }))
+
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Стадия «Ревью»' })).not.toBeInTheDocument()
+  expect(posts(fetchMock)).toBe(0)
 })

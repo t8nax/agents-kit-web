@@ -584,8 +584,9 @@ export default function Flow({
   }
 
   /** Закрыть окно, спросив, если в нём есть несохранённое: what — чьи изменения пропадут. */
-  const leave = (what: string, close: () => void) => {
-    if (!changed) {
+  const leave = (what: string, close: () => void, asked = true) => {
+    // «Отмена» выбрасывает правку без вопроса; крестик и Escape нажимают случайно — они спрашивают (приёмка B-226).
+    if (!changed || !asked) {
       end()
       close()
       return
@@ -845,6 +846,7 @@ export default function Flow({
     failure,
     onPerformers,
     onClose: () => leave(`стадии «${stageName(currentStage)}»`, closeStage),
+    onCancel: () => leave(`стадии «${stageName(currentStage)}»`, closeStage, false),
     onSave: () => void keep(draft, closeStage),
     onChange: (patch: Partial<DraftStage>) => updateStage(currentStage.key, patch),
     onEditDescription: () => setModal('description'),
@@ -1066,7 +1068,8 @@ export default function Flow({
                 failure,
                 onChange: (patch) => setDraft(withFlow(draft, currentFlow.key, (f) => ({ ...f, ...patch }))),
                 onSave: () => void keep(draft, () => undefined),
-                onCancel: () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null)),
+                onCancel: () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null), false),
+                onClose: () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null)),
                 onDelete: () => deleteFlow(currentFlow),
               }}
               onFocus={setFocus}
@@ -1095,7 +1098,7 @@ export default function Flow({
                     })),
                   ),
                 onSave: (close) => void keep(draft, close),
-                onCancel: (title, close) => leave(`возвратов стадии «${title}»`, close),
+                onCancel: (title, close, asked) => leave(`возвратов стадии «${title}»`, close, asked),
               }}
               // Правка стадии и её описания со схемы — окнами поверх сценария, вкладка не меняется (B-202).
               onEditStage={(entry, key) => {
@@ -1510,7 +1513,10 @@ type StageWindow = {
   failure: string | null
   warning?: string | null
   onPerformers?: () => void
+  /** Крестик, Escape и подложка: с правкой — через вопрос. */
   onClose: () => void
+  /** «Отмена»: выбрасывает правку сразу. */
+  onCancel: () => void
   onSave: () => void
   onReturnFocus: (key: number) => void
   onChange: (patch: Partial<DraftStage>) => void
@@ -1535,6 +1541,7 @@ function StageModal({
   warning = null,
   onPerformers,
   onClose,
+  onCancel,
   onSave,
   onReturnFocus,
   onChange,
@@ -1743,7 +1750,7 @@ function StageModal({
                 Удалить стадию
               </button>
             )}
-            <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onClose}>
+            <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onCancel}>
               Отмена
             </button>
             <button
@@ -1771,7 +1778,10 @@ type DrawerActions = {
   failure: string | null
   onChange: (patch: Partial<DraftFlow>) => void
   onSave: () => void
+  /** «Отмена»: выбрасывает правку сразу. */
   onCancel: () => void
+  /** Крестик и Escape: с правкой — через вопрос. */
+  onClose: () => void
   onDelete: () => void
 }
 
@@ -1784,7 +1794,8 @@ type ReturnsActions = {
   onChange: (key: number, patch: Partial<DraftEntry>) => void
   onSave: (close: () => void) => void
   /** title — стадия, чьи возвраты правят: вопрос о несохранённом называет её. */
-  onCancel: (title: string, close: () => void) => void
+  /** asked — спросить о несохранённом: крестик, Escape и подложка; «Отмена» не спрашивает. */
+  onCancel: (title: string, close: () => void, asked: boolean) => void
 }
 
 /** Вкладка «Сценарии»: выбранный флоу схемой — узел старта, стадии блоками и возвраты дугами. */
@@ -2002,7 +2013,7 @@ function FlowTab({
           failure={returns.failure}
           onChange={(patch) => returns.onChange(flow.entries[openedIndex].key, patch)}
           onSave={() => returns.onSave(close)}
-          onCancel={() => returns.onCancel(entryTitle(draft, flow.entries[openedIndex]), close)}
+          onCancel={(asked) => returns.onCancel(entryTitle(draft, flow.entries[openedIndex]), close, asked)}
         />
       )}
     </>
@@ -2411,7 +2422,8 @@ function ReturnsModal({
   failure: string | null
   onChange: (patch: Partial<DraftEntry>) => void
   onSave: () => void
-  onCancel: () => void
+  /** asked — спросить о несохранённом: крестик, Escape и подложка; «Отмена» — нет. */
+  onCancel: (asked: boolean) => void
 }) {
   const entry = flow.entries[index]
   const stage = draft.stages.find((s) => s.key === entry.stage) ?? null
@@ -2426,7 +2438,7 @@ function ReturnsModal({
   }, [])
 
   return (
-    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel(true)}>
       <section
         ref={box}
         className="modal-wizard flow-stage-modal flow-returns-modal"
@@ -2435,7 +2447,7 @@ function ReturnsModal({
         aria-label={`Возвраты стадии «${title}»`}
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && !event.defaultPrevented) onCancel()
+          if (event.key === 'Escape' && !event.defaultPrevented) onCancel(true)
         }}
       >
         <div className="ask-head">
@@ -2445,7 +2457,7 @@ function ReturnsModal({
             </span>
             <h2 className="flow-stage-modal-title">Возвраты стадии «{title}»</h2>
             <span className="pf-project">сценарий «{flowName(flow)}»</span>
-            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onCancel}>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={() => onCancel(true)}>
               <CloseIcon />
             </button>
           </div>
@@ -2469,7 +2481,7 @@ function ReturnsModal({
         </div>
 
         <div className="modal-footer flow-stage-foot">
-          <button type="button" ref={cancel} className="btn flow-stage-pair flow-stage-push" onClick={onCancel}>
+          <button type="button" ref={cancel} className="btn flow-stage-pair flow-stage-push" onClick={() => onCancel(false)}>
             {lock ? 'Закрыть' : 'Отмена'}
           </button>
           {!lock && (
@@ -2525,6 +2537,7 @@ function FlowDrawer({
   onChange,
   onSave,
   onCancel,
+  onClose,
   onDelete,
 }: {
   flow: DraftFlow
@@ -2534,7 +2547,7 @@ function FlowDrawer({
     <aside
       className="flow-drawer"
       aria-label={`Сценарий «${flowName(flow)}»`}
-      onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+      onKeyDown={(event) => event.key === 'Escape' && onClose()}
     >
       <div className="flow-drawer-head">
         <span className="flow-node-mark flow-mark-flow" aria-hidden="true">
@@ -2544,7 +2557,7 @@ function FlowDrawer({
           <h3>{flowName(flow)}</h3>
           <span className="flow-drawer-kind">сценарий</span>
         </div>
-        <button type="button" className="btn btn-icon" aria-label="Закрыть сайдбар" title="Закрыть сайдбар" onClick={onCancel}>
+        <button type="button" className="btn btn-icon" aria-label="Закрыть сайдбар" title="Закрыть сайдбар" onClick={onClose}>
           <CloseIcon />
         </button>
       </div>
@@ -2584,7 +2597,7 @@ function FlowDrawer({
 
       <div className="flow-drawer-foot">
         {lock ? (
-          <button type="button" className="btn flow-drawer-push" onClick={onCancel}>
+          <button type="button" className="btn flow-drawer-push" onClick={onClose}>
             Закрыть
           </button>
         ) : (
@@ -2780,7 +2793,7 @@ function NewFlowModal({
         </div>
 
         <div className="modal-footer flow-stage-foot">
-          <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={leave}>
+          <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onClose}>
             Отмена
           </button>
           <button
@@ -3082,7 +3095,8 @@ function DescriptionEditor({
     }
   }
 
-  const cancel = () => (changed ? onAsk(drop) : drop())
+  // «Отмена» бросает правку сразу, без вопроса (приёмка B-226).
+  const cancel = drop
   // Крестик и Escape закрывают окно целиком, но набранное молча не бросают (B-226).
   const leave = () => (changed ? onAsk(onClose) : onClose())
 
