@@ -306,7 +306,7 @@ test('подвал: поле во всю ширину, под ним кнопк�
   await dialog.getByRole('button', { name: 'Начать новую' }).click()
   await expect(dialog.getByText('Сохраню, когда скажете.')).toHaveCount(0)
   await expect(field).toHaveValue('')
-  await expect(dialog.getByRole('button', { name: 'Agents Kit Web' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(dialog.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeEnabled()
   expect(panel.deletes).toBe(1)
 })
 

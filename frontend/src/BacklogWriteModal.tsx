@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { EntryFields } from './EntryFields'
 import { InlineMarkdown, Markdown } from './Markdown'
+import PickMenu from './PickMenu'
 import { useAgentConversation } from './agentConversation'
 import './Modal.css'
 import './ReplyModal.css'
@@ -275,29 +276,25 @@ export default function BacklogWriteModal({
               <WriteIcon />
               {AGENT_NAME}
             </div>
-            {!talking && !own && bases.length > 1 ? (
-              <div className="talk-bases" role="group" aria-label="Проект">
-                {bases.map((b) => (
-                  <button
-                    key={b.base}
-                    type="button"
-                    className={`chip ${b.base === chosen ? 'active' : ''}`}
-                    aria-pressed={b.base === chosen}
-                    title={b.base}
-                    onClick={() => setChosen(b.base)}
-                  >
-                    {b.project}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              base && (
-                <div className="strip-meta">
-                  <span className="strip-project">{project}</span>
-                  <span className="strip-sep">·</span>
-                  {folderName(base)}
+            {/* Проект — выпадающим списком, как в окне вопроса по базе (замечание оператора на приёмке B-228):
+                выбирается до первой просьбы, посреди переписки и в окне от записи неактивен. */}
+            {bases.length > 0 && (
+              <div className="ask-pick talk-pick">
+                <div className="ask-pick-field">
+                  <span className="ask-pick-label" aria-hidden="true">
+                    Проект
+                  </span>
+                  <PickMenu
+                    label="Проект"
+                    value={project}
+                    options={bases.map((b) => ({ id: b.base, label: b.project, title: b.base }))}
+                    selected={base}
+                    disabled={talking || own !== null || asking !== null || waiting}
+                    onPick={setChosen}
+                  />
                 </div>
-              )
+                {base && <span className="pick-folder">{folderName(base)}</span>}
+              </div>
             )}
           </div>
           <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={close}>

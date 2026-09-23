@@ -84,15 +84,16 @@ test('просьба из шапки уходит в выбранный прое
   const { onEntries } = renderModal({ initialBase: bases[1].base })
 
   expect(screen.getByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  // Пока окно узнаёт, не идёт ли разговор, проект не выбрать.
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
   await say('  Хочу видеть ожидание  ')
 
   expect(posts[0].url).toBe('/api/backlog/write')
   expect(posts[0].body).toEqual({ base: bases[1].base, text: 'Хочу видеть ожидание' })
   stream.send({ type: 'reply', text: 'Хочу видеть ожидание' })
   expect(await screen.findByText('Чудо-Юдо читает бэклог Nota…')).toBeInTheDocument()
-  // После первой просьбы на месте чипов — проект и каталог его базы.
-  expect(screen.queryByRole('group', { name: 'Проект' })).not.toBeInTheDocument()
+  // После первой просьбы проект не сменить, а рядом виден каталог его базы.
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeDisabled()
   expect(screen.getByText('nota-knowledge')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeDisabled()
@@ -125,7 +126,7 @@ test('окно от записи показывает её первой, наз�
   expect(screen.getByText('Запись')).toBeInTheDocument()
   expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
   expect(screen.getByText('высокий')).toBeInTheDocument()
-  expect(screen.queryByRole('group', { name: 'Проект' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveAttribute(
     'placeholder',
     'Что поменять в B-40 — или почему она больше не нужна',
@@ -505,7 +506,7 @@ test('«Новая переписка» убирает разговор, а ок
   expect(onClose).not.toHaveBeenCalled()
   expect(screen.getByRole('dialog', { name: 'Чудо-Юдо' })).toBeInTheDocument()
   expect(screen.queryByText('Записал.')).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
   expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeDisabled()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
 })
@@ -582,7 +583,7 @@ test('окно от «Изменить» после «Новой перепис�
 
   await waitFor(() => expect(screen.queryByText('Запись')).not.toBeInTheDocument())
   expect(screen.queryByText('Показывать, сколько длится задача')).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveAttribute(
     'placeholder',
     'Что записать, поменять, удалить или объединить',
@@ -623,7 +624,7 @@ test('после «Новой переписки» в подхваченном �
   await screen.findByText('Готово.')
   fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
 
-  expect(await screen.findByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(await screen.findByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
 })
 
 test('окно от «Изменить», не дочитавшее разговор про ту же запись, говорит о сбое и его не убирает', async () => {
@@ -651,6 +652,20 @@ test('окно от «Изменить», не дочитавшее другой
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+})
+
+test('проект выбирается выпадающим списком, и просьба уходит в выбранный', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { posts } = stubFetch(stream)
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Проект: Agents Kit Web' }))
+  fireEvent.click(within(screen.getByRole('listbox', { name: 'Проект' })).getByRole('option', { name: /Nota/ }))
+  expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
+  expect(screen.getByText('nota-knowledge')).toBeInTheDocument()
+
+  await say('Мысль')
+  expect(posts[0].body).toEqual({ base: bases[1].base, text: 'Мысль' })
 })
 
 test('без текста отправить нельзя', async () => {

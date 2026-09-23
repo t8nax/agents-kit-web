@@ -17,11 +17,16 @@
   color: var(--text-secondary);
 }
 
-.talk-bases {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.talk-pick {
   margin-top: 8px;
+}
+
+/* Каталог базы — справа от списка проектов, мелко: по нему видно, в какую базу уйдёт правка. */
+.pick-folder {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
 }
 
 /* Ответ Чудо-Юдо — входящая реплика слева, как вопрос агента, но шириной в ленту записей. */
