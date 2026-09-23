@@ -429,6 +429,7 @@ test('«Изменить» у другой записи при ждущем пр
   stream.send(answer({ text: 'Сохраню, когда скажете.', proposal }))
 
   const asking = await screen.findByRole('alertdialog', { name: 'Начать переписку про B-40?' })
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
   expect(within(asking).getByText('Предложение изменить 1, удалить 1 не сохранено — в новой переписке его не будет.')).toBeInTheDocument()
   // Окно показывает прежний разговор, а не запись.
   expect(screen.getByText('Сохраню, когда скажете.')).toBeInTheDocument()
@@ -533,6 +534,7 @@ test('при ждущем предложении «Новая переписка
 
   fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
   const asking = screen.getByRole('alertdialog', { name: 'Начать новую переписку?' })
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeDisabled()
   expect(
     within(asking).getByText('Предложение объединить 2 записи в одну не сохранено — в новой переписке его не будет.'),
   ).toBeInTheDocument()

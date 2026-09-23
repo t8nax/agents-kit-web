@@ -289,7 +289,7 @@ export default function BacklogWriteModal({
                     value={project}
                     options={bases.map((b) => ({ id: b.base, label: b.project, title: b.base }))}
                     selected={base}
-                    disabled={talking || own !== null || asking !== null || waiting}
+                    disabled={talking || running || conversation.base !== null || own !== null || asking !== null || waiting}
                     onPick={setChosen}
                   />
                 </div>
