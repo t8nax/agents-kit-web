@@ -37,6 +37,31 @@ public sealed class VersionHooksTests : IDisposable
     }
 
     [Fact]
+    public void MergeIntoDev_WithShortenedSameVersion_IsRefused()
+    {
+        // «0.10» — тот же номер, что «0.10.0», а не меньший.
+        var repository = Repository();
+        Task(repository, "feat/short", "0.10");
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/short", "-m", "Merge feat/short");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("в dev 0.10.0, после слияния 0.10", errors);
+    }
+
+    [Fact]
+    public void MergeIntoDev_WithGarbageVersion_IsRefusedWithExplanation()
+    {
+        var repository = Repository();
+        Task(repository, "feat/typo", "0.1o.1");
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/typo", "-m", "Merge feat/typo");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("не номер версии: «0.1o.1»", errors);
+    }
+
+    [Fact]
     public void MergeIntoDev_WithNewVersion_Passes()
     {
         var repository = Repository();
@@ -133,6 +158,8 @@ public sealed class VersionHooksTests : IDisposable
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains($"на сервере в {channel} 0.10.0, в отправляемом 0.10.0", errors);
+        // Прямой коммит в канал ветки задачи не имеет — совет о ней был бы не к месту.
+        Assert.DoesNotContain("ветке задачи", errors);
     }
 
     [Theory]
