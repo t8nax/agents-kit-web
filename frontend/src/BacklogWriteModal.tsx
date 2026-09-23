@@ -43,6 +43,12 @@ export type WriteEvent =
   | { type: 'saved'; text: string; commit?: string | null; proposalId: string }
   | { type: 'refused'; text: string; proposalId: string }
 
+/**
+ * Что окно от «Изменить» сделало с разговором, который шёл в панели: none — разговора не было, same — он про ту же
+ * запись и показан, other — заменён новым, ask — в нём ждёт предложение, и окно переспрашивает.
+ */
+type Verdict = 'none' | 'same' | 'other' | 'ask'
+
 /** Переспрос на месте поля ввода: вопрос и красная кнопка, которая выбрасывает ждущее предложение. */
 type Asking = { question: string; yes: string; onYes: () => void }
 
@@ -81,12 +87,17 @@ export default function BacklogWriteModal({
   const [asking, setAsking] = useState<Asking | null>(null)
   // Запись, про которую окно: после «Новой переписки» окно от «Изменить» становится общим окном её проекта.
   const [own, setOwn] = useState(subject)
-  // Окно от записи начинает свой разговор, а окно из шапки подхватывает идущий.
-  const conversation = useAgentConversation<WriteEvent>('backlog', subject === null)
+  // Окно от записи сначала смотрит, какой разговор идёт в панели: про ту же запись — показывает его, другой —
+  // заменяет новым про свою запись, переспросив, если в нём ждёт предложение (B-228).
+  const [verdict, setVerdict] = useState<Verdict | null>(subject === null ? 'none' : null)
+  const deciding = verdict === null
+  const conversation = useAgentConversation<WriteEvent>('backlog')
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
   const feed = useRef<HTMLDivElement>(null)
 
   const talking = events.length > 0
+  // Пока окно от записи не решило, какой разговор показывать, чужую переписку оно не показывает.
+  const waiting = restoring || deciding
   // Реплика, на которой агент сорвался, возвращается в поле: отправить её снова — одно нажатие.
   const value = text ?? retry ?? ''
   const base = conversation.base ?? chosen
@@ -170,13 +181,43 @@ export default function BacklogWriteModal({
     else void reset()
   }
 
-  async function reset() {
+  function reset() {
+    return restart(null)
+  }
+
+  /** Разговор уходит из панели; окно остаётся — общим или про запись to. */
+  async function restart(to: Props['subject']) {
     setAsking(null)
-    setOwn(null)
+    setOwn(to ?? null)
     setText(null)
     setSaveError(null)
     await forget()
   }
+
+  // Какой разговор идёт в панели, окно от записи решает один раз — когда дочитало его события.
+  const live = conversation.base !== null
+  if (verdict === null && subject && !restoring && (!live || talking || failure)) {
+    const next: Verdict = !live
+      ? 'none'
+      : conversation.subject === subject.entry.number && conversation.base === subject.base
+        ? 'same'
+        : pending
+          ? 'ask'
+          : 'other'
+    setVerdict(next)
+    if (next === 'ask') {
+      setOwn(null)
+      setAsking({
+        question: `Начать переписку про ${subject.entry.number}?`,
+        yes: `Начать про ${subject.entry.number}`,
+        onYes: () => void restart(subject),
+      })
+    }
+  }
+  // Другой разговор без ждущего предложения заменяется сразу: окно от записи — про неё.
+  useEffect(() => {
+    if (verdict === 'other') void forget()
+  }, [verdict, forget])
 
   async function save(id: string) {
     setSaving(id)
@@ -264,7 +305,7 @@ export default function BacklogWriteModal({
         </div>
 
         <div className="reply-feed talk-feed" ref={feed}>
-          {restoring && <p className="modal-message">Загрузка…</p>}
+          {waiting && <p className="modal-message">Загрузка…</p>}
           {about && (
             <div className="talk-subject">
               <p className="talk-label">Запись</p>
@@ -277,7 +318,7 @@ export default function BacklogWriteModal({
               </ul>
             </div>
           )}
-          {events.map((event, i) => {
+          {(deciding ? [] : events).map((event, i) => {
             switch (event.type) {
               case 'reply':
                 return (
@@ -325,7 +366,7 @@ export default function BacklogWriteModal({
                 return null
             }
           })}
-          {running && (
+          {running && !deciding && (
             <div className="agent-q talk-agent">
               <div className="ask-waiting talk-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
@@ -382,7 +423,7 @@ export default function BacklogWriteModal({
               value={value}
               placeholder={placeholder}
               // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
-              disabled={running || restoring || saving !== null}
+              disabled={running || waiting || saving !== null}
               onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -397,7 +438,7 @@ export default function BacklogWriteModal({
               <button
                 type="button"
                 className="btn composer-send"
-                disabled={!talking || running || restoring || saving !== null}
+                disabled={!talking || running || waiting || saving !== null}
                 onClick={newTalk}
               >
                 Новая переписка
@@ -410,7 +451,7 @@ export default function BacklogWriteModal({
                 <button
                   type="button"
                   className="btn btn-primary composer-send"
-                  disabled={!base || !value.trim() || restoring || saving !== null}
+                  disabled={!base || !value.trim() || waiting || saving !== null}
                   onClick={() => void submit()}
                 >
                   <SendIcon />

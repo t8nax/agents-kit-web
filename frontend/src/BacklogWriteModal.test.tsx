@@ -385,15 +385,75 @@ test('закрытое окно разговор не трогает — ни п
   expect(deletes).toEqual([])
 })
 
-test('окно от записи, закрытое без просьбы, не трогает разговор, который идёт в панели', async () => {
+test('«Изменить» у записи, про которую идёт разговор, открывает его как есть', async () => {
   const stream = controlledStream<WriteEvent>()
-  const { deletes } = stubFetch(stream, { running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web') })
+  const { deletes, posts } = stubFetch(stream, {
+    running: runningRequest('backlog', 'поправь', bases[0].base, 'Agents Kit Web', 0, 'B-40'),
+  })
   renderModal({ subject: { base: bases[0].base, entry: B40 } })
 
-  await screen.findByLabelText('Просьба к Чудо-Юдо')
-  fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
+  stream.send({ type: 'reply', text: 'поправь', number: 'B-40' })
+  stream.send(answer({ text: 'Что именно?' }))
 
+  expect(await screen.findByText('Что именно?')).toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  await say('Приоритет')
+  expect(posts).toEqual([])
   expect(deletes).toEqual([])
+})
+
+test('«Изменить» у другой записи заменяет идущий разговор новым про неё', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream, {
+    running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web', 0, 'B-36'),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  stream.send({ type: 'reply', text: 'другое', number: 'B-36' })
+  stream.send(answer({ text: 'Готово.' }))
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.queryByText('Готово.')).not.toBeInTheDocument()
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+})
+
+test('«Изменить» у другой записи при ждущем предложении переспрашивает, «Отмена» оставляет прежний разговор', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream, { running: runningRequest('backlog', 'убери', bases[0].base, 'Agents Kit Web') })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  stream.send({ type: 'reply', text: 'убери' })
+  stream.send(answer({ text: 'Сохраню, когда скажете.', proposal }))
+
+  const asking = await screen.findByRole('alertdialog', { name: 'Начать переписку про B-40?' })
+  expect(within(asking).getByText('Предложение изменить 1, удалить 1 не сохранено — в новой переписке его не будет.')).toBeInTheDocument()
+  // Окно показывает прежний разговор, а не запись.
+  expect(screen.getByText('Сохраню, когда скажете.')).toBeInTheDocument()
+  expect(screen.queryByText('Запись')).not.toBeInTheDocument()
+
+  fireEvent.click(within(asking).getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  expect(screen.getByText('Сохраню, когда скажете.')).toBeInTheDocument()
+  expect(deletes).toEqual([])
+})
+
+test('«Начать про …» выбрасывает ждущее предложение и начинает разговор про запись', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { deletes, posts } = stubFetch(stream, {
+    running: runningRequest('backlog', 'убери', bases[0].base, 'Agents Kit Web'),
+  })
+  renderModal({ subject: { base: bases[0].base, entry: B40 } })
+
+  stream.send({ type: 'reply', text: 'убери' })
+  stream.send(answer({ proposal }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Начать про B-40' }))
+
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+  expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
+  await say('Это блокер')
+  expect(posts[0].body).toEqual({ base: bases[0].base, text: 'Это блокер', number: 'B-40' })
 })
 
 test('открытое заново окно показывает разговор с его записью и ход, который шёл без него', async () => {
