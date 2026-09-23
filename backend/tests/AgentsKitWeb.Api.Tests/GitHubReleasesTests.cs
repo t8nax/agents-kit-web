@@ -22,7 +22,38 @@ public sealed class GitHubReleasesTests
 
         Assert.Equal("v0.10.1", cached?.Single().Tag);
         Assert.Equal(2, github.Asked);
-        Assert.Equal("https://api.github.com/repos/t8nax/agents-kit-web/releases?per_page=50", github.Last?.ToString());
+        Assert.Equal("https://api.github.com/repos/t8nax/agents-kit-web/releases?per_page=100&page=1", github.Last?.ToString());
+    }
+
+    [Fact]
+    public async Task Releases_OfBothChannels_ShareOneAnswer()
+    {
+        // GitHub отдаёт оба канала одним списком: переключение канала не тратит второй запрос.
+        const string both = """[{"tag_name":"v0.10.1-dev","body":""},{"tag_name":"v0.10.0","body":""}]""";
+        var github = new Answers(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(both) });
+        var releases = new GitHubReleases(github, new Clock());
+
+        var master = await releases.ReadAsync("t8nax/agents-kit-web", "master", CancellationToken.None);
+        var dev = await releases.ReadAsync("t8nax/agents-kit-web", "dev", CancellationToken.None);
+
+        Assert.Equal("v0.10.0", master?.Single().Tag);
+        Assert.Equal("v0.10.1-dev", dev?.Single().Tag);
+        Assert.Equal(1, github.Asked);
+    }
+
+    [Fact]
+    public async Task Releases_BeyondTheFirstPage_AreFound()
+    {
+        // Выпуск dev выходит на каждое слияние: выпуск master может оказаться дальше первой сотни.
+        var dev = string.Join(",", Enumerable.Range(0, 100).Select(n => $$"""{"tag_name":"v0.10.{{n}}-dev","body":""}"""));
+        var pages = new Queue<string>([$"[{dev}]", """[{"tag_name":"v0.9.0","body":""}]"""]);
+        var github = new Answers(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(pages.Dequeue()) });
+        var releases = new GitHubReleases(github, new Clock());
+
+        var master = await releases.ReadAsync("t8nax/agents-kit-web", "master", CancellationToken.None);
+
+        Assert.Equal("v0.9.0", master?.Single().Tag);
+        Assert.Equal("https://api.github.com/repos/t8nax/agents-kit-web/releases?per_page=100&page=2", github.Last?.ToString());
     }
 
     [Fact]

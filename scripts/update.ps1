@@ -47,11 +47,19 @@ $client = [Net.Http.HttpClient]::new()
 $client.DefaultRequestHeaders.UserAgent.ParseAdd('agents-kit-web')
 try {
     if (-not $Tag) {
-        # Выпуски master — обычные v<номер>, выпуски dev — предварительные v<номер>-dev.
-        $all = Invoke-RestMethod "https://api.github.com/repos/$Releases/releases?per_page=50" -Headers @{ 'User-Agent' = 'agents-kit-web' }
+        # Выпуски master — обычные v<номер>, выпуски dev — предварительные v<номер>-dev. Выпуск dev выходит
+        # на каждое слияние, и master бывает дальше первой сотни: страницы листаются, пока канал не найден.
         $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+)-dev$' } else { '^v(\d+\.\d+\.\d+)$' }
-        $Tag = $all | Where-Object { $_.tag_name -match $pattern -and -not $_.draft } |
-            Sort-Object { [version]($_.tag_name -replace $pattern, '$1') } |
+        $found = @()
+        for ($page = 1; $page -le 5 -and -not $found; $page++) {
+            $answer = Invoke-RestMethod "https://api.github.com/repos/$Releases/releases?per_page=100&page=$page" `
+                -Headers @{ 'User-Agent' = 'agents-kit-web' }
+            # Массив ответа приходит одним объектом — foreach его разворачивает.
+            $batch = @(foreach ($release in $answer) { $release })
+            $found = @($batch | Where-Object { $_.tag_name -match $pattern -and -not $_.draft })
+            if ($batch.Count -lt 100) { break }
+        }
+        $Tag = $found | Sort-Object { [version]($_.tag_name -replace $pattern, '$1') } |
             Select-Object -Last 1 -ExpandProperty tag_name
         if (-not $Tag) { throw "в канале $Channel нет ни одного выпуска" }
     }

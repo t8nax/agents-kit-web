@@ -139,15 +139,22 @@ function Install-AgentsKitPanel {
 
     $headers = @{ 'User-Agent' = 'agents-kit-web' }
     if (-not $Tag) {
-        # Выпуски master — обычные v<номер>, выпуски dev — предварительные v<номер>-dev.
+        # Выпуски master — обычные v<номер>, выпуски dev — предварительные v<номер>-dev. Выпуск dev выходит
+        # на каждое слияние, и master бывает дальше первой сотни: страницы листаются, пока канал не найден.
         $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+)-dev$' } else { '^v(\d+\.\d+\.\d+)$' }
-        try { $all = Invoke-RestMethod "https://api.github.com/repos/$Releases/releases?per_page=50" -Headers $headers }
-        catch {
-            Write-Host "GitHub не ответил: $($_.Exception.Message)" -ForegroundColor Red
-            return $false
+        $found = @()
+        for ($page = 1; $page -le 5 -and -not $found; $page++) {
+            try { $answer = Invoke-RestMethod "https://api.github.com/repos/$Releases/releases?per_page=100&page=$page" -Headers $headers }
+            catch {
+                Write-Host "GitHub не ответил: $($_.Exception.Message)" -ForegroundColor Red
+                return $false
+            }
+            # Windows PowerShell отдаёт массив ответа одним объектом — foreach его разворачивает.
+            $batch = @(foreach ($release in $answer) { $release })
+            $found = @($batch | Where-Object { $_.tag_name -match $pattern -and -not $_.draft })
+            if ($batch.Count -lt 100) { break }
         }
-        $Tag = $all | Where-Object { $_.tag_name -match $pattern -and -not $_.draft } |
-            Sort-Object { [version]($_.tag_name -replace $pattern, '$1') } |
+        $Tag = $found | Sort-Object { [version]($_.tag_name -replace $pattern, '$1') } |
             Select-Object -Last 1 -ExpandProperty tag_name
         if (-not $Tag) {
             Write-Host "В канале $Channel на GitHub нет ни одного выпуска панели." -ForegroundColor Red

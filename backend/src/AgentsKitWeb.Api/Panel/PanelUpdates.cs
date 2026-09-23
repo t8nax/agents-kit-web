@@ -39,7 +39,8 @@ public static class PanelUpdates
 
 /// <summary>
 /// Выпуски канала со страницы выпусков GitHub. Без ключа GitHub отвечает шестьдесят раз в час, а карточку
-/// открывают и обновляют кнопкой, поэтому ответ держится пару минут.
+/// открывают и переключают канал, поэтому ответ держится пару минут — один на оба канала: GitHub отдаёт
+/// выпуски обоих каналов вперемешку, новые первыми.
 /// </summary>
 public sealed partial class GitHubReleases(IHttpClientFactory clients, TimeProvider time) : IPanelReleases
 {
@@ -47,26 +48,50 @@ public sealed partial class GitHubReleases(IHttpClientFactory clients, TimeProvi
 
     private static readonly TimeSpan Fresh = TimeSpan.FromMinutes(2);
 
-    private readonly ConcurrentDictionary<string, (DateTimeOffset At, IReadOnlyList<PanelRelease> Releases)> _cache = new();
+    /// <summary>
+    /// Выпуск dev выходит на каждое слияние задачи, и между выпусками master их набирается много:
+    /// страницы листаются, пока не найдутся оба канала, но не дальше пятисот выпусков.
+    /// </summary>
+    private const int PageSize = 100;
+    private const int Pages = 5;
+
+    private readonly ConcurrentDictionary<string, (DateTimeOffset At, IReadOnlyList<JsonElement> Releases)> _cache = new();
 
     public async Task<IReadOnlyList<PanelRelease>?> ReadAsync(
         string repository, string channel, CancellationToken cancellationToken)
     {
-        var key = $"{repository}|{channel}";
-        if (_cache.TryGetValue(key, out var cached) && time.GetUtcNow() - cached.At < Fresh)
-            return cached.Releases;
+        if (!_cache.TryGetValue(repository, out var cached) || time.GetUtcNow() - cached.At >= Fresh)
+        {
+            if (await FetchAsync(repository, cancellationToken) is not { } fetched)
+                return null;
+            cached = (time.GetUtcNow(), fetched);
+            _cache[repository] = cached;
+        }
+        return Parse(cached.Releases, channel);
+    }
 
+    private async Task<IReadOnlyList<JsonElement>?> FetchAsync(string repository, CancellationToken cancellationToken)
+    {
+        var releases = new List<JsonElement>();
         try
         {
-            using var response = await clients.CreateClient(Client)
-                .GetAsync($"repos/{repository}/releases?per_page=50", cancellationToken);
-            if (!response.IsSuccessStatusCode)
-                return null;
-            var releases = Parse(await response.Content.ReadAsStringAsync(cancellationToken), channel);
-            _cache[key] = (time.GetUtcNow(), releases);
+            var client = clients.CreateClient(Client);
+            for (var page = 1; page <= Pages; page++)
+            {
+                using var response = await client.GetAsync(
+                    $"repos/{repository}/releases?per_page={PageSize}&page={page}", cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                    return null;
+                using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+                var batch = document.RootElement.EnumerateArray().Select(release => release.Clone()).ToList();
+                releases.AddRange(batch);
+                if (batch.Count < PageSize
+                    || (Parse(releases, PanelChannelStore.Master).Count > 0 && Parse(releases, PanelChannelStore.Dev).Count > 0))
+                    break;
+            }
             return releases;
         }
-        catch (Exception exception) when (exception is HttpRequestException or JsonException
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException
                                               || (exception is TaskCanceledException && !cancellationToken.IsCancellationRequested))
         {
             return null;
@@ -79,9 +104,14 @@ public sealed partial class GitHubReleases(IHttpClientFactory clients, TimeProvi
     /// </summary>
     public static IReadOnlyList<PanelRelease> Parse(string json, string channel)
     {
-        var tag = channel == PanelChannelStore.Dev ? DevTag() : MasterTag();
         using var document = JsonDocument.Parse(json);
-        return document.RootElement.EnumerateArray()
+        return Parse(document.RootElement.EnumerateArray().ToList(), channel);
+    }
+
+    private static List<PanelRelease> Parse(IEnumerable<JsonElement> releases, string channel)
+    {
+        var tag = channel == PanelChannelStore.Dev ? DevTag() : MasterTag();
+        return releases
             .Where(release => !(release.TryGetProperty("draft", out var draft) && draft.GetBoolean()))
             .Select(release => (Tag: release.GetProperty("tag_name").GetString() ?? "", Release: release))
             .Select(release => (release.Tag, Match: tag.Match(release.Tag), release.Release))
