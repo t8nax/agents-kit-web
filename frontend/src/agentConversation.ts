@@ -129,7 +129,10 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
       // дальше с того же места, и ход работы агента не теряется.
       await new Promise((wake) => setTimeout(wake, reconnectDelay))
       if (controller.signal.aborted) return
-      if (await alive(kind, summary.id)) {
+      const kept = await alive(kind, summary.id)
+      // Пока окно спрашивало панель, оператор мог начать новую переписку: прежнюю оно уже не дочитывает.
+      if (controller.signal.aborted) return
+      if (kept) {
         void watch(summary, seen, answering)
         return
       }

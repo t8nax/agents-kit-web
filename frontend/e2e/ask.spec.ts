@@ -29,7 +29,9 @@ async function mockConversation(page: Page, project = 'Agents Kit Web') {
     lines: [] as string[],
     request: null as Record<string, unknown> | null,
     state: 'running',
-    waiting: null as { route: Route; from: number } | null,
+    // Потоков может ждать несколько: оборванное окном чтение доходит до подмены позже нового, и ответ,
+    // отданный одному последнему, пропал бы в оборванном.
+    waiting: [] as { route: Route; from: number }[],
 
     /** Агент сказал своё: ход работы, ответ или сбой. */
     answer(...events: Said[]) {
@@ -44,13 +46,14 @@ async function mockConversation(page: Page, project = 'Agents Kit Web') {
 
     /** Поток отдаёт то, что накопилось, и закрывается: окно дочитывает его дальше само. */
     flush() {
-      const waiting = panel.waiting
-      if (!waiting || panel.lines.length <= waiting.from) return
-      panel.waiting = null
-      void waiting.route.fulfill({
-        contentType: 'application/x-ndjson',
-        body: panel.lines.slice(waiting.from).join('\n') + '\n',
-      })
+      const ready = panel.waiting.filter((waiting) => panel.lines.length > waiting.from)
+      panel.waiting = panel.waiting.filter((waiting) => !ready.includes(waiting))
+      for (const waiting of ready) {
+        // Оборванное окном чтение ответа уже не примет: отказ подмены тут не ошибка.
+        waiting.route
+          .fulfill({ contentType: 'application/x-ndjson', body: panel.lines.slice(waiting.from).join('\n') + '\n' })
+          .catch(() => {})
+      }
     },
   }
 
@@ -103,7 +106,7 @@ async function mockConversation(page: Page, project = 'Agents Kit Web') {
     }
     const from = Number(new URL(route.request().url()).searchParams.get('from') ?? 0)
     // Нового нет — поток висит: так выглядит разговор, в котором ждут ответа или следующей реплики.
-    panel.waiting = { route, from }
+    panel.waiting.push({ route, from })
     panel.flush()
   })
 
@@ -115,7 +118,7 @@ async function mockConversation(page: Page, project = 'Agents Kit Web') {
     panel.deletes++
     panel.request = null
     panel.lines = []
-    panel.waiting = null
+    panel.waiting = []
     await route.fulfill({ status: 204, body: '' })
   })
 
@@ -158,8 +161,9 @@ test('оператор спрашивает базу из шапки и чита
 
   await expect(dialog.getByText('без SSE')).toBeVisible()
   await expect(dialog.locator('strong', { hasText: 'оператор' })).toBeVisible()
-  await expect(dialog.getByText('decisions/ui.md')).toBeVisible()
-  await expect(dialog.getByText('product.md')).toBeVisible()
+  // Файл ответа, а не шаг «читает decisions/ui.md»: шаг может ещё стоять в окне, пока ответ дочитывается.
+  await expect(dialog.getByText('decisions/ui.md', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('product.md', { exact: true })).toBeVisible()
   await expect(dialog.getByText('31 с')).toBeVisible()
   expect(panel.posts).toEqual([
     { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota', question: 'Почему таблица обновляется опросом?' },
@@ -192,6 +196,7 @@ test('копия выбирается из списка с ветками, и к
 
   await dialog.getByLabel('Вопрос').fill('Что делает AskEndpoints?')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByRole('status')).toBeVisible()
   panel.answer({
     type: 'answer',
     text: 'Запускает агента.',
@@ -228,6 +233,8 @@ test('кнопки подвала одного размера и на своих
   }
 
   const dialog = await openAsk(page)
+  // Места кнопок сличаются между замерами: все они идут на догруженном шрифте.
+  await page.evaluate(() => document.fonts.ready)
   const idle = await pair()
 
   await dialog.getByLabel('Вопрос').fill('Вопрос')
@@ -250,6 +257,7 @@ test('разговор продолжается: переспросить мож
   const dialog = await openAsk(page)
   await dialog.getByLabel('Вопрос').fill('Что решено про запись в базы?')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByRole('status')).toBeVisible()
   panel.answer({ type: 'answer', text: 'Панель пишет только ответы и бэклог.', files: [], durationMs: 4000 })
   await expect(dialog.getByText('Панель пишет только ответы и бэклог.')).toBeVisible()
 
@@ -263,7 +271,7 @@ test('разговор продолжается: переспросить мож
   panel.answer({ type: 'answer', text: 'Коммитит сам агент.', files: [], durationMs: 3000 })
 
   await expect(dialog.getByText('Коммитит сам агент.')).toBeVisible()
-  expect(panel.replies).toEqual(['А коммитит кто?'])
+  await expect.poll(() => panel.replies).toEqual(['А коммитит кто?'])
   expect(panel.posts).toHaveLength(1)
   // Прошлая пара осталась на экране: переписка читается целиком.
   await expect(dialog.getByText('Что решено про запись в базы?')).toBeVisible()
@@ -315,7 +323,8 @@ test('пока агент думает, идёт счётчик, а «Отмен
 
   const waiting = dialog.getByRole('status')
   await expect(waiting).toContainText('Чудо-Юдо читает базу и код Agents Kit Web…')
-  await expect(waiting.getByLabel('Прошло времени')).toHaveText('0:01', { timeout: 5000 })
+  // Счётчик пошёл: под нагрузкой проверка застаёт его и позже первой секунды.
+  await expect(waiting.getByLabel('Прошло времени')).toHaveText(/^0:(0[1-9]|[1-5]\d)$/)
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()
   panel.answer({ type: 'stopped', text: 'Чудо-Юдо остановлен: ответа на эту реплику не будет' })
@@ -333,12 +342,13 @@ test('пока агент думает, идёт счётчик, а «Отмен
   // Разговор продолжается той же просьбой: новый агент отвечает и честно говорит, что прежнего не помнит.
   await dialog.getByLabel('Следующая реплика').fill('Тогда короче')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByText('Тогда короче')).toBeVisible()
   panel.say({ type: 'note', text: 'Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит' })
   panel.answer({ type: 'answer', text: 'Короткий ответ', files: [], durationMs: 1000 })
 
   await expect(dialog.getByText('Короткий ответ')).toBeVisible()
   await expect(dialog.getByText('Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит')).toBeVisible()
-  expect(panel.replies).toEqual(['Тогда короче'])
+  await expect.poll(() => panel.replies).toEqual(['Тогда короче'])
   expect(panel.posts).toHaveLength(1)
 })
 
@@ -348,6 +358,7 @@ test('сбой посреди переписки её не рушит: репл�
   const dialog = await openAsk(page)
   await dialog.getByLabel('Вопрос').fill('Что за проект?')
   await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByRole('status')).toBeVisible()
   panel.answer({ type: 'error', text: 'Чудо-Юдо завершился с ошибкой', output: 'Invalid API key · Please run /login' })
 
   const alert = dialog.getByRole('alert')
@@ -356,12 +367,13 @@ test('сбой посреди переписки её не рушит: репл�
   await expect(dialog.getByLabel('Следующая реплика')).toHaveValue('Что за проект?')
 
   await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByRole('status')).toBeVisible()
   panel.answer({ type: 'note', text: 'Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит' })
   panel.answer({ type: 'answer', text: 'Теперь ответил', files: [], durationMs: 2000 })
 
   await expect(dialog.getByText('Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит')).toBeVisible()
   await expect(dialog.getByText('Теперь ответил')).toBeVisible()
-  expect(panel.replies).toEqual(['Что за проект?'])
+  await expect.poll(() => panel.replies).toEqual(['Что за проект?'])
 })
 
 for (const theme of ['dark', 'light'] as const) {
@@ -372,6 +384,7 @@ for (const theme of ['dark', 'light'] as const) {
     const dialog = await openAsk(page)
     await dialog.getByLabel('Вопрос').fill('Вопрос')
     await dialog.getByRole('button', { name: 'Отправить' }).click()
+    await expect(dialog.getByRole('status')).toBeVisible()
     panel.answer({ type: 'error', text: 'Чудо-Юдо завершился с ошибкой', output: 'сбой' })
 
     const title = dialog.getByRole('alert').locator('strong')

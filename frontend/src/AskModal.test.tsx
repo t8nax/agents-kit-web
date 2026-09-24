@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import AskModal, { type AskBase, type AskCopy, type AskEvent } from './AskModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
@@ -405,6 +405,50 @@ test('оборванный поток окно дочитывает само: р
   await vi.waitFor(() => next.send({ type: 'answer', text: 'Ответ после обрыва', files: [], durationMs: 1000 }))
   expect(await screen.findByText('Ответ после обрыва')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('новая переписка, начатая, пока окно спрашивает панель о прежней, прежнюю не дочитывает', async () => {
+  const first = controlledStream<AskEvent>()
+  stubPanel('ask', first, {
+    project: 'Nota',
+    others: (url) => (url === '/api/ask/bases' ? Response.json(bases) : null),
+  })
+  // Ответ панели о прежнем разговоре задерживается, пока тест не отпустит его.
+  const panelFetch = globalThis.fetch
+  let release!: () => void
+  const held = new Promise<void>((resolve) => (release = resolve))
+  let holding = false
+  let asking = false
+  const streams: string[] = []
+  vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+    if (url.startsWith('/api/agent/ask/stream')) streams.push(url)
+    const response = await panelFetch(url, init)
+    if (holding && url === '/api/agent/requests') {
+      asking = true
+      await held
+    }
+    return response
+  })
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Вопрос')
+  first.send({ type: 'reply', text: 'Вопрос' })
+  first.send({ type: 'answer', text: 'Ответ', files: [], durationMs: 1000 })
+  await screen.findByText('Ответ')
+  holding = true
+  first.close()
+  // Окно отстояло паузу и спрашивает панель, жив ли разговор; тут оператор начинает новую переписку.
+  await vi.waitFor(() => expect(asking).toBe(true))
+  const read = streams.length
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  release()
+
+  // Ответ панели разобран, и окно решило, дочитывать ли прежний разговор: без проверки отмены оно
+  // успевает за это время спросить поток прежнего разговора.
+  await act(() => new Promise((wake) => setTimeout(wake, 50)))
+  expect(streams).toHaveLength(read)
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Вопрос')).toHaveValue('')
 })
 
 test('сбой, пришедший в дочитанный поток, возвращает в поле реплику, прочитанную до обрыва', async () => {
