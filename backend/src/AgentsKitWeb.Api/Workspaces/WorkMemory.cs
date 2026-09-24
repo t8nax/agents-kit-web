@@ -86,6 +86,9 @@ public sealed record WorkMemory(
                     copy = line["рабочая копия:".Length..].Trim();
                 else if (line.StartsWith("ветка:"))
                     branch = line["ветка:".Length..].Trim();
+                // Кит 0.10 зовёт строку «сценарий:», память прежнего вида — «флоу:».
+                else if (line.StartsWith("сценарий:"))
+                    flow = line["сценарий:".Length..].Trim();
                 else if (line.StartsWith("флоу:"))
                     flow = line["флоу:".Length..].Trim();
                 continue;

@@ -113,8 +113,9 @@ public sealed class FlowEndpointsTests : IDisposable
         File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу:  Полный \n");
         File.WriteAllText(Path.Combine(_base, "work", "b.md"), "# Задача без номера\nрабочая копия: D:\\b\nфлоу: старый\n");
         File.WriteAllText(Path.Combine(_base, "work", "c.md"), "рабочая копия: D:\\c\n");
-        // Слово вида номера с чужими буквами номером не становится: у проекта буквы B
-        File.WriteAllText(Path.Combine(_base, "work", "d.md"), "# UTF-8 в выгрузке\nрабочая копия: D:\\d\nфлоу: полный\n");
+        // Слово вида номера с чужими буквами номером не становится: у проекта буквы B. Память кита 0.10 называет
+        // сценарий строкой «сценарий:».
+        File.WriteAllText(Path.Combine(_base, "work", "d.md"), "# UTF-8 в выгрузке\nрабочая копия: D:\\d\nсценарий: полный\n");
         File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
 
         var flow = Assert.Single(await GetFlows(Client(_base)));
