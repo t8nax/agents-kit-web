@@ -624,7 +624,7 @@ function StageRow({
                         <span className={`rewrite-now ${changed.after === null ? 'rewrite-none' : ''}`}>{changed.after ?? 'нет'}</span>
                       </>
                     ) : (
-                      <span>{now(field)}</span>
+                      <span className={now(field) === null ? 'rewrite-none' : ''}>{now(field) ?? 'нет'}</span>
                     )}
                   </dd>
                 </div>

@@ -229,6 +229,24 @@ test('у изменённого этапа всегда исполнитель, 
   expect(item.queryByText('помощники')).not.toBeInTheDocument()
 })
 
+test('пропуск и помощники нового этапа стоят простыми значениями, а пустой выход — словом «нет»', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream)
+  renderModal()
+  await say('Заведи документацию')
+  const helped = { ...docs, output: '', skip: 'правка только в тестах', helpers: ['scout', 'check-runner'] }
+  stream.send({ type: 'answer', text: 'Готово.', proposal: { scenarios: [], stages: [{ stage: helped }] }, changed: { scenarios: 0, stages: 1 } })
+  fireEvent.click(await screen.findByRole('button', { name: '1 этап' }))
+  fireEvent.click(screen.getByText('Документация', { selector: '.rewrite-item-name' }))
+
+  const item = within(screen.getByText('Документация', { selector: '.rewrite-item-name' }).closest('details')!)
+  expect(item.getByText('пропуск')).toBeInTheDocument()
+  expect(item.getByText('правка только в тестах')).not.toHaveClass('rewrite-was')
+  expect(item.getByText('помощники')).toBeInTheDocument()
+  expect(item.getByText('scout, check-runner')).toBeInTheDocument()
+  expect(item.getAllByText('нет')[0]).toHaveClass('rewrite-none')
+})
+
 test('«Открыть описание» открывает описание окном вкладки «Этапы» только для чтения', async () => {
   const stream = controlledStream<RewriteEvent>()
   stubFetch(stream)
