@@ -22,6 +22,8 @@ pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house
 .EXAMPLE
 pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house,quirks -RealAgent
 #>
+# Без позиционных параметров: «-Pieces house quirks» через пробел — ошибка о лишнем слове, а не свой кусок «quirks».
+[CmdletBinding(PositionalBinding = $false)]
 param(
     # Куски песочницы через запятую — какие бывают, скрипт печатает, если не назвать ни одного.
     [string[]]$Pieces = @(),
@@ -508,6 +510,10 @@ $taskPieceText = $null
 if ($TaskPiece) {
     if (-not (Test-Path -LiteralPath $TaskPiece -PathType Leaf)) { throw "своего куска нет: $TaskPiece — каталог песочницы не тронут" }
     $TaskPiece = (Resolve-Path -LiteralPath $TaskPiece).Path
+    # Свой кусок в код панели не попадает: в рабочей копии он уехал бы в коммит ветки.
+    if ($TaskPiece.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "свой кусок лежит в рабочей копии: $TaskPiece — положите его вне репозитория; каталог песочницы не тронут"
+    }
     $taskPieceText = Get-Content -LiteralPath $TaskPiece -Raw
 }
 if (-not $Port) { $Port = Get-SandboxPort $Root }

@@ -88,7 +88,11 @@ iex ((irm https://raw.githubusercontent.com/t8nax/agents-kit-web/master/scripts/
 
 ```powershell
 pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house,quirks
+pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house -TaskPiece <путь к своему куску .ps1 вне репозитория>
 ```
+
+Куски: `house` — здоровый проект, `orders` — свои буквы номеров, `no-product`, `broken-json`, `stages-only`,
+`no-flow`, `quirks` — сломанные базы, `broken-kit` — кит без скриптов, `load` — полсотни копий.
 
 Какие куски бывают, как дописать свой, что в них сломано заранее и как переключать режимы заглушек —
 `scripts/sandbox.md`.
