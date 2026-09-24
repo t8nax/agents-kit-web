@@ -1,16 +1,17 @@
 ﻿<#
 .SYNOPSIS
-Ставит панель готовой сборкой с GitHub.
+Ставит кит, если его нет, и панель готовой сборкой с GitHub.
 
 .DESCRIPTION
 Скрипт для другого компьютера: его скачивают и запускают одной строкой в Windows PowerShell,
 поэтому он сам идёт в Windows PowerShell 5.1 и не требует ничего, чего нет на чистой Windows.
 
-Сначала проверяет, есть ли установленный кит и Claude Code со входом в аккаунт: без них
-панели работать не с чем, и тогда он говорит, что поставить, и больше ничего не делает.
-Затем ставит через winget то, без чего панель не работает, — git и PowerShell 7: ими она пишет
-в базы и зовёт скрипты кита. Ничего не собирает: скачивает готовую сборку последнего выпуска
-канала, раскладывает её и ставит тем же deploy.ps1 из сборки, которым ставит себя обновление.
+Сначала проверяет, есть ли Claude Code со входом в аккаунт: без него панели работать не с чем,
+и тогда он говорит, что поставить, и больше ничего не делает. Затем ставит через winget то,
+без чего панель не работает, — git и PowerShell 7: ими она пишет в базы и зовёт скрипты кита.
+Кита нет — ставит его из магазина плагинов Claude Code. Панель не собирает: скачивает готовую
+сборку последнего выпуска канала, раскладывает её и ставит тем же deploy.ps1 из сборки,
+которым ставит себя обновление.
 Дальше панель обновляет себя сама, кнопкой в «Настройках».
 
 Список баз и путь к киту не переносятся: их задают в «Настройках» панели.
@@ -114,9 +115,6 @@ function Install-AgentsKitPanel {
 
     Write-Host 'Проверяю, есть ли то, с чем работает панель…'
     $missing = @()
-    $kit = Find-Kit
-    if ($kit) { Write-Host "  кит: $kit" }
-    else { $missing += 'кит agents-kit — https://github.com/t8nax/agents-kit, поставьте его для Claude Code по инструкции оттуда' }
     if (Test-Command 'claude') {
         if (Test-ClaudeLogin) { Write-Host '  Claude Code: есть, вход выполнен' }
         else { $missing += 'вход в Claude Code по подписке Claude — запустите claude и войдите командой /login' }
@@ -136,6 +134,23 @@ function Install-AgentsKitPanel {
         @{ Name = 'PowerShell 7'; Id = 'Microsoft.PowerShell'; Test = { Test-Command 'pwsh' } }
     )
     foreach ($tool in $tools) { if (-not (Install-Tool $tool)) { return $false } }
+
+    # Кит ставится после git: магазин плагинов Claude Code клонирует его репозиторий.
+    # Уже стоящий кит — из магазина или клоном для правки кита — не трогается.
+    $kit = Find-Kit
+    if ($kit) { Write-Host "  кит: $kit" }
+    else {
+        Write-Host 'Кит agents-kit не найден — ставлю его из магазина плагинов Claude Code.'
+        # Магазин мог быть добавлен раньше без самого кита — тогда add откажет, а install всё равно пройдёт.
+        claude plugin marketplace add t8nax/agents-kit | Out-Host
+        claude plugin install agents-kit@agents-kit | Out-Host
+        $kit = Find-Kit
+        if (-not $kit) {
+            Write-Host 'Кит не поставился — причина выше. Поставьте его по https://github.com/t8nax/agents-kit и запустите команду снова.' -ForegroundColor Red
+            return $false
+        }
+        Write-Host "  кит поставлен: $kit"
+    }
 
     $headers = @{ 'User-Agent' = 'agents-kit-web' }
     if (-not $Tag) {

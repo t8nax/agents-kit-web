@@ -73,9 +73,9 @@ pwsh -NoProfile -File scripts/publish.ps1
 iex ((irm https://raw.githubusercontent.com/t8nax/agents-kit-web/master/scripts/install.ps1).TrimStart([char]0xFEFF))
 ```
 
-`scripts/install.ps1` сначала проверяет, что на компьютере есть установленный кит и Claude Code со входом в аккаунт;
-чего-то нет — называет, что поставить, и больше ничего не делает. Затем ставит через winget git и PowerShell 7, если их
-нет (Windows может спросить разрешение), скачивает готовую сборку последнего выпуска канала и ставит её `deploy.ps1`
+`scripts/install.ps1` сначала проверяет, что на компьютере есть Claude Code со входом в аккаунт; нет — называет, что
+сделать, и больше ничего не делает. Затем ставит через winget git и PowerShell 7, если их нет (Windows может спросить
+разрешение), ставит кит из магазина плагинов Claude Code, если кита нет, скачивает готовую сборку последнего выпуска канала и ставит её `deploy.ps1`
 из сборки. Список баз и путь к киту не переносятся — их задают в «Настройках» на месте. Параметры `-Releases`,
 `-Channel`, `-Tag`, `-Target`, `-Port`, `-TaskName` — для запуска файлом.
 
