@@ -3,7 +3,6 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Unicode;
-using AgentsKitWeb.Api.Flow;
 
 namespace AgentsKitWeb.Api.Ask;
 
@@ -24,12 +23,10 @@ public sealed record AgentFault(string Text) : IAgentEvent
 /// имя переписываемого исполнителя, чтобы его просьбу подхватывало окно его правки, а не окно нового (B-80);
 /// у разговора по базе — путь копии проекта, чей код читает агент: окно, открытое заново, её и показывает (B-130).
 /// У разговора о бэклоге — номер записи, от которой он открыт кнопкой «Изменить» (B-228).
-/// Stages — стадии флоу, ушедшие агенту вместе с просьбой: открытое заново окно переписывания показывает их
-/// и сличает с ними ответ.
 /// </summary>
 public sealed record AgentRequestSummary(
     string Kind, string Id, string Base, string Project, string Text, long ElapsedMs, string State,
-    string? Subject = null, IReadOnlyList<FlowStage>? Stages = null);
+    string? Subject = null);
 
 /// <summary>
 /// Одна просьба к агенту, живущая в панели. Ход работы копится строками NDJSON: окно читает их с начала,
@@ -62,12 +59,10 @@ public sealed class AgentRequest
     public const string Failed = "failed";
 
     public AgentRequest(
-        string kind, string basePath, string project, string text, bool continues = false, string? subject = null,
-        IReadOnlyList<FlowStage>? stages = null)
+        string kind, string basePath, string project, string text, bool continues = false, string? subject = null)
     {
         Kind = kind;
         Subject = subject;
-        Stages = stages;
         Base = basePath;
         Project = project;
         Text = text;
@@ -95,9 +90,6 @@ public sealed class AgentRequest
     /// путь копии проекта, чей код читает агент; null — разговор идёт по одной базе.
     /// </summary>
     public string? Subject { get; }
-
-    /// <summary>Стадии флоу, ушедшие агенту с просьбой переписать их; у других просьб — null.</summary>
-    public IReadOnlyList<FlowStage>? Stages { get; }
 
     public CancellationToken Token => _cancel.Token;
 
@@ -133,8 +125,7 @@ public sealed class AgentRequest
                     Text.Length > TextLimit ? Text[..TextLimit] + "…" : Text,
                     (long)_elapsed.Elapsed.TotalMilliseconds,
                     _state,
-                    Subject,
-                    Stages);
+                    Subject);
         }
     }
 
@@ -248,10 +239,9 @@ public sealed class AgentRequests
         string text,
         Func<AgentRequest, CancellationToken, Task> work,
         bool continues = false,
-        string? subject = null,
-        IReadOnlyList<FlowStage>? stages = null)
+        string? subject = null)
     {
-        var request = new AgentRequest(kind, basePath, project, text, continues, subject, stages);
+        var request = new AgentRequest(kind, basePath, project, text, continues, subject);
         lock (_gate)
         {
             if (_requests.Remove(kind, out var previous))

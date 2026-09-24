@@ -1311,68 +1311,95 @@ const rewriteApi = (events: unknown[]) => ({
   'DELETE /api/agent/flow': () => new Response(null, { status: 204 }),
 })
 
-test('«Переписать с Чудо-Юдо» в меню «…» шлёт стадии базы, а «Принять правки» сразу записывает переписанные', async () => {
-  const rewritten = [
-    { of: 'Ревью', stage: { ...review, title: 'Проверка', output: 'вердикт по sha и тестам' } },
-    // Новый этап приходит без of: пустые поля API не пишет.
-    { stage: { ...spare, title: 'Документация', executor: 'оператор', output: 'раздел', slug: null } },
-  ]
-  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
+/** Ответ Чудо-Юдо с правками: ревью переименовано, документация заведена и поставлена в мелкий сценарий. */
+const rewriteAnswer = {
+  type: 'answer',
+  text: 'Готово.',
+  changed: { scenarios: 1, stages: 2 },
+  proposal: {
+    stages: [
+      { of: 'Ревью', stage: { ...review, title: 'Проверка', output: 'вердикт по sha и тестам' } },
+      // Новый этап приходит без of: пустые поля API не пишет.
+      { stage: { ...spare, title: 'Документация', executor: 'оператор', output: 'раздел', slug: null } },
+    ],
+    scenarios: [
+      {
+        of: 'мелкий',
+        flow: {
+          ...small,
+          entries: [
+            { stage: 'Проверка' },
+            { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Проверка' }] },
+            { stage: 'Документация' },
+          ],
+        },
+      },
+    ],
+  },
+}
+
+/** Просьба уходит из окна переписки, и открывается вкладка «Изменения». */
+async function askForChanges(modal: ReturnType<typeof within>, wish: string, changed = '1 сценарий, 2 этапа') {
+  fireEvent.change(modal.getByLabelText('Просьба'), { target: { value: wish } })
+  fireEvent.click(modal.getByRole('button', { name: 'Отправить' }))
+  fireEvent.click(await modal.findByRole('button', { name: changed }))
+}
+
+test('«Переписать с Чудо-Юдо» шлёт флоу раздела целиком, а «Принять правки» пишет правки сценариев и этапов одной записью', async () => {
+  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([rewriteAnswer]) }))
   await renderFlow()
 
   fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
   const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
-  fireEvent.change(modal.getByLabelText('Что поменять в этапах'), { target: { value: 'Переименуй ревью и заведи документацию' } })
-  fireEvent.click(modal.getByRole('button', { name: 'Этапы' }))
-  fireEvent.click(within(modal.getByRole('listbox', { name: 'Этапы проекта' })).getByRole('option', { name: /Ревью/ }))
-  fireEvent.click(modal.getByRole('button', { name: 'Переписать' }))
+  await askForChanges(modal, 'Переименуй ревью и заведи документацию в мелком')
 
-  const changes = within(await modal.findByLabelText('Что изменилось в этапах'))
-  // Ревью стоит в обоих сценариях: карточка говорит, что правка заденет оба.
-  expect(changes.getByText(/Этап стоит в сценариях «полный» и «мелкий»/)).toBeInTheDocument()
   const sent = body(fetchMock, 'POST /api/flow/rewrite')
   expect(sent.base).toBe(app.base)
-  expect(sent.stages.map((stage: FlowStage) => stage.title)).toEqual(['Ревью'])
-  expect(sent.titles).toEqual(['Критерий', 'Ревью', 'Приёмка', 'Запас'])
+  expect(sent.stages.map((stage: FlowStage) => stage.title)).toEqual(['Критерий', 'Ревью', 'Приёмка', 'Запас'])
+  expect(sent.flows.map((flow: NamedFlow) => flow.name)).toEqual(['полный', 'мелкий'])
+  const changes = within(modal.getByLabelText('Изменения флоу'))
+  expect(changes.getByText('в сценариях «полный», «мелкий»')).toBeInTheDocument()
   expect(posts(fetchMock)).toBe(0)
 
   fireEvent.click(modal.getByRole('button', { name: 'Принять правки' }))
 
-  // Правки записаны сразу, одной записью (B-226); новая стадия встаёт карточкой в конце вкладки «Этапы».
+  // Правки записаны сразу, одной записью (B-226); переписка остаётся открытой.
   await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
-  const list = within(await screen.findByRole('list', { name: 'Этапы базы' }))
-  expect(list.getByRole('button', { name: /^Документация/ })).toBeInTheDocument()
-  expect(list.getByRole('button', { name: /^Проверка/ })).toBeInTheDocument()
-  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
-
   const written = body(fetchMock, 'POST /api/flow')
-  // Переименование держит файл стадии и идёт за ней в сценарии и возвраты, как ручное.
+  // Переименование держит файл этапа и идёт за ним в сценарии и возвраты, как ручное.
   expect(written.stages.find((stage: FlowStage) => stage.title === 'Проверка')).toMatchObject({
     slug: 'review',
     output: 'вердикт по sha и тестам',
   })
   expect(written.stages.find((stage: FlowStage) => stage.title === 'Документация')).toMatchObject({ slug: null })
+  expect(written.flows[0].entries.map((entry: { stage: string }) => entry.stage)).toEqual(['Критерий', 'Проверка', 'Приёмка'])
   expect(written.flows[1].entries).toEqual([
     { stage: 'Проверка', returns: [] },
     { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Проверка' }] },
+    { stage: 'Документация', returns: [] },
   ])
+  expect(screen.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
 })
 
-test('«Отказаться» в окне переписывания ничего не пишет в базу и новой стадии не заводит', async () => {
-  const rewritten = [{ of: null, stage: { ...spare, title: 'Документация', slug: null } }]
-  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
+test('удалённые Чудо-Юдо сценарий и этап уходят из записи', async () => {
+  const answer = {
+    type: 'answer',
+    text: 'Убрал.',
+    changed: { scenarios: 1, stages: 1 },
+    proposal: { stages: [{ of: 'Запас' }], scenarios: [{ of: 'мелкий' }] },
+  }
+  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([answer]) }))
   await renderFlow()
 
   fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
   const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
-  fireEvent.change(modal.getByLabelText('Что поменять в этапах'), { target: { value: 'Заведи документацию' } })
-  fireEvent.click(modal.getByRole('button', { name: 'Написать этап' }))
-  fireEvent.click(await modal.findByRole('button', { name: 'Отказаться' }))
+  await askForChanges(modal, 'Убери запас и мелкий сценарий', '1 сценарий, 1 этап')
+  fireEvent.click(modal.getByRole('button', { name: 'Принять правки' }))
 
-  await vi.waitFor(() => expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument())
-  expect(posts(fetchMock)).toBe(0)
-  fireEvent.click(screen.getByRole('tab', { name: 'Этапы' }))
-  expect(within(screen.getByRole('list', { name: 'Этапы базы' })).queryByText('Документация')).not.toBeInTheDocument()
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
+  const written = body(fetchMock, 'POST /api/flow')
+  expect(written.stages.map((stage: FlowStage) => stage.title)).toEqual(['Критерий', 'Ревью', 'Приёмка'])
+  expect(written.flows.map((flow: NamedFlow) => flow.name)).toEqual(['полный'])
 })
 
 test('раздел, открытый с отметки просьбы в шапке, сразу показывает окно переписывания', async () => {
@@ -1413,7 +1440,7 @@ test('отметка в шапке без несохранённых право�
   expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
 })
 
-test('отметка в шапке с правкой в открытом окне оставляет раздел на своём проекте и предупреждает о чужой просьбе', async () => {
+test('отметка в шапке с правкой в открытом окне оставляет раздел на своём проекте и предупреждает о чужой переписке', async () => {
   stubApi(api([app, nota], notaRewrite))
   const view = render(<Flow />)
   await screen.findByRole('region', { name: 'Сценарий «полный»' })
@@ -1424,7 +1451,7 @@ test('отметка в шапке с правкой в открытом окн�
 
   const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
   expect(
-    await modal.findByText('Чудо-Юдо уже переписал этапы Nota: новая просьба отсюда уберёт этот ответ.'),
+    await modal.findByText('Идёт переписка о флоу Nota: первая реплика отсюда начнёт новую, а ту уберёт.'),
   ).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeInTheDocument()
   expect(screen.getByRole('textbox', { name: 'Название этапа' })).toHaveValue('Критерий закрытия')
@@ -1662,18 +1689,17 @@ test('после отказа записи окно держит набранн�
   await vi.waitFor(() => expect(reads()).toBe(2))
 })
 
-test('в окне Чудо-Юдо стадии занятого сценария погашены с задачами', async () => {
-  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'мелкий' }] }], rewriteApi([])))
+test('в окне Чудо-Юдо правки занятого сценария и его этапов помечены задачами, и «Принять правки» погашена', async () => {
+  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'мелкий' }] }], rewriteApi([rewriteAnswer])))
   await renderFlow()
 
   fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
   const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
-  fireEvent.click(modal.getByRole('button', { name: 'Этапы' }))
-  const list = within(modal.getByRole('listbox', { name: 'Этапы проекта' }))
+  await askForChanges(modal, 'Переименуй ревью')
 
-  expect(list.getByRole('option', { name: /Ревью/ })).toHaveAttribute('aria-disabled', 'true')
-  expect(list.getByRole('option', { name: /Ревью/ })).toHaveTextContent('занят: B-7')
-  expect(list.getByRole('option', { name: /Критерий/ })).not.toHaveAttribute('aria-disabled')
+  expect(modal.getByRole('status')).toHaveTextContent('сценарий «мелкий»B-7; этап «Ревью»B-7')
+  expect(modal.getAllByTitle('Занят: B-7')).toHaveLength(2)
+  expect(modal.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
 })
 
 test('сайдбар после «Сохранить» остаётся открытым и дальше считает свои правки: пишет их и спрашивает при закрытии', async () => {
@@ -1993,8 +2019,7 @@ test('при правке в сайдбаре выбор проекта дост
 })
 
 test('«Принять правки» Чудо-Юдо при правке в сайдбаре не пишет и называет причину', async () => {
-  const rewritten = [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }]
-  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
+  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([rewriteAnswer]) }))
   const view = render(<Flow />)
   const region = within(await screen.findByRole('region', { name: 'Сценарий «полный»' }))
   const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
@@ -2003,11 +2028,8 @@ test('«Принять правки» Чудо-Юдо при правке в с�
   // Окно переписывания пришло отметкой в шапке приложения — мимо перехвата раздела
   view.rerender(<Flow baseFor={app.base} rewriteAt={2} />)
   const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
-  fireEvent.change(modal.getByLabelText('Что поменять в этапах'), { target: { value: 'Уточни ревью' } })
-  fireEvent.click(modal.getByRole('button', { name: 'Этапы' }))
-  fireEvent.click(within(modal.getByRole('listbox', { name: 'Этапы проекта' })).getByRole('option', { name: /Ревью/ }))
-  fireEvent.click(modal.getByRole('button', { name: 'Переписать' }))
-  fireEvent.click(await modal.findByRole('button', { name: 'Принять правки' }))
+  await askForChanges(modal, 'Уточни ревью')
+  fireEvent.click(modal.getByRole('button', { name: 'Принять правки' }))
 
   expect(await modal.findByRole('alert')).toHaveTextContent('в боковой панели сценария несохранённая правка')
   expect(posts(fetchMock)).toBe(0)
@@ -2015,8 +2037,7 @@ test('«Принять правки» Чудо-Юдо при правке в с�
 })
 
 test('«Принять правки» Чудо-Юдо при правке в открытом окне стадии не пишет и просит сначала закрыть окно', async () => {
-  const rewritten = [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }]
-  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([{ type: 'rewritten', text: '', stages: rewritten }]) }))
+  const fetchMock = stubApi(api([app], { ...saved(), ...rewriteApi([rewriteAnswer]) }))
   const view = render(<Flow />)
   await screen.findByRole('region', { name: 'Сценарий «полный»' })
   const edit = await stagesTab('Критерий')
@@ -2024,11 +2045,8 @@ test('«Принять правки» Чудо-Юдо при правке в о�
 
   view.rerender(<Flow baseFor={app.base} rewriteAt={2} />)
   const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
-  fireEvent.change(modal.getByLabelText('Что поменять в этапах'), { target: { value: 'Уточни ревью' } })
-  fireEvent.click(modal.getByRole('button', { name: 'Этапы' }))
-  fireEvent.click(within(modal.getByRole('listbox', { name: 'Этапы проекта' })).getByRole('option', { name: /Ревью/ }))
-  fireEvent.click(modal.getByRole('button', { name: 'Переписать' }))
-  fireEvent.click(await modal.findByRole('button', { name: 'Принять правки' }))
+  await askForChanges(modal, 'Уточни ревью')
+  fireEvent.click(modal.getByRole('button', { name: 'Принять правки' }))
 
   expect(await modal.findByRole('alert')).toHaveTextContent('в открытом окне несохранённая правка. Закройте это окно')
   expect(posts(fetchMock)).toBe(0)
