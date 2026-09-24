@@ -99,18 +99,31 @@ pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house -TaskPiece <путь к 
 
 ## Проверки
 
+Полный прогон идёт на GitHub, а не на машине: его запускает отправка любой ветки, кроме dev и master
+(`.github/workflows/checks.yml`), — тесты бэкенда, линт, тесты и сборка фронта, e2e, тремя машинами разом.
+Ветку задачи сливают в dev, когда прогон её последнего коммита зелёный.
+
 ```sh
-# бэкенд
+gh run watch <номер> --exit-status        # дождаться; номер — gh run list --branch <ветка>
+gh run view <номер> --log-failed          # упавшее
+gh run download <номер> -n e2e-failures   # след и снимок страницы упавших e2e
+```
+
+У себя, пока правят код, гоняют только сборку, линт и тесты тронутой части; e2e — только чтобы
+воспроизвести упавшее на GitHub.
+
+```sh
+# бэкенд: тесты тронутых классов
 cd backend
-dotnet test
+dotnet test --filter "FullyQualifiedName~<Класс>Tests"
 
 # фронтенд
 cd frontend
 npm run lint
-npm test
+npx vitest related --run <тронутые файлы>
 npm run build
 
 # e2e: каждый прогон поднимает свои API и dev-сервер на свободных портах, запущенные не берёт
 npx playwright install chromium   # один раз
-npm run test:e2e
+npx playwright test <файл>
 ```
