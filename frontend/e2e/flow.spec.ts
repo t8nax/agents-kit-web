@@ -374,7 +374,7 @@ test('описание стадии из меню — оформленным т�
   await expect(block).toBeFocused()
 })
 
-test('вкладка «Этапы»: стадии карточками по три в ряд, «Новый этап» последней, значок из списка значков', async ({
+test('вкладка «Этапы»: стадии карточками по три в ряд, «Новый этап» последним, значок из списка значков', async ({
   page,
 }) => {
   const calls = await mockApi(page)
@@ -609,7 +609,7 @@ for (const theme of ['dark', 'light'] as const) {
     await expect(adding.getByRole('button', { name: 'Закрыть' })).toBeVisible()
     await expect(adding.getByRole('button', { name: 'Отмена' })).toBeVisible()
     // Пресетов в окне больше нет (B-226)
-    await expect(adding.getByRole('group', { name: 'Пресеты стадий' })).toHaveCount(0)
+    await expect(adding.getByRole('group', { name: 'Пресеты этапов' })).toHaveCount(0)
     // «Новый этап» — пунктирной строкой, стадии базы — карточками с рамкой
     const fresh = adding.getByRole('button', { name: 'Новый этап' })
     await expect(fresh).toHaveCSS('border-top-style', 'dashed')

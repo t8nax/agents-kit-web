@@ -98,7 +98,7 @@ test('оператор просит Чудо-Юдо переписать ста�
   await modal.getByRole('button', { name: 'Принять правки' }).click()
   await expect(modal).toBeHidden()
 
-  // Новый этап встала карточкой на вкладке «Этапы», переименованная — под новым названием.
+  // Новый этап встал карточкой на вкладке «Этапы», переименованный — под новым названием.
   const list = page.getByRole('list', { name: 'Этапы базы' })
   await expect(list.getByRole('button', { name: /^Документация/ })).toBeVisible()
   await expect(list.getByRole('button', { name: /^Проверка/ })).toBeVisible()

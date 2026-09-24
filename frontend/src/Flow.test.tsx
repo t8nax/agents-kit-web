@@ -1000,7 +1000,7 @@ test('в окне добавления — новая стадия и стади
   ])
   // Строка без выхода: значок, название и исполнитель (B-209)
   expect(own.getByRole('button', { name: /^Критерий/ })).not.toHaveTextContent('выход')
-  // Первой в окне — «Новый этап», фокус на ней
+  // Первым в окне — «Новый этап», фокус на нём
   expect(dialog.getAllByRole('button')[1]).toHaveAccessibleName('Новый этап')
   expect(dialog.getByRole('button', { name: 'Новый этап' })).toHaveFocus()
   fireEvent.click(own.getByRole('button', { name: /^Критерий/ }))
@@ -1011,7 +1011,7 @@ test('в окне добавления — новая стадия и стади
   expect(small.getByRole('button', { name: 'Этап 3: Критерий' })).toHaveFocus()
 
   // Пресетов в окне нет: их убрали из панели на B-226
-  expect(screen.queryByRole('group', { name: 'Пресеты стадий' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('group', { name: 'Пресеты этапов' })).not.toBeInTheDocument()
 
   const sent = await saveAndRead(fetchMock)
   expect(sent.flows[1].entries.map((entry: { stage: string }) => entry.stage)).toEqual(['Ревью', 'Приёмка', 'Критерий'])
