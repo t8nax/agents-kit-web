@@ -47,7 +47,7 @@ public class WorkMemoryTests
         ### Факты
         - [ ] не шаг флоу
 
-        ### Флоу
+        ### Сценарий
         - [x] 1. Критерий — выход: подтверждён
         - [x] 2. Ветка — выход: feat/table
         - [ ] 3. Реализация
@@ -344,10 +344,20 @@ public class WorkMemoryTests
     }
 
     [Fact]
+    public void Parse_StagesOfPriorKitMemoryUnderFlow_AreRead()
+    {
+        // Память, которую ещё не перевели на нынешний вид кита, держит этапы во «### Флоу».
+        var memory = WorkMemory.Parse(Memory.Replace("### Сценарий\n", "### Флоу\n"));
+
+        Assert.Equal("Реализация", memory.FlowStep);
+        Assert.Equal(62, memory.Progress);
+    }
+
+    [Fact]
     public void Parse_FlowOutsideAgentPart_IsNotRead()
     {
         var memory = WorkMemory.Parse(Memory.Replace("## Агенту\n", "## Флоу\n- [ ] 1. Старый флоу\n\n## Агенту\n")
-            .Replace("### Флоу\n", "### Не флоу\n"));
+            .Replace("### Сценарий\n", "### Не сценарий\n"));
 
         Assert.Null(memory.FlowStep);
         Assert.Null(memory.Progress);

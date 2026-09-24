@@ -43,7 +43,7 @@ public class OperatorAnswersTests
 
         ### Факты
 
-        ### Флоу
+        ### Сценарий
         - [ ] 1. Критерий
 
         ### Шаги

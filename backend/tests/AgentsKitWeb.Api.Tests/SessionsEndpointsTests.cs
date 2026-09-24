@@ -376,7 +376,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             """);
