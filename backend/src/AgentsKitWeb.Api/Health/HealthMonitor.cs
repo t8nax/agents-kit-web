@@ -47,10 +47,15 @@ public sealed record BaseHealth(
 
 /// <summary>
 /// Снимок проблем баз. Pending — первая проверка ещё идёт, данных нет. KitUpdate — установленная новая версия
-/// плагина кита, на которую панель ещё не перешла.
+/// плагина кита, на которую панель ещё не перешла; CurrentKitVersion — номер версии кита по сохранённому пути.
 /// </summary>
 public sealed record HealthSnapshot(
-    bool Pending, string Kit, IReadOnlyList<BaseHealth> Bases, DateTimeOffset? CheckedAt, KitVersion? KitUpdate = null);
+    bool Pending,
+    string Kit,
+    IReadOnlyList<BaseHealth> Bases,
+    DateTimeOffset? CheckedAt,
+    KitVersion? KitUpdate = null,
+    string? CurrentKitVersion = null);
 
 /// <summary>
 /// Проверяет базы в фоне и держит последний снимок. Сверка кита идёт секундами на базу, а таблица
@@ -108,6 +113,7 @@ public sealed class HealthMonitor(
         var kit = store.Kit();
         var kitStatus = kit is null ? KitStatus.NotSet : BasesStore.IsKit(kit) ? KitStatus.Ok : KitStatus.NotFound;
         var kitUpdate = kit is null ? null : locator.PluginState(kit).Update;
+        var kitVersion = kitStatus == KitStatus.Ok ? KitLocator.Version(kit!) : null;
 
         var result = new List<BaseHealth>();
         foreach (var basePath in store.List())
@@ -115,7 +121,7 @@ public sealed class HealthMonitor(
             var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
             result.Add(await CheckBaseAsync(kitStatus == KitStatus.Ok ? kit : null, basePath, rows, cancellationToken));
         }
-        return new HealthSnapshot(false, kitStatus, result, DateTimeOffset.Now, kitUpdate);
+        return new HealthSnapshot(false, kitStatus, result, DateTimeOffset.Now, kitUpdate, kitVersion);
     }
 
     private async Task<BaseHealth> CheckBaseAsync(

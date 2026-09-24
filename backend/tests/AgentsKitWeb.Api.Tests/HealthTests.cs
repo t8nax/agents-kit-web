@@ -168,6 +168,8 @@ public sealed class HealthTests : IDisposable
     {
         var plugin = Path.Combine(_root, "profile", ".claude", "plugins");
         var old = TestKit.Create(Path.Combine(plugin, "cache", "kits", "agents-kit", "0.2.0"));
+        Directory.CreateDirectory(Path.Combine(old, ".claude-plugin"));
+        File.WriteAllText(Path.Combine(old, ".claude-plugin", "plugin.json"), """{ "version": "0.2.0" }""");
         var fresh = TestKit.Create(Path.Combine(plugin, "cache", "kits", "agents-kit", "0.3.0"));
         Directory.CreateDirectory(Path.Combine(fresh, ".claude-plugin"));
         File.WriteAllText(Path.Combine(fresh, ".claude-plugin", "plugin.json"), """{ "version": "0.3.0" }""");
@@ -186,6 +188,7 @@ public sealed class HealthTests : IDisposable
         var snapshot = await WaitFor(s => s.KitUpdate is not null);
         Assert.Equal(KitStatus.Ok, snapshot.Kit);
         Assert.Equal(new KitVersion(fresh, "0.3.0"), snapshot.KitUpdate);
+        Assert.Equal("0.2.0", snapshot.CurrentKitVersion);
     }
 
     [Fact]
