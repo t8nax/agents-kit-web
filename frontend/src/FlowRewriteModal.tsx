@@ -72,6 +72,16 @@ const kindLabels: Record<ChangeKind, string> = {
 
 const empty: FlowProposal = { scenarios: [], stages: [] }
 
+/** Сколько событий переписки оператор уже видел на вкладке «Изменения»; хранилище недоступно — ноль. */
+function readSeen(key: string | null) {
+  if (!key) return 0
+  try {
+    return Number(localStorage.getItem(key)) || 0
+  } catch {
+    return 0
+  }
+}
+
 /** Ход работы нынешней реплики: шаги, набежавшие после последней реплики оператора. */
 function stepsOfTurn(events: RewriteEvent[]) {
   const steps: string[] = []
@@ -88,8 +98,9 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
   const [text, setText] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('talk')
   // Сколько событий переписки было, когда оператор последний раз смотрел вкладку «Изменения»: точка на ней горит,
-  // пока ответ, поменявший список, пришёл позже.
-  const [seen, setSeen] = useState(0)
+  // пока ответ, поменявший список, пришёл позже. Отметку помнит браузер по переписке: окно, открытое заново, не
+  // зажигает точку от списка, который уже смотрели.
+  const [seenNow, setSeenNow] = useState(0)
   // Описание этапа читается своим окном поверх списка: в пункте стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
   // Правки пишутся: окно не закрывается, пока запись не кончилась, — иначе отказ записи был бы некому показать.
@@ -105,6 +116,8 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
   const value = text ?? (foreign ? '' : (retry ?? ''))
   const steps = running && !foreign ? stepsOfTurn(events) : []
   const talk = useRef<HTMLDivElement>(null)
+  const seenKey = conversation.id && !foreign ? `flow-rewrite-seen:${conversation.id}` : null
+  const seen = Math.max(seenNow, readSeen(seenKey))
 
   // Правки — последние, что пришли с ответом; записанное оператором из них уходит само.
   const proposal = [...events].reverse().find((event) => event.type === 'answer' && event.proposal)
@@ -149,7 +162,13 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
 
   function openChanges() {
     setTab('changes')
-    setSeen(events.length)
+    setSeenNow(events.length)
+    if (seenKey)
+      try {
+        localStorage.setItem(seenKey, String(events.length))
+      } catch {
+        // Хранилище браузера недоступно: отметка живёт, пока открыто окно.
+      }
   }
 
   async function submit() {
@@ -180,7 +199,7 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
   async function newTalk() {
     setText(null)
     setTab('talk')
-    setSeen(0)
+    setSeenNow(0)
     setApplyFailure(null)
     await forget()
   }
@@ -495,6 +514,11 @@ function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null
         <Held tasks={held} />
       </summary>
       <div className="rewrite-item-body">
+        {item.gone && (
+          <p className="rewrite-drift">
+            Сценария «{item.gone}» в разделе уже нет: «Принять правки» заведёт его снова.
+          </p>
+        )}
         <dl className="rewrite-chain-list">
           <div className="rewrite-chain-row">
             <dt>порядок</dt>
@@ -563,6 +587,9 @@ function StageRow({
         <Held tasks={held} />
       </summary>
       <div className="rewrite-item-body">
+        {item.gone && (
+          <p className="rewrite-drift">Этапа «{item.gone}» в разделе уже нет: «Принять правки» заведёт его снова.</p>
+        )}
         {item.kind === 'removed' && <p className="rewrite-none">Этап уйдёт из базы.</p>}
 
         {item.kind === 'added' && stage && (

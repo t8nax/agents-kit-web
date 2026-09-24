@@ -86,7 +86,7 @@ function renderModal(
   )
   const rerender = (next: { stages: FlowStage[]; flows: NamedFlow[] }) =>
     view.rerender(<FlowRewriteModal {...props} stages={next.stages} flows={next.flows} />)
-  return { onApply, onClose, rerender }
+  return { onApply, onClose, rerender, unmount: view.unmount }
 }
 
 async function say(text: string) {
@@ -165,6 +165,50 @@ test('ответ с правками: строка «В изменениях» �
   expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeEnabled()
   expect(screen.getByRole('button', { name: 'Принять правки' })).toBeEnabled()
   expect(screen.queryByRole('button', { name: 'Отправить' })).not.toBeInTheDocument()
+})
+
+test('ответ-вопрос после правок список не трогает и точку не зажигает', async () => {
+  const { stream } = await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Переписка' }))
+
+  await say('А тесты какие?')
+  stream.send({ type: 'reply', text: 'А тесты какие?' })
+  // Вопрос несёт прежние правки: бэкенд отдаёт с каждым ответом все правки переписки.
+  stream.send({ type: 'answer', text: 'Юнит или e2e?', durationMs: 3000, proposal })
+
+  expect(await screen.findByText('Юнит или e2e?')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Изменения' })).toBeEnabled()
+  expect(screen.queryByLabelText('Список изменён последним ответом')).not.toBeInTheDocument()
+  expect(screen.getAllByText(/В изменениях:/)).toHaveLength(1)
+})
+
+test('окно, открытое заново, не зажигает точку от списка, который уже смотрели', async () => {
+  localStorage.clear()
+  const { unmount } = await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
+  unmount()
+
+  // Окно открыли заново: переписка та же, её поток читается с начала.
+  const again = controlledStream<RewriteEvent>()
+  stubFetch(again, runningRequest('flow', 'Заведи документацию', base, 'Agents Kit Web'))
+  renderModal()
+  again.send({ type: 'reply', text: 'Заведи документацию' })
+  again.send({ type: 'answer', text: 'Завёл **документацию**.', durationMs: 41000, proposal, changed: { scenarios: 1, stages: 2 } })
+
+  expect(await screen.findByText('документацию')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Изменения' })).toBeEnabled()
+  expect(screen.queryByLabelText('Список изменён последним ответом')).not.toBeInTheDocument()
+})
+
+test('правка этапа, убранного из раздела после ответа, говорит, что «Принять правки» заведёт его снова', async () => {
+  const { rerender } = await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
+
+  rerender({ stages: [merge, design], flows })
+  fireEvent.click(screen.getByText('Ревью', { selector: '.rewrite-item-name' }))
+
+  expect(await screen.findByText('Этапа «Ревью» в разделе уже нет: «Принять правки» заведёт его снова.')).toBeInTheDocument()
 })
 
 test('«Принять правки» отдаёт разделу правки переписки, а отказ записи остаётся на вкладке', async () => {

@@ -29,6 +29,8 @@ export type StageItem = {
   stage: FlowStage | null
   fields: StageFieldChange[]
   flows: string[]
+  /** Правка этапа, который оператор убрал из раздела после ответа: «Принять правки» заведёт его снова. */
+  gone?: string
 }
 
 /** Звено цепочки сценария: этап на своём месте, новый в сценарии или убранный из него. */
@@ -42,6 +44,8 @@ export type ScenarioItem = {
   flow: NamedFlow | null
   chain: ChainLink[]
   returns: string[] | null
+  /** Правка сценария, который оператор убрал из раздела после ответа: «Принять правки» заведёт его снова. */
+  gone?: string
 }
 
 /** Число и слово в нужной форме: «1 этап», «2 этапа», «5 этапов». */
@@ -143,7 +147,8 @@ export function proposalItems(
     }
     const stage = change.stage
     const place = standsIn(after, stage.title)
-    if (!was) return [{ kind: 'added', title: stage.title, of: null, stage, fields: [], flows: place }]
+    if (!was)
+      return [{ kind: 'added', title: stage.title, of: null, stage, fields: [], flows: place, ...(change.of != null ? { gone: change.of } : {}) }]
     const fields = fieldNames
       .map((field) => ({ field, before: value(was, field), after: value(stage, field) }))
       .filter((field) => field.before !== field.after)
@@ -158,7 +163,18 @@ export function proposalItems(
     }
     const flow = change.flow
     const now = flow.entries.map((entry) => entry.stage)
-    if (!was) return [{ kind: 'added', name: flow.name, of: null, flow, chain: chainOf([], now), returns: returnsOf(flow).length > 0 ? returnsOf(flow) : null }]
+    if (!was)
+      return [
+        {
+          kind: 'added',
+          name: flow.name,
+          of: null,
+          flow,
+          chain: chainOf([], now),
+          returns: returnsOf(flow).length > 0 ? returnsOf(flow) : null,
+          ...(change.of != null ? { gone: change.of } : {}),
+        },
+      ]
     // Этап, переименованный теми же правками, в сценарии не убран и не добавлен: он стоит на своём месте.
     const before = was.entries.map((entry) => follow(entry.stage))
     const renamedWas = { ...was, entries: was.entries.map((entry) => ({ ...entry, stage: follow(entry.stage), returns: (entry.returns ?? []).map((back) => ({ ...back, stage: follow(back.stage) })) })) }

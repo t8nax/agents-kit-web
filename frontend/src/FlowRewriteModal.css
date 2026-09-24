@@ -401,3 +401,11 @@
   font-size: 13px;
   color: var(--accent-waiting-text);
 }
+
+/* Правку того, что оператор убрал из раздела после ответа, «Принять правки» положит снова (flow-rewrite.md). */
+.rewrite-drift {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--accent-waiting-text);
+}

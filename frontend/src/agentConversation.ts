@@ -44,6 +44,7 @@ async function alive(kind: ConversationKind, id: string) {
  */
 export function useAgentConversation<E extends ConversationEvent = AskEvent>(kind: ConversationKind = 'ask') {
   const [events, setEvents] = useState<E[]>([])
+  const [id, setId] = useState<string | null>(null)
   const [base, setBase] = useState<string | null>(null)
   const [project, setProject] = useState<string | null>(null)
   // Про что разговор помимо базы: у вопроса по базе — копия проекта, чей код читает агент, у разговора о бэклоге —
@@ -66,6 +67,7 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     reading.current?.abort()
     const controller = new AbortController()
     reading.current = controller
+    setId(summary.id)
     setBase(summary.base)
     setProject(summary.project)
     setSubject(summary.subject ?? null)
@@ -214,6 +216,7 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     reading.current?.abort()
     reading.current = null
     setEvents([])
+    setId(null)
     setBase(null)
     setProject(null)
     setSubject(null)
@@ -228,5 +231,5 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     }
   }, [kind])
 
-  return { events, base, project, subject, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure }
+  return { events, id, base, project, subject, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure }
 }

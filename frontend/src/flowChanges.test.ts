@@ -102,6 +102,18 @@ describe('proposalItems', () => {
   })
 })
 
+describe('убранное из раздела после ответа', () => {
+  it('правка этапа и сценария, которых на экране уже нет, стоит новой и называет прежнее имя', () => {
+    const items = proposalItems([merge], [small], {
+      scenarios: [{ of: 'крупный', flow: { ...big, entries: [{ stage: 'Мерж' }] } }],
+      stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }],
+    })
+
+    expect(items.stages[0]).toMatchObject({ kind: 'added', gone: 'Ревью' })
+    expect(items.scenarios[0]).toMatchObject({ kind: 'added', gone: 'крупный' })
+  })
+})
+
 describe('pending', () => {
   it('правки, которые раздел уже держит, и удаление того, чего нет, уходят', () => {
     const docs = stage('Документация')
