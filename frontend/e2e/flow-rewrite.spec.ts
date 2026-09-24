@@ -232,6 +232,14 @@ test('описание из правок открывается окном то�
   await expect(fromChanges).toHaveCount(0)
   await expect(open).toBeFocused()
 
+  // Escape закрывает только окно описания: окно переписки под ним остаётся.
+  await open.click()
+  await expect(fromChanges).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(fromChanges).toHaveCount(0)
+  await expect(modal).toBeVisible()
+  await expect(open).toBeFocused()
+
   // То же окно со схемы вкладки «Сценарии»: размер и значок совпадают.
   await modal.getByRole('button', { name: 'Закрыть' }).first().click()
   await page.getByRole('region', { name: 'Сценарий «полный»' }).getByRole('button', { name: 'Этап 1: Ревью' }).click({ button: 'right' })

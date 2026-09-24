@@ -147,9 +147,11 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (description) closeDescription()
-      // Пока правки пишутся, окно не закрывается; чтение описания записи не мешает.
-      else if (!applying) onClose()
+      // Окно описания закрывает себя само. Его Escape сюда долетает, когда описание уже убрано, и без этой проверки
+      // закрыл бы и переписку.
+      if (description || (event.target instanceof Element && event.target.closest('.flow-description'))) return
+      // Пока правки пишутся, окно не закрывается.
+      if (!applying) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
