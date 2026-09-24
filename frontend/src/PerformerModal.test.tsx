@@ -579,14 +579,16 @@ test('окно правки не подхватывает просьбу о но
   stream.send({ type: 'drafted', text: '---', fields: runner })
   stream.close()
 
-  // Окно спросило о просьбах, но ответ про другого исполнителя в окно reviewer не лёг и просьбу не забрал.
-  await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => url)).toContain('/api/agent/requests'))
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  // Разом идёт одна просьба этого вида: окно предупреждает, что его просьба остановит чужую. Предупреждение ставит
+  // разбор ответа о просьбах — тот же, что забрал бы просьбу, будь она своей: дальше окно смотрится уже разобравшим его.
+  expect(
+    await screen.findByText(/сейчас занят про нового исполнителя Agents Kit Web: новая просьба отсюда остановит его/),
+  ).toBeInTheDocument()
+  // Ответ про другого исполнителя в окно reviewer не лёг и просьбу не забрал: её поток окно даже не открывало.
+  expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContainEqual(expect.stringContaining('/stream'))
   expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
   expect(screen.queryByText('Основу написал Чудо-Юдо')).not.toBeInTheDocument()
   expect(panel.deletes).toEqual([])
-  // Разом идёт одна просьба этого вида: окно предупреждает, что его просьба остановит чужую.
-  expect(screen.getByText(/сейчас занят про нового исполнителя Agents Kit Web: новая просьба отсюда остановит его/)).toBeInTheDocument()
 })
 
 test('открытое заново окно правки подхватывает свою просьбу и её итог', async () => {
@@ -616,11 +618,11 @@ test('окно нового не подхватывает просьбу о пр
   const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
   open()
 
-  await waitFor(() => expect(fetchMock.mock.calls.map(([url]) => url)).toContain('/api/agent/requests'))
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  // Предупреждение о чужой просьбе ставит разбор ответа о просьбах: дальше окно смотрится уже разобравшим его.
+  expect(await screen.findByText(/сейчас занят про исполнителя reviewer Agents Kit Web/)).toBeInTheDocument()
+  expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContainEqual(expect.stringContaining('/stream'))
   expect(screen.queryByText('Пусть ещё сверяет')).not.toBeInTheDocument()
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
-  expect(screen.getByText(/сейчас занят про исполнителя reviewer Agents Kit Web/)).toBeInTheDocument()
 
   // Своя просьба чужую останавливает: предупреждать больше не о чем.
   fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
