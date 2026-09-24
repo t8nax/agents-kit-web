@@ -128,12 +128,17 @@ test('«Отменить» ничего не записывает, а лента
     await route.fulfill({ status: 204 })
   })
 
+  await page.clock.install()
   await page.goto('/')
   const dialog = await openReply(page)
   const answer = dialog.getByLabel('Ответ')
   await answer.fill('принимаю')
+  // Часы страницы стоят, пока тест жмёт «Отменить»: на занятой машине GitHub полторы секунды
+  // выходили раньше, чем кнопка давалась нажать, и окно отправляло ответ само (B-248).
+  await page.clock.pauseAt(Date.now() + 1000)
   await answer.press('Enter')
   await dialog.getByRole('button', { name: 'Отменить' }).click()
+  await page.clock.resume()
 
   await expect(page.locator('.modal-overlay.is-leaving')).toHaveCount(0)
   await expect(dialog.locator('.reply-feed')).toBeVisible()
