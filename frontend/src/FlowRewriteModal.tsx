@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
-import type { FlowStage, NamedFlow } from './Flow'
+import { DescriptionEditor, type FlowStage, type NamedFlow } from './Flow'
 import { Markdown } from './Markdown'
 import { useAgentConversation } from './agentConversation'
 import {
@@ -17,8 +17,6 @@ import {
 } from './flowChanges'
 import './Modal.css'
 import './AskModal.css'
-import './PerformerModal.css'
-import './Flow.css'
 import './Tabs.css'
 import './FlowRewriteModal.css'
 
@@ -149,7 +147,7 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (description) setDescription(null)
+      if (description) closeDescription()
       // Пока правки пишутся, окно не закрывается; чтение описания записи не мешает.
       else if (!applying) onClose()
     }
@@ -162,6 +160,17 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
     const box = talk.current
     if (box && tab === 'talk') box.scrollTop = box.scrollHeight
   }, [events.length, steps.length, tab])
+
+  // Закрытое окно описания возвращает фокус на кнопку, которой его открыли, — как на вкладке «Этапы».
+  const opener = useRef<HTMLElement | null>(null)
+  function openDescription(next: { title: string; text: string }) {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setDescription(next)
+  }
+  function closeDescription() {
+    setDescription(null)
+    opener.current?.focus()
+  }
 
   function openChanges() {
     setTab('changes')
@@ -356,7 +365,7 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
                       item={item}
                       mark={mark}
                       held={item.of === null ? null : lockedStage(item.of)}
-                      onDescription={setDescription}
+                      onDescription={openDescription}
                     />
                   ))}
                 </div>
@@ -432,7 +441,22 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
         </div>
       </div>
 
-      {description && <DescriptionView title={description.title} text={description.text} onClose={() => setDescription(null)} />}
+      {/* Описание из правок — тем же окном, что на вкладке «Этапы», но только для чтения (приёмка B-242). */}
+      {description && (
+        <DescriptionEditor
+          title={description.title}
+          description={description.text}
+          warning={null}
+          lock={null}
+          saving={false}
+          blocked
+          covered={false}
+          readOnly
+          onClose={closeDescription}
+          onAsk={(discard) => discard()}
+          onSave={async () => null}
+        />
+      )}
     </div>
   )
 }
@@ -620,41 +644,6 @@ function StageRow({
         )}
       </div>
     </details>
-  )
-}
-
-/**
- * Описание этапа из правок — окном того же вида и размера, что окно описания на вкладке «Этапы»: оформленная
- * разметка, только чтение — замечание и ответ оператора на приёмке B-242. Поправить текст можно просьбой в переписке.
- */
-function DescriptionView({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
-  const close = useRef<HTMLButtonElement>(null)
-  // Открытое окно забирает фокус: иначе он остался бы на кнопке под подложкой.
-  useEffect(() => close.current?.focus(), [])
-  return (
-    <div className="modal-overlay pf-task-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="modal-wizard pf-task flow-description" role="dialog" aria-modal="true" aria-labelledby="rewrite-description-title">
-        <div className="ask-head">
-          <div className="ask-title">
-            <FileTextIcon />
-            <h2 id="rewrite-description-title">Описание этапа «{title}»</h2>
-            <button type="button" className="btn btn-icon" aria-label="Закрыть описание" onClick={onClose}>
-              <CloseIcon />
-            </button>
-          </div>
-        </div>
-        <div className="ask-body">
-          <Markdown className="pf-task-view" text={text} />
-        </div>
-        <div className="modal-footer ask-footer">
-          <div className="footer-right">
-            <button type="button" ref={close} className="btn" onClick={onClose}>
-              Закрыть
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
   )
 }
 

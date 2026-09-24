@@ -3039,9 +3039,10 @@ function ReturnsField({
  * Описание этапа правится текстом в окне, а не полем — решение оператора, — по образцу задания исполнителя
  * (B-202): разметка показана оформленной, «Редактировать» открывает поле с исходным текстом. «Сохранить» сразу
  * пишет описание в базу вместе со стадией и возвращает к просмотру. «Отмена» бросает правку и закрывает окно сразу,
- * крестик и Escape при набранном спрашивают (B-226). Пустое описание открывается сразу в правке.
+ * крестик и Escape при набранном спрашивают (B-226). Пустое описание открывается сразу в правке. readOnly — описание
+ * из правок Чудо-Юдо в окне переписки: тот же вид и размер, но только чтение (приёмка B-242).
  */
-function DescriptionEditor({
+export function DescriptionEditor({
   title,
   description,
   warning,
@@ -3049,6 +3050,7 @@ function DescriptionEditor({
   saving,
   blocked,
   covered,
+  readOnly = false,
   onClose,
   onAsk,
   onSave,
@@ -3062,6 +3064,8 @@ function DescriptionEditor({
   blocked: boolean
   /** Поверх открыт вопрос: окно под ним недоступно. */
   covered: boolean
+  /** Только чтение: ни «Редактировать», ни правки пустого описания. */
+  readOnly?: boolean
   onClose: () => void
   /** Спросить, бросить ли набранное; discard — что сделать, если оператор согласился. */
   onAsk: (discard: () => void) => void
@@ -3069,7 +3073,7 @@ function DescriptionEditor({
   onSave: (description: string | null) => Promise<string | null>
 }) {
   const empty = !description?.trim()
-  const [editing, setEditing] = useState(empty && !lock)
+  const [editing, setEditing] = useState(empty && !lock && !readOnly)
   const [text, setText] = useState(description ?? '')
   const [failure, setFailure] = useState<string | null>(null)
   // Открытое окно забирает фокус: иначе он остался бы на кнопке под подложкой.
@@ -3161,7 +3165,7 @@ function DescriptionEditor({
               </>
             ) : (
               <>
-                {!lock && (
+                {!lock && !readOnly && (
                   <button type="button" className="btn" onClick={edit}>
                     <PencilIcon />
                     Редактировать
