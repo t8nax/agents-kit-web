@@ -62,8 +62,9 @@ async function drafted(stream: ReturnType<typeof controlledStream<DraftEvent>>, 
   stream.send({ type: 'drafted', text: '---', fields })
   stream.close()
   await screen.findByText('Основу написал Чудо-Юдо')
-  // Ответ становится основой эффектом, отдельным тиком после строки о нём: поле имени ждётся, а не берётся сразу.
-  await screen.findByLabelText('Имя')
+  // Ответ становится основой эффектом, отдельным тиком после строки о нём. Ждётся имя из ответа, а не само поле:
+  // поле в окне нового есть с первой отрисовки, и без этого тест смотрел бы на окно, в которое ответ ещё не лёг.
+  await waitFor(() => expect(screen.getByLabelText('Имя')).toHaveValue(fields.name))
 }
 
 test('у нового имя, описание и задание видны сразу, а сохранить можно, когда есть имя и задание', () => {
