@@ -86,7 +86,7 @@ test('простаивающая сессия гаснет из меню стр�
 
   await page.getByRole('button', { name: 'Действия с сессией в agents-kit-web' }).click()
   await page.getByRole('menuitem', { name: 'Погасить сессию' }).click()
-  expect(stopped).toEqual([{ session: 'a1c66bfd' }])
+  await expect.poll(() => stopped).toEqual([{ session: 'a1c66bfd' }])
 
   await page.getByRole('button', { name: 'Действия с сессией в rustic-silver-sparrow' }).click()
   await page.getByRole('menuitem', { name: 'Погасить сессию' }).click()
@@ -94,7 +94,7 @@ test('простаивающая сессия гаснет из меню стр�
   await expect(dialog).toContainText('540066c8')
   await dialog.getByRole('button', { name: 'Погасить' }).click()
 
-  expect(stopped).toEqual([{ session: 'a1c66bfd' }, { session: '540066c8' }])
+  await expect.poll(() => stopped).toEqual([{ session: 'a1c66bfd' }, { session: '540066c8' }])
   // Погашенные сессии уходят из перечня очередным опросом
   await expect(page.getByText('Живых сессий Claude Code нет.')).toBeVisible()
 })
@@ -134,7 +134,7 @@ test('сессию своего окна панель не гасит', async ({
   })
   await page.getByRole('menuitem', { name: 'Открыть в VS Code' }).click()
 
-  expect(opened).toEqual([{ base: inEditor.base, copy: inEditor.path }])
+  await expect.poll(() => opened).toEqual([{ base: inEditor.base, copy: inEditor.path }])
 })
 
 const freeCopy = {
@@ -188,7 +188,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await dialog.getByLabel('С чего начать — необязательно').fill('посмотри, почему падает e2e')
     await dialog.getByRole('button', { name: 'Запустить' }).click()
 
-    expect(posts).toEqual([
+    await expect.poll(() => posts).toEqual([
       { base: freeCopy.base, copy: freeCopy.path, prompt: 'посмотри, почему падает e2e' },
     ])
     await expect(page.getByText('Сессия 7339dced запущена — окно с ней открыто.')).toBeVisible()

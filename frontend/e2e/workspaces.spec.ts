@@ -52,9 +52,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(chip).toHaveCSS('border-top-width', '1px')
     // Плашка залита своим фоном, а не прозрачна, в обеих темах
     await expect(chip).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    // Узкая колонка: номер не переносится и не растягивает ячейку до заголовка
-    const [chipBox, cellBox] = await Promise.all([chip.boundingBox(), numbered.nth(1).boundingBox()])
-    expect(cellBox!.width).toBeLessThan(chipBox!.width + 40)
+    // Узкая колонка: номер не переносится и не растягивает ячейку до заголовка.
+    // Замер повторяется: первая отрисовка идёт запасной гарнитурой, и границы потом сдвигаются
+    await expect(async () => {
+      const [chipBox, cellBox] = await Promise.all([chip.boundingBox(), numbered.nth(1).boundingBox()])
+      expect(cellBox!.width).toBeLessThan(chipBox!.width + 40)
+    }).toPass()
 
     const unnumbered = bodyRows.nth(1).getByRole('cell')
     await expect(unnumbered.nth(1)).toHaveText('—')
@@ -131,8 +134,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const baseProblems = head.getByRole('button', { name: '2 проблемы базы — открыть «Проблемы баз»' })
     await expect(baseProblems).toHaveCSS('border-top-width', '1px')
     await expect(baseProblems).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    const [headBox, problemsBox] = await Promise.all([head.boundingBox(), baseProblems.boundingBox()])
-    expect(headBox!.x + headBox!.width - (problemsBox!.x + problemsBox!.width)).toBeLessThan(24)
+    let headBox!: { x: number; y: number; width: number; height: number }
+    await expect(async () => {
+      const [box, problemsBox] = await Promise.all([head.boundingBox(), baseProblems.boundingBox()])
+      headBox = box!
+      expect(headBox.x + headBox.width - (problemsBox!.x + problemsBox!.width)).toBeLessThan(24)
+    }).toPass()
 
     // Сворачивает клик по пустому месту шапки, а не только стрелка
     await expect(head).toHaveCSS('cursor', 'pointer')
