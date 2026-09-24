@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { FlowStage } from './Flow'
 
 /** Виды просьб к агенту: разом идёт по одной каждого вида — решение оператора на B-52. */
 export type AgentKind = 'ask' | 'backlog' | 'flow' | 'performer'
@@ -17,8 +16,6 @@ export type AgentRequestSummary = {
    * путь копии проекта, чей код читает агент (B-130).
    */
   subject?: string | null
-  /** Стадии флоу, ушедшие агенту с просьбой переписать их: открытое заново окно показывает их и сличает с ними ответ. */
-  stages?: FlowStage[] | null
 }
 
 /** Событие просьбы: «step» — ход работы агента, любое другое — её итог. */

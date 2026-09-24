@@ -222,7 +222,7 @@ public static class FlowEndpoints
         && after.Any(f => !string.IsNullOrWhiteSpace(f.When) && f.Equals(flow with { When = f.When }));
 
     /// <summary>Задачи в работе по памятям work/*.md и флоу каждой: имя флоу сравнивается, как их сравнивает кит.</summary>
-    private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
+    internal static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
     {
         var letters = Backlog.ReadLetters(basePath);
         return WorkspaceCollector.MemoryFiles(basePath).Values

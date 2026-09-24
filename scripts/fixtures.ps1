@@ -372,22 +372,65 @@ if ($mode -eq 'garbage') {
     exit 0
 }
 
-# Переписывание этапов: панель зовёт агента с правилами формы этапа в системном промпте и ждёт этапы
-# блоками «=== этап «…»» и «=== новый этап». Подставной дописывает к выходу первого добавленного этапа
-# слова просьбы, а без добавленных пишет новый этап.
+# Переписка о флоу: панель зовёт агента с правилами формы сценария и этапа в системном промпте, первой репликой
+# отдаёт флоу целиком, а ждёт слова и блоки правок «=== этап «…»», «=== новый этап», «=== сценарий «…»» и удаления.
+# Подставной на первую реплику переспрашивает, на вторую предлагает правки: дописывает к выходу первого этапа слова
+# просьбы, заводит этап заметок и ставит его в конец первого сценария; по слову «удали» убирает этап заметок.
 $system = Get-Argument '--append-system-prompt'
-if ($system -and $system -match 'этапы флоу проекта') {
-    Write-Step 'Read' @{ file_path = 'flow/scenarios.md' }
-    Write-Step 'Glob' @{ pattern = 'flow/stages/*.md' }
-    if ($mode -eq 'truncated') { exit 0 }
-    $input_ = $stdin -replace "`r`n", "`n"
-    $wish = if ($input_ -match 'Просьба оператора:\n([^\n]*)') { $Matches[1].Trim() } else { '' }
-    if ($input_ -match '(?s)Добавленный этап «([^»]*)»:\n(.*?)(?=\n\nДобавленный этап|\n\nОстальные этапы|\n\nИсполнители проекта|$)') {
-        $title = $Matches[1]
-        $file = $Matches[2] -replace '(?m)^выход:\s*(.*)$', "выход: `$1 — по просьбе «$wish»"
-        Write-Result "=== этап «$title»`n$file"
-    } else {
-        Write-Result "=== новый этап`n# Заметки подставного агента`n`nисполнитель: оператор`nвыход: заметка по просьбе «$wish»`n`n1. Написано подставным агентом @@OF@@: настоящего этапа здесь нет.`n"
+if ($system -and $system -match 'правишь флоу проекта') {
+    $notes = 'Заметки подставного агента'
+    $stageTitle = $null; $stageFile = $null; $scenarioName = $null; $scenario = $null
+    $wish = ''
+    $turn = 0
+    while ($null -ne ($line = $stdinReader.ReadLine())) {
+        if (-not $line.Trim()) { continue }
+        $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text) -replace "`r`n", "`n" } catch { $line }
+        $turn++
+        Write-Step 'Read' @{ file_path = 'flow/scenarios.md' }
+        Write-Step 'Glob' @{ pattern = 'flow/stages/*.md' }
+        if ($mode -eq 'truncated') { exit 0 }
+
+        # Первая реплика несёт флоу целиком: из неё берутся первый этап и первый сценарий.
+        if ($said -match '(?s)^Просьба оператора:\n(.*?)\n\nСценарии \(flow/scenarios\.md\):\n(.*?)\n\nЭтапы \(flow/stages/\):(.*?)\n\nЗадачи в работе:') {
+            $wish = $Matches[1].Trim()
+            $scenarios = $Matches[2]
+            $stages = $Matches[3]
+            $stageMatch = [regex]::Match($stages, '(?ms)^=== [^\n]*\n(# ([^\n]*)\n.*?)(?=\n\n=== |\z)')
+            if ($stageMatch.Success) { $stageFile = $stageMatch.Groups[1].Value.TrimEnd(); $stageTitle = $stageMatch.Groups[2].Value.Trim() }
+            $scenarioMatch = [regex]::Match($scenarios, '(?ms)^## ([^\n]*)\n.*?(?=^## |\z)')
+            if ($scenarioMatch.Success) { $scenario = $scenarioMatch.Value.TrimEnd(); $scenarioName = $scenarioMatch.Groups[1].Value.Trim() }
+            $said = $wish
+        }
+
+        if ($turn -eq 1) {
+            $about = if ($stageTitle) { "в этапе «$stageTitle»" } else { 'во флоу' }
+            Write-Result "Подставной агент @@OF@@ переспрашивает: что именно поправить $about по просьбе «$said»? Ответьте что угодно — следующей репликой он предложит правки."
+            continue
+        }
+
+        if ($said -match 'удали') {
+            $blocks = @("Убрал этап заметок.", "=== удалить этап «$notes»")
+            if ($scenario) { $blocks += "=== сценарий «$scenarioName»`n$scenario" }
+            Write-Result ($blocks -join "`n")
+            continue
+        }
+
+        if ($turn -eq 2) {
+            $blocks = @("Предлагаю правки по просьбе «$wish» и уточнению «$($said.Trim())».")
+            if ($stageFile) {
+                $rewritten = $stageFile -replace '(?m)^выход:\s*(.*)$', "выход: `$1 — по просьбе «$wish»"
+                $blocks += "=== этап «$stageTitle»`n$rewritten"
+            }
+            $blocks += "=== новый этап`n# $notes`n`nисполнитель: оператор`nвыход: заметка по просьбе «$wish»`n`n1. Написано подставным агентом @@OF@@: настоящего этапа здесь нет."
+            if ($scenario) {
+                $next = ([regex]::Matches($scenario, '(?m)^\s*\d+\.')).Count + 1
+                $blocks += "=== сценарий «$scenarioName»`n$scenario`n$next. [$notes](stages/notes.md)"
+            }
+            Write-Result ($blocks -join "`n")
+            continue
+        }
+
+        Write-Result "Реплика $turn — «$($said.Trim())». Правки прежние: они на вкладке «Изменения». Скажите «удали», и подставной агент уберёт этап заметок."
     }
     exit 0
 }

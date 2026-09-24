@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { FlowStage } from './Flow'
+import type { FlowStage, NamedFlow } from './Flow'
 import FlowRewriteModal, { type RewriteEvent } from './FlowRewriteModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
+import { changedText, type FlowProposal } from './flowChanges'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -20,398 +21,358 @@ const stage = (title: string, patch: Partial<FlowStage> = {}): FlowStage => ({
 
 const review = stage('Ревью', { executor: 'reviewer', slug: 'review' })
 const merge = stage('Мерж', { output: 'sha в dev', slug: 'merge' })
-const acceptance = stage('Приёмка', { executor: 'оператор', slug: 'acceptance' })
-const stages = [review, merge, acceptance]
+const design = stage('Дизайн', { executor: 'designer', slug: 'design' })
+const stages = [review, merge, design]
+
+const big: NamedFlow = {
+  name: 'крупный',
+  when: 'много работы',
+  entries: [{ stage: 'Дизайн' }, { stage: 'Ревью' }, { stage: 'Мерж' }],
+}
+const small: NamedFlow = { name: 'мелкий', when: 'мало работы', entries: [{ stage: 'Ревью' }, { stage: 'Мерж' }] }
+const flows = [big, small]
+
+const docs = stage('Документация', { output: 'раздел README' })
+
+/** Правки: документация после мержа в крупном, ревью смотрит тесты. */
+const proposal: FlowProposal = {
+  scenarios: [{ of: 'крупный', flow: { ...big, entries: [...big.entries, { stage: 'Документация' }] } }],
+  stages: [{ stage: docs }, { of: 'Ревью', stage: { ...review, output: 'вердикт и тесты' } }],
+}
 
 const base = String.raw`D:\Projects\app-knowledge`
 
 function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: ReturnType<typeof runningRequest>) {
-  return stubPanel('flow', stream, { running, project: 'Agents Kit Web' })
-}
-
-function renderModal(apply: () => Promise<string | null> = async () => null) {
-  const onApply = vi.fn(apply)
-  const onClose = vi.fn()
-  const view = render(
-    <FlowRewriteModal
-      base={base}
-      project="Agents Kit Web"
-      stages={stages}
-      mark={(title) => <span data-testid={`mark-${title}`} />}
-      scope={(title) =>
-        title === 'Ревью' ? 'Этап стоит в сценариях «полный» и «быстрый» — правка изменит его в обоих.' : null
+  const replies: Record<string, unknown>[] = []
+  const stops: string[] = []
+  const panel = stubPanel('flow', stream, {
+    running,
+    project: 'Agents Kit Web',
+    others: (url, init) => {
+      if (url === '/api/flow/rewrite/reply') {
+        replies.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return new Response(null, { status: 204 })
       }
-      // Приёмку держат задачи в работе: к просьбе её не добавить
-      locked={(title) => (title === 'Приёмка' ? ['B-7', 'B-9'] : null)}
-      onApply={onApply}
-      onClose={onClose}
-    />,
+      if (url === '/api/flow/rewrite/stop') {
+        stops.push(url)
+        return new Response(null, { status: 204 })
+      }
+      return null
+    },
+  })
+  return { ...panel, replies, stops }
+}
+
+function renderModal(
+  options: {
+    apply?: () => Promise<string | null>
+    lockedFlow?: (name: string) => string[] | null
+    screen?: { stages: FlowStage[]; flows: NamedFlow[] }
+  } = {},
+) {
+  const onApply = vi.fn(options.apply ?? (async () => null))
+  const onClose = vi.fn()
+  const props = {
+    base,
+    project: 'Agents Kit Web',
+    mark: (title: string) => <span data-testid={`mark-${title}`} />,
+    lockedStage: () => null,
+    lockedFlow: options.lockedFlow ?? (() => null),
+    onApply,
+    onClose,
+  }
+  const view = render(
+    <FlowRewriteModal {...props} stages={options.screen?.stages ?? stages} flows={options.screen?.flows ?? flows} />,
   )
-  return { onApply, onClose, unmount: view.unmount }
+  const rerender = (next: { stages: FlowStage[]; flows: NamedFlow[] }) =>
+    view.rerender(<FlowRewriteModal {...props} stages={next.stages} flows={next.flows} />)
+  return { onApply, onClose, rerender, unmount: view.unmount }
 }
 
-async function write(text: string) {
-  fireEvent.change(await screen.findByLabelText('Что поменять в этапах'), { target: { value: text } })
+async function say(text: string) {
+  fireEvent.change(await screen.findByLabelText(/^(Просьба|Следующая реплика)$/), { target: { value: text } })
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
 }
 
-function pick(...titles: string[]) {
-  fireEvent.click(screen.getByRole('button', { name: 'Этапы' }))
-  const list = screen.getByRole('listbox', { name: 'Этапы проекта' })
-  for (const title of titles) fireEvent.click(within(list).getByRole('option', { name: new RegExp(title) }))
+/** Переписка, в которой агент ответил правками. */
+async function answered() {
+  const stream = controlledStream<RewriteEvent>()
+  const panel = stubFetch(stream)
+  const view = renderModal()
+  await say('Заведи документацию и пусть ревью смотрит тесты')
+  stream.send({ type: 'reply', text: 'Заведи документацию и пусть ревью смотрит тесты' })
+  stream.send({ type: 'answer', text: 'Завёл **документацию**.', durationMs: 41000, proposal, changed: { scenarios: 1, stages: 2 } })
+  await screen.findByText('документацию')
+  return { stream, ...panel, ...view }
 }
 
-test('без стадий в контексте окно пишет новую стадию, и просьба уходит со стадиями раздела', async () => {
-  const stream = controlledStream()
+test('просьба уходит с флоу раздела целиком, «+ Этапы» нет, ход работы виден до ответа', async () => {
+  const stream = controlledStream<RewriteEvent>()
   const { posts } = stubFetch(stream)
   renderModal()
 
-  await write('  Заведи этап документации  ')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
+  expect(screen.queryByRole('button', { name: /Этапы/ })).not.toBeInTheDocument()
+  await say('  Заведи этап документации  ')
+  stream.send({ type: 'reply', text: 'Заведи этап документации' })
 
-  expect(await screen.findByText('Чудо-Юдо пишет этап…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо читает флоу Agents Kit Web…')).toBeInTheDocument()
   expect(posts[0].url).toBe('/api/flow/rewrite')
-  expect(posts[0].body).toEqual({
-    base,
-    wish: 'Заведи этап документации',
-    stages: [],
-    titles: ['Ревью', 'Мерж', 'Приёмка'],
-  })
+  expect(posts[0].body).toEqual({ base, wish: 'Заведи этап документации', stages, flows })
 
   stream.send({ type: 'step', text: 'читает flow/stages/review.md' })
   const steps = await screen.findByRole('list', { name: 'Ход работы Чудо-Юдо' })
   expect(within(steps).getByText('читает flow/stages/review.md')).toBeInTheDocument()
+  // Пока агент отвечает, на месте «Отправить» стоит «Отменить».
+  expect(screen.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
 })
 
-test('стадии добавляются в контекст списком с поиском и снимаются крестиком', async () => {
-  stubFetch(controlledStream())
-  renderModal()
-  await write('Поправь выходы')
-
-  fireEvent.click(screen.getByRole('button', { name: 'Этапы' }))
-  fireEvent.change(screen.getByPlaceholderText('Найти этап'), { target: { value: 'мер' } })
-  const list = screen.getByRole('listbox', { name: 'Этапы проекта' })
-  expect(within(list).getAllByRole('option')).toHaveLength(1)
-  fireEvent.click(within(list).getByRole('option', { name: /Мерж/ }))
-  expect(within(list).getByRole('option', { name: /Мерж/ })).toHaveAttribute('aria-selected', 'true')
-  fireEvent.change(screen.getByPlaceholderText('Найти этап'), { target: { value: '' } })
-  fireEvent.click(within(list).getByRole('option', { name: /Ревью/ }))
-
-  const bar = screen.getByLabelText('Этапы к просьбе')
-  expect(within(bar).getByText('Мерж')).toBeInTheDocument()
-  expect(within(bar).getByText('Ревью')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Переписать' })).toBeEnabled()
-
-  // Escape закрывает список, а не окно.
-  fireEvent.keyDown(window, { key: 'Escape' })
-  expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
-  expect(screen.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Убрать «Мерж»' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Убрать «Ревью»' }))
-  expect(screen.getByRole('button', { name: 'Написать этап' })).toBeInTheDocument()
-})
-
-test('стадия, которую держат задачи в работе, в списке погашена, названы задачи, и к просьбе она не добавляется', async () => {
-  stubFetch(controlledStream())
-  renderModal()
-  await write('Поправь приёмку')
-
-  fireEvent.click(screen.getByRole('button', { name: 'Этапы' }))
-  const held = within(screen.getByRole('listbox', { name: 'Этапы проекта' })).getByRole('option', { name: /Приёмка/ })
-  expect(held).toHaveAttribute('aria-disabled', 'true')
-  expect(held).toHaveTextContent('занят: B-7, B-9')
-  fireEvent.click(held)
-  fireEvent.keyDown(held, { key: 'Enter' })
-
-  expect(held).toHaveAttribute('aria-selected', 'false')
-  expect(screen.queryByRole('button', { name: 'Убрать «Приёмка»' })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Написать этап' })).toBeInTheDocument()
-})
-
-test('итог — карточка на стадию: «было → стало», задетые сценарии, новая стадия и без правок', async () => {
-  const stream = controlledStream()
-  const { posts } = stubFetch(stream)
-  const { onApply } = renderModal()
-
-  await write('Уточни выход ревью и заведи документацию')
-  pick('Ревью', 'Мерж')
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
-
-  expect(await screen.findByText('Чудо-Юдо переписывает этапы…')).toBeInTheDocument()
-  expect(posts[0].body.stages).toEqual([review, merge])
-
-  const rewritten = { of: 'Ревью', stage: { ...review, output: 'вердикт по sha', description: '1. Собрать дифф.' } }
-  const docs = { of: null, stage: stage('Документация', { executor: 'writer' }) }
-  stream.send({ type: 'rewritten', text: '', stages: [rewritten, docs], durationMs: 18000 })
-
-  const changes = await screen.findByLabelText('Что изменилось в этапах')
-  expect(within(changes).getByText('изменён')).toBeInTheDocument()
-  expect(within(changes).getByText('выход Ревью')).toBeInTheDocument()
-  expect(within(changes).getByText('вердикт по sha')).toBeInTheDocument()
-  expect(within(changes).getByText(/правка изменит его в обоих/)).toBeInTheDocument()
-  expect(within(changes).getByText('добавлен')).toBeInTheDocument()
-  expect(within(changes).getByText('writer')).toBeInTheDocument()
-  // Стадия контекста, которую агент не тронул, стоит строкой, а не карточкой.
-  expect(within(changes).getByText('без правок')).toBeInTheDocument()
-  expect(within(changes).getByText('Мерж')).toBeInTheDocument()
-  expect(within(changes).getByText('18 с')).toBeInTheDocument()
-  // Описание не пересказывается: его открывает своё окно.
-  expect(within(changes).queryByText('1. Собрать дифф.')).not.toBeInTheDocument()
-  fireEvent.click(within(changes).getByRole('button', { name: 'Открыть описание' }))
-  const window_ = await screen.findByRole('dialog', { name: 'Описание этапа «Ревью»' })
-  expect(within(window_).getByText('1. Собрать дифф.')).toBeInTheDocument()
-  fireEvent.click(within(window_).getByRole('button', { name: 'Закрыть' }))
-
-  fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
-  // Итог просьбы забирается вместе с правками: панель его больше не держит.
-  await waitFor(() => expect(onApply).toHaveBeenCalledWith([rewritten, docs]))
-})
-
-test('ответ без правок принять нечего', async () => {
-  const stream = controlledStream()
-  stubFetch(stream)
-  const { onApply } = renderModal()
-
-  await write('Ничего не меняй')
-  pick('Мерж')
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
-  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Мерж', stage: merge }] })
-
-  expect(await screen.findByText('Этапы не изменились: ответ совпал с прежними.')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
-  expect(onApply).not.toHaveBeenCalled()
-})
-
-test('неудача агента названа словами, а просьба возвращается в поле', async () => {
-  const stream = controlledStream()
-  stubFetch(stream)
-  renderModal()
-
-  await write('Напиши этап')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
-  stream.send({ type: 'error', text: 'Чудо-Юдо вернул не этап: этапов в его ответе нет', output: 'Готово!' })
-
-  expect(await screen.findByText(/Чудо-Юдо вернул не этап/)).toBeInTheDocument()
-  expect(screen.getByText(/Этапы в базе не менялись/)).toBeInTheDocument()
-  expect(screen.getByText('Готово!')).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Изменить просьбу' }))
-  expect(await screen.findByLabelText('Что поменять в этапах')).toHaveValue('Напиши этап')
-})
-
-test('закрытое окно не останавливает агента: просьба остаётся в панели', async () => {
+test('ответ-вопрос остаётся в переписке, а вкладка «Изменения» погашена', async () => {
   const stream = controlledStream<RewriteEvent>()
-  const { deletes } = stubFetch(stream)
-  const { unmount } = renderModal()
+  const { replies } = stubFetch(stream)
+  renderModal()
 
-  await write('Напиши этап')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
-  await screen.findByRole('status')
+  await say('Заведи документацию')
+  stream.send({ type: 'reply', text: 'Заведи документацию' })
+  stream.send({ type: 'answer', text: 'В обоих сценариях?', durationMs: 5000, proposal: { scenarios: [], stages: [] } })
+
+  expect(await screen.findByText('В обоих сценариях?')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /^Изменения/ })).toBeDisabled()
+  expect(screen.queryByText(/В изменениях/)).not.toBeInTheDocument()
+
+  // Следующая реплика несёт флоу раздела, каким он стал.
+  await say('В обоих')
+  expect(replies).toEqual([{ text: 'В обоих', stages, flows }])
+})
+
+test('ответ с правками: строка «В изменениях» считает их числом, на вкладке точка, ссылка открывает список', async () => {
+  await answered()
+
+  expect(screen.getByText(/В изменениях:/)).toBeInTheDocument()
+  const link = screen.getByRole('button', { name: '1 сценарий, 2 этапа' })
+  expect(screen.getByLabelText('Список изменён последним ответом')).toBeInTheDocument()
+
+  fireEvent.click(link)
+
+  expect(screen.getByRole('tab', { name: /^Изменения/ })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.queryByLabelText('Список изменён последним ответом')).not.toBeInTheDocument()
+  const list = screen.getByLabelText('Изменения флоу')
+  expect(within(list).getByText('Сценарии')).toBeInTheDocument()
+  expect(within(list).getByText('Этапы')).toBeInTheDocument()
+  expect(within(list).getAllByText('Документация')).toHaveLength(2)
+  expect(within(list).getByText('в сценарии «крупный»')).toBeInTheDocument()
+  // На вкладке «Изменения» поля нет, а кнопки свои.
+  expect(screen.queryByLabelText('Следующая реплика')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeEnabled()
+  expect(screen.queryByRole('button', { name: 'Отправить' })).not.toBeInTheDocument()
+})
+
+test('ответ-вопрос после правок список не трогает и точку не зажигает', async () => {
+  const { stream } = await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Переписка' }))
+
+  await say('А тесты какие?')
+  stream.send({ type: 'reply', text: 'А тесты какие?' })
+  // Вопрос несёт прежние правки: бэкенд отдаёт с каждым ответом все правки переписки.
+  stream.send({ type: 'answer', text: 'Юнит или e2e?', durationMs: 3000, proposal })
+
+  expect(await screen.findByText('Юнит или e2e?')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Изменения' })).toBeEnabled()
+  expect(screen.queryByLabelText('Список изменён последним ответом')).not.toBeInTheDocument()
+  expect(screen.getAllByText(/В изменениях:/)).toHaveLength(1)
+})
+
+test('окно, открытое заново, не зажигает точку от списка, который уже смотрели', async () => {
+  localStorage.clear()
+  const { unmount } = await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
   unmount()
 
-  expect(deletes).toEqual([])
-})
-
-test('открытое заново окно показывает переписывание, которое шло без него', async () => {
-  const stream = controlledStream<RewriteEvent>()
-  const { posts } = stubFetch(stream, runningRequest('flow', 'Уточни выход ревью', base, 'Agents Kit Web', 65000))
-  const { onApply } = renderModal()
-
-  expect(await screen.findByText('Уточни выход ревью')).toBeInTheDocument()
-  expect(screen.getByLabelText('Прошло времени')).toHaveTextContent('1:05')
-
-  const rewritten = { of: 'Ревью', stage: { ...review, output: 'вердикт' } }
-  stream.send({ type: 'rewritten', text: '', stages: [rewritten] })
-
-  const changes = await screen.findByLabelText('Что изменилось в этапах')
-  expect(within(changes).getByText('изменён')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
-  await waitFor(() => expect(onApply).toHaveBeenCalledWith([rewritten]))
-  expect(posts).toEqual([])
-})
-
-test('итог просьбы про другой проект окно своим не считает и предупреждает, что новая просьба его уберёт', async () => {
-  const stream = controlledStream<RewriteEvent>()
-  const other = String.raw`D:\Projects\other-knowledge`
-  stubFetch(stream, { ...runningRequest('flow', 'Уточни выход ревью', other, 'Other', 1000), state: 'done' })
+  // Окно открыли заново: переписка та же, её поток читается с начала.
+  const again = controlledStream<RewriteEvent>()
+  stubFetch(again, runningRequest('flow', 'Заведи документацию', base, 'Agents Kit Web'))
   renderModal()
+  again.send({ type: 'reply', text: 'Заведи документацию' })
+  again.send({ type: 'answer', text: 'Завёл **документацию**.', durationMs: 41000, proposal, changed: { scenarios: 1, stages: 2 } })
 
-  expect(
-    await screen.findByText('Чудо-Юдо уже переписал этапы Other: новая просьба отсюда уберёт этот ответ.'),
-  ).toBeInTheDocument()
-  expect(screen.queryByText('Уточни выход ревью')).not.toBeInTheDocument()
-  expect(screen.queryByLabelText('Что изменилось в этапах')).not.toBeInTheDocument()
-  expect(screen.getByLabelText('Что поменять в этапах')).toBeInTheDocument()
+  expect(await screen.findByText('документацию')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Изменения' })).toBeEnabled()
+  expect(screen.queryByLabelText('Список изменён последним ответом')).not.toBeInTheDocument()
 })
 
-test('открытое заново окно помнит стадии просьбы: строка стадий, «без правок» и «Попросить снова» с ними', async () => {
-  const stream = controlledStream<RewriteEvent>()
-  stubFetch(stream, {
-    ...runningRequest('flow', 'Уточни выход ревью', base, 'Agents Kit Web', 1000),
-    stages: [review, merge],
-  })
-  renderModal()
+test('правка этапа, убранного из раздела после ответа, говорит, что «Принять правки» заведёт его снова', async () => {
+  const { rerender } = await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
 
-  expect(await screen.findByText('Чудо-Юдо переписывает этапы…')).toBeInTheDocument()
-  const line = screen.getByLabelText('Этапы к просьбе')
-  expect(within(line).getByText('Ревью')).toBeInTheDocument()
-  expect(within(line).getByText('Мерж')).toBeInTheDocument()
+  rerender({ stages: [merge, design], flows })
+  fireEvent.click(screen.getByText('Ревью', { selector: '.rewrite-item-name' }))
 
-  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
-  const changes = await screen.findByLabelText('Что изменилось в этапах')
-  expect(within(changes).getByText('без правок')).toBeInTheDocument()
-  expect(within(changes).getByText('Мерж')).toBeInTheDocument()
+  expect(await screen.findByText('Этапа «Ревью» в разделе уже нет: «Принять правки» заведёт его снова.')).toBeInTheDocument()
 })
 
-test('после сбоя «Попросить снова» уходит с теми же стадиями, даже если окно открыто заново', async () => {
-  const stream = controlledStream<RewriteEvent>()
-  const { posts } = stubFetch(stream, {
-    ...runningRequest('flow', 'Уточни выход ревью', base, 'Agents Kit Web', 1000),
-    stages: [review],
-  })
-  renderModal()
+test('у изменённого этапа всегда исполнитель, выход и «Открыть описание»; поменявшееся — «было → стало»', async () => {
+  await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
 
-  await screen.findByText('Чудо-Юдо переписывает этапы…')
-  stream.send({ type: 'error', text: 'Агент упал' })
-  fireEvent.click(await screen.findByRole('button', { name: 'Попросить снова' }))
-
-  await waitFor(() => expect(posts).toHaveLength(1))
-  expect(posts[0].body).toMatchObject({ wish: 'Уточни выход ревью', stages: [review] })
+  // Ревью: выход поменялся, исполнитель и описание — нет.
+  fireEvent.click(screen.getByText('Ревью', { selector: '.rewrite-item-name' }))
+  const item = within(screen.getByText('Ревью', { selector: '.rewrite-item-name' }).closest('details')!)
+  expect(item.getByText('исполнитель')).toBeInTheDocument()
+  expect(item.getByText('reviewer')).toBeInTheDocument()
+  expect(item.getByText('выход Ревью')).toHaveClass('rewrite-was')
+  expect(item.getByText('вердикт и тесты')).toHaveClass('rewrite-now')
+  expect(item.getByText('описание')).toBeInTheDocument()
+  // Описания у ревью нет — так и сказано; пропуска и помощников нет — их строк нет.
+  expect(item.getByText('нет')).toBeInTheDocument()
+  expect(item.queryByText('пропуск')).not.toBeInTheDocument()
+  expect(item.queryByText('помощники')).not.toBeInTheDocument()
 })
 
-test('карточка говорит, что стадию поправили или убрали в разделе, пока Чудо-Юдо работал', async () => {
+test('пропуск и помощники нового этапа стоят простыми значениями, а пустой выход — словом «нет»', async () => {
   const stream = controlledStream<RewriteEvent>()
-  // Ушли агенту «Ревью» и «Запас»; в разделе «Ревью» с тех пор поправили, а «Запаса» уже нет.
-  stubFetch(stream, {
-    ...runningRequest('flow', 'Уточни выходы', base, 'Agents Kit Web', 1000),
-    stages: [{ ...review, output: 'вердикт' }, stage('Запас')],
-  })
+  stubFetch(stream)
   renderModal()
+  await say('Заведи документацию')
+  const helped = { ...docs, output: '', skip: 'правка только в тестах', helpers: ['scout', 'check-runner'] }
+  stream.send({ type: 'answer', text: 'Готово.', proposal: { scenarios: [], stages: [{ stage: helped }] }, changed: { scenarios: 0, stages: 1 } })
+  fireEvent.click(await screen.findByRole('button', { name: '1 этап' }))
+  fireEvent.click(screen.getByText('Документация', { selector: '.rewrite-item-name' }))
 
-  await screen.findByText('Чудо-Юдо переписывает этапы…')
+  const item = within(screen.getByText('Документация', { selector: '.rewrite-item-name' }).closest('details')!)
+  expect(item.getByText('пропуск')).toBeInTheDocument()
+  expect(item.getByText('правка только в тестах')).not.toHaveClass('rewrite-was')
+  expect(item.getByText('помощники')).toBeInTheDocument()
+  expect(item.getByText('scout, check-runner')).toBeInTheDocument()
+  // «Нет» ищется в строке выхода: у описания своя строка со своим «нет».
+  const output = item.getByText('выход').closest('.rewrite-field')!
+  expect(within(output as HTMLElement).getByText('нет')).toHaveClass('rewrite-none')
+})
+
+test('убранные у этапа пропуск и помощники стоят строками «было → нет»', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream)
+  const skipped = { ...review, skip: 'правка только в текстах', helpers: ['scout'] }
+  renderModal({ screen: { stages: [skipped, merge, design], flows } })
+  await say('Убери пропуск у ревью')
   stream.send({
-    type: 'rewritten',
-    text: '',
-    stages: [
-      { of: 'Ревью', stage: { ...review, output: 'вердикт по sha' } },
-      { of: 'Запас', stage: stage('Запас', { output: 'новый выход' }) },
-    ],
+    type: 'answer',
+    text: 'Готово.',
+    proposal: { scenarios: [], stages: [{ of: 'Ревью', stage: { ...skipped, skip: null, helpers: [] } }] },
+    changed: { scenarios: 0, stages: 1 },
   })
+  fireEvent.click(await screen.findByRole('button', { name: '1 этап' }))
+  fireEvent.click(screen.getByText('Ревью', { selector: '.rewrite-item-name' }))
 
-  const changes = await screen.findByLabelText('Что изменилось в этапах')
-  expect(
-    within(changes).getByText('Этап «Ревью» правили, пока Чудо-Юдо работал: «Принять правки» заменит эти правки его ответом.'),
-  ).toBeInTheDocument()
-  expect(within(changes).getByText('Этапа «Запас» в разделе уже нет: правка ляжет новым этапом.')).toBeInTheDocument()
+  const item = within(screen.getByText('Ревью', { selector: '.rewrite-item-name' }).closest('details')!)
+  const row = (label: string) => within(item.getByText(label).closest('.rewrite-field') as HTMLElement)
+  expect(row('пропуск').getByText('правка только в текстах')).toHaveClass('rewrite-was')
+  expect(row('пропуск').getByText('нет')).toHaveClass('rewrite-now')
+  expect(row('помощники').getByText('scout')).toHaveClass('rewrite-was')
+  expect(row('помощники').getByText('нет')).toHaveClass('rewrite-now')
 })
 
-test('стадия, которую никто не трогал, пока Чудо-Юдо работал, идёт без предупреждения', async () => {
+test('«Открыть описание» открывает описание окном вкладки «Этапы» только для чтения', async () => {
   const stream = controlledStream<RewriteEvent>()
-  stubFetch(stream, { ...runningRequest('flow', 'Уточни выход', base, 'Agents Kit Web', 1000), stages: [review] })
-  renderModal()
-
-  await screen.findByText('Чудо-Юдо переписывает этапы…')
-  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
-
-  await screen.findByLabelText('Что изменилось в этапах')
-  expect(screen.queryByText(/пока Чудо-Юдо работал/)).not.toBeInTheDocument()
-})
-
-test('«Попросить снова» уходит со стадиями такими, какими их видно в разделе сейчас', async () => {
-  const stream = controlledStream<RewriteEvent>()
-  // Ушла прежняя «Ревью» и «Запас», которого в разделе уже нет.
-  const { posts } = stubFetch(stream, {
-    ...runningRequest('flow', 'Уточни выход ревью', base, 'Agents Kit Web', 1000),
-    stages: [{ ...review, output: 'старый выход' }, stage('Запас')],
-  })
-  renderModal()
-
-  await screen.findByText('Чудо-Юдо переписывает этапы…')
-  stream.send({ type: 'error', text: 'Агент упал' })
-  fireEvent.click(await screen.findByRole('button', { name: 'Попросить снова' }))
-
-  await waitFor(() => expect(posts).toHaveLength(1))
-  expect(posts[0].body).toMatchObject({ stages: [review, stage('Запас')] })
-})
-
-test('запись, которая не прошла, оставляет итог в окне с причиной, и принять его можно снова', async () => {
-  const stream = controlledStream()
   stubFetch(stream)
-  const failures = ['Флоу не сохранён: его изменили в базе, пока Чудо-Юдо работал. Раздел перечитал флоу — примите правки ещё раз.', null]
-  const { onApply, onClose } = renderModal(async () => failures.shift() ?? null)
+  renderModal()
+  await say('Заведи документацию')
+  const described = { ...docs, description: '## Порядок\n\n1. Прочитать **дифф**.' }
+  stream.send({ type: 'answer', text: 'Готово.', proposal: { scenarios: [], stages: [{ stage: described }] }, changed: { scenarios: 0, stages: 1 } })
+  fireEvent.click(await screen.findByRole('button', { name: '1 этап' }))
+  fireEvent.click(screen.getByText('Документация', { selector: '.rewrite-item-name' }))
 
-  await write('Уточни выход ревью')
-  pick('Ревью')
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
-  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
-  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Открыть описание' }))
 
-  const alert = await screen.findByRole('alert')
-  expect(alert).toHaveTextContent('Правки не записаны')
-  expect(alert).toHaveTextContent('его изменили в базе')
-  // Итог на месте, окно не закрыто
-  expect(screen.getByLabelText('Что изменилось в этапах')).toHaveTextContent('вердикт')
-  expect(onClose).not.toHaveBeenCalled()
+  const view = within(screen.getByRole('dialog', { name: 'Описание этапа «Документация»' }))
+  expect(view.getByRole('heading', { name: 'Порядок' })).toBeInTheDocument()
+  expect(view.getByText('дифф').tagName).toBe('STRONG')
+  expect(view.queryByRole('button', { name: /Редактировать/ })).not.toBeInTheDocument()
+  fireEvent.click(view.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog', { name: 'Описание этапа «Документация»' })).not.toBeInTheDocument()
+})
+
+test('«Принять правки» отдаёт разделу правки переписки, а отказ записи остаётся на вкладке', async () => {
+  const { onApply } = await answered()
+  onApply.mockResolvedValueOnce('Флоу не сохранён: его изменили в базе.')
+  fireEvent.click(screen.getByRole('tab', { name: /^Изменения/ }))
 
   fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
-  await waitFor(() => expect(onClose).toHaveBeenCalled())
-  expect(onApply).toHaveBeenCalledTimes(2)
+
+  expect(await screen.findByText('Флоу не сохранён: его изменили в базе.')).toBeInTheDocument()
+  expect(onApply).toHaveBeenCalledWith(proposal)
 })
 
-test('правку занятой стадии принять нельзя: окно называет стадию и задачи', async () => {
-  const stream = controlledStream()
+test('записанное уходит из списка: раздел держит правки, и вкладка гаснет', async () => {
+  const { rerender } = await answered()
+  fireEvent.click(screen.getByRole('tab', { name: /^Изменения/ }))
+
+  rerender({
+    stages: [{ ...review, output: 'вердикт и тесты' }, merge, design, { ...docs, slug: 'docs' }],
+    flows: [proposal.scenarios[0].flow!, small],
+  })
+
+  await waitFor(() => expect(screen.getByRole('tab', { name: /^Изменения/ })).toBeDisabled())
+  expect(screen.getByLabelText('Следующая реплика')).toBeInTheDocument()
+})
+
+test('занятое задачей помечено замком, строка над списком называет задачи, «Принять правки» погашена', async () => {
+  const stream = controlledStream<RewriteEvent>()
   stubFetch(stream)
-  const { onApply } = renderModal()
+  renderModal({ lockedFlow: (name) => (name === 'крупный' ? ['B-238'] : null) })
+  await say('Заведи документацию')
+  stream.send({ type: 'answer', text: 'Готово.', proposal, changed: { scenarios: 1, stages: 2 } })
+  fireEvent.click(await screen.findByRole('button', { name: '1 сценарий, 2 этапа' }))
 
-  await write('Поправь всё')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
-  // Агент переписал и занятую Приёмку: её он получает по названию среди стадий проекта
-  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Приёмка', stage: { ...acceptance, output: 'принято' } }] })
-
-  expect(await screen.findByRole('alert')).toHaveTextContent('«Приёмка» — B-7, B-9')
+  const line = screen.getByRole('status')
+  expect(line).toHaveTextContent('Правки не записать: заняты задачами в работе — сценарий «крупный»B-238.')
+  expect(screen.getByTitle('Занят: B-238')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
-  expect(onApply).not.toHaveBeenCalled()
 })
 
-test('пока принятые правки пишутся, окно не закрыть: ни «Отказаться», ни крестиком, ни Escape', async () => {
-  const stream = controlledStream()
-  stubFetch(stream)
-  let finish: (failed: string | null) => void = () => undefined
-  const { onClose } = renderModal(() => new Promise((resolve) => (finish = resolve)))
+test('«Отменить» обрывает ответ, «Новая переписка» убирает разговор', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  const { stops, deletes } = stubFetch(stream)
+  renderModal()
+  await say('Заведи документацию')
+  stream.send({ type: 'reply', text: 'Заведи документацию' })
 
-  await write('Уточни выход ревью')
-  pick('Ревью')
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
-  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
-  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
+  expect(stops).toEqual(['/api/flow/rewrite/stop'])
 
-  expect(screen.getByRole('button', { name: 'Отказаться' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
-  fireEvent.keyDown(window, { key: 'Escape' })
-  expect(onClose).not.toHaveBeenCalled()
-
-  finish('Флоу не сохранён: нет связи с API')
-  expect(await screen.findByRole('alert')).toHaveTextContent('нет связи с API')
-  expect(screen.getByRole('button', { name: 'Отказаться' })).toBeEnabled()
+  stream.send({ type: 'stopped', text: 'Чудо-Юдо остановлен: ответа на эту реплику не будет' })
+  fireEvent.click(await screen.findByRole('button', { name: 'Новая переписка' }))
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/flow']))
 })
 
-test('пока правки пишутся, Escape закрывает вложенное описание, но не само окно', async () => {
-  const stream = controlledStream()
+test('ошибка разбора правок видна в переписке со словами агента', async () => {
+  const stream = controlledStream<RewriteEvent>()
   stubFetch(stream)
-  let finish: (failed: string | null) => void = () => undefined
-  const { onClose } = renderModal(() => new Promise((resolve) => (finish = resolve)))
+  renderModal()
+  await say('Поправь сборку')
+  stream.send({ type: 'reply', text: 'Поправь сборку' })
+  stream.send({ type: 'error', text: 'Чудо-Юдо предложил правку этапа «Сборка», которого во флоу нет', output: '=== этап «Сборка»' })
 
-  await write('Уточни ревью')
-  pick('Ревью')
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
-  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, description: '1. Собрать дифф.' } }] })
-  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Открыть описание' }))
-  expect(await screen.findByRole('dialog', { name: 'Описание этапа «Ревью»' })).toBeInTheDocument()
+  const error = await screen.findByRole('alert')
+  expect(error).toHaveTextContent('Чудо-Юдо предложил правку этапа «Сборка», которого во флоу нет')
+  expect(error).toHaveTextContent('=== этап «Сборка»')
+})
 
-  fireEvent.keyDown(window, { key: 'Escape' })
-  expect(screen.queryByRole('dialog', { name: 'Описание этапа «Ревью»' })).not.toBeInTheDocument()
-  expect(onClose).not.toHaveBeenCalled()
-  finish(null)
-  await waitFor(() => expect(onClose).toHaveBeenCalled())
+test('переписка про флоу другого проекта не показывается, а окно говорит, что новая её уберёт', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream, runningRequest('flow', 'Поправь ревью', String.raw`D:\Projects\nota-knowledge`, 'Nota'))
+  renderModal()
+
+  expect(await screen.findByText('Идёт переписка о флоу Nota: первая реплика отсюда начнёт новую, а ту уберёт.')).toBeInTheDocument()
+  stream.send({ type: 'reply', text: 'Поправь ревью' })
+  expect(screen.queryByText('Поправь ревью')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Просьба')).toBeEnabled()
+})
+
+test('число правок — в нужной форме, ноль не называется', () => {
+  expect(changedText({ scenarios: 1, stages: 0 })).toBe('1 сценарий')
+  expect(changedText({ scenarios: 2, stages: 5 })).toBe('2 сценария, 5 этапов')
+  expect(changedText({ scenarios: 0, stages: 21 })).toBe('21 этап')
+  expect(changedText({ scenarios: 11, stages: 0 })).toBe('11 сценариев')
+  expect(changedText({ scenarios: 0, stages: 0 })).toBe('')
 })
