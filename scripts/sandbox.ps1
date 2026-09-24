@@ -25,6 +25,9 @@ pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house,quirks -RealAgent
 param(
     # Куски песочницы через запятую — какие бывают, скрипт печатает, если не назвать ни одного.
     [string[]]$Pieces = @(),
+    # Свой кусок задачи: скрипт вне кода панели, который кладёт в песочницу случай, которого нет
+    # в готовых кусках. Выполняется после названных кусков, теми же кирпичами — sandbox.md.
+    [string]$TaskPiece,
     # Каталог песочницы; пересобирается целиком при каждом запуске.
     [string]$Root = (Join-Path $env:LOCALAPPDATA 'agents-kit-web\sandbox'),
     # Порт панели на песочнице: рядом работают поставленная панель и dev-копии.
@@ -434,9 +437,9 @@ $pieceList = [ordered]@{
 }
 $chosen = @($Pieces | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ } | Select-Object -Unique)
 $unknown = @($chosen | Where-Object { -not $pieceList.Contains($_) })
-if ($chosen.Count -eq 0 -or $unknown.Count) {
+if (($chosen.Count -eq 0 -and -not $TaskPiece) -or $unknown.Count) {
     if ($unknown.Count) { Write-Host "Таких кусков нет: $($unknown -join ', ')" }
-    else { Write-Host 'Песочница собирается под задачу: назовите куски ключом -Pieces, через запятую.' }
+    else { Write-Host 'Песочница собирается под задачу: назовите куски ключом -Pieces, через запятую, или свой кусок ключом -TaskPiece.' }
     Write-Host ''
     foreach ($name in $pieceList.Keys) { Write-Host ('  {0,-12} {1}' -f $name, $pieceList[$name]) }
     Write-Host ''
@@ -444,6 +447,12 @@ if ($chosen.Count -eq 0 -or $unknown.Count) {
     exit 1
 }
 function Test-Piece([string]$Name) { $chosen -contains $Name }
+# Свой кусок читается до сноса каталога: он может лежать и в прежней песочнице.
+$taskPieceText = $null
+if ($TaskPiece) {
+    if (-not (Test-Path -LiteralPath $TaskPiece -PathType Leaf)) { throw "своего куска нет: $TaskPiece — каталог песочницы не тронут" }
+    $taskPieceText = Get-Content -LiteralPath $TaskPiece -Raw
+}
 
 $live = Get-LiveSnapshot
 
@@ -657,6 +666,17 @@ if (Test-Piece 'load') {
     Add-Commit $loadBase 'Памяти копий под нагрузку'
     $bases.Add($loadBase)
     $findings.Add([pscustomobject]@{ base = $loadBase; findings = @() })
+}
+
+# --- свой кусок задачи -------------------------------------------------------------------
+
+# Кусок выполняется здесь же, точкой: ему видны кирпичи fixtures.ps1, функции баз этого скрипта
+# и списки $bases, $links, $findings, $dummies, в которые он дописывает своё. Копия куска остаётся
+# в песочнице — по ней видно, из чего она собрана.
+if ($taskPieceText) {
+    $taskPieceCopy = Join-Path $Root 'task-piece.ps1'
+    Write-Utf8 $taskPieceCopy $taskPieceText
+    . $taskPieceCopy
 }
 
 # --- таблицы заглушки кита и настройки панели --------------------------------------------
