@@ -261,11 +261,19 @@ public sealed class AskEndpointsTests : IDisposable
     public async Task Stop_EndsCurrentAnswerAndKeepsConversation()
     {
         var release = new TaskCompletionSource();
+        var answering = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _agent.Answers = [[Result("Ответ")], [Result("Второй ответ")]];
-        _agent.BeforeLine = _ => release.Task;
+        _agent.BeforeLine = _ =>
+        {
+            answering.TrySetResult();
+            return release.Task;
+        };
         var client = Client(_base);
 
         await Ask(client, _base, "Долгий вопрос");
+        // Обрывается ответ, который уже идёт: остановленный раньше, чем агент взял вопрос, вопроса и не увидит,
+        // и заглушка ответила бы на следующую реплику первым ответом.
+        await answering.Task.WaitAsync(Wait);
         Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/ask/stop", null)).StatusCode);
         var stopped = await Read(client, 2);
 
