@@ -40,7 +40,11 @@ param(
     # Не поднимать процессы-пустышки под живые сессии агентов.
     [switch]$NoSessions,
     # Не собирать песочницу, а сверить живое состояние со снимком, снятым при сборке.
-    [switch]$Verify
+    [switch]$Verify,
+    # Не собирать песочницу, а выпустить новую версию плагина кита — как обновление плагина Claude Code.
+    [switch]$UpdateKit,
+    # С -UpdateKit: удалить папку прежней версии кита, как это иногда делает обновление плагина.
+    [switch]$DropOldKit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -481,6 +485,34 @@ if ($Verify) {
     return
 }
 
+# Кит песочницы стоит плагином Claude Code, как его ставит установщик: каталог версии в кэше плагинов
+# и запись в installed_plugins.json. Обновление кладёт новую версию рядом и переписывает запись.
+function Write-KitPlugin([string]$ClaudeDir, [string]$KitDir, [string]$Version) {
+    Write-Json (Join-Path $KitDir '.claude-plugin\plugin.json') ([pscustomobject]@{ name = 'agents-kit'; version = $Version })
+    Write-Json (Join-Path $ClaudeDir 'plugins\installed_plugins.json') ([pscustomobject]@{
+        version = 2
+        plugins = [pscustomobject]@{
+            'agents-kit@agents-kit' = @([pscustomobject]@{ scope = 'user'; installPath = $KitDir; version = $Version })
+        }
+    })
+}
+
+if ($UpdateKit) {
+    $installed = Join-Path $Root 'claude\plugins\installed_plugins.json'
+    if (-not (Test-Path -LiteralPath $installed)) { throw "плагина кита нет: $installed — сначала соберите песочницу" }
+    $old = @((Get-Content -LiteralPath $installed -Raw | ConvertFrom-Json).plugins.'agents-kit@agents-kit')[0]
+    $parts = $old.version.Split('.')
+    $version = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
+    $fresh = Join-Path (Split-Path $old.installPath -Parent) $version
+    Copy-Item -LiteralPath $old.installPath -Destination $fresh -Recurse
+    Write-KitPlugin (Join-Path $Root 'claude') $fresh $version
+    if ($DropOldKit) { Remove-Item -LiteralPath $old.installPath -Recurse -Force }
+    Write-Host "Плагин кита обновлён: $($old.version) -> $version"
+    Write-Host "  новая версия:   $fresh"
+    Write-Host "  прежняя версия: $($old.installPath)$(if ($DropOldKit) { ' — удалена' })"
+    return
+}
+
 # Куски песочницы: каждый собирается сам по себе, и в песочнице лежит только названное под задачу.
 $pieceList = [ordered]@{
     'house'       = 'здоровый проект «Дом»: три копии, память с тремя вопросами оператору, живые сессии'
@@ -536,12 +568,14 @@ foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $cop
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
-$kitDir = Join-Path $claudeDir 'skills\agents-kit'
+$kitVersion = '1.14.2'
+$kitDir = Join-Path $claudeDir "plugins\cache\agents-kit\agents-kit\$kitVersion"
 # Правила формы этапа заглушка берёт у установленного кита — с ними и настоящий агент (-RealAgent) пишет
 # этапы как в жизни. Путь к киту — из списка баз оператора, только на чтение; нет его — место по умолчанию.
 $installedKit = try { (Get-Content -LiteralPath (Join-Path $env:APPDATA 'agents-kit-web\bases.json') -Raw | ConvertFrom-Json).kit } catch { $null }
 if (-not $installedKit) { $installedKit = Join-Path $HOME '.claude\skills\agents-kit' }
 New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md')
+Write-KitPlugin $claudeDir $kitDir $kitVersion
 New-ClaudeStub $binDir
 Write-Utf8 (Join-Path $Root 'kit-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'claude-mode.txt') "ok`n"
@@ -848,5 +882,6 @@ if ($RealAgent) { $again += ' -RealAgent' }
 if ($NoSessions) { $again += ' -NoSessions' }
 Write-Host ""
 Write-Host "  пересобрать:    $again"
+Write-Host "  обновить кит:   $self$where -UpdateKit [-DropOldKit]"
 Write-Host "  сверить живое:  $self$where -Verify"
 Write-Host ""

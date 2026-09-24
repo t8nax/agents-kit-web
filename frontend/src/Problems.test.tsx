@@ -104,6 +104,47 @@ test('кит не задан — раздел говорит об этом и в
   expect(onSettings).toHaveBeenCalled()
 })
 
+const kitUpdate = { path: 'C:\\Users\\me\\.claude\\plugins\\cache\\agents-kit\\agents-kit\\1.15.0', version: '1.15.0' }
+
+test('новая версия кита названа, а переход на неё — в настройках', async () => {
+  stubHealth({ ...checked, kitUpdate, currentKitVersion: '1.14.2' })
+  const onSettings = vi.fn()
+
+  render(<Problems onSettings={onSettings} />)
+
+  // Ролью status помечена и заготовка раздела, поэтому предупреждение ищется по тексту
+  const notice = (await screen.findByText('Установлена новая версия кита 1.15.0, панель работает версией 1.14.2.')).closest(
+    '.kit-notice',
+  ) as HTMLElement
+  // Переходит оператор в «Настройках»: здесь кнопки перехода нет
+  expect(within(notice).queryByRole('button', { name: /Перейти/ })).not.toBeInTheDocument()
+  fireEvent.click(within(notice).getByRole('button', { name: 'Открыть настройки' }))
+  expect(onSettings).toHaveBeenCalled()
+  // Базы при этом проверены прежним китом
+  expect(screen.getByRole('region', { name: 'Nota — D:\\Projects\\nota-knowledge' })).toBeInTheDocument()
+})
+
+test('прежней версии кита нет, а новая есть — вместо «кита нет» предупреждение о новой версии', async () => {
+  stubHealth({
+    pending: false,
+    kit: 'not-found',
+    checkedAt: null,
+    kitUpdate,
+    currentKitVersion: null,
+    bases: [{ base: 'D:\\Projects\\nota-knowledge', project: 'Nota', status: 'unchecked', error: null, problems: [], copies: [] }],
+  })
+
+  render(<Problems onSettings={() => {}} />)
+
+  expect(
+    await screen.findByText(
+      'Прежней версии кита по сохранённому пути больше нет, проблемы баз не проверяются. Установлена новая версия 1.15.0.',
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByText(/по заданному пути кита нет/)).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Открыть настройки' })).toBeInTheDocument()
+})
+
 test('пока снимок читается в первый раз, на месте карточек баз заготовка, а «Проверить сейчас» уже на месте', async () => {
   let answer: () => void = () => {}
   vi.stubGlobal(

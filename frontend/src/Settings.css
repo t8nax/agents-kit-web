@@ -71,6 +71,16 @@
   color: var(--accent-active-text);
 }
 
+.kit-status {
+  display: grid;
+  gap: 2px;
+}
+
+/* предупреждение о новой версии кита — то же, что в «Проблемах баз», но без внешних отступов раздела */
+.settings-card .kit-notice {
+  margin: 0;
+}
+
 .bases-body {
   padding: 16px;
   display: grid;
