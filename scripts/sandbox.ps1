@@ -491,7 +491,9 @@ $claudeDir = Join-Path $Root 'claude'
 $binDir = Join-Path $Root 'bin'
 $basesDir = Join-Path $Root 'bases'
 $copiesDir = Join-Path $Root 'copies'
-foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $copiesDir)) {
+# Журналы расхода: каталог пуст, и «Расход» песочницы не показывает расход оператора с этой машины.
+$projectsDir = Join-Path $Root 'projects'
+foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $copiesDir, $projectsDir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
@@ -754,7 +756,9 @@ else {
 # проксирует на API.
 Write-Utf8 (Join-Path $Root 'start-panel.ps1') @"
 # Поднимает панель на песочнице: API и dev-сервер фронта. Живых баз панель не видит — список баз,
-# реестр сессий и профиль Claude Code взяты из песочницы, а не из профиля оператора.
+# реестр сессий, профиль Claude Code, журналы расхода, ключ доступа и отметка о поставленной панели
+# взяты из песочницы, а не из профиля оператора. Новая настройка API с путём в профиле по умолчанию
+# должна появиться и в этой строке, иначе песочница молча покажет живое.
 # Гасится Ctrl+C: API останавливается вместе с фронтом.
 `$ErrorActionPreference = 'Stop'
 $pathLine
@@ -765,7 +769,7 @@ if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
 
 `$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command',
-    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
+    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --ProjectsDir '$projectsDir' --CredentialsFile '$(Join-Path $Root 'no-credentials.json')' --PublishedFile '$(Join-Path $panelDir 'published.json')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
 
 try {
     `$env:WEB_PORT = '$Port'
