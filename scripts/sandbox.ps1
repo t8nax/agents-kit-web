@@ -31,7 +31,7 @@ param(
     # Каталог песочницы; пересобирается целиком при каждом запуске. По умолчанию у каждой рабочей
     # копии свой — по её имени: сборка из соседней копии чужую приёмку не заденет.
     [string]$Root,
-    # Порт панели на песочнице. По умолчанию у каждой рабочей копии свой, закреплённый за её именем.
+    # Порт панели на песочнице. По умолчанию свой у каждой песочницы, закреплённый за её каталогом.
     [int]$Port,
     # Не подменять агента: панель будет звать настоящий claude. Деньги и настоящие права.
     [switch]$RealAgent,
@@ -48,23 +48,54 @@ $repo = Split-Path $PSScriptRoot -Parent
 $copyName = Split-Path $repo -Leaf
 # Не прежний общий каталог «sandbox»: сборка по старому скрипту из другой ветки снесла бы его целиком.
 $sandboxes = Join-Path $env:LOCALAPPDATA 'agents-kit-web\sandboxes'
-if (-not $Root) { $Root = Join-Path $sandboxes $copyName }
+$portsFile = Join-Path $sandboxes 'ports.json'
 
-# Порты песочниц закреплены за именами копий в общем файле: у двух копий адрес не совпадёт,
-# а у одной копии он тот же от сборки к сборке. Порт панели чётный, API — следующий за ним.
-function Get-SandboxPort([string]$Name) {
-    $file = Join-Path $sandboxes 'ports.json'
-    $ports = [ordered]@{}
-    if (Test-Path -LiteralPath $file) {
-        $saved = try { Get-Content -LiteralPath $file -Raw | ConvertFrom-Json } catch { $null }
-        if ($saved) { foreach ($entry in $saved.PSObject.Properties) { $ports[$entry.Name] = [int]$entry.Value } }
+# Порты песочниц закреплены за их каталогами в общем файле: у двух песочниц адрес не совпадёт,
+# а у одной он тот же от сборки к сборке. Рядом с портом записана копия, собравшая песочницу, —
+# по ней одноимённая копия из другого места получает свой каталог. Порт панели чётный, API — следующий.
+function Read-SandboxPorts {
+    $ports = @{}
+    if (-not (Test-Path -LiteralPath $portsFile)) { return $ports }
+    $saved = try { Get-Content -LiteralPath $portsFile -Raw | ConvertFrom-Json } catch {
+        throw "реестр портов песочниц не прочитан: $portsFile — поправьте или удалите его, иначе выданные порты раздадутся заново"
     }
-    if ($ports.Contains($Name)) { return $ports[$Name] }
-    $port = 5100
-    while ($ports.Values -contains $port) { $port += 2 }
-    $ports[$Name] = $port
-    Write-Utf8 $file (ConvertTo-Json -InputObject ([pscustomobject]$ports))
-    return $port
+    if ($saved) { foreach ($entry in $saved.PSObject.Properties) { $ports[$entry.Name] = $entry.Value } }
+    return $ports
+}
+
+function Get-SandboxKey([string]$Path) { [IO.Path]::GetFullPath($Path).TrimEnd('\').ToLowerInvariant() }
+
+function Get-SandboxPort([string]$Dir) {
+    New-Item -ItemType Directory -Path $sandboxes -Force | Out-Null
+    # Две копии, собирающие песочницы впервые одновременно, иначе взяли бы один порт.
+    $lockFile = Join-Path $sandboxes 'ports.lock'
+    $lock = $null
+    foreach ($try in 1..100) {
+        try { $lock = [IO.File]::Open($lockFile, 'OpenOrCreate', 'ReadWrite', 'None'); break } catch { Start-Sleep -Milliseconds 200 }
+    }
+    if (-not $lock) { throw "реестр портов песочниц занят другой сборкой дольше двадцати секунд: $lockFile" }
+    try {
+        $ports = Read-SandboxPorts
+        $key = Get-SandboxKey $Dir
+        if ($ports.ContainsKey($key)) { return [int]$ports[$key].port }
+        $taken = @($ports.Values | ForEach-Object { [int]$_.port })
+        $listening = @([Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() | ForEach-Object { $_.Port })
+        $port = 5100
+        while ($taken -contains $port -or $listening -contains $port -or $listening -contains ($port + 1)) { $port += 2 }
+        $ports[$key] = [pscustomobject]@{ port = $port; copy = $repo }
+        Write-Utf8 $portsFile (ConvertTo-Json -InputObject ([pscustomobject]$ports) -Depth 3)
+        return $port
+    }
+    finally { $lock.Dispose() }
+}
+
+if (-not $Root) {
+    $Root = Join-Path $sandboxes $copyName
+    $owner = (Read-SandboxPorts)[(Get-SandboxKey $Root)]
+    if ($owner -and $owner.copy -ne $repo) {
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($repo.ToLowerInvariant()))).Substring(0, 6).ToLowerInvariant()
+        $Root = Join-Path $sandboxes "$copyName-$hash"
+    }
 }
 
 $state = Join-Path $Root 'state.json'
@@ -479,7 +510,7 @@ if ($TaskPiece) {
     $TaskPiece = (Resolve-Path -LiteralPath $TaskPiece).Path
     $taskPieceText = Get-Content -LiteralPath $TaskPiece -Raw
 }
-if (-not $Port) { $Port = Get-SandboxPort $copyName }
+if (-not $Port) { $Port = Get-SandboxPort $Root }
 
 $live = Get-LiveSnapshot
 
