@@ -18,6 +18,7 @@ public sealed class AskEndpointsTests : IDisposable
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-ask-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly TestChat _agent = new();
 
@@ -469,6 +470,7 @@ public sealed class AskEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
@@ -543,7 +545,7 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     private HttpClient Client(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -556,5 +558,5 @@ public sealed class AskEndpointsTests : IDisposable
                 services.RemoveAll<IAgentChat>();
                 services.AddSingleton<IAgentChat>(_agent);
             });
-        }).CreateClient();
+        })).CreateClient();
 }

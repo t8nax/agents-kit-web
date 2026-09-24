@@ -52,6 +52,7 @@ public sealed class FlowEndpointsTests : IDisposable
         """;
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-flow-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _listPath;
     private readonly FakeEditorWindows _windows = new();
@@ -623,7 +624,7 @@ public sealed class FlowEndpointsTests : IDisposable
         client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(flow.Base, flow.Version!, stages, flows ?? flow.Flows, icons));
 
     private HttpClient Client(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -636,7 +637,7 @@ public sealed class FlowEndpointsTests : IDisposable
                 services.RemoveAll<IEditorWindows>();
                 services.AddSingleton<IEditorWindows>(_windows);
             });
-        }).CreateClient();
+        })).CreateClient();
 
     private static async Task<List<BaseFlow>> GetFlows(HttpClient client) =>
         await client.GetFromJsonAsync<List<BaseFlow>>("/api/flow") ?? [];
@@ -678,6 +679,7 @@ public sealed class FlowEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             // git помечает объекты только для чтения — иначе каталог не удалить.
