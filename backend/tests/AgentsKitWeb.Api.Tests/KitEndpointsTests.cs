@@ -11,17 +11,19 @@ public sealed class KitEndpointsTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("akw-kit-").FullName;
     private readonly string _file;
+    private readonly string _claude;
     private readonly WebApplicationFactory<Program> _factory;
     private readonly TestHosts _hosts = new();
 
     public KitEndpointsTests()
     {
         _file = Path.Combine(_root, "panel", "bases.json");
+        _claude = Path.Combine(_root, "profile", ".claude");
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", _file)]);
+                config.AddInMemoryCollection([new("BasesFile", _file), new("ClaudeDir", _claude)]);
             }));
     }
 
@@ -133,6 +135,109 @@ public sealed class KitEndpointsTests : IDisposable
 
         Assert.Empty((await factory.CreateClient().GetFromJsonAsync<List<string>>("/api/kit/found"))!);
     }
+
+    [Fact]
+    public async Task Kit_CurrentPluginInstall_IsPluginWithVersionAndNoUpdate()
+    {
+        var kit = PluginKit("0.2.0");
+        InstallPlugins(kit);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+
+        Assert.Equal(new KitResponse(kit, true, "0.2.0", true), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    [Fact]
+    public async Task Kit_PluginUpdatedAfterSet_OffersNewVersionAndKeepsSavedPath()
+    {
+        var old = PluginKit("0.2.0");
+        InstallPlugins(old);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(old));
+
+        var fresh = PluginKit("0.3.0");
+        InstallPlugins(fresh);
+
+        Assert.Equal(new KitResponse(old, true, "0.2.0", true, new KitVersion(fresh, "0.3.0")),
+            await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    [Fact]
+    public async Task Kit_OldPluginVersionRemoved_OffersNewVersion()
+    {
+        var old = PluginKit("0.2.0");
+        InstallPlugins(old);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(old));
+        var fresh = PluginKit("0.3.0");
+        InstallPlugins(fresh);
+
+        Directory.Delete(old, recursive: true);
+
+        Assert.Equal(new KitResponse(old, false, null, true, new KitVersion(fresh, "0.3.0")),
+            await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    [Fact]
+    public async Task Kit_SwitchedToNewVersion_HasNoUpdate()
+    {
+        var old = PluginKit("0.2.0");
+        InstallPlugins(old);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(old));
+        var fresh = PluginKit("0.3.0");
+        InstallPlugins(fresh);
+
+        var response = await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(fresh));
+
+        Assert.Equal(new KitResponse(fresh, true, "0.3.0", true), await response.Content.ReadFromJsonAsync<KitResponse>());
+    }
+
+    [Fact]
+    public async Task Kit_NotFromPlugins_HasVersionAndNoUpdate()
+    {
+        var kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
+        WriteVersion(kit, "0.10.3");
+        InstallPlugins(PluginKit("0.3.0"));
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+
+        Assert.Equal(new KitResponse(kit, true, "0.10.3"), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[]")]
+    [InlineData("{ \"plugins\": { \"agents-kit@kits\": [ { \"installPath\": 7 } ] } }")]
+    public async Task Kit_InstalledPluginsUnreadable_IsNotPlugin(string installed)
+    {
+        var kit = PluginKit("0.2.0");
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+        File.WriteAllText(Path.Combine(_claude, "plugins", "installed_plugins.json"), installed);
+
+        Assert.Equal(new KitResponse(kit, true, "0.2.0"), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    /// <summary>Каталог версии плагина кита — там, куда Claude Code кладёт установленные плагины.</summary>
+    private string PluginKit(string version)
+    {
+        var kit = TestKit.Create(Path.Combine(_claude, "plugins", "cache", "kits", "agents-kit", version));
+        WriteVersion(kit, version);
+        return kit;
+    }
+
+    private static void WriteVersion(string kit, string version)
+    {
+        Directory.CreateDirectory(Path.Combine(kit, ".claude-plugin"));
+        File.WriteAllText(Path.Combine(kit, ".claude-plugin", "plugin.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { name = "agents-kit", version }));
+    }
+
+    /// <summary>Записывает installed_plugins.json так, как его оставляет установка или обновление плагина.</summary>
+    private void InstallPlugins(string kit) =>
+        File.WriteAllText(Path.Combine(_claude, "plugins", "installed_plugins.json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            version = 2,
+            plugins = new Dictionary<string, object[]>
+            {
+                ["agents-kit@kits"] = [new { scope = "user", installPath = kit, version = Path.GetFileName(kit) }],
+            },
+        }));
 
     private WebApplicationFactory<Program> FactoryWithClaudeDir(string claudeDir) =>
         _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>

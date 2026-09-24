@@ -9,8 +9,12 @@ public sealed record AddBaseRequest(string? Path);
 
 public sealed record AddBaseRejectedResponse(string Problem);
 
-/// <summary>Путь к установленному киту; null — не задан. Found — скрипты кита по пути на месте.</summary>
-public sealed record KitResponse(string? Path, bool Found);
+/// <summary>
+/// Путь к установленному киту; null — не задан. Found — скрипты кита по пути на месте. Version — номер версии кита
+/// по пути, null — не прочитан. Plugin — кит стоит плагином Claude Code. Update — установленная новая версия
+/// плагина, на которую панель ещё не перешла: переходит только оператор.
+/// </summary>
+public sealed record KitResponse(string? Path, bool Found, string? Version = null, bool Plugin = false, KitVersion? Update = null);
 
 public sealed record SetKitRequest(string? Path);
 
@@ -36,16 +40,16 @@ public static class BasesEndpoints
         app.MapDelete("/api/bases", (string path, BasesStore store) =>
             store.Remove(path) ? Results.NoContent() : Results.NotFound());
 
-        app.MapGet("/api/kit", (BasesStore store) => store.Kit() is { } kit
-            ? new KitResponse(kit, BasesStore.IsKit(kit))
+        app.MapGet("/api/kit", (BasesStore store, KitLocator locator) => store.Kit() is { } kit
+            ? Kit(kit, locator)
             : new KitResponse(null, false));
 
         app.MapGet("/api/kit/found", (KitLocator locator) => locator.Find());
 
-        app.MapPut("/api/kit", (SetKitRequest request, BasesStore store) =>
+        app.MapPut("/api/kit", (SetKitRequest request, BasesStore store, KitLocator locator) =>
             store.SetKit(request.Path, out var saved) switch
             {
-                null => Results.Ok(new KitResponse(saved, true)),
+                null => Results.Ok(Kit(saved, locator)),
                 var problem => Results.BadRequest(new AddBaseRejectedResponse(problem switch
                 {
                     SetKitProblem.Empty => "empty",
@@ -56,6 +60,13 @@ public static class BasesEndpoints
     }
 
     private static BaseEntry Entry(string path) => new(path, CountCopies(path));
+
+    private static KitResponse Kit(string kit, KitLocator locator)
+    {
+        var found = BasesStore.IsKit(kit);
+        var plugin = locator.PluginState(kit);
+        return new KitResponse(kit, found, found ? KitLocator.Version(kit) : null, plugin.Plugin, plugin.Update);
+    }
 
     internal static int? CountCopies(string basePath)
     {

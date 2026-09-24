@@ -31,20 +31,63 @@ public sealed class KitLocator(string claudeDir)
         return Safe(() => Directory.Exists(skills)) ? Safe(() => Directory.GetDirectories(skills), []) : [];
     }
 
-    /// <summary>Каталоги плагинов из installed_plugins.json — чужого формата Claude Code; не разобран — плагинов нет.</summary>
-    private IEnumerable<string> Plugins()
+    /// <summary>
+    /// Кит по сохранённому пути глазами плагинов Claude Code. Плагином кит считается, когда путь — каталог
+    /// установки плагина или каталог соседней версии того же плагина: обновление кладёт новую версию рядом,
+    /// а старую может и удалить. Новая версия — каталог установки того же плагина, когда сохранённый путь
+    /// сам уже не установка; по наличию старого каталога устаревание не видно.
+    /// </summary>
+    public KitPluginState PluginState(string kit)
+    {
+        var installs = Plugins();
+        if (installs.Any(p => BasesStore.SamePath(p, kit)))
+            return new KitPluginState(true, null);
+
+        var parent = Path.GetDirectoryName(WorkspaceCollector.Normalize(kit));
+        var siblings = installs
+            .Select(WorkspaceCollector.Normalize)
+            .Where(p => parent is not null && string.Equals(Path.GetDirectoryName(p), parent, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var update = siblings.FirstOrDefault(p => Safe(() => BasesStore.IsKit(p)));
+        return new KitPluginState(siblings.Count > 0, update is null ? null : new KitVersion(update, Version(update)));
+    }
+
+    /// <summary>Номер версии из описания плагина в каталоге кита; нет описания или номера — null.</summary>
+    public static string? Version(string kit)
+    {
+        try
+        {
+            using var stream = File.OpenRead(Path.Combine(kit, ".claude-plugin", "plugin.json"));
+            using var json = JsonDocument.Parse(stream);
+            return json.RootElement.ValueKind == JsonValueKind.Object
+                   && json.RootElement.TryGetProperty("version", out var version)
+                   && version.ValueKind == JsonValueKind.String
+                ? version.GetString()
+                : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Установки плагинов из installed_plugins.json — чужого формата Claude Code; не разобран — плагинов нет.</summary>
+    private List<string> Plugins()
     {
         var file = Path.Combine(claudeDir, "plugins", "installed_plugins.json");
         try
         {
             using var stream = File.OpenRead(file);
             using var json = JsonDocument.Parse(stream);
-            if (!json.RootElement.TryGetProperty("plugins", out var plugins) || plugins.ValueKind != JsonValueKind.Object)
+            if (json.RootElement.ValueKind != JsonValueKind.Object
+                || !json.RootElement.TryGetProperty("plugins", out var plugins) || plugins.ValueKind != JsonValueKind.Object)
                 return [];
             return plugins.EnumerateObject()
                 .Where(p => p.Value.ValueKind == JsonValueKind.Array)
                 .SelectMany(p => p.Value.EnumerateArray())
-                .Select(install => install.ValueKind == JsonValueKind.Object && install.TryGetProperty("installPath", out var path)
+                .Select(install => install.ValueKind == JsonValueKind.Object
+                                   && install.TryGetProperty("installPath", out var path)
+                                   && path.ValueKind == JsonValueKind.String
                     ? path.GetString()
                     : null)
                 .OfType<string>()
@@ -69,3 +112,9 @@ public sealed class KitLocator(string claudeDir)
         }
     }
 }
+
+/// <summary>Каталог кита и номер его версии; null — номер не прочитан.</summary>
+public sealed record KitVersion(string Path, string? Version);
+
+/// <summary>Plugin — кит стоит плагином Claude Code; Update — установленная версия плагина, на которую ещё не перешли.</summary>
+public sealed record KitPluginState(bool Plugin, KitVersion? Update);
