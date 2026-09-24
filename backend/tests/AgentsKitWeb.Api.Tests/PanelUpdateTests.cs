@@ -220,9 +220,26 @@ public sealed class PanelUpdateTests : IDisposable
             });
         }));
 
+    /// <summary>
+    /// Каталог скриптов обновления сразу после выхода pwsh может держать посторонний — антивирус проверяет свежие
+    /// скрипты, — и удаление повторяется: с первой попытки уборка изредка краснела на исправном коде (B-250).
+    /// </summary>
     public void Dispose()
     {
         _hosts.Dispose();
-        Directory.Delete(_root, recursive: true);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (true)
+        {
+            try
+            {
+                Directory.Delete(_root, recursive: true);
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                                              && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(500);
+            }
+        }
     }
 }
