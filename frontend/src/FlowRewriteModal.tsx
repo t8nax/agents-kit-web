@@ -1,37 +1,58 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
-import type { FlowStage } from './Flow'
-import { useAgentRequest } from './agentRequest'
-import { stageChanges, type RewrittenStage, type StageChange, type StageFieldName } from './flowChanges'
+import type { FlowStage, NamedFlow } from './Flow'
+import { Markdown } from './Markdown'
+import { useAgentConversation } from './agentConversation'
+import {
+  changedText,
+  pending,
+  proposalItems,
+  type ChangeKind,
+  type FlowChanged,
+  type FlowProposal,
+  type ScenarioItem,
+  type StageFieldName,
+  type StageItem,
+} from './flowChanges'
 import './Modal.css'
 import './AskModal.css'
+import './Tabs.css'
 import './FlowRewriteModal.css'
 
+/**
+ * Событие переписки о флоу: реплика оператора, ход агента, его ответ с правками, сбой или слово панели. У ответа
+ * proposal — все правки переписки, changed — сколько тронул он сам; у ответа-вопроса changed нет.
+ */
 export type RewriteEvent =
+  | { type: 'reply'; text: string }
   | { type: 'step'; text: string }
-  | { type: 'rewritten'; text: string; stages: RewrittenStage[]; durationMs?: number }
+  | { type: 'note'; text: string }
+  | { type: 'stopped'; text: string }
+  | { type: 'answer'; text: string; durationMs?: number; proposal?: FlowProposal; changed?: FlowChanged }
   | { type: 'error'; text: string; output?: string }
 
 type Props = {
   base: string
   project: string
-  /** Стадии проекта такими, какие они в базе: их агент и получает, а принятые правки пишутся поверх них. */
+  /** Этапы и сценарии проекта такими, какие они в базе: их агент и получает, а принятые правки пишутся поверх них. */
   stages: FlowStage[]
-  /** Значок стадии — тот же, что на карточке вкладки «Стадии». */
+  flows: NamedFlow[]
+  /** Значок этапа — тот же, что на карточке вкладки «Этапы». */
   mark: (title: string) => ReactNode
-  /** Строка о сценариях, которые заденет правка стадии; null — стадия стоит не больше чем в одном. */
-  scope: (title: string) => string | null
-  /** Задачи, которые держат стадию: её не править, пока они в работе, и к просьбе она не добавляется (B-226). */
-  locked: (title: string) => string[] | null
-  /** Записать принятые стадии в базу; вернуть, почему не записались, или null. */
-  onApply: (stages: RewrittenStage[]) => Promise<string | null>
+  /** Задачи, которые держат этап или сценарий: его не записать, пока они в работе (B-226). */
+  lockedStage: (title: string) => string[] | null
+  lockedFlow: (name: string) => string[] | null
+  /** Записать правки в базу; вернуть, почему не записались, или null. */
+  onApply: (proposal: FlowProposal) => Promise<string | null>
   onClose: () => void
 }
 
+type Tab = 'talk' | 'changes'
+
 const examples = [
-  'Заведи этап документации после мержа',
+  'Заведи этап документации после мержа в обоих сценариях',
   'Пропускай приёмку, если задача не меняет вида панели',
-  'Пусть ревью смотрит ещё и тесты',
+  'В мелком сценарии дизайн не нужен',
 ]
 
 const fieldLabels: Record<StageFieldName, string> = {
@@ -43,151 +64,143 @@ const fieldLabels: Record<StageFieldName, string> = {
   description: 'описание',
 }
 
-const kindLabels: Record<StageChange['kind'], string> = {
-  added: 'добавлен',
+const kindLabels: Record<ChangeKind, string> = {
+  added: 'новый',
   changed: 'изменён',
-  same: 'без правок',
+  removed: 'удалён',
 }
 
-const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
+const empty: FlowProposal = { scenarios: [], stages: [] }
 
-const sameStage = (one: FlowStage, other: FlowStage) =>
-  one.title === other.title &&
-  one.executor === other.executor &&
-  one.output === other.output &&
-  (one.skip ?? null) === (other.skip ?? null) &&
-  (one.description ?? null) === (other.description ?? null) &&
-  (one.helpers ?? []).join(', ') === (other.helpers ?? []).join(', ')
+/** Ход работы нынешней реплики: шаги, набежавшие после последней реплики оператора. */
+function stepsOfTurn(events: RewriteEvent[]) {
+  const steps: string[] = []
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i]
+    if (event.type === 'reply') break
+    if (event.type === 'step') steps.unshift(event.text)
+  }
+  return steps
+}
 
-export default function FlowRewriteModal({ base, project, stages, mark, scope, locked, onApply, onClose }: Props) {
-  const [wish, setWish] = useState('')
-  // Стадии контекста — по названию: список раздела на время окна не меняется.
-  const [context, setContext] = useState<string[]>([])
-  const [picking, setPicking] = useState(false)
-  // Описание стадии читается своим окном поверх разбора: в карточке стоит только кнопка.
+export default function FlowRewriteModal({ base, project, stages, flows, mark, lockedStage, lockedFlow, onApply, onClose }: Props) {
+  // Поле не трогали, пока text — null: тогда в нём стоит реплика, на которой агент сорвался.
+  const [text, setText] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>('talk')
+  // Сколько событий переписки было, когда оператор последний раз смотрел вкладку «Изменения»: точка на ней горит,
+  // пока ответ, поменявший список, пришёл позже.
+  const [seen, setSeen] = useState(0)
+  // Описание этапа читается своим окном поверх списка: в пункте стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
-  // Принятые правки пишутся: окно не закрывается, пока запись не кончилась, — иначе отказ записи был бы некому
-  // показать, а итог агента пропал бы вместе с окном.
+  // Правки пишутся: окно не закрывается, пока запись не кончилась, — иначе отказ записи был бы некому показать.
   const [applying, setApplying] = useState(false)
-  // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
-  // Своя просьба — только своего проекта: ответ про стадии другого лёг бы на одноимённые стадии этого.
-  const { asked, request, steps: agentSteps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure } =
-    useAgentRequest<RewriteEvent>('flow', { mine: (one) => one.base === base })
+  const [applyFailure, setApplyFailure] = useState<string | null>(null)
+  // Переписку держит панель: закрытое окно её не трогает, а открытое заново видит с начала (B-79).
+  const conversation = useAgentConversation<RewriteEvent>('flow')
+  const { running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
+  // Разом идёт одна переписка этого вида: про флоу другого проекта окно её не показывает, а новая отсюда её уберёт.
+  const foreign = conversation.base !== null && conversation.base !== base
+  const events = foreign ? [] : conversation.events
+  const started = events.length > 0
+  const value = text ?? (foreign ? '' : (retry ?? ''))
+  const steps = running && !foreign ? stepsOfTurn(events) : []
+  const talk = useRef<HTMLDivElement>(null)
+
+  // Правки — последние, что пришли с ответом; записанное оператором из них уходит само.
+  const proposal = [...events].reverse().find((event) => event.type === 'answer' && event.proposal)
+  const shown = pending(stages, flows, (proposal?.type === 'answer' && proposal.proposal) || empty)
+  const items = proposalItems(stages, flows, shown)
+  const count = items.scenarios.length + items.stages.length
+  const lastChange = events.reduce(
+    (last, event, i) => (event.type === 'answer' && event.changed && changedText(event.changed) ? i + 1 : last),
+    0,
+  )
+  const dot = count > 0 && tab !== 'changes' && lastChange > seen
+  const onChanges = tab === 'changes' && count > 0
+
+  // Занятое задачами не записать: строка над списком называет, что и кем занято.
+  const held = [
+    ...items.scenarios.flatMap((item) => {
+      const tasks = item.of === null ? null : lockedFlow(item.of)
+      return tasks ? [{ what: `сценарий «${item.of}»`, tasks }] : []
+    }),
+    ...items.stages.flatMap((item) => {
+      const tasks = item.of === null ? null : lockedStage(item.of)
+      return tasks ? [{ what: `этап «${item.of}»`, tasks }] : []
+    }),
+  ]
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       if (description) setDescription(null)
-      else if (picking) setPicking(false)
-      // Пока правки пишутся, окно не закрывается; вложенное чтение описания и выбор стадий записи не мешают.
+      // Пока правки пишутся, окно не закрывается; чтение описания записи не мешает.
       else if (!applying) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, description, picking, applying])
+  }, [onClose, description, applying])
 
-  const picked = context
-    .map((title) => stages.find((stage) => norm(stage.title) === norm(title)))
-    .filter((stage): stage is FlowStage => stage !== undefined)
-  // Стадии идущей или дождавшейся просьбы — те, что ушли агенту: их помнит панель, а не окно, и открытое
-  // заново окно видит их так же, как то, из которого просили.
-  const contextStages = request?.stages ?? picked
+  // Переписка растёт вниз: свежая реплика и ответ видны без прокрутки руками.
+  useEffect(() => {
+    const box = talk.current
+    if (box && tab === 'talk') box.scrollTop = box.scrollHeight
+  }, [events.length, steps.length, tab])
 
-  const rewrite = useCallback(
-    async (text: string, withStages: FlowStage[]) => {
-      if (!text.trim()) return
-      setPicking(false)
-      const started = await start('/api/flow/rewrite', {
-        base,
-        wish: text.trim(),
-        stages: withStages,
-        titles: stages.map((stage) => stage.title),
-      })
-      if (started.ok) return
-      setFailure(
-        started.status === 404
-          ? 'Базы нет в списке панели или на диске'
-          : started.status === null
-            ? 'Нет связи с API'
-            : 'Панель не приняла просьбу',
-      )
-    },
-    [base, start, setFailure, stages],
-  )
-
-  const rewritten = outcome?.type === 'rewritten' ? outcome : null
-  const error = failure ?? (outcome?.type === 'error' ? outcome.text : null)
-  const output = outcome?.type === 'error' ? (outcome.output ?? null) : null
-  const phase: 'restoring' | 'idle' | 'running' | 'rewritten' | 'failed' = restoring
-    ? 'restoring'
-    : running
-      ? 'running'
-      : error
-        ? 'failed'
-        : rewritten
-          ? 'rewritten'
-          : 'idle'
-  const shown = asked || wish.trim()
-  // Прежний вид стадии берётся из раздела; стадии без правок — из тех, что ушли агенту.
-  const changes = rewritten ? stageChanges(stages, rewritten.stages, contextStages) : []
-  const changed = changes.filter((change) => change.kind !== 'same')
-  // Стадию могли поправить в разделе, пока агент работал: ответ ляжет поверх, и карточка говорит об этом.
-  const drift = (of: string | null) => {
-    if (of === null) return null
-    const sent = request?.stages?.find((stage) => norm(stage.title) === norm(of))
-    if (!sent) return null
-    const now = stages.find((stage) => norm(stage.title) === norm(of))
-    if (!now) return `Этапа «${of}» в разделе уже нет: правка ляжет новым этапом.`
-    return sameStage(sent, now)
-      ? null
-      : `Этап «${of}» правили, пока ${AGENT_NAME} работал: «Принять правки» заменит эти правки его ответом.`
+  function openChanges() {
+    setTab('changes')
+    setSeen(events.length)
   }
-  const untouched = changes.filter((change) => change.kind === 'same')
 
-  // Стадию, которую держат задачи в работе, не записать: ответ про неё принять нельзя, и окно говорит почему.
-  const held = changed.flatMap((change) => {
-    const tasks = change.of === null ? null : locked(change.of)
-    return tasks ? [`«${change.of}» — ${tasks.join(', ')}`] : []
-  })
-  const [applyFailure, setApplyFailure] = useState<string | null>(null)
+  async function submit() {
+    const said = value.trim()
+    if (!said || running) return
 
-  /**
-   * Принятые правки пишутся в базу сразу; просьба снимается, только когда запись прошла. Не прошла — итог
-   * остаётся в окне с причиной: ответ агента не пропадает, его можно принять снова или отказаться (B-226).
-   */
-  async function apply() {
-    const taken = rewritten?.stages.filter((one) =>
-      changed.some((change) => change.stage === one.stage),
+    setText(null)
+    // Реплика несёт флоу раздела, каким он стал: оператор мог записать правки, и они уходят из списка.
+    const sent = started ? await send(said, { stages, flows }) : await start({ base, wish: said, stages, flows })
+    if (sent.ok) return
+
+    setText(said)
+    setFailure(
+      sent.status === 404
+        ? started
+          ? 'Панель потеряла переписку: её больше нет в списке'
+          : 'Базы нет в списке панели или на диске'
+        : sent.status === 409
+          ? `${AGENT_NAME} ещё отвечает на прошлую реплику`
+          : sent.status === 422
+            ? 'Панель не прочитала у кита правила формы этапа: путь к киту задаётся в «Настройках»'
+            : sent.status === null
+              ? 'Нет связи с API'
+              : 'Панель не приняла реплику',
     )
+  }
+
+  async function newTalk() {
+    setText(null)
+    setTab('talk')
+    setSeen(0)
+    setApplyFailure(null)
+    await forget()
+  }
+
+  /** Правки пишутся в базу сразу, одной записью раздела; переписка после записи продолжается. */
+  async function apply() {
     setApplying(true)
     setApplyFailure(null)
-    const failed = await onApply(taken ?? [])
+    const failed = await onApply(shown)
     setApplying(false)
-    if (failed) {
-      setApplyFailure(failed)
-      return
-    }
-    await forget()
-    onClose()
+    if (failed) setApplyFailure(failed)
+    else setTab('talk')
   }
 
-  async function close() {
-    if (phase === 'rewritten' || phase === 'failed') await forget()
-    onClose()
-  }
-
-  // Повтор просьбы уходит со стадиями такими, какими их видно сейчас: их могли поправить после сбоя. Пропавшая
-  // из раздела стадия уходит прежней.
-  const current = (sent: FlowStage[]) =>
-    sent.map((one) => stages.find((stage) => norm(stage.title) === norm(one.title)) ?? one)
-
-  const toggle = (title: string) =>
-    setContext((now) => (now.includes(title) ? now.filter((one) => one !== title) : [...now, title]))
+  const folder = base.split(/[\\/]/).filter(Boolean).pop() ?? base
 
   return (
     <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && !applying && onClose()}>
       <div
-        className="modal-wizard ask-modal"
+        className="modal-wizard ask-modal rewrite-modal"
         role="dialog"
         aria-modal="true"
         aria-label={`Переписать с ${AGENT_NAME}`}
@@ -201,229 +214,198 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
             </button>
           </div>
           {/* Проект берётся из раздела: правки лягут в тот флоу, который оператор перед собой видит. */}
-          <div className="ask-bases">
-            <span className="chip active">{project}</span>
+          <div className="rewrite-project">
+            <span className="ask-pick-label">Проект</span>
+            <span className="rewrite-project-name">{project}</span>
+            <span className="rewrite-project-folder">{folder}</span>
+          </div>
+          <div className="vc-tabs rewrite-tabs" role="tablist" aria-label="Вкладки окна">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'talk' || count === 0}
+              className={`flow-tab ${tab === 'talk' || count === 0 ? 'is-on' : ''}`}
+              onClick={() => setTab('talk')}
+            >
+              Переписка
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={onChanges}
+              className={`flow-tab ${onChanges ? 'is-on' : ''}`}
+              disabled={count === 0}
+              onClick={openChanges}
+            >
+              Изменения
+              {dot && <span className="rewrite-tab-dot" aria-label="Список изменён последним ответом" />}
+            </button>
           </div>
         </div>
 
-        <div className="ask-body">
-          {phase === 'restoring' && <p className="modal-message">Загрузка…</p>}
-          {phase === 'idle' && (
-            <>
-              <div className="rewrite-composer">
-                <label htmlFor="flow-wish" className="visually-hidden">
-                  Что поменять в этапах
-                </label>
-                <textarea
-                  id="flow-wish"
-                  className="custom-textarea ask-textarea"
-                  autoFocus
-                  value={wish}
-                  placeholder="Скажите своими словами, что поменять в этапах или какой этап завести"
-                  onChange={(e) => setWish(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish, picked)
-                  }}
-                />
-                <div className="rewrite-composer-bar" aria-label="Этапы к просьбе">
-                  <button
-                    type="button"
-                    className={`rewrite-context-btn ${picking ? 'open' : ''}`}
-                    aria-expanded={picking}
-                    aria-haspopup="listbox"
-                    onClick={() => setPicking((now) => !now)}
-                  >
-                    <PlusIcon />
-                    Этапы
+        {!onChanges && (
+          <div className="ask-body" ref={talk}>
+            {restoring && <p className="modal-message">Загрузка…</p>}
+            {foreign && (
+              <p className="rewrite-foreign">
+                Идёт переписка о флоу {conversation.project}: первая реплика отсюда начнёт новую, а ту уберёт.
+              </p>
+            )}
+            {!restoring && !started && !value && (
+              <div className="ask-examples">
+                <div className="ask-examples-title">Например</div>
+                {examples.map((example) => (
+                  <button key={example} type="button" className="ask-example" onClick={() => setText(example)}>
+                    {example}
                   </button>
-                  {/* Названия в списке могут совпасть, пока стадия правится: ключ — с местом стадии. */}
-                  {picked.map((stage, i) => (
-                    <span key={`${i}-${stage.title}`} className="rewrite-token">
-                      {mark(stage.title)}
-                      {stage.title}
-                      <button
-                        type="button"
-                        className="rewrite-token-remove"
-                        aria-label={`Убрать «${stage.title}»`}
-                        onClick={() => toggle(stage.title)}
-                      >
-                        <CloseIcon />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                {picking && (
-                  <StagePicker
-                    stages={stages}
-                    chosen={context}
-                    mark={mark}
-                    locked={locked}
-                    onToggle={toggle}
-                    onClose={() => setPicking(false)}
-                  />
-                )}
+                ))}
               </div>
-              {/* Разом идёт одна просьба этого вида: просьба отсюда остановит ту, что идёт про другой проект. */}
-              {foreign && (
-                <p className="rewrite-foreign">
-                  {AGENT_NAME} {foreign.state === 'running' ? 'сейчас переписывает' : 'уже переписал'} этапы{' '}
-                  {foreign.project}: новая просьба отсюда {foreign.state === 'running' ? 'остановит его' : 'уберёт этот ответ'}.
-                </p>
-              )}
-              {!wish && !picking && (
-                <div className="ask-examples">
-                  <div className="ask-examples-title">Например</div>
-                  {examples.map((example) => (
-                    <button key={example} type="button" className="ask-example" onClick={() => setWish(example)}>
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
+            )}
 
-          {shown && phase !== 'idle' && phase !== 'restoring' && (
-            <div className="ask-asked rewrite-asked">
-              <div className="rewrite-asked-row">
-                <span className="ask-asked-label">Просьба</span>
-                <span className="ask-asked-text">{shown}</span>
-              </div>
-              {contextStages.length > 0 && (
-                <div className="rewrite-context-line" aria-label="Этапы к просьбе">
-                  {contextStages.map((stage, i) => (
-                    <span key={`${i}-${stage.title}`} className="rewrite-token fixed">
-                      {mark(stage.title)}
-                      {stage.title}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+            {events.map((event, i) => (
+              <Said key={i} event={event} onChanges={openChanges} />
+            ))}
 
-          {phase === 'running' && (
-            <>
+            {running && !foreign && (
               <div className="ask-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
                 <span className="ask-waiting-text">
-                  {AGENT_NAME} {contextStages.length > 0 ? 'переписывает этапы' : 'пишет этап'}…
+                  {AGENT_NAME} читает флоу {project}…
                 </span>
                 {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
-              {agentSteps.length > 0 && (
-                <ol className="ask-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
-                  {agentSteps.map((step, i) => (
-                    <li key={i}>{step}</li>
+            )}
+            {steps.length > 0 && (
+              <ol className="ask-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
+                {steps.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+            )}
+
+            {failure && (
+              <div className="ask-error" role="alert">
+                <strong>{AGENT_NAME} не ответил</strong>
+                <span>{failure}. Флоу не менялся.</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {onChanges && (
+          <div className="ask-body rewrite-changes" aria-label="Изменения флоу">
+            {held.length > 0 && (
+              <p className="rewrite-held-line" role="status">
+                <LockIcon />
+                <span>
+                  Правки не записать: заняты задачами в работе —{' '}
+                  {held.map((one, i) => (
+                    <span key={one.what}>
+                      {i > 0 && '; '}
+                      {one.what}
+                      {one.tasks.map((task) => (
+                        <span key={task} className="flow-task-tag">
+                          {task}
+                        </span>
+                      ))}
+                    </span>
                   ))}
-                </ol>
-              )}
-            </>
-          )}
-
-          {rewritten && phase === 'rewritten' && (
-            <div className="rewrite-changes" aria-label="Что изменилось в этапах">
-              {changed.length === 0 && <p className="modal-message">Этапы не изменились: ответ совпал с прежними.</p>}
-              {changed.map((change) => (
-                <Change
-                  key={`${change.kind}-${change.of}-${change.title}`}
-                  change={change}
-                  scope={change.of === null ? null : scope(change.of)}
-                  drift={drift(rewritten.stages.find((one) => one.stage === change.stage)?.of ?? null)}
-                  onDescription={setDescription}
-                />
-              ))}
-              {untouched.length > 0 && (
-                <div className="rewrite-untouched">
-                  <span className="rewrite-mark">{kindLabels.same}</span>
-                  <span className="rewrite-untouched-titles">{untouched.map((c) => c.title).join(' · ')}</span>
-                  {rewritten.durationMs !== undefined && (
-                    <span className="ask-duration">{formatDuration(rewritten.durationMs)}</span>
-                  )}
+                  .
+                </span>
+              </p>
+            )}
+            {items.scenarios.length > 0 && (
+              <div className="rewrite-group">
+                <p className="rewrite-group-title">Сценарии</p>
+                <div className="rewrite-items">
+                  {items.scenarios.map((item) => (
+                    <ScenarioRow key={`${item.kind}-${item.of}-${item.name}`} item={item} held={item.of === null ? null : lockedFlow(item.of)} />
+                  ))}
                 </div>
-              )}
-              {untouched.length === 0 && rewritten.durationMs !== undefined && (
-                <div className="rewrite-meta">
-                  <span className="ask-duration">{formatDuration(rewritten.durationMs)}</span>
+              </div>
+            )}
+            {items.stages.length > 0 && (
+              <div className="rewrite-group">
+                <p className="rewrite-group-title">Этапы</p>
+                <div className="rewrite-items">
+                  {items.stages.map((item) => (
+                    <StageRow
+                      key={`${item.kind}-${item.of}-${item.title}`}
+                      item={item}
+                      mark={mark}
+                      held={item.of === null ? null : lockedStage(item.of)}
+                      onDescription={setDescription}
+                    />
+                  ))}
                 </div>
-              )}
-            </div>
-          )}
-
-          {rewritten && phase === 'rewritten' && held.length > 0 && (
-            <div className="ask-error" role="alert">
-              <strong>Правки не записать: этапы заняты задачами в работе</strong>
-              <span>{held.join('; ')}. Пока задачи идут, эти этапы не правятся.</span>
-            </div>
-          )}
-          {rewritten && phase === 'rewritten' && applyFailure && (
-            <div className="ask-error" role="alert">
-              <strong>Правки не записаны</strong>
-              <span>{applyFailure}</span>
-            </div>
-          )}
-
-          {phase === 'failed' && (
-            <div className="ask-error" role="alert">
-              <strong>{AGENT_NAME} не переписал этапы</strong>
-              <span>{error}. Этапы в базе не менялись.</span>
-              {output && <pre>{output}</pre>}
-            </div>
-          )}
-        </div>
+              </div>
+            )}
+            {applyFailure && (
+              <div className="ask-error" role="alert">
+                <strong>Правки не записаны</strong>
+                <span>{applyFailure}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="modal-footer ask-footer">
-          {/* Не подсказка, а состояние: пока правки не приняты, стадии базы прежние. */}
-          {phase === 'rewritten' && (
-            <span className="ask-hint">
-              <LockIcon />
-              Этапы в базе ещё не изменены: «Принять правки» запишет их сразу
-            </span>
+          {!onChanges && (
+            <>
+              <label htmlFor="flow-wish" className="visually-hidden">
+                {started ? 'Следующая реплика' : 'Просьба'}
+              </label>
+              <textarea
+                id="flow-wish"
+                className={`custom-textarea ask-textarea ${started ? 'ask-textarea-next' : ''}`}
+                autoFocus
+                value={value}
+                disabled={running && !foreign}
+                placeholder={
+                  running && !foreign
+                    ? `${AGENT_NAME} отвечает — реплика уйдёт, когда он закончит`
+                    : started
+                      ? 'Уточните, ответьте на вопрос или попросите поправить ещё'
+                      : 'Скажите своими словами, что поменять в сценариях и этапах или какой этап завести'
+                }
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
+                }}
+              />
+            </>
           )}
-          <div className="footer-right">
-            {phase === 'idle' && (
-              <button type="button" className="btn btn-primary" disabled={!wish.trim()} onClick={() => void rewrite(wish, picked)}>
-                {picked.length > 0 ? 'Переписать' : 'Написать этап'}
+          <div className="ask-actions">
+            {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
+                а «Отменить» встаёт ровно туда, где была «Отправить». */}
+            <div className="footer-right">
+              <button
+                type="button"
+                className="btn"
+                disabled={!started || (running && !foreign) || applying}
+                onClick={() => void newTalk()}
+              >
+                Новая переписка
               </button>
-            )}
-            {phase === 'running' && (
-              <button type="button" className="btn" onClick={() => void forget()}>
-                Отменить
-              </button>
-            )}
-            {rewritten && phase === 'rewritten' && (
-              <>
-                <button type="button" className="btn" disabled={applying} onClick={() => void close()}>
-                  Отказаться
-                </button>
+              {onChanges ? (
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={changed.length === 0 || held.length > 0 || applying}
+                  disabled={held.length > 0 || applying || running}
                   onClick={() => void apply()}
                 >
                   {applying ? 'Запись…' : 'Принять правки'}
                 </button>
-              </>
-            )}
-            {phase === 'failed' && (
-              <>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => {
-                    setWish(shown)
-                    setContext(contextStages.map((stage) => stage.title))
-                    void forget()
-                  }}
-                >
-                  Изменить просьбу
+              ) : running && !foreign ? (
+                <button type="button" className="btn" onClick={() => void stop()}>
+                  Отменить
                 </button>
-                <button type="button" className="btn btn-primary" onClick={() => void rewrite(shown, current(contextStages))}>
-                  Попросить снова
+              ) : (
+                <button type="button" className="btn btn-primary" disabled={!value.trim()} onClick={() => void submit()}>
+                  Отправить
                 </button>
-              </>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -450,178 +432,203 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
   )
 }
 
-/**
- * Список стадий проекта под кнопкой «Стадии»: поиск по названию, галочка добавляет стадию в просьбу. Занятая
- * задачами стадия погашена и называет их: переписанную её было бы не записать (макет B-226).
- */
-function StagePicker({
-  stages,
-  chosen,
-  mark,
-  locked,
-  onToggle,
-  onClose,
-}: {
-  stages: FlowStage[]
-  chosen: string[]
-  mark: (title: string) => ReactNode
-  locked: (title: string) => string[] | null
-  onToggle: (title: string) => void
-  onClose: () => void
-}) {
-  const [query, setQuery] = useState('')
-  const box = useRef<HTMLDivElement>(null)
+/** Одно событие переписки. У ответа, поменявшего список, внизу строка, сколько он поменял, и переход к списку. */
+function Said({ event, onChanges }: { event: RewriteEvent; onChanges: () => void }) {
+  // Ход работы виден, пока идёт ответ, и отдельным списком: в переписке он не остаётся.
+  if (event.type === 'step') return null
 
-  // Щелчок мимо списка его закрывает, как меню; кнопка «Стадии» закрывает его сама.
-  useEffect(() => {
-    const onDown = (event: MouseEvent) => {
-      const target = event.target as Element
-      if (box.current?.contains(target) || target.closest?.('.rewrite-context-btn')) return
-      onClose()
-    }
-    document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
-  }, [onClose])
+  if (event.type === 'reply') return <div className="ask-said">{event.text}</div>
 
-  const found = stages.filter((stage) => norm(stage.title).includes(norm(query)))
-
-  return (
-    <div className="rewrite-picker" ref={box}>
-      <label className="rewrite-picker-search">
-        <SearchIcon />
-        <span className="visually-hidden">Найти этап</span>
-        <input autoFocus value={query} placeholder="Найти этап" onChange={(e) => setQuery(e.target.value)} />
-      </label>
-      <div className="rewrite-picker-list" role="listbox" aria-label="Этапы проекта" aria-multiselectable="true">
-        {found.length === 0 && <p className="rewrite-picker-empty">Этапов с таким названием нет</p>}
-        {found.map((stage, i) => {
-          const on = chosen.includes(stage.title)
-          const held = locked(stage.title)
-          return (
-            <div
-              key={`${i}-${stage.title}`}
-              role="option"
-              aria-selected={on}
-              aria-disabled={held ? true : undefined}
-              tabIndex={held ? -1 : 0}
-              className={`rewrite-picker-row ${held ? 'is-off' : ''}`}
-              onClick={() => !held && onToggle(stage.title)}
-              onKeyDown={(e) => {
-                if (!held && (e.key === 'Enter' || e.key === ' ')) {
-                  e.preventDefault()
-                  onToggle(stage.title)
-                }
-              }}
-            >
-              <span className={`rewrite-check ${on ? 'on' : ''}`} aria-hidden="true">
-                {on && <CheckIcon />}
-              </span>
-              {mark(stage.title)}
-              <span className="rewrite-picker-title">
-                <span>{stage.title}</span>
-                {held && (
-                  <span className="rewrite-why">
-                    <LockIcon />
-                    занят: {held.join(', ')}
-                  </span>
-                )}
-              </span>
-              <span className="flow-stage-badge">{stage.executor || 'субагент'}</span>
-            </div>
-          )
-        })}
+  if (event.type === 'answer') {
+    const changed = event.changed ? changedText(event.changed) : ''
+    return (
+      <div className="ask-answer">
+        {event.text && <Markdown className="ask-answer-text" text={event.text} />}
+        <div className={`ask-answer-meta ${changed ? 'rewrite-upd' : ''}`}>
+          {changed && (
+            <span className="rewrite-upd-text">
+              <ListIcon />
+              В изменениях:{' '}
+              <button type="button" className="rewrite-upd-link" onClick={onChanges}>
+                {changed}
+              </button>
+            </span>
+          )}
+          {event.durationMs !== undefined && <span className="ask-duration">{formatDuration(event.durationMs)}</span>}
+        </div>
       </div>
-    </div>
+    )
+  }
+
+  if (event.type === 'error') {
+    return (
+      <div className="ask-error" role="alert">
+        <strong>{event.text}</strong>
+        <span>Флоу не менялся, прежние правки и переписка остались.</span>
+        {event.output && <pre>{event.output}</pre>}
+      </div>
+    )
+  }
+
+  // note и stopped — слово самой панели о разговоре: ни ответ, ни сбой.
+  return <p className="ask-note">{event.text}</p>
+}
+
+function Held({ tasks }: { tasks: string[] | null }) {
+  if (!tasks) return null
+  return (
+    <span className="rewrite-held" title={`Занят: ${tasks.join(', ')}`}>
+      <LockIcon />
+      {tasks.join(', ')}
+    </span>
   )
 }
 
-function Change({
-  change,
-  scope,
-  drift,
+function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null }) {
+  return (
+    <details className="rewrite-item">
+      <summary>
+        <ChevronIcon />
+        <span className={`rewrite-mark rewrite-mark-${item.kind}`}>{kindLabels[item.kind]}</span>
+        <span className="rewrite-item-name">{item.name}</span>
+        <span className="rewrite-item-what" />
+        <Held tasks={held} />
+      </summary>
+      <div className="rewrite-item-body">
+        <dl className="rewrite-chain-list">
+          <div className="rewrite-chain-row">
+            <dt>порядок</dt>
+            <dd className="rewrite-chain">
+              {item.chain.map((link, i) => (
+                <span key={`${i}-${link.title}`} className="rewrite-chain-link">
+                  {i > 0 && <span className="rewrite-arrow">→</span>}
+                  <span className={`rewrite-token rewrite-token-${link.mark}`}>{link.title}</span>
+                </span>
+              ))}
+            </dd>
+          </div>
+          {item.kind !== 'removed' && (
+            <div className="rewrite-chain-row">
+              <dt>возвраты</dt>
+              <dd className="rewrite-returns">
+                {item.returns === null
+                  ? item.kind === 'added'
+                    ? 'нет'
+                    : 'без правок'
+                  : item.returns.map((line) => <span key={line}>{line}</span>)}
+              </dd>
+            </div>
+          )}
+          {item.flow?.when && item.kind === 'added' && (
+            <div className="rewrite-chain-row">
+              <dt>когда</dt>
+              <dd className="rewrite-returns">{item.flow.when}</dd>
+            </div>
+          )}
+        </dl>
+      </div>
+    </details>
+  )
+}
+
+function StageRow({
+  item,
+  mark,
+  held,
   onDescription,
 }: {
-  change: StageChange
-  scope: string | null
-  drift: string | null
+  item: StageItem
+  mark: (title: string) => ReactNode
+  held: string[] | null
   onDescription: (description: { title: string; text: string }) => void
 }) {
-  const stage = change.stage
-  const descriptionChange = change.fields.find((field) => field.field === 'description')
-  const keys = change.fields.filter((field) => field.field !== 'description')
+  const where =
+    item.flows.length === 0
+      ? item.kind === 'removed'
+        ? 'не стоял в сценариях'
+        : 'не стоит в сценариях'
+      : `в ${item.flows.length === 1 ? 'сценарии' : 'сценариях'} ${item.flows.map((name) => `«${name}»`).join(', ')}`
+  const stage = item.stage
+  const descriptionChange = item.fields.find((field) => field.field === 'description')
+  const keys = item.fields.filter((field) => field.field !== 'description')
 
   return (
-    <div className={`rewrite-change rewrite-${change.kind}`}>
-      <div className="rewrite-change-head">
-        <span className="rewrite-mark">{kindLabels[change.kind]}</span>
-        <span className="rewrite-change-title">{change.title}</span>
+    <details className="rewrite-item">
+      <summary>
+        <ChevronIcon />
+        <span className={`rewrite-mark rewrite-mark-${item.kind}`}>{kindLabels[item.kind]}</span>
+        {mark(item.of ?? item.title)}
+        <span className="rewrite-item-name">{item.title}</span>
+        <span className="rewrite-item-what">{where}</span>
+        <Held tasks={held} />
+      </summary>
+      <div className="rewrite-item-body">
+        {item.kind === 'removed' && <p className="rewrite-none">Этап уйдёт из базы.</p>}
+
+        {item.kind === 'added' && stage && (
+          <dl className="rewrite-fields">
+            <dt>исполнитель</dt>
+            <dd>{stage.executor}</dd>
+            <dt>выход</dt>
+            <dd>{stage.output}</dd>
+            {stage.skip && (
+              <>
+                <dt>пропуск</dt>
+                <dd>{stage.skip}</dd>
+              </>
+            )}
+            {stage.helpers && stage.helpers.length > 0 && (
+              <>
+                <dt>помощники</dt>
+                <dd>{stage.helpers.join(', ')}</dd>
+              </>
+            )}
+            {stage.description && (
+              <>
+                <dt>описание</dt>
+                <dd>
+                  <DescriptionButton title={item.title} text={stage.description} onOpen={onDescription} />
+                </dd>
+              </>
+            )}
+          </dl>
+        )}
+
+        {item.kind === 'changed' && (
+          <dl className="rewrite-fields">
+            {keys.map((field) => (
+              <div key={field.field} className="rewrite-field">
+                <dt>{fieldLabels[field.field]}</dt>
+                <dd>
+                  <span className={`rewrite-was ${field.before === null ? 'rewrite-none' : ''}`}>{field.before ?? 'нет'}</span>
+                  {field.after !== null ? (
+                    <span className="rewrite-now">{field.after}</span>
+                  ) : (
+                    <span className="rewrite-now rewrite-none">нет</span>
+                  )}
+                </dd>
+              </div>
+            ))}
+            {descriptionChange && (
+              <div className="rewrite-field">
+                <dt>{fieldLabels.description}</dt>
+                <dd>
+                  {descriptionChange.after !== null ? (
+                    <DescriptionButton title={item.title} text={descriptionChange.after} onOpen={onDescription} changed />
+                  ) : (
+                    <span className="rewrite-now rewrite-none">описание убрано</span>
+                  )}
+                </dd>
+              </div>
+            )}
+          </dl>
+        )}
       </div>
-      {change.kind === 'changed' && scope && <p className="rewrite-scope">{scope}</p>}
-      {drift && <p className="rewrite-drift">{drift}</p>}
-
-      {change.kind === 'added' && (
-        <dl className="rewrite-fields">
-          <dt>исполнитель</dt>
-          <dd>{stage.executor}</dd>
-          <dt>выход</dt>
-          <dd>{stage.output}</dd>
-          {stage.skip && (
-            <>
-              <dt>пропуск</dt>
-              <dd>{stage.skip}</dd>
-            </>
-          )}
-          {stage.helpers && stage.helpers.length > 0 && (
-            <>
-              <dt>помощники</dt>
-              <dd>{stage.helpers.join(', ')}</dd>
-            </>
-          )}
-          {stage.description && (
-            <>
-              <dt>описание</dt>
-              <dd>
-                <DescriptionButton title={change.title} text={stage.description} onOpen={onDescription} />
-              </dd>
-            </>
-          )}
-        </dl>
-      )}
-
-      {change.kind === 'changed' && (
-        <dl className="rewrite-fields">
-          {keys.map((field) => (
-            <div key={field.field} className="rewrite-field">
-              <dt>{fieldLabels[field.field]}</dt>
-              <dd>
-                <span className={`rewrite-was ${field.before === null ? 'rewrite-none' : ''}`}>{field.before ?? 'нет'}</span>
-                {field.after !== null ? (
-                  <span className="rewrite-now">{field.after}</span>
-                ) : (
-                  <span className="rewrite-now rewrite-none">нет</span>
-                )}
-              </dd>
-            </div>
-          ))}
-          {descriptionChange && (
-            <div className="rewrite-field">
-              <dt>{fieldLabels.description}</dt>
-              <dd>
-                {descriptionChange.after !== null ? (
-                  <DescriptionButton title={change.title} text={descriptionChange.after} onOpen={onDescription} changed />
-                ) : (
-                  <span className="rewrite-now rewrite-none">описание убрано</span>
-                )}
-              </dd>
-            </div>
-          )}
-        </dl>
-      )}
-    </div>
+    </details>
   )
 }
 
-/** Описание в разборе не пересказывается: кнопка открывает его текст окном. */
+/** Описание в списке не пересказывается: кнопка открывает его текст окном. */
 function DescriptionButton({
   title,
   text,
@@ -683,28 +690,23 @@ function CloseIcon() {
   )
 }
 
-function PlusIcon() {
+function ChevronIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
+    <svg className="rewrite-chevron" viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="9 6 15 12 9 18" />
     </svg>
   )
 }
 
-function SearchIcon() {
+function ListIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="11" cy="11" r="7" />
-      <line x1="16.5" y1="16.5" x2="21" y2="21" />
-    </svg>
-  )
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <polyline points="5 12.5 10 17.5 19 7" />
+      <line x1="9" y1="6" x2="20" y2="6" />
+      <line x1="9" y1="12" x2="20" y2="12" />
+      <line x1="9" y1="18" x2="20" y2="18" />
+      <circle cx="4.5" cy="6" r="1" />
+      <circle cx="4.5" cy="12" r="1" />
+      <circle cx="4.5" cy="18" r="1" />
     </svg>
   )
 }

@@ -1,37 +1,185 @@
-/* Разбор переписанного флоу в окне агента — поверх общих стилей окна вопроса */
+/* Окно переписки о флоу — поверх общих стилей окна вопроса: вкладки «Переписка | Изменения» и список правок */
 
-.rewrite-changes {
+.rewrite-project {
+  margin-top: 6px;
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
 }
 
-.rewrite-change {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--bg-base);
+.rewrite-project-name {
+  font-weight: 500;
 }
 
-/* Цвет плашки говорит, что стало с шагом: добавлен, изменён, переставлен, удалён. */
-.rewrite-added {
-  border-color: var(--accent-active-border);
-  background: var(--accent-active-bg);
+.rewrite-project-folder {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
-.rewrite-removed .rewrite-change-title {
-  text-decoration: line-through;
+.rewrite-tabs {
+  align-self: flex-start;
+  margin-top: 12px;
+}
+
+.rewrite-tabs .flow-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rewrite-tabs .flow-tab:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.rewrite-tabs .flow-tab:disabled:hover {
   color: var(--text-secondary);
 }
 
-.rewrite-change-head {
+/* Ответ поменял список, а вкладку с тех пор не открывали. */
+.rewrite-tab-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-waiting-fill);
+}
+
+/* Строка под ответом: сколько он поменял; переход к списку. */
+.rewrite-upd {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rewrite-upd-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.rewrite-upd-text svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.rewrite-upd-link {
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.rewrite-upd .ask-duration {
+  margin-left: auto;
+}
+
+/* Вкладка «Изменения»: группы «Сценарии» и «Этапы», пункт раскрывается щелчком. */
+.rewrite-changes {
+  gap: 14px;
+}
+
+.rewrite-group {
+  display: grid;
+  gap: 6px;
+}
+
+.rewrite-group-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.rewrite-items {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-base);
+  overflow: hidden;
+}
+
+.rewrite-item + .rewrite-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.rewrite-item > summary {
+  list-style: none;
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.rewrite-item > summary::-webkit-details-marker {
+  display: none;
+}
+
+.rewrite-item > summary:hover {
+  background: var(--bg-surface-hover);
+}
+
+.rewrite-item > summary:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
+.rewrite-chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: var(--text-tertiary);
+  stroke-width: 2;
+  transition: transform 0.15s;
+}
+
+.rewrite-item[open] .rewrite-chevron {
+  transform: rotate(90deg);
+}
+
+.rewrite-item .flow-card-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+
+.rewrite-item .flow-card-mark svg {
+  width: 12px;
+  height: 12px;
+}
+
+.rewrite-item-name {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.rewrite-item-what {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rewrite-item-body {
+  padding: 4px 14px 14px 36px;
+  display: grid;
+  gap: 10px;
 }
 
 .rewrite-mark {
@@ -41,41 +189,153 @@
   color: var(--text-tertiary);
   border: 1px solid var(--border-subtle);
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 1px 7px;
+  white-space: nowrap;
 }
 
-.rewrite-added .rewrite-mark {
+.rewrite-mark-added {
   color: var(--accent-active-text);
   border-color: var(--accent-active-border);
 }
 
-.rewrite-changed .rewrite-mark {
+.rewrite-mark-changed {
   color: var(--accent-waiting-text);
   border-color: var(--accent-waiting-border);
   background: var(--accent-waiting-bg);
 }
 
-.rewrite-removed .rewrite-mark {
+.rewrite-mark-removed {
   color: var(--accent-error-text);
   border-color: var(--accent-error-border);
   background: var(--accent-error-bg);
 }
 
-.rewrite-change-title {
-  font-size: 14px;
+/* Занятое задачей: замок и номер у пункта, строка над списком. */
+.rewrite-held {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent-waiting-text);
+  white-space: nowrap;
+}
+
+.rewrite-held svg,
+.rewrite-held-line svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.rewrite-held-line {
+  margin: 0;
+  padding: 8px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border: 1px solid var(--accent-waiting-border);
+  border-radius: 6px;
+}
+
+.rewrite-held-line svg {
+  margin-top: 3px;
+}
+
+.rewrite-held-line .flow-task-tag {
+  margin-left: 6px;
+}
+
+/* Сценарий: этапы по порядку, новый и убранный помечены. */
+.rewrite-chain-list {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.rewrite-chain-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.rewrite-chain-row dt {
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  padding-top: 3px;
+}
+
+.rewrite-chain-row dd {
+  margin: 0;
+}
+
+.rewrite-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 0;
+}
+
+.rewrite-chain-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.rewrite-arrow {
+  padding: 0 6px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.rewrite-token {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12.5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rewrite-token-added {
+  color: var(--accent-active-text);
+  border-color: var(--accent-active-border);
+  background: var(--accent-active-bg);
   font-weight: 500;
 }
 
-.rewrite-place {
-  font-size: 12px;
-  color: var(--text-tertiary);
+.rewrite-token-removed {
+  color: var(--accent-error-text);
+  border-color: var(--accent-error-border);
+  background: var(--accent-error-bg);
+  text-decoration: line-through;
 }
 
+.rewrite-returns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+/* Этап: было → стало по полям. */
 .rewrite-fields {
   margin: 0;
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);
-  gap: 4px 14px;
+  gap: 6px 14px;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -95,7 +355,7 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   overflow-wrap: anywhere;
 }
 
@@ -105,6 +365,7 @@
 }
 
 .rewrite-none {
+  margin: 0;
   color: var(--text-tertiary);
 }
 
@@ -134,335 +395,7 @@
   white-space: pre;
 }
 
-.rewrite-untouched {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 12px 16px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-}
-
-.rewrite-untouched-titles {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.rewrite-meta {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.rewrite-scope {
-  margin: 0;
-  padding: 6px 10px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--accent-waiting-text);
-  background: var(--accent-waiting-bg);
-  border: 1px solid var(--accent-waiting-border);
-  border-radius: 6px;
-}
-
-/* Стадию поправили в разделе, пока агент работал: принятый ответ ляжет поверх этих правок. */
-.rewrite-drift {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--accent-waiting-text);
-}
-
-/* Поле просьбы с контекстом: текст сверху, внизу в той же рамке — кнопка «Стадии» и добавленные стадии. */
-.rewrite-composer {
-  position: relative;
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-base);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-}
-
-.rewrite-composer:focus-within {
-  border-color: var(--accent-waiting-text);
-}
-
-.rewrite-composer .ask-textarea {
-  border: none;
-  background: transparent;
-  box-shadow: none;
-  outline: none;
-}
-
-.rewrite-composer-bar,
-.rewrite-context-line {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.rewrite-composer-bar {
-  padding: 8px 10px 10px;
-}
-
-.rewrite-context-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px 0 8px;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.rewrite-context-btn:hover,
-.rewrite-context-btn.open {
-  color: var(--text-primary);
-  background: var(--bg-surface-hover);
-}
-
-.rewrite-context-btn svg {
-  width: 14px;
-  height: 14px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-}
-
-.rewrite-token {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 4px 0 4px;
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-surface-hover);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-}
-
-.rewrite-token.fixed {
-  padding-right: 10px;
-}
-
-.rewrite-token .flow-card-mark,
-.rewrite-picker-row .flow-card-mark {
-  width: 20px;
-  height: 20px;
-  border-radius: 5px;
-}
-
-.rewrite-token .flow-card-mark svg,
-.rewrite-picker-row .flow-card-mark svg {
-  width: 12px;
-  height: 12px;
-}
-
-.rewrite-token-remove {
-  display: inline-flex;
-  padding: 2px;
-  color: var(--text-tertiary);
-  background: none;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.rewrite-token-remove:hover {
-  color: var(--text-primary);
-}
-
-.rewrite-token-remove svg,
-.rewrite-picker-search svg,
-.rewrite-check svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-}
-
-.rewrite-picker {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 5;
-  width: 360px;
-  max-height: 320px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  box-shadow: 0 12px 32px var(--shadow-color);
-}
-
-.rewrite-picker-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 10px;
-  margin-bottom: 2px;
-  color: var(--text-tertiary);
-  background: var(--bg-base);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-}
-
-.rewrite-picker-search:focus-within {
-  border-color: var(--text-secondary);
-}
-
-.rewrite-picker-search svg {
-  width: 14px;
-  height: 14px;
-}
-
-.rewrite-picker-search input {
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  font-size: 13px;
-  color: var(--text-primary);
-  background: none;
-  border: none;
-  outline: none;
-}
-
-.rewrite-picker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  overflow-y: auto;
-}
-
-.rewrite-picker-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  font-size: 13px;
-  border-radius: 6px;
-  cursor: pointer;
-}
-
-.rewrite-picker-row:hover,
-.rewrite-picker-row:focus-visible {
-  background: var(--bg-surface-hover);
-  outline: none;
-}
-
-.rewrite-picker-title {
-  flex: 1;
-  min-width: 0;
-  font-weight: 500;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.35;
-}
-
-/* Почему стадию не добавить к просьбе: её держат задачи в работе (макет B-226). */
-.rewrite-why {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 400;
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.rewrite-why svg {
-  width: 11px;
-  height: 11px;
-}
-
-.rewrite-picker-row.is-off {
-  cursor: default;
-}
-
-.rewrite-picker-row.is-off:hover {
-  background: none;
-}
-
-.rewrite-picker-row.is-off .rewrite-check {
-  border-style: dashed;
-  opacity: 0.5;
-}
-
-.rewrite-picker-row.is-off .flow-card-mark,
-.rewrite-picker-row.is-off .flow-stage-badge {
-  opacity: 0.45;
-}
-
-.rewrite-picker-row.is-off .rewrite-picker-title > span:first-child {
-  color: var(--text-tertiary);
-}
-
-.rewrite-picker-empty {
-  margin: 0;
-  padding: 6px 8px;
-  font-size: 13px;
-  color: var(--text-tertiary);
-}
-
-.rewrite-check {
-  width: 16px;
-  height: 16px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent-waiting-on);
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-}
-
-.rewrite-check.on {
-  background: var(--accent-waiting-fill);
-  border-color: var(--accent-waiting-fill);
-}
-
-.rewrite-check svg {
-  width: 11px;
-  height: 11px;
-  stroke-width: 3;
-}
-
-.rewrite-asked {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.rewrite-asked-row {
-  display: flex;
-  gap: 12px;
-}
-
-.rewrite-asked .ask-asked-label {
-  flex: none;
-  color: var(--text-tertiary);
-}
-
-.rewrite-untouched .ask-duration {
-  margin-left: auto;
-}
-
-/* Просьба про стадии другого проекта: новая её остановит — предупреждение до нажатия. */
+/* Переписка про флоу другого проекта: новая её уберёт — предупреждение до отправки. */
 .rewrite-foreign {
   margin: 0;
   font-size: 13px;

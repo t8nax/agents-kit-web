@@ -20,7 +20,7 @@ import './Flow.css'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { ChoiceMark } from './ChoiceMark'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
-import type { RewrittenStage } from './flowChanges'
+import type { FlowProposal } from './flowChanges'
 import './Tabs.css'
 import { Markdown } from './Markdown'
 import type { BasePerformers } from './Performers'
@@ -704,36 +704,59 @@ export default function Flow({
   }
 
   /**
-   * Правки Чудо-Юдо ложатся на этапы базы и пишутся сразу одной записью: переписанный сохраняет key, и пункты
-   * сценариев и возвраты, которые ссылаются на него key, идут за новым названием сами — как при ручном
-   * переименовании. Новый этап встаёт в конец вкладки «Этапы»: во флоу его ставят уже со вкладки «Сценарии».
-   * Не записалось — форма возвращается к базе, а причину называет окно, где остаётся итог агента.
+   * Правки Чудо-Юдо ложатся на флоу базы и пишутся сразу одной записью (B-242). Переписанный этап сохраняет key,
+   * и пункты сценариев и возвраты, которые ссылаются на него key, идут за новым названием сами — как при ручном
+   * переименовании; удалённый уходит. Сценарий агента ссылается на этапы названиями: они становятся key этапов
+   * с правками. Не записалось — форма возвращается к базе, а причину называет окно, где остаётся переписка.
    */
-  const applyRewritten = async (rewritten: RewrittenStage[]) => {
+  const applyProposal = async (proposal: FlowProposal) => {
     // Запись пишет флоу базы и сбросила бы набранное в открытом окне или сайдбаре молча: сначала его судьба (ревью B-226).
     if (changed)
       return `Правки не записаны: ${
         opened?.kind === 'flow' ? 'в боковой панели сценария' : 'в открытом окне'
       } несохранённая правка. Закройте это окно, сохраните или отмените правку и примите правки снова.`
     if (saving) return 'Флоу ещё записывается: примите правки, когда запись закончится.'
+
     let stages = saved.stages
-    for (const { of, stage } of rewritten) {
-      const fields = stageDraft(stage)
+    // Прежнее название переписанного этапа — его key: пункт сценария агента мог назвать этап и так.
+    const renamed = new Map<string, number>()
+    for (const { of, stage } of proposal.stages) {
       const was = of == null ? undefined : stages.find((one) => norm(one.title) === norm(of))
-      stages = was
-        ? stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
-        : [...stages, { ...fields, slug: null }]
+      if (!stage) {
+        if (was) stages = stages.filter((one) => one !== was)
+        continue
+      }
+      const fields = stageDraft(stage)
+      if (was) {
+        renamed.set(norm(was.title), was.key)
+        stages = stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
+      } else stages = [...stages, { ...fields, slug: null }]
     }
-    const failed = await commit({ ...saved, stages }, 'rewrite')
-    if (failed) {
-      setEdits(null)
-      return failed
+
+    const keyOf = (title: string) =>
+      stages.find((stage) => norm(stage.title) === norm(title))?.key ?? renamed.get(norm(title)) ?? null
+    const toDraftFlow = (named: NamedFlow, key: number): DraftFlow => ({
+      key,
+      name: named.name,
+      when: named.when ?? '',
+      entries: named.entries.map((entry) => ({
+        key: nextKey++,
+        stage: keyOf(entry.stage),
+        title: entry.stage,
+        returns: (entry.returns ?? []).map((back) => ({ condition: back.condition, target: keyOf(back.stage) })),
+      })),
+    })
+    let flows = saved.flows
+    for (const { of, flow } of proposal.scenarios) {
+      const was = of == null ? undefined : flows.find((one) => norm(one.name) === norm(of))
+      if (!flow) flows = flows.filter((one) => one !== was)
+      else if (was) flows = flows.map((one) => (one === was ? toDraftFlow(flow, was.key) : one))
+      else flows = [...flows, toDraftFlow(flow, nextKey++)]
     }
-    if (rewritten.some((one) => one.of == null)) {
-      setTab('stages')
-      setOpened(null)
-    }
-    return null
+
+    const failed = await commit({ stages, flows }, 'rewrite')
+    if (failed) setEdits(null)
+    return failed
   }
 
   // Значок стадии в окне переписывания — тот же, что на её карточке.
@@ -1181,17 +1204,18 @@ export default function Flow({
         <FlowRewriteModal
           base={flow.base}
           project={flow.project}
-          stages={saved.stages.map(toStage)}
+          stages={toApi(saved).stages}
+          flows={toApi(saved).flows}
           mark={stageMark}
-          scope={(title) => {
-            const stage = saved.stages.find((one) => norm(one.title) === norm(title))
-            return stage ? scopeWarning(saved, stage.key) : null
-          }}
-          locked={(title) => {
+          lockedStage={(title) => {
             const stage = saved.stages.find((one) => norm(one.title) === norm(title))
             return (stage && lockOfStage(stage.key)?.tasks) || null
           }}
-          onApply={applyRewritten}
+          lockedFlow={(name) => {
+            const named = saved.flows.find((one) => norm(one.name) === norm(name))
+            return (named && lockOfFlow(named.key)?.tasks) || null
+          }}
+          onApply={applyProposal}
           onClose={() => setModal(null)}
         />
       )}
