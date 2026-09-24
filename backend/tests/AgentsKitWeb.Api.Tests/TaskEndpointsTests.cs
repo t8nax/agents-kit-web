@@ -33,6 +33,7 @@ public sealed class TaskEndpointsTests : IDisposable
         """;
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-tasks-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly string _sessionsDir;
@@ -407,6 +408,7 @@ public sealed class TaskEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
@@ -456,7 +458,7 @@ public sealed class TaskEndpointsTests : IDisposable
     }
 
     private HttpClient Client() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -474,7 +476,7 @@ public sealed class TaskEndpointsTests : IDisposable
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(_time);
             });
-        }).CreateClient();
+        })).CreateClient();
 
     /// <summary>Часы прогона: льгота отметки о запуске отмеряется ими, а не настоящим временем.</summary>
     private sealed class FakeTime(DateTimeOffset now) : TimeProvider

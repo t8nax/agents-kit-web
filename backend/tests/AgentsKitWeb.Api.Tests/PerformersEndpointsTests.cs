@@ -10,6 +10,7 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class PerformersEndpointsTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("akw-tests-").FullName;
+    private readonly TestHosts _hosts = new();
 
     [Fact]
     public async Task Performers_ListsPerformersOfTheBaseWithTheirFields()
@@ -374,16 +375,16 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     private WebApplicationFactory<Program> Factory(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
                 config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases))]);
-            }));
+            })));
 
     private async Task<List<BasePerformers>> Get(params string[] bases)
     {
-        await using var factory = Factory(bases);
+        var factory = Factory(bases);
         var response = await factory.CreateClient().GetAsync("/api/performers");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -392,12 +393,13 @@ public sealed class PerformersEndpointsTests : IDisposable
 
     private async Task<HttpResponseMessage> Save(string basePath, SavePerformerRequest request)
     {
-        await using var factory = Factory(basePath);
+        var factory = Factory(basePath);
         return await factory.CreateClient().PostAsJsonAsync("/api/performers", request);
     }
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
