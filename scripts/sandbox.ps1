@@ -74,7 +74,7 @@ $state = Join-Path $Root 'state.json'
 # Живые базы меняют и соседние сессии, поэтому расхождение называет файл: по нему видно, чья это
 # работа — панели песочницы или сессии в другой копии.
 function Get-LiveSnapshot {
-    $file = Join-Path $env:APPDATA 'agents-kit-webases.json'
+    $file = Join-Path $env:APPDATA 'agents-kit-web\bases.json'
     $snapshot = [ordered]@{ basesFile = $null; bases = [ordered]@{} }
     if (-not (Test-Path -LiteralPath $file)) { return $snapshot }
     $snapshot.basesFile = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
