@@ -244,7 +244,32 @@ test('пропуск и помощники нового этапа стоят п
   expect(item.getByText('правка только в тестах')).not.toHaveClass('rewrite-was')
   expect(item.getByText('помощники')).toBeInTheDocument()
   expect(item.getByText('scout, check-runner')).toBeInTheDocument()
-  expect(item.getAllByText('нет')[0]).toHaveClass('rewrite-none')
+  // «Нет» ищется в строке выхода: у описания своя строка со своим «нет».
+  const output = item.getByText('выход').closest('.rewrite-field')!
+  expect(within(output as HTMLElement).getByText('нет')).toHaveClass('rewrite-none')
+})
+
+test('убранные у этапа пропуск и помощники стоят строками «было → нет»', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream)
+  const skipped = { ...review, skip: 'правка только в текстах', helpers: ['scout'] }
+  renderModal({ screen: { stages: [skipped, merge, design], flows } })
+  await say('Убери пропуск у ревью')
+  stream.send({
+    type: 'answer',
+    text: 'Готово.',
+    proposal: { scenarios: [], stages: [{ of: 'Ревью', stage: { ...skipped, skip: null, helpers: [] } }] },
+    changed: { scenarios: 0, stages: 1 },
+  })
+  fireEvent.click(await screen.findByRole('button', { name: '1 этап' }))
+  fireEvent.click(screen.getByText('Ревью', { selector: '.rewrite-item-name' }))
+
+  const item = within(screen.getByText('Ревью', { selector: '.rewrite-item-name' }).closest('details')!)
+  const row = (label: string) => within(item.getByText(label).closest('.rewrite-field') as HTMLElement)
+  expect(row('пропуск').getByText('правка только в текстах')).toHaveClass('rewrite-was')
+  expect(row('пропуск').getByText('нет')).toHaveClass('rewrite-now')
+  expect(row('помощники').getByText('scout')).toHaveClass('rewrite-was')
+  expect(row('помощники').getByText('нет')).toHaveClass('rewrite-now')
 })
 
 test('«Открыть описание» открывает описание окном вкладки «Этапы» только для чтения', async () => {
