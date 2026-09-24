@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import Flow, { type BaseFlow, type FlowStage, type NamedFlow } from './Flow'
 
@@ -491,7 +491,10 @@ test('возвраты правятся окном поверх схемы и п
 
   expect((await saveAndRead(fetchMock)).flows[0].entries[1].returns).toEqual([{ condition: 'не то', stage: 'Критерий' }])
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-  expect(region.getByRole('button', { name: 'Этап 2: Ревью, возврат к этапу Критерий' })).toHaveFocus()
+  // Фокус на блок ставит эффект схемы, когда окно уже закрылось, — отдельным ходом: он ждётся, а не берётся сразу.
+  await waitFor(() =>
+    expect(region.getByRole('button', { name: 'Этап 2: Ревью, возврат к этапу Критерий' })).toHaveFocus(),
+  )
 
   // Escape с несохранённым спрашивает; «Не сохранять» закрывает окно без записи
   const again = await returnsOf(region, /^Этап 2: Ревью/)
