@@ -79,6 +79,8 @@ function Get-LiveSnapshot {
     if (-not (Test-Path -LiteralPath $file)) { return $snapshot }
     $snapshot.basesFile = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     $live = try { (Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).bases } catch { @() }
+    # Живая база бывает и не под git, и без коммитов: её снимок — пустые строки, а не падение сборки.
+    $PSNativeCommandUseErrorActionPreference = $false
     foreach ($base in @($live)) {
         if (-not (Test-Path -LiteralPath $base -PathType Container)) { continue }
         $head = (git -C $base rev-parse HEAD 2>$null) -join ''
