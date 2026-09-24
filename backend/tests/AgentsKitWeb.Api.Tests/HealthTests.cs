@@ -32,7 +32,9 @@ public sealed class HealthTests : IDisposable
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", file), new("HealthIntervalSeconds", "3600")]);
+                config.AddInMemoryCollection([
+                    new("BasesFile", file), new("HealthIntervalSeconds", "3600"), new("ClaudeDir", Path.Combine(_root, "profile", ".claude")),
+                ]);
             }));
     }
 
@@ -159,6 +161,31 @@ public sealed class HealthTests : IDisposable
 
         var snapshot = await WaitFor(s => s.Kit == KitStatus.NotFound);
         Assert.All(snapshot.Bases, b => Assert.Equal(BaseHealthStatus.Unchecked, b.Status));
+    }
+
+    [Fact]
+    public async Task Health_KitPluginUpdated_SnapshotOffersNewVersion()
+    {
+        var plugin = Path.Combine(_root, "profile", ".claude", "plugins");
+        var old = TestKit.Create(Path.Combine(plugin, "cache", "kits", "agents-kit", "0.2.0"));
+        var fresh = TestKit.Create(Path.Combine(plugin, "cache", "kits", "agents-kit", "0.3.0"));
+        Directory.CreateDirectory(Path.Combine(fresh, ".claude-plugin"));
+        File.WriteAllText(Path.Combine(fresh, ".claude-plugin", "plugin.json"), """{ "version": "0.3.0" }""");
+        await WaitFor(s => !s.Pending);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(old));
+        var before = await WaitFor(s => s.Kit == KitStatus.Ok);
+        Assert.Null(before.KitUpdate);
+
+        File.WriteAllText(Path.Combine(plugin, "installed_plugins.json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            version = 2,
+            plugins = new Dictionary<string, object[]> { ["agents-kit@kits"] = [new { installPath = fresh }] },
+        }));
+        await Client.PostAsync("/api/health/check", null);
+
+        var snapshot = await WaitFor(s => s.KitUpdate is not null);
+        Assert.Equal(KitStatus.Ok, snapshot.Kit);
+        Assert.Equal(new KitVersion(fresh, "0.3.0"), snapshot.KitUpdate);
     }
 
     [Fact]
