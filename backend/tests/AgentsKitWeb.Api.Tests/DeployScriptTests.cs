@@ -266,21 +266,7 @@ public sealed class DeployScriptTests : IDisposable
                 unregister.Kill();
         }
 
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (true)
-        {
-            StopPanels();
-            try
-            {
-                Directory.Delete(_root, recursive: true);
-                return;
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
-                                              && DateTime.UtcNow < deadline)
-            {
-                Thread.Sleep(500);
-            }
-        }
+        TestDirs.Delete(_root, StopPanels);
     }
 
     private void StopPanels()
