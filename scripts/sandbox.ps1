@@ -5,13 +5,11 @@
 
 .DESCRIPTION
 Каталог песочницы лежит вне репозитория панели и вне баз знаний и собирается заново каждым
-запуском: что бы в нём ни испортили, откат — повторный запуск. В песочнице два набора.
+запуском: что бы в нём ни испортили, откат — повторный запуск.
 
-Здоровый — база с описанием, копиями, флоу, бэклогом и памятью задачи с вопросом оператору;
-кит и агент отвечают как при удачной работе. На нём проверяется обычная работа панели.
-
-Сломанный — отдельные базы и копии, каждая со своим изъяном: без описания, с битым
-agents-kit.json, с копией, которой нет на диске, с памятью в CRLF и так далее.
+Песочница собирается под задачу: в неё кладутся только куски, названные ключом -Pieces, — здоровый
+проект, проект со своими буквами номеров, каждая нарочно сломанная база отдельно. Не назван ни один
+кусок — сборка ничего не трогает и перечисляет, какие куски бывают.
 
 Кит и агент Claude Code подменены заглушками: настоящий кит полез бы в живую сверку, а
 настоящий агент стоит денег и прав. Заглушки умеют отвечать и здорово, и криво — как именно,
@@ -19,18 +17,24 @@ agents-kit.json, с копией, которой нет на диске, с па
 и панель для смены режима перезапускать не нужно.
 
 .EXAMPLE
-pwsh -NoProfile -File scripts/sandbox.ps1
+pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house
 
 .EXAMPLE
-pwsh -NoProfile -File scripts/sandbox.ps1 -Load -RealAgent
+pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house,quirks -RealAgent
 #>
+# Без позиционных параметров: «-Pieces house quirks» через пробел — ошибка о лишнем слове, а не свой кусок «quirks».
+[CmdletBinding(PositionalBinding = $false)]
 param(
-    # Каталог песочницы; пересобирается целиком при каждом запуске.
-    [string]$Root = (Join-Path $env:LOCALAPPDATA 'agents-kit-web\sandbox'),
-    # Порт панели на песочнице: рядом работают поставленная панель и dev-копии.
-    [int]$Port = 5090,
-    # Собрать ещё базу на полсотни копий — посмотреть панель под опросом. Собирается долго.
-    [switch]$Load,
+    # Куски песочницы через запятую — какие бывают, скрипт печатает, если не назвать ни одного.
+    [string[]]$Pieces = @(),
+    # Свой кусок задачи: скрипт вне кода панели, который кладёт в песочницу случай, которого нет
+    # в готовых кусках. Выполняется после названных кусков, теми же кирпичами — sandbox.md.
+    [string]$TaskPiece,
+    # Каталог песочницы; пересобирается целиком при каждом запуске. По умолчанию у каждой рабочей
+    # копии свой — по её имени: сборка из соседней копии чужую приёмку не заденет.
+    [string]$Root,
+    # Порт панели на песочнице. По умолчанию свой у каждой песочницы, закреплённый за её каталогом.
+    [int]$Port,
     # Не подменять агента: панель будет звать настоящий claude. Деньги и настоящие права.
     [switch]$RealAgent,
     # Не поднимать процессы-пустышки под живые сессии агентов.
@@ -43,6 +47,59 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 $repo = Split-Path $PSScriptRoot -Parent
+$copyName = Split-Path $repo -Leaf
+# Не прежний общий каталог «sandbox»: сборка по старому скрипту из другой ветки снесла бы его целиком.
+$sandboxes = Join-Path $env:LOCALAPPDATA 'agents-kit-web\sandboxes'
+$portsFile = Join-Path $sandboxes 'ports.json'
+
+# Порты песочниц закреплены за их каталогами в общем файле: у двух песочниц адрес не совпадёт,
+# а у одной он тот же от сборки к сборке. Рядом с портом записана копия, собравшая песочницу, —
+# по ней одноимённая копия из другого места получает свой каталог. Порт панели чётный, API — следующий.
+function Read-SandboxPorts {
+    $ports = @{}
+    if (-not (Test-Path -LiteralPath $portsFile)) { return $ports }
+    $saved = try { Get-Content -LiteralPath $portsFile -Raw | ConvertFrom-Json } catch {
+        throw "реестр портов песочниц не прочитан: $portsFile — поправьте или удалите его, иначе выданные порты раздадутся заново"
+    }
+    if ($saved) { foreach ($entry in $saved.PSObject.Properties) { $ports[$entry.Name] = $entry.Value } }
+    return $ports
+}
+
+function Get-SandboxKey([string]$Path) { [IO.Path]::GetFullPath($Path).TrimEnd('\').ToLowerInvariant() }
+
+function Get-SandboxPort([string]$Dir) {
+    New-Item -ItemType Directory -Path $sandboxes -Force | Out-Null
+    # Две копии, собирающие песочницы впервые одновременно, иначе взяли бы один порт.
+    $lockFile = Join-Path $sandboxes 'ports.lock'
+    $lock = $null
+    foreach ($try in 1..100) {
+        try { $lock = [IO.File]::Open($lockFile, 'OpenOrCreate', 'ReadWrite', 'None'); break } catch { Start-Sleep -Milliseconds 200 }
+    }
+    if (-not $lock) { throw "реестр портов песочниц занят другой сборкой дольше двадцати секунд: $lockFile" }
+    try {
+        $ports = Read-SandboxPorts
+        $key = Get-SandboxKey $Dir
+        if ($ports.ContainsKey($key)) { return [int]$ports[$key].port }
+        $taken = @($ports.Values | ForEach-Object { [int]$_.port })
+        $listening = @([Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() | ForEach-Object { $_.Port })
+        $port = 5100
+        while ($taken -contains $port -or $listening -contains $port -or $listening -contains ($port + 1)) { $port += 2 }
+        $ports[$key] = [pscustomobject]@{ port = $port; copy = $repo }
+        Write-Utf8 $portsFile (ConvertTo-Json -InputObject ([pscustomobject]$ports) -Depth 3)
+        return $port
+    }
+    finally { $lock.Dispose() }
+}
+
+if (-not $Root) {
+    $Root = Join-Path $sandboxes $copyName
+    $owner = (Read-SandboxPorts)[(Get-SandboxKey $Root)]
+    if ($owner -and $owner.copy -ne $repo) {
+        $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($repo.ToLowerInvariant()))).Substring(0, 6).ToLowerInvariant()
+        $Root = Join-Path $sandboxes "$copyName-$hash"
+    }
+}
+
 $state = Join-Path $Root 'state.json'
 
 # Снимок живого состояния: список отслеживаемых баз оператора и каждая живая база — её HEAD
@@ -50,11 +107,13 @@ $state = Join-Path $Root 'state.json'
 # Живые базы меняют и соседние сессии, поэтому расхождение называет файл: по нему видно, чья это
 # работа — панели песочницы или сессии в другой копии.
 function Get-LiveSnapshot {
-    $file = Join-Path $env:APPDATA 'agents-kit-webases.json'
+    $file = Join-Path $env:APPDATA 'agents-kit-web\bases.json'
     $snapshot = [ordered]@{ basesFile = $null; bases = [ordered]@{} }
     if (-not (Test-Path -LiteralPath $file)) { return $snapshot }
     $snapshot.basesFile = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
     $live = try { (Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).bases } catch { @() }
+    # Живая база бывает и не под git, и без коммитов: её снимок — пустые строки, а не падение сборки.
+    $PSNativeCommandUseErrorActionPreference = $false
     foreach ($base in @($live)) {
         if (-not (Test-Path -LiteralPath $base -PathType Container)) { continue }
         $head = (git -C $base rev-parse HEAD 2>$null) -join ''
@@ -422,6 +481,43 @@ if ($Verify) {
     return
 }
 
+# Куски песочницы: каждый собирается сам по себе, и в песочнице лежит только названное под задачу.
+$pieceList = [ordered]@{
+    'house'       = 'здоровый проект «Дом»: три копии, память с тремя вопросами оператору, живые сессии'
+    'orders'      = 'проект «Заказы» со своими буквами номеров ORD, записью чужими буквами и артефактами в памяти'
+    'no-product'  = 'база без описания проекта: название берётся из имени папки'
+    'broken-json' = 'база с битым agents-kit.json: список копий не прочитать'
+    'stages-only' = 'база с этапами без сценариев: пустое состояние вкладки «Сценарии»'
+    'no-flow'     = 'база без этапов и сценариев: пустые состояния раздела «Флоу»'
+    'quirks'      = 'кривые копии и памяти: кириллица, не git, «..», пропавшая копия, CRLF, две памяти, файл мёртвой сессии'
+    'broken-kit'  = 'кит без скриптов: путь к нему «Настройки» не примут'
+    'load'        = 'база на полсотни копий — панель под опросом; собирается долго'
+}
+$chosen = @($Pieces | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ } | Select-Object -Unique)
+$unknown = @($chosen | Where-Object { -not $pieceList.Contains($_) })
+if (($chosen.Count -eq 0 -and -not $TaskPiece) -or $unknown.Count) {
+    if ($unknown.Count) { Write-Host "Таких кусков нет: $($unknown -join ', ')" }
+    else { Write-Host 'Песочница собирается под задачу: назовите куски ключом -Pieces, через запятую, или свой кусок ключом -TaskPiece.' }
+    Write-Host ''
+    foreach ($name in $pieceList.Keys) { Write-Host ('  {0,-12} {1}' -f $name, $pieceList[$name]) }
+    Write-Host ''
+    Write-Host 'Каталог песочницы не тронут.'
+    exit 1
+}
+function Test-Piece([string]$Name) { $chosen -contains $Name }
+# Свой кусок читается до сноса каталога: он может лежать и в прежней песочнице.
+$taskPieceText = $null
+if ($TaskPiece) {
+    if (-not (Test-Path -LiteralPath $TaskPiece -PathType Leaf)) { throw "своего куска нет: $TaskPiece — каталог песочницы не тронут" }
+    $TaskPiece = (Resolve-Path -LiteralPath $TaskPiece).Path
+    # Свой кусок в код панели не попадает: в рабочей копии он уехал бы в коммит ветки.
+    if ($TaskPiece.StartsWith($repo.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw "свой кусок лежит в рабочей копии: $TaskPiece — положите его вне репозитория; каталог песочницы не тронут"
+    }
+    $taskPieceText = Get-Content -LiteralPath $TaskPiece -Raw
+}
+if (-not $Port) { $Port = Get-SandboxPort $Root }
+
 $live = Get-LiveSnapshot
 
 Stop-OldDummies
@@ -434,7 +530,9 @@ $claudeDir = Join-Path $Root 'claude'
 $binDir = Join-Path $Root 'bin'
 $basesDir = Join-Path $Root 'bases'
 $copiesDir = Join-Path $Root 'copies'
-foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $copiesDir)) {
+# Журналы расхода: каталог пуст, и «Расход» песочницы не показывает расход оператора с этой машины.
+$projectsDir = Join-Path $Root 'projects'
+foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $copiesDir, $projectsDir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
@@ -455,134 +553,147 @@ $dummies = [Collections.Generic.List[int]]::new()
 
 # --- здоровый набор ----------------------------------------------------------------------
 
-$goodCopy = Join-Path $copiesDir 'house'
-$goodBase = Join-Path $basesDir 'house-knowledge'
-New-Repo $goodCopy
-Write-Utf8 (Join-Path $goodCopy 'README.md') "# Дом`n`nВыдуманный проект песочницы.`n"
-Add-Commit $goodCopy 'Первый коммит'
-$goodWorktree = Join-Path $copiesDir 'house-task'
-git -C $goodCopy worktree add -b feat/polling $goodWorktree --quiet
-# Копия, где задача уже закончилась: памяти у неё нет, и сессия в ней стоит одна — на ней
-# и видно, как панель гасит отработавшую сессию, ничего вокруг не задевая.
-$goodDone = Join-Path $copiesDir 'house-done'
-git -C $goodCopy worktree add -b feat/done $goodDone --quiet
+if (Test-Piece 'house') {
+    $goodCopy = Join-Path $copiesDir 'house'
+    $goodBase = Join-Path $basesDir 'house-knowledge'
+    New-Repo $goodCopy
+    Write-Utf8 (Join-Path $goodCopy 'README.md') "# Дом`n`nВыдуманный проект песочницы.`n"
+    Add-Commit $goodCopy 'Первый коммит'
+    $goodWorktree = Join-Path $copiesDir 'house-task'
+    git -C $goodCopy worktree add -b feat/polling $goodWorktree --quiet
+    # Копия, где задача уже закончилась: памяти у неё нет, и сессия в ней стоит одна — на ней
+    # и видно, как панель гасит отработавшую сессию, ничего вокруг не задевая.
+    $goodDone = Join-Path $copiesDir 'house-done'
+    git -C $goodCopy worktree add -b feat/done $goodDone --quiet
 
-New-Base $goodBase 'Дом' @($goodCopy)
-# Три вопроса разом: с рекомендованным вариантом, с вариантами без рекомендованного и без вариантов —
-# на них видна лента окна ответа, пропуск, правка ответа и отмена отправки.
-New-Memory (Join-Path $goodBase 'work\house-task.md') $goodWorktree 'feat/polling' -ThreeQuestions
-Add-Commit $goodBase 'Память задачи'
-$bases.Add($goodBase)
-foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
-    $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $goodBase })
+    New-Base $goodBase 'Дом' @($goodCopy)
+    # Три вопроса разом: с рекомендованным вариантом, с вариантами без рекомендованного и без вариантов —
+    # на них видна лента окна ответа, пропуск, правка ответа и отмена отправки.
+    New-Memory (Join-Path $goodBase 'work\house-task.md') $goodWorktree 'feat/polling' -ThreeQuestions
+    Add-Commit $goodBase 'Память задачи'
+    $bases.Add($goodBase)
+    foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
+        $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $goodBase })
+    }
+    $findings.Add([pscustomobject]@{ base = $goodBase; findings = @() })
 }
-$findings.Add([pscustomobject]@{ base = $goodBase; findings = @() })
 
 # Проект со своими буквами номеров — «ORD», а не «B»: панель узнаёт номер по буквам проекта.
 # В одной копии идёт задача ORD-12, в другой — задача не из бэклога, чей заголовок начат словом
 # «UTF-8»: номером оно не становится. Третья копия свободна — в неё берут записи бэклога.
-$ordersCopy = Join-Path $copiesDir 'orders'
-$ordersBase = Join-Path $basesDir 'orders-knowledge'
-New-Repo $ordersCopy
-Write-Utf8 (Join-Path $ordersCopy 'README.md') "# Заказы`n`nВыдуманный проект песочницы.`n"
-Add-Commit $ordersCopy 'Первый коммит'
-$ordersTask = Join-Path $copiesDir 'orders-export'
-git -C $ordersCopy worktree add -b feat/ord-12-export $ordersTask --quiet
-$ordersUtf = Join-Path $copiesDir 'orders-utf'
-git -C $ordersCopy worktree add -b fix/utf-names $ordersUtf --quiet
+if (Test-Piece 'orders') {
+    $ordersCopy = Join-Path $copiesDir 'orders'
+    $ordersBase = Join-Path $basesDir 'orders-knowledge'
+    New-Repo $ordersCopy
+    Write-Utf8 (Join-Path $ordersCopy 'README.md') "# Заказы`n`nВыдуманный проект песочницы.`n"
+    Add-Commit $ordersCopy 'Первый коммит'
+    $ordersTask = Join-Path $copiesDir 'orders-export'
+    git -C $ordersCopy worktree add -b feat/ord-12-export $ordersTask --quiet
+    $ordersUtf = Join-Path $copiesDir 'orders-utf'
+    git -C $ordersCopy worktree add -b fix/utf-names $ordersUtf --quiet
 
-New-Base $ordersBase 'Заказы' @($ordersCopy) -Orders
-New-Memory (Join-Path $ordersBase 'work\orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период' -Artifacts
-New-Memory (Join-Path $ordersBase 'work\orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку' -OldDesign
-Add-Commit $ordersBase 'Памяти задач'
-$bases.Add($ordersBase)
-foreach ($copy in @($ordersCopy, $ordersTask, $ordersUtf)) {
-    $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $ordersBase })
+    New-Base $ordersBase 'Заказы' @($ordersCopy) -Orders
+    New-Memory (Join-Path $ordersBase 'work\orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период' -Artifacts
+    New-Memory (Join-Path $ordersBase 'work\orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку' -OldDesign
+    Add-Commit $ordersBase 'Памяти задач'
+    $bases.Add($ordersBase)
+    foreach ($copy in @($ordersCopy, $ordersTask, $ordersUtf)) {
+        $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $ordersBase })
+    }
+    $findings.Add([pscustomobject]@{ base = $ordersBase; findings = @(
+        [pscustomobject]@{ severity = 'FAIL'; file = 'backlog.md'; message = 'номер чужими буквами: B-7' }) })
 }
-$findings.Add([pscustomobject]@{ base = $ordersBase; findings = @(
-    [pscustomobject]@{ severity = 'FAIL'; file = 'backlog.md'; message = 'номер чужими буквами: B-7' }) })
 
 # --- сломанный набор ---------------------------------------------------------------------
 
 # Каждая кривая база отдельная: сломанное не должно мешать здоровому набору.
 
 # База без описания проекта: название панель возьмёт из имени папки.
-$noProductCopy = Join-Path $copiesDir 'nameless'
-New-Repo $noProductCopy
-Write-Utf8 (Join-Path $noProductCopy 'README.md') "# Проект без описания в базе`n"
-Add-Commit $noProductCopy 'Первый коммит'
-$noProductBase = Join-Path $basesDir 'no-product'
-New-Base $noProductBase 'Без описания' @($noProductCopy) -NoProduct
-$links.Add([pscustomobject]@{ path = $noProductCopy; status = 'Linked'; base = $noProductBase })
-$bases.Add($noProductBase)
-$findings.Add([pscustomobject]@{ base = $noProductBase; findings = @(
-    [pscustomobject]@{ severity = 'FAIL'; file = 'product.md'; message = 'нет product.md — название проекта взять неоткуда' }) })
+if (Test-Piece 'no-product') {
+    $noProductCopy = Join-Path $copiesDir 'nameless'
+    New-Repo $noProductCopy
+    Write-Utf8 (Join-Path $noProductCopy 'README.md') "# Проект без описания в базе`n"
+    Add-Commit $noProductCopy 'Первый коммит'
+    $noProductBase = Join-Path $basesDir 'no-product'
+    New-Base $noProductBase 'Без описания' @($noProductCopy) -NoProduct
+    $links.Add([pscustomobject]@{ path = $noProductCopy; status = 'Linked'; base = $noProductBase })
+    $bases.Add($noProductBase)
+    $findings.Add([pscustomobject]@{ base = $noProductBase; findings = @(
+        [pscustomobject]@{ severity = 'FAIL'; file = 'product.md'; message = 'нет product.md — название проекта взять неоткуда' }) })
+}
 
 # База с битым agents-kit.json: список копий не прочитать.
-$brokenJsonBase = Join-Path $basesDir 'broken-json'
-New-Base $brokenJsonBase 'Битый список копий' @() -BrokenJson
-$bases.Add($brokenJsonBase)
-$findings.Add([pscustomobject]@{ base = $brokenJsonBase; findings = @(
-    [pscustomobject]@{ severity = 'FAIL'; file = 'agents-kit.json'; message = 'список копий не разобран' }) })
+if (Test-Piece 'broken-json') {
+    $brokenJsonBase = Join-Path $basesDir 'broken-json'
+    New-Base $brokenJsonBase 'Битый список копий' @() -BrokenJson
+    $bases.Add($brokenJsonBase)
+    $findings.Add([pscustomobject]@{ base = $brokenJsonBase; findings = @(
+        [pscustomobject]@{ severity = 'FAIL'; file = 'agents-kit.json'; message = 'список копий не разобран' }) })
+}
 
 # База с этапами без сценариев и база без этапов и сценариев: на них видны пустые состояния
 # вкладок раздела «Флоу» — у каждой своё, а переключатель вкладок на месте.
-$stagesOnlyBase = Join-Path $basesDir 'stages-only'
-New-Base $stagesOnlyBase 'Этапы без сценариев' @() -StagesOnly
-$bases.Add($stagesOnlyBase)
-$findings.Add([pscustomobject]@{ base = $stagesOnlyBase; findings = @() })
+if (Test-Piece 'stages-only') {
+    $stagesOnlyBase = Join-Path $basesDir 'stages-only'
+    New-Base $stagesOnlyBase 'Этапы без сценариев' @() -StagesOnly
+    $bases.Add($stagesOnlyBase)
+    $findings.Add([pscustomobject]@{ base = $stagesOnlyBase; findings = @() })
+}
 
-$noFlowBase = Join-Path $basesDir 'no-flow'
-New-Base $noFlowBase 'Без флоу' @() -NoFlow
-$bases.Add($noFlowBase)
-$findings.Add([pscustomobject]@{ base = $noFlowBase; findings = @() })
+if (Test-Piece 'no-flow') {
+    $noFlowBase = Join-Path $basesDir 'no-flow'
+    New-Base $noFlowBase 'Без флоу' @() -NoFlow
+    $bases.Add($noFlowBase)
+    $findings.Add([pscustomobject]@{ base = $noFlowBase; findings = @() })
+}
 
 # Кривые копии: одной нет на диске, вторая не под git, третья с кириллицей в пути,
 # четвёртая записана через «..».
-$cyrillicCopy = Join-Path $copiesDir 'копия-с-кириллицей'
-New-Repo $cyrillicCopy
-Write-Utf8 (Join-Path $cyrillicCopy 'README.md') "# Копия с кириллицей`n"
-Add-Commit $cyrillicCopy 'Первый коммит'
+if (Test-Piece 'quirks') {
+    $cyrillicCopy = Join-Path $copiesDir 'копия-с-кириллицей'
+    New-Repo $cyrillicCopy
+    Write-Utf8 (Join-Path $cyrillicCopy 'README.md') "# Копия с кириллицей`n"
+    Add-Commit $cyrillicCopy 'Первый коммит'
 
-$notGitCopy = Join-Path $copiesDir 'not-git'
-New-Item -ItemType Directory -Path $notGitCopy -Force | Out-Null
-Write-Utf8 (Join-Path $notGitCopy 'README.md') "# Копия вне git`n"
+    $notGitCopy = Join-Path $copiesDir 'not-git'
+    New-Item -ItemType Directory -Path $notGitCopy -Force | Out-Null
+    Write-Utf8 (Join-Path $notGitCopy 'README.md') "# Копия вне git`n"
 
-$dottedCopy = Join-Path $copiesDir 'dotted\..\dotted'
-New-Repo (Join-Path $copiesDir 'dotted')
-Write-Utf8 (Join-Path $copiesDir 'dotted\README.md') "# Копия, записанная через «..»`n"
-Add-Commit (Join-Path $copiesDir 'dotted') 'Первый коммит'
+    $dottedCopy = Join-Path $copiesDir 'dotted\..\dotted'
+    New-Repo (Join-Path $copiesDir 'dotted')
+    Write-Utf8 (Join-Path $copiesDir 'dotted\README.md') "# Копия, записанная через «..»`n"
+    Add-Commit (Join-Path $copiesDir 'dotted') 'Первый коммит'
 
-$goneCopy = Join-Path $copiesDir 'gone'
+    $goneCopy = Join-Path $copiesDir 'gone'
 
-$quirksBase = Join-Path $basesDir 'quirks'
-New-Base $quirksBase 'Кривые копии' @($cyrillicCopy, $notGitCopy, $dottedCopy, $goneCopy) -FlowUncommitted
-$bases.Add($quirksBase)
+    $quirksBase = Join-Path $basesDir 'quirks'
+    New-Base $quirksBase 'Кривые копии' @($cyrillicCopy, $notGitCopy, $dottedCopy, $goneCopy) -FlowUncommitted
+    $bases.Add($quirksBase)
 
-# Память с CRLF — на копию с кириллицей.
-New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей.md') $cyrillicCopy 'main' -Crlf
-# Вопрос без строки «ответ:» — панели нечего заполнить, а форма памяти нарушена.
-New-Memory (Join-Path $quirksBase 'work\dotted.md') $dottedCopy 'main' -NoAnswerKey
-# Несколько вопросов в одной памяти.
-New-Memory (Join-Path $quirksBase 'work\not-git.md') $notGitCopy 'main' -TwoQuestions
-# Две памяти на одну копию: какая из них настоящая, панель не знает.
-New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей-вторая.md') $cyrillicCopy 'feat/вторая'
-Add-Commit $quirksBase 'Памяти кривых копий'
+    # Память с CRLF — на копию с кириллицей.
+    New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей.md') $cyrillicCopy 'main' -Crlf
+    # Вопрос без строки «ответ:» — панели нечего заполнить, а форма памяти нарушена.
+    New-Memory (Join-Path $quirksBase 'work\dotted.md') $dottedCopy 'main' -NoAnswerKey
+    # Несколько вопросов в одной памяти.
+    New-Memory (Join-Path $quirksBase 'work\not-git.md') $notGitCopy 'main' -TwoQuestions
+    # Две памяти на одну копию: какая из них настоящая, панель не знает.
+    New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей-вторая.md') $cyrillicCopy 'feat/вторая'
+    Add-Commit $quirksBase 'Памяти кривых копий'
 
-# Незакоммиченная правка бэклога: агент записи унёс бы её в свой коммит.
-Add-Content -LiteralPath (Join-Path $quirksBase 'backlog.md') -Value "`n## Запись без номера, дописанная руками`n" -Encoding utf8NoBOM
+    # Незакоммиченная правка бэклога: агент записи унёс бы её в свой коммит.
+    Add-Content -LiteralPath (Join-Path $quirksBase 'backlog.md') -Value "`n## Запись без номера, дописанная руками`n" -Encoding utf8NoBOM
 
-$links.Add([pscustomobject]@{ path = $cyrillicCopy; status = 'Linked'; base = $quirksBase })
-$links.Add([pscustomobject]@{ path = $notGitCopy; status = 'NotGit'; base = $null })
-$links.Add([pscustomobject]@{ path = (Join-Path $copiesDir 'dotted'); status = 'Unlisted'; base = $quirksBase })
-$findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
-    [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
-    [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
-    [pscustomobject]@{ severity = 'WARN'; file = 'flow/scenarios.md'; message = 'сценарии не в истории git' }) })
+    $links.Add([pscustomobject]@{ path = $cyrillicCopy; status = 'Linked'; base = $quirksBase })
+    $links.Add([pscustomobject]@{ path = $notGitCopy; status = 'NotGit'; base = $null })
+    $links.Add([pscustomobject]@{ path = (Join-Path $copiesDir 'dotted'); status = 'Unlisted'; base = $quirksBase })
+    $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
+        [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
+        [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
+        [pscustomobject]@{ severity = 'WARN'; file = 'flow/scenarios.md'; message = 'сценарии не в истории git' }) })
 
-# Исполнитель, заведённый «оператором» прямо в базе и мимо панели: в разделе он виден наравне
-# с остальными, хотя панель его не заводила.
-Write-Utf8 (Join-Path $quirksBase 'agents\spec-writer.md') @"
+    # Исполнитель, заведённый «оператором» прямо в базе и мимо панели: в разделе он виден наравне
+    # с остальными, хотя панель его не заводила.
+    Write-Utf8 (Join-Path $quirksBase 'agents\spec-writer.md') @"
 ---
 name: spec-writer
 description: Пишет спеку экрана по разговору с оператором.
@@ -591,17 +702,20 @@ description: Пишет спеку экрана по разговору с оп�
 Ты пишешь спеку экрана.
 "@
 
+    # Файл сессии на мёртвый процесс: он переживает свою сессию, живость видна только по процессу,
+    # поэтому в строке этой копии панель работы показать не должна.
+    Write-Session $sessionsDir 999123 (Join-Path $copiesDir 'dotted') @{ status = 'busy' }
+}
+
 # Кит без скриптов: путь к нему панель не примет, и это видно в «Настройках».
-$brokenKit = Join-Path $claudeDir 'skills\agents-kit-broken'
-New-Item -ItemType Directory -Path (Join-Path $brokenKit 'scripts') -Force | Out-Null
-Write-Utf8 (Join-Path $brokenKit 'README.md') "# Кит без скриптов`n`nПуть сюда панель принять не должна.`n"
+if (Test-Piece 'broken-kit') {
+    $brokenKit = Join-Path $claudeDir 'skills\agents-kit-broken'
+    New-Item -ItemType Directory -Path (Join-Path $brokenKit 'scripts') -Force | Out-Null
+    Write-Utf8 (Join-Path $brokenKit 'README.md') "# Кит без скриптов`n`nПуть сюда панель принять не должна.`n"
+}
 
-# Файл сессии на мёртвый процесс: он переживает свою сессию, живость видна только по процессу,
-# поэтому в строке этой копии панель работы показать не должна.
-Write-Session $sessionsDir 999123 (Join-Path $copiesDir 'dotted') @{ status = 'busy' }
-
-# База на полсотни копий: по ключу -Load, потому что собирается заметно дольше остального.
-if ($Load) {
+# База на полсотни копий: собирается заметно дольше остального.
+if (Test-Piece 'load') {
     $loadCopy = Join-Path $copiesDir 'load'
     New-Repo $loadCopy
     Write-Utf8 (Join-Path $loadCopy 'README.md') "# Копия под нагрузку`n"
@@ -620,15 +734,27 @@ if ($Load) {
     $findings.Add([pscustomobject]@{ base = $loadBase; findings = @() })
 }
 
+# --- свой кусок задачи -------------------------------------------------------------------
+
+# Кусок выполняется здесь же, точкой: ему видны кирпичи fixtures.ps1, функции баз этого скрипта
+# и списки $bases, $links, $findings, $dummies, в которые он дописывает своё. Копия куска остаётся
+# в песочнице — по ней видно, из чего она собрана.
+if ($taskPieceText) {
+    $taskPieceCopy = Join-Path $Root 'task-piece.ps1'
+    Write-Utf8 $taskPieceCopy $taskPieceText
+    . $taskPieceCopy
+}
+
 # --- таблицы заглушки кита и настройки панели --------------------------------------------
 
-Write-Json (Join-Path $kitDir 'scripts\links.json') $links.ToArray()
-Write-Json (Join-Path $kitDir 'scripts\findings.json') $findings.ToArray()
+# Таблицы пишутся массивом и из одной строки, и пустыми: куски песочницы бывают и без копий.
+Write-Utf8 (Join-Path $kitDir 'scripts\links.json') (ConvertTo-Json -InputObject $links.ToArray() -Depth 6)
+Write-Utf8 (Join-Path $kitDir 'scripts\findings.json') (ConvertTo-Json -InputObject $findings.ToArray() -Depth 6)
 Write-Json (Join-Path $panelDir 'bases.json') ([pscustomobject]@{ bases = $bases.ToArray(); kit = $kitDir })
 
 # --- живые сессии агентов ----------------------------------------------------------------
 
-if (-not $NoSessions) {
+if ((Test-Piece 'house') -and -not $NoSessions) {
     $working = Start-Dummy
     $dummies.Add($working)
     Write-Session $sessionsDir $working $goodCopy @{ status = 'busy' }
@@ -669,7 +795,9 @@ else {
 # проксирует на API.
 Write-Utf8 (Join-Path $Root 'start-panel.ps1') @"
 # Поднимает панель на песочнице: API и dev-сервер фронта. Живых баз панель не видит — список баз,
-# реестр сессий и профиль Claude Code взяты из песочницы, а не из профиля оператора.
+# реестр сессий, профиль Claude Code, журналы расхода, ключ доступа и отметка о поставленной панели
+# взяты из песочницы, а не из профиля оператора. Новая настройка API с путём в профиле по умолчанию
+# должна появиться и в этой строке, иначе песочница молча покажет живое.
 # Гасится Ctrl+C: API останавливается вместе с фронтом.
 `$ErrorActionPreference = 'Stop'
 $pathLine
@@ -680,7 +808,7 @@ if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
 
 `$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command',
-    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
+    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --ProjectsDir '$projectsDir' --CredentialsFile '$(Join-Path $Root 'no-credentials.json')' --PublishedFile '$(Join-Path $panelDir 'published.json')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
 
 try {
     `$env:WEB_PORT = '$Port'
@@ -708,7 +836,17 @@ if ($RealAgent) {
 else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
+# Пересборка повторяет те же ключи: без кусков песочница не соберётся.
+$self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
+$where = ''
+if ($PSBoundParameters.ContainsKey('Root')) { $where += " -Root `"$Root`"" }
+$again = $self + $where
+if ($chosen.Count) { $again += " -Pieces $($chosen -join ',')" }
+if ($TaskPiece) { $again += " -TaskPiece `"$TaskPiece`"" }
+if ($PSBoundParameters.ContainsKey('Port')) { $again += " -Port $Port" }
+if ($RealAgent) { $again += ' -RealAgent' }
+if ($NoSessions) { $again += ' -NoSessions' }
 Write-Host ""
-Write-Host "  пересобрать:    pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
-Write-Host "  сверить живое:  pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`" -Verify"
+Write-Host "  пересобрать:    $again"
+Write-Host "  сверить живое:  $self$where -Verify"
 Write-Host ""
