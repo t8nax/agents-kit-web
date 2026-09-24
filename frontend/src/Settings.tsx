@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import FolderBrowser, { FolderIcon, type FolderEntry } from './FolderBrowser'
 import NotificationsCard from './NotificationsCard'
 import PanelCard from './PanelCard'
+import { KitUpdateNotice, type KitVersion } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
 import './Settings.css'
@@ -14,6 +15,12 @@ export type BaseEntry = {
 export type KitEntry = {
   path: string | null
   found: boolean
+  /** Номер версии кита по пути; null — не прочитан. */
+  version?: string | null
+  /** Кит стоит плагином Claude Code. */
+  plugin?: boolean
+  /** Установленная новая версия плагина, на которую панель ещё не перешла: переходит только оператор. */
+  update?: KitVersion | null
 }
 
 type AddProblem = 'empty' | 'not-full-path' | 'not-a-base' | 'duplicate'
@@ -402,13 +409,35 @@ function KitSettings() {
     setBrowsing(false)
   }
 
-  // Строка о состоянии относится к сохранённому пути, а не к набранному в поле
+  async function switchTo(update: KitVersion) {
+    setSearch({ kind: 'idle' })
+    setError(await saveKit(update.path))
+  }
+
+  const update = kit?.path ? (kit.update ?? null) : null
+  const source = kit?.plugin ? 'Кит установлен плагином Claude Code.' : 'Кит указан каталогом, а не плагином Claude Code.'
+  // Строка о состоянии относится к сохранённому пути, а не к набранному в поле; при новой версии
+  // её место занимает предупреждение, чтобы номер прежней версии не стоял на экране дважды
   const saved =
     kit === null ? null : kit.path === null ? (
       <p className="settings-note">Путь к киту не задан — проблемы баз не проверяются.</p>
     ) : kit.found ? (
-      <p className="settings-note settings-ok">Кит найден: скрипты проверок на месте.</p>
-    ) : (
+      <div className="kit-status">
+        <p className="settings-note settings-ok">Кит найден: скрипты проверок на месте.</p>
+        {!update && (
+          <p className="settings-note">
+            {kit.version ? (
+              <>
+                Панель работает китом версии <span className="mono">{kit.version}</span>.
+              </>
+            ) : (
+              'Версия кита не известна.'
+            )}{' '}
+            {source}
+          </p>
+        )}
+      </div>
+    ) : update ? null : (
       <p className="settings-note bases-error">По сохранённому пути кита больше нет — проблемы баз не проверяются.</p>
     )
 
@@ -520,6 +549,16 @@ function KitSettings() {
               )}
               {saved}
             </form>
+          )}
+          {kit && update && (
+            <KitUpdateNotice
+              found={kit.found}
+              current={kit.version ?? null}
+              update={update}
+              action={update.version ? `Перейти на версию ${update.version}` : 'Перейти на новую версию'}
+              busy={busy}
+              onAction={() => void switchTo(update)}
+            />
           )}
         </div>
       )}
