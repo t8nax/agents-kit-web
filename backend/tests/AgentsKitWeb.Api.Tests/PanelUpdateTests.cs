@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -88,6 +89,7 @@ public sealed class PanelUpdateTests : IDisposable
         Assert.Contains(@"панель C:\panel\app на 5080, задача agents-kit-web panel", finished.Log);
         // И запущен из копии рядом с журналом, а не из каталога панели, — вместе с deploy.ps1.
         Assert.Contains($"из {Path.Combine(_root, "update-scripts")}, рядом deploy.ps1", finished.Log);
+        await ScriptExited();
     }
 
     [Fact]
@@ -137,6 +139,27 @@ public sealed class PanelUpdateTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Ждёт выхода процесса обновления: строка «[конец]» в журнале ещё не значит, что pwsh вышел, а пока он жив,
+    /// его рабочий каталог занят, и уборка класса не может его снести. Панель процесс не ждёт — он переживает её.
+    /// </summary>
+    private async Task ScriptExited()
+    {
+        var pid = int.Parse(File.ReadAllText(Path.Combine(_root, "update.pid")));
+        Process process;
+        try
+        {
+            process = Process.GetProcessById(pid);
+        }
+        catch (ArgumentException)
+        {
+            return;
+        }
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using (process)
+            await process.WaitForExitAsync(deadline.Token);
+    }
+
     private string Log(string text)
     {
         var file = Path.Combine(_root, "update.log");
@@ -152,6 +175,7 @@ public sealed class PanelUpdateTests : IDisposable
         File.WriteAllText(Path.Combine(scripts, "deploy.ps1"), "");
         File.WriteAllText(Path.Combine(scripts, "update.ps1"), """
             param($Channel, $Tag, $Releases, $Target, $Port, $TaskName, $Log)
+            Set-Content -LiteralPath (Join-Path (Split-Path $Log) 'update.pid') -Value $PID
             Add-Content -LiteralPath $Log -Value "выпуск $Tag из $Releases, канал $Channel"
             Add-Content -LiteralPath $Log -Value "панель $Target на $Port, задача $TaskName"
             $deploy = if (Test-Path (Join-Path $PSScriptRoot 'deploy.ps1')) { 'deploy.ps1' } else { 'ничего' }
