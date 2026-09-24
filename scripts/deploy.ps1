@@ -127,7 +127,8 @@ function Wait-Panel {
         catch {
             $elapsed = ((Get-Date) - $started).TotalSeconds
             if ($elapsed -gt 30) { throw "Панель не ответила на $url/api/ping за 30 секунд" }
-            if ($elapsed -gt 3 -and (Get-ScheduledTask -TaskName $TaskName).State -ne 'Running') {
+            # Именно Ready — задача отработала: в очереди (Queued) перегруженная машина держит её и после пуска.
+            if ($elapsed -gt 3 -and (Get-ScheduledTask -TaskName $TaskName).State -eq 'Ready') {
                 throw "Панель вышла, не ответив на $url/api/ping"
             }
             Start-Sleep -Milliseconds 500
