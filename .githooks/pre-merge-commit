@@ -1,0 +1,3 @@
+#!/bin/sh
+# Слияние в dev: номер версии панели должен вырасти — .githooks/check-version.ps1.
+exec pwsh -NoProfile -File "$(dirname "$0")/check-version.ps1" -Mode Merge

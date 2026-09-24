@@ -1,0 +1,2 @@
+# Хуки git идут через sh: с CRLF строка запуска ломается.
+.githooks/* text eol=lf
