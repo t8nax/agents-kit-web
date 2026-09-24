@@ -29,7 +29,7 @@ type Props = {
 }
 
 const examples = [
-  'Заведи стадию документации после мержа',
+  'Заведи этап документации после мержа',
   'Пропускай приёмку, если задача не меняет вида панели',
   'Пусть ревью смотрит ещё и тесты',
 ]
@@ -44,8 +44,8 @@ const fieldLabels: Record<StageFieldName, string> = {
 }
 
 const kindLabels: Record<StageChange['kind'], string> = {
-  added: 'добавлена',
-  changed: 'изменена',
+  added: 'добавлен',
+  changed: 'изменён',
   same: 'без правок',
 }
 
@@ -137,10 +137,10 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
     const sent = request?.stages?.find((stage) => norm(stage.title) === norm(of))
     if (!sent) return null
     const now = stages.find((stage) => norm(stage.title) === norm(of))
-    if (!now) return `Стадии «${of}» в разделе уже нет: правка ляжет новой стадией.`
+    if (!now) return `Этапа «${of}» в разделе уже нет: правка ляжет новым этапом.`
     return sameStage(sent, now)
       ? null
-      : `Стадию «${of}» правили, пока ${AGENT_NAME} работал: «Принять правки» заменит эти правки его ответом.`
+      : `Этап «${of}» правили, пока ${AGENT_NAME} работал: «Принять правки» заменит эти правки его ответом.`
   }
   const untouched = changes.filter((change) => change.kind === 'same')
 
@@ -212,20 +212,20 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
             <>
               <div className="rewrite-composer">
                 <label htmlFor="flow-wish" className="visually-hidden">
-                  Что поменять в стадиях
+                  Что поменять в этапах
                 </label>
                 <textarea
                   id="flow-wish"
                   className="custom-textarea ask-textarea"
                   autoFocus
                   value={wish}
-                  placeholder="Скажите своими словами, что поменять в стадиях или какую стадию завести"
+                  placeholder="Скажите своими словами, что поменять в этапах или какой этап завести"
                   onChange={(e) => setWish(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void rewrite(wish, picked)
                   }}
                 />
-                <div className="rewrite-composer-bar" aria-label="Стадии к просьбе">
+                <div className="rewrite-composer-bar" aria-label="Этапы к просьбе">
                   <button
                     type="button"
                     className={`rewrite-context-btn ${picking ? 'open' : ''}`}
@@ -234,7 +234,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
                     onClick={() => setPicking((now) => !now)}
                   >
                     <PlusIcon />
-                    Стадии
+                    Этапы
                   </button>
                   {/* Названия в списке могут совпасть, пока стадия правится: ключ — с местом стадии. */}
                   {picked.map((stage, i) => (
@@ -266,7 +266,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
               {/* Разом идёт одна просьба этого вида: просьба отсюда остановит ту, что идёт про другой проект. */}
               {foreign && (
                 <p className="rewrite-foreign">
-                  {AGENT_NAME} {foreign.state === 'running' ? 'сейчас переписывает' : 'уже переписал'} стадии{' '}
+                  {AGENT_NAME} {foreign.state === 'running' ? 'сейчас переписывает' : 'уже переписал'} этапы{' '}
                   {foreign.project}: новая просьба отсюда {foreign.state === 'running' ? 'остановит его' : 'уберёт этот ответ'}.
                 </p>
               )}
@@ -290,7 +290,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
                 <span className="ask-asked-text">{shown}</span>
               </div>
               {contextStages.length > 0 && (
-                <div className="rewrite-context-line" aria-label="Стадии к просьбе">
+                <div className="rewrite-context-line" aria-label="Этапы к просьбе">
                   {contextStages.map((stage, i) => (
                     <span key={`${i}-${stage.title}`} className="rewrite-token fixed">
                       {mark(stage.title)}
@@ -307,7 +307,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
               <div className="ask-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
                 <span className="ask-waiting-text">
-                  {AGENT_NAME} {contextStages.length > 0 ? 'переписывает стадии' : 'пишет стадию'}…
+                  {AGENT_NAME} {contextStages.length > 0 ? 'переписывает этапы' : 'пишет этап'}…
                 </span>
                 {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
@@ -322,8 +322,8 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
           )}
 
           {rewritten && phase === 'rewritten' && (
-            <div className="rewrite-changes" aria-label="Что изменилось в стадиях">
-              {changed.length === 0 && <p className="modal-message">Стадии не изменились: ответ совпал с прежними.</p>}
+            <div className="rewrite-changes" aria-label="Что изменилось в этапах">
+              {changed.length === 0 && <p className="modal-message">Этапы не изменились: ответ совпал с прежними.</p>}
               {changed.map((change) => (
                 <Change
                   key={`${change.kind}-${change.of}-${change.title}`}
@@ -352,8 +352,8 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
 
           {rewritten && phase === 'rewritten' && held.length > 0 && (
             <div className="ask-error" role="alert">
-              <strong>Правки не записать: стадии заняты задачами в работе</strong>
-              <span>{held.join('; ')}. Пока задачи идут, эти стадии не правятся.</span>
+              <strong>Правки не записать: этапы заняты задачами в работе</strong>
+              <span>{held.join('; ')}. Пока задачи идут, эти этапы не правятся.</span>
             </div>
           )}
           {rewritten && phase === 'rewritten' && applyFailure && (
@@ -365,8 +365,8 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
 
           {phase === 'failed' && (
             <div className="ask-error" role="alert">
-              <strong>{AGENT_NAME} не переписал стадии</strong>
-              <span>{error}. Стадии в базе не менялись.</span>
+              <strong>{AGENT_NAME} не переписал этапы</strong>
+              <span>{error}. Этапы в базе не менялись.</span>
               {output && <pre>{output}</pre>}
             </div>
           )}
@@ -377,13 +377,13 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
           {phase === 'rewritten' && (
             <span className="ask-hint">
               <LockIcon />
-              Стадии в базе ещё не изменены: «Принять правки» запишет их сразу
+              Этапы в базе ещё не изменены: «Принять правки» запишет их сразу
             </span>
           )}
           <div className="footer-right">
             {phase === 'idle' && (
               <button type="button" className="btn btn-primary" disabled={!wish.trim()} onClick={() => void rewrite(wish, picked)}>
-                {picked.length > 0 ? 'Переписать' : 'Написать стадию'}
+                {picked.length > 0 ? 'Переписать' : 'Написать этап'}
               </button>
             )}
             {phase === 'running' && (
@@ -434,9 +434,9 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, l
             className="flow-confirm flow-description"
             role="dialog"
             aria-modal="true"
-            aria-label={`Описание стадии «${description.title}»`}
+            aria-label={`Описание этапа «${description.title}»`}
           >
-            <h3>Описание стадии «{description.title}»</h3>
+            <h3>Описание этапа «{description.title}»</h3>
             <pre className="rewrite-description-text">{description.text}</pre>
             <div className="flow-confirm-actions">
               <button type="button" className="bases-btn" onClick={() => setDescription(null)}>
@@ -489,11 +489,11 @@ function StagePicker({
     <div className="rewrite-picker" ref={box}>
       <label className="rewrite-picker-search">
         <SearchIcon />
-        <span className="visually-hidden">Найти стадию</span>
-        <input autoFocus value={query} placeholder="Найти стадию" onChange={(e) => setQuery(e.target.value)} />
+        <span className="visually-hidden">Найти этап</span>
+        <input autoFocus value={query} placeholder="Найти этап" onChange={(e) => setQuery(e.target.value)} />
       </label>
-      <div className="rewrite-picker-list" role="listbox" aria-label="Стадии проекта" aria-multiselectable="true">
-        {found.length === 0 && <p className="rewrite-picker-empty">Стадий с таким названием нет</p>}
+      <div className="rewrite-picker-list" role="listbox" aria-label="Этапы проекта" aria-multiselectable="true">
+        {found.length === 0 && <p className="rewrite-picker-empty">Этапов с таким названием нет</p>}
         {found.map((stage, i) => {
           const on = chosen.includes(stage.title)
           const held = locked(stage.title)
@@ -522,7 +522,7 @@ function StagePicker({
                 {held && (
                   <span className="rewrite-why">
                     <LockIcon />
-                    занята: {held.join(', ')}
+                    занят: {held.join(', ')}
                   </span>
                 )}
               </span>

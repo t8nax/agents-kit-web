@@ -39,7 +39,7 @@ export type FlowStage = {
   executor: string
   output: string
   skip: string | null
-  /** Описание стадии как в файле: правится текстом в окне описания. */
+  /** Описание этапа как в файле: правится текстом в окне описания. */
   description: string | null
   /** Помощники: исполнители, которых оркестратор зовёт внутри своей стадии. */
   helpers?: string[]
@@ -71,7 +71,7 @@ export type BaseFlow = {
   /** Значки стадий, выбранные оператором: название стадии — значок. Их помнит панель, а не база. */
   icons: Record<string, string>
   /**
-   * Строки файлов флоу, которые панель не сохранит: «flow/flow.md, строка 7: «…»». Пока они есть, флоу не
+   * Строки файлов флоу, которые панель не сохранит: «flow/scenarios.md, строка 7: «…»». Пока они есть, флоу не
    * пишется — запись стёрла бы их из базы; правят их руками.
    */
   unread?: string[]
@@ -109,7 +109,7 @@ type Tab = 'stages' | 'flow'
 // Что открыто на вкладке «Сценарии»: окно возвратов стадии — по key пункта, а не месту, место меняется
 // перетаскиванием, — или сайдбар сценария.
 type Opened = { kind: 'returns'; key: number } | { kind: 'flow' } | null
-// Куда вернуть фокус на схеме: блок пункта по key, а null — «Добавить стадию», когда блока уже нет.
+// Куда вернуть фокус на схеме: блок пункта по key, а null — «Добавить этап», когда блока уже нет.
 // start — узел старта: на него встаёт фокус, когда закрыли сайдбар сценария.
 type Focus = { key: number | null; start?: boolean } | null
 
@@ -117,7 +117,7 @@ const kinds: DraftStage['kind'][] = ['оркестратор', 'оператор
 
 let nextKey = 1
 
-/** Название стадии и имя флоу как адрес — как у сверки кита: подряд идущие пробелы — один, регистр не важен. */
+/** Название этапа и имя флоу как адрес — как у сверки кита: подряд идущие пробелы — один, регистр не важен. */
 const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
 
 function stageDraft(stage: FlowStage, icon = ''): DraftStage {
@@ -231,7 +231,7 @@ function stageErrors(stage: DraftStage, stages: DraftStage[], known: string[] | 
   // Название стоит текстом ссылки во флоу и в кавычках возврата: скобки и кавычки его разорвут.
   else if (/[[\]«»]/.test(stage.title)) errors.push('в названии скобки [ ] или кавычки « »')
   else if (stages.some((other) => other.key !== stage.key && norm(other.title) === norm(stage.title)))
-    errors.push('стадия с таким названием уже есть')
+    errors.push('этап с таким названием уже есть')
   if (stage.kind === 'субагент' && !stage.agent.trim()) errors.push('не указано имя субагента')
   // Исполнителя, которого нет в базе, агент не позовёт: с таким именем флоу не сохраняется.
   if (missingPerformer(stage, known)) errors.push('исполнителя нет в базе')
@@ -248,14 +248,14 @@ function stageErrors(stage: DraftStage, stages: DraftStage[], known: string[] | 
 function entryErrors(flow: DraftFlow, index: number) {
   const entry = flow.entries[index]
   const errors: string[] = []
-  if (entry.stage === null) errors.push('стадии нет в базе')
+  if (entry.stage === null) errors.push('этапа нет в базе')
   else if (flow.entries.slice(0, index).some((other) => other.stage === entry.stage))
-    errors.push('стадия уже стоит в этом флоу')
+    errors.push('этап уже стоит в этом флоу')
   for (const back of entry.returns) {
     if (!back.condition.trim()) errors.push('в возврате не указано условие')
     const target = flow.entries.findIndex((other) => back.target !== null && other.stage === back.target)
-    if (target < 0) errors.push('возврат ведёт на стадию, которой во флоу нет')
-    else if (target >= index) errors.push('возврат ведёт на стадию, которая стоит не раньше')
+    if (target < 0) errors.push('возврат ведёт на этап, которого во флоу нет')
+    else if (target >= index) errors.push('возврат ведёт на этап, который стоит не раньше')
   }
   return errors
 }
@@ -268,7 +268,7 @@ function flowErrors(flow: DraftFlow, flows: DraftFlow[]) {
   // «Когда брать» кит требует, как только флоу больше одного: иначе не из чего выбрать.
   if (flows.length > 1 && !flow.when.trim()) errors.push('не указано «когда»')
   else if (breaks(flow.when.trim())) errors.push('«когда» — одна строка')
-  if (flow.entries.length === 0) errors.push('во флоу нет стадий')
+  if (flow.entries.length === 0) errors.push('во флоу нет этапов')
   return errors
 }
 
@@ -288,7 +288,7 @@ function firstProblem(
     const errors = stageErrors(stage, draft.stages, known).filter(
       (error) => !held.stage(stage.key) || !panelOnly.includes(error),
     )
-    if (errors.length > 0) return `стадия «${stageName(stage)}» — ${errors.join(', ')}`
+    if (errors.length > 0) return `этап «${stageName(stage)}» — ${errors.join(', ')}`
   }
   for (const flow of draft.flows) {
     const errors = flowErrors(flow, draft.flows)
@@ -296,7 +296,7 @@ function firstProblem(
     for (let index = 0; index < flow.entries.length; index++) {
       const entryProblems = entryErrors(flow, index)
       if (entryProblems.length > 0)
-        return `флоу «${flowName(flow)}», стадия «${entryTitle(draft, flow.entries[index])}» — ${entryProblems.join(', ')}`
+        return `флоу «${flowName(flow)}», этап «${entryTitle(draft, flow.entries[index])}» — ${entryProblems.join(', ')}`
     }
   }
   return null
@@ -344,7 +344,7 @@ function flowLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
 }
 
 /**
- * Стадия базы занята, если занят хоть один сценарий, где она стоит: она одна на все. Новая стадия не занята
+ * Стадия базы занята, если занят хоть один сценарий, где она стоит: она одна на все. Новый этап не занята
  * никем. Фраза называет занятые сценарии.
  */
 function stageLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
@@ -381,22 +381,22 @@ function stagesInOrder(draft: Draft): DraftStage[] {
 const emptyStage: FlowStage = { title: '', executor: 'оркестратор', output: '', skip: null, description: null }
 
 const invalidLabels: Record<string, string> = {
-  'stage-empty-title': 'у стадии нет названия',
-  'stage-duplicate-title': 'две стадии с одним названием',
-  'stage-bad-title': 'в названии стадии скобки [ ] или кавычки « »',
-  'stage-empty-executor': 'у стадии не указан исполнитель',
-  'stage-empty-output': 'у стадии не указан выход',
+  'stage-empty-title': 'у этапа нет названия',
+  'stage-duplicate-title': 'два этапа с одним названием',
+  'stage-bad-title': 'в названии этапа скобки [ ] или кавычки « »',
+  'stage-empty-executor': 'у этапа не указан исполнитель',
+  'stage-empty-output': 'у этапа не указан выход',
   'helpers-not-orchestrator': 'помощники не у оркестратора',
   'line-break': 'перевод строки в поле',
   'flow-empty-name': 'у флоу нет названия',
   'flow-duplicate-name': 'два флоу с одним названием',
   'flow-without-when': 'у флоу не указано «когда»',
-  'flow-without-stages': 'во флоу нет стадий',
-  'stage-unknown': 'стадии нет в базе',
-  'stage-twice': 'стадия дважды в одном флоу',
+  'flow-without-stages': 'во флоу нет этапов',
+  'stage-unknown': 'этапа нет в базе',
+  'stage-twice': 'этап дважды в одном флоу',
   'return-without-condition': 'в возврате не указано условие',
-  'return-unknown-stage': 'возврат ведёт на стадию, которой во флоу нет',
-  'return-stage-not-earlier': 'возврат ведёт на стадию, которая стоит не раньше',
+  'return-unknown-stage': 'возврат ведёт на этап, которого во флоу нет',
+  'return-stage-not-earlier': 'возврат ведёт на этап, который стоит не раньше',
 }
 
 /**
@@ -706,7 +706,7 @@ export default function Flow({
   /**
    * Правки Чудо-Юдо ложатся на стадии базы и пишутся сразу одной записью: переписанная сохраняет key, и пункты
    * сценариев и возвраты, которые ссылаются на неё key, идут за новым названием сами — как при ручном
-   * переименовании. Новая стадия встаёт в конец вкладки «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
+   * переименовании. Новый этап встаёт в конец вкладки «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
    * Не записалось — форма возвращается к базе, а причину называет окно, где остаётся итог агента.
    */
   const applyRewritten = async (rewritten: RewrittenStage[]) => {
@@ -759,7 +759,7 @@ export default function Flow({
     setModal('new-flow')
   }
 
-  // Новая стадия на вкладке «Стадии» — пустым окном; в базу она уходит его «Сохранить».
+  // Новый этап на вкладке «Стадии» — пустым окном; в базу она уходит его «Сохранить».
   const newStage = () => {
     const { added, stages } = addStage(emptyStage)
     const next = { ...draft, stages }
@@ -797,7 +797,7 @@ export default function Flow({
 
   const deleteStage = (stage: DraftStage) =>
     ask({
-      title: `Удалить стадию «${stageName(stage)}»?`,
+      title: `Удалить этап «${stageName(stage)}»?`,
       cancel: 'Отмена',
       confirm: 'Удалить',
       onConfirm: () => void keep({ ...saved, stages: saved.stages.filter((one) => one.key !== stage.key) }, closeStage),
@@ -864,8 +864,8 @@ export default function Flow({
     changed,
     failure,
     onPerformers,
-    onClose: () => leave(`стадии «${stageName(currentStage)}»`, closeStage),
-    onCancel: () => leave(`стадии «${stageName(currentStage)}»`, closeStage, false),
+    onClose: () => leave(`этапа «${stageName(currentStage)}»`, closeStage),
+    onCancel: () => leave(`этапа «${stageName(currentStage)}»`, closeStage, false),
     onSave: () => void keep(draft, closeStage),
     onChange: (patch: Partial<DraftStage>) => updateStage(currentStage.key, patch),
     onEditDescription: () => setModal('description'),
@@ -893,7 +893,7 @@ export default function Flow({
                       setOpened(null)
                     }}
                   >
-                    {one === 'stages' ? 'Стадии' : 'Сценарии'}
+                    {one === 'stages' ? 'Этапы' : 'Сценарии'}
                   </button>
                 ))}
               </div>
@@ -996,7 +996,7 @@ export default function Flow({
       {editable && (tab === 'flow' ? currentLock : projectLock) && (
         <LockLine
           lock={(tab === 'flow' ? currentLock : projectLock)!}
-          what={projectLock ? 'Правка стадий и сценариев закрыта' : 'Правка сценария закрыта'}
+          what={projectLock ? 'Правка этапов и сценариев закрыта' : 'Правка сценария закрыта'}
         />
       )}
       {/* Флоу, который уже нельзя записать, называет причину: строку, которую панель не воспроизведёт, — запись
@@ -1009,7 +1009,7 @@ export default function Flow({
       {/* Без списка исполнителей стадии не помечаются и запись не запирается — сказать, отчего так. */}
       {performersFailed && (
         <p className="message warning-text" role="status">
-          Список исполнителей не прочитан: имена стадий панель не проверяет, пока раздел не откроют заново.
+          Список исполнителей не прочитан: имена этапов панель не проверяет, пока раздел не откроют заново.
         </p>
       )}
 
@@ -1034,7 +1034,7 @@ export default function Flow({
                 <FlowIcon />
               </span>
               <h3>В этом проекте нет сценариев</h3>
-              <p>Сценарий — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
+              <p>Сценарий — цепочка этапов, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
               <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
                 <PlusIcon />
                 Создать первый сценарий
@@ -1047,11 +1047,11 @@ export default function Flow({
               <span className="flow-empty-mark" aria-hidden="true">
                 <FlowIcon />
               </span>
-              <h3>В этом проекте нет стадий</h3>
-              <p>Стадия — шаг работы над задачей: кто его делает и что должно получиться. Сценарии собираются из стадий.</p>
+              <h3>В этом проекте нет этапов</h3>
+              <p>Этап — шаг работы над задачей: кто его делает и что должно получиться. Сценарии собираются из этапов.</p>
               <button type="button" className="bases-btn bases-btn-primary" onClick={newStage}>
                 <PlusIcon />
-                Создать первую стадию
+                Создать первый этап
               </button>
             </div>
           )}
@@ -1118,7 +1118,7 @@ export default function Flow({
                     })),
                   ),
                 onSave: (close) => void keep(draft, close),
-                onCancel: (title, close, asked) => leave(`возвратов стадии «${title}»`, close, asked),
+                onCancel: (title, close, asked) => leave(`возвратов этапа «${title}»`, close, asked),
               }}
               // Правка стадии и её описания со схемы — окнами поверх сценария, вкладка не меняется (B-202).
               onEditStage={(entry, key) => {
@@ -1160,7 +1160,7 @@ export default function Flow({
           onAsk={(close) =>
             ask({
               title: 'Закрыть без сохранения?',
-              text: `Изменения описания стадии «${stageName(currentStage)}» не будут сохранены.`,
+              text: `Изменения описания этапа «${stageName(currentStage)}» не будут сохранены.`,
               cancel: 'Вернуться',
               confirm: 'Не сохранять',
               onConfirm: close,
@@ -1306,8 +1306,8 @@ function saveError(status: number, body: RejectedBody | null, from: Source) {
     const count = (body.detail ?? '').split(',').filter((one) => one.trim()).length
     const one = count === 1
     return body.flow
-      ? `Флоу не сохранён: по сценарию «${body.flow}» ${going(count)} ${body.detail ?? ''}. Пока ${one ? 'она' : 'они'} в работе, сценарий и его стадии не правятся.${reread}`
-      : `Флоу не сохранён: ${one ? 'задача' : 'задачи'} ${body.detail ?? ''} ${one ? 'идёт' : 'идут'} по сценарию, которого панель не узнала. Пока ${one ? 'она' : 'они'} в работе, стадии и сценарии проекта не правятся.${reread}`
+      ? `Флоу не сохранён: по сценарию «${body.flow}» ${going(count)} ${body.detail ?? ''}. Пока ${one ? 'она' : 'они'} в работе, сценарий и его этапы не правятся.${reread}`
+      : `Флоу не сохранён: ${one ? 'задача' : 'задачи'} ${body.detail ?? ''} ${one ? 'идёт' : 'идут'} по сценарию, которого панель не узнала. Пока ${one ? 'она' : 'они'} в работе, этапы и сценарии проекта не правятся.${reread}`
   }
   if (status === 409)
     return from === 'window'
@@ -1319,7 +1319,7 @@ function saveError(status: number, body: RejectedBody | null, from: Source) {
   if (status === 400 && body?.problem === 'unread')
     return `Флоу не сохранён: в файлах флоу есть строка, которую панель не сохранит, — ${body.detail ?? ''}`.trim()
   if (status === 400 && body?.problem) {
-    const where = [body.flow ? `флоу «${body.flow}»` : '', body.stage ? `стадия «${body.stage}»` : '']
+    const where = [body.flow ? `флоу «${body.flow}»` : '', body.stage ? `этап «${body.stage}»` : '']
       .filter(Boolean)
       .join(', ')
     return `Флоу не сохранён: ${where ? `${where} — ` : ''}${invalidLabels[body.problem] ?? 'не в форме кита'}`
@@ -1404,7 +1404,7 @@ function StagesTab({
     <div className="flow-stages">
       {/* Стадии сеткой карточек, как исполнители; новая — пунктирной карточкой последней (B-192). */}
       {/* Пока открыто окно правки, карточки под ним недоступны: Tab не уходит под подложку. */}
-      <ul className="flow-stage-grid" aria-label="Стадии базы" ref={grid} inert={open}>
+      <ul className="flow-stage-grid" aria-label="Этапы базы" ref={grid} inert={open}>
         {stagesInOrder(draft).map((stage) => (
           <li key={stage.key}>
             <button
@@ -1446,7 +1446,7 @@ function StagesTab({
         <li>
           <button type="button" className="flow-stage-card flow-stage-card-add" ref={add} onClick={onNew}>
             <PlusIcon />
-            Новая стадия
+            Новый этап
           </button>
         </li>
       </ul>
@@ -1546,7 +1546,7 @@ function StageModal({
         className="modal-wizard flow-stage-modal"
         role="dialog"
         aria-modal={!covered}
-        aria-label={`Стадия «${stageName(stage)}»`}
+        aria-label={`Этап «${stageName(stage)}»`}
         // Фокус держится в окне и при щелчке мимо полей: иначе он уходит со страницы, и Escape некому поймать.
         tabIndex={-1}
         // Escape закрывает окно, если его не забрал кто-то внутри, — список значков закрывает сначала себя.
@@ -1584,8 +1584,8 @@ function StageModal({
               <input
                 ref={title}
                 className="flow-input flow-stage-name"
-                aria-label="Название стадии"
-                placeholder="Название стадии"
+                aria-label="Название этапа"
+                placeholder="Название этапа"
                 aria-invalid={!stage.title.trim()}
                 value={stage.title}
                 onChange={(event) => onChange({ title: event.target.value })}
@@ -1596,7 +1596,7 @@ function StageModal({
               <span>Исполнитель</span>
               <select
                 className="flow-input"
-                aria-label="Исполнитель стадии"
+                aria-label="Исполнитель этапа"
                 value={stage.kind}
                 onChange={(event) => {
                   const kind = event.target.value as DraftStage['kind']
@@ -1627,7 +1627,7 @@ function StageModal({
               <span>Выход</span>
               <textarea
                 className="flow-input"
-                aria-label="Выход стадии"
+                aria-label="Выход этапа"
                 placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
                 aria-invalid={!stage.output.trim()}
                 disabled={lock !== null || saving}
@@ -1641,8 +1641,8 @@ function StageModal({
               <span>Пропуск</span>
               <input
                 className="flow-input"
-                aria-label="Пропуск стадии"
-                placeholder="нет — стадия проходится всегда"
+                aria-label="Пропуск этапа"
+                placeholder="нет — этап проходится всегда"
                 disabled={lock !== null || saving}
                 value={stage.skip}
                 onChange={(event) => onChange({ skip: event.target.value })}
@@ -1665,7 +1665,7 @@ function StageModal({
             </div>
           </div>
 
-          {!lock && errors.length > 0 && <p className="flow-step-error">Стадию не сохранить: {errors.join(', ')}.</p>}
+          {!lock && errors.length > 0 && <p className="flow-step-error">Этап не сохранить: {errors.join(', ')}.</p>}
           {failure && (
             <p className="flow-step-error" role="alert">
               {failure}
@@ -1678,7 +1678,7 @@ function StageModal({
             <InfoIcon />
             <div className="flow-delete-note-text">
               <p>
-                <strong>Стадию «{stageName(stage)}» нельзя удалить.</strong> Она используется в сценариях:
+                <strong>Этап «{stageName(stage)}» нельзя удалить.</strong> Он используется в сценариях:
               </p>
               <ul className="flow-delete-note-list">
                 {usedIn.map((f) => (
@@ -1688,7 +1688,7 @@ function StageModal({
                   </li>
                 ))}
               </ul>
-              <p>Сначала уберите её из этих сценариев на вкладке «Сценарии».</p>
+              <p>Сначала уберите его из этих сценариев на вкладке «Сценарии».</p>
             </div>
             <button type="button" className="btn btn-icon" aria-label="Скрыть пояснение" onClick={() => setWhy(false)}>
               <CloseIcon />
@@ -1714,7 +1714,7 @@ function StageModal({
                 onClick={() => (usedIn.length > 0 ? setWhy(!why) : onDelete())}
               >
                 <TrashIcon />
-                Удалить стадию
+                Удалить этап
               </button>
             )}
             <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onCancel}>
@@ -1859,7 +1859,7 @@ function FlowTab({
     })
   }
 
-  // Блока убранной стадии нет: фокус переходит на соседний, а у последней — на «Добавить стадию».
+  // Блока убранной стадии нет: фокус переходит на соседний, а у последней — на «Добавить этап».
   const remove = (index: number) => {
     const key = flow.entries[index].key
     const next = flow.entries[index + 1] ?? flow.entries[index - 1] ?? null
@@ -1934,7 +1934,7 @@ function FlowTab({
             {flow.entries.length > 0 && <FlowArrow />}
             <button type="button" className="flow-node flow-node-add" disabled={busy} onClick={onAdd}>
               <PlusIcon />
-              <span className="flow-node-title">Добавить стадию</span>
+              <span className="flow-node-title">Добавить этап</span>
             </button>
           </div>
         </div>
@@ -2127,9 +2127,9 @@ function StageNode({
             invalid ? 'invalid' : ''
           }`}
           // Возврат нарисован дугой, а не текстом: программе чтения экрана он называется здесь.
-          aria-label={`Стадия ${number}: ${title}${returns
+          aria-label={`Этап ${number}: ${title}${returns
             .filter(Boolean)
-            .map((target) => `, возврат к стадии ${target}`)
+            .map((target) => `, возврат к этапу ${target}`)
             .join('')}`}
           aria-haspopup="menu"
           aria-expanded={menu}
@@ -2188,14 +2188,14 @@ function StageNode({
             {stage ? <StageIcon icon={stage.icon} kind={kind} /> : <MissingIcon />}
           </span>
           <span className="flow-node-title">{title}</span>
-          <span className="flow-node-executor">{stage ? executorOf(stage) || 'субагент' : 'стадии нет в базе'}</span>
+          <span className="flow-node-executor">{stage ? executorOf(stage) || 'субагент' : 'этапа нет в базе'}</span>
         </button>
         {/* Клавиатурой стадия двигается кнопками: перетаскивание ей недоступно. */}
         <span className="flow-node-keys">
-          <IconButton label={`Стадия ${number} выше`} disabled={busy || number === 1} onClick={() => onMove(index, index - 1)}>
+          <IconButton label={`Этап ${number} выше`} disabled={busy || number === 1} onClick={() => onMove(index, index - 1)}>
             <ChevronUpIcon />
           </IconButton>
-          <IconButton label={`Стадия ${number} ниже`} disabled={busy || last} onClick={() => onMove(index, index + 1)}>
+          <IconButton label={`Этап ${number} ниже`} disabled={busy || last} onClick={() => onMove(index, index + 1)}>
             <ChevronDownIcon />
           </IconButton>
         </span>
@@ -2247,7 +2247,7 @@ function EntryMenu({
   const returnable = earlierStages(draft, flow, index).length > 0 || entry.returns.length > 0
 
   return (
-    <ContextMenu label={`Стадия «${title}»`} at={at} onClose={onClose}>
+    <ContextMenu label={`Этап «${title}»`} at={at} onClose={onClose}>
       <button type="button" role="menuitem" className="row-menu-item" disabled={!returnable} onClick={onReturns}>
         <ReturnIcon />
         Возвраты
@@ -2260,7 +2260,7 @@ function EntryMenu({
         onClick={() => stage && onEditStage(stage.key)}
       >
         <PencilIcon />
-        Править стадию «{title}»
+        Править этап «{title}»
       </button>
       <button
         type="button"
@@ -2418,7 +2418,7 @@ function ReturnsModal({
         className="modal-wizard flow-stage-modal flow-returns-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Возвраты стадии «${title}»`}
+        aria-label={`Возвраты этапа «${title}»`}
         tabIndex={-1}
         onKeyDown={(event) => {
           if (event.key === 'Escape' && !event.defaultPrevented) onCancel(true)
@@ -2429,7 +2429,7 @@ function ReturnsModal({
             <span className={`flow-card-mark flow-mark-${kind}`} aria-hidden="true">
               {stage ? <StageIcon icon={stage.icon} kind={kind} /> : <MissingIcon />}
             </span>
-            <h2 className="flow-stage-modal-title">Возвраты стадии «{title}»</h2>
+            <h2 className="flow-stage-modal-title">Возвраты этапа «{title}»</h2>
             <span className="pf-project">сценарий «{flowName(flow)}»</span>
             <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={() => onCancel(true)}>
               <CloseIcon />
@@ -2493,7 +2493,7 @@ function scopeWarning(draft: Draft, stage: number): string | null {
   const names = draft.flows.filter((f) => f.entries.some((entry) => entry.stage === stage)).map((f) => `«${flowName(f)}»`)
   if (names.length < 2) return null
   const all = names.length === 2 ? 'в обоих' : `во всех ${countWords[names.length] ?? names.length}`
-  return `Стадия стоит в сценариях ${names.slice(0, -1).join(', ')} и ${names.at(-1)} — правка изменит её ${all}.`
+  return `Этап стоит в сценариях ${names.slice(0, -1).join(', ')} и ${names.at(-1)} — правка изменит его ${all}.`
 }
 
 /**
@@ -2646,7 +2646,7 @@ function NewFlowModal({
     entries: stage === null ? [] : [{ key: keys.entry, stage, title: '', returns: [] }],
   }
   const errors = flowErrors(created, [...draft.flows, created]).map((error) =>
-    error === 'во флоу нет стадий' ? 'не выбрана первая стадия' : error,
+    error === 'во флоу нет этапов' ? 'не выбран первый этап' : error,
   )
   if (bare && !earlierWhen.trim()) errors.push(`у сценария «${flowName(bare)}» не указано «когда»`)
   else if (bare && breaks(earlierWhen.trim())) errors.push(`«когда» сценария «${flowName(bare)}» — одна строка`)
@@ -2720,13 +2720,13 @@ function NewFlowModal({
               </label>
             )}
             <div className="flow-field">
-              <span>Первая стадия</span>
+              <span>Первый этап</span>
               {draft.stages.length === 0 ? (
                 <p className="text-sec flow-new-flow-empty">
-                  В проекте нет стадий. Заведите первую на вкладке «Стадии», затем соберите из неё сценарий.
+                  В проекте нет этапов. Заведите первый на вкладке «Этапы», затем соберите из него сценарий.
                 </p>
               ) : (
-                <ul className="flow-choice-list" role="radiogroup" aria-label="Первая стадия">
+                <ul className="flow-choice-list" role="radiogroup" aria-label="Первый этап">
                   {stagesInOrder(draft).map((one) => (
                     <li key={one.key}>
                       <label className={`flow-choice choice ${one.key === stage ? 'is-on' : ''}`}>
@@ -2981,12 +2981,12 @@ function ReturnsField({
               </span>
               <select
                 className="flow-input"
-                aria-label={`Стадия возврата ${index + 1}`}
+                aria-label={`Этап возврата ${index + 1}`}
                 aria-invalid={!valid}
                 value={valid ? String(back.target) : ''}
                 onChange={(event) => set(index, { target: event.target.value ? Number(event.target.value) : null })}
               >
-                <option value="">стадия…</option>
+                <option value="">этап…</option>
                 {earlier.map((stage) => (
                   <option key={stage.key} value={stage.key}>
                     {stageName(stage)}
@@ -3012,7 +3012,7 @@ function ReturnsField({
 }
 
 /**
- * Описание стадии правится текстом в окне, а не полем — решение оператора, — по образцу задания исполнителя
+ * Описание этапа правится текстом в окне, а не полем — решение оператора, — по образцу задания исполнителя
  * (B-202): разметка показана оформленной, «Редактировать» открывает поле с исходным текстом. «Сохранить» сразу
  * пишет описание в базу вместе со стадией и возвращает к просмотру. «Отмена» бросает правку и закрывает окно сразу,
  * крестик и Escape при набранном спрашивают (B-226). Пустое описание открывается сразу в правке.
@@ -3096,7 +3096,7 @@ function DescriptionEditor({
         <div className="ask-head">
           <div className="ask-title">
             <FileTextIcon />
-            <h2 id="flow-description-title">Описание стадии «{title.trim() || 'без названия'}»</h2>
+            <h2 id="flow-description-title">Описание этапа «{title.trim() || 'без названия'}»</h2>
             <button type="button" className="btn btn-icon" aria-label="Закрыть описание" onClick={leave}>
               <CloseIcon />
             </button>
@@ -3108,7 +3108,7 @@ function DescriptionEditor({
             <textarea
               ref={field}
               className="custom-textarea pf-task-edit"
-              aria-label="Описание стадии"
+              aria-label="Описание этапа"
               spellCheck={false}
               // Пока описание пишется, набранное поверх него пропало бы: поле погашено.
               disabled={saving}
@@ -3203,7 +3203,7 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
       <button
         type="button"
         className="flow-icon-toggle"
-        aria-label="Значок стадии"
+        aria-label="Значок этапа"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
@@ -3213,7 +3213,7 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
         <ChevronDownIcon />
       </button>
       {open && (
-        <div className="flow-icon-menu" role="group" aria-label="Значки стадии">
+        <div className="flow-icon-menu" role="group" aria-label="Значки этапа">
           <button
             type="button"
             className="flow-icon-btn"
@@ -3268,7 +3268,7 @@ function AddStage({
         className="modal-wizard flow-stage-modal flow-add-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Добавить стадию в сценарий «${flowName(flow)}»`}
+        aria-label={`Добавить этап в сценарий «${flowName(flow)}»`}
         tabIndex={-1}
         onKeyDown={(event) => event.key === 'Escape' && onCancel()}
       >
@@ -3277,7 +3277,7 @@ function AddStage({
             <span className="flow-card-mark flow-mark-flow" aria-hidden="true">
               <PlusIcon />
             </span>
-            <h2 className="flow-stage-modal-title">Добавить стадию</h2>
+            <h2 className="flow-stage-modal-title">Добавить этап</h2>
             <span className="pf-project">сценарий «{flowName(flow)}»</span>
             <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onCancel}>
               <CloseIcon />
@@ -3295,13 +3295,13 @@ function AddStage({
                 onClick={() => onPick('new')}
               >
                 <PlusIcon />
-                Новая стадия
+                Новый этап
               </button>
             </li>
           </ul>
           {stages.length > 0 && (
-            <div role="group" aria-label="Стадии базы" className="flow-add-group">
-              <div className="flow-add-label">Стадии базы</div>
+            <div role="group" aria-label="Этапы базы" className="flow-add-group">
+              <div className="flow-add-label">Этапы базы</div>
               <ul className="flow-add-list">
                 {stages.map((stage) => (
                   <li key={stage.key}>
