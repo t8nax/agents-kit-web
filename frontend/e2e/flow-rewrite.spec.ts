@@ -202,6 +202,44 @@ test('оператор переписывается с Чудо-Юдо: вопр
   await expect(modal).toBeVisible()
 })
 
+test('описание из правок открывается окном того же размера, что на вкладке «Этапы», и закрытое возвращает фокус', async ({ page }) => {
+  const panel = await mockApi(page)
+  const modal = await openRewrite(page)
+  await modal.getByLabel('Просьба').fill('Пусть ревью смотрит тесты')
+  await modal.getByRole('button', { name: 'Отправить' }).click()
+  const described = { ...review, description: '1. Собрать дифф.\n2. Прогнать тесты.' }
+  panel.answer({ type: 'answer', text: 'Готово.', proposal: { stages: [{ of: 'Ревью', stage: described }], scenarios: [] }, changed: { scenarios: 0, stages: 1 } })
+  await modal.getByRole('button', { name: '1 этап' }).click()
+  await modal.getByText('Ревью', { exact: true }).click()
+
+  const open = modal.getByRole('button', { name: 'Открыть описание' })
+  await open.click()
+  const fromChanges = page.getByRole('dialog', { name: 'Описание этапа «Ревью»' })
+  await expect(fromChanges.getByRole('listitem')).toHaveText(['Собрать дифф.', 'Прогнать тесты.'])
+  await expect(fromChanges.getByRole('button', { name: /Редактировать/ })).toHaveCount(0)
+  const measure = async (dialog: typeof fromChanges) => {
+    const box = (await dialog.boundingBox())!
+    const icon = (await dialog.locator('.ask-title svg').first().boundingBox())!
+    return { width: Math.round(box.width), height: Math.round(box.height), icon: Math.round(icon.width) }
+  }
+  let rewriteSize = { width: 0, height: 0, icon: 0 }
+  await expect(async () => {
+    rewriteSize = await measure(fromChanges)
+    expect(rewriteSize.height).toBeGreaterThan(page.viewportSize()!.height * 0.85)
+  }).toPass()
+
+  await fromChanges.getByRole('button', { name: 'Закрыть', exact: true }).click()
+  await expect(fromChanges).toHaveCount(0)
+  await expect(open).toBeFocused()
+
+  // То же окно со схемы вкладки «Сценарии»: размер и значок совпадают.
+  await modal.getByRole('button', { name: 'Закрыть' }).first().click()
+  await page.getByRole('region', { name: 'Сценарий «полный»' }).getByRole('button', { name: 'Этап 1: Ревью' }).click({ button: 'right' })
+  await page.getByRole('menu').getByRole('menuitem', { name: 'Редактировать описание' }).click()
+  const fromStages = page.getByRole('dialog', { name: 'Описание этапа «Ревью»' })
+  await expect(async () => expect(await measure(fromStages)).toEqual(rewriteSize)).toPass()
+})
+
 test('правки занятого задачей сценария помечены замком, и «Принять правки» погашена', async ({ page }) => {
   const panel = await mockApi(page, [{ task: 'B-238', flow: 'мелкий' }])
   const modal = await openRewrite(page)
