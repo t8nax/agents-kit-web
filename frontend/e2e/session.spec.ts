@@ -42,7 +42,7 @@ test('из окна вопроса оператор открывает сесс�
   await dialog.getByLabel('Ответ').fill('принимаю')
   await dialog.getByRole('button', { name: 'Открыть в VS Code' }).click()
 
-  expect(opened).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
+  await expect.poll(() => opened).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
   // щелчок по кнопке в шапке не уводит с переписки и не трогает набранный ответ
   await expect(dialog.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
   await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю')
@@ -68,7 +68,7 @@ test('из меню строки оператор открывает копию 
   await page.getByRole('row', { name: /app-wt/ }).getByRole('button', { name: 'Действия с app-wt' }).click()
   await page.getByRole('menuitem', { name: 'Открыть в VS Code' }).click()
 
-  expect(opened).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' })
+  await expect.poll(() => opened).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app-wt' })
   // Выбранный пункт закрывает меню
   await expect(page.getByRole('menu')).toHaveCount(0)
 })
@@ -96,7 +96,7 @@ test('из меню строки оператор переходит в фоно
   await page.getByRole('row', { name: /Окно ответа/ }).getByRole('button', { name: 'Действия с app' }).click()
   await page.getByRole('menuitem', { name: 'Открыть в терминале' }).click()
 
-  expect(attached).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
+  await expect.poll(() => attached).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
 })
 
 test('из окна вопроса оператор переходит в фоновую сессию копии', async ({ page }) => {
@@ -116,7 +116,7 @@ test('из окна вопроса оператор переходит в фон
   await dialog.getByLabel('Ответ').fill('принимаю')
   await dialog.getByRole('button', { name: 'Открыть в терминале' }).click()
 
-  expect(attached).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
+  await expect.poll(() => attached).toEqual({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' })
   // переход не уводит с переписки и не трогает набранный ответ
   await expect(dialog.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
   await expect(dialog.getByLabel('Ответ')).toHaveValue('принимаю')

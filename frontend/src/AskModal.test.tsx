@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import AskModal, { type AskBase, type AskCopy, type AskEvent } from './AskModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
@@ -405,4 +405,83 @@ test('оборванный поток окно дочитывает само: р
   await vi.waitFor(() => next.send({ type: 'answer', text: 'Ответ после обрыва', files: [], durationMs: 1000 }))
   expect(await screen.findByText('Ответ после обрыва')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})
+
+test('новая переписка, начатая, пока окно спрашивает панель о прежней, прежнюю не дочитывает', async () => {
+  const first = controlledStream<AskEvent>()
+  stubPanel('ask', first, {
+    project: 'Nota',
+    others: (url) => (url === '/api/ask/bases' ? Response.json(bases) : null),
+  })
+  // Ответ панели о прежнем разговоре задерживается, пока тест не отпустит его.
+  const panelFetch = globalThis.fetch
+  let release!: () => void
+  const held = new Promise<void>((resolve) => (release = resolve))
+  let holding = false
+  let asking = false
+  // Окно разобрало задержанный ответ: следом тем же ходом оно решает, дочитывать ли прежний разговор.
+  let parsed!: () => void
+  const decided = new Promise<void>((resolve) => (parsed = resolve))
+  const streams: string[] = []
+  vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
+    if (url.startsWith('/api/agent/ask/stream')) streams.push(url)
+    const response = await panelFetch(url, init)
+    if (holding && url === '/api/agent/requests') {
+      asking = true
+      await held
+      const json = response.json.bind(response)
+      response.json = () => json().finally(parsed)
+    }
+    return response
+  })
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Вопрос')
+  first.send({ type: 'reply', text: 'Вопрос' })
+  first.send({ type: 'answer', text: 'Ответ', files: [], durationMs: 1000 })
+  await screen.findByText('Ответ')
+  holding = true
+  first.close()
+  // Окно отстояло паузу и спрашивает панель, жив ли разговор; тут оператор начинает новую переписку.
+  await vi.waitFor(() => expect(asking).toBe(true))
+  const read = streams.length
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  release()
+
+  // Ответ панели разобран, и ход окна после него доигран: без проверки отмены оно в этом ходе спросило бы
+  // поток прежнего разговора.
+  await act(async () => {
+    await decided
+    await new Promise((wake) => setTimeout(wake, 0))
+  })
+  expect(streams).toHaveLength(read)
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Вопрос')).toHaveValue('')
+})
+
+test('сбой, пришедший в дочитанный поток, возвращает в поле реплику, прочитанную до обрыва', async () => {
+  const first = controlledStream<AskEvent>()
+  const next = controlledStream<AskEvent>()
+  let reconnected = false
+  stubPanel('ask', first, {
+    project: 'Nota',
+    others: (url) => {
+      if (url === '/api/ask/bases') return Response.json(bases)
+      if (url.startsWith('/api/agent/ask/stream') && reconnected) {
+        return new Response(next.body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+      }
+      return null
+    },
+  })
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Вопрос')
+  first.send({ type: 'reply', text: 'Вопрос' })
+  await screen.findByRole('status')
+  reconnected = true
+  first.close()
+
+  next.send({ type: 'error', text: 'Чудо-Юдо завершился без ответа' })
+  expect(await screen.findByRole('alert')).toHaveTextContent('Чудо-Юдо завершился без ответа')
+  expect(screen.getByRole('textbox')).toHaveValue('Вопрос')
 })
