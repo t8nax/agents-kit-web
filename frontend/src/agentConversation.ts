@@ -53,6 +53,9 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
   const [retry, setRetry] = useState<string | null>(null)
   const [restoring, setRestoring] = useState(true)
   const reading = useRef<AbortController | null>(null)
+  // Реплика, на которой агент может сорваться: её помнит разговор, а не одно чтение потока, — сбой приходит
+  // и в дочитанный после обрыва поток.
+  const said = useRef<string | null>(null)
 
   // wasAnswering — дочитывание оборванного потока: идёт ли ответ, знает прошлое чтение, а не сводка, взятая
   // при открытии окна, — по ней окно ждало бы агента, который давно ответил.
@@ -70,6 +73,7 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     if (from === 0) {
       setEvents([])
       setRetry(null)
+      said.current = null
     }
     let answering = wasAnswering ?? summary.state === 'running'
     setRunning(answering)
@@ -89,7 +93,6 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader()
       let buffer = ''
       let restored = from > 0
-      let said: string | null = null
       let seen = from
       for (;;) {
         const { done, value } = await reader.read()
@@ -104,14 +107,14 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
           chunk.push(event)
           if (event.type === 'reply') {
             answering = true
-            said = event.text
+            said.current = event.text
             setRetry(null)
             setStartedAt(Date.now())
           }
           // Ответ кончает и отмена: агента, которого оборвал оператор, окно ждать не должно — B-109.
           if (event.type === 'answer' || event.type === 'error' || event.type === 'stopped') answering = false
           // Реплика, на которой агент сорвался, возвращается оператору в поле: отправить её ещё раз — одно нажатие.
-          if (event.type === 'error') setRetry(said)
+          if (event.type === 'error') setRetry(said.current)
         }
         if (chunk.length > 0) setEvents((prev) => [...prev, ...chunk])
         seen += chunk.length

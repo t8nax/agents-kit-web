@@ -406,3 +406,30 @@ test('оборванный поток окно дочитывает само: р
   expect(await screen.findByText('Ответ после обрыва')).toBeInTheDocument()
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
+
+test('сбой, пришедший в дочитанный поток, возвращает в поле реплику, прочитанную до обрыва', async () => {
+  const first = controlledStream<AskEvent>()
+  const next = controlledStream<AskEvent>()
+  let reconnected = false
+  stubPanel('ask', first, {
+    project: 'Nota',
+    others: (url) => {
+      if (url === '/api/ask/bases') return Response.json(bases)
+      if (url.startsWith('/api/agent/ask/stream') && reconnected) {
+        return new Response(next.body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+      }
+      return null
+    },
+  })
+  render(<AskModal onClose={() => {}} />)
+
+  await ask('Вопрос')
+  first.send({ type: 'reply', text: 'Вопрос' })
+  await screen.findByRole('status')
+  reconnected = true
+  first.close()
+
+  await vi.waitFor(() => next.send({ type: 'error', text: 'Чудо-Юдо завершился без ответа' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Чудо-Юдо завершился без ответа')
+  expect(screen.getByRole('textbox')).toHaveValue('Вопрос')
+})
