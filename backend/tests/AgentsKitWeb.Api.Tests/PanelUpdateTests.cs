@@ -82,6 +82,7 @@ public sealed class PanelUpdateTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var finished = await Finished(factory);
+        await ScriptExited();
         Assert.Equal(PanelUpdateStates.Done, finished.State);
         Assert.Equal("0.10.2", finished.Release);
         // Скрипт получил самый свежий выпуск канала и то, что панель знает о себе: каталог, порт и задачу.
@@ -89,7 +90,6 @@ public sealed class PanelUpdateTests : IDisposable
         Assert.Contains(@"панель C:\panel\app на 5080, задача agents-kit-web panel", finished.Log);
         // И запущен из копии рядом с журналом, а не из каталога панели, — вместе с deploy.ps1.
         Assert.Contains($"из {Path.Combine(_root, "update-scripts")}, рядом deploy.ps1", finished.Log);
-        await ScriptExited();
     }
 
     [Fact]
