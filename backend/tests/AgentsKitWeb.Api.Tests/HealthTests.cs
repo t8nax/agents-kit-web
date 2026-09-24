@@ -234,8 +234,17 @@ public sealed class HealthTests : IDisposable
         var deadline = DateTime.UtcNow.AddSeconds(60);
         while (DateTime.UtcNow < deadline)
         {
-            if (File.Exists(file) && int.TryParse(File.ReadAllText(file).Trim(), out var pid))
-                return pid;
+            // Скрипт может ещё писать файл: пока он его держит, чтение отказывает, а прочитанный до конца
+            // строки номер может быть оборван.
+            try
+            {
+                if (File.Exists(file) && File.ReadAllText(file) is var text && text.EndsWith('\n')
+                    && int.TryParse(text.Trim(), out var pid))
+                    return pid;
+            }
+            catch (IOException)
+            {
+            }
             await Task.Delay(50);
         }
         throw new TimeoutException($"Проверка не дошла до скрипта кита: {file} так и не появился");

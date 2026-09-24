@@ -14,7 +14,8 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class BacklogWriteEndpointsTests : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+    // С запасом: до события идёт цепочка git, и на перегруженной машине десяти секунд не хватало (B-142).
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);
 
     private const string Backlog = """
         # Order Service — бэклог
