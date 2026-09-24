@@ -35,9 +35,12 @@ public static class GitWorktrees
             await process.WaitForExitAsync(timeout.Token);
             return process.ExitCode == 0 ? Parse(await output) : null;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
+            // И свой срок, и остановка панели гасят git и ждут его: брошенный, он держал бы файлы копии.
+            await GitRunner.KillAsync(process);
+            if (cancellationToken.IsCancellationRequested)
+                throw;
             return null;
         }
     }
