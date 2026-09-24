@@ -42,10 +42,26 @@ public static class GitWorktrees
         catch (OperationCanceledException)
         {
             // И свой срок, и остановка панели гасят git и ждут его: брошенный, он держал бы файлы копии.
-            await GitRunner.KillAsync(process);
+            // Чтение списка ничего не пишет — рвать его можно в любой момент.
+            await KillAsync(process);
             if (cancellationToken.IsCancellationRequested)
                 throw;
             return null;
+        }
+    }
+
+    /// <summary>Гасит git со всем, что он запустил, и ждёт, пока он отпустит файлы.</summary>
+    private static async Task KillAsync(Process process)
+    {
+        try
+        {
+            process.Kill(entireProcessTree: true);
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync(wait.Token);
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or OperationCanceledException)
+        {
+            // Процесс успел завершиться сам или не дался — ждать больше нечего.
         }
     }
 
