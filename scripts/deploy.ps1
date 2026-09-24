@@ -75,10 +75,12 @@ function Stop-Panel {
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
         Stop-ScheduledTask -TaskName $TaskName
     }
+    # Убитый процесс выходит мгновенно; минута — запас на перегруженную машину, а не срок освобождения
+    # каталога: тот задаёт WaitSeconds.
     foreach ($process in $running) {
         $process | Stop-Process -Force -ErrorAction SilentlyContinue
-        if (-not $process.WaitForExit($WaitSeconds * 1000)) {
-            throw "Панель (процесс $($process.Id)) не вышла за $WaitSeconds с"
+        if (-not $process.WaitForExit(60000)) {
+            throw "Панель (процесс $($process.Id)) не вышла за минуту"
         }
     }
 }

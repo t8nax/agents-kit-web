@@ -28,7 +28,9 @@ public sealed class DeployScriptTests : IDisposable
     {
         await Install("0.1.0");
         var hold = Hold(_target);
-        _ = Task.Delay(TimeSpan.FromSeconds(3)).ContinueWith(_ => hold.Dispose());
+        // Держим дольше, чем идут запуск pwsh и гашение: иначе каталог отпустили бы до первой попытки
+        // переноса, и тест не проверил бы ожидания.
+        _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => hold.Dispose());
 
         var (exitCode, output) = await Deploy(Build("0.2.0"), waitSeconds: 30);
 
@@ -66,7 +68,9 @@ public sealed class DeployScriptTests : IDisposable
         var source = Build("0.2.0");
         Hold(source);
 
-        var (exitCode, output) = await Deploy(source, waitSeconds: 2);
+        // Срок с запасом: прежний каталог после гашения должен успеть отойти, иначе срыв случился бы
+        // раньше переноса новой, мимо проверяемого пути.
+        var (exitCode, output) = await Deploy(source, waitSeconds: 30);
 
         Assert.True(exitCode != 0, output);
         await AssertRunning("0.1.0", output);
@@ -81,7 +85,7 @@ public sealed class DeployScriptTests : IDisposable
         var leftover = Directory.CreateDirectory(_target + ".old").FullName;
         Hold(leftover);
 
-        var (exitCode, output) = await Deploy(Build("0.2.0"), waitSeconds: 2);
+        var (exitCode, output) = await Deploy(Build("0.2.0"), waitSeconds: 30);
 
         Assert.True(exitCode == 0, output);
         await AssertRunning("0.2.0", output);
