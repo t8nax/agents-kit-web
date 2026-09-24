@@ -41,6 +41,15 @@ async function recordAnimations(page: Page) {
   }
 }
 
+/**
+ * Все разделы и карточки на странице дочитали данные и доиграли проявление: иначе проявление соседней
+ * карточки, которая под нагрузкой дочитала позже, попадает в запись после её сброса.
+ */
+async function settled(page: Page) {
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0)
+  await expect(page.locator('.loaded')).toHaveCount(0)
+}
+
 const skeleton = (page: Page) => page.getByRole('status', { name: 'Загрузка рабочих копий' })
 const firstBar = (page: Page, property: 'animationName' | 'backgroundColor') =>
   page.locator('.sk').first().evaluate((bar, name) => getComputedStyle(bar)[name], property)
@@ -51,15 +60,21 @@ test('заготовка мерцает, содержимое проявляет
   const animations = await recordAnimations(page)
   const release = await holdWorkspaces(page)
   await page.route('**/api/backlog', (route) => route.fulfill({ json: [] }))
+  // Часы страницы стоят, пока тест смотрит на первые доли секунды: под нагрузкой срок заготовки
+  // успевал выйти раньше, чем проверка до неё добиралась.
+  await page.clock.install()
+  await page.clock.pauseAt(Date.now() + 1000)
   await page.goto('/')
 
   // Первые доли секунды полосы держат место невидимыми, а шапка колонок уже видна
   await skeleton(page).waitFor({ state: 'attached' })
+  await page.clock.runFor(250)
   const early = await skeleton(page).evaluate((status) => ({
     head: getComputedStyle(status.querySelector('th')!).visibility,
     bar: getComputedStyle(status.querySelector('.sk')!).visibility,
   }))
   expect(early).toEqual({ head: 'visible', bar: 'hidden' })
+  await page.clock.resume()
 
   // Затянулась загрузка — полосы видны
   await expect(page.locator('.sk').first()).toBeVisible()
@@ -75,6 +90,7 @@ test('заготовка мерцает, содержимое проявляет
   const sections = page.getByRole('navigation', { name: 'Разделы панели' })
   await sections.getByRole('button', { name: 'Бэклог' }).click()
   await expect(page.getByRole('heading', { name: 'Бэклог' })).toBeVisible()
+  await settled(page)
   await animations.clear()
   await sections.getByRole('button', { name: /^Рабочие копии/ }).click()
   await expect(page.getByRole('button', { name: 'Свернуть agents-kit-web' })).toBeVisible()
@@ -123,6 +139,7 @@ test('после выбора папки в «Настройках» списо�
 
   await bases.getByRole('button', { name: 'Обзор…' }).click()
   await expect(bases.getByRole('list', { name: 'Папки' })).toBeVisible()
+  await settled(page)
   await animations.clear()
   await bases.getByRole('button', { name: 'К списку баз' }).click()
   await expect(bases.getByRole('list', { name: 'Базы знаний' })).toBeVisible()
