@@ -419,6 +419,9 @@ test('новая переписка, начатая, пока окно спра�
   const held = new Promise<void>((resolve) => (release = resolve))
   let holding = false
   let asking = false
+  // Окно разобрало задержанный ответ: следом тем же ходом оно решает, дочитывать ли прежний разговор.
+  let parsed!: () => void
+  const decided = new Promise<void>((resolve) => (parsed = resolve))
   const streams: string[] = []
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
     if (url.startsWith('/api/agent/ask/stream')) streams.push(url)
@@ -426,6 +429,8 @@ test('новая переписка, начатая, пока окно спра�
     if (holding && url === '/api/agent/requests') {
       asking = true
       await held
+      const json = response.json.bind(response)
+      response.json = () => json().finally(parsed)
     }
     return response
   })
@@ -443,9 +448,12 @@ test('новая переписка, начатая, пока окно спра�
   fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
   release()
 
-  // Ответ панели разобран, и окно решило, дочитывать ли прежний разговор: без проверки отмены оно
-  // успевает за это время спросить поток прежнего разговора.
-  await act(() => new Promise((wake) => setTimeout(wake, 50)))
+  // Ответ панели разобран, и ход окна после него доигран: без проверки отмены оно в этом ходе спросило бы
+  // поток прежнего разговора.
+  await act(async () => {
+    await decided
+    await new Promise((wake) => setTimeout(wake, 0))
+  })
   expect(streams).toHaveLength(read)
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   expect(screen.getByLabelText('Вопрос')).toHaveValue('')
@@ -473,7 +481,7 @@ test('сбой, пришедший в дочитанный поток, возв�
   reconnected = true
   first.close()
 
-  await vi.waitFor(() => next.send({ type: 'error', text: 'Чудо-Юдо завершился без ответа' }))
+  next.send({ type: 'error', text: 'Чудо-Юдо завершился без ответа' })
   expect(await screen.findByRole('alert')).toHaveTextContent('Чудо-Юдо завершился без ответа')
   expect(screen.getByRole('textbox')).toHaveValue('Вопрос')
 })

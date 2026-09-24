@@ -233,8 +233,8 @@ test('кнопки подвала одного размера и на своих
   }
 
   const dialog = await openAsk(page)
-  // Места кнопок сличаются между замерами: все они идут на догруженном шрифте.
-  await page.evaluate(() => document.fonts.ready)
+  // Места кнопок сличаются между замерами: все они идут на догруженном шрифте панели.
+  await page.evaluate(() => document.fonts.load('14px "Inter Variable"'))
   const idle = await pair()
 
   await dialog.getByLabel('Вопрос').fill('Вопрос')
@@ -323,8 +323,9 @@ test('пока агент думает, идёт счётчик, а «Отмен
 
   const waiting = dialog.getByRole('status')
   await expect(waiting).toContainText('Чудо-Юдо читает базу и код Agents Kit Web…')
-  // Счётчик пошёл: под нагрузкой проверка застаёт его и позже первой секунды.
-  await expect(waiting.getByLabel('Прошло времени')).toHaveText(/^0:(0[1-9]|[1-5]\d)$/)
+  // Счётчик пошёл от реплики: под нагрузкой проверка застаёт его и позже первой секунды, но не дальше
+  // своего окна ожидания.
+  await expect(waiting.getByLabel('Прошло времени')).toHaveText(/^0:0[1-9]$/)
 
   await dialog.getByRole('button', { name: 'Отменить' }).click()
   panel.answer({ type: 'stopped', text: 'Чудо-Юдо остановлен: ответа на эту реплику не будет' })
