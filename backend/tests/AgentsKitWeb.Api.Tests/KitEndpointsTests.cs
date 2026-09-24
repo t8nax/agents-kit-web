@@ -200,6 +200,55 @@ public sealed class KitEndpointsTests : IDisposable
         Assert.Equal(new KitResponse(kit, true, "0.10.3"), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
     }
 
+    [Fact]
+    public async Task Kit_PluginInTwoScopes_OlderInstallIsNotOffered()
+    {
+        var user = PluginKit("0.3.0");
+        var project = PluginKit("0.2.0");
+        InstallPlugins(user, project);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(user));
+
+        Assert.Equal(new KitResponse(user, true, "0.3.0", true), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    [Fact]
+    public async Task Kit_SeveralNewerInstalls_OffersNewest()
+    {
+        var old = PluginKit("0.2.0");
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(old));
+        var newest = PluginKit("0.10.0");
+        InstallPlugins(PluginKit("0.9.1"), newest);
+
+        Assert.Equal(new KitVersion(newest, "0.10.0"), (await Client.GetFromJsonAsync<KitResponse>("/api/kit"))!.Update);
+    }
+
+    [Fact]
+    public async Task Kit_FolderNextToOtherPlugin_IsNotPlugin()
+    {
+        var projects = Path.Combine(_root, "projects");
+        var kit = TestKit.Create(Path.Combine(projects, "agents-kit"));
+        var other = Directory.CreateDirectory(Path.Combine(projects, "other-plugin")).FullName;
+        InstallPlugins(other);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+
+        Assert.Equal(new KitResponse(kit, true), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[]")]
+    [InlineData("{ \"version\": 3 }")]
+    [InlineData("{ \"name\": \"agents-kit\" }")]
+    public async Task Kit_PluginDescriptionUnreadable_VersionIsUnknown(string description)
+    {
+        var kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
+        Directory.CreateDirectory(Path.Combine(kit, ".claude-plugin"));
+        File.WriteAllText(Path.Combine(kit, ".claude-plugin", "plugin.json"), description);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+
+        Assert.Equal(new KitResponse(kit, true), await Client.GetFromJsonAsync<KitResponse>("/api/kit"));
+    }
+
     [Theory]
     [InlineData("not json")]
     [InlineData("[]")]
@@ -229,15 +278,20 @@ public sealed class KitEndpointsTests : IDisposable
     }
 
     /// <summary>Записывает installed_plugins.json так, как его оставляет установка или обновление плагина.</summary>
-    private void InstallPlugins(string kit) =>
-        File.WriteAllText(Path.Combine(_claude, "plugins", "installed_plugins.json"), System.Text.Json.JsonSerializer.Serialize(new
+    private void InstallPlugins(params string[] kits)
+    {
+        var plugins = Directory.CreateDirectory(Path.Combine(_claude, "plugins")).FullName;
+        File.WriteAllText(Path.Combine(plugins, "installed_plugins.json"), System.Text.Json.JsonSerializer.Serialize(new
         {
             version = 2,
             plugins = new Dictionary<string, object[]>
             {
-                ["agents-kit@kits"] = [new { scope = "user", installPath = kit, version = Path.GetFileName(kit) }],
+                ["agents-kit@kits"] = kits
+                    .Select(kit => (object)new { scope = "user", installPath = kit, version = Path.GetFileName(kit) })
+                    .ToArray(),
             },
         }));
+    }
 
     private WebApplicationFactory<Program> FactoryWithClaudeDir(string claudeDir) =>
         _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
