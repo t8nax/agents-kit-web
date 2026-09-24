@@ -58,7 +58,7 @@ test('дождавшийся итог показан своими словами
   stubRequests([rewriting])
   render(<AgentBar onOpen={() => {}} />)
 
-  expect(await screen.findByRole('button', { name: /Чудо-Юдо переписал этапы Nota/ })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /Чудо-Юдо ответил по флоу Nota/ })).toBeInTheDocument()
 })
 
 test('несколько просьб разворачиваются списком, строка открывает свою', async () => {
@@ -73,7 +73,7 @@ test('несколько просьб разворачиваются списк�
   expect(within(list).getByText('Добавь ревью перед мержем')).toBeInTheDocument()
   expect(within(list).getByText('готов')).toBeInTheDocument()
 
-  fireEvent.click(within(list).getByText('Чудо-Юдо переписал этапы Nota'))
+  fireEvent.click(within(list).getByText('Чудо-Юдо ответил по флоу Nota'))
 
   expect(opened).toEqual([rewriting])
   expect(screen.queryByRole('list', { name: 'Просьбы' })).not.toBeInTheDocument()
