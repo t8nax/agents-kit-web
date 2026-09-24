@@ -15,13 +15,16 @@ export type RewriteEvent =
 type Props = {
   base: string
   project: string
-  /** Стадии раздела такими, какими их видно, с несохранёнными правками: их агент и получает. */
+  /** Стадии проекта такими, какие они в базе: их агент и получает, а принятые правки пишутся поверх них. */
   stages: FlowStage[]
   /** Значок стадии — тот же, что на карточке вкладки «Стадии». */
   mark: (title: string) => ReactNode
   /** Строка о сценариях, которые заденет правка стадии; null — стадия стоит не больше чем в одном. */
   scope: (title: string) => string | null
-  onApply: (stages: RewrittenStage[]) => void
+  /** Задачи, которые держат стадию: её не править, пока они в работе, и к просьбе она не добавляется (B-226). */
+  locked: (title: string) => string[] | null
+  /** Записать принятые стадии в базу; вернуть, почему не записались, или null. */
+  onApply: (stages: RewrittenStage[]) => Promise<string | null>
   onClose: () => void
 }
 
@@ -56,13 +59,16 @@ const sameStage = (one: FlowStage, other: FlowStage) =>
   (one.description ?? null) === (other.description ?? null) &&
   (one.helpers ?? []).join(', ') === (other.helpers ?? []).join(', ')
 
-export default function FlowRewriteModal({ base, project, stages, mark, scope, onApply, onClose }: Props) {
+export default function FlowRewriteModal({ base, project, stages, mark, scope, locked, onApply, onClose }: Props) {
   const [wish, setWish] = useState('')
   // Стадии контекста — по названию: список раздела на время окна не меняется.
   const [context, setContext] = useState<string[]>([])
   const [picking, setPicking] = useState(false)
   // Описание стадии читается своим окном поверх разбора: в карточке стоит только кнопка.
   const [description, setDescription] = useState<{ title: string; text: string } | null>(null)
+  // Принятые правки пишутся: окно не закрывается, пока запись не кончилась, — иначе отказ записи был бы некому
+  // показать, а итог агента пропал бы вместе с окном.
+  const [applying, setApplying] = useState(false)
   // Просьба живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу с начала.
   // Своя просьба — только своего проекта: ответ про стадии другого лёг бы на одноимённые стадии этого.
   const { asked, request, steps: agentSteps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure } =
@@ -73,11 +79,12 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
       if (event.key !== 'Escape') return
       if (description) setDescription(null)
       else if (picking) setPicking(false)
-      else onClose()
+      // Пока правки пишутся, окно не закрывается; вложенное чтение описания и выбор стадий записи не мешают.
+      else if (!applying) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, description, picking])
+  }, [onClose, description, picking, applying])
 
   const picked = context
     .map((title) => stages.find((stage) => norm(stage.title) === norm(title)))
@@ -137,12 +144,31 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
   }
   const untouched = changes.filter((change) => change.kind === 'same')
 
+  // Стадию, которую держат задачи в работе, не записать: ответ про неё принять нельзя, и окно говорит почему.
+  const held = changed.flatMap((change) => {
+    const tasks = change.of === null ? null : locked(change.of)
+    return tasks ? [`«${change.of}» — ${tasks.join(', ')}`] : []
+  })
+  const [applyFailure, setApplyFailure] = useState<string | null>(null)
+
+  /**
+   * Принятые правки пишутся в базу сразу; просьба снимается, только когда запись прошла. Не прошла — итог
+   * остаётся в окне с причиной: ответ агента не пропадает, его можно принять снова или отказаться (B-226).
+   */
   async function apply() {
     const taken = rewritten?.stages.filter((one) =>
       changed.some((change) => change.stage === one.stage),
     )
+    setApplying(true)
+    setApplyFailure(null)
+    const failed = await onApply(taken ?? [])
+    setApplying(false)
+    if (failed) {
+      setApplyFailure(failed)
+      return
+    }
     await forget()
-    onApply(taken ?? [])
+    onClose()
   }
 
   async function close() {
@@ -159,7 +185,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
     setContext((now) => (now.includes(title) ? now.filter((one) => one !== title) : [...now, title]))
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && !applying && onClose()}>
       <div
         className="modal-wizard ask-modal"
         role="dialog"
@@ -170,7 +196,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
           <div className="ask-title">
             <RewriteIcon />
             <h2>Переписать с {AGENT_NAME}</h2>
-            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onClose}>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть" disabled={applying} onClick={onClose}>
               <CloseIcon />
             </button>
           </div>
@@ -210,7 +236,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                     <PlusIcon />
                     Стадии
                   </button>
-                  {/* В черновике до «Сохранить» названия могут совпасть: ключ — с местом стадии. */}
+                  {/* Названия в списке могут совпасть, пока стадия правится: ключ — с местом стадии. */}
                   {picked.map((stage, i) => (
                     <span key={`${i}-${stage.title}`} className="rewrite-token">
                       {mark(stage.title)}
@@ -231,6 +257,7 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
                     stages={stages}
                     chosen={context}
                     mark={mark}
+                    locked={locked}
                     onToggle={toggle}
                     onClose={() => setPicking(false)}
                   />
@@ -323,6 +350,19 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
             </div>
           )}
 
+          {rewritten && phase === 'rewritten' && held.length > 0 && (
+            <div className="ask-error" role="alert">
+              <strong>Правки не записать: стадии заняты задачами в работе</strong>
+              <span>{held.join('; ')}. Пока задачи идут, эти стадии не правятся.</span>
+            </div>
+          )}
+          {rewritten && phase === 'rewritten' && applyFailure && (
+            <div className="ask-error" role="alert">
+              <strong>Правки не записаны</strong>
+              <span>{applyFailure}</span>
+            </div>
+          )}
+
           {phase === 'failed' && (
             <div className="ask-error" role="alert">
               <strong>{AGENT_NAME} не переписал стадии</strong>
@@ -333,11 +373,11 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
         </div>
 
         <div className="modal-footer ask-footer">
-          {/* Не подсказка, а состояние: пока правки не сохранены, стадии базы прежние. */}
+          {/* Не подсказка, а состояние: пока правки не приняты, стадии базы прежние. */}
           {phase === 'rewritten' && (
             <span className="ask-hint">
               <LockIcon />
-              Стадии в базе не записаны: правки лягут в черновик, сохранит их кнопка «Сохранить»
+              Стадии в базе ещё не изменены: «Принять правки» запишет их сразу
             </span>
           )}
           <div className="footer-right">
@@ -353,16 +393,16 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
             )}
             {rewritten && phase === 'rewritten' && (
               <>
-                <button type="button" className="btn" onClick={() => void close()}>
+                <button type="button" className="btn" disabled={applying} onClick={() => void close()}>
                   Отказаться
                 </button>
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={changed.length === 0}
+                  disabled={changed.length === 0 || held.length > 0 || applying}
                   onClick={() => void apply()}
                 >
-                  Принять правки
+                  {applying ? 'Запись…' : 'Принять правки'}
                 </button>
               </>
             )}
@@ -410,17 +450,22 @@ export default function FlowRewriteModal({ base, project, stages, mark, scope, o
   )
 }
 
-/** Список стадий проекта под кнопкой «Стадии»: поиск по названию, галочка добавляет стадию в просьбу. */
+/**
+ * Список стадий проекта под кнопкой «Стадии»: поиск по названию, галочка добавляет стадию в просьбу. Занятая
+ * задачами стадия погашена и называет их: переписанную её было бы не записать (макет B-226).
+ */
 function StagePicker({
   stages,
   chosen,
   mark,
+  locked,
   onToggle,
   onClose,
 }: {
   stages: FlowStage[]
   chosen: string[]
   mark: (title: string) => ReactNode
+  locked: (title: string) => string[] | null
   onToggle: (title: string) => void
   onClose: () => void
 }) {
@@ -451,16 +496,18 @@ function StagePicker({
         {found.length === 0 && <p className="rewrite-picker-empty">Стадий с таким названием нет</p>}
         {found.map((stage, i) => {
           const on = chosen.includes(stage.title)
+          const held = locked(stage.title)
           return (
             <div
               key={`${i}-${stage.title}`}
               role="option"
               aria-selected={on}
-              tabIndex={0}
-              className="rewrite-picker-row"
-              onClick={() => onToggle(stage.title)}
+              aria-disabled={held ? true : undefined}
+              tabIndex={held ? -1 : 0}
+              className={`rewrite-picker-row ${held ? 'is-off' : ''}`}
+              onClick={() => !held && onToggle(stage.title)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if (!held && (e.key === 'Enter' || e.key === ' ')) {
                   e.preventDefault()
                   onToggle(stage.title)
                 }
@@ -470,7 +517,15 @@ function StagePicker({
                 {on && <CheckIcon />}
               </span>
               {mark(stage.title)}
-              <span className="rewrite-picker-title">{stage.title}</span>
+              <span className="rewrite-picker-title">
+                <span>{stage.title}</span>
+                {held && (
+                  <span className="rewrite-why">
+                    <LockIcon />
+                    занята: {held.join(', ')}
+                  </span>
+                )}
+              </span>
               <span className="flow-stage-badge">{stage.executor || 'субагент'}</span>
             </div>
           )

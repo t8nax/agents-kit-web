@@ -86,7 +86,7 @@ public sealed class FlowEndpointsTests : IDisposable
         var flow = Assert.Single(flows, f => f.Base == _base);
         Assert.Equal("App", flow.Project);
         Assert.Null(flow.Error);
-        Assert.Equal(2, flow.ActiveTasks);
+        Assert.Equal(2, flow.Tasks!.Count);
         Assert.NotNull(flow.Version);
         Assert.Equal(["Приёмка", "Критерий"], flow.Stages.Select(s => s.Title));
         Assert.Equal("acceptance", flow.Stages[0].Slug);
@@ -103,6 +103,31 @@ public sealed class FlowEndpointsTests : IDisposable
             Assert.NotNull(none.Version);
         }
         Assert.Equal("База не найдена на диске", Assert.Single(flows, f => f.Base == missing).Error);
+    }
+
+    [Fact]
+    public async Task Flow_NamesTaskInWorkByBacklogNumberWithTheFlowItGoesBy()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        // Флоу памяти сравнивается, как у кита: без регистра и со схлопнутыми пробелами.
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу:  Полный \n");
+        File.WriteAllText(Path.Combine(_base, "work", "b.md"), "# Задача без номера\nрабочая копия: D:\\b\nфлоу: старый\n");
+        File.WriteAllText(Path.Combine(_base, "work", "c.md"), "рабочая копия: D:\\c\n");
+        // Слово вида номера с чужими буквами номером не становится: у проекта буквы B. Память кита 0.10 называет
+        // сценарий строкой «сценарий:».
+        File.WriteAllText(Path.Combine(_base, "work", "d.md"), "# UTF-8 в выгрузке\nрабочая копия: D:\\d\nсценарий: полный\n");
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
+
+        var flow = Assert.Single(await GetFlows(Client(_base)));
+
+        Assert.Equal(
+            [
+                new FlowTask("B-7", "полный", "Полный"),
+                new FlowTask("UTF-8 в выгрузке", "полный", "полный"),
+                new FlowTask("c", null),
+                new FlowTask("Задача без номера", null, "старый"),
+            ],
+            flow.Tasks);
     }
 
     [Fact]
@@ -261,6 +286,98 @@ public sealed class FlowEndpointsTests : IDisposable
         {
             File.SetAttributes(_listPath, FileAttributes.Normal);
         }
+    }
+
+    [Fact]
+    public async Task Save_TouchingFlowTaskGoesByOrItsStage_IsRejectedAndTheRestIsWritten()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: мелкий\n");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+
+        // «Приёмка» стоит и в свободном «полном», но занятый «мелкий» держит её для всех флоу.
+        var stage = await Save(client, flow, flow.Stages.Select(s => s.Title == "Приёмка" ? s with { Output = "принято" } : s).ToList());
+        var list = await Save(client, flow, flow.Stages, [flow.Flows[0], flow.Flows[1] with { When = "другое" }]);
+        var gone = await Save(client, flow, flow.Stages, [flow.Flows[0]]);
+
+        var stages = new List<string?>();
+        foreach (var response in new[] { stage, list, gone })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            var rejected = (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
+            Assert.Equal(("busy", "мелкий", "B-7"), (rejected.Problem, rejected.Flow, rejected.Detail));
+            stages.Add(rejected.Stage);
+        }
+        Assert.Equal(["Приёмка", null, null], stages);
+        Assert.Equal(Acceptance.ReplaceLineEndings("\n"), File.ReadAllText(Stage("acceptance")));
+        Assert.Equal(List.ReplaceLineEndings("\n"), File.ReadAllText(_listPath));
+
+        // Свободное пишется: стадия только свободного флоу и новый флоу.
+        var free = await Save(client, flow,
+            flow.Stages.Select(s => s.Title == "Критерий" ? s with { Output = "критерий" } : s).ToList(),
+            [.. flow.Flows, new NamedFlow("новый", "другое", [new FlowEntry("Критерий")])]);
+
+        Assert.Equal(HttpStatusCode.OK, free.StatusCode);
+        Assert.Contains("выход: критерий\n", File.ReadAllText(Stage("criterion")));
+        Assert.Contains("## новый", File.ReadAllText(_listPath));
+    }
+
+    [Fact]
+    public async Task Save_BusyOnlyFlowWithoutWhen_TakesWhenOnlyAlongsideNewFlow()
+    {
+        // Один флоу — «когда» кит у него не требует
+        File.WriteAllText(_listPath, "# App — флоу\n\n## полный\n1. [Критерий](stages/criterion.md)\n2. [Приёмка](stages/acceptance.md)\n");
+        TestGit.Run(_base, "commit", "-am", "один флоу");
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка\nрабочая копия: D:\\a\nфлоу: полный\n");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+        var busy = flow.Flows[0];
+        var fresh = new NamedFlow("срочный", "ошибка на панели", [new FlowEntry("Критерий")]);
+
+        // «Когда» без нового флоу и «когда» вместе с другой правкой занятого — отказ
+        var whenAlone = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }]);
+        var whenAndOrder = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача", Entries = [.. busy.Entries.Reverse()] }, fresh]);
+        foreach (var rejected in new[] { whenAlone, whenAndOrder })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
+            Assert.Equal("busy", (await rejected.Content.ReadFromJsonAsync<FlowRejectedResponse>())!.Problem);
+        }
+
+        var withNew = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }, fresh]);
+
+        Assert.Equal(HttpStatusCode.OK, withNew.StatusCode);
+        var list = File.ReadAllText(_listPath);
+        Assert.Contains("когда: обычная задача", list);
+        Assert.Contains("## срочный", list);
+    }
+
+    [Fact]
+    public async Task Save_TaskWithUnknownFlow_HoldsEveryFlowAndStageButNotNewOnes()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
+        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: переименованный\n");
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+
+        var stage = await Save(client, flow, flow.Stages.Select(s => s.Title == "Критерий" ? s with { Output = "критерий" } : s).ToList());
+
+        Assert.Equal(HttpStatusCode.Conflict, stage.StatusCode);
+        var rejected = (await stage.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
+        Assert.Equal(("busy", null, "Критерий", "B-7"), (rejected.Problem, rejected.Flow, rejected.Stage, rejected.Detail));
+
+        // Отказ по флоу не называет флоу: про задачу с неузнанным флоу неизвестно, что она идёт по нему
+        var list = await Save(client, flow, flow.Stages, [flow.Flows[0] with { When = "другое" }, flow.Flows[1]]);
+        var flowRejected = (await list.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
+        Assert.Equal(("busy", null, "B-7"), (flowRejected.Problem, flowRejected.Flow, flowRejected.Detail));
+
+        var fresh = await Save(client, flow, [.. flow.Stages, new FlowStage("Мерж", "оркестратор", "смержено", null, null)]);
+
+        Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(_base, "flow", "stages")).Length);
     }
 
     [Fact]

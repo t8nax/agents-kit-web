@@ -29,8 +29,8 @@ function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: Retur
   return stubPanel('flow', stream, { running, project: 'Agents Kit Web' })
 }
 
-function renderModal() {
-  const onApply = vi.fn()
+function renderModal(apply: () => Promise<string | null> = async () => null) {
+  const onApply = vi.fn(apply)
   const onClose = vi.fn()
   const view = render(
     <FlowRewriteModal
@@ -41,6 +41,8 @@ function renderModal() {
       scope={(title) =>
         title === 'Ревью' ? 'Стадия стоит в сценариях «полный» и «быстрый» — правка изменит её в обоих.' : null
       }
+      // Приёмку держат задачи в работе: к просьбе её не добавить
+      locked={(title) => (title === 'Приёмка' ? ['B-7', 'B-9'] : null)}
       onApply={onApply}
       onClose={onClose}
     />,
@@ -106,6 +108,23 @@ test('стадии добавляются в контекст списком с 
 
   fireEvent.click(screen.getByRole('button', { name: 'Убрать «Мерж»' }))
   fireEvent.click(screen.getByRole('button', { name: 'Убрать «Ревью»' }))
+  expect(screen.getByRole('button', { name: 'Написать стадию' })).toBeInTheDocument()
+})
+
+test('стадия, которую держат задачи в работе, в списке погашена, названы задачи, и к просьбе она не добавляется', async () => {
+  stubFetch(controlledStream())
+  renderModal()
+  await write('Поправь приёмку')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Стадии' }))
+  const held = within(screen.getByRole('listbox', { name: 'Стадии проекта' })).getByRole('option', { name: /Приёмка/ })
+  expect(held).toHaveAttribute('aria-disabled', 'true')
+  expect(held).toHaveTextContent('занята: B-7, B-9')
+  fireEvent.click(held)
+  fireEvent.keyDown(held, { key: 'Enter' })
+
+  expect(held).toHaveAttribute('aria-selected', 'false')
+  expect(screen.queryByRole('button', { name: 'Убрать «Приёмка»' })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Написать стадию' })).toBeInTheDocument()
 })
 
@@ -313,4 +332,86 @@ test('«Попросить снова» уходит со стадиями та�
 
   await waitFor(() => expect(posts).toHaveLength(1))
   expect(posts[0].body).toMatchObject({ stages: [review, stage('Запас')] })
+})
+
+test('запись, которая не прошла, оставляет итог в окне с причиной, и принять его можно снова', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  const failures = ['Флоу не сохранён: его изменили в базе, пока Чудо-Юдо работал. Раздел перечитал флоу — примите правки ещё раз.', null]
+  const { onApply, onClose } = renderModal(async () => failures.shift() ?? null)
+
+  await write('Уточни выход ревью')
+  pick('Ревью')
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
+  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Правки не записаны')
+  expect(alert).toHaveTextContent('его изменили в базе')
+  // Итог на месте, окно не закрыто
+  expect(screen.getByLabelText('Что изменилось в стадиях')).toHaveTextContent('вердикт')
+  expect(onClose).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
+  await waitFor(() => expect(onClose).toHaveBeenCalled())
+  expect(onApply).toHaveBeenCalledTimes(2)
+})
+
+test('правку занятой стадии принять нельзя: окно называет стадию и задачи', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  const { onApply } = renderModal()
+
+  await write('Поправь всё')
+  fireEvent.click(screen.getByRole('button', { name: 'Написать стадию' }))
+  // Агент переписал и занятую Приёмку: её он получает по названию среди стадий проекта
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Приёмка', stage: { ...acceptance, output: 'принято' } }] })
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('«Приёмка» — B-7, B-9')
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
+  expect(onApply).not.toHaveBeenCalled()
+})
+
+test('пока принятые правки пишутся, окно не закрыть: ни «Отказаться», ни крестиком, ни Escape', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  let finish: (failed: string | null) => void = () => undefined
+  const { onClose } = renderModal(() => new Promise((resolve) => (finish = resolve)))
+
+  await write('Уточни выход ревью')
+  pick('Ревью')
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
+  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+
+  expect(screen.getByRole('button', { name: 'Отказаться' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Закрыть' })).toBeDisabled()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(onClose).not.toHaveBeenCalled()
+
+  finish('Флоу не сохранён: нет связи с API')
+  expect(await screen.findByRole('alert')).toHaveTextContent('нет связи с API')
+  expect(screen.getByRole('button', { name: 'Отказаться' })).toBeEnabled()
+})
+
+test('пока правки пишутся, Escape закрывает вложенное описание, но не само окно', async () => {
+  const stream = controlledStream()
+  stubFetch(stream)
+  let finish: (failed: string | null) => void = () => undefined
+  const { onClose } = renderModal(() => new Promise((resolve) => (finish = resolve)))
+
+  await write('Уточни ревью')
+  pick('Ревью')
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
+  stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, description: '1. Собрать дифф.' } }] })
+  fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Открыть описание' }))
+  expect(await screen.findByRole('dialog', { name: 'Описание стадии «Ревью»' })).toBeInTheDocument()
+
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: 'Описание стадии «Ревью»' })).not.toBeInTheDocument()
+  expect(onClose).not.toHaveBeenCalled()
+  finish(null)
+  await waitFor(() => expect(onClose).toHaveBeenCalled())
 })
