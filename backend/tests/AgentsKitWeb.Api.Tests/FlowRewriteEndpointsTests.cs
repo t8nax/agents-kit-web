@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -18,7 +17,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     private const string Rules = """
         # Флоу: сценарии и этапы
 
-        ## Флоу
+        ## Сценарий
 
         Сценарии — flow/scenarios.md.
 
@@ -44,12 +43,16 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         Ты читаешь дифф ветки целиком и возвращаешь вердикт.
         """;
 
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+
     private static readonly FlowStage Review = new(
         "Ревью", "reviewer", "вердикт по sha", "правка только в текстах", "1. Собрать дифф.", Slug: "review");
 
     private static readonly FlowStage Merge = new("Мерж", "оркестратор", "sha в dev", null, null, Slug: "merge");
 
-    private const string NewDocs = "=== новый этап\n# Документация\n\nисполнитель: оператор\nвыход: раздел\n";
+    private static readonly NamedFlow Big = new(
+        "Крупные", "много работы",
+        [new FlowEntry("Ревью"), new FlowEntry("Мерж", [new StageReturn("dev ушёл", "Ревью")])]);
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
@@ -57,7 +60,8 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     private readonly string _base;
     private readonly string _copy;
     private readonly string _kit;
-    private readonly FakeAgent _agent = new();
+    private readonly TestChat _agent = new();
+    private readonly List<WebApplicationFactory<Program>> _hosts = [];
 
     public FlowRewriteEndpointsTests()
     {
@@ -77,273 +81,219 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Rewrite_StreamsStepsAndRewrittenStageOfContext()
+    public async Task Rewrite_PutsWishStepsAndAnswerIntoConversation()
     {
-        _agent.Lines =
+        _agent.Answers =
         [
-            Tool("Read", new { file_path = Path.Combine(_copy, "README.md") }),
-            Result("""
-                ```markdown
-                === этап «Ревью»
-                # Ревью
-
-                исполнитель: reviewer
-                выход: вердикт по sha проверенного коммита
-                пропуск: правка только в текстах
-
-                1. Собрать дифф всей ветки.
-                ```
-                """.ReplaceLineEndings("\n")),
+            [
+                Tool("Read", new { file_path = Path.Combine(_copy, "README.md") }),
+                Result("Документация нужна в обоих сценариях?"),
+            ],
         ];
         var client = await Client();
 
-        var events = await Rewrite(client, "Уточни выход ревью", [Review], ["Ревью", "Мерж"]);
+        await Start(client, "Добавь документацию");
+        var events = await Read(client, 3);
 
-        Assert.Equal("step", events[0].Type);
-        var rewritten = events[1];
-        Assert.Equal("rewritten", rewritten.Type);
-        var stage = Assert.Single(rewritten.Stages!);
-        Assert.Equal("Ревью", stage.Of);
-        Assert.Equal(
-            new FlowStage("Ревью", "reviewer", "вердикт по sha проверенного коммита", "правка только в текстах",
-                "1. Собрать дифф всей ветки.", Slug: "review"),
-            stage.Stage);
-        Assert.Equal(9200, rewritten.DurationMs);
-        Assert.Equal(2, events.Count);
+        Assert.Equal(new FlowRewriteEvent("reply", "Добавь документацию"), events[0]);
+        Assert.Equal("step", events[1].Type);
+        Assert.Equal("answer", events[2].Type);
+        Assert.Equal("Документация нужна в обоих сценариях?", events[2].Text);
+        Assert.Equal(9200, events[2].DurationMs);
     }
 
     [Fact]
-    public async Task Rewrite_RequestRemembersContextStages()
+    public async Task Rewrite_RunsReadOnlyConversationInMainCopyWithKitRules()
     {
-        _agent.Lines = [Result(NewDocs)];
+        _agent.Answers = [[Result("ok")]];
         var client = await Client();
 
-        await Rewrite(client, "Уточни выход ревью", [Review, Merge], ["Ревью", "Мерж"]);
+        await Start(client, "--help, напиши этап документации");
+        await Read(client, 2);
 
-        // Открытое заново окно берёт этапы просьбы из списка панели: само оно их не помнит.
-        var listed = await client.GetFromJsonAsync<List<AgentRequestSummary>>("/api/agent/requests", Json);
-        var request = Assert.Single(listed!, r => r.Kind == AgentRequests.Flow);
-        Assert.Equal([Review, Merge], request.Stages);
-    }
-
-    [Fact]
-    public async Task Rewrite_KeepsUnderlineInDescriptionAndStripsFenceAroundEachStage()
-    {
-        _agent.Lines =
-        [
-            Result("""
-                === этап «Ревью»
-                ```markdown
-                # Ревью
-
-                исполнитель: reviewer
-                выход: вердикт по sha
-
-                Порядок
-                ===
-                1. Собрать дифф.
-                ```
-                === новый этап
-                ```
-                # Документация
-
-                исполнитель: оператор
-                выход: раздел
-                ```
-                """.ReplaceLineEndings("\n")),
-        ];
-        var client = await Client();
-
-        var events = await Rewrite(client, "Уточни ревью и заведи документацию", [Review], ["Ревью", "Мерж"]);
-
-        var rewritten = Assert.Single(events);
-        Assert.Equal("rewritten", rewritten.Type);
-        Assert.Equal(2, rewritten.Stages!.Count);
-        Assert.Equal("Ревью", rewritten.Stages[0].Of);
-        Assert.Equal("Порядок\n===\n1. Собрать дифф.", rewritten.Stages[0].Stage.Description);
-        Assert.Null(rewritten.Stages[1].Of);
-        Assert.Equal("Документация", rewritten.Stages[1].Stage.Title);
-    }
-
-    [Fact]
-    public async Task Rewrite_ReadsRenamedAndNewStagesAndHelpers()
-    {
-        _agent.Lines = [Result("""
-            === этап «Мерж»
-            # Слияние
-
-            исполнитель: оркестратор
-            помощники: check-runner
-            выход: sha в dev
-
-            === новый этап
-            # Документация
-
-            исполнитель: оператор
-            выход: раздел документации
-            """.ReplaceLineEndings("\n"))];
-        var client = await Client();
-
-        var events = await Rewrite(client, "Переименуй мерж и добавь документацию", [Merge], ["Ревью", "Мерж"]);
-
-        var stages = events[^1].Stages!;
-        Assert.Equal("Мерж", stages[0].Of);
-        Assert.Equal("Слияние", stages[0].Stage.Title);
-        Assert.Equal("merge", stages[0].Stage.Slug);
-        Assert.Equal(["check-runner"], stages[0].Stage.Helpers);
-        Assert.Null(stages[1].Of);
-        Assert.Null(stages[1].Stage.Slug);
-        Assert.Equal("Документация", stages[1].Stage.Title);
-    }
-
-    [Fact]
-    public async Task Rewrite_RunsReadOnlyClaudeInMainCopyWithContextPerformersAndKitRules()
-    {
-        _agent.Lines = [Result(NewDocs)];
-        var client = await Client();
-
-        await Rewrite(client, "--help, напиши этап документации", [Review], ["Ревью", "Мерж"]);
-
-        var startInfo = _agent.StartInfo!;
+        var startInfo = Assert.Single(_agent.Starts);
         Assert.Equal("claude", startInfo.FileName);
         // Агент читает код проекта: работает он в основной копии, а базу видит по её пути.
         Assert.Equal(_copy, startInfo.WorkingDirectory);
         var args = startInfo.ArgumentList.ToList();
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
+        Assert.Equal("stream-json", args[args.IndexOf("--input-format") + 1]);
         Assert.Equal(_base, args[args.IndexOf("--add-dir") + 1]);
         Assert.DoesNotContain(args, a => a.Contains("--permission-mode"));
         Assert.DoesNotContain(args, a => a.Contains("--help"));
-        // Правила формы этапа агент получает из справки кита, а не своими словами панели.
+        // Правила формы сценария и этапа агент получает из справки кита, а не своими словами панели.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(_base, prompt);
+        Assert.Contains("Сценарии — flow/scenarios.md.", prompt);
         Assert.Contains("Ключи — закрытый перечень: исполнитель, выход, пропуск.", prompt);
         Assert.Contains("Инвариантов кита во флоу нет.", prompt);
         Assert.DoesNotContain("Два флоу с одним именем.", prompt);
-        // Этапы контекста приходят такими, какими их видно на экране, вместе с исполнителями проекта.
-        Assert.Contains("--help, напиши этап документации", _agent.Input);
-        Assert.Contains("Добавленный этап «Ревью»:\n# Ревью\n\nисполнитель: reviewer", _agent.Input);
-        Assert.Contains("Остальные этапы проекта: «Мерж»", _agent.Input);
-        Assert.Contains("- reviewer — Вычитывает дифф ветки задачи", _agent.Input);
+        var sent = Assert.Single(_agent.Input);
+        Assert.Equal("user", JsonDocument.Parse(sent).RootElement.GetProperty("type").GetString());
     }
 
     [Fact]
-    public async Task Rewrite_WithoutContext_AsksForNewStage()
+    public async Task Rewrite_LetsAgentAskAndMendWhatTheWishTouched()
     {
-        _agent.Lines = [Result(NewDocs)];
+        _agent.Answers = [[Result("ok")]];
         var client = await Client();
 
-        var events = await Rewrite(client, "Напиши этап документации", [], ["Ревью"]);
+        await Start(client, "Добавь документацию");
+        await Read(client, 2);
 
-        Assert.Contains("Этапов к просьбе не добавлено: напиши новый этап.", _agent.Input);
-        Assert.Null(Assert.Single(events[^1].Stages!).Of);
+        var args = _agent.Starts[0].ArgumentList.ToList();
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        // Прежний запрет «меняй только то, о чём просит оператор» снят (B-116 в B-242): задетое приводится в связный вид.
+        Assert.DoesNotContain("Меняй только то, о чём просит оператор", prompt);
+        Assert.Contains("поправь и его, даже если о нём", prompt);
+        Assert.Contains("спроси или скажи об этом", prompt);
+    }
+
+    [Fact]
+    public async Task Rewrite_GivesWholeFlowTasksAndPerformersInFirstReply()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(
+            Path.Combine(_base, "work", "d-app-task.md"),
+            "# Поправить вход\nрабочая копия: D:\\app-task\nсценарий: Крупные\n");
+        _agent.Answers = [[Result("ok")]];
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review, Merge], [Big]);
+        await Read(client, 2);
+
+        var input = Text(Assert.Single(_agent.Input));
+        Assert.StartsWith("Просьба оператора:\nДобавь документацию", input);
+        // Сценарии — в форме scenarios.md, этапы — файлами целиком: агент видит флоу таким, как на экране.
+        Assert.Contains(
+            "## Крупные\nкогда: много работы\n1. [Ревью](stages/review.md)\n2. [Мерж](stages/merge.md)\n   - возврат: dev ушёл — этап «Ревью»",
+            input);
+        Assert.Contains("=== stages/review.md\n# Ревью\n\nисполнитель: reviewer\nвыход: вердикт по sha", input);
+        Assert.Contains("=== stages/merge.md\n# Мерж", input);
+        Assert.Contains("- Поправить вход: идёт по сценарию «Крупные» — его и его этапы панель не запишет", input);
+        Assert.Contains("- reviewer — Вычитывает дифф ветки задачи", input);
+    }
+
+    [Fact]
+    public async Task Reply_GoesToSameAgentAsNextLine()
+    {
+        _agent.Answers = [[Result("В обоих сценариях?")], [Result("Понял.")]];
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review], [Big]);
+        await Read(client, 2);
+        Assert.Equal(HttpStatusCode.NoContent, (await Reply(client, "В обоих")).StatusCode);
+        var events = await Read(client, 4);
+
+        Assert.Equal(new FlowRewriteEvent("reply", "В обоих"), events[2]);
+        Assert.Equal("Понял.", events[3].Text);
+        Assert.Single(_agent.Starts);
+        // Следующая реплика уходит агенту своими словами: флоу он уже знает.
+        Assert.Equal("В обоих", Text(_agent.Input[1]));
+    }
+
+    [Fact]
+    public async Task Reply_AfterAgentEnded_StartsNewAgentWithFlowAsItIsNow()
+    {
+        _agent.StopAfter = 1;
+        _agent.Answers = [[Result("В обоих сценариях?")], [Result("Понял.")]];
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review], [Big]);
+        await Read(client, 2);
+        // Оператор записал правку: новый агент получает флоу таким, каким он стал к реплике.
+        var renamed = Review with { Title = "Проверка" };
+        Assert.Equal(HttpStatusCode.NoContent, (await Reply(client, "В обоих", [renamed], [])).StatusCode);
+        var events = await Read(client, 5);
+
+        Assert.Equal("note", events[2].Type);
+        Assert.Equal(new FlowRewriteEvent("reply", "В обоих"), events[3]);
+        Assert.Equal(2, _agent.Starts.Count);
+        var input = Text(_agent.Input[1]);
+        Assert.StartsWith("Просьба оператора:\nВ обоих", input);
+        Assert.Contains("# Проверка", input);
+    }
+
+    [Fact]
+    public async Task Stop_BreaksAnswerButKeepsConversation()
+    {
+        var gate = new TaskCompletionSource();
+        _agent.Answers = [[Result("не дойдёт")]];
+        _agent.BeforeLine = _ => gate.Task;
+        var client = await Client();
+
+        await Start(client, "Добавь документацию");
+        await Until(async () => (await client.PostAsync("/api/flow/rewrite/stop", null)).StatusCode == HttpStatusCode.NoContent);
+        var events = await Read(client, 2);
+
+        Assert.Equal("stopped", events[1].Type);
+        Assert.True(await _agent.CancelledWithin(Wait));
     }
 
     [Fact]
     public async Task Rewrite_WithoutMainCopy_RunsInBase()
     {
         File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
-        _agent.Lines = [Result(NewDocs)];
+        _agent.Answers = [[Result("ok")]];
         var client = await Client();
 
-        await Rewrite(client, "Напиши этап документации", [], []);
+        await Start(client, "Напиши этап документации");
+        await Read(client, 2);
 
-        Assert.Equal(_base, _agent.StartInfo!.WorkingDirectory);
-        Assert.DoesNotContain("--add-dir", _agent.StartInfo.ArgumentList);
+        Assert.Equal(_base, _agent.Starts[0].WorkingDirectory);
+        Assert.DoesNotContain("--add-dir", _agent.Starts[0].ArgumentList);
     }
 
     [Fact]
     public async Task Rewrite_LeavesBaseAsItWas()
     {
-        _agent.Lines = [Result(NewDocs)];
+        _agent.Answers = [[Result("=== новый этап\n# Документация\n\nисполнитель: оператор\nвыход: раздел\n")]];
         var client = await Client();
 
-        var events = await Rewrite(client, "Напиши этап", [], []);
+        await Start(client, "Напиши этап");
+        await Read(client, 2);
 
-        Assert.Equal("rewritten", events[^1].Type);
         Assert.False(Directory.Exists(Path.Combine(_base, "flow")));
-    }
-
-    [Theory]
-    [InlineData("Готово, я поправил ревью.", "Чудо-Юдо вернул не этап: этапов в его ответе нет")]
-    [InlineData("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\nвыход: есть\n", "Чудо-Юдо вернул этап «Сборка», которого в просьбе не было")]
-    [InlineData("=== Ревью\n# Ревью\n\nисполнитель: оператор\nвыход: есть\n", "Чудо-Юдо вернул этап без пометки, какой он переписал: «=== Ревью»")]
-    // Кривая пометка второго этапа не вклеивается в описание первого, а названа.
-    [InlineData("=== этап «Ревью»\n# Ревью\n\nисполнитель: оператор\nвыход: есть\n\nОписание.\n=== этап «Мерж» (изменена)\n# Мерж\n\nисполнитель: оператор\nвыход: есть\n", "Чудо-Юдо вернул этап без пометки, какой он переписал: «=== этап «Мерж» (изменена)»")]
-    [InlineData("=== этап «Ревью»\n# Ревью\n\nисполнитель: оператор\n", "Этап «Ревью» вернулся не в форме кита: не указан выход")]
-    [InlineData("=== этап «Ревью»\n# Ревью\n\nисполнитель: оператор\nвыход: есть\nвозврат: красное\n", "Этап «Ревью» вернулся не в форме кита: строка 5: ключ вне перечня «возврат: красное»")]
-    [InlineData("=== новый этап\n# Мерж\n\nисполнитель: оператор\nвыход: есть\n", "Этап «Мерж» вернулся с названием, которое у проекта уже есть")]
-    public async Task Rewrite_RejectsAnswerThatKitWouldNotAccept(string answer, string expected)
-    {
-        _agent.Lines = [Result(answer)];
-        var client = await Client();
-
-        var events = await Rewrite(client, "Поправь ревью", [Review], ["Ревью", "Мерж"]);
-
-        var error = Assert.Single(events);
-        Assert.Equal("error", error.Type);
-        Assert.Equal(expected, error.Text);
-        Assert.Equal(answer, error.Output);
-        Assert.Null(error.Stages);
-    }
-
-    [Fact]
-    public async Task Rewrite_TitleFreedByRewrittenStage_CanGoToNewStage()
-    {
-        _agent.Lines = [Result("""
-            === этап «Ревью»
-            # Проверка
-
-            исполнитель: reviewer
-            выход: вердикт
-
-            === новый этап
-            # Ревью
-
-            исполнитель: reviewer
-            выход: вердикт второго круга
-            """.ReplaceLineEndings("\n"))];
-        var client = await Client();
-
-        var events = await Rewrite(client, "Разбей ревью на две", [Review], ["Ревью", "Мерж"]);
-
-        Assert.Equal("rewritten", events[^1].Type);
     }
 
     [Fact]
     public async Task Rewrite_WithoutKitRules_DoesNotRunAgent()
     {
-        _agent.Lines = [Result(NewDocs)];
+        var client = await Client(withKit: false);
 
-        var events = await Rewrite(await Client(withKit: false), "Напиши этап", [], []);
+        using var response = await client.SendAsync(Post(_base, "Напиши этап"));
 
-        var error = Assert.Single(events);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        var error = (await response.Content.ReadFromJsonAsync<FlowRewriteEvent>(Json))!;
         Assert.Contains("правила формы этапа", error.Text);
         Assert.Contains(FlowRules.RulesFile, error.Text);
-        Assert.Null(_agent.StartInfo);
+        Assert.Empty(_agent.Starts);
     }
 
     [Fact]
     public async Task Rewrite_ReportsAgentThatDidNotStart()
     {
+        _agent.StopAfter = 0;
         _agent.Exit = new AgentExit(null, "Не удаётся найти указанный файл");
         var client = await Client();
 
-        var events = await Rewrite(client, "Напиши этап", [], []);
+        await Start(client, "Напиши этап");
+        var events = await Read(client, 2);
 
-        var error = Assert.Single(events);
-        Assert.Equal("Claude Code не запустился", error.Text);
-        Assert.Equal("Не удаётся найти указанный файл", error.Output);
+        Assert.Equal("Claude Code не запустился", events[1].Text);
+        Assert.Equal("Не удаётся найти указанный файл", events[1].Output);
     }
 
     [Fact]
-    public async Task Rewrite_RejectsBaseOutsideListAndEmptyWish()
+    public async Task Rewrite_RejectsBaseOutsideListEmptyWishAndReplyWithoutConversation()
     {
         var other = Directory.CreateDirectory(Path.Combine(_root, "other")).FullName;
         var client = await Client();
 
-        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Post(other, "Напиши этап", [], []))).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(Post(_base, "  ", [], []))).StatusCode);
-        Assert.Null(_agent.StartInfo);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Post(other, "Напиши этап"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(Post(_base, "  "))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Reply(client, "ещё")).StatusCode);
+        Assert.Empty(_agent.Starts);
     }
 
     [Theory]
@@ -356,6 +306,8 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var host in _hosts)
+            TestHost.Stop(host);
         try
         {
             // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
@@ -383,26 +335,52 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         result = text,
     });
 
-    private static HttpRequestMessage Post(string basePath, string wish, FlowStage[] stages, string[] titles) =>
+    /// <summary>Текст реплики, ушедшей агенту строкой stream-json.</summary>
+    private static string Text(string line) =>
+        JsonDocument.Parse(line).RootElement.GetProperty("message").GetProperty("content")[0].GetProperty("text").GetString()!;
+
+    private static HttpRequestMessage Post(string basePath, string wish, FlowStage[]? stages = null, NamedFlow[]? flows = null) =>
         new(HttpMethod.Post, "/api/flow/rewrite")
         {
-            Content = JsonContent.Create(new FlowRewriteRequest(basePath, wish, stages, titles)),
+            Content = JsonContent.Create(new FlowRewriteRequest(basePath, wish, stages ?? [], flows ?? [])),
         };
 
-    /// <summary>Как окно: просьба заводится POST, а ход и итог читаются её потоком с начала.</summary>
-    private async Task<List<FlowRewriteEvent>> Rewrite(HttpClient client, string wish, FlowStage[] stages, string[] titles)
+    private async Task Start(HttpClient client, string wish, FlowStage[]? stages = null, NamedFlow[]? flows = null)
     {
-        using var started = await client.SendAsync(Post(_base, wish, stages, titles));
+        using var started = await client.SendAsync(Post(_base, wish, stages, flows));
         Assert.Equal(HttpStatusCode.OK, started.StatusCode);
-        var body = await client.GetStringAsync("/api/agent/flow/stream?from=0");
-        return body.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => JsonSerializer.Deserialize<FlowRewriteEvent>(line, Json)!)
-            .ToList();
+    }
+
+    private static Task<HttpResponseMessage> Reply(
+        HttpClient client, string text, FlowStage[]? stages = null, NamedFlow[]? flows = null) =>
+        client.PostAsJsonAsync("/api/flow/rewrite/reply", new FlowRewriteReply(text, stages, flows));
+
+    /// <summary>Как окно: переписка читается потоком просьбы с начала и ждёт следующих событий в нём же.</summary>
+    private static async Task<List<FlowRewriteEvent>> Read(HttpClient client, int count)
+    {
+        using var response = await client.GetAsync("/api/agent/flow/stream?from=0", HttpCompletionOption.ResponseHeadersRead);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync());
+        var events = new List<FlowRewriteEvent>();
+        while (events.Count < count)
+        {
+            var line = await reader.ReadLineAsync().WaitAsync(Wait);
+            Assert.NotNull(line);
+            if (line.Trim().Length > 0)
+                events.Add(JsonSerializer.Deserialize<FlowRewriteEvent>(line, Json)!);
+        }
+        return events;
+    }
+
+    private static async Task Until(Func<Task<bool>> condition)
+    {
+        using var deadline = new CancellationTokenSource(Wait);
+        while (!await condition())
+            await Task.Delay(20, deadline.Token);
     }
 
     private async Task<HttpClient> Client(bool withKit = true)
     {
-        var client = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        var host = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -412,31 +390,15 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
             // Настоящий claude в прогоне не запускается: проверяется, как панель его зовёт и читает вывод.
             builder.ConfigureServices(services =>
             {
-                services.RemoveAll<IAgentProcess>();
-                services.AddSingleton<IAgentProcess>(_agent);
+                services.RemoveAll<IAgentChat>();
+                services.AddSingleton<IAgentChat>(_agent);
             });
-        }).CreateClient();
+        });
+        _hosts.Add(host);
+        var client = host.CreateClient();
 
         if (withKit)
             (await client.PutAsJsonAsync("/api/kit", new SetKitRequest(_kit))).EnsureSuccessStatusCode();
         return client;
-    }
-
-    private sealed class FakeAgent : IAgentProcess
-    {
-        public IReadOnlyList<string> Lines { get; set; } = [];
-        public AgentExit Exit { get; set; } = new(0, "");
-        public ProcessStartInfo? StartInfo { get; private set; }
-        public string Input { get; private set; } = "";
-
-        public async Task<AgentExit> RunAsync(
-            ProcessStartInfo startInfo, string input, Func<string, Task> onLine, CancellationToken cancellationToken)
-        {
-            StartInfo = startInfo;
-            Input = input;
-            foreach (var line in Lines)
-                await onLine(line);
-            return Exit;
-        }
     }
 }

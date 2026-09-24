@@ -7,7 +7,7 @@ public sealed class FlowRulesTests : IDisposable
     private readonly string _kit = Directory.CreateTempSubdirectory("akw-rules-").FullName;
 
     [Fact]
-    public void Read_TakesStageAndOutsideSectionsOfKitReference()
+    public void Read_TakesScenarioStageAndOutsideSectionsOfKitReference()
     {
         Write("""
             # Флоу: сценарии и этапы
@@ -37,12 +37,23 @@ public sealed class FlowRulesTests : IDisposable
 
         var rules = FlowRules.Read(_kit)!;
 
-        Assert.StartsWith("## Этап", rules);
+        // Сценарии агент тоже правит (B-242): форма сценария идёт первой, форма этапа — за ней.
+        Assert.StartsWith("## Сценарий\n\nСценарии — flow/scenarios.md.\n\n## Этап", rules);
         Assert.Contains("### Пример", rules);
         Assert.Contains("## Чего во флоу нет\n\nИнвариантов кита во флоу нет.", rules);
-        Assert.DoesNotContain("Сценарии — flow/scenarios.md.", rules);
         Assert.DoesNotContain("Красные", rules);
         Assert.DoesNotContain("Вступление.", rules);
+    }
+
+    [Fact]
+    public void Read_HeadingInFencedExample_StaysInsideSection()
+    {
+        // Пример scenarios.md в справке кита держит свои «## полный» — это не конец раздела.
+        Write("# Флоу\n\n## Сценарий\n\n```markdown\n## полный\nкогда: новая возможность\n```\n\n- Сценарий — раздел.\n\n## Этап\n\nКлючи.\n");
+
+        var rules = FlowRules.Read(_kit)!;
+
+        Assert.StartsWith("## Сценарий\n\n```markdown\n## полный\nкогда: новая возможность\n```\n\n- Сценарий — раздел.\n\n## Этап", rules);
     }
 
     [Fact]
