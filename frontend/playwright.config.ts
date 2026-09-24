@@ -35,6 +35,10 @@ const artifacts = join(
 
 export default defineConfig({
   testDir: './e2e',
+  // Не больше четырёх браузеров разом: по умолчанию Playwright берёт половину ядер, и на машине
+  // с двадцатью ядрами десять браузеров забирали 17 ГБ из 32 — всё прочее на машине вставало,
+  // а прогон шёл дольше, чем с четырьмя (B-245).
+  workers: 4,
   use: {
     baseURL: `http://localhost:${webPort}`,
   },
