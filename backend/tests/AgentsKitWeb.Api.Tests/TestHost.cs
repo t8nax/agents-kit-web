@@ -43,10 +43,26 @@ internal sealed class TestHosts : IDisposable
         return factory;
     }
 
+    /// <summary>
+    /// Отказ одной остановки не мешает остальным: иначе недогашенные панели держали бы файлы
+    /// и следом краснели бы уже чужие проверки.
+    /// </summary>
     public void Dispose()
     {
+        List<Exception> failures = [];
         lock (_factories)
             foreach (var factory in _factories)
-                TestHost.Stop(factory);
+            {
+                try
+                {
+                    TestHost.Stop(factory);
+                }
+                catch (Exception e)
+                {
+                    failures.Add(e);
+                }
+            }
+        if (failures.Count > 0)
+            throw new AggregateException("Не все панели теста остановились.", failures);
     }
 }
