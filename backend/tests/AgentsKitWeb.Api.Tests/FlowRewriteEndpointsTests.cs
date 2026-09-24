@@ -215,6 +215,69 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Answers_AccumulateProposalAndCountWhatEachChanged()
+    {
+        _agent.Answers =
+        [
+            [Result("Завёл документацию.\n=== новый этап\n# Документация\n\nисполнитель: оркестратор\nвыход: раздел\n")],
+            [Result("Ревью смотрит и тесты.\n=== этап «Ревью»\n# Ревью\n\nисполнитель: reviewer\nвыход: вердикт и тесты\n")],
+            [Result("Какие именно тесты?")],
+        ];
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review, Merge], [Big]);
+        await Read(client, 2);
+        await Reply(client, "И пусть ревью смотрит тесты", [Review, Merge], [Big]);
+        await Read(client, 4);
+        await Reply(client, "Все", [Review, Merge], [Big]);
+        var events = await Read(client, 6);
+
+        Assert.Equal("Завёл документацию.", events[1].Text);
+        Assert.Equal(new FlowChanged(0, 1), events[1].Changed);
+        // Второй ответ несёт все правки переписки, а считает только свою.
+        var second = events[3];
+        Assert.Equal(new FlowChanged(0, 1), second.Changed);
+        Assert.Equal([null, "Ревью"], second.Proposal!.Stages.Select(s => s.Of));
+        // Ответ-вопрос правок не трогает и ничего не считает.
+        Assert.Null(events[5].Changed);
+        Assert.Equal(2, events[5].Proposal!.Stages.Count);
+    }
+
+    [Fact]
+    public async Task Reply_DropsChangesOperatorHasWritten()
+    {
+        _agent.Answers =
+        [
+            [Result("=== новый этап\n# Документация\n\nисполнитель: оркестратор\nвыход: раздел\n")],
+            [Result("Хорошо.")],
+        ];
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review], []);
+        await Read(client, 2);
+        // «Принять правки» записали этап: экран его держит, и из правок он уходит.
+        var docs = new FlowStage("Документация", "оркестратор", "раздел", null, null, Slug: "docs");
+        await Reply(client, "Спасибо", [Review, docs], []);
+        var events = await Read(client, 4);
+
+        Assert.Empty(events[3].Proposal!.Stages);
+    }
+
+    [Fact]
+    public async Task Answer_ThatWriteWouldNotAccept_IsErrorWithAgentWords()
+    {
+        _agent.Answers = [[Result("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\nвыход: есть\n")]];
+        var client = await Client();
+
+        await Start(client, "Поправь сборку", [Review], []);
+        var events = await Read(client, 2);
+
+        Assert.Equal("error", events[1].Type);
+        Assert.Equal("Чудо-Юдо предложил правку этапа «Сборка», которого во флоу нет", events[1].Text);
+        Assert.StartsWith("=== этап «Сборка»", events[1].Output);
+    }
+
+    [Fact]
     public async Task Stop_BreaksAnswerButKeepsConversation()
     {
         var gate = new TaskCompletionSource();

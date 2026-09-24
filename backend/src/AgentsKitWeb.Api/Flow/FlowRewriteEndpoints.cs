@@ -27,14 +27,17 @@ public sealed record FlowRewriteReply(
 
 /// <summary>
 /// Событие переписки о флоу, одной строкой NDJSON. Type: reply — реплика оператора; step — ход агента; note — слово
-/// панели в переписке; answer — ответ агента (Text, DurationMs); error — ход не удался (Text — почему, Output — что
-/// вывел агент); stopped — ответ оборвал оператор.
+/// панели в переписке; answer — ответ агента (Text — слова без блоков правок, DurationMs, Proposal — все правки,
+/// до которых договорились, Changed — сколько тронул этот ответ; у ответа без правок его нет); error — ход не удался
+/// (Text — почему, Output — что вывел агент); stopped — ответ оборвал оператор.
 /// </summary>
 public sealed record FlowRewriteEvent(
     string Type,
     string Text,
     long? DurationMs = null,
-    string? Output = null) : IAgentEvent;
+    string? Output = null,
+    FlowProposal? Proposal = null,
+    FlowChanged? Changed = null) : IAgentEvent;
 
 /// <summary>Чем кончилась попытка начать переписку.</summary>
 public enum FlowRewriteStarted
@@ -56,8 +59,11 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
     private readonly object _gate = new();
     private Turn? _turn;
 
-    /// <summary>Флоу раздела к последней реплике: с ним поднимается новый агент после срыва.</summary>
+    /// <summary>Флоу раздела к последней реплике: на него ложатся правки, с ним поднимается новый агент после срыва.</summary>
     private Screen? _screen;
+
+    /// <summary>Правки, до которых договорились за переписку, — ещё не записанные.</summary>
+    private FlowProposal _proposal = FlowProposal.Empty;
 
     public AgentRequestSummary Start(
         string basePath, string? copyPath, string rules, string wish, IReadOnlyList<FlowStage> stages, IReadOnlyList<NamedFlow> flows)
@@ -78,6 +84,7 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         {
             _turn = turn;
             _screen = screen;
+            _proposal = FlowProposal.Empty;
         }
         // Флоу целиком агент получает первой репликой: дальше разговор идёт о нём.
         Say(request, turn, wish, FlowRewriteEndpoints.Input(wish, screen.Stages, screen.Flows, Tasks(basePath, flows), PerformerList.OfProject(basePath)));
@@ -93,20 +100,24 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
 
         Turn? turn;
         Screen screen;
+        FlowProposal proposal;
         lock (_gate)
         {
             turn = _turn?.Request == request && request.Working ? _turn : null;
             screen = stages is null || flows is null ? _screen! : new Screen(stages, flows);
             _screen = screen;
+            // Записанное оператором из правок уходит: дальше они ложатся на флоу, каким он стал.
+            _proposal = proposal = FlowProposals.Rebase(screen.Stages, screen.Flows, _proposal);
         }
 
         var message = text;
         if (turn is null)
         {
-            // Новый агент прежнего разговора не знает: флоу он получает заново, таким, каким он стал.
+            // Новый агент прежнего разговора не знает: флоу он получает заново — с правками, до которых договорились.
             turn = Restart(request);
+            var (proposedStages, proposedFlows) = FlowProposals.Apply(screen.Stages, screen.Flows, proposal);
             message = FlowRewriteEndpoints.Input(
-                text, screen.Stages, screen.Flows, Tasks(request.Base, screen.Flows), PerformerList.OfProject(request.Base));
+                text, proposedStages, proposedFlows, Tasks(request.Base, screen.Flows), PerformerList.OfProject(request.Base));
         }
         Say(request, turn, text, message);
         return AskReplied.Sent;
@@ -192,10 +203,24 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         }
     }
 
-    private static FlowRewriteEvent Outcome(AskEvent answer) =>
-        answer.Type == "answer"
-            ? new FlowRewriteEvent("answer", answer.Text, answer.DurationMs)
-            : new FlowRewriteEvent("error", answer.Text, Output: FlowRewriteEndpoints.Shorten(answer.Output));
+    /// <summary>
+    /// Итог реплики: слова агента и его правки, наложенные на прежние. Правки, которые запись не примет, не копятся —
+    /// оператор видит ошибку со словами агента, а договорённое остаётся как было.
+    /// </summary>
+    private FlowRewriteEvent Outcome(AskEvent answer)
+    {
+        if (answer.Type != "answer")
+            return new FlowRewriteEvent("error", answer.Text, Output: FlowRewriteEndpoints.Shorten(answer.Output));
+
+        lock (_gate)
+        {
+            var taken = FlowProposals.Take(answer.Text, _screen!.Stages, _screen.Flows, _proposal);
+            if (taken.Error is { } error)
+                return new FlowRewriteEvent("error", error, Output: FlowRewriteEndpoints.Shorten(answer.Text));
+            _proposal = taken.Proposal;
+            return new FlowRewriteEvent("answer", taken.Said, answer.DurationMs, Proposal: taken.Proposal, Changed: taken.Changed);
+        }
+    }
 
     private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
     {
