@@ -18,6 +18,7 @@ public sealed class SessionsEndpointsTests : IDisposable
     private const long ProcessStarted = 134341890912115758;
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-sessions-api-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly string _sessionsDir;
@@ -329,6 +330,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
@@ -394,7 +396,7 @@ public sealed class SessionsEndpointsTests : IDisposable
     // Настоящий claude в прогоне не запускается и окно терминала не открывается: проверяется,
     // как панель их зовёт и что делает с ответом. Живость сессии задаётся временем старта процесса.
     private HttpClient Client(bool live = true) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -410,7 +412,7 @@ public sealed class SessionsEndpointsTests : IDisposable
                 services.RemoveAll<AgentSessions>();
                 services.AddSingleton(new AgentSessions(_sessionsDir, _ => live ? ProcessStarted : null));
             });
-        }).CreateClient();
+        })).CreateClient();
 
     private sealed class FakeAgent : IAgentProcess
     {

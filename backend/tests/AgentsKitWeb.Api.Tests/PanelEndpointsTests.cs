@@ -15,11 +15,12 @@ public sealed class PanelEndpointsTests : IDisposable
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-panel-").FullName;
     private readonly TestReleases _releases = new();
+    private readonly TestHosts _hosts = new();
 
     [Fact]
     public async Task Panel_WithoutPublishedFile_IsDevelopmentRun()
     {
-        using var factory = Factory(Published());
+        var factory = Factory(Published());
 
         var panel = await factory.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
 
@@ -35,7 +36,7 @@ public sealed class PanelEndpointsTests : IDisposable
     public async Task Panel_WithPublishedFile_TellsChannelAndBuild()
     {
         var file = Published(Panel("dev", "origin/dev", "4189d1f", "1.0.0"));
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         var panel = await factory.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
 
@@ -52,7 +53,7 @@ public sealed class PanelEndpointsTests : IDisposable
     public async Task Panel_BuiltFromTaskBranch_FallsBackToMasterChannel()
     {
         var file = Published(Panel("feat/some-task", "feat/some-task", "abc1234", "1.0.0"));
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         var panel = await factory.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
 
@@ -66,7 +67,7 @@ public sealed class PanelEndpointsTests : IDisposable
     {
         var file = Path.Combine(_root, "published.json");
         File.WriteAllText(file, "не json");
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         var panel = await factory.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
 
@@ -78,13 +79,12 @@ public sealed class PanelEndpointsTests : IDisposable
     public async Task Channel_Chosen_OutlivesPanelRestart()
     {
         var file = Published(Panel("master", "origin/master", "4189d1f", "1.0.0"));
-        using (var factory = Factory(file))
-        {
-            var response = await factory.CreateClient().PutAsJsonAsync("/api/panel/channel", new PanelChannelRequest("dev"));
-            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        }
+        var factory = Factory(file);
+        var response = await factory.CreateClient().PutAsJsonAsync("/api/panel/channel", new PanelChannelRequest("dev"));
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        TestHost.Stop(factory);
 
-        using var restarted = Factory(file);
+        var restarted = Factory(file);
         var panel = await restarted.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
 
         Assert.Equal("dev", panel?.Channel);
@@ -93,7 +93,7 @@ public sealed class PanelEndpointsTests : IDisposable
     [Fact]
     public async Task Channel_Unknown_IsRefused()
     {
-        using var factory = Factory(Published());
+        var factory = Factory(Published());
 
         var response = await factory.CreateClient().PutAsJsonAsync("/api/panel/channel", new PanelChannelRequest("master-2"));
 
@@ -110,7 +110,7 @@ public sealed class PanelEndpointsTests : IDisposable
              "builtAt":"2026-09-12T19:40:00Z","repository":"D:\\Projects\\agents-kit-web",
              "target":"C:\\panel\\app","port":5080,"taskName":"agents-kit-web panel"}
             """);
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         var panel = await factory.CreateClient().GetFromJsonAsync<PanelResponse>("/api/panel");
 
@@ -126,7 +126,7 @@ public sealed class PanelEndpointsTests : IDisposable
             Release("0.10.1", "переход строки ведёт в сессию задачи", "копия удаляется из панели"),
             Release("0.10.0", "первая панель"));
         var file = Published(Panel("dev", "origin/dev", "4189d1f", "0.10.0"));
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
@@ -143,7 +143,7 @@ public sealed class PanelEndpointsTests : IDisposable
     {
         _releases.Channel("master", Release("0.10.1"), Release("0.10.0"));
         var file = Published(Panel("master", "origin/master", "4189d1f", "0.10.1"));
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
@@ -156,7 +156,7 @@ public sealed class PanelEndpointsTests : IDisposable
     {
         _releases.Channel("master", Release("0.10.0"));
         var file = Published(Panel("master", "origin/master", "4189d1f", "0.10.0") with { Releases = "someone/fork" });
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
@@ -167,7 +167,7 @@ public sealed class PanelEndpointsTests : IDisposable
     public async Task Updates_WhenGitHubIsSilent_AreBadGateway()
     {
         var file = Published(Panel("master", "origin/master", "4189d1f", "0.10.0"));
-        using var factory = Factory(file);
+        var factory = Factory(file);
 
         var response = await factory.CreateClient().GetAsync("/api/panel/updates");
 
@@ -177,7 +177,7 @@ public sealed class PanelEndpointsTests : IDisposable
     [Fact]
     public async Task Updates_OnDevelopmentRun_AreNotAnswered()
     {
-        using var factory = Factory(Published());
+        var factory = Factory(Published());
 
         var response = await factory.CreateClient().GetAsync("/api/panel/updates");
 
@@ -226,7 +226,7 @@ public sealed class PanelEndpointsTests : IDisposable
     }
 
     private WebApplicationFactory<Program> Factory(string publishedFile) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -243,7 +243,11 @@ public sealed class PanelEndpointsTests : IDisposable
                 services.RemoveAll<IPanelReleases>();
                 services.AddSingleton<IPanelReleases>(_releases);
             });
-        });
+        }));
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose()
+    {
+        _hosts.Dispose();
+        Directory.Delete(_root, recursive: true);
+    }
 }

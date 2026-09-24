@@ -48,6 +48,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-draft-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly FakeAgent _agent = new();
@@ -233,6 +234,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
@@ -280,7 +282,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     }
 
     private Task<HttpClient> Client() => Task.FromResult(
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -292,7 +294,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
                 services.RemoveAll<IAgentProcess>();
                 services.AddSingleton<IAgentProcess>(_agent);
             });
-        }).CreateClient());
+        })).CreateClient());
 
     private sealed class FakeAgent : IAgentProcess
     {
