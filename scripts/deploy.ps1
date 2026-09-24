@@ -133,18 +133,32 @@ function Wait-Panel {
     }
 }
 
-# Последний рубеж: запустить ту целую панель, что есть, — отложенную прежнюю, если она ещё не на месте,
-# иначе то, что на месте.
+# Последний рубеж: запустить панель, которая ответит, — отложенную прежнюю, если она ещё не на месте,
+# потом то, что на месте, потом отложенные прошлыми постановками, от новых к старым. На месте может
+# лежать сборка, которая не встала: при двойном срыве её отложит уже следующая постановка.
 function Start-Remaining {
-    foreach ($directory in $previous, $Target) {
-        if ((Test-Path (Join-Path $directory $ExeName)) -and (Test-Path (Join-Path $directory 'published.json'))) {
-            Write-Host "Запускаю панель из $directory"
-            Register-Panel $directory
-            Start-ScheduledTask -TaskName $TaskName
+    $parent = Split-Path $Target -Parent
+    $leaf = Split-Path $Target -Leaf
+    $older = Get-ChildItem -LiteralPath $parent -Directory -Filter "$leaf.old*" |
+        Where-Object FullName -ne $previous |
+        Sort-Object Name -Descending |
+        ForEach-Object FullName
+    foreach ($directory in @($previous, $Target) + @($older)) {
+        if (-not (Test-Path (Join-Path $directory $ExeName)) -or
+            -not (Test-Path (Join-Path $directory 'published.json'))) { continue }
+        Write-Host "Запускаю панель из $directory"
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+        Register-Panel $directory
+        Start-ScheduledTask -TaskName $TaskName
+        try {
+            Wait-Panel
             return
         }
+        catch {
+            Write-Host "Панель из $directory не встала: $($_.Exception.Message)"
+        }
     }
-    Write-Host 'Целой панели для запуска не осталось'
+    Write-Host 'Панели, которая ответила бы, не осталось'
 }
 
 # Отложенное прошлыми и этой постановкой; кого держат — уберёт следующая.

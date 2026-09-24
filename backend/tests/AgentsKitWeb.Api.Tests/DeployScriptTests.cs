@@ -88,6 +88,20 @@ public sealed class DeployScriptTests : IDisposable
         Assert.True(Directory.Exists(leftover));
     }
 
+    [Fact]
+    public async Task Deploy_AfterADoubleFailure_StartsTheWholePanelSetAsideEarlier()
+    {
+        // Прошлая постановка сорвалась дважды: сломанную сборку отодвинуть не вышло, и она осталась на месте,
+        // а целая панель работала из отложенного каталога. Сорвётся и эта — встать должна та целая.
+        Directory.Move(Deployed(Build("0.1.0")), _target + ".old-20200101000000");
+        Directory.Move(Deployed(Build("0.1.5", broken: true)), _target);
+
+        var (exitCode, output) = await Deploy(Build("0.2.0", broken: true), waitSeconds: 30);
+
+        Assert.True(exitCode != 0, output);
+        await AssertRunning("0.1.0", output);
+    }
+
     private async Task Install(string version)
     {
         var (exitCode, output) = await Deploy(Build(version), waitSeconds: 30);
@@ -117,6 +131,13 @@ public sealed class DeployScriptTests : IDisposable
             ClaudeDir = Path.Combine(profile, "claude"),
             CredentialsFile = Path.Combine(profile, "credentials.json"),
         }));
+        return build;
+    }
+
+    /// <summary>Сборка, какой её оставляет постановка: с published.json рядом с exe.</summary>
+    private static string Deployed(string build)
+    {
+        File.Copy(Path.Combine(build, "build.json"), Path.Combine(build, "published.json"));
         return build;
     }
 
