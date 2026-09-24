@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
-using System.Text.RegularExpressions;
+using System.Text.Json;
+using System.Threading.Channels;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Performers;
@@ -9,53 +10,282 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Flow;
 
 /// <summary>
-/// Просьба переписать стадии флоу. Stages — стадии, добавленные оператором в контекст, такими, какими их видно
-/// в разделе, с несохранёнными правками; пусто — агент пишет новую стадию. Titles — названия всех стадий раздела:
-/// новое название с ними не совпадёт.
+/// Начало переписки о флоу. Stages и Flows — этапы и сценарии раздела такими, какими их видит оператор:
+/// агент получает флоу целиком, а что править, оператор говорит словами (B-242).
 /// </summary>
 public sealed record FlowRewriteRequest(
     string? Base,
     string? Wish,
     IReadOnlyList<FlowStage>? Stages = null,
-    IReadOnlyList<string>? Titles = null);
+    IReadOnlyList<NamedFlow>? Flows = null);
 
-/// <summary>Стадия из ответа агента. Of — название стадии контекста, которую она переписывает; null — новая стадия.</summary>
-public sealed record RewrittenStage(string? Of, FlowStage Stage);
+/// <summary>Следующая реплика переписки и флоу раздела, каким он стал к ней: оператор мог записать правки.</summary>
+public sealed record FlowRewriteReply(
+    string? Text,
+    IReadOnlyList<FlowStage>? Stages = null,
+    IReadOnlyList<NamedFlow>? Flows = null);
 
 /// <summary>
-/// Событие переписывания стадий, одной строкой NDJSON. Type: step — ход работы агента (Text);
-/// rewritten — ответ разобран (Stages — только те, что агент вернул, DurationMs); error — стадии не переписаны
-/// (Text — почему, Output — что вернул агент).
+/// Событие переписки о флоу, одной строкой NDJSON. Type: reply — реплика оператора; step — ход агента; note — слово
+/// панели в переписке; answer — ответ агента (Text — слова без блоков правок, DurationMs, Proposal — все правки,
+/// до которых договорились, Changed — сколько тронул этот ответ; у ответа без правок его нет); error — ход не удался
+/// (Text — почему, Output — что вывел агент); stopped — ответ оборвал оператор.
 /// </summary>
 public sealed record FlowRewriteEvent(
     string Type,
     string Text,
-    IReadOnlyList<RewrittenStage>? Stages = null,
     long? DurationMs = null,
-    string? Output = null) : IAgentEvent;
+    string? Output = null,
+    FlowProposal? Proposal = null,
+    FlowChanged? Changed = null) : IAgentEvent;
 
-public static partial class FlowRewriteEndpoints
+/// <summary>Чем кончилась попытка начать переписку.</summary>
+public enum FlowRewriteStarted
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(5);
+    Started,
+    NoKitRules,
+}
 
-    /// <summary>Сколько текста агента показывать оператором, когда стадии из него не вышли.</summary>
+/// <summary>
+/// Переписка оператора с агентом о флоу одной базы — B-242: оператор просит поменять сценарии и этапы, агент
+/// отвечает, переспрашивает и предлагает правки, а записывает их панель по «Принять правки». Память разговора —
+/// живой процесс агента, как у вопроса по базе (B-79); сам он только читает.
+/// </summary>
+public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
+{
+    /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
+    private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
+
+    private readonly object _gate = new();
+    private Turn? _turn;
+
+    /// <summary>Флоу раздела к последней реплике: на него ложатся правки, с ним поднимается новый агент после срыва.</summary>
+    private Screen? _screen;
+
+    /// <summary>Правки, до которых договорились за переписку, — ещё не записанные.</summary>
+    private FlowProposal _proposal = FlowProposal.Empty;
+
+    public AgentRequestSummary Start(
+        string basePath, string? copyPath, string rules, string wish, IReadOnlyList<FlowStage> stages, IReadOnlyList<NamedFlow> flows)
+    {
+        var replies = Channel.CreateUnbounded<string>();
+        var turn = new Turn(replies.Writer, copyPath, rules);
+        var request = requests.Start(
+            AgentRequests.Flow,
+            basePath,
+            ProjectName.Of(basePath),
+            wish,
+            (rewriting, cancellationToken) => RunAsync(basePath, replies.Reader, turn, rewriting, cancellationToken),
+            continues: true);
+
+        turn.Request = request;
+        var screen = new Screen(stages, flows);
+        lock (_gate)
+        {
+            _turn = turn;
+            _screen = screen;
+            _proposal = FlowProposal.Empty;
+        }
+        // Флоу целиком агент получает первой репликой: дальше разговор идёт о нём.
+        Say(request, turn, wish, FlowRewriteEndpoints.Input(wish, screen.Stages, screen.Flows, Tasks(basePath, flows), PerformerList.OfProject(basePath)));
+        return request.Summary;
+    }
+
+    public AskReplied Reply(string text, IReadOnlyList<FlowStage>? stages, IReadOnlyList<NamedFlow>? flows)
+    {
+        if (requests.Of(AgentRequests.Flow) is not { Continues: true } request)
+            return AskReplied.NoConversation;
+        if (!request.Finished)
+            return AskReplied.Answering;
+
+        Turn? turn;
+        Screen screen;
+        FlowProposal proposal;
+        lock (_gate)
+        {
+            turn = _turn?.Request == request && request.Working ? _turn : null;
+            screen = stages is null || flows is null ? _screen! : new Screen(stages, flows);
+            _screen = screen;
+            // Записанное оператором из правок уходит: дальше они ложатся на флоу, каким он стал.
+            _proposal = proposal = FlowProposals.Rebase(screen.Stages, screen.Flows, _proposal);
+        }
+
+        var message = text;
+        if (turn is null)
+        {
+            // Новый агент прежнего разговора не знает: флоу он получает заново — с правками, до которых договорились.
+            turn = Restart(request);
+            var (proposedStages, proposedFlows) = FlowProposals.Apply(screen.Stages, screen.Flows, proposal);
+            message = FlowRewriteEndpoints.Input(
+                text, proposedStages, proposedFlows, Tasks(request.Base, screen.Flows), PerformerList.OfProject(request.Base));
+        }
+        Say(request, turn, text, message);
+        return AskReplied.Sent;
+    }
+
+    /// <summary>«Отменить»: нынешний ответ обрывается вместе с процессом агента, переписка остаётся — как у вопроса по базе.</summary>
+    public bool Stop()
+    {
+        if (requests.Of(AgentRequests.Flow) is not { Continues: true } request || request.Finished)
+            return false;
+
+        Turn? turn;
+        lock (_gate)
+            turn = _turn?.Request == request ? _turn : null;
+        if (turn is null)
+            return false;
+
+        turn.Stopped = true;
+        turn.Timeout.Cancel();
+        return true;
+    }
+
+    private Turn Restart(AgentRequest request)
+    {
+        Turn previous;
+        lock (_gate)
+            previous = _turn!;
+        var replies = Channel.CreateUnbounded<string>();
+        var turn = new Turn(replies.Writer, previous.Copy, previous.Rules) { Request = request };
+        lock (_gate)
+            _turn = turn;
+
+        request.Write(new FlowRewriteEvent(
+            "note", $"{AgentRequests.AgentName} отвечает заново: сказанного раньше он уже не помнит"));
+        requests.Run(
+            request,
+            (rewriting, cancellationToken) => RunAsync(request.Base, replies.Reader, turn, rewriting, cancellationToken));
+        return turn;
+    }
+
+    /// <summary>Реплика встаёт в переписку своими словами, а агенту уходит строкой stdin; пошёл отсчёт ответа.</summary>
+    private static void Say(AgentRequest request, Turn turn, string text, string message)
+    {
+        request.Reply(new FlowRewriteEvent("reply", text));
+        turn.Timeout.CancelAfter(Answer);
+        turn.Replies.TryWrite(Message(message));
+    }
+
+    private async Task RunAsync(
+        string basePath,
+        ChannelReader<string> replies,
+        Turn turn,
+        AgentRequest rewriting,
+        CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, turn.Timeout.Token);
+        var stream = new ClaudeStream(basePath, turn.Copy);
+        try
+        {
+            var exit = await agent.RunAsync(
+                FlowRewriteEndpoints.StartInfo(basePath, turn.Copy, ProjectName.Of(basePath), turn.Rules),
+                replies,
+                line =>
+                {
+                    foreach (var e in stream.Read(line))
+                        rewriting.Write(e.Type == "step" ? new FlowRewriteEvent("step", e.Text) : Outcome(e));
+                    if (stream.Finished)
+                    {
+                        turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                        stream = new ClaudeStream(basePath, turn.Copy);
+                    }
+                    return Task.CompletedTask;
+                },
+                linked.Token);
+            if (!rewriting.Finished)
+                rewriting.Write(Failure(exit, stream));
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            rewriting.Write(turn.Stopped
+                ? new FlowRewriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
+                : new FlowRewriteEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен"));
+        }
+    }
+
+    /// <summary>
+    /// Итог реплики: слова агента и его правки, наложенные на прежние. Правки, которые запись не примет, не копятся —
+    /// оператор видит ошибку со словами агента, а договорённое остаётся как было.
+    /// </summary>
+    private FlowRewriteEvent Outcome(AskEvent answer)
+    {
+        if (answer.Type != "answer")
+            return new FlowRewriteEvent("error", answer.Text, Output: FlowRewriteEndpoints.Shorten(answer.Output));
+
+        lock (_gate)
+        {
+            var taken = FlowProposals.Take(answer.Text, _screen!.Stages, _screen.Flows, _proposal);
+            if (taken.Error is { } error)
+                return new FlowRewriteEvent("error", error, Output: FlowRewriteEndpoints.Shorten(answer.Text));
+            _proposal = taken.Proposal;
+            return new FlowRewriteEvent("answer", taken.Said, answer.DurationMs, Proposal: taken.Proposal, Changed: taken.Changed);
+        }
+    }
+
+    private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
+    {
+        try
+        {
+            return FlowEndpoints.Tasks(basePath, flows);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Реплика оператора в потоке stream-json: агент читает их построчно, по одной на ответ.</summary>
+    private static string Message(string text) => JsonSerializer.Serialize(
+        new
+        {
+            type = "user",
+            message = new { role = "user", content = new[] { new { type = "text", text } } },
+        },
+        AgentRequest.JsonOptions);
+
+    private static FlowRewriteEvent Failure(AgentExit exit, ClaudeStream stream)
+    {
+        if (exit.ExitCode is null)
+            return new FlowRewriteEvent("error", "Claude Code не запустился", Output: exit.Error);
+
+        var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
+        return new FlowRewriteEvent(
+            "error",
+            $"{AgentRequests.AgentName} завершился без ответа",
+            Output: output.Length > 0 ? FlowRewriteEndpoints.Shorten(output) : $"код выхода {exit.ExitCode}");
+    }
+
+    /// <summary>Флоу раздела, каким его видит оператор.</summary>
+    private sealed record Screen(IReadOnlyList<FlowStage> Stages, IReadOnlyList<NamedFlow> Flows);
+
+    /// <summary>Живой процесс разговора: кому уходят реплики, где он читает код и по каким правилам кита пишет.</summary>
+    private sealed class Turn(ChannelWriter<string> replies, string? copy, string rules)
+    {
+        public ChannelWriter<string> Replies { get; } = replies;
+
+        public string? Copy { get; } = copy;
+
+        public string Rules { get; } = rules;
+
+        public CancellationTokenSource Timeout { get; } = new();
+
+        public AgentRequest? Request { get; set; }
+
+        public bool Stopped { get; set; }
+    }
+}
+
+public static class FlowRewriteEndpoints
+{
+    /// <summary>Сколько текста агента показывать оператору, когда ответ не разобран.</summary>
     private const int OutputLimit = 2000;
-
-    public const string NewStage = "новый этап";
-
-    // Строка перед файлом этапа в ответе: «=== этап «Ревью»» или «=== новый этап».
-    [GeneratedRegex(@"^===\s*(?<head>.*?)\s*$")]
-    private static partial Regex BlockLine { get; }
-
-    [GeneratedRegex(@"^этап\s*«(?<title>[^»]*)»$")]
-    private static partial Regex OfStage { get; }
 
     public static void MapFlowRewriteEndpoints(this IEndpointRouteBuilder app)
     {
-        // Просьбу держит панель: POST её заводит и отдаёт сводку, а ход окно читает потоком просьбы.
-        // Стадии панель не пишет — только разбирает: на схему их кладёт оператор, а записывает «Сохранить».
+        // Переписку держит панель: POST её заводит и отдаёт сводку, а ход окно читает потоком просьбы.
+        // Флоу панель по ней не пишет: записывает «Принять правки» обычной записью раздела.
         app.MapPost("/api/flow/rewrite", async (
-            FlowRewriteRequest request, BasesStore bases, IAgentProcess agent, AgentRequests requests,
+            FlowRewriteRequest request, BasesStore bases, FlowConversations conversations,
             CancellationToken cancellationToken) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
@@ -64,125 +294,40 @@ public static partial class FlowRewriteEndpoints
             if (string.IsNullOrWhiteSpace(request.Wish))
                 return Results.BadRequest();
 
+            // Правила формы флоу держит кит: своих слов о ней у панели нет, и без них агент не запускается.
+            if (FlowRules.Read(bases.Kit()) is not { } rules)
+                return Results.UnprocessableEntity(new FlowRewriteEvent(
+                    "error",
+                    $"Панель не прочитала у кита правила формы этапа ({FlowRules.RulesFile}): путь к киту задаётся в «Настройках»"));
+
             // Агент читает код проекта: работает он в основной копии, а нет её — в самой базе.
             var copies = await PerformersEndpoints.CopiesAsync(basePath, cancellationToken);
             var copyPath = copies.FirstOrDefault(c => c.Main)?.Path;
 
-            var wish = request.Wish.Trim();
-            var context = request.Stages ?? [];
-            var titles = request.Titles ?? [];
-            var kit = bases.Kit();
-            var started = requests.Start(
-                AgentRequests.Flow, basePath, ProjectName.Of(basePath), wish,
-                async (rewriting, token) =>
-                    rewriting.Write(await RunAsync(basePath, copyPath, wish, context, titles, kit, agent, rewriting, token)),
-                stages: context);
-            return Results.Ok(started.Summary);
+            return Results.Ok(conversations.Start(
+                basePath, copyPath, rules, request.Wish.Trim(), request.Stages ?? [], request.Flows ?? []));
         });
-    }
 
-    private static async Task<FlowRewriteEvent> RunAsync(
-        string basePath,
-        string? copyPath,
-        string wish,
-        IReadOnlyList<FlowStage> context,
-        IReadOnlyList<string> titles,
-        string? kit,
-        IAgentProcess agent,
-        AgentRequest rewriting,
-        CancellationToken aborted)
-    {
-        // Правила формы стадии держит кит: своих слов о ней у панели нет.
-        if (FlowRules.Read(kit) is not { } rules)
-            return new FlowRewriteEvent(
-                "error",
-                $"Панель не прочитала у кита правила формы этапа ({FlowRules.RulesFile}): путь к киту задаётся в «Настройках»");
-
-        var stream = new ClaudeStream(basePath, copyPath);
-        AskEvent? result = null;
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(aborted);
-        timeout.CancelAfter(Timeout);
-        AgentExit exit;
-        try
+        app.MapPost("/api/flow/rewrite/reply", (FlowRewriteReply reply, FlowConversations conversations) =>
         {
-            exit = await agent.RunAsync(
-                StartInfo(basePath, copyPath, ProjectName.Of(basePath), rules),
-                Input(wish, context, titles, PerformerList.OfProject(basePath)),
-                line =>
-                {
-                    foreach (var e in stream.Read(line))
-                    {
-                        if (e.Type == "step")
-                            rewriting.Write(new FlowRewriteEvent("step", e.Text));
-                        else
-                            result = e;
-                    }
-                    return Task.CompletedTask;
-                },
-                timeout.Token);
-        }
-        catch (OperationCanceledException) when (!aborted.IsCancellationRequested)
-        {
-            return new FlowRewriteEvent("error", $"{AgentRequests.AgentName} не закончил за пять минут и остановлен");
-        }
+            if (string.IsNullOrWhiteSpace(reply.Text))
+                return Results.BadRequest();
 
-        if (result is null)
-            return Failure(exit, stream);
-        if (result.Type == "error")
-            return new FlowRewriteEvent("error", result.Text, Output: Shorten(result.Output));
-
-        return Parsed(result, context, titles);
-    }
-
-    /// <summary>
-    /// Разбирает ответ агента в стадии тем же чтением, каким панель читает файлы стадий с диска, и отказывает,
-    /// если стадию кит не примет: на схему кладётся только то, что «Сохранить» потом запишет.
-    /// </summary>
-    public static FlowRewriteEvent Parsed(AskEvent answer, IReadOnlyList<FlowStage> context, IReadOnlyList<string> titles)
-    {
-        FlowRewriteEvent Reject(string text) => new("error", text, Output: Shorten(answer.Text));
-
-        var blocks = Blocks(Unfence(answer.Text));
-        if (blocks.Count == 0)
-            return Reject($"{AgentRequests.AgentName} вернул не этап: этапов в его ответе нет");
-
-        var stages = new List<RewrittenStage>();
-        foreach (var (head, text) in blocks)
-        {
-            string? of = null;
-            if (OfStage.Match(head) is { Success: true } match)
+            return conversations.Reply(reply.Text.Trim(), reply.Stages, reply.Flows) switch
             {
-                of = context.FirstOrDefault(s => FlowFolder.Key(s.Title) == FlowFolder.Key(match.Groups["title"].Value))?.Title;
-                if (of is null)
-                    return Reject($"{AgentRequests.AgentName} вернул этап «{match.Groups["title"].Value}», которого в просьбе не было");
-            }
-            else if (FlowFolder.Key(head) != NewStage)
-                return Reject($"{AgentRequests.AgentName} вернул этап без пометки, какой он переписал: «=== {head}»");
+                AskReplied.Sent => Results.NoContent(),
+                AskReplied.Answering => Results.Conflict(),
+                _ => Results.NotFound(),
+            };
+        });
 
-            var slug = of is null ? null : context.First(s => s.Title == of).Slug;
-            var (stage, unread) = FlowFolder.ReadStage(text, slug ?? "");
-            stage = stage with { Slug = slug };
-            var name = stage.Title.Length > 0 ? $"«{stage.Title}»" : "без названия";
-            if (unread.Count > 0)
-                return Reject($"Этап {name} вернулся не в форме кита: {unread[0]}");
-            if (FlowFolder.StageProblem(stage) is { } problem)
-                return Reject($"Этап {name} вернулся не в форме кита: {Problem(problem)}");
-            stages.Add(new RewrittenStage(of, stage));
-        }
-
-        // Название — адрес стадии во всех флоу: две стадии с одним названием кит не примет.
-        var kept = titles.Where(t => !stages.Any(s => s.Of is not null && FlowFolder.Key(s.Of) == FlowFolder.Key(t)));
-        var taken = new HashSet<string>(kept.Select(FlowFolder.Key));
-        foreach (var rewritten in stages)
-            if (!taken.Add(FlowFolder.Key(rewritten.Stage.Title)))
-                return Reject($"Этап «{rewritten.Stage.Title}» вернулся с названием, которое у проекта уже есть");
-
-        return new FlowRewriteEvent("rewritten", answer.Text, stages, answer.DurationMs);
+        app.MapPost("/api/flow/rewrite/stop", (FlowConversations conversations) =>
+            conversations.Stop() ? Results.NoContent() : Results.NotFound());
     }
 
     /// <summary>
-    /// Агент работает в копии проекта и только читает: стадии он не пишет — их кладёт на схему оператор,
-    /// а записывает «Сохранить». Базу он видит по её пути, стадии контекста приходят в stdin такими, как на экране.
+    /// Агент работает в копии проекта и только читает: флоу он не пишет — правки записывает панель, и только
+    /// по «Принять правки». Базу он видит по её пути, флоу раздела приходит ему в stdin таким, как на экране.
     /// </summary>
     public static ProcessStartInfo StartInfo(string basePath, string? copyPath, string project, string rules)
     {
@@ -191,20 +336,30 @@ public static partial class FlowRewriteEndpoints
             : $"Текущий каталог — рабочая копия проекта: читай её код, чтобы понять, чем проект сделан и чем проверяется работа. База знаний проекта лежит в {basePath}.";
 
         var systemPrompt = $"""
-            Ты пишешь и переписываешь этапы флоу проекта «{project}» — файлы flow/stages/*.md базы знаний agents-kit —
-            по просьбе оператора из веб-панели; спросить оператора нельзя.
-            {place} В базе флоу проекта — сценарии в flow/scenarios.md и этапы в flow/stages/ — и его решения в decisions/.
-            Просьба придёт одним сообщением вместе с этапами, которые оператор к ней добавил, названиями остальных
-            этапов проекта и исполнителями проекта. Этапы из сообщения — такие, какими их видит оператор, — важнее
-            файлов на диске.
+            Ты с оператором веб-панели правишь флоу проекта «{project}» — сценарии flow/scenarios.md и этапы
+            flow/stages/*.md базы знаний agents-kit. Это переписка: оператор просит и уточняет, ты отвечаешь.
+            {place} В базе и решения проекта — decisions/.
+            Флоу целиком придёт первым сообщением — таким, каким его видит оператор; оно важнее файлов на диске.
+            Непонятно, чего хочет оператор, или просьба спорит с тем, что уже есть во флоу, — спроси или скажи об этом,
+            а правок не предлагай. Правка делает соседний пункт лишним или спорящим — поправь и его, даже если о нём
+            не просили: флоу после правки должен читаться связно. Название меняй, только если об этом просили.
             Исполнитель и помощники этапа — из исполнителей проекта или «оркестратор», «оператор»; других имён не ставь.
-            Переписывать можно любой из добавленных этапов, а по просьбе — завести новый. Добавленных нет — напиши новый.
-            Меняй только то, о чём просит оператор; название меняй, только если об этом просили.
-            Ответом верни только этапы, которые изменил или завёл, и ничего больше: ни пояснений, ни разговора.
-            Перед каждым этапом — строка «=== этап «Название»» с прежним названием переписанного этапа
-            или строка «=== {NewStage}», под ней — файл этапа целиком. Текст можно завернуть в ``` — панель ограду снимет.
-            Файлы менять нельзя: этапы запишет панель, и только с согласия оператора.
-            Ниже правила кита о форме этапа; им новый текст и должен отвечать.
+            Сценарии и этапы, занятые задачами в работе, панель не запишет: если просьба их касается, скажи об этом.
+            Новые сценарии и этапы заводить можно всегда.
+            Правки предлагай в конце ответа блоками; до первого блока — что ты сделал или о чём спрашиваешь, коротко.
+            Блок — строка-пометка и под ней текст целиком:
+            «=== этап «Название»» — этап с этим названием переписан, под пометкой файл этапа целиком;
+            «=== новый этап» — новый этап, под пометкой его файл;
+            «=== удалить этап «Название»» — этап удаляется, под пометкой пусто;
+            «=== сценарий «Имя»» — сценарий с этим именем переписан, под пометкой его раздел «## Имя» из scenarios.md
+            целиком: «когда», пункты по порядку и возвраты;
+            «=== новый сценарий» — новый сценарий, под пометкой его раздел;
+            «=== удалить сценарий «Имя»» — сценарий удаляется, под пометкой пусто.
+            Название в пометке — нынешнее, с учётом правок, предложенных раньше в этой переписке. Пункт сценария
+            ссылается на этап его названием; адрес ссылки для нового этапа — любой вида stages/<файл>.md.
+            Удалённый этап убери и из сценариев, где он стоит. Предлагай только то, что меняешь этим ответом:
+            прежние правки панель помнит сама. Файлы менять нельзя: правки запишет панель, и только с согласия оператора.
+            Ниже правила кита о форме сценария и этапа; им правки и должны отвечать.
 
             {rules}
             """;
@@ -213,6 +368,7 @@ public static partial class FlowRewriteEndpoints
         foreach (var arg in new[]
                  {
                      "-p",
+                     "--input-format", "stream-json",
                      "--output-format", "stream-json",
                      "--verbose",
                      "--tools", "Read,Grep,Glob",
@@ -230,20 +386,48 @@ public static partial class FlowRewriteEndpoints
         return startInfo;
     }
 
-    /// <summary>Просьба, стадии контекста, остальные названия и исполнители проекта уходят агенту в stdin.</summary>
+    /// <summary>
+    /// Первая реплика агенту: просьба, флоу целиком — сценарии в форме scenarios.md и каждый этап файлом, — занятое
+    /// задачами и исполнители проекта.
+    /// </summary>
     public static string Input(
-        string wish, IReadOnlyList<FlowStage> context, IReadOnlyList<string> titles, IReadOnlyList<Performer> performers)
+        string wish,
+        IReadOnlyList<FlowStage> stages,
+        IReadOnlyList<NamedFlow> flows,
+        IReadOnlyList<FlowTask> tasks,
+        IReadOnlyList<Performer> performers)
     {
         var text = new StringBuilder().Append("Просьба оператора:\n").Append(wish);
 
-        if (context.Count == 0)
-            text.Append("\n\nЭтапов к просьбе не добавлено: напиши новый этап.");
-        foreach (var stage in context)
-            text.Append($"\n\nДобавленный этап «{stage.Title}»:\n").Append(FlowFolder.SerializeStage(stage));
+        text.Append("\n\nСценарии (flow/scenarios.md):\n");
+        if (flows.Count == 0)
+            text.Append("сценариев пока нет.");
+        else
+        {
+            // Этапы с одним названием в базе, поправленной руками, бывают: адрес берётся у первого.
+            var slugs = new Dictionary<string, string>();
+            foreach (var stage in stages)
+                slugs.TryAdd(FlowFolder.Key(stage.Title), stage.Slug ?? FlowFolder.NewSlug(stage.Title, []));
+            // Пункт, чьего этапа на экране нет, агенту всё равно виден: адрес у него — по названию.
+            foreach (var entry in flows.SelectMany(f => f.Entries))
+                slugs.TryAdd(FlowFolder.Key(entry.Stage), FlowFolder.NewSlug(entry.Stage, []));
+            text.Append(FlowFolder.SerializeList("", flows, slugs).TrimEnd());
+        }
 
-        var others = titles.Where(t => !context.Any(s => FlowFolder.Key(s.Title) == FlowFolder.Key(t))).ToList();
-        if (others.Count > 0)
-            text.Append("\n\nОстальные этапы проекта: ").Append(string.Join(", ", others.Select(t => $"«{t}»")));
+        text.Append("\n\nЭтапы (flow/stages/):");
+        if (stages.Count == 0)
+            text.Append(" этапов пока нет.");
+        foreach (var stage in stages)
+            text.Append($"\n\n=== {(stage.Slug is { } slug ? $"stages/{slug}.md" : "новый, ещё не записан")}\n")
+                .Append(FlowFolder.SerializeStage(stage).TrimEnd());
+
+        text.Append("\n\nЗадачи в работе:");
+        if (tasks.Count == 0)
+            text.Append(" нет — править можно всё.");
+        foreach (var task in tasks)
+            text.Append($"\n- {task.Task}: ").Append(task.Flow is { } flow
+                ? $"идёт по сценарию «{flow}» — его и его этапы панель не запишет"
+                : "сценарий не узнан — панель не запишет ни одного из нынешних сценариев и этапов, а новые заводить можно");
 
         text.Append("\n\nИсполнители проекта:");
         if (performers.Count == 0)
@@ -253,7 +437,7 @@ public static partial class FlowRewriteEndpoints
         return text.ToString();
     }
 
-    /// <summary>Ограда ```…``` вокруг ответа: агента просят вернуть голый текст, но ограду он ставит часто.</summary>
+    /// <summary>Ограда ```…``` вокруг текста: агента просят вернуть голый текст, но ограду он ставит часто.</summary>
     public static string Unfence(string answer)
     {
         var text = answer.Trim();
@@ -265,46 +449,6 @@ public static partial class FlowRewriteEndpoints
         return firstBreak < 0 || lastFence <= firstBreak ? answer : text[(firstBreak + 1)..lastFence];
     }
 
-    // Ответ по строкам «=== …»: пометка и текст файла под ней. Текст до первой пометки — не стадия. Внутри стадии
-    // строка из одних «=» — текст: так в описании подчёркивают заголовок. Любая другая «=== …» — пометка, и неверную
-    // разбор назовёт, а не вклеит в описание прежней стадии.
-    private static List<(string Head, string Text)> Blocks(string answer)
-    {
-        var blocks = new List<(string Head, List<string> Lines)>();
-        foreach (var line in answer.Replace("\r\n", "\n").Split('\n'))
-        {
-            if (BlockLine.Match(line) is { Success: true } block
-                && (blocks.Count == 0 || line.Trim().Trim('=').Length > 0))
-                blocks.Add((block.Groups["head"].Value, []));
-            else if (blocks.Count > 0)
-                blocks[^1].Lines.Add(line);
-        }
-        // Ограду агент ставит и вокруг каждой стадии под её пометкой: снимается и она.
-        return blocks.Select(b => (b.Head, Unfence(string.Join("\n", b.Lines)))).ToList();
-    }
-
-    private static FlowRewriteEvent Failure(AgentExit exit, ClaudeStream stream)
-    {
-        if (exit.ExitCode is null)
-            return new FlowRewriteEvent("error", "Claude Code не запустился", Output: exit.Error);
-
-        var output = string.Join("\n", new[] { exit.Error, stream.Unparsed }.Where(t => t.Length > 0));
-        return new FlowRewriteEvent(
-            "error",
-            $"{AgentRequests.AgentName} завершился без ответа",
-            Output: output.Length > 0 ? Shorten(output) : $"код выхода {exit.ExitCode}");
-    }
-
-    private static string? Shorten(string? output) =>
+    internal static string? Shorten(string? output) =>
         output is { Length: > OutputLimit } long_ ? long_[..OutputLimit] + "…" : output;
-
-    private static string Problem(string problem) => problem switch
-    {
-        "stage-empty-title" => "нет названия",
-        "stage-empty-executor" => "не указан исполнитель",
-        "stage-empty-output" => "не указан выход",
-        "stage-bad-title" => "в названии скобки или кавычки",
-        "helpers-not-orchestrator" => "помощники у этапа, который делает не оркестратор",
-        _ => "перевод строки в ключе этапа",
-    };
 }

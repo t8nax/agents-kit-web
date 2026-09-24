@@ -10,21 +10,21 @@ const refreshIntervalMs = 3000
 const running: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} читает базу ${project}`,
   backlog: (project) => `${AGENT_NAME} разбирает бэклог ${project}`,
-  flow: (project) => `${AGENT_NAME} переписывает этапы ${project}`,
+  flow: (project) => `${AGENT_NAME} разбирает флоу ${project}`,
   performer: (project) => `${AGENT_NAME} заводит исполнителя ${project}`,
 }
 
 const done: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} ответил по базе ${project}`,
   backlog: (project) => `${AGENT_NAME} ответил по бэклогу ${project}`,
-  flow: (project) => `${AGENT_NAME} переписал этапы ${project}`,
+  flow: (project) => `${AGENT_NAME} ответил по флоу ${project}`,
   performer: (project) => `${AGENT_NAME} завёл исполнителя ${project}`,
 }
 
 const failed: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} не ответил по базе ${project}`,
   backlog: (project) => `${AGENT_NAME} не ответил по бэклогу ${project}`,
-  flow: (project) => `${AGENT_NAME} не переписал этапы ${project}`,
+  flow: (project) => `${AGENT_NAME} не ответил по флоу ${project}`,
   performer: (project) => `${AGENT_NAME} не завёл исполнителя ${project}`,
 }
 

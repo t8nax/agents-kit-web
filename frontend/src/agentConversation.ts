@@ -13,12 +13,13 @@ export type AskEvent =
 /** Через сколько окно дочитывает оборванный поток разговора. */
 const reconnectDelay = 500
 
-/** Просьбы-переписки панели: вопрос по базе (B-79) и разговор о бэклоге (B-72). */
-export type ConversationKind = 'ask' | 'backlog'
+/** Просьбы-переписки панели: вопрос по базе (B-79), разговор о бэклоге (B-72) и переписывание флоу (B-242). */
+export type ConversationKind = 'ask' | 'backlog' | 'flow'
 
 const routes: Record<ConversationKind, { start: string; reply: string; stop: string }> = {
   ask: { start: '/api/ask', reply: '/api/ask/reply', stop: '/api/ask/stop' },
   backlog: { start: '/api/backlog/write', reply: '/api/backlog/write/reply', stop: '/api/backlog/write/stop' },
+  flow: { start: '/api/flow/rewrite', reply: '/api/flow/rewrite/reply', stop: '/api/flow/rewrite/stop' },
 }
 
 /** Событие переписки любого вида: у каждого вида свои поля, а ход разговора читается по типу. */
@@ -43,7 +44,9 @@ async function alive(kind: ConversationKind, id: string) {
  */
 export function useAgentConversation<E extends ConversationEvent = AskEvent>(kind: ConversationKind = 'ask') {
   const [events, setEvents] = useState<E[]>([])
+  const [id, setId] = useState<string | null>(null)
   const [base, setBase] = useState<string | null>(null)
+  const [project, setProject] = useState<string | null>(null)
   // Про что разговор помимо базы: у вопроса по базе — копия проекта, чей код читает агент, у разговора о бэклоге —
   // запись, от которой он открыт.
   const [subject, setSubject] = useState<string | null>(null)
@@ -67,7 +70,9 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     reading.current?.abort()
     const controller = new AbortController()
     reading.current = controller
+    setId(summary.id)
     setBase(summary.base)
+    setProject(summary.project)
     setSubject(summary.subject ?? null)
     setFailure(null)
     if (from === 0) {
@@ -186,13 +191,16 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     [follow, kind],
   )
 
-  /** Следующая реплика уходит в тот же разговор: в переписке она появится его же потоком. */
-  const send = useCallback(async (text: string): Promise<Started> => {
+  /**
+   * Следующая реплика уходит в тот же разговор: в переписке она появится его же потоком. extra — что ещё несёт реплика
+   * у этого вида: переписывание флоу шлёт с ней флоу раздела, каким он стал.
+   */
+  const send = useCallback(async (text: string, extra: Record<string, unknown> = {}): Promise<Started> => {
     try {
       const response = await fetch(routes[kind].reply, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ ...extra, text }),
       })
       return response.ok ? { ok: true } : { ok: false, status: response.status }
     } catch {
@@ -214,7 +222,9 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     reading.current?.abort()
     reading.current = null
     setEvents([])
+    setId(null)
     setBase(null)
+    setProject(null)
     setSubject(null)
     setRunning(false)
     setStartedAt(null)
@@ -227,5 +237,5 @@ export function useAgentConversation<E extends ConversationEvent = AskEvent>(kin
     }
   }, [kind])
 
-  return { events, base, subject, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure }
+  return { events, id, base, project, subject, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure }
 }
