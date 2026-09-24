@@ -42,8 +42,12 @@ export default defineConfig({
   workers: process.env.CI
     ? availableParallelism()
     : Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))),
+  // На GitHub упавшую проверку не перегнать у себя: её след и снимок страницы уходят в артефакт
+  // прогона, а в журнале — строка на каждую проверку, а не точки.
+  reporter: process.env.CI ? 'list' : undefined,
   use: {
     baseURL: `http://localhost:${webPort}`,
+    trace: process.env.CI ? 'retain-on-failure' : undefined,
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
