@@ -6,7 +6,11 @@ public sealed record Worktree(string Path, string Branch);
 
 public static class GitWorktrees
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// Сколько ждать git по копии; не дождались — строка копии «git не прочитал копию». Прогон тестов даёт
+    /// запас: на перегруженной машине git не укладывался, и тесты краснели без поломки (B-142).
+    /// </summary>
+    public static TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>Основная копия и её worktree; null — git по копии отказал.</summary>
     public static async Task<IReadOnlyList<Worktree>?> ListAsync(string copyPath, CancellationToken cancellationToken)
