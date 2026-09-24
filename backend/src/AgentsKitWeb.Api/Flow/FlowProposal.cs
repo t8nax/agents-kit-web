@@ -106,7 +106,7 @@ public static partial class FlowProposals
         new(
             proposal.Scenarios.Where(c => c.Flow is null
                 ? c.Of is not null && flows.Any(f => FlowFolder.Key(f.Name) == FlowFolder.Key(c.Of))
-                : !flows.Contains(c.Flow)).ToList(),
+                : !flows.Any(f => SameFlow(f, c.Flow))).ToList(),
             proposal.Stages.Where(c => c.Stage is null
                 ? c.Of is not null && stages.Any(s => FlowFolder.Key(s.Title) == FlowFolder.Key(c.Of))
                 : !stages.Any(s => s with { Slug = null } == c.Stage with { Slug = null })).ToList());
@@ -215,6 +215,19 @@ public static partial class FlowProposals
     }
 
     private const string Agent = AgentRequests.AgentName;
+
+    /// <summary>
+    /// Сценарий тот же, если совпал адресами, как их сравнивает кит: пункт агента называет этап текстом ссылки,
+    /// а записанный и перечитанный — заголовком файла, и «ревью» с «Ревью» — один этап.
+    /// </summary>
+    private static bool SameFlow(NamedFlow one, NamedFlow other) =>
+        FlowFolder.Key(one.Name) == FlowFolder.Key(other.Name)
+        && (one.When ?? "").Trim() == (other.When ?? "").Trim()
+        && one.Entries.Count == other.Entries.Count
+        && one.Entries.Zip(other.Entries).All(pair =>
+            FlowFolder.Key(pair.First.Stage) == FlowFolder.Key(pair.Second.Stage)
+            && FlowFolder.Returns(pair.First).Select(r => (r.Condition.Trim(), FlowFolder.Key(r.Stage)))
+                .SequenceEqual(FlowFolder.Returns(pair.Second).Select(r => (r.Condition.Trim(), FlowFolder.Key(r.Stage)))));
 
     // Ответ по строкам «=== …»: слова до первой пометки и блоки под пометками. Внутри блока строка из одних «=» —
     // текст: так в описании подчёркивают заголовок. Любая другая «=== …» — пометка, и неверную разбор назовёт.

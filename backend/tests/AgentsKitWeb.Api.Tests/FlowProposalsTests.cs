@@ -174,5 +174,33 @@ public sealed class FlowProposalsTests
         Assert.Empty(rebased.Stages);
     }
 
+    [Fact]
+    public void Rebase_WrittenScenarioMatchesByKeyLikeKit()
+    {
+        // Агент назвал этап в пункте «ревью», а записанный и перечитанный сценарий зовёт его по файлу — «Ревью».
+        var proposed = new NamedFlow("мелкий", "мало работы", [new FlowEntry("ревью"), new FlowEntry("Мерж ")]);
+
+        var rebased = FlowProposals.Rebase(Stages, [Big, Small], new FlowProposal([new ScenarioChange("мелкий", proposed)], []));
+
+        Assert.Empty(rebased.Scenarios);
+    }
+
+    [Fact]
+    public void Input_BaseWithTwoStagesOfOneTitle_StillGivesFlow()
+    {
+        // Два этапа с одним названием бывают в базе, поправленной руками: начало переписки на них не падает.
+        var input = FlowRewriteEndpoints.Input("Поправь ревью", [Review, Review with { Slug = "review-2" }], [Small], [], []);
+
+        Assert.Contains("1. [Ревью](stages/review.md)", input);
+    }
+
+    [Fact]
+    public void Input_TaskOfUnknownScenario_LeavesNewOnesOpen()
+    {
+        var input = FlowRewriteEndpoints.Input("Заведи этап", Stages, Flows, [new FlowTask("B-7", null)], []);
+
+        Assert.Contains("- B-7: сценарий не узнан — панель не запишет ни одного из нынешних сценариев и этапов, а новые заводить можно", input);
+    }
+
     private static FlowStage Parsed(string text) => FlowFolder.ParseStage(text, "") with { Slug = null };
 }

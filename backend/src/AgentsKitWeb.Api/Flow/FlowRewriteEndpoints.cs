@@ -345,6 +345,7 @@ public static class FlowRewriteEndpoints
             не просили: флоу после правки должен читаться связно. Название меняй, только если об этом просили.
             Исполнитель и помощники этапа — из исполнителей проекта или «оркестратор», «оператор»; других имён не ставь.
             Сценарии и этапы, занятые задачами в работе, панель не запишет: если просьба их касается, скажи об этом.
+            Новые сценарии и этапы заводить можно всегда.
             Правки предлагай в конце ответа блоками; до первого блока — что ты сделал или о чём спрашиваешь, коротко.
             Блок — строка-пометка и под ней текст целиком:
             «=== этап «Название»» — этап с этим названием переписан, под пометкой файл этапа целиком;
@@ -403,7 +404,10 @@ public static class FlowRewriteEndpoints
             text.Append("сценариев пока нет.");
         else
         {
-            var slugs = stages.ToDictionary(s => FlowFolder.Key(s.Title), s => s.Slug ?? FlowFolder.NewSlug(s.Title, []));
+            // Этапы с одним названием в базе, поправленной руками, бывают: адрес берётся у первого.
+            var slugs = new Dictionary<string, string>();
+            foreach (var stage in stages)
+                slugs.TryAdd(FlowFolder.Key(stage.Title), stage.Slug ?? FlowFolder.NewSlug(stage.Title, []));
             // Пункт, чьего этапа на экране нет, агенту всё равно виден: адрес у него — по названию.
             foreach (var entry in flows.SelectMany(f => f.Entries))
                 slugs.TryAdd(FlowFolder.Key(entry.Stage), FlowFolder.NewSlug(entry.Stage, []));
@@ -423,7 +427,7 @@ public static class FlowRewriteEndpoints
         foreach (var task in tasks)
             text.Append($"\n- {task.Task}: ").Append(task.Flow is { } flow
                 ? $"идёт по сценарию «{flow}» — его и его этапы панель не запишет"
-                : "сценарий не узнан — панель не запишет ни одного сценария и этапа");
+                : "сценарий не узнан — панель не запишет ни одного из нынешних сценариев и этапов, а новые заводить можно");
 
         text.Append("\n\nИсполнители проекта:");
         if (performers.Count == 0)
