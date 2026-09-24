@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:net'
-import { tmpdir } from 'node:os'
+import { availableParallelism, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineConfig, devices } from '@playwright/test'
 
@@ -35,6 +35,10 @@ const artifacts = join(
 
 export default defineConfig({
   testDir: './e2e',
+  // Не больше четырёх браузеров разом: по умолчанию Playwright берёт половину ядер, и на машине
+  // с двадцатью ядрами десять браузеров забирали 17 ГБ из 32 — всё прочее на машине вставало,
+  // а прогон шёл дольше, чем с четырьмя (B-245). Где половина ядер меньше, остаётся она.
+  workers: Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))),
   use: {
     baseURL: `http://localhost:${webPort}`,
   },
