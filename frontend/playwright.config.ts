@@ -42,6 +42,8 @@ export default defineConfig({
   workers: process.env.CI
     ? availableParallelism()
     : Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))),
+  // Слияние в dev ждёт зелёного прогона на GitHub: забытый test.only сделал бы его зелёным на части проверок.
+  forbidOnly: !!process.env.CI,
   // На GitHub упавшую проверку не перегнать у себя: её след и снимок страницы уходят в артефакт
   // прогона, а в журнале — строка на каждую проверку, а не точки.
   reporter: process.env.CI ? 'list' : undefined,
