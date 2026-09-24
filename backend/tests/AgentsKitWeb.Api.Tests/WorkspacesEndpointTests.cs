@@ -267,7 +267,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
     private async Task<List<WorkspaceRow>> GetRows(string? sessionsDir, string[] bases)
     {
-        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
@@ -275,12 +275,17 @@ public sealed class WorkspacesEndpointTests : IDisposable
                     ? [new("BasesFile", TestBases.File(_root, bases))]
                     : [new("BasesFile", TestBases.File(_root, bases)), new("SessionsDir", sessionsDir)]);
             }));
-        var client = factory.CreateClient();
+        try
+        {
+            var response = await factory.CreateClient().GetAsync("/api/workspaces");
 
-        var response = await client.GetAsync("/api/workspaces");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return await response.Content.ReadFromJsonAsync<List<WorkspaceRow>>() ?? [];
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return await response.Content.ReadFromJsonAsync<List<WorkspaceRow>>() ?? [];
+        }
+        finally
+        {
+            TestHost.Stop(factory);
+        }
     }
 
     private static void Git(string workingDirectory, params string[] args) =>

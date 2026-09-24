@@ -12,6 +12,7 @@ public sealed class KitEndpointsTests : IDisposable
     private readonly string _root = Directory.CreateTempSubdirectory("akw-kit-").FullName;
     private readonly string _file;
     private readonly WebApplicationFactory<Program> _factory;
+    private readonly TestHosts _hosts = new();
 
     public KitEndpointsTests()
     {
@@ -119,7 +120,7 @@ public sealed class KitEndpointsTests : IDisposable
             },
         }));
 
-        using var factory = FactoryWithClaudeDir(claude);
+        var factory = FactoryWithClaudeDir(claude);
         var found = await factory.CreateClient().GetFromJsonAsync<List<string>>("/api/kit/found");
 
         Assert.Equal([skillKit, pluginKit], found);
@@ -128,22 +129,23 @@ public sealed class KitEndpointsTests : IDisposable
     [Fact]
     public async Task FoundKits_NoProfile_IsEmpty()
     {
-        using var factory = FactoryWithClaudeDir(Path.Combine(_root, "nobody", ".claude"));
+        var factory = FactoryWithClaudeDir(Path.Combine(_root, "nobody", ".claude"));
 
         Assert.Empty((await factory.CreateClient().GetFromJsonAsync<List<string>>("/api/kit/found"))!);
     }
 
     private WebApplicationFactory<Program> FactoryWithClaudeDir(string claudeDir) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
                 config.AddInMemoryCollection([new("BasesFile", _file), new("ClaudeDir", claudeDir)]);
-            }));
+            })));
 
     public void Dispose()
     {
         TestHost.Stop(_factory);
+        _hosts.Dispose();
         Directory.Delete(_root, recursive: true);
     }
 }

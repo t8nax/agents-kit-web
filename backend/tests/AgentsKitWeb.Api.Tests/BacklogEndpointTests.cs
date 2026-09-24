@@ -10,6 +10,7 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class BacklogEndpointTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("akw-tests-").FullName;
+    private readonly TestHosts _hosts = new();
 
     [Fact]
     public async Task Backlog_ReturnsEntriesPerBaseWithProjectName()
@@ -64,7 +65,7 @@ public sealed class BacklogEndpointTests : IDisposable
     public async Task Backlog_RereadsFileOnEachRequest()
     {
         var basePath = CreateBase("app-knowledge", "## B-1 Первая\n\nТекст.\n");
-        await using var factory = Factory(basePath);
+        var factory = Factory(basePath);
         var client = factory.CreateClient();
 
         var before = await Get(client);
@@ -157,16 +158,16 @@ public sealed class BacklogEndpointTests : IDisposable
     }
 
     private WebApplicationFactory<Program> Factory(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
                 config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases))]);
-            }));
+            })));
 
     private async Task<List<BaseBacklog>> GetBacklogs(params string[] bases)
     {
-        await using var factory = Factory(bases);
+        var factory = Factory(bases);
         return await Get(factory.CreateClient());
     }
 
@@ -180,6 +181,7 @@ public sealed class BacklogEndpointTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             Directory.Delete(_root, recursive: true);

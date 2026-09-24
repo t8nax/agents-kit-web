@@ -15,6 +15,7 @@ public sealed class PanelUpdateTests : IDisposable
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-update-").FullName;
     private readonly TestReleases _releases = new();
+    private readonly TestHosts _hosts = new();
 
     [Fact]
     public void Log_IsKeptBesideThePanelDirectory()
@@ -33,7 +34,7 @@ public sealed class PanelUpdateTests : IDisposable
     public async Task Update_TellsWhatTheLogSays(string log, string state, string? version)
     {
         var file = Log(log);
-        using var factory = Factory(Published(), file);
+        var factory = Factory(Published(), file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdateState>("/api/panel/update");
 
@@ -45,7 +46,7 @@ public sealed class PanelUpdateTests : IDisposable
     public async Task Update_Downloading_TellsHowMuchIsDownloaded()
     {
         var file = Log("[начало] канал master, выпуск 0.10.2\nвыпуск v0.10.2\n[скачано] 0 из 19293798\n[скачано] 11744051 из 19293798");
-        using var factory = Factory(Published(), file);
+        var factory = Factory(Published(), file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdateState>("/api/panel/update");
 
@@ -62,7 +63,7 @@ public sealed class PanelUpdateTests : IDisposable
     public async Task Update_Downloaded_TellsItIsInstalling()
     {
         var file = Log("[начало] канал master, выпуск 0.10.2\n[скачано] 19293798 из 19293798\n[ставлю]");
-        using var factory = Factory(Published(), file);
+        var factory = Factory(Published(), file);
 
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdateState>("/api/panel/update");
 
@@ -75,7 +76,7 @@ public sealed class PanelUpdateTests : IDisposable
     {
         _releases.Channel("master", new PanelRelease("0.10.2", "v0.10.2", []), new PanelRelease("0.10.1", "v0.10.1", []));
         var file = Path.Combine(_root, "update.log");
-        using var factory = Factory(Published(), file);
+        var factory = Factory(Published(), file);
 
         var response = await factory.CreateClient().PostAsync("/api/panel/update", null);
 
@@ -93,7 +94,7 @@ public sealed class PanelUpdateTests : IDisposable
     [Fact]
     public async Task Update_WhenGitHubIsSilent_IsNotStarted()
     {
-        using var factory = Factory(Published(), Path.Combine(_root, "update.log"));
+        var factory = Factory(Published(), Path.Combine(_root, "update.log"));
 
         var response = await factory.CreateClient().PostAsync("/api/panel/update", null);
 
@@ -106,7 +107,7 @@ public sealed class PanelUpdateTests : IDisposable
     {
         _releases.Channel("master", new PanelRelease("0.10.2", "v0.10.2", []));
         var file = Log("[начало] канал master, выпуск 0.10.2\n[скачано] 0 из 100");
-        using var factory = Factory(Published(), file);
+        var factory = Factory(Published(), file);
 
         var response = await factory.CreateClient().PostAsync("/api/panel/update", null);
 
@@ -116,7 +117,7 @@ public sealed class PanelUpdateTests : IDisposable
     [Fact]
     public async Task Update_OnDevelopmentRun_IsNotStarted()
     {
-        using var factory = Factory(Path.Combine(_root, "published.json"), Path.Combine(_root, "update.log"));
+        var factory = Factory(Path.Combine(_root, "published.json"), Path.Combine(_root, "update.log"));
 
         var response = await factory.CreateClient().PostAsync("/api/panel/update", null);
 
@@ -174,7 +175,7 @@ public sealed class PanelUpdateTests : IDisposable
     }
 
     private WebApplicationFactory<Program> Factory(string publishedFile, string logFile) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -193,7 +194,11 @@ public sealed class PanelUpdateTests : IDisposable
                 services.RemoveAll<IPanelReleases>();
                 services.AddSingleton<IPanelReleases>(_releases);
             });
-        });
+        }));
 
-    public void Dispose() => Directory.Delete(_root, recursive: true);
+    public void Dispose()
+    {
+        _hosts.Dispose();
+        Directory.Delete(_root, recursive: true);
+    }
 }

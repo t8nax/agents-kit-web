@@ -27,3 +27,26 @@ internal static class TestHost
         factory.Dispose();
     }
 }
+
+/// <summary>
+/// Панели, которые тесты класса поднимают сами. Уборка класса останавливает их так же, как свою, —
+/// через <see cref="TestHost.Stop"/>, а не Dispose фабрики, и до того, как стереть временные файлы.
+/// </summary>
+internal sealed class TestHosts : IDisposable
+{
+    private readonly List<WebApplicationFactory<Program>> _factories = [];
+
+    public WebApplicationFactory<Program> Add(WebApplicationFactory<Program> factory)
+    {
+        lock (_factories)
+            _factories.Add(factory);
+        return factory;
+    }
+
+    public void Dispose()
+    {
+        lock (_factories)
+            foreach (var factory in _factories)
+                TestHost.Stop(factory);
+    }
+}
