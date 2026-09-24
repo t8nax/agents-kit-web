@@ -5,6 +5,7 @@ import { Markdown } from './Markdown'
 import { useAgentConversation } from './agentConversation'
 import {
   changedText,
+  fieldValue,
   pending,
   proposalItems,
   type ChangeKind,
@@ -16,6 +17,8 @@ import {
 } from './flowChanges'
 import './Modal.css'
 import './AskModal.css'
+import './PerformerModal.css'
+import './Flow.css'
 import './Tabs.css'
 import './FlowRewriteModal.css'
 
@@ -429,24 +432,7 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
         </div>
       </div>
 
-      {description && (
-        <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && setDescription(null)}>
-          <div
-            className="flow-confirm flow-description"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Описание этапа «${description.title}»`}
-          >
-            <h3>Описание этапа «{description.title}»</h3>
-            <pre className="rewrite-description-text">{description.text}</pre>
-            <div className="flow-confirm-actions">
-              <button type="button" className="bases-btn" onClick={() => setDescription(null)}>
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {description && <DescriptionView title={description.title} text={description.text} onClose={() => setDescription(null)} />}
     </div>
   )
 }
@@ -573,8 +559,16 @@ function StageRow({
         : 'не стоит в сценариях'
       : `в ${item.flows.length === 1 ? 'сценарии' : 'сценариях'} ${item.flows.map((name) => `«${name}»`).join(', ')}`
   const stage = item.stage
-  const descriptionChange = item.fields.find((field) => field.field === 'description')
-  const keys = item.fields.filter((field) => field.field !== 'description')
+  const change = (field: StageFieldName) => item.fields.find((one) => one.field === field)
+  const now = (field: StageFieldName) => (stage ? fieldValue(stage, field) : null)
+  // Исполнитель, выход и описание стоят всегда; название — когда поменялось, пропуск и помощники — когда они есть
+  // или поменялись: замечание оператора на приёмке B-242.
+  const rows = (['title', 'executor', 'output', 'skip', 'helpers'] as StageFieldName[]).filter(
+    (field) =>
+      field === 'executor' || field === 'output' || change(field) !== undefined || (field !== 'title' && now(field) !== null),
+  )
+  const descriptionChange = change('description')
+  const description = now('description')
 
   return (
     <details className="rewrite-item">
@@ -592,66 +586,75 @@ function StageRow({
         )}
         {item.kind === 'removed' && <p className="rewrite-none">Этап уйдёт из базы.</p>}
 
-        {item.kind === 'added' && stage && (
+        {stage && (
           <dl className="rewrite-fields">
-            <dt>исполнитель</dt>
-            <dd>{stage.executor}</dd>
-            <dt>выход</dt>
-            <dd>{stage.output}</dd>
-            {stage.skip && (
-              <>
-                <dt>пропуск</dt>
-                <dd>{stage.skip}</dd>
-              </>
-            )}
-            {stage.helpers && stage.helpers.length > 0 && (
-              <>
-                <dt>помощники</dt>
-                <dd>{stage.helpers.join(', ')}</dd>
-              </>
-            )}
-            {stage.description && (
-              <>
-                <dt>описание</dt>
-                <dd>
-                  <DescriptionButton title={item.title} text={stage.description} onOpen={onDescription} />
-                </dd>
-              </>
-            )}
-          </dl>
-        )}
-
-        {item.kind === 'changed' && (
-          <dl className="rewrite-fields">
-            {keys.map((field) => (
-              <div key={field.field} className="rewrite-field">
-                <dt>{fieldLabels[field.field]}</dt>
-                <dd>
-                  <span className={`rewrite-was ${field.before === null ? 'rewrite-none' : ''}`}>{field.before ?? 'нет'}</span>
-                  {field.after !== null ? (
-                    <span className="rewrite-now">{field.after}</span>
-                  ) : (
-                    <span className="rewrite-now rewrite-none">нет</span>
-                  )}
-                </dd>
-              </div>
-            ))}
-            {descriptionChange && (
-              <div className="rewrite-field">
-                <dt>{fieldLabels.description}</dt>
-                <dd>
-                  {descriptionChange.after !== null ? (
-                    <DescriptionButton title={item.title} text={descriptionChange.after} onOpen={onDescription} changed />
-                  ) : (
-                    <span className="rewrite-now rewrite-none">описание убрано</span>
-                  )}
-                </dd>
-              </div>
-            )}
+            {rows.map((field) => {
+              const changed = change(field)
+              return (
+                <div key={field} className="rewrite-field">
+                  <dt>{fieldLabels[field]}</dt>
+                  <dd>
+                    {changed ? (
+                      <>
+                        <span className={`rewrite-was ${changed.before === null ? 'rewrite-none' : ''}`}>{changed.before ?? 'нет'}</span>
+                        <span className={`rewrite-now ${changed.after === null ? 'rewrite-none' : ''}`}>{changed.after ?? 'нет'}</span>
+                      </>
+                    ) : (
+                      <span>{now(field)}</span>
+                    )}
+                  </dd>
+                </div>
+              )
+            })}
+            <div className="rewrite-field">
+              <dt>{fieldLabels.description}</dt>
+              <dd>
+                {description !== null ? (
+                  <DescriptionButton title={item.title} text={description} onOpen={onDescription} changed={descriptionChange !== undefined} />
+                ) : (
+                  <span className="rewrite-none">{descriptionChange ? 'описание убрано' : 'нет'}</span>
+                )}
+              </dd>
+            </div>
           </dl>
         )}
       </div>
     </details>
+  )
+}
+
+/**
+ * Описание этапа из правок — окном того же вида и размера, что окно описания на вкладке «Этапы»: оформленная
+ * разметка, только чтение — замечание и ответ оператора на приёмке B-242. Поправить текст можно просьбой в переписке.
+ */
+function DescriptionView({ title, text, onClose }: { title: string; text: string; onClose: () => void }) {
+  const close = useRef<HTMLButtonElement>(null)
+  // Открытое окно забирает фокус: иначе он остался бы на кнопке под подложкой.
+  useEffect(() => close.current?.focus(), [])
+  return (
+    <div className="modal-overlay pf-task-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="modal-wizard pf-task flow-description" role="dialog" aria-modal="true" aria-labelledby="rewrite-description-title">
+        <div className="ask-head">
+          <div className="ask-title">
+            <FileTextIcon />
+            <h2 id="rewrite-description-title">Описание этапа «{title}»</h2>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть описание" onClick={onClose}>
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+        <div className="ask-body">
+          <Markdown className="pf-task-view" text={text} />
+        </div>
+        <div className="modal-footer ask-footer">
+          <div className="footer-right">
+            <button type="button" ref={close} className="btn" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -68,14 +68,15 @@ export function changedText(changed: FlowChanged) {
 
 const fieldNames: StageFieldName[] = ['title', 'executor', 'output', 'skip', 'helpers', 'description']
 
-const value = (stage: FlowStage, field: StageFieldName) => {
+/** Значение поля этапа строкой; пустое — null. */
+export const fieldValue = (stage: FlowStage, field: StageFieldName) => {
   const raw = field === 'helpers' ? (stage.helpers ?? []).join(', ') : stage[field]
   return raw === null || raw === undefined || raw.trim() === '' ? null : raw
 }
 
 const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
 
-const sameStage = (one: FlowStage, other: FlowStage) => fieldNames.every((field) => value(one, field) === value(other, field))
+const sameStage = (one: FlowStage, other: FlowStage) => fieldNames.every((field) => fieldValue(one, field) === fieldValue(other, field))
 
 const returnsOf = (flow: NamedFlow) =>
   flow.entries.flatMap((entry) =>
@@ -150,7 +151,7 @@ export function proposalItems(
     if (!was)
       return [{ kind: 'added', title: stage.title, of: null, stage, fields: [], flows: place, ...(change.of != null ? { gone: change.of } : {}) }]
     const fields = fieldNames
-      .map((field) => ({ field, before: value(was, field), after: value(stage, field) }))
+      .map((field) => ({ field, before: fieldValue(was, field), after: fieldValue(stage, field) }))
       .filter((field) => field.before !== field.after)
     return fields.length === 0 ? [] : [{ kind: 'changed', title: stage.title, of: was.title, stage, fields, flows: place }]
   })

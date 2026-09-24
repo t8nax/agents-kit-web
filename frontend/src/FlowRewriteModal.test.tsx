@@ -211,6 +211,44 @@ test('правка этапа, убранного из раздела после
   expect(await screen.findByText('Этапа «Ревью» в разделе уже нет: «Принять правки» заведёт его снова.')).toBeInTheDocument()
 })
 
+test('у изменённого этапа всегда исполнитель, выход и «Открыть описание»; поменявшееся — «было → стало»', async () => {
+  await answered()
+  fireEvent.click(screen.getByRole('button', { name: '1 сценарий, 2 этапа' }))
+
+  // Ревью: выход поменялся, исполнитель и описание — нет.
+  fireEvent.click(screen.getByText('Ревью', { selector: '.rewrite-item-name' }))
+  const item = within(screen.getByText('Ревью', { selector: '.rewrite-item-name' }).closest('details')!)
+  expect(item.getByText('исполнитель')).toBeInTheDocument()
+  expect(item.getByText('reviewer')).toBeInTheDocument()
+  expect(item.getByText('выход Ревью')).toHaveClass('rewrite-was')
+  expect(item.getByText('вердикт и тесты')).toHaveClass('rewrite-now')
+  expect(item.getByText('описание')).toBeInTheDocument()
+  // Описания у ревью нет — так и сказано; пропуска и помощников нет — их строк нет.
+  expect(item.getByText('нет')).toBeInTheDocument()
+  expect(item.queryByText('пропуск')).not.toBeInTheDocument()
+  expect(item.queryByText('помощники')).not.toBeInTheDocument()
+})
+
+test('«Открыть описание» открывает описание окном вкладки «Этапы» только для чтения', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream)
+  renderModal()
+  await say('Заведи документацию')
+  const described = { ...docs, description: '## Порядок\n\n1. Прочитать **дифф**.' }
+  stream.send({ type: 'answer', text: 'Готово.', proposal: { scenarios: [], stages: [{ stage: described }] }, changed: { scenarios: 0, stages: 1 } })
+  fireEvent.click(await screen.findByRole('button', { name: '1 этап' }))
+  fireEvent.click(screen.getByText('Документация', { selector: '.rewrite-item-name' }))
+
+  fireEvent.click(screen.getByRole('button', { name: 'Открыть описание' }))
+
+  const view = within(screen.getByRole('dialog', { name: 'Описание этапа «Документация»' }))
+  expect(view.getByRole('heading', { name: 'Порядок' })).toBeInTheDocument()
+  expect(view.getByText('дифф').tagName).toBe('STRONG')
+  expect(view.queryByRole('button', { name: /Редактировать/ })).not.toBeInTheDocument()
+  fireEvent.click(view.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog', { name: 'Описание этапа «Документация»' })).not.toBeInTheDocument()
+})
+
 test('«Принять правки» отдаёт разделу правки переписки, а отказ записи остаётся на вкладке', async () => {
   const { onApply } = await answered()
   onApply.mockResolvedValueOnce('Флоу не сохранён: его изменили в базе.')

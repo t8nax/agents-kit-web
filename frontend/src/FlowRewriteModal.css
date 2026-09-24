@@ -380,21 +380,6 @@
   color: var(--accent-waiting-text);
 }
 
-.rewrite-description-text {
-  margin: 0;
-  height: 300px;
-  overflow: auto;
-  color: var(--text-primary);
-  background: var(--bg-base);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  padding: 12px 14px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre;
-}
-
 /* Переписка про флоу другого проекта: новая её уберёт — предупреждение до отправки. */
 .rewrite-foreign {
   margin: 0;
