@@ -4,12 +4,13 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Flow;
 
 /// <summary>
-/// Флоу одной базы: стадии flow/stages/ и флоу из flow/flow.md. Version — отпечаток всех этих файлов: запись
-/// принимается только поверх того, что оператор видел. У базы без flow/flow.md — и когда флоу в ней ещё старой
-/// формы — флоу нет, а стадии, если они лежат в flow/stages/, читаются: первая запись не должна их стереть.
+/// Флоу одной базы: этапы flow/stages/ и сценарии из flow/scenarios.md. Version — отпечаток всех этих файлов: запись
+/// принимается только поверх того, что оператор видел. У базы без flow/scenarios.md — и когда флоу в ней ещё прежнего
+/// вида кита, flow/flow.md, — сценариев нет, а этапы, если они лежат в flow/stages/, читаются: первая запись не должна
+/// их стереть.
 /// Error задан — флоу панель не прочитала. Icons — выбранные
 /// оператором значки стадий, они живут в настройках панели, а не в базе. Unread — строки файлов флоу, которые панель
-/// не сохранит («flow/flow.md, строка 7: «…»»): пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
+/// не сохранит («flow/scenarios.md, строка 7: «…»»): пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
 /// Tasks — задачи в работе и флоу, по которому каждая идёт: занятый флоу и его стадии не правятся.
 /// </summary>
 public sealed record BaseFlow(
@@ -25,8 +26,8 @@ public sealed record BaseFlow(
 
 /// <summary>
 /// Задача в работе: Task — её номер из бэклога, а без номера — заголовок памяти или имя файла; Flow — флоу базы,
-/// названный строкой «флоу:» памяти. Flow null — флоу не назван или такого в базе нет: такая задача может идти
-/// по любому флоу и держит их все — решение оператора на B-226. Named — как флоу назван в памяти: по нему панель
+/// названный строкой «сценарий:» памяти (прежний вид кита — «флоу:»). Flow null — флоу не назван или такого
+/// в базе нет: такая задача может идти по любому флоу и держит их все — решение оператора на B-226. Named — как флоу назван в памяти: по нему панель
 /// отличает флоу, которого в базе нет, от не названного вовсе.
 /// </summary>
 public sealed record FlowTask(string Task, string? Flow, string? Named = null);
@@ -125,7 +126,7 @@ public static class FlowEndpoints
     private sealed record FileWrite(string Path, byte[]? Bytes, byte[]? Before);
 
     /// <summary>
-    /// flow/flow.md, если он есть, — всегда первым, — и файлы стадий. Стадии читаются и без flow/flow.md: они лежат
+    /// flow/scenarios.md, если он есть, — всегда первым, — и файлы этапов. Этапы читаются и без flow/scenarios.md: они лежат
     /// в базе, и первая запись флоу не должна ни занять их имена файлов, ни стереть их.
     /// </summary>
     private static List<FlowFileBytes> Files(string basePath)
@@ -305,9 +306,9 @@ public static class FlowEndpoints
         var kept = request.Stages.Select(s => s.Slug).OfType<string>().ToHashSet();
         writes.AddRange(existing.Where(pair => !kept.Contains(pair.Key)).Select(pair => new FileWrite(pair.Value.Path, null, pair.Value.Bytes)));
 
-        // Вступление flow.md остаётся как было; у базы без него — заголовок, какой заводит кит.
+        // Вступление scenarios.md остаётся как было; у базы без него — заголовок, какой заводит кит.
         var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
-        var (listText, listBom) = list is null ? ($"# {ProjectName.Of(basePath)} — флоу\n", false) : FlowFolder.Decode(list.Bytes);
+        var (listText, listBom) = list is null ? ($"# {ProjectName.Of(basePath)} — сценарии\n", false) : FlowFolder.Decode(list.Bytes);
         var intro = FlowFolder.ParseList(listText, new Dictionary<string, string>()).Intro;
         var output = FlowFolder.Encode(FlowFolder.SerializeList(intro, request.Flows, slugs, Eol(listText)), listBom);
         if (list is null || !output.AsSpan().SequenceEqual(list.Bytes))

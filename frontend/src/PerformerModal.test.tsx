@@ -382,8 +382,8 @@ test('просьба к Чудо-Юдо идёт из окна, а его отв
     },
   })
 
-  stream.send({ type: 'step', text: 'читает flow.md' })
-  expect(await screen.findByText('читает flow.md')).toBeInTheDocument()
+  stream.send({ type: 'step', text: 'читает scenarios.md' })
+  expect(await screen.findByText('читает scenarios.md')).toBeInTheDocument()
   expect(screen.getByRole('status')).toHaveTextContent('заводит исполнителя')
 
   stream.send({
@@ -780,6 +780,6 @@ test('идущая просьба подхватывается открытым 
   open()
 
   expect(await screen.findByText('Ревьюер ветки')).toBeInTheDocument()
-  stream.send({ type: 'step', text: 'читает flow.md' })
-  expect(await screen.findByText('читает flow.md')).toBeInTheDocument()
+  stream.send({ type: 'step', text: 'читает scenarios.md' })
+  expect(await screen.findByText('читает scenarios.md')).toBeInTheDocument()
 })

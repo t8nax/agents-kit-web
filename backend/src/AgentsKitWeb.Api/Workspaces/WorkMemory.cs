@@ -106,7 +106,8 @@ public sealed record WorkMemory(
                 continue;
             }
 
-            if (section == "Агенту" && subsection == "Флоу" && ChecklistItem.Match(line) is { Success: true } flowItem)
+            // Этапы сценария: нынешний кит держит их в «Сценарии», память прежнего вида — во «Флоу».
+            if (section == "Агенту" && subsection is "Сценарий" or "Флоу" && ChecklistItem.Match(line) is { Success: true } flowItem)
             {
                 flowTotal++;
                 if (flowItem.Groups["done"].Value != " ")

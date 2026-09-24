@@ -10,15 +10,15 @@ public sealed class FlowRulesTests : IDisposable
     public void Read_TakesStageAndOutsideSectionsOfKitReference()
     {
         Write("""
-            # Флоу и стадии
+            # Флоу: сценарии и этапы
 
             Вступление.
 
-            ## Флоу
+            ## Сценарий
 
-            Флоу — раздел flow/flow.md.
+            Сценарии — flow/scenarios.md.
 
-            ## Стадия
+            ## Этап
 
             Ключи — закрытый перечень.
 
@@ -37,12 +37,24 @@ public sealed class FlowRulesTests : IDisposable
 
         var rules = FlowRules.Read(_kit)!;
 
-        Assert.StartsWith("## Стадия", rules);
+        Assert.StartsWith("## Этап", rules);
         Assert.Contains("### Пример", rules);
         Assert.Contains("## Чего во флоу нет\n\nИнвариантов кита во флоу нет.", rules);
-        Assert.DoesNotContain("Флоу — раздел flow/flow.md.", rules);
+        Assert.DoesNotContain("Сценарии — flow/scenarios.md.", rules);
         Assert.DoesNotContain("Красные", rules);
         Assert.DoesNotContain("Вступление.", rules);
+    }
+
+    [Fact]
+    public void Read_KitOfPriorForm_TakesStageSection()
+    {
+        // Кит прежнего вида звал раздел формы «Стадия».
+        Write("# Флоу и стадии\n\n## Стадия\n\nКлючи — закрытый перечень.\n\n## Чего во флоу нет\n\nИнвариантов нет.\n");
+
+        var rules = FlowRules.Read(_kit)!;
+
+        Assert.StartsWith("## Стадия\n\nКлючи — закрытый перечень.", rules);
+        Assert.Contains("## Чего во флоу нет", rules);
     }
 
     [Fact]

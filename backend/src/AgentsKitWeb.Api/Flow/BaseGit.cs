@@ -14,7 +14,7 @@ public static class BaseGit
     /// <summary>
     /// Коммитит только названный файл базы: `git commit -- путь` берёт его через временный индекс — не трогает
     /// то, что соседняя сессия оставила в индексе, а при отказе хука не оставляет в индексе и сам файл.
-    /// Файл должен уже быть в истории: flow.md заводит в базе кит.
+    /// Файл должен уже быть в истории: scenarios.md заводит в базе кит.
     /// </summary>
     public static Task<CommitResult> CommitFileAsync(
         string basePath, string file, string message, CancellationToken cancellationToken) =>

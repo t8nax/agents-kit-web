@@ -129,11 +129,11 @@ description: Пишет документацию по коду.
 "@
 }
 
-# Флоу в форме кита: список флоу в flow\flow.md и стадии по файлу в flow\stages. Флоу два — «полный»
-# и «мелкий» из общих стадий: на них видно, что стадия правится один раз, а возвраты у каждого флоу свои.
+# Флоу в форме кита: сценарии в flow\scenarios.md и этапы по файлу в flow\stages. Сценариев два — «полный»
+# и «мелкий» из общих этапов: на них видно, что этап правится один раз, а возвраты у каждого сценария свои.
 function New-Flow([string]$Path) {
-    Write-Utf8 (Join-Path $Path 'flow\flow.md') @'
-# Песочница — флоу
+    Write-Utf8 (Join-Path $Path 'flow\scenarios.md') @'
+# Песочница — сценарии
 
 Задачу из бэклога без слов оператора брать по наименьшему номеру.
 
@@ -143,10 +143,10 @@ function New-Flow([string]$Path) {
 2. [Ветка](stages/branch.md)
 3. [Реализация](stages/implementation.md)
 4. [Ревью](stages/review.md)
-   - возврат: блокер или мажор — стадия «Реализация»
+   - возврат: блокер или мажор — этап «Реализация»
 5. [Сборка](stages/build.md)
 6. [Приёмка](stages/acceptance.md)
-   - возврат: замечания — стадия «Реализация»
+   - возврат: замечания — этап «Реализация»
 7. [Мерж](stages/merge.md)
 
 ## мелкий
@@ -347,7 +347,7 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 
 рабочая копия: $Copy
 ветка: $Branch
-флоу: мелкий
+сценарий: мелкий
 Решения: нет
 
 ## Критерии закрытия
@@ -370,7 +370,7 @@ $designBlock$artifactsBlock$question
 ### Факты
 - Опрос идёт раз в три секунды.
 
-### Флоу
+### Сценарий
 - [x] 1. Ветка — выход: feat/polling от dev
 - [ ] 2. Реализация
 - [ ] 3. Приёмка
@@ -384,7 +384,7 @@ $designBlock$artifactsBlock$question
 }
 
 # Выдуманная база знаний: та же раскладка, что у настоящей, — панель читает её теми же правилами.
-# $StagesOnly — стадии без списка флоу, $NoFlow — ни стадий, ни флоу.
+# $StagesOnly — этапы без списка сценариев, $NoFlow — ни этапов, ни сценариев.
 function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
     [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow) {
     New-Repo $Path
@@ -405,7 +405,7 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
         Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; workspaces = $Copies })
     }
     if (-not $FlowUncommitted -and -not $NoFlow) { New-Flow $Path }
-    if ($StagesOnly) { Remove-Item -LiteralPath (Join-Path $Path 'flow\flow.md') }
+    if ($StagesOnly) { Remove-Item -LiteralPath (Join-Path $Path 'flow\scenarios.md') }
     New-Agents $Path
     New-Backlog $Path -Orders:$Orders
     New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
@@ -439,8 +439,8 @@ foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $cop
 }
 
 $kitDir = Join-Path $claudeDir 'skills\agents-kit'
-# Правила формы стадии заглушка берёт у установленного кита — с ними и настоящий агент (-RealAgent) пишет
-# стадии как в жизни. Путь к киту — из списка баз оператора, только на чтение; нет его — место по умолчанию.
+# Правила формы этапа заглушка берёт у установленного кита — с ними и настоящий агент (-RealAgent) пишет
+# этапы как в жизни. Путь к киту — из списка баз оператора, только на чтение; нет его — место по умолчанию.
 $installedKit = try { (Get-Content -LiteralPath (Join-Path $env:APPDATA 'agents-kit-web\bases.json') -Raw | ConvertFrom-Json).kit } catch { $null }
 if (-not $installedKit) { $installedKit = Join-Path $HOME '.claude\skills\agents-kit' }
 New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md')
@@ -525,10 +525,10 @@ $bases.Add($brokenJsonBase)
 $findings.Add([pscustomobject]@{ base = $brokenJsonBase; findings = @(
     [pscustomobject]@{ severity = 'FAIL'; file = 'agents-kit.json'; message = 'список копий не разобран' }) })
 
-# База со стадиями без сценариев и база без стадий и сценариев: на них видны пустые состояния
+# База с этапами без сценариев и база без этапов и сценариев: на них видны пустые состояния
 # вкладок раздела «Флоу» — у каждой своё, а переключатель вкладок на месте.
 $stagesOnlyBase = Join-Path $basesDir 'stages-only'
-New-Base $stagesOnlyBase 'Стадии без сценариев' @() -StagesOnly
+New-Base $stagesOnlyBase 'Этапы без сценариев' @() -StagesOnly
 $bases.Add($stagesOnlyBase)
 $findings.Add([pscustomobject]@{ base = $stagesOnlyBase; findings = @() })
 
@@ -578,7 +578,7 @@ $links.Add([pscustomobject]@{ path = (Join-Path $copiesDir 'dotted'); status = '
 $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
     [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
     [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
-    [pscustomobject]@{ severity = 'WARN'; file = 'flow/flow.md'; message = 'флоу не в истории git' }) })
+    [pscustomobject]@{ severity = 'WARN'; file = 'flow/scenarios.md'; message = 'сценарии не в истории git' }) })
 
 # Исполнитель, заведённый «оператором» прямо в базе и мимо панели: в разделе он виден наравне
 # с остальными, хотя панель его не заводила.

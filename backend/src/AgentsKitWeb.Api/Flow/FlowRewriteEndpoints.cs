@@ -41,13 +41,13 @@ public static partial class FlowRewriteEndpoints
     /// <summary>Сколько текста агента показывать оператором, когда стадии из него не вышли.</summary>
     private const int OutputLimit = 2000;
 
-    public const string NewStage = "новая стадия";
+    public const string NewStage = "новый этап";
 
-    // Строка перед файлом стадии в ответе: «=== стадия «Ревью»» или «=== новая стадия».
+    // Строка перед файлом этапа в ответе: «=== этап «Ревью»» или «=== новый этап».
     [GeneratedRegex(@"^===\s*(?<head>.*?)\s*$")]
     private static partial Regex BlockLine { get; }
 
-    [GeneratedRegex(@"^стадия\s*«(?<title>[^»]*)»$")]
+    [GeneratedRegex(@"^этап\s*«(?<title>[^»]*)»$")]
     private static partial Regex OfStage { get; }
 
     public static void MapFlowRewriteEndpoints(this IEndpointRouteBuilder app)
@@ -96,7 +96,7 @@ public static partial class FlowRewriteEndpoints
         if (FlowRules.Read(kit) is not { } rules)
             return new FlowRewriteEvent(
                 "error",
-                $"Панель не прочитала у кита правила формы стадии ({FlowRules.RulesFile}): путь к киту задаётся в «Настройках»");
+                $"Панель не прочитала у кита правила формы этапа ({FlowRules.RulesFile}): путь к киту задаётся в «Настройках»");
 
         var stream = new ClaudeStream(basePath, copyPath);
         AskEvent? result = null;
@@ -144,7 +144,7 @@ public static partial class FlowRewriteEndpoints
 
         var blocks = Blocks(Unfence(answer.Text));
         if (blocks.Count == 0)
-            return Reject($"{AgentRequests.AgentName} вернул не стадию: стадий в его ответе нет");
+            return Reject($"{AgentRequests.AgentName} вернул не этап: этапов в его ответе нет");
 
         var stages = new List<RewrittenStage>();
         foreach (var (head, text) in blocks)
@@ -154,19 +154,19 @@ public static partial class FlowRewriteEndpoints
             {
                 of = context.FirstOrDefault(s => FlowFolder.Key(s.Title) == FlowFolder.Key(match.Groups["title"].Value))?.Title;
                 if (of is null)
-                    return Reject($"{AgentRequests.AgentName} вернул стадию «{match.Groups["title"].Value}», которой в просьбе не было");
+                    return Reject($"{AgentRequests.AgentName} вернул этап «{match.Groups["title"].Value}», которого в просьбе не было");
             }
             else if (FlowFolder.Key(head) != NewStage)
-                return Reject($"{AgentRequests.AgentName} вернул стадию без пометки, какую он переписал: «=== {head}»");
+                return Reject($"{AgentRequests.AgentName} вернул этап без пометки, какой он переписал: «=== {head}»");
 
             var slug = of is null ? null : context.First(s => s.Title == of).Slug;
             var (stage, unread) = FlowFolder.ReadStage(text, slug ?? "");
             stage = stage with { Slug = slug };
             var name = stage.Title.Length > 0 ? $"«{stage.Title}»" : "без названия";
             if (unread.Count > 0)
-                return Reject($"Стадия {name} вернулась не в форме кита: {unread[0]}");
+                return Reject($"Этап {name} вернулся не в форме кита: {unread[0]}");
             if (FlowFolder.StageProblem(stage) is { } problem)
-                return Reject($"Стадия {name} вернулась не в форме кита: {Problem(problem)}");
+                return Reject($"Этап {name} вернулся не в форме кита: {Problem(problem)}");
             stages.Add(new RewrittenStage(of, stage));
         }
 
@@ -175,7 +175,7 @@ public static partial class FlowRewriteEndpoints
         var taken = new HashSet<string>(kept.Select(FlowFolder.Key));
         foreach (var rewritten in stages)
             if (!taken.Add(FlowFolder.Key(rewritten.Stage.Title)))
-                return Reject($"Стадия «{rewritten.Stage.Title}» вернулась с названием, которое у проекта уже есть");
+                return Reject($"Этап «{rewritten.Stage.Title}» вернулся с названием, которое у проекта уже есть");
 
         return new FlowRewriteEvent("rewritten", answer.Text, stages, answer.DurationMs);
     }
@@ -191,20 +191,20 @@ public static partial class FlowRewriteEndpoints
             : $"Текущий каталог — рабочая копия проекта: читай её код, чтобы понять, чем проект сделан и чем проверяется работа. База знаний проекта лежит в {basePath}.";
 
         var systemPrompt = $"""
-            Ты пишешь и переписываешь стадии флоу проекта «{project}» — файлы flow/stages/*.md базы знаний agents-kit —
+            Ты пишешь и переписываешь этапы флоу проекта «{project}» — файлы flow/stages/*.md базы знаний agents-kit —
             по просьбе оператора из веб-панели; спросить оператора нельзя.
-            {place} В базе флоу проекта — flow/flow.md и стадии в flow/stages/ — и его решения в decisions/.
-            Просьба придёт одним сообщением вместе со стадиями, которые оператор к ней добавил, названиями остальных
-            стадий проекта и исполнителями проекта. Стадии из сообщения — такие, какими их видит оператор, — важнее
+            {place} В базе флоу проекта — сценарии в flow/scenarios.md и этапы в flow/stages/ — и его решения в decisions/.
+            Просьба придёт одним сообщением вместе с этапами, которые оператор к ней добавил, названиями остальных
+            этапов проекта и исполнителями проекта. Этапы из сообщения — такие, какими их видит оператор, — важнее
             файлов на диске.
-            Исполнитель и помощники стадии — из исполнителей проекта или «оркестратор», «оператор»; других имён не ставь.
-            Переписывать можно любую из добавленных стадий, а по просьбе — завести новую. Добавленных нет — напиши новую.
+            Исполнитель и помощники этапа — из исполнителей проекта или «оркестратор», «оператор»; других имён не ставь.
+            Переписывать можно любой из добавленных этапов, а по просьбе — завести новый. Добавленных нет — напиши новый.
             Меняй только то, о чём просит оператор; название меняй, только если об этом просили.
-            Ответом верни только стадии, которые изменил или завёл, и ничего больше: ни пояснений, ни разговора.
-            Перед каждой стадией — строка «=== стадия «Название»» с прежним названием переписанной стадии
-            или строка «=== {NewStage}», под ней — файл стадии целиком. Текст можно завернуть в ``` — панель ограду снимет.
-            Файлы менять нельзя: стадии запишет панель, и только с согласия оператора.
-            Ниже правила кита о форме стадии; им новый текст и должен отвечать.
+            Ответом верни только этапы, которые изменил или завёл, и ничего больше: ни пояснений, ни разговора.
+            Перед каждым этапом — строка «=== этап «Название»» с прежним названием переписанного этапа
+            или строка «=== {NewStage}», под ней — файл этапа целиком. Текст можно завернуть в ``` — панель ограду снимет.
+            Файлы менять нельзя: этапы запишет панель, и только с согласия оператора.
+            Ниже правила кита о форме этапа; им новый текст и должен отвечать.
 
             {rules}
             """;
@@ -237,13 +237,13 @@ public static partial class FlowRewriteEndpoints
         var text = new StringBuilder().Append("Просьба оператора:\n").Append(wish);
 
         if (context.Count == 0)
-            text.Append("\n\nСтадий к просьбе не добавлено: напиши новую стадию.");
+            text.Append("\n\nЭтапов к просьбе не добавлено: напиши новый этап.");
         foreach (var stage in context)
-            text.Append($"\n\nДобавленная стадия «{stage.Title}»:\n").Append(FlowFolder.SerializeStage(stage));
+            text.Append($"\n\nДобавленный этап «{stage.Title}»:\n").Append(FlowFolder.SerializeStage(stage));
 
         var others = titles.Where(t => !context.Any(s => FlowFolder.Key(s.Title) == FlowFolder.Key(t))).ToList();
         if (others.Count > 0)
-            text.Append("\n\nОстальные стадии проекта: ").Append(string.Join(", ", others.Select(t => $"«{t}»")));
+            text.Append("\n\nОстальные этапы проекта: ").Append(string.Join(", ", others.Select(t => $"«{t}»")));
 
         text.Append("\n\nИсполнители проекта:");
         if (performers.Count == 0)
@@ -304,7 +304,7 @@ public static partial class FlowRewriteEndpoints
         "stage-empty-executor" => "не указан исполнитель",
         "stage-empty-output" => "не указан выход",
         "stage-bad-title" => "в названии скобки или кавычки",
-        "helpers-not-orchestrator" => "помощники у стадии, которую делает не оркестратор",
-        _ => "перевод строки в ключе стадии",
+        "helpers-not-orchestrator" => "помощники у этапа, который делает не оркестратор",
+        _ => "перевод строки в ключе этапа",
     };
 }

@@ -39,7 +39,7 @@ function renderModal(apply: () => Promise<string | null> = async () => null) {
       stages={stages}
       mark={(title) => <span data-testid={`mark-${title}`} />}
       scope={(title) =>
-        title === 'Ревью' ? 'Стадия стоит в сценариях «полный» и «быстрый» — правка изменит её в обоих.' : null
+        title === 'Ревью' ? 'Этап стоит в сценариях «полный» и «быстрый» — правка изменит его в обоих.' : null
       }
       // Приёмку держат задачи в работе: к просьбе её не добавить
       locked={(title) => (title === 'Приёмка' ? ['B-7', 'B-9'] : null)}
@@ -51,12 +51,12 @@ function renderModal(apply: () => Promise<string | null> = async () => null) {
 }
 
 async function write(text: string) {
-  fireEvent.change(await screen.findByLabelText('Что поменять в стадиях'), { target: { value: text } })
+  fireEvent.change(await screen.findByLabelText('Что поменять в этапах'), { target: { value: text } })
 }
 
 function pick(...titles: string[]) {
-  fireEvent.click(screen.getByRole('button', { name: 'Стадии' }))
-  const list = screen.getByRole('listbox', { name: 'Стадии проекта' })
+  fireEvent.click(screen.getByRole('button', { name: 'Этапы' }))
+  const list = screen.getByRole('listbox', { name: 'Этапы проекта' })
   for (const title of titles) fireEvent.click(within(list).getByRole('option', { name: new RegExp(title) }))
 }
 
@@ -65,14 +65,14 @@ test('без стадий в контексте окно пишет новую �
   const { posts } = stubFetch(stream)
   renderModal()
 
-  await write('  Заведи стадию документации  ')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать стадию' }))
+  await write('  Заведи этап документации  ')
+  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
 
-  expect(await screen.findByText('Чудо-Юдо пишет стадию…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо пишет этап…')).toBeInTheDocument()
   expect(posts[0].url).toBe('/api/flow/rewrite')
   expect(posts[0].body).toEqual({
     base,
-    wish: 'Заведи стадию документации',
+    wish: 'Заведи этап документации',
     stages: [],
     titles: ['Ревью', 'Мерж', 'Приёмка'],
   })
@@ -87,16 +87,16 @@ test('стадии добавляются в контекст списком с 
   renderModal()
   await write('Поправь выходы')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Стадии' }))
-  fireEvent.change(screen.getByPlaceholderText('Найти стадию'), { target: { value: 'мер' } })
-  const list = screen.getByRole('listbox', { name: 'Стадии проекта' })
+  fireEvent.click(screen.getByRole('button', { name: 'Этапы' }))
+  fireEvent.change(screen.getByPlaceholderText('Найти этап'), { target: { value: 'мер' } })
+  const list = screen.getByRole('listbox', { name: 'Этапы проекта' })
   expect(within(list).getAllByRole('option')).toHaveLength(1)
   fireEvent.click(within(list).getByRole('option', { name: /Мерж/ }))
   expect(within(list).getByRole('option', { name: /Мерж/ })).toHaveAttribute('aria-selected', 'true')
-  fireEvent.change(screen.getByPlaceholderText('Найти стадию'), { target: { value: '' } })
+  fireEvent.change(screen.getByPlaceholderText('Найти этап'), { target: { value: '' } })
   fireEvent.click(within(list).getByRole('option', { name: /Ревью/ }))
 
-  const bar = screen.getByLabelText('Стадии к просьбе')
+  const bar = screen.getByLabelText('Этапы к просьбе')
   expect(within(bar).getByText('Мерж')).toBeInTheDocument()
   expect(within(bar).getByText('Ревью')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Переписать' })).toBeEnabled()
@@ -108,7 +108,7 @@ test('стадии добавляются в контекст списком с 
 
   fireEvent.click(screen.getByRole('button', { name: 'Убрать «Мерж»' }))
   fireEvent.click(screen.getByRole('button', { name: 'Убрать «Ревью»' }))
-  expect(screen.getByRole('button', { name: 'Написать стадию' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Написать этап' })).toBeInTheDocument()
 })
 
 test('стадия, которую держат задачи в работе, в списке погашена, названы задачи, и к просьбе она не добавляется', async () => {
@@ -116,16 +116,16 @@ test('стадия, которую держат задачи в работе, в
   renderModal()
   await write('Поправь приёмку')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Стадии' }))
-  const held = within(screen.getByRole('listbox', { name: 'Стадии проекта' })).getByRole('option', { name: /Приёмка/ })
+  fireEvent.click(screen.getByRole('button', { name: 'Этапы' }))
+  const held = within(screen.getByRole('listbox', { name: 'Этапы проекта' })).getByRole('option', { name: /Приёмка/ })
   expect(held).toHaveAttribute('aria-disabled', 'true')
-  expect(held).toHaveTextContent('занята: B-7, B-9')
+  expect(held).toHaveTextContent('занят: B-7, B-9')
   fireEvent.click(held)
   fireEvent.keyDown(held, { key: 'Enter' })
 
   expect(held).toHaveAttribute('aria-selected', 'false')
   expect(screen.queryByRole('button', { name: 'Убрать «Приёмка»' })).not.toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Написать стадию' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Написать этап' })).toBeInTheDocument()
 })
 
 test('итог — карточка на стадию: «было → стало», задетые сценарии, новая стадия и без правок', async () => {
@@ -137,19 +137,19 @@ test('итог — карточка на стадию: «было → стало
   pick('Ревью', 'Мерж')
   fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
 
-  expect(await screen.findByText('Чудо-Юдо переписывает стадии…')).toBeInTheDocument()
+  expect(await screen.findByText('Чудо-Юдо переписывает этапы…')).toBeInTheDocument()
   expect(posts[0].body.stages).toEqual([review, merge])
 
   const rewritten = { of: 'Ревью', stage: { ...review, output: 'вердикт по sha', description: '1. Собрать дифф.' } }
   const docs = { of: null, stage: stage('Документация', { executor: 'writer' }) }
   stream.send({ type: 'rewritten', text: '', stages: [rewritten, docs], durationMs: 18000 })
 
-  const changes = await screen.findByLabelText('Что изменилось в стадиях')
-  expect(within(changes).getByText('изменена')).toBeInTheDocument()
+  const changes = await screen.findByLabelText('Что изменилось в этапах')
+  expect(within(changes).getByText('изменён')).toBeInTheDocument()
   expect(within(changes).getByText('выход Ревью')).toBeInTheDocument()
   expect(within(changes).getByText('вердикт по sha')).toBeInTheDocument()
-  expect(within(changes).getByText(/правка изменит её в обоих/)).toBeInTheDocument()
-  expect(within(changes).getByText('добавлена')).toBeInTheDocument()
+  expect(within(changes).getByText(/правка изменит его в обоих/)).toBeInTheDocument()
+  expect(within(changes).getByText('добавлен')).toBeInTheDocument()
   expect(within(changes).getByText('writer')).toBeInTheDocument()
   // Стадия контекста, которую агент не тронул, стоит строкой, а не карточкой.
   expect(within(changes).getByText('без правок')).toBeInTheDocument()
@@ -158,7 +158,7 @@ test('итог — карточка на стадию: «было → стало
   // Описание не пересказывается: его открывает своё окно.
   expect(within(changes).queryByText('1. Собрать дифф.')).not.toBeInTheDocument()
   fireEvent.click(within(changes).getByRole('button', { name: 'Открыть описание' }))
-  const window_ = await screen.findByRole('dialog', { name: 'Описание стадии «Ревью»' })
+  const window_ = await screen.findByRole('dialog', { name: 'Описание этапа «Ревью»' })
   expect(within(window_).getByText('1. Собрать дифф.')).toBeInTheDocument()
   fireEvent.click(within(window_).getByRole('button', { name: 'Закрыть' }))
 
@@ -177,7 +177,7 @@ test('ответ без правок принять нечего', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Переписать' }))
   stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Мерж', stage: merge }] })
 
-  expect(await screen.findByText('Стадии не изменились: ответ совпал с прежними.')).toBeInTheDocument()
+  expect(await screen.findByText('Этапы не изменились: ответ совпал с прежними.')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
   expect(onApply).not.toHaveBeenCalled()
 })
@@ -187,16 +187,16 @@ test('неудача агента названа словами, а просьб
   stubFetch(stream)
   renderModal()
 
-  await write('Напиши стадию')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать стадию' }))
-  stream.send({ type: 'error', text: 'Чудо-Юдо вернул не стадию: стадий в его ответе нет', output: 'Готово!' })
+  await write('Напиши этап')
+  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
+  stream.send({ type: 'error', text: 'Чудо-Юдо вернул не этап: этапов в его ответе нет', output: 'Готово!' })
 
-  expect(await screen.findByText(/Чудо-Юдо вернул не стадию/)).toBeInTheDocument()
-  expect(screen.getByText(/Стадии в базе не менялись/)).toBeInTheDocument()
+  expect(await screen.findByText(/Чудо-Юдо вернул не этап/)).toBeInTheDocument()
+  expect(screen.getByText(/Этапы в базе не менялись/)).toBeInTheDocument()
   expect(screen.getByText('Готово!')).toBeInTheDocument()
 
   fireEvent.click(screen.getByRole('button', { name: 'Изменить просьбу' }))
-  expect(await screen.findByLabelText('Что поменять в стадиях')).toHaveValue('Напиши стадию')
+  expect(await screen.findByLabelText('Что поменять в этапах')).toHaveValue('Напиши этап')
 })
 
 test('закрытое окно не останавливает агента: просьба остаётся в панели', async () => {
@@ -204,8 +204,8 @@ test('закрытое окно не останавливает агента: п
   const { deletes } = stubFetch(stream)
   const { unmount } = renderModal()
 
-  await write('Напиши стадию')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать стадию' }))
+  await write('Напиши этап')
+  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
   await screen.findByRole('status')
   unmount()
 
@@ -223,8 +223,8 @@ test('открытое заново окно показывает перепис
   const rewritten = { of: 'Ревью', stage: { ...review, output: 'вердикт' } }
   stream.send({ type: 'rewritten', text: '', stages: [rewritten] })
 
-  const changes = await screen.findByLabelText('Что изменилось в стадиях')
-  expect(within(changes).getByText('изменена')).toBeInTheDocument()
+  const changes = await screen.findByLabelText('Что изменилось в этапах')
+  expect(within(changes).getByText('изменён')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
   await waitFor(() => expect(onApply).toHaveBeenCalledWith([rewritten]))
   expect(posts).toEqual([])
@@ -237,11 +237,11 @@ test('итог просьбы про другой проект окно свои
   renderModal()
 
   expect(
-    await screen.findByText('Чудо-Юдо уже переписал стадии Other: новая просьба отсюда уберёт этот ответ.'),
+    await screen.findByText('Чудо-Юдо уже переписал этапы Other: новая просьба отсюда уберёт этот ответ.'),
   ).toBeInTheDocument()
   expect(screen.queryByText('Уточни выход ревью')).not.toBeInTheDocument()
-  expect(screen.queryByLabelText('Что изменилось в стадиях')).not.toBeInTheDocument()
-  expect(screen.getByLabelText('Что поменять в стадиях')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Что изменилось в этапах')).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Что поменять в этапах')).toBeInTheDocument()
 })
 
 test('открытое заново окно помнит стадии просьбы: строка стадий, «без правок» и «Попросить снова» с ними', async () => {
@@ -252,13 +252,13 @@ test('открытое заново окно помнит стадии прос�
   })
   renderModal()
 
-  expect(await screen.findByText('Чудо-Юдо переписывает стадии…')).toBeInTheDocument()
-  const line = screen.getByLabelText('Стадии к просьбе')
+  expect(await screen.findByText('Чудо-Юдо переписывает этапы…')).toBeInTheDocument()
+  const line = screen.getByLabelText('Этапы к просьбе')
   expect(within(line).getByText('Ревью')).toBeInTheDocument()
   expect(within(line).getByText('Мерж')).toBeInTheDocument()
 
   stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
-  const changes = await screen.findByLabelText('Что изменилось в стадиях')
+  const changes = await screen.findByLabelText('Что изменилось в этапах')
   expect(within(changes).getByText('без правок')).toBeInTheDocument()
   expect(within(changes).getByText('Мерж')).toBeInTheDocument()
 })
@@ -271,7 +271,7 @@ test('после сбоя «Попросить снова» уходит с те
   })
   renderModal()
 
-  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  await screen.findByText('Чудо-Юдо переписывает этапы…')
   stream.send({ type: 'error', text: 'Агент упал' })
   fireEvent.click(await screen.findByRole('button', { name: 'Попросить снова' }))
 
@@ -288,7 +288,7 @@ test('карточка говорит, что стадию поправили и
   })
   renderModal()
 
-  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  await screen.findByText('Чудо-Юдо переписывает этапы…')
   stream.send({
     type: 'rewritten',
     text: '',
@@ -298,11 +298,11 @@ test('карточка говорит, что стадию поправили и
     ],
   })
 
-  const changes = await screen.findByLabelText('Что изменилось в стадиях')
+  const changes = await screen.findByLabelText('Что изменилось в этапах')
   expect(
-    within(changes).getByText('Стадию «Ревью» правили, пока Чудо-Юдо работал: «Принять правки» заменит эти правки его ответом.'),
+    within(changes).getByText('Этап «Ревью» правили, пока Чудо-Юдо работал: «Принять правки» заменит эти правки его ответом.'),
   ).toBeInTheDocument()
-  expect(within(changes).getByText('Стадии «Запас» в разделе уже нет: правка ляжет новой стадией.')).toBeInTheDocument()
+  expect(within(changes).getByText('Этапа «Запас» в разделе уже нет: правка ляжет новым этапом.')).toBeInTheDocument()
 })
 
 test('стадия, которую никто не трогал, пока Чудо-Юдо работал, идёт без предупреждения', async () => {
@@ -310,10 +310,10 @@ test('стадия, которую никто не трогал, пока Чуд
   stubFetch(stream, { ...runningRequest('flow', 'Уточни выход', base, 'Agents Kit Web', 1000), stages: [review] })
   renderModal()
 
-  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  await screen.findByText('Чудо-Юдо переписывает этапы…')
   stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, output: 'вердикт' } }] })
 
-  await screen.findByLabelText('Что изменилось в стадиях')
+  await screen.findByLabelText('Что изменилось в этапах')
   expect(screen.queryByText(/пока Чудо-Юдо работал/)).not.toBeInTheDocument()
 })
 
@@ -326,7 +326,7 @@ test('«Попросить снова» уходит со стадиями та�
   })
   renderModal()
 
-  await screen.findByText('Чудо-Юдо переписывает стадии…')
+  await screen.findByText('Чудо-Юдо переписывает этапы…')
   stream.send({ type: 'error', text: 'Агент упал' })
   fireEvent.click(await screen.findByRole('button', { name: 'Попросить снова' }))
 
@@ -350,7 +350,7 @@ test('запись, которая не прошла, оставляет ито�
   expect(alert).toHaveTextContent('Правки не записаны')
   expect(alert).toHaveTextContent('его изменили в базе')
   // Итог на месте, окно не закрыто
-  expect(screen.getByLabelText('Что изменилось в стадиях')).toHaveTextContent('вердикт')
+  expect(screen.getByLabelText('Что изменилось в этапах')).toHaveTextContent('вердикт')
   expect(onClose).not.toHaveBeenCalled()
 
   fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
@@ -364,7 +364,7 @@ test('правку занятой стадии принять нельзя: ок
   const { onApply } = renderModal()
 
   await write('Поправь всё')
-  fireEvent.click(screen.getByRole('button', { name: 'Написать стадию' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Написать этап' }))
   // Агент переписал и занятую Приёмку: её он получает по названию среди стадий проекта
   stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Приёмка', stage: { ...acceptance, output: 'принято' } }] })
 
@@ -407,10 +407,10 @@ test('пока правки пишутся, Escape закрывает вложе
   stream.send({ type: 'rewritten', text: '', stages: [{ of: 'Ревью', stage: { ...review, description: '1. Собрать дифф.' } }] })
   fireEvent.click(await screen.findByRole('button', { name: 'Принять правки' }))
   fireEvent.click(screen.getByRole('button', { name: 'Открыть описание' }))
-  expect(await screen.findByRole('dialog', { name: 'Описание стадии «Ревью»' })).toBeInTheDocument()
+  expect(await screen.findByRole('dialog', { name: 'Описание этапа «Ревью»' })).toBeInTheDocument()
 
   fireEvent.keyDown(window, { key: 'Escape' })
-  expect(screen.queryByRole('dialog', { name: 'Описание стадии «Ревью»' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Описание этапа «Ревью»' })).not.toBeInTheDocument()
   expect(onClose).not.toHaveBeenCalled()
   finish(null)
   await waitFor(() => expect(onClose).toHaveBeenCalled())

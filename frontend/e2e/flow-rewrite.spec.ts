@@ -77,29 +77,29 @@ test('оператор просит Чудо-Юдо переписать ста�
   await page.getByRole('button', { name: 'Ещё действия' }).click()
   await page.getByRole('menuitem', { name: 'Переписать с Чудо-Юдо' }).click()
   const modal = page.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
-  await expect(modal.getByRole('button', { name: 'Написать стадию' })).toBeDisabled()
+  await expect(modal.getByRole('button', { name: 'Написать этап' })).toBeDisabled()
 
-  await modal.getByLabel('Что поменять в стадиях').fill('Переименуй ревью в проверку, пусть смотрит тесты, и заведи документацию')
-  await modal.getByRole('button', { name: 'Стадии' }).click()
-  await modal.getByPlaceholder('Найти стадию').fill('рев')
+  await modal.getByLabel('Что поменять в этапах').fill('Переименуй ревью в проверку, пусть смотрит тесты, и заведи документацию')
+  await modal.getByRole('button', { name: 'Этапы' }).click()
+  await modal.getByPlaceholder('Найти этап').fill('рев')
   await modal.getByRole('option', { name: /Ревью/ }).click()
-  await modal.getByPlaceholder('Найти стадию').press('Escape')
+  await modal.getByPlaceholder('Найти этап').press('Escape')
   await expect(modal.getByRole('listbox')).toBeHidden()
-  await expect(modal.getByLabel('Стадии к просьбе')).toContainText('Ревью')
+  await expect(modal.getByLabel('Этапы к просьбе')).toContainText('Ревью')
   await modal.getByRole('button', { name: 'Переписать' }).click()
 
-  const changes = modal.getByLabel('Что изменилось в стадиях')
-  await expect(changes.getByText('изменена')).toBeVisible()
+  const changes = modal.getByLabel('Что изменилось в этапах')
+  await expect(changes.getByText('изменён')).toBeVisible()
   await expect(changes.getByText('вердикт по sha и тестам')).toBeVisible()
-  await expect(changes.getByText(/Стадия стоит в сценариях «полный» и «мелкий»/)).toBeVisible()
-  await expect(changes.getByText('добавлена')).toBeVisible()
+  await expect(changes.getByText(/Этап стоит в сценариях «полный» и «мелкий»/)).toBeVisible()
+  await expect(changes.getByText('добавлен')).toBeVisible()
   expect(panel.posts[0]).toMatchObject({ base, stages: [{ title: 'Ревью' }], titles: ['Ревью', 'Мерж'] })
 
   await modal.getByRole('button', { name: 'Принять правки' }).click()
   await expect(modal).toBeHidden()
 
-  // Новая стадия встала карточкой на вкладке «Стадии», переименованная — под новым названием.
-  const list = page.getByRole('list', { name: 'Стадии базы' })
+  // Новый этап встал карточкой на вкладке «Этапы», переименованный — под новым названием.
+  const list = page.getByRole('list', { name: 'Этапы базы' })
   await expect(list.getByRole('button', { name: /^Документация/ })).toBeVisible()
   await expect(list.getByRole('button', { name: /^Проверка/ })).toBeVisible()
 

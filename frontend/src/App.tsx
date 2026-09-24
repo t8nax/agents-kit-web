@@ -587,7 +587,7 @@ function WorkspacesHead() {
         <th>Копия</th>
         <th className="num-col">№</th>
         <th>Задача</th>
-        <th>Стадия флоу</th>
+        <th>Этап флоу</th>
         <th>Прогресс</th>
         <th>Статус</th>
         <th>Проблемы</th>

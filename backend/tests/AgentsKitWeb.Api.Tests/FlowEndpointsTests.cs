@@ -15,7 +15,7 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class FlowEndpointsTests : IDisposable
 {
     private const string List = """
-        # App — флоу
+        # App — сценарии
 
         <!-- Как на этом проекте ведут задачу. -->
 
@@ -23,7 +23,7 @@ public sealed class FlowEndpointsTests : IDisposable
         когда: новая возможность
         1. [Критерий](stages/criterion.md)
         2. [Приёмка](stages/acceptance.md)
-           - возврат: замечания — стадия «Критерий»
+           - возврат: замечания — этап «Критерий»
 
         ## мелкий
         когда: правка в одном месте
@@ -60,7 +60,7 @@ public sealed class FlowEndpointsTests : IDisposable
     {
         _base = Knowledge("app-knowledge");
         Directory.CreateDirectory(Path.Combine(_base, "flow", "stages"));
-        _listPath = Path.Combine(_base, "flow", "flow.md");
+        _listPath = Path.Combine(_base, "flow", "scenarios.md");
         File.WriteAllText(_listPath, List.ReplaceLineEndings("\n"));
         File.WriteAllText(Stage("criterion"), Criterion.ReplaceLineEndings("\n"));
         File.WriteAllText(Stage("acceptance"), Acceptance.ReplaceLineEndings("\n"));
@@ -79,9 +79,13 @@ public sealed class FlowEndpointsTests : IDisposable
         var oldForm = Path.Combine(_root, "old-knowledge");
         Directory.CreateDirectory(oldForm);
         File.WriteAllText(Path.Combine(oldForm, "flow.md"), "## 1. Ветка\n\nисполнитель: оркестратор\nвыход: ветка\n");
+        // Прежний вид кита: флоу в flow/flow.md, а не в flow/scenarios.md.
+        var priorKit = Path.Combine(_root, "prior-knowledge");
+        Directory.CreateDirectory(Path.Combine(priorKit, "flow"));
+        File.WriteAllText(Path.Combine(priorKit, "flow", "flow.md"), "# App — флоу\n\n## полный\n1. [Ветка](stages/branch.md)\n");
         var missing = Path.Combine(_root, "gone-knowledge");
 
-        var flows = await GetFlows(Client(_base, withoutFlow, oldForm, missing));
+        var flows = await GetFlows(Client(_base, withoutFlow, oldForm, priorKit, missing));
 
         var flow = Assert.Single(flows, f => f.Base == _base);
         Assert.Equal("App", flow.Project);
@@ -93,8 +97,9 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Equal(["полный", "мелкий"], flow.Flows.Select(f => f.Name));
         Assert.Equal(["Критерий", "Приёмка"], flow.Flows[0].Entries.Select(e => e.Stage));
         Assert.Equal(new StageReturn("замечания", "Критерий"), Assert.Single(flow.Flows[0].Entries[1].Returns!));
-        // Базе без флоу новой формы — и без флоу вовсе, и со флоу старой формы — показывать нечего, но это не ошибка.
-        foreach (var empty in new[] { withoutFlow, oldForm })
+        // Базе без флоу нынешнего вида — и без флоу вовсе, и со флоу старой формы или прежнего вида кита — показывать
+        // нечего, но это не ошибка.
+        foreach (var empty in new[] { withoutFlow, oldForm, priorKit })
         {
             var none = Assert.Single(flows, f => f.Base == empty);
             Assert.Null(none.Error);
@@ -183,7 +188,7 @@ public sealed class FlowEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("""
-            # App — флоу
+            # App — сценарии
 
             <!-- Как на этом проекте ведут задачу. -->
 
@@ -191,7 +196,7 @@ public sealed class FlowEndpointsTests : IDisposable
             когда: новая возможность
             1. [Критерий](stages/criterion.md)
             2. [Сдача](stages/acceptance.md)
-               - возврат: замечания — стадия «Критерий»
+               - возврат: замечания — этап «Критерий»
             3. [Фиксация знания](stages/fiksatsiya-znaniya.md)
 
             ## мелкий
@@ -205,7 +210,7 @@ public sealed class FlowEndpointsTests : IDisposable
             File.ReadAllText(Stage("fiksatsiya-znaniya")));
         Assert.StartsWith("# Сдача\n", File.ReadAllText(Stage("acceptance")));
         Assert.Equal(
-            ["flow/flow.md", "flow/stages/acceptance.md", "flow/stages/fiksatsiya-znaniya.md"],
+            ["flow/scenarios.md", "flow/stages/acceptance.md", "flow/stages/fiksatsiya-znaniya.md"],
             Git("show", "--name-only", "--format=", "HEAD").Split('\n').Order());
         Assert.Equal("", Git("status", "--porcelain"));
     }
@@ -328,7 +333,7 @@ public sealed class FlowEndpointsTests : IDisposable
     public async Task Save_BusyOnlyFlowWithoutWhen_TakesWhenOnlyAlongsideNewFlow()
     {
         // Один флоу — «когда» кит у него не требует
-        File.WriteAllText(_listPath, "# App — флоу\n\n## полный\n1. [Критерий](stages/criterion.md)\n2. [Приёмка](stages/acceptance.md)\n");
+        File.WriteAllText(_listPath, "# App — сценарии\n\n## полный\n1. [Критерий](stages/criterion.md)\n2. [Приёмка](stages/acceptance.md)\n");
         TestGit.Run(_base, "commit", "-am", "один флоу");
         Directory.CreateDirectory(Path.Combine(_base, "work"));
         File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка\nрабочая копия: D:\\a\nфлоу: полный\n");
@@ -418,20 +423,20 @@ public sealed class FlowEndpointsTests : IDisposable
     public async Task Flow_WithLinesNotInKitForm_NamesThemAndIsNotWritten()
     {
         File.AppendAllText(_listPath, "3. Мерж\n");
-        File.WriteAllText(Stage("criterion"), Criterion.ReplaceLineEndings("\n").Replace("выход:", "возврат: замечания — стадия «Ревью»\nвыход:"));
+        File.WriteAllText(Stage("criterion"), Criterion.ReplaceLineEndings("\n").Replace("выход:", "возврат: замечания — этап «Ревью»\nвыход:"));
         TestGit.Run(_base, "commit", "-am", "руками");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
 
         Assert.Equal(
-            ["flow/flow.md, строка 14: «3. Мерж»", "flow/stages/criterion.md, строка 4: ключ вне перечня «возврат: замечания — стадия «Ревью»»"],
+            ["flow/scenarios.md, строка 14: «3. Мерж»", "flow/stages/criterion.md, строка 4: ключ вне перечня «возврат: замечания — этап «Ревью»»"],
             flow.Unread);
 
         var response = await Save(client, flow, flow.Stages);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(
-            new FlowRejectedResponse("unread", Detail: "flow/flow.md, строка 14: «3. Мерж»"),
+            new FlowRejectedResponse("unread", Detail: "flow/scenarios.md, строка 14: «3. Мерж»"),
             await response.Content.ReadFromJsonAsync<FlowRejectedResponse>());
         Assert.Equal("руками", Git("log", "-1", "--format=%s"));
     }
@@ -489,8 +494,8 @@ public sealed class FlowEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(
-            "# Bare — флоу\n\n## полный\n1. [Ветка](stages/vetka.md)\n",
-            File.ReadAllText(Path.Combine(bare, "flow", "flow.md")));
+            "# Bare — сценарии\n\n## полный\n1. [Ветка](stages/vetka.md)\n",
+            File.ReadAllText(Path.Combine(bare, "flow", "scenarios.md")));
         Assert.True(File.Exists(Path.Combine(bare, "flow", "stages", "vetka.md")));
         Assert.Equal("", GitIn(bare, "status", "--porcelain"));
     }

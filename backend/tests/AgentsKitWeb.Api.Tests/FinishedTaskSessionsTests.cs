@@ -246,7 +246,7 @@ public sealed class FinishedTaskSessionsTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             """);

@@ -39,7 +39,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             - [ ] 3. Реализация
@@ -97,7 +97,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [ ] 1. Критерий
             """);
 
@@ -136,7 +136,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             """);

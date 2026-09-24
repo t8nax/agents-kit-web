@@ -92,9 +92,9 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.DoesNotContain("--add-dir", args);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
-        // Флоу базы лежит в форме кита — список флоу и стадии по файлу: так агенту и сказано, где его читать.
+        // Флоу базы лежит в форме кита — сценарии и этапы по файлу: так агенту и сказано, где его читать.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
-        Assert.Contains("flow/flow.md", prompt);
+        Assert.Contains("flow/scenarios.md", prompt);
         Assert.Contains("flow/stages/*.md", prompt);
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);
