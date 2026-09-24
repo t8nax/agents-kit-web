@@ -314,6 +314,28 @@ test('новая версия плагина предлагается кнопк
   expect(within(kit()).queryByRole('status')).not.toBeInTheDocument()
 })
 
+test('обновление плагина видно на открытых «Настройках», и набранный путь не затирается', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  try {
+    let state: KitEntry = { path: oldPlugin, found: true, version: '1.14.2', plugin: true, update: null }
+    stubApi(api({ 'GET /api/kit': () => json(state) }))
+
+    const { kit } = await openSettings()
+    await within(kit()).findByText(/Панель работает китом версии/)
+    fireEvent.change(within(kit()).getByLabelText('Путь к каталогу кита'), { target: { value: 'D:\\typed' } })
+
+    state = { ...state, update: { path: newPlugin, version: '1.15.0' } }
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+
+    expect(await within(kit()).findByRole('button', { name: 'Перейти на версию 1.15.0' })).toBeInTheDocument()
+    expect(within(kit()).getByLabelText('Путь к каталогу кита')).toHaveValue('D:\\typed')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
 test('пропавшая прежняя версия тоже ведёт к переходу на новую', async () => {
   stubApi(
     api({

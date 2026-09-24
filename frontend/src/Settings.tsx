@@ -47,6 +47,8 @@ const kitProblemText: Record<KitProblem, string> = {
   'not-a-kit': 'В каталоге нет скриптов проверок кита — это не кит. Путь не сохранён.',
 }
 
+const kitRefreshMs = 5000
+
 const samePath = (a: string, b: string) =>
   a.replace(/[\\/]+$/, '').toLowerCase() === b.replace(/[\\/]+$/, '').toLowerCase()
 
@@ -347,6 +349,17 @@ function KitSettings() {
       setLoad(result)
       if (result.kind === 'loaded') setPath(result.value.path ?? '')
     })
+  }, [])
+
+  // Плагин кита обновляют мимо панели: пока раздел открыт, состояние кита перечитывается само.
+  // Поле пути не трогается — в нём может быть набранное оператором
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void loadJson<KitEntry>('/api/kit', 'Путь к киту').then((result) => {
+        if (result.kind === 'loaded') setLoad((prev) => (prev.kind === 'loaded' ? result : prev))
+      })
+    }, kitRefreshMs)
+    return () => clearInterval(timer)
   }, [])
 
   const kit = load.kind === 'loaded' ? load.value : null
