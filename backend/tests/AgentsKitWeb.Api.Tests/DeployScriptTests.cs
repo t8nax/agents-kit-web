@@ -163,7 +163,17 @@ public sealed class DeployScriptTests : IDisposable
         using var process = Process.Start(startInfo)!;
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromMinutes(3));
+        try
+        {
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromMinutes(3));
+        }
+        catch (TimeoutException)
+        {
+            // Оставленный жить скрипт ставил бы панель, пока уборка стирает её каталог.
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            return (-1, "постановка не кончилась за 3 минуты:\n" + await output + await error);
+        }
         return (process.ExitCode, await output + await error);
     }
 
@@ -232,8 +242,9 @@ public sealed class DeployScriptTests : IDisposable
     }
 
     /// <summary>
-    /// Задача теста снимается, а его панели гасятся и дожидаются по процессу: каталог стирается,
-    /// только когда их уже нет.
+    /// Задача теста снимается, а его панели гасятся и дожидаются по процессу. Каталог стирается с повтором:
+    /// только что вышедшую панель ещё секунды держит Windows и антивирус, а на перегруженной машине
+    /// снятие задачи идёт дольше минуты — задача оставалась в Планировщике, а каталог не стирался.
     /// </summary>
     public void Dispose()
     {
@@ -250,8 +261,30 @@ public sealed class DeployScriptTests : IDisposable
                    },
                    UseShellExecute = false,
                })!)
-            unregister.WaitForExit(TimeSpan.FromSeconds(60));
+        {
+            if (!unregister.WaitForExit(TimeSpan.FromMinutes(3)))
+                unregister.Kill();
+        }
 
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (true)
+        {
+            StopPanels();
+            try
+            {
+                Directory.Delete(_root, recursive: true);
+                return;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                                              && DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(500);
+            }
+        }
+    }
+
+    private void StopPanels()
+    {
         foreach (var process in Process.GetProcessesByName("AgentsKitWeb.Api"))
         {
             using (process)
@@ -267,11 +300,16 @@ public sealed class DeployScriptTests : IDisposable
                 }
                 if (path is null || !path.StartsWith(_root, StringComparison.OrdinalIgnoreCase))
                     continue;
-                process.Kill();
+                try
+                {
+                    process.Kill();
+                }
+                catch (InvalidOperationException)
+                {
+                    // Уже вышла.
+                }
                 process.WaitForExit(TimeSpan.FromSeconds(30));
             }
         }
-
-        Directory.Delete(_root, recursive: true);
     }
 }

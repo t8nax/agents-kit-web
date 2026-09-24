@@ -171,8 +171,9 @@ function Remove-Leftovers {
     Get-ChildItem -LiteralPath $parent -Directory |
         Where-Object { $_.Name -like "$leaf.old*" -or $_.Name -like "$leaf.rejected-*" } |
         ForEach-Object {
-            try { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
-            catch { Write-Host "Не убран $($_.TargetObject): $($_.Exception.Message)" }
+            $leftover = $_.FullName
+            try { Remove-Item -LiteralPath $leftover -Recurse -Force }
+            catch { Write-Host "Не убран $leftover — уберёт следующая постановка: $($_.Exception.Message)" }
         }
 }
 
