@@ -162,8 +162,8 @@ public sealed class TaskEndpointsTests : IDisposable
     private void WriteFlows()
     {
         Directory.CreateDirectory(Path.Combine(_base, "flow"));
-        File.WriteAllText(Path.Combine(_base, "flow", "flow.md"), """
-            # App — флоу
+        File.WriteAllText(Path.Combine(_base, "flow", "scenarios.md"), """
+            # App — сценарии
 
             ## полный
             когда: новая возможность

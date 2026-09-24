@@ -43,7 +43,7 @@ public sealed record FlowEntry(string Stage, IReadOnlyList<StageReturn>? Returns
     public override int GetHashCode() => Stage.GetHashCode();
 }
 
-/// <summary>Флоу — раздел «## имя» flow/flow.md: строка «когда» и стадии по порядку.</summary>
+/// <summary>Сценарий — раздел «## имя» flow/scenarios.md: строка «когда» и стадии по порядку.</summary>
 public sealed record NamedFlow(string Name, string? When, IReadOnlyList<FlowEntry> Entries)
 {
     public bool Equals(NamedFlow? other) =>
@@ -53,7 +53,7 @@ public sealed record NamedFlow(string Name, string? When, IReadOnlyList<FlowEntr
 }
 
 /// <summary>
-/// flow.md, разобранный целиком. Unread — строки, которые панель не сохранит: запись флоу их не воспроизводит
+/// scenarios.md, разобранный целиком. Unread — строки, которые панель не сохранит: запись флоу их не воспроизводит
 /// («строка N: «текст»»). Молча их не выбросить — при записи они пропали бы из базы, — поэтому с ними флоу не пишется.
 /// Читается флоу так же, как его читает сверка кита (base-check.ps1, Get-KitFlowList).
 /// </summary>
@@ -63,13 +63,13 @@ public sealed record FlowList(string Intro, IReadOnlyList<NamedFlow> Flows, IRea
 public sealed record FlowFolderRejection(string Problem, string? Flow = null, string? Stage = null);
 
 /// <summary>
-/// Флоу базы в форме кита (reference/flow-stages.md): flow/flow.md — вступление и флоу со ссылками на стадии,
-/// flow/stages/*.md — стадии, по файлу на стадию.
+/// Флоу базы в форме кита (reference/flow-stages.md): flow/scenarios.md — вступление и сценарии со ссылками на этапы,
+/// flow/stages/*.md — этапы, по файлу на этап.
 /// </summary>
 public static partial class FlowFolder
 {
     public const string Folder = "flow";
-    public const string ListFile = "flow/flow.md";
+    public const string ListFile = "flow/scenarios.md";
     public const string StagesFolder = "flow/stages";
 
     private static readonly byte[] Utf8Bom = [0xEF, 0xBB, 0xBF];
@@ -85,8 +85,8 @@ public static partial class FlowFolder
     [GeneratedRegex(@"^\s*когда\s*:\s*(?<value>.*)$")]
     private static partial Regex WhenLine { get; }
 
-    // «замечания — стадия «Реализация»» → условие и название стадии.
-    [GeneratedRegex(@"^(?<condition>.*?)\s*—\s*стадия\s*«(?<stage>[^»]*)»\s*$")]
+    // «замечания — этап «Реализация»» → условие и название этапа.
+    [GeneratedRegex(@"^(?<condition>.*?)\s*—\s*этап\s*«(?<stage>[^»]*)»\s*$")]
     private static partial Regex ReturnValue { get; }
 
     // Пара «ключ: значение» под заголовком стадии — как её видит сверка кита (Read-KitStage); пункт «1.» ключом не бывает.
@@ -99,7 +99,7 @@ public static partial class FlowFolder
     // Ключи стадии — закрытый перечень кита; возврат пишет флоу, а не стадия.
     private static readonly string[] StageKeys = ["исполнитель", "помощники", "выход", "пропуск"];
 
-    /// <summary>Файл flow.md: вступление до первого флоу как в файле, флоу по порядку и непонятые строки.</summary>
+    /// <summary>Файл scenarios.md: вступление до первого флоу как в файле, флоу по порядку и непонятые строки.</summary>
     public static FlowList ParseList(string text, IReadOnlyDictionary<string, string> titlesBySlug)
     {
         var lines = text.Replace("\r\n", "\n").Split('\n');
@@ -144,7 +144,7 @@ public static partial class FlowFolder
         return new FlowList(Raw(intro), flows, unread);
     }
 
-    /// <summary>Флоу базы по её flow/flow.md — только имена, «когда» и названия пунктов. Флоу нет или файл не прочитан — пусто.</summary>
+    /// <summary>Флоу базы по её flow/scenarios.md — только имена, «когда» и названия пунктов. Флоу нет или файл не прочитан — пусто.</summary>
     public static IReadOnlyList<NamedFlow> ReadFlows(string basePath)
     {
         try
@@ -219,7 +219,7 @@ public static partial class FlowFolder
         return (stage, unread);
     }
 
-    /// <summary>Текст flow.md: вступление как было, флоу с пунктами подряд с единицы.</summary>
+    /// <summary>Текст scenarios.md: вступление как было, флоу с пунктами подряд с единицы.</summary>
     public static string SerializeList(string intro, IReadOnlyList<NamedFlow> flows, IReadOnlyDictionary<string, string> slugsByTitle, string eol = "\n")
     {
         var parts = new List<string>();
@@ -236,7 +236,7 @@ public static partial class FlowFolder
                 var entry = flow.Entries[index];
                 block.Append($"\n{index + 1}. [{entry.Stage.Trim()}](stages/{slugsByTitle[Key(entry.Stage)]}.md)");
                 foreach (var back in Returns(entry))
-                    block.Append($"\n   - возврат: {back.Condition.Trim()} — стадия «{back.Stage.Trim()}»");
+                    block.Append($"\n   - возврат: {back.Condition.Trim()} — этап «{back.Stage.Trim()}»");
             }
             parts.Add(block.ToString());
         }
@@ -318,7 +318,7 @@ public static partial class FlowFolder
         : string.IsNullOrWhiteSpace(stage.Executor) ? "stage-empty-executor"
         : string.IsNullOrWhiteSpace(stage.Output) ? "stage-empty-output"
         : new[] { stage.Title, stage.Executor, stage.Output, stage.Skip ?? "" }.Concat(Helpers(stage)).Any(Breaks) ? "line-break"
-        // Название стоит текстом ссылки «[Название](…)» и в возврате «стадия «Название»»: скобки и кавычки его разорвут.
+        // Название стоит текстом ссылки «[Название](…)» и в возврате «этап «Название»»: скобки и кавычки его разорвут.
         : stage.Title.IndexOfAny(['[', ']', '«', '»']) >= 0 ? "stage-bad-title"
         : Helpers(stage).Count > 0 && stage.Executor.Trim() != "оркестратор" ? "helpers-not-orchestrator"
         : null;
@@ -335,7 +335,7 @@ public static partial class FlowFolder
         (stage.Helpers ?? []).Select(h => h.Trim()).Where(h => h.Length > 0).ToList();
 
     /// <summary>
-    /// Отпечаток флоу базы — по flow.md и всем файлам стадий: запись принимается только поверх того,
+    /// Отпечаток флоу базы — по scenarios.md и всем файлам этапов: запись принимается только поверх того,
     /// что оператор видел, а правка любого из файлов его сдвигает.
     /// </summary>
     public static string Fingerprint(IEnumerable<(string Path, byte[] Bytes)> files)

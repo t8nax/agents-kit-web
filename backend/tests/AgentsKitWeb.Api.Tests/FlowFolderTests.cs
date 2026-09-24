@@ -5,7 +5,7 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class FlowFolderTests
 {
     private const string List = """
-        # App — флоу
+        # App — сценарии
 
         Задачу из бэклога брать по наименьшему номеру.
 
@@ -14,7 +14,7 @@ public sealed class FlowFolderTests
         1. [Ветка](stages/branch.md)
         2. [Реализация](stages/implementation.md)
         3. [Ревью](stages/review.md)
-           - возврат: замечания — стадия «Реализация»
+           - возврат: замечания — этап «Реализация»
 
         ## мелкий
         когда: правка в одном месте
@@ -35,7 +35,7 @@ public sealed class FlowFolderTests
     {
         var (intro, flows, unread) = FlowFolder.ParseList(List, Titles);
 
-        Assert.Equal("# App — флоу\n\nЗадачу из бэклога брать по наименьшему номеру.", intro);
+        Assert.Equal("# App — сценарии\n\nЗадачу из бэклога брать по наименьшему номеру.", intro);
         Assert.Empty(unread);
         Assert.Equal(["полный", "мелкий"], flows.Select(f => f.Name));
         Assert.Equal("новая возможность", flows[0].When);
@@ -61,14 +61,14 @@ public sealed class FlowFolderTests
             когда: новая возможность
             1. [Ветка](stages/branch.md)
             2. Ревью
-            - возврат: замечания — стадия «Ветка»
+            - возврат: замечания — этап «Ветка»
             3. [Сборка](build.md)
             Просто заметка.
             """, Titles);
 
         Assert.Equal(["Ветка"], flows[0].Entries.Select(e => e.Stage));
         Assert.Equal(
-            ["строка 4: «2. Ревью»", "строка 5: «- возврат: замечания — стадия «Ветка»»", "строка 6: «3. [Сборка](build.md)»", "строка 7: «Просто заметка.»"],
+            ["строка 4: «2. Ревью»", "строка 5: «- возврат: замечания — этап «Ветка»»", "строка 6: «3. [Сборка](build.md)»", "строка 7: «Просто заметка.»"],
             unread);
     }
 
@@ -80,7 +80,7 @@ public sealed class FlowFolderTests
               когда : новая возможность
             1. [Ветка](stages/branch.md)
             2. [Ревью](stages/review.md)
-               - возврат : замечания — стадия «Ветка»
+               - возврат : замечания — этап «Ветка»
             """, Titles);
 
         Assert.Empty(unread);
@@ -106,7 +106,7 @@ public sealed class FlowFolderTests
             исполнитель: reviewer
             выход: вердикт
             выход: второй
-            возврат: замечания — стадия «Реализация»
+            возврат: замечания — этап «Реализация»
 
             Описание.
             """, "review");
@@ -114,7 +114,7 @@ public sealed class FlowFolderTests
         // Повтор ключа кит берёт последним — так и панель, но запись оставит одну строку.
         Assert.Equal("второй", stage.Output);
         Assert.Equal(
-            ["строка 1: «заметка сверху»", "строка 5: ключ «выход» второй раз", "строка 6: ключ вне перечня «возврат: замечания — стадия «Реализация»»"],
+            ["строка 1: «заметка сверху»", "строка 5: ключ «выход» второй раз", "строка 6: ключ вне перечня «возврат: замечания — этап «Реализация»»"],
             unread);
         Assert.Equal(["нет заголовка «# Название»"], FlowFolder.ReadStage("", "x").Unread);
         Assert.Empty(FlowFolder.ReadStage("# Ветка\n\nисполнитель: оркестратор\nвыход: ветка\n\nОписание.\n", "branch").Unread);
@@ -132,7 +132,7 @@ public sealed class FlowFolderTests
     [Fact]
     public void SerializeList_KeepsIntroAsInFileWithTrailingSpaces()
     {
-        const string text = "# App — флоу\n\nПервая строка  \nс переносом.\n\n## полный\n1. [Ветка](stages/branch.md)\n";
+        const string text = "# App — сценарии\n\nПервая строка  \nс переносом.\n\n## полный\n1. [Ветка](stages/branch.md)\n";
         var (intro, flows, _) = FlowFolder.ParseList(text, Titles);
 
         Assert.Equal(text, FlowFolder.SerializeList(intro, flows, new Dictionary<string, string> { ["ветка"] = "branch" }));
@@ -142,12 +142,12 @@ public sealed class FlowFolderTests
     public void SerializeList_SingleFlowWithoutWhen_HasNoWhenLine()
     {
         var text = FlowFolder.SerializeList(
-            "# App — флоу",
+            "# App — сценарии",
             [new NamedFlow("полный", null, [new FlowEntry("Ветка")])],
             new Dictionary<string, string> { ["ветка"] = "branch" },
             "\r\n");
 
-        Assert.Equal("# App — флоу\r\n\r\n## полный\r\n1. [Ветка](stages/branch.md)\r\n", text);
+        Assert.Equal("# App — сценарии\r\n\r\n## полный\r\n1. [Ветка](stages/branch.md)\r\n", text);
     }
 
     [Fact]
@@ -278,7 +278,7 @@ public sealed class FlowFolderTests
     [Fact]
     public void Fingerprint_ChangesWithAnyFileAndIgnoresOrder()
     {
-        (string, byte[]) a = ("flow/flow.md", [1]);
+        (string, byte[]) a = ("flow/scenarios.md", [1]);
         (string, byte[]) b = ("flow/stages/x.md", [2]);
 
         Assert.Equal(FlowFolder.Fingerprint([a, b]), FlowFolder.Fingerprint([b, a]));
