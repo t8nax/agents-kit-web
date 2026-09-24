@@ -6,7 +6,11 @@ public sealed record Worktree(string Path, string Branch);
 
 public static class GitWorktrees
 {
-    private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
+    /// <summary>
+    /// Сколько ждать git по копии; не дождались — строка копии «git не прочитал копию». Прогон тестов даёт
+    /// запас: на перегруженной машине git не укладывался, и тесты краснели без поломки (B-142).
+    /// </summary>
+    public static TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>Основная копия и её worktree; null — git по копии отказал.</summary>
     public static async Task<IReadOnlyList<Worktree>?> ListAsync(string copyPath, CancellationToken cancellationToken)
@@ -35,10 +39,29 @@ public static class GitWorktrees
             await process.WaitForExitAsync(timeout.Token);
             return process.ExitCode == 0 ? Parse(await output) : null;
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException)
+        {
+            // И свой срок, и остановка панели гасят git и ждут его: брошенный, он держал бы файлы копии.
+            // Чтение списка ничего не пишет — рвать его можно в любой момент.
+            await KillAsync(process);
+            if (cancellationToken.IsCancellationRequested)
+                throw;
+            return null;
+        }
+    }
+
+    /// <summary>Гасит git со всем, что он запустил, и ждёт, пока он отпустит файлы.</summary>
+    private static async Task KillAsync(Process process)
+    {
+        try
         {
             process.Kill(entireProcessTree: true);
-            return null;
+            using var wait = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync(wait.Token);
+        }
+        catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception or OperationCanceledException)
+        {
+            // Процесс успел завершиться сам или не дался — ждать больше нечего.
         }
     }
 

@@ -13,6 +13,7 @@ public sealed class UsageEndpointsTests : IDisposable
     private static readonly DateTimeOffset Now = new(2026, 9, 18, 16, 30, 0, TimeSpan.Zero);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-usage-api-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _projects;
     private LimitsSnapshot _limits = new(new WindowLimit(46, Now.AddHours(2)), new WindowLimit(62, Now.AddDays(3)), null);
 
@@ -24,6 +25,7 @@ public sealed class UsageEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             Directory.Delete(_root, recursive: true);
@@ -139,7 +141,7 @@ public sealed class UsageEndpointsTests : IDisposable
     }
 
     private HttpClient Client() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -158,7 +160,7 @@ public sealed class UsageEndpointsTests : IDisposable
                 services.RemoveAll<ILimits>();
                 services.AddSingleton<ILimits>(new FakeLimits(() => _limits));
             });
-        }).CreateClient();
+        })).CreateClient();
 
     private sealed class FixedTime(DateTimeOffset now) : TimeProvider
     {

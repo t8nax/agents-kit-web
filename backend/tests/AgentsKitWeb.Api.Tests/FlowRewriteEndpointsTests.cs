@@ -57,11 +57,11 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-rewrite-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly string _kit;
     private readonly TestChat _agent = new();
-    private readonly List<WebApplicationFactory<Program>> _hosts = [];
 
     public FlowRewriteEndpointsTests()
     {
@@ -369,8 +369,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
     public void Dispose()
     {
-        foreach (var host in _hosts)
-            TestHost.Stop(host);
+        _hosts.Dispose();
         try
         {
             // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
@@ -443,7 +442,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
 
     private async Task<HttpClient> Client(bool withKit = true)
     {
-        var host = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        var client = _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -456,9 +455,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
                 services.RemoveAll<IAgentChat>();
                 services.AddSingleton<IAgentChat>(_agent);
             });
-        });
-        _hosts.Add(host);
-        var client = host.CreateClient();
+        })).CreateClient();
 
         if (withKit)
             (await client.PutAsJsonAsync("/api/kit", new SetKitRequest(_kit))).EnsureSuccessStatusCode();

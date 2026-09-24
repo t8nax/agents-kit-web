@@ -14,7 +14,8 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class BacklogWriteEndpointsTests : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+    // С запасом: до события идёт цепочка git, и на перегруженной машине десяти секунд не хватало (B-142).
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);
 
     private const string Backlog = """
         # Order Service — бэклог
@@ -37,6 +38,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         """;
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-backlog-write-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly TestChat _agent = new();
@@ -573,6 +575,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
@@ -661,7 +664,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     private HttpClient Client(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -674,5 +677,5 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
                 services.RemoveAll<IAgentChat>();
                 services.AddSingleton<IAgentChat>(_agent);
             });
-        }).CreateClient();
+        })).CreateClient();
 }
