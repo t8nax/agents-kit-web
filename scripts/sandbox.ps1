@@ -28,10 +28,11 @@ param(
     # Свой кусок задачи: скрипт вне кода панели, который кладёт в песочницу случай, которого нет
     # в готовых кусках. Выполняется после названных кусков, теми же кирпичами — sandbox.md.
     [string]$TaskPiece,
-    # Каталог песочницы; пересобирается целиком при каждом запуске.
-    [string]$Root = (Join-Path $env:LOCALAPPDATA 'agents-kit-web\sandbox'),
-    # Порт панели на песочнице: рядом работают поставленная панель и dev-копии.
-    [int]$Port = 5090,
+    # Каталог песочницы; пересобирается целиком при каждом запуске. По умолчанию у каждой рабочей
+    # копии свой — по её имени: сборка из соседней копии чужую приёмку не заденет.
+    [string]$Root,
+    # Порт панели на песочнице. По умолчанию у каждой рабочей копии свой, закреплённый за её именем.
+    [int]$Port,
     # Не подменять агента: панель будет звать настоящий claude. Деньги и настоящие права.
     [switch]$RealAgent,
     # Не поднимать процессы-пустышки под живые сессии агентов.
@@ -44,6 +45,28 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 $repo = Split-Path $PSScriptRoot -Parent
+$copyName = Split-Path $repo -Leaf
+# Не прежний общий каталог «sandbox»: сборка по старому скрипту из другой ветки снесла бы его целиком.
+$sandboxes = Join-Path $env:LOCALAPPDATA 'agents-kit-web\sandboxes'
+if (-not $Root) { $Root = Join-Path $sandboxes $copyName }
+
+# Порты песочниц закреплены за именами копий в общем файле: у двух копий адрес не совпадёт,
+# а у одной копии он тот же от сборки к сборке. Порт панели чётный, API — следующий за ним.
+function Get-SandboxPort([string]$Name) {
+    $file = Join-Path $sandboxes 'ports.json'
+    $ports = [ordered]@{}
+    if (Test-Path -LiteralPath $file) {
+        $saved = try { Get-Content -LiteralPath $file -Raw | ConvertFrom-Json } catch { $null }
+        if ($saved) { foreach ($entry in $saved.PSObject.Properties) { $ports[$entry.Name] = [int]$entry.Value } }
+    }
+    if ($ports.Contains($Name)) { return $ports[$Name] }
+    $port = 5100
+    while ($ports.Values -contains $port) { $port += 2 }
+    $ports[$Name] = $port
+    Write-Utf8 $file (ConvertTo-Json -InputObject ([pscustomobject]$ports))
+    return $port
+}
+
 $state = Join-Path $Root 'state.json'
 
 # Снимок живого состояния: список отслеживаемых баз оператора и каждая живая база — её HEAD
@@ -451,8 +474,10 @@ function Test-Piece([string]$Name) { $chosen -contains $Name }
 $taskPieceText = $null
 if ($TaskPiece) {
     if (-not (Test-Path -LiteralPath $TaskPiece -PathType Leaf)) { throw "своего куска нет: $TaskPiece — каталог песочницы не тронут" }
+    $TaskPiece = (Resolve-Path -LiteralPath $TaskPiece).Path
     $taskPieceText = Get-Content -LiteralPath $TaskPiece -Raw
 }
+if (-not $Port) { $Port = Get-SandboxPort $copyName }
 
 $live = Get-LiveSnapshot
 
@@ -768,7 +793,17 @@ if ($RealAgent) {
 else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
+# Пересборка повторяет те же ключи: без кусков песочница не соберётся.
+$self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
+$where = ''
+if ($PSBoundParameters.ContainsKey('Root')) { $where += " -Root `"$Root`"" }
+$again = $self + $where
+if ($chosen.Count) { $again += " -Pieces $($chosen -join ',')" }
+if ($TaskPiece) { $again += " -TaskPiece `"$TaskPiece`"" }
+if ($PSBoundParameters.ContainsKey('Port')) { $again += " -Port $Port" }
+if ($RealAgent) { $again += ' -RealAgent' }
+if ($NoSessions) { $again += ' -NoSessions' }
 Write-Host ""
-Write-Host "  пересобрать:    pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
-Write-Host "  сверить живое:  pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`" -Verify"
+Write-Host "  пересобрать:    $again"
+Write-Host "  сверить живое:  $self$where -Verify"
 Write-Host ""
