@@ -492,14 +492,22 @@ if ($baseDir) {
             continue
         }
 
+        # Приложенные файлы панель уже положила в artifacts/ и назвала абзацем в конце реплики: навык вписывает их
+        # в «Артефакты» записи и коммитит вместе с ней.
+        $attached = @([regex]::Matches($said, 'artifacts/[^\s,]+') | ForEach-Object { $_.Value.TrimEnd('.') })
+        $said = ($said -split "`n`nОператор приложил файлы")[0]
         # Буквы номеров у каждой базы свои: их держит счётчик, как у кита. Заголовок записи — сам текст.
         $title = ($said -split "`n")[0]
         if ($title.Length -gt 70) { $title = $title.Substring(0, 70) }
+        $artifacts = if ($attached.Count -gt 0) {
+            "`n`n### Артефакты`n" + (($attached | ForEach-Object { "- приложено из панели: $_" }) -join "`n")
+        } else { '' }
         $text = $text -replace "(?m)^следующий номер:\s*[A-Z][A-Z0-9]*-\d+\s*$", "следующий номер: $letters-$($number + 1)"
-        $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом песочницы`n"
+        $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said$artifacts`n`n### Агенту`n- записано подставным агентом песочницы`n"
         [IO.File]::WriteAllText($backlog, $text, [Text.UTF8Encoding]::new($false))
         Write-Step 'Edit' @{ file_path = $backlog }
-        git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md
+        if ($attached.Count -gt 0) { git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md artifacts }
+        else { git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md }
         Write-Result "Записал $letters-$number."
     }
     exit 0

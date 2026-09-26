@@ -290,6 +290,8 @@ function New-Flow([string]$Path) {
 # чужими буквами, которую кит перенумерует, и с записью без номера.
 function New-Backlog([string]$Path, [switch]$Orders) {
     if ($Orders) {
+        # Артефакт записи ORD-14 — файл в artifacts/ базы, как его кладёт кит: окно записи открывает его в VS Code.
+        Write-Utf8 (Join-Path $Path 'artifacts\ORD-14-образец-выгрузки.csv') "номер;дата;сумма`nORD-1001;2026-09-01;1200`n"
         Write-Utf8 (Join-Path $Path 'backlog.md') @'
 # Заказы — бэклог
 
@@ -309,6 +311,13 @@ function New-Backlog([string]$Path, [switch]$Orders) {
 тип: фича
 
 Бухгалтерии нужна выгрузка за месяц, сейчас её собирают руками.
+
+### Артефакты
+- образец выгрузки от бухгалтерии: artifacts/ORD-14-образец-выгрузки.csv
+- обсуждение с бухгалтерией: https://example.com/orders/14
+
+### Агенту
+- где: выдуманный модуль выгрузки
 
 ## ORD-17 Фильтр списка заказов по статусу доставки
 
@@ -396,11 +405,14 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 
     # Артефакты по форме кита: ссылка открывается вкладкой браузера, путь к файлу — в VS Code.
     $artifactsBlock = if ($Artifacts) {
-        # Файл лежит вне копии: в копии он был бы неотслеживаемой правкой её git. Щелчок в окне ответа
-        # открывает его в VS Code.
+        # Файл кита лежит в artifacts/ базы, и ссылка на него — путь от её корня.
+        $base = Split-Path (Split-Path $Path)
+        Write-Utf8 (Join-Path $base 'artifacts\ORD-12-снимок-выгрузки.md') "# Снимок выгрузки`n`nВыдуманный артефакт песочницы в artifacts/ базы.`n"
+        # Файл по-старому — полным путём вне копии: в копии он был бы неотслеживаемой правкой её git. Щелчок
+        # в окне ответа открывает его в VS Code, как раньше.
         $spec = Join-Path $Root 'files\export-spec.md'
         Write-Utf8 $spec "# Спецификация выгрузки заказов`n`nВыдуманный файл песочницы: артефакт задачи ORD-12.`n"
-        "`n## Артефакты`n- макет выгрузки: https://claude.ai/artifact/SandboxMock1`n- спецификация выгрузки: $spec`n"
+        "`n## Артефакты`n- макет выгрузки: https://claude.ai/artifact/SandboxMock1`n- снимок выгрузки: artifacts/ORD-12-снимок-выгрузки.md`n- спецификация выгрузки: $spec`n"
     } else { '' }
     # Макет по-старому, подразделом критериев: окно его не показывает ни артефактом, ни критерием.
     $designBlock = if ($OldDesign) { "`n### Дизайн`nМакет: https://claude.ai/artifact/SandboxOld1`n" } else { '' }
