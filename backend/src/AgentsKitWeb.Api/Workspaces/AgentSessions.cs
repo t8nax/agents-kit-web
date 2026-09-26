@@ -87,14 +87,18 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
     /// Ответ оператора прочтёт только сессия VS Code копии или фоновая сессия задачи — решение оператора
     /// на B-106; нет ни той, ни другой — строка с непрочитанным ответом получает статус Unread.
     /// </summary>
-    public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, Func<string, string?> taskSession) => rows
-        .Select(row =>
+    public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, Func<string, string?> taskSession)
+    {
+        // Файл, который Claude Code дописывает прямо сейчас, не читается, и его сессии в этом опросе не видно:
+        // без этой оговорки живая сессия на один опрос оставляла бы ответ «непрочитанным» и слала уведомление.
+        var writing = BeingWritten();
+        return rows.Select(row =>
         {
             if (row.Error is not null)
                 return row;
             var session = BackgroundIn(row.Path, taskSession(row.Path));
             var vsCode = VsCodeIn(row.Path) is not null;
-            var unread = row.AnswerUnread && row.Status == WorkspaceStatus.InWork && session is null && !vsCode;
+            var unread = row.AnswerUnread && row.Status == WorkspaceStatus.InWork && session is null && !vsCode && !writing;
             return row with
             {
                 SessionState = session?.State,
@@ -104,6 +108,35 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
             };
         })
         .ToList();
+    }
+
+    /// <summary>
+    /// Сколько после записи недочитанный файл реестра считается дописываемым. Файл, брошенный недописанным
+    /// давно, — не запись, а мусор упавшего процесса: он не должен навсегда прятать непрочитанный ответ.
+    /// </summary>
+    private static readonly TimeSpan WritingWindow = TimeSpan.FromSeconds(5);
+
+    /// <summary>В реестре есть свежий файл, который сейчас не разбирается: его пишет Claude Code.</summary>
+    private bool BeingWritten()
+    {
+        if (!Directory.Exists(directory))
+            return false;
+        var since = DateTime.UtcNow - WritingWindow;
+        foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) < since)
+                    continue;
+                using var document = JsonDocument.Parse(File.ReadAllText(file));
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>Все живые сессии реестра — перечень раздела «Сессии»; каталог сессии может не быть копией базы.</summary>
     public IReadOnlyList<AgentSession> Live() => All().ToList();

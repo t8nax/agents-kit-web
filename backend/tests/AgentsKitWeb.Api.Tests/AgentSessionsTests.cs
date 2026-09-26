@@ -312,6 +312,30 @@ public sealed class AgentSessionsTests : IDisposable
         Assert.Equal(WorkspaceStatus.Unread, annotated[0].Status);
     }
 
+    /// <summary>Файл живой сессии Claude Code дописывает прямо сейчас: её не видно, но ответ не брошен.</summary>
+    [Fact]
+    public void Annotate_AnsweredCopyWhileRegistryFileIsBeingWritten_StaysInWork()
+    {
+        File.WriteAllText(Path.Combine(_dir, "200.json"), """{"pid":200,"cwd":"D:\\Proj""");
+
+        var annotated = Sessions(live: true).Annotate([AnsweredRow(@"D:\Projects\app")], _ => "7339dced");
+
+        Assert.Equal(WorkspaceStatus.InWork, annotated[0].Status);
+    }
+
+    /// <summary>Недописанный файл, брошенный давно, — мусор упавшего процесса, а не запись.</summary>
+    [Fact]
+    public void Annotate_AnsweredCopyWithLongAbandonedBrokenRegistryFile_IsUnread()
+    {
+        var broken = Path.Combine(_dir, "200.json");
+        File.WriteAllText(broken, """{"pid":200,"cwd":"D:\\Proj""");
+        File.SetLastWriteTimeUtc(broken, DateTime.UtcNow.AddMinutes(-1));
+
+        var annotated = Sessions(live: true).Annotate([AnsweredRow(@"D:\Projects\app")], _ => "7339dced");
+
+        Assert.Equal(WorkspaceStatus.Unread, annotated[0].Status);
+    }
+
     [Fact]
     public void Annotate_CopyWithoutAnswerAndSessions_StaysInWork()
     {
