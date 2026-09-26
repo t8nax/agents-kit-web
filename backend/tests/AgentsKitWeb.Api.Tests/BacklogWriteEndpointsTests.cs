@@ -188,6 +188,36 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_WhileAgentEndsRaisesNewAgent()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agent.BeforeExit = () =>
+        {
+            ended.TrySetResult();
+            return exit.Task;
+        };
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        // Агент ответил и реплик больше не читает, но панель ещё не знает, что он кончился.
+        await ended.Task.WaitAsync(Wait);
+        using (var response = await Reply(client, "ещё одна"))
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[2]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[3]);
+        Assert.Equal("answer", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
+    }
+
+    [Fact]
     public async Task Answer_WithChangeProposal_LeavesFileAndSaveWritesExactlyThatEntry()
     {
         var changed = "## B-1 Старая запись, переписанная\nтип: баг\nприоритет: высокий\n\nНовый текст.\n\n### Агенту\n- где: Backlog.tsx";

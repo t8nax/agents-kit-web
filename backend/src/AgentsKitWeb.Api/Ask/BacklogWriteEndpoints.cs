@@ -93,7 +93,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             // Пока панель пишет предложение, реплика не уходит: агент застал бы бэклог посреди записи.
             if (_pending is { Saving: true })
                 return AskReplied.Answering;
-            turn = _turn?.Request == request && request.Working ? _turn : null;
+            turn = _turn?.Request == request && request.Working && !_turn.Ended ? _turn : null;
             // Новая просьба заменяет несохранённое предложение: сохранять его больше нечего.
             _pending = null;
         }
@@ -217,10 +217,11 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         return new BacklogSaved(await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None), null);
     }
 
-    private Turn Restart(AgentRequest request)
+    private Turn Restart(AgentRequest request, bool retried = false)
     {
         var replies = Channel.CreateUnbounded<string>();
-        var turn = new Turn(replies.Writer) { Request = request };
+        // Навык прежнего процесса новый агент не знает: реплика зовёт его снова.
+        var turn = new Turn(replies.Writer) { Request = request, Restarted = true, Retried = retried };
         lock (_gate)
             _turn = turn;
 
@@ -229,9 +230,20 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         requests.Run(
             request,
             (writing, cancellationToken) => RunAsync(request.Base, replies.Reader, turn, writing, cancellationToken));
-        // Навык прежнего процесса новый агент не знает: реплика зовёт его снова.
-        turn.Restarted = true;
         return turn;
+    }
+
+    /// <summary>
+    /// Агент кончился: его очередь реплик больше не принимает. Возвращает реплику, которая в ней осталась, — её
+    /// агент так и не прочёл.
+    /// </summary>
+    private string? End(Turn turn, ChannelReader<string> replies)
+    {
+        lock (_gate)
+        {
+            turn.Ended = true;
+            return replies.TryRead(out _) ? turn.Said : null;
+        }
     }
 
     /// <summary>
@@ -250,17 +262,34 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return;
         }
 
-        turn.Before = Backlog.Blocks(ReadText(request.Base)!);
-        if (turn.Restarted)
+        Deliver(request, turn, message, Backlog.Blocks(ReadText(request.Base)!), retried: false);
+    }
+
+    /// <summary>
+    /// Реплика уходит в очередь агента под той же блокировкой, которой его работа отмечает свой конец: кончившемуся
+    /// агенту она не достаётся, а поднимает нового (B-259). Новый поднимается один раз на реплику — агент, который
+    /// сразу кончается, иначе поднимался бы без конца, а его сбой работа уже записала в переписку.
+    /// </summary>
+    private void Deliver(AgentRequest request, Turn turn, string message, IReadOnlyList<BacklogBlock> before, bool retried)
+    {
+        while (true)
         {
-            string? about;
             lock (_gate)
-                about = _about;
-            message = Skill(about, message);
-            turn.Restarted = false;
+            {
+                if (!turn.Ended || retried)
+                {
+                    turn.Before = before;
+                    turn.Said = message;
+                    turn.Timeout.CancelAfter(Answer);
+                    turn.Replies.TryWrite(Message(turn.Restarted ? Skill(_about, message) : message));
+                    turn.Restarted = false;
+                    return;
+                }
+            }
+
+            turn = Restart(request);
+            retried = true;
         }
-        turn.Timeout.CancelAfter(Answer);
-        turn.Replies.TryWrite(Message(message));
     }
 
     private static async Task<BacklogWriteEvent?> RefusalAsync(string basePath)
@@ -287,7 +316,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         // Навык кита работает только там, где кит подаёт базу, — в копии проекта, а не в каталоге базы.
         var copy = WorkspaceCollector.ReadCopies(basePath) is { } copies ? WorkspaceCollector.NewCopySource(copies) : null;
         if (copy is null)
+        {
+            End(turn, replies);
             return;
+        }
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, turn.Timeout.Token);
         var stream = new ClaudeStream(basePath, copy);
@@ -312,11 +344,18 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                     }
                 },
                 linked.Token);
+            if (End(turn, replies) is { } left && !turn.Retried)
+            {
+                // Реплика легла в очередь, когда агент уже кончался, и он её не прочёл: её получает новый.
+                Deliver(writing, Restart(writing, retried: true), left, turn.Before, retried: true);
+                return;
+            }
             if (!writing.Finished)
                 writing.Write(await OutcomeAsync(basePath, turn, writing, null, Failure(exit, stream)));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            End(turn, replies);
             writing.Write(await OutcomeAsync(basePath, turn, writing, null, turn.Stopped
                 ? new BacklogWriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
                 : new BacklogWriteEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен")));
@@ -475,6 +514,15 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
 
         /// <summary>Записи бэклога до нынешней реплики: по ним видно, что агент добавил и что тронул.</summary>
         public IReadOnlyList<BacklogBlock> Before { get; set; } = [];
+
+        /// <summary>Процесс кончился: реплика в его очередь уже не идёт. Меняется только под блокировкой разговора.</summary>
+        public bool Ended { get; set; }
+
+        /// <summary>Нынешняя реплика без приставки навыка: не прочтённую агентом получает новый.</summary>
+        public string? Said { get; set; }
+
+        /// <summary>Процесс поднят ради реплики, не прочтённой прежним: не прочтёт и он — нового уже не будет.</summary>
+        public bool Retried { get; init; }
     }
 
     /// <summary>Предложение, которое ждёт «Сохранить» или «Отказаться».</summary>
