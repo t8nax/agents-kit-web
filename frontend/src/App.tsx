@@ -699,7 +699,23 @@ function WorkspacesTable({
   // Копии, где панель заводит сессию задачи: точка мигает, пока сессия не покажется в опросе,
   // а отметка живёт до ответа об ошибке или до конца выдержки
   const [launching, setLaunching] = useState<ReadonlySet<string>>(() => new Set())
+  const launchTimers = useRef(new Map<string, number>())
+  // Конец выдержки сверяет последний опрос, а не тот, что был при нажатии
+  const latestRows = useRef(rows)
   const groups = useCollapsedGroups()
+
+  useEffect(() => {
+    latestRows.current = rows
+  }, [rows])
+
+  // Ушла таблица — вместе с ней уходят её отметки, и таймерам нечего снимать
+  useEffect(() => {
+    const timers = launchTimers.current
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
 
   function stopLaunching(key: string) {
     setLaunching((current) => {
@@ -723,7 +739,16 @@ function WorkspacesTable({
         body: JSON.stringify({ base: row.base, copy: row.path }),
       })
       if (response.ok) {
-        window.setTimeout(() => stopLaunching(key), sessionStartMs)
+        launchTimers.current.set(
+          key,
+          window.setTimeout(() => {
+            launchTimers.current.delete(key)
+            stopLaunching(key)
+            const current = latestRows.current.find((candidate) => rowKey(candidate) === key)
+            if (current && !current.backgroundSession)
+              setOpenError(`Сессия в ${copyName(row.path)} заведена, но в перечне живых сессий так и не показалась`)
+          }, sessionStartMs),
+        )
         return
       }
       stopLaunching(key)
@@ -731,7 +756,9 @@ function WorkspacesTable({
       setOpenError(
         problem === 'session-alive'
           ? `В ${copyName(row.path)} сессия задачи уже идёт`
-          : problem === 'no-task'
+          : problem === 'session-starting'
+            ? `В ${copyName(row.path)} сессия задачи уже заводится`
+            : problem === 'no-task'
             ? `В ${copyName(row.path)} задачи больше нет`
             : `Не удалось завести сессию в ${copyName(row.path)}`,
       )

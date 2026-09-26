@@ -1143,7 +1143,9 @@ test('«Завести сессию задачи» открыт у копии с
   // Сессия задачи жива — фоновая или в VS Code — заводить нечего; свободной копии продолжать нечего
   const withBackground: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-bg' }
   const withVsCode: WorkspaceRow = { ...unread, path: 'D:\\Projects\\app-vs', status: 'in-work', vsCodeSession: true }
-  const list = [unread, rows[1], withBackground, withVsCode]
+  // Сессия умерла посреди работы, вопросов не было — например после перезагрузки (B-217)
+  const deadInWork: WorkspaceRow = { ...unread, path: 'D:\\Projects\\app-dead', status: 'in-work' }
+  const list = [unread, rows[1], withBackground, withVsCode, deadInWork]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(list), { status: 200 })))
 
   render(<App />)
@@ -1154,6 +1156,34 @@ test('«Завести сессию задачи» открыт у копии с
   expect(start(await openRowMenu(tableRows[2]))).toBeDisabled()
   expect(start(await openRowMenu(tableRows[3]))).toBeDisabled()
   expect(start(await openRowMenu(tableRows[4]))).toBeDisabled()
+  expect(start(await openRowMenu(tableRows[5]))).toBeEnabled()
+})
+
+test('заведённая сессия так и не показалась — точка перестаёт мигать, и панель говорит об этом строкой', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+  vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+    url === '/api/tasks/session'
+      ? new Response(JSON.stringify({ session: '7339dced' }), { status: 200 })
+      : new Response(JSON.stringify([unread, rows[1]]), { status: 200 }),
+  ))
+
+  render(<App />)
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  const tableRows = screen.getAllByRole('row').filter((row) => within(row).queryByRole('rowheader') === null)
+  fireEvent.click(within(tableRows[1]).getByRole('button', { name: 'Действия с app' }))
+  await act(async () => {
+    fireEvent.click(within(tableRows[1]).getByRole('menuitem', { name: 'Завести сессию задачи' }))
+    await vi.advanceTimersByTimeAsync(0)
+  })
+  expect(within(tableRows[1]).getByLabelText('сессия заводится')).toBeInTheDocument()
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(15000)
+  })
+  expect(screen.getByText('Сессия в app заведена, но в перечне живых сессий так и не показалась')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByLabelText('сессии нет')).toBeInTheDocument()
 })
 
 test('«Завести сессию задачи» заводит сессию молча, и точка копии мигает, пока сессия не покажется', async () => {
