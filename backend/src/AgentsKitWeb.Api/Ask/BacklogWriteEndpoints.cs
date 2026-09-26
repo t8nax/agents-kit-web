@@ -31,6 +31,20 @@ public sealed record BacklogWriteEvent(
     string? ProposalId = null,
     string? Number = null) : IAgentEvent;
 
+/// <summary>
+/// Ход перед проверкой базы у каждой реплики разговора о бэклоге. У панели он пустой; тест держит им проверку
+/// открытой, пока агент кончается, — иначе исход гонки решала бы скорость git (B-259).
+/// </summary>
+public interface IBacklogCheckGate
+{
+    Task BeforeCheckAsync();
+}
+
+public sealed class OpenBacklogCheckGate : IBacklogCheckGate
+{
+    public Task BeforeCheckAsync() => Task.CompletedTask;
+}
+
 /// <summary>Чем кончилось «Сохранить»: Error — почему не записано, Commit — чем записано.</summary>
 public sealed record BacklogSaved(string? Commit, string? Error, string? Output = null);
 
@@ -40,7 +54,7 @@ public sealed record BacklogSaved(string? Commit, string? Error, string? Output 
 /// коммитит сам; изменение, удаление и объединение он только предлагает, а записывает их панель по «Сохранить».
 /// Память разговора — живой процесс агента, как у вопроса по базе (B-79).
 /// </summary>
-public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests)
+public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate)
 {
     /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
     private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
@@ -268,6 +282,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         request.Reply(new BacklogWriteEvent("reply", text, Number: number));
         try
         {
+            await checkGate.BeforeCheckAsync();
             if (await RefusalAsync(request.Base) is { } refusal)
             {
                 // Агент, поднятый вместо кончившегося, пока шла проверка, остаётся ждать следующей реплики: пометка
