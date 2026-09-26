@@ -64,6 +64,7 @@ builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
 builder.Services.AddSingleton<IAgentChat, AgentChat>();
 builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<AskConversations>();
+builder.Services.AddSingleton<IBacklogCheckGate, OpenBacklogCheckGate>();
 builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<FlowConversations>();
 builder.Services.AddSingleton<StartedTasks>();
