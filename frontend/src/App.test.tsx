@@ -759,7 +759,36 @@ test('при сбое опроса оставляет таблицу и прод
 })
 
 test('запрос строк, не ответивший за 10 секунд, бросается, и таблица спрашивает снова', async () => {
-  // Срок запроса стоит на setTimeout: подделан и он, поэтому ожидания здесь — сброс промисов, а не findBy
+  const fetchMock = hangFirstRequest()
+
+  render(<App />)
+
+  await tick(9999)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('status', { name: 'Загрузка рабочих копий' })).toBeInTheDocument()
+
+  await tick(1)
+  expect((fetchMock.mock.calls[0][1] as RequestInit).signal!.aborted).toBe(true)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  await vi.waitFor(() => expect(screen.getByText('Ждёт оператора')).toBeInTheDocument())
+  expect(screen.queryByText('Нет связи с API')).not.toBeInTheDocument()
+})
+
+test('неответивший запрос на скрытой вкладке без уведомлений бросается и не повторяется, таблица говорит о сбое связи', async () => {
+  const fetchMock = hangFirstRequest()
+  setVisibility('hidden')
+
+  render(<App />)
+
+  await tick(10000)
+  expect((fetchMock.mock.calls[0][1] as RequestInit).signal!.aborted).toBe(true)
+  await vi.waitFor(() => expect(screen.getByText('Нет связи с API')).toBeInTheDocument())
+  await tick(30000)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+
+// Срок запроса стоит на setTimeout, и подделан и он: ожидания в этих тестах — vi.waitFor, а не findBy
+function hangFirstRequest() {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
   const fetchMock = vi
     .fn()
@@ -771,20 +800,8 @@ test('запрос строк, не ответивший за 10 секунд, �
     )
     .mockImplementation(async () => new Response(JSON.stringify(rows), { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)
-
-  render(<App />)
-
-  await tick(9999)
-  expect(fetchMock).toHaveBeenCalledTimes(1)
-  expect(screen.getByRole('status', { name: 'Загрузка рабочих копий' })).toBeInTheDocument()
-
-  await tick(1)
-  expect((fetchMock.mock.calls[0][1] as RequestInit).signal!.aborted).toBe(true)
-  expect(fetchMock).toHaveBeenCalledTimes(2)
-  await act(async () => {})
-  expect(screen.getByText('Ждёт оператора')).toBeInTheDocument()
-  expect(screen.queryByText('Нет связи с API')).not.toBeInTheDocument()
-})
+  return fetchMock
+}
 
 type ShownNotification = { title: string; options?: NotificationOptions; onclick: (() => void) | null; close: () => void }
 

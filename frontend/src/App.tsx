@@ -108,6 +108,11 @@ const refreshIntervalMs = 3000
 // до перезагрузки страницы: не ответивший за этот срок запрос бросается, и таблица спрашивает снова — B-258
 const requestTimeoutMs = 10000
 
+// Скрытая вкладка опрашивается только ради уведомлений
+function pollAllowed() {
+  return document.visibilityState !== 'hidden' || notificationsActive()
+}
+
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
 
@@ -154,7 +159,10 @@ function App() {
     const controller = new AbortController()
     const timeout = setTimeout(() => {
       controller.abort()
-      if (request === lastRequest.current) load()
+      if (request !== lastRequest.current) return
+      // Неответивший сервер — тот же сбой связи, что и отказ, и таблица говорит о нём так же
+      setState((prev) => ({ ...prev, failed: true }))
+      if (pollAllowed()) load()
     }, requestTimeoutMs)
     pending.current = { controller, timeout }
     fetch('/api/workspaces', { signal: controller.signal })
@@ -182,9 +190,7 @@ function App() {
   useEffect(() => {
     loadRows()
     const timer = setInterval(() => {
-      if (inFlight.current > 0) return
-      // Скрытая вкладка опрашивается только ради уведомлений
-      if (document.visibilityState === 'hidden' && !notificationsActive()) return
+      if (inFlight.current > 0 || !pollAllowed()) return
       loadRows()
     }, refreshIntervalMs)
     const onVisibility = () => {
