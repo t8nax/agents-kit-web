@@ -317,7 +317,8 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
             [Result("=== новый этап\n# Документация\n\nисполнитель: оркестратор\nвыход: раздел\n")],
             [Result("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\nвыход: есть\n")],
             [Result("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\n")],
-            [Result("Какие именно?")],
+            [Result("=== новый этап\n# Заметки\n\nисполнитель: оператор\n")],
+            [Result("Дописал.\n=== новый этап\n# Заметки\n\nисполнитель: оператор\nвыход: заметка\n")],
         ];
         var client = await Client();
 
@@ -333,10 +334,11 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         Assert.StartsWith("=== этап «Сборка»", events[4].Output);
         Assert.Equal(3, _agent.Input.Count);
         // Договорённое раньше осталось, а следующая реплика снова может уйти на доработку.
-        await Reply(client, "Сборки нет, забудь", [Review], []);
-        events = await Read(client, 7);
-        Assert.Equal("answer", events[6].Type);
-        Assert.Equal("Документация", Assert.Single(events[6].Proposal!.Stages).Stage!.Title);
+        await Reply(client, "Тогда заведи заметки", [Review], []);
+        events = await Read(client, 8);
+        Assert.Equal("rework", events[6].Type);
+        Assert.Equal("answer", events[7].Type);
+        Assert.Equal(["Документация", "Заметки"], events[7].Proposal!.Stages.Select(s => s.Stage!.Title));
     }
 
     [Fact]

@@ -134,6 +134,22 @@ public sealed class FlowProposalsTests
     }
 
     [Fact]
+    public void Take_RewrittenStageWithoutHelpers_DropsThem()
+    {
+        var withHelpers = Merge with { Helpers = ["check-runner"] };
+
+        var taken = FlowProposals.Take(
+            "=== этап «Мерж»\n# Мерж\n\nМержить после «принято».\n", [Review, withHelpers, Design], Flows, FlowProposal.Empty);
+
+        Assert.Null(taken.Error);
+        var stage = Assert.Single(taken.Proposal.Stages).Stage!;
+        Assert.Equal("оркестратор", stage.Executor);
+        Assert.Equal("sha в dev", stage.Output);
+        // Помощники не дописываются: не вернул их агент — значит, убрал.
+        Assert.True(stage.Helpers is null or { Count: 0 });
+    }
+
+    [Fact]
     public void Take_StageRewrittenAgainWithoutOutput_TakesItFromEarlierChange()
     {
         var first = FlowProposals.Take(

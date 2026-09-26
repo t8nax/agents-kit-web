@@ -139,7 +139,10 @@ test('ответ, вернутый на доработку, остаётся с�
   stream.send({ type: 'rework', text: rework })
 
   expect(await screen.findByText('Чудо-Юдо дописывает ответ…')).toBeInTheDocument()
-  expect(screen.getByText(rework)).toBeInTheDocument()
+  // Строка доработки — своя, со значком возврата, а не общее слово панели (макет B-256, вариант А).
+  const line = screen.getByText(rework).closest('.rework-note')
+  expect(line).not.toBeNull()
+  expect(line?.querySelector('svg')).not.toBeNull()
   // Ход доработки — свой: шаги первого ответа уходят вместе с ним.
   expect(screen.queryByText('читает flow/stages/review.md')).not.toBeInTheDocument()
   stream.send({ type: 'step', text: 'дописывает этап «Документация»' })
