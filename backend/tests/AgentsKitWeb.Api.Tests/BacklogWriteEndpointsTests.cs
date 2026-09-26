@@ -42,6 +42,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     private readonly string _base;
     private readonly string _copy;
     private readonly TestChat _agent = new();
+    private readonly TestCheckGate _checkGate = new();
 
     /// <summary>Команда коммита, которую панель диктует агенту и кладёт в правило разрешения.</summary>
     private string Commit => $"git -C \"{_base}\" commit -m \"{BacklogWriteEndpoints.CommitMessage}\" -- backlog.md";
@@ -420,8 +421,158 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Reply(client, "ещё одна");
         var events = await Read(client, 5);
 
-        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[2]);
-        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[3]);
+        // Реплика, успевшая к агенту до того, как панель узнала о его конце, встаёт в переписку раньше пометки.
+        Assert.Equivalent(
+            new[]
+            {
+                new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"),
+                new BacklogWriteEvent("reply", "ещё одна"),
+            },
+            events[2..4]);
+        Assert.Equal("answer", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
+    }
+
+    [Fact]
+    public async Task Reply_WhenAgentEndsDuringCheckBeforeSendingRaisesNewAgentWithoutError()
+    {
+        var (exit, checking, check) = HoldSecondCheck();
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        var sending = Reply(client, "ещё одна");
+        // Реплика встала в переписку, и панель проверяет базу перед отправкой: агент кончается в это время.
+        await checking.Task.WaitAsync(Wait);
+        exit.SetResult();
+        var events = await Read(client, 4);
+        check.SetResult();
+        using (var response = await sending)
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        events = await Read(client, 5);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[2]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[3]);
+        Assert.Equal("answer", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
+    }
+
+    [Fact]
+    public async Task Stop_DuringCheckBeforeSendingStopsReplyWithoutNewAgent()
+    {
+        var (_, checking, check) = HoldSecondCheck();
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        var sending = Reply(client, "ещё одна");
+        await checking.Task.WaitAsync(Wait);
+        using (var stopped = await client.PostAsync("/api/backlog/write/stop", null))
+            Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        var events = await Read(client, 4);
+        check.SetResult();
+        using (var response = await sending)
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        Assert.Equal("stopped", events[3].Type);
+        // Реплика, остановленная по дороге, агента не поднимает: ответа на неё не будет, как и сказано.
+        Assert.Single(_agent.Starts);
+        Assert.Single(_agent.Input);
+    }
+
+    /// <summary>
+    /// Агент отвечает на первую реплику и больше их не читает, пока тест не отпустит его выход; проверка базы
+    /// перед второй репликой стоит, пока тест её не отпустит.
+    /// </summary>
+    private (TaskCompletionSource Exit, TaskCompletionSource Checking, TaskCompletionSource Check) HoldSecondCheck()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = true;
+        _agent.BeforeExit = () =>
+        {
+            if (!first)
+                return Task.CompletedTask;
+            first = false;
+            return exit.Task;
+        };
+        var checking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var check = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _checkGate.Before = n =>
+        {
+            if (n != 2)
+                return Task.CompletedTask;
+            checking.TrySetResult();
+            return check.Task;
+        };
+        return (exit, checking, check);
+    }
+
+    [Fact]
+    public async Task Reply_WhileSecondAgentEndsRaisesNewAgentAgain()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")], [Result("Готово.")]];
+        _agent.StopAfter = 1;
+        var ended = new SemaphoreSlim(0);
+        TaskCompletionSource[] exits = [new(), new(), new()];
+        var agents = 0;
+        _agent.BeforeExit = () =>
+        {
+            var exit = exits[agents++].Task;
+            ended.Release();
+            return exit;
+        };
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        // Оба раза реплика уходит, когда агент уже ответил и реплик не читает, но панель ещё не знает о его конце.
+        Assert.True(await ended.WaitAsync(Wait));
+        await Reply(client, "ещё одна");
+        exits[0].SetResult();
+        await Read(client, 5);
+        Assert.True(await ended.WaitAsync(Wait));
+        await Reply(client, "и ещё");
+        exits[1].SetResult();
+        var events = await Read(client, 8);
+        exits[2].SetResult();
+
+        Assert.Equal(new BacklogWriteEvent("reply", "и ещё"), events[5]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[6]);
+        Assert.Equal("answer", events[7].Type);
+        Assert.Equal(3, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog и ещё", Said(_agent.Input[2]));
+    }
+
+    [Fact]
+    public async Task Reply_WhileAgentEndsRaisesNewAgent()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agent.BeforeExit = () =>
+        {
+            ended.TrySetResult();
+            return exit.Task;
+        };
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        // Агент ответил и реплик больше не читает, но панель ещё не знает, что он кончился.
+        await ended.Task.WaitAsync(Wait);
+        using (var response = await Reply(client, "ещё одна"))
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[2]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[3]);
+        Assert.Equal("answer", events[4].Type);
         Assert.Equal(2, _agent.Starts.Count);
         Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
     }
@@ -989,6 +1140,18 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
             {
                 services.RemoveAll<IAgentChat>();
                 services.AddSingleton<IAgentChat>(_agent);
+                services.RemoveAll<IBacklogCheckGate>();
+                services.AddSingleton<IBacklogCheckGate>(_checkGate);
             });
         })).CreateClient();
+
+    /// <summary>Ход перед проверкой базы: n — какая по счёту реплика разговора проверяется.</summary>
+    private sealed class TestCheckGate : IBacklogCheckGate
+    {
+        private int _calls;
+
+        public Func<int, Task> Before { get; set; } = _ => Task.CompletedTask;
+
+        public Task BeforeCheckAsync() => Before(Interlocked.Increment(ref _calls));
+    }
 }

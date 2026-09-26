@@ -406,6 +406,135 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, again.StatusCode);
     }
 
+    /// <summary>Сессия задачи умерла, память цела: новая сессия продолжает задачу и становится сессией задачи.</summary>
+    [Fact]
+    public async Task ContinueSession_CopyWithTaskAndNoSession_StartsDriveWithoutNumberAndRemembersIt()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("7339dced", (await response.Content.ReadFromJsonAsync<TaskStartResponse>())!.Session);
+        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "/agents-kit:drive"], _agent.StartInfo!.ArgumentList);
+        Assert.Equal(_copy, _agent.StartInfo.WorkingDirectory);
+        var remembered = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+        Assert.Equal("7339dced", remembered.SessionIn(_copy));
+    }
+
+    [Fact]
+    public async Task ContinueSession_StartedSessionIsTheRowsTaskSession()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        WriteSession("7339dced", live: true);
+
+        Assert.True((await Row(client)).BackgroundSession);
+    }
+
+    [Fact]
+    public async Task ContinueSession_FreeCopy_IsRefusedWithoutStartingAnything()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("no-task", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task ContinueSession_TaskSessionAlive_IsRefused()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        WriteSession("7339dced", live: true);
+        _agent.StartInfo = null;
+
+        var response = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("session-alive", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Сессия VS Code копии тоже читает ответ и ведёт задачу — вторая рядом с ней не нужна.</summary>
+    [Fact]
+    public async Task ContinueSession_VsCodeSessionAlive_IsRefused()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        File.WriteAllText(
+            Path.Combine(_sessionsDir, $"{Environment.ProcessId}.json"),
+            JsonSerializer.Serialize(new
+            {
+                pid = Environment.ProcessId,
+                cwd = _copy,
+                entrypoint = "claude-vscode",
+                procStart = Process.GetCurrentProcess().StartTime.ToFileTimeUtc().ToString(),
+            }));
+
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("session-alive", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Заведённая сессия ещё не в реестре — повторный запрос не заводит вторую рядом с ней.</summary>
+    [Fact]
+    public async Task ContinueSession_RepeatedBeforeSessionReachedRegistry_IsRefusedUntilTheGraceEnds()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        _agent.StartInfo = null;
+
+        var again = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
+        Assert.Equal("session-starting", (await again.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+
+        _time.Advance(ResumedSessions.Grace);
+        var later = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        Assert.Equal(HttpStatusCode.OK, later.StatusCode);
+    }
+
+    [Fact]
+    public async Task ContinueSession_AgentFailed_SaysSoAndCanBeRepeatedAtOnce()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["Error: not logged in"];
+        _agent.Exit = new(1, "");
+        var client = Client();
+
+        var response = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("agent", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        var remembered = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+        Assert.Null(remembered.SessionIn(_copy));
+
+        _agent.Lines = ["backgrounded · 7339dced"];
+        _agent.Exit = new(0, "");
+        var again = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task ContinueSession_UnknownBase_IsNotFound()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(Path.Combine(_root, "other"), _copy));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     public void Dispose()
     {
         _hosts.Dispose();

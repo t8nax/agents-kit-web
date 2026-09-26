@@ -77,7 +77,8 @@ public sealed class WorkspacesEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task Workspaces_MemoryWithoutAnswerPendingIsInWork()
+    // Ответ записан, а сессии в копии нет — прочесть его некому (B-106).
+    public async Task Workspaces_MemoryWithAnswerAndNoSessionIsUnread()
     {
         var copy = Path.Combine(_root, "solo");
         Directory.CreateDirectory(copy);
@@ -103,7 +104,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         var row = Assert.Single(await GetRows(basePath));
         Assert.Equal("solo-knowledge", row.Project);
-        Assert.Equal(WorkspaceStatus.InWork, row.Status);
+        Assert.Equal(WorkspaceStatus.Unread, row.Status);
         Assert.Equal("Критерий", row.FlowStep);
         Assert.Equal(0, row.Progress);
     }

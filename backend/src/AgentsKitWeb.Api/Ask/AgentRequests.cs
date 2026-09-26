@@ -53,6 +53,7 @@ public sealed class AgentRequest
     private string _state = Running;
     private bool _removed;
     private bool _working = true;
+    private int _runs;
 
     public const string Running = "running";
     public const string Done = "done";
@@ -130,8 +131,9 @@ public sealed class AgentRequest
     }
 
     /// <summary>
-    /// Пишет событие в просьбу. Событие не «step» закрывает её: агенту больше нечего сказать. У переписки оно
-    /// закрывает только реплику — следующая открывает её снова.
+    /// Пишет событие в просьбу. Событие не «step», «note» или «rework» (ответ, возвращённый агенту на доработку)
+    /// закрывает её: агенту больше нечего сказать. У переписки оно закрывает только реплику — следующая открывает
+    /// её снова.
     /// </summary>
     public void Write(IAgentEvent e)
     {
@@ -141,7 +143,7 @@ public sealed class AgentRequest
             if (_removed || (!Continues && _state != Running))
                 return;
             _lines.Add(line);
-            if (e.Type is not ("step" or "note"))
+            if (e.Type is not ("step" or "note" or "rework"))
             {
                 _state = e.Type == "error" ? Failed : Done;
                 _elapsed.Stop();
@@ -166,11 +168,28 @@ public sealed class AgentRequest
         }
     }
 
-    /// <summary>Работа кончилась. Итога так и не было — окну нечего ждать, и просьба закрывается неудачей.</summary>
+    /// <summary>Пошла работа просьбы. У переписки новая может пойти раньше, чем размоталась прежняя.</summary>
+    public void Begin()
+    {
+        lock (_gate)
+        {
+            _runs++;
+            _working = true;
+        }
+    }
+
+    /// <summary>
+    /// Работа кончилась. Итога так и не было — окну нечего ждать, и просьба закрывается неудачей. Кончилась прежняя
+    /// работа, а новая уже идёт — просьба жива: реплику, опоздавшую к прежнему агенту, отвечает новый (B-259).
+    /// </summary>
     public void Finish()
     {
         lock (_gate)
         {
+            if (_runs > 0)
+                _runs--;
+            if (_runs > 0)
+                return;
             _working = false;
             if (_state == Running)
             {
@@ -184,7 +203,10 @@ public sealed class AgentRequest
     public void Cancel()
     {
         lock (_gate)
+        {
             _removed = true;
+            _runs = 0;
+        }
         _cancel.Cancel();
         Finish();
     }
@@ -259,6 +281,7 @@ public sealed class AgentRequests
     /// </summary>
     public void Run(AgentRequest request, Func<AgentRequest, CancellationToken, Task> work)
     {
+        request.Begin();
         _ = Task.Run(async () =>
         {
             try

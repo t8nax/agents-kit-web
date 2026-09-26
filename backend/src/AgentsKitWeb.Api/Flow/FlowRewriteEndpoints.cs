@@ -27,7 +27,8 @@ public sealed record FlowRewriteReply(
 
 /// <summary>
 /// Событие переписки о флоу, одной строкой NDJSON. Type: reply — реплика оператора; step — ход агента; note — слово
-/// панели в переписке; answer — ответ агента (Text — слова без блоков правок, DurationMs, Proposal — все правки,
+/// панели в переписке; rework — ответ агента не в форме кита, и панель сама вернула его агенту на доработку (Text — почему);
+/// answer — ответ агента (Text — слова без блоков правок, DurationMs, Proposal — все правки,
 /// до которых договорились, Changed — сколько тронул этот ответ; у ответа без правок его нет); error — ход не удался
 /// (Text — почему, Output — что вывел агент); stopped — ответ оборвал оператор.
 /// </summary>
@@ -162,6 +163,7 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
     private static void Say(AgentRequest request, Turn turn, string text, string message)
     {
         request.Reply(new FlowRewriteEvent("reply", text));
+        turn.ReworkedMs = null;
         turn.Timeout.CancelAfter(Answer);
         turn.Replies.TryWrite(Message(message));
     }
@@ -183,10 +185,12 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
                 line =>
                 {
                     foreach (var e in stream.Read(line))
-                        rewriting.Write(e.Type == "step" ? new FlowRewriteEvent("step", e.Text) : Outcome(e));
+                        rewriting.Write(e.Type == "step" ? new FlowRewriteEvent("step", e.Text) : Outcome(e, turn));
                     if (stream.Finished)
                     {
-                        turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
+                        // Ответ ушёл на доработку — отсчёт идёт заново, как на реплику оператора.
+                        turn.Timeout.CancelAfter(turn.Reworking ? Answer : Timeout.InfiniteTimeSpan);
+                        turn.Reworking = false;
                         stream = new ClaudeStream(basePath, turn.Copy);
                     }
                     return Task.CompletedTask;
@@ -204,10 +208,11 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
     }
 
     /// <summary>
-    /// Итог реплики: слова агента и его правки, наложенные на прежние. Правки, которые запись не примет, не копятся —
+    /// Итог реплики: слова агента и его правки, наложенные на прежние. Правки, которые запись не примет, не копятся.
+    /// Первый такой ответ на реплику панель сама возвращает агенту на доработку (B-256); не вышло и со второго раза —
     /// оператор видит ошибку со словами агента, а договорённое остаётся как было.
     /// </summary>
-    private FlowRewriteEvent Outcome(AskEvent answer)
+    private FlowRewriteEvent Outcome(AskEvent answer, Turn turn)
     {
         if (answer.Type != "answer")
             return new FlowRewriteEvent("error", answer.Text, Output: FlowRewriteEndpoints.Shorten(answer.Output));
@@ -215,10 +220,19 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         lock (_gate)
         {
             var taken = FlowProposals.Take(answer.Text, _screen!.Stages, _screen.Flows, _proposal);
-            if (taken.Error is { } error)
-                return new FlowRewriteEvent("error", error, Output: FlowRewriteEndpoints.Shorten(answer.Text));
+            if (taken.Error is { } error && turn.ReworkedMs is null)
+            {
+                turn.ReworkedMs = answer.DurationMs ?? 0;
+                turn.Reworking = true;
+                turn.Replies.TryWrite(Message(FlowRewriteEndpoints.Rework(error)));
+                return new FlowRewriteEvent("rework", $"{error}. Панель вернула ответ {AgentRequests.AgentName} на доработку.");
+            }
+            if (taken.Error is { } again)
+                return new FlowRewriteEvent("error", again, Output: FlowRewriteEndpoints.Shorten(answer.Text));
             _proposal = taken.Proposal;
-            return new FlowRewriteEvent("answer", taken.Said, answer.DurationMs, Proposal: taken.Proposal, Changed: taken.Changed);
+            // Время ответа — вся реплика: у дописанного ответа Claude Code считает только круг доработки.
+            var duration = answer.DurationMs + turn.ReworkedMs ?? answer.DurationMs;
+            return new FlowRewriteEvent("answer", taken.Said, duration, Proposal: taken.Proposal, Changed: taken.Changed);
         }
     }
 
@@ -272,6 +286,15 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         public AgentRequest? Request { get; set; }
 
         public bool Stopped { get; set; }
+
+        /// <summary>
+        /// Ответ на эту реплику уже возвращали на доработку — сколько шёл отвергнутый ответ; второй раз панель его
+        /// не возвращает. null — не возвращали.
+        /// </summary>
+        public long? ReworkedMs { get; set; }
+
+        /// <summary>Доработку только что попросили: агент отвечает снова, и отсчёт ответа идёт заново.</summary>
+        public bool Reworking { get; set; }
     }
 }
 
@@ -279,6 +302,13 @@ public static class FlowRewriteEndpoints
 {
     /// <summary>Сколько текста агента показывать оператору, когда ответ не разобран.</summary>
     private const int OutputLimit = 2000;
+
+    /// <summary>Просьба дописать ответ, который панель не приняла: агент возвращает его заново, со всеми правками.</summary>
+    public static string Rework(string error) => $"""
+        Панель не приняла твой ответ: {error}. Правки этого ответа не записаны.
+        Верни ответ заново — все правки, которые ты предлагал в нём, блоками в форме кита: каждый этап целиком,
+        с заголовком «# Название», исполнителем и выходом, каждый сценарий — разделом «## Имя» целиком.
+        """;
 
     public static void MapFlowRewriteEndpoints(this IEndpointRouteBuilder app)
     {
@@ -348,8 +378,10 @@ public static class FlowRewriteEndpoints
             Новые сценарии и этапы заводить можно всегда.
             Правки предлагай в конце ответа блоками; до первого блока — что ты сделал или о чём спрашиваешь, коротко.
             Блок — строка-пометка и под ней текст целиком:
-            «=== этап «Название»» — этап с этим названием переписан, под пометкой файл этапа целиком;
-            «=== новый этап» — новый этап, под пометкой его файл;
+            «=== этап «Название»» — этап с этим названием переписан, под пометкой файл этапа целиком: заголовок
+            «# Название», все его ключи — исполнитель и выход всегда, пропуск и помощники, если остаются, — и описание,
+            даже если меняется одно слово;
+            «=== новый этап» — новый этап, под пометкой его файл так же целиком, с исполнителем и выходом;
             «=== удалить этап «Название»» — этап удаляется, под пометкой пусто;
             «=== сценарий «Имя»» — сценарий с этим именем переписан, под пометкой его раздел «## Имя» из scenarios.md
             целиком: «когда», пункты по порядку и возвраты;
@@ -357,8 +389,9 @@ public static class FlowRewriteEndpoints
             «=== удалить сценарий «Имя»» — сценарий удаляется, под пометкой пусто.
             Название в пометке — нынешнее, с учётом правок, предложенных раньше в этой переписке. Пункт сценария
             ссылается на этап его названием; адрес ссылки для нового этапа — любой вида stages/<файл>.md.
-            Удалённый этап убери и из сценариев, где он стоит. Предлагай только то, что меняешь этим ответом:
-            прежние правки панель помнит сама. Файлы менять нельзя: правки запишет панель, и только с согласия оператора.
+            Удалённый этап убери и из сценариев, где он стоит. Блоками предлагай только те этапы и сценарии, которые
+            меняешь этим ответом, — каждый целиком, а не одни поменявшиеся строки: прежние правки панель помнит сама.
+            Файлы менять нельзя: правки запишет панель, и только с согласия оператора.
             Ниже правила кита о форме сценария и этапа; им правки и должны отвечать.
 
             {rules}

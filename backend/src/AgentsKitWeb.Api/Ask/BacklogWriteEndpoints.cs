@@ -40,6 +40,20 @@ public sealed record BacklogWriteEvent(
     string? Number = null,
     IReadOnlyList<string>? Files = null) : IAgentEvent;
 
+/// <summary>
+/// Ход перед проверкой базы у каждой реплики разговора о бэклоге. У панели он пустой; тест держит им проверку
+/// открытой, пока агент кончается, — иначе исход гонки решала бы скорость git (B-259).
+/// </summary>
+public interface IBacklogCheckGate
+{
+    Task BeforeCheckAsync();
+}
+
+public sealed class OpenBacklogCheckGate : IBacklogCheckGate
+{
+    public Task BeforeCheckAsync() => Task.CompletedTask;
+}
+
 /// <summary>Чем кончилось «Сохранить»: Error — почему не записано, Commit — чем записано.</summary>
 public sealed record BacklogSaved(string? Commit, string? Error, string? Output = null);
 
@@ -49,7 +63,7 @@ public sealed record BacklogSaved(string? Commit, string? Error, string? Output 
 /// коммитит сам; изменение, удаление и объединение он только предлагает, а записывает их панель по «Сохранить».
 /// Память разговора — живой процесс агента, как у вопроса по базе (B-79).
 /// </summary>
-public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests)
+public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate)
 {
     /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
     private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
@@ -88,8 +102,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             _pending = null;
             _about = number;
         }
-        // Навык кита зовётся первой репликой: дальше разговор идёт в нём же.
-        await SayAsync(request, turn, text, Skill(number, text), number, files);
+        // Навык кита зовётся первой репликой: дальше разговор идёт в нём же. Агент, кончившийся до неё, не
+        // поднялся вовсе, и нового ради неё не поднимают: сбой запуска работа уже записала в переписку.
+        await SayAsync(request, turn, text, Skill(number, text), number, files, retried: true);
         return request.Summary;
     }
 
@@ -106,13 +121,15 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             // Пока панель пишет предложение, реплика не уходит: агент застал бы бэклог посреди записи.
             if (_pending is { Saving: true })
                 return AskReplied.Answering;
-            turn = _turn?.Request == request && request.Working ? _turn : null;
+            turn = _turn?.Request == request && request.Working && !_turn.Ended ? _turn : null;
+            // Пока идёт проверка перед отправкой, кончившийся агент не пишет провал: реплику получит новый.
+            turn?.Coming = true;
             // Новая просьба заменяет несохранённое предложение: сохранять его больше нечего.
             _pending = null;
         }
 
         turn ??= Restart(request);
-        await SayAsync(request, turn, text, text, null, files);
+        await SayAsync(request, turn, text, text, null, files, retried: false);
         return AskReplied.Sent;
     }
 
@@ -284,10 +301,11 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         }
     }
 
-    private Turn Restart(AgentRequest request)
+    private Turn Restart(AgentRequest request, bool retried = false)
     {
         var replies = Channel.CreateUnbounded<string>();
-        var turn = new Turn(replies.Writer) { Request = request };
+        // Навык прежнего процесса новый агент не знает: реплика зовёт его снова.
+        var turn = new Turn(replies.Writer) { Request = request, Restarted = true, Retried = retried };
         lock (_gate)
             _turn = turn;
 
@@ -296,9 +314,27 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         requests.Run(
             request,
             (writing, cancellationToken) => RunAsync(request.Base, replies.Reader, turn, writing, cancellationToken));
-        // Навык прежнего процесса новый агент не знает: реплика зовёт его снова.
-        turn.Restarted = true;
         return turn;
+    }
+
+    /// <summary>
+    /// Агент кончился: его очередь реплик больше не принимает. Возвращает реплику, которая в ней осталась, — её
+    /// агент так и не прочёл. Реплика, которая ещё на проверке перед отправкой, получает нового агента, поднятого
+    /// здесь же: его работа идёт раньше, чем кончится прежняя, и просьба не закрывается провалом.
+    /// </summary>
+    private (string? Left, bool HandedOver) End(Turn turn, ChannelReader<string> replies, AgentRequest request)
+    {
+        lock (_gate)
+        {
+            turn.Ended = true;
+            if (replies.TryRead(out _))
+                return (turn.Said, false);
+            // Остановленному ответу новый агент не нужен: панель уже пишет, что ответа не будет.
+            if (!turn.Coming || turn.Stopped)
+                return (null, false);
+            turn.Next = Restart(request, retried: true);
+            return (null, true);
+        }
     }
 
     /// <summary>
@@ -309,58 +345,107 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         number is null ? $"/agents-kit:backlog {text}" : $"/agents-kit:backlog Про запись {number}: {text}";
 
     private async Task SayAsync(
-        AgentRequest request, Turn turn, string text, string message, string? number, IReadOnlyList<AttachedFile> files)
+        AgentRequest request, Turn turn, string text, string message, string? number, IReadOnlyList<AttachedFile> files, bool retried)
     {
-        if (await RefusalAsync(request.Base, files.Count > 0) is { } refusal)
+        // Реплика без файлов встаёт в переписку сразу; с файлами — когда известно, легли ли они и под какими адресами:
+        // по ней окно узнаёт, что стало с приложенным (B-260).
+        var replied = false;
+        void Reply(IReadOnlyList<string>? attached = null)
         {
-            request.Reply(new BacklogWriteEvent("reply", text, Number: number));
-            request.Write(refusal);
-            return;
+            if (replied)
+                return;
+            replied = true;
+            request.Reply(new BacklogWriteEvent("reply", text, Number: number, Files: attached));
         }
-
-        IReadOnlyList<string> attached = [];
-        if (files.Count > 0)
+        if (files.Count == 0)
+            Reply();
+        try
         {
-            string? about;
-            lock (_gate)
-                about = _about;
-            var (saved, problem) = await AttachAsync(request.Base, files, number ?? about);
-            if (saved is null)
+            await checkGate.BeforeCheckAsync();
+            if (await RefusalAsync(request.Base, files.Count > 0) is { } refusal)
             {
-                request.Reply(new BacklogWriteEvent("reply", text, Number: number));
-                request.Write(new BacklogWriteEvent("error", problem!));
+                // Агент, поднятый вместо кончившегося, пока шла проверка, остаётся ждать следующей реплики: пометка
+                // «отвечает заново» уже в переписке, а ответит он на следующую.
+                Reply();
+                request.Write(refusal);
                 return;
             }
-            attached = saved;
-            // Навык кладёт приложенный файл копией в artifacts/ сам; здесь копия уже лежит, и навыку остаётся строка.
-            message += $"\n\nОператор приложил файлы — их копии уже лежат в базе и добавлены в индекс git: {string.Join(", ", attached)}."
-                + " Впиши каждый строкой в «### Артефакты» записи, к которой он относится, и коммить командой с artifacts.";
-        }
-        // Приложенное к реплике ложится в индекс только на ход агента: коммит с artifacts его берёт, а между
-        // ходами индекс базы чист — брошенный разговор его не оставит в нём.
-        if (await StageAsync(request.Base, attached) is { } unstaged)
-        {
-            // Реплика ушла без файлов: положенные копии без ссылки в базе не остаются, окно предложит приложить снова.
-            lock (_gate)
-                _attached.RemoveAll(attached.Contains);
-            ArtifactFiles.Delete(request.Base, attached);
-            request.Reply(new BacklogWriteEvent("reply", text, Number: number));
-            request.Write(new BacklogWriteEvent("error", unstaged));
-            return;
-        }
-        request.Reply(new BacklogWriteEvent("reply", text, Number: number, Files: attached.Count > 0 ? attached : null));
 
-        turn.Before = Backlog.Blocks(ReadText(request.Base)!);
-        if (turn.Restarted)
-        {
-            string? about;
-            lock (_gate)
-                about = _about;
-            message = Skill(about, message);
-            turn.Restarted = false;
+            IReadOnlyList<string> attached = [];
+            if (files.Count > 0)
+            {
+                string? about;
+                lock (_gate)
+                    about = _about;
+                var (saved, problem) = await AttachAsync(request.Base, files, number ?? about);
+                if (saved is null)
+                {
+                    Reply();
+                    request.Write(new BacklogWriteEvent("error", problem!));
+                    return;
+                }
+                attached = saved;
+                // Навык кладёт приложенный файл копией в artifacts/ сам; здесь копия уже лежит, и навыку остаётся строка.
+                message += $"\n\nОператор приложил файлы — их копии уже лежат в базе и добавлены в индекс git: {string.Join(", ", attached)}."
+                    + " Впиши каждый строкой в «### Артефакты» записи, к которой он относится, и коммить командой с artifacts.";
+            }
+            // Приложенное к реплике ложится в индекс только на ход агента: коммит с artifacts его берёт, а между
+            // ходами индекс базы чист — брошенный разговор его не оставит в нём.
+            if (await StageAsync(request.Base, attached) is { } unstaged)
+            {
+                // Реплика ушла без файлов: положенные копии без ссылки в базе не остаются, окно предложит приложить снова.
+                lock (_gate)
+                    _attached.RemoveAll(attached.Contains);
+                ArtifactFiles.Delete(request.Base, attached);
+                Reply();
+                request.Write(new BacklogWriteEvent("error", unstaged));
+                return;
+            }
+            Reply(attached.Count > 0 ? attached : null);
+
+            Deliver(request, turn, message, Backlog.Blocks(ReadText(request.Base)!), retried);
         }
-        turn.Timeout.CancelAfter(Answer);
-        turn.Replies.TryWrite(Message(message));
+        finally
+        {
+            lock (_gate)
+                turn.Coming = false;
+        }
+    }
+
+    /// <summary>
+    /// Реплика уходит в очередь агента под той же блокировкой, которой его работа отмечает свой конец: кончившемуся
+    /// агенту она не достаётся, а поднимает нового (B-259). Новый поднимается один раз на реплику — агент, который
+    /// сразу кончается, иначе поднимался бы без конца, а его сбой работа уже записала в переписку.
+    /// </summary>
+    private void Deliver(AgentRequest request, Turn turn, string message, IReadOnlyList<BacklogBlock> before, bool retried)
+    {
+        while (true)
+        {
+            lock (_gate)
+            {
+                if (turn is { Ended: true, Next: { } next })
+                {
+                    turn = next;
+                    retried = true;
+                }
+                // Оператор остановил ответ, пока реплика шла к агенту: остановленный агент пишет, что ответа не будет.
+                if (turn.Stopped)
+                    return;
+                if (!turn.Ended || retried)
+                {
+                    turn.Before = before;
+                    turn.Said = message;
+                    turn.Coming = false;
+                    turn.Timeout.CancelAfter(Answer);
+                    turn.Replies.TryWrite(Message(turn.Restarted ? Skill(_about, message) : message));
+                    turn.Restarted = false;
+                    return;
+                }
+            }
+
+            turn = Restart(request, retried: true);
+            retried = true;
+        }
     }
 
     private async Task<BacklogWriteEvent?> RefusalAsync(string basePath, bool withFiles)
@@ -521,7 +606,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         // Навык кита работает только там, где кит подаёт базу, — в копии проекта, а не в каталоге базы.
         var copy = WorkspaceCollector.ReadCopies(basePath) is { } copies ? WorkspaceCollector.NewCopySource(copies) : null;
         if (copy is null)
+        {
+            End(turn, replies, writing);
             return;
+        }
 
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, turn.Timeout.Token);
         var stream = new ClaudeStream(basePath, copy);
@@ -541,16 +629,34 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                     }
                     if (stream.Finished)
                     {
+                        // Реплику, ради которой агент поднят, он прочёл: следующую, не прочтённую им, получит новый.
+                        turn.Retried = false;
                         turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
                         stream = new ClaudeStream(basePath, copy);
                     }
                 },
                 linked.Token);
+            var (left, handedOver) = End(turn, replies, writing);
+            if (left is not null && !turn.Retried)
+            {
+                // Реплика легла в очередь, когда агент уже кончался, и он её не прочёл: её получает новый, если
+                // оператор не остановил ответ. Дошедшую до stdin выходящего процесса не вернуть — она кончится
+                // провалом ниже.
+                if (turn.Stopped)
+                    writing.Write(new BacklogWriteEvent(
+                        "stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
+                else
+                    Deliver(writing, Restart(writing, retried: true), left, turn.Before, retried: true);
+                return;
+            }
+            if (handedOver)
+                return;
             if (!writing.Finished)
                 writing.Write(await OutcomeAsync(basePath, turn, writing, null, Failure(exit, stream)));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            End(turn, replies, writing);
             writing.Write(await OutcomeAsync(basePath, turn, writing, null, turn.Stopped
                 ? new BacklogWriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
                 : new BacklogWriteEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен")));
@@ -724,6 +830,24 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
 
         /// <summary>Записи бэклога до нынешней реплики: по ним видно, что агент добавил и что тронул.</summary>
         public IReadOnlyList<BacklogBlock> Before { get; set; } = [];
+
+        /// <summary>Процесс кончился: реплика в его очередь уже не идёт. Меняется только под блокировкой разговора.</summary>
+        public bool Ended { get; set; }
+
+        /// <summary>Реплика выбрала этот процесс и идёт к нему через проверку перед отправкой.</summary>
+        public bool Coming { get; set; }
+
+        /// <summary>Процесс, поднятый вместо кончившегося для реплики, которая шла к этому.</summary>
+        public Turn? Next { get; set; }
+
+        /// <summary>Нынешняя реплика без приставки навыка: не прочтённую агентом получает новый.</summary>
+        public string? Said { get; set; }
+
+        /// <summary>
+        /// Процесс поднят ради реплики, не прочтённой прежним, и ещё на неё не ответил: не прочтёт и он — нового уже
+        /// не будет.
+        /// </summary>
+        public bool Retried { get; set; }
     }
 
     /// <summary>Предложение, которое ждёт «Сохранить» или «Отказаться».</summary>

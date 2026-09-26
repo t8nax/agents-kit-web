@@ -27,8 +27,16 @@ import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
-/** starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал. */
-export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting'
+/**
+ * starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал.
+ * unread — оператор ответил, а прочесть ответ некому: ни сессии VS Code, ни фоновой сессии задачи в копии нет.
+ */
+export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting' | 'unread'
+
+/** Без оператора работа в копии стоит: ждёт его ответа или сессии, которая прочтёт ответ, — решение на B-106. */
+function needsOperator(row: WorkspaceRow) {
+  return row.status === 'waiting' || row.status === 'unread'
+}
 
 export type WorkspaceRow = {
   project: string
@@ -51,6 +59,8 @@ export type WorkspaceRow = {
   sessionState?: SessionState | null
   /** В копии идёт фоновая сессия агента — в неё есть переход из терминала. */
   backgroundSession?: boolean
+  /** В копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора. */
+  vsCodeSession?: boolean
   /** Буквы номеров проекта: по ним номер задачи отделяется от заголовка; null или нет поля — букв панель не знает. */
   letters?: string | null
 }
@@ -70,12 +80,17 @@ const sessionLabels: Record<SessionState, string> = {
 
 const noSessionLabel = 'сессии нет'
 
+const startingSessionLabel = 'сессия заводится'
+
+/** Сколько точка мигает, если заведённая сессия так и не показалась в опросе. */
+const sessionStartMs = 15000
+
 /**
  * Точка состояния сессии у имени копии: слова читаются подсказкой при наведении.
  * Подпись идёт меткой, а не скрытым текстом: скрытый текст попал бы в содержимое ячейки с именем копии.
  */
-function SessionDot({ state }: { state: SessionState | null }) {
-  const label = state ? sessionLabels[state] : noSessionLabel
+function SessionDot({ state }: { state: SessionState | 'starting' | null }) {
+  const label = state === 'starting' ? startingSessionLabel : state ? sessionLabels[state] : noSessionLabel
   return <span className={`session-dot session-${state ?? 'none'}`} role="img" aria-label={label} title={label} />
 }
 
@@ -101,9 +116,18 @@ const statusLabels: Record<WorkspaceStatus, string> = {
   starting: 'Запускается',
   'in-work': 'В работе',
   waiting: 'Ждёт оператора',
+  unread: 'Ответ не прочитан',
 }
 
 const refreshIntervalMs = 3000
+// Опрос ждёт прошлого ответа, и ответ, который не пришёл, держал бы таблицу пустой или замершей
+// до перезагрузки страницы: не ответивший за этот срок запрос бросается, и таблица спрашивает снова — B-258
+const requestTimeoutMs = 10000
+
+// Скрытая вкладка опрашивается только ради уведомлений
+function pollAllowed() {
+  return document.visibilityState !== 'hidden' || notificationsActive()
+}
 
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
@@ -140,14 +164,24 @@ function App() {
   const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
+  const pending = useRef<{ controller: AbortController; timeout: ReturnType<typeof setTimeout> } | null>(null)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
   const theme = useTheme()
 
-  const loadRows = useCallback(() => {
+  const loadRows = useCallback(function load() {
     const request = ++lastRequest.current
     inFlight.current++
-    fetch('/api/workspaces')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      controller.abort()
+      if (request !== lastRequest.current) return
+      // Неответивший сервер — тот же сбой связи, что и отказ, и таблица говорит о нём так же
+      setState((prev) => ({ ...prev, failed: true }))
+      if (pollAllowed()) load()
+    }, requestTimeoutMs)
+    pending.current = { controller, timeout }
+    fetch('/api/workspaces', { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json() as Promise<WorkspaceRow[]>
@@ -163,15 +197,16 @@ function App() {
           if (request === lastRequest.current) setState((prev) => ({ ...prev, failed: true }))
         },
       )
-      .finally(() => inFlight.current--)
+      .finally(() => {
+        clearTimeout(timeout)
+        inFlight.current--
+      })
   }, [])
 
   useEffect(() => {
     loadRows()
     const timer = setInterval(() => {
-      if (inFlight.current > 0) return
-      // Скрытая вкладка опрашивается только ради уведомлений
-      if (document.visibilityState === 'hidden' && !notificationsActive()) return
+      if (inFlight.current > 0 || !pollAllowed()) return
       loadRows()
     }, refreshIntervalMs)
     const onVisibility = () => {
@@ -181,6 +216,10 @@ function App() {
     return () => {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
+      if (pending.current) {
+        clearTimeout(pending.current.timeout)
+        pending.current.controller.abort()
+      }
     }
   }, [loadRows])
 
@@ -242,7 +281,7 @@ function App() {
       <div className="app-body">
         <Sidebar
           section={section}
-          waiting={state.rows?.filter((row) => row.status === 'waiting').length ?? 0}
+          waiting={state.rows?.filter(needsOperator).length ?? 0}
           onSection={chooseSection}
         />
         <main className={`content ${section === 'flow' ? 'content-fixed' : ''}`}>
@@ -680,7 +719,77 @@ function WorkspacesTable({
 }) {
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
+  // Копии, где панель заводит сессию задачи: точка мигает, пока сессия не покажется в опросе,
+  // а отметка живёт до ответа об ошибке или до конца выдержки
+  const [launching, setLaunching] = useState<ReadonlySet<string>>(() => new Set())
+  const launchTimers = useRef(new Map<string, number>())
+  // Конец выдержки сверяет последний опрос, а не тот, что был при нажатии
+  const latestRows = useRef(rows)
   const groups = useCollapsedGroups()
+
+  useEffect(() => {
+    latestRows.current = rows
+  }, [rows])
+
+  // Ушла таблица — вместе с ней уходят её отметки, и таймерам нечего снимать
+  useEffect(() => {
+    const timers = launchTimers.current
+    return () => {
+      for (const timer of timers.values()) window.clearTimeout(timer)
+      timers.clear()
+    }
+  }, [])
+
+  function stopLaunching(key: string) {
+    setLaunching((current) => {
+      if (!current.has(key)) return current
+      const next = new Set(current)
+      next.delete(key)
+      return next
+    })
+  }
+
+  // Сессия задачи умерла, а память цела: новая сессия заводится молча, без окна терминала, и продолжает
+  // задачу по памяти — решения оператора на B-106.
+  async function startTaskSession(row: WorkspaceRow) {
+    const key = rowKey(row)
+    setLaunching((current) => new Set(current).add(key))
+    setOpenError(null)
+    try {
+      const response = await fetch('/api/tasks/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base: row.base, copy: row.path }),
+      })
+      if (response.ok) {
+        launchTimers.current.set(
+          key,
+          window.setTimeout(() => {
+            launchTimers.current.delete(key)
+            stopLaunching(key)
+            const current = latestRows.current.find((candidate) => rowKey(candidate) === key)
+            if (current && !current.backgroundSession)
+              setOpenError(`Сессия в ${copyName(row.path)} заведена, но в перечне живых сессий так и не показалась`)
+          }, sessionStartMs),
+        )
+        return
+      }
+      stopLaunching(key)
+      const problem = ((await response.json().catch(() => null)) as { problem?: string } | null)?.problem
+      setOpenError(
+        problem === 'session-alive'
+          ? `В ${copyName(row.path)} сессия задачи уже идёт`
+          : problem === 'session-starting'
+            ? `В ${copyName(row.path)} сессия задачи уже заводится`
+            : problem === 'no-task'
+            ? `В ${copyName(row.path)} задачи больше нет`
+            : `Не удалось завести сессию в ${copyName(row.path)}`,
+      )
+    } catch {
+      stopLaunching(key)
+      setOpenError(`Не удалось завести сессию в ${copyName(row.path)}: нет связи с API`)
+    }
+  }
 
   // Переход в фоновую сессию: своего окна у неё нет, и панель открывает терминал, подключённый к ней.
   async function openInTerminal(row: WorkspaceRow) {
@@ -740,7 +849,7 @@ function WorkspacesTable({
         <WorkspacesHead />
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
-          const waiting = group.rows.some((row) => row.status === 'waiting')
+          const waiting = group.rows.some(needsOperator)
           return (
             <tbody key={group.base}>
               <tr className="group-row">
@@ -776,7 +885,11 @@ function WorkspacesTable({
               {/* Строке с ошибкой точку ставить не о чем: копии на диске нет или её не прочитали. */}
               <td title={row.path} className={row.error ? undefined : 'copy-col'}>
                 <div className="proj">
-                  {!row.error && <SessionDot state={row.sessionState ?? null} />}
+                  {!row.error && (
+                    <SessionDot
+                      state={launching.has(rowKey(row)) && !row.backgroundSession ? 'starting' : (row.sessionState ?? null)}
+                    />
+                  )}
                   {copyName(row.path)}
                   {isFresh(row, fresh) && <span className="new-tag">новая</span>}
                   {/* Каталог копий приходит только у основной копии проекта — от неё заводят новые */}
@@ -796,7 +909,7 @@ function WorkspacesTable({
                   <TaskCells task={row.task} letters={row.letters} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
-                    {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
+                    {row.progress === null ? '—' : <Progress value={row.progress} waiting={needsOperator(row)} />}
                   </td>
                   <td>
                     {row.status && (
@@ -818,6 +931,8 @@ function WorkspacesTable({
                     <RowActionsMenu
                       row={row}
                       busy={opening === row.path}
+                      launching={launching.has(rowKey(row))}
+                      onStartSession={() => void startTaskSession(row)}
                       onTerminal={() => void openInTerminal(row)}
                       onVsCode={() => void openInVsCode(row)}
                       onRemove={() => onRemove(row)}
@@ -838,18 +953,24 @@ function WorkspacesTable({
 /**
  * Действия строки: переходов стало два, и они собраны в меню — решение оператора. Без фоновой сессии
  * пункт терминала виден, но не нажимается: подписи о причине у него нет — оператор убрал её на приёмке.
+ * «Завести сессию задачи» стоит первым и открыт у копии, где задача идёт, а сессии задачи нет, — вариант Б
+ * макета B-106: у всех копий одним пунктом меню, без кнопки в строке.
  * Удаление копии стоит там же, за разделителем: у основной копии проекта его нет вовсе — её кит
  * не удаляет и от неё заводит новые, — а у копии с задачей пункт приглушён.
  */
 function RowActionsMenu({
   row,
   busy,
+  launching,
+  onStartSession,
   onTerminal,
   onVsCode,
   onRemove,
 }: {
   row: WorkspaceRow
   busy: boolean
+  launching: boolean
+  onStartSession: () => void
   onTerminal: () => void
   onVsCode: () => void
   onRemove: () => void
@@ -858,6 +979,19 @@ function RowActionsMenu({
     <RowMenu label={`Действия с ${copyName(row.path)}`} disabled={busy}>
       {(close) => (
         <>
+          <button
+            type="button"
+            role="menuitem"
+            className="row-menu-item"
+            disabled={launching || !needsTaskSession(row)}
+            onClick={() => {
+              close()
+              onStartSession()
+            }}
+          >
+            <PlayIcon />
+            Завести сессию задачи
+          </button>
           <button
             type="button"
             role="menuitem"
@@ -905,6 +1039,12 @@ function RowActionsMenu({
       )}
     </RowMenu>
   )
+}
+
+/** Задача в копии идёт, а ответ оператора прочесть и работу продолжить некому. */
+function needsTaskSession(row: WorkspaceRow) {
+  const inWork = row.status === 'in-work' || row.status === 'waiting' || row.status === 'unread'
+  return inWork && !row.backgroundSession && !row.vsCodeSession
 }
 
 function isFresh(row: WorkspaceRow, fresh: Fresh | null) {

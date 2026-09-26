@@ -43,13 +43,16 @@ public sealed class AgentChat : IAgentChat
 
         using (process)
         {
+            // Процесс вышел сам: реплик он больше не прочтёт, и ждать следующую незачем.
+            using var exited = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             try
             {
-                var writing = WriteAsync(process, replies, cancellationToken);
+                var writing = WriteAsync(process, replies, exited.Token);
                 var error = process.StandardError.ReadToEndAsync(cancellationToken);
                 while (await process.StandardOutput.ReadLineAsync(cancellationToken) is { } line)
                     await onLine(line);
                 await process.WaitForExitAsync(cancellationToken);
+                await exited.CancelAsync();
                 await writing;
                 return new AgentExit(process.ExitCode, (await error).Trim());
             }
@@ -63,15 +66,21 @@ public sealed class AgentChat : IAgentChat
         }
     }
 
-    /// <summary>Реплика — строка stdin: агент читает их по одной и на каждую отвечает своим итогом.</summary>
+    /// <summary>
+    /// Реплика — строка stdin: агент читает их по одной и на каждую отвечает своим итогом. Из канала реплика
+    /// уходит, только когда записана: не дошедшую до вышедшего процесса разговор отдаёт новому агенту (B-259).
+    /// </summary>
     private static async Task WriteAsync(Process process, ChannelReader<string> replies, CancellationToken cancellationToken)
     {
         try
         {
-            await foreach (var reply in replies.ReadAllAsync(cancellationToken))
+            while (await replies.WaitToReadAsync(cancellationToken))
             {
+                if (!replies.TryPeek(out var reply))
+                    continue;
                 await process.StandardInput.WriteAsync((reply + "\n").AsMemory(), cancellationToken);
                 await process.StandardInput.FlushAsync(cancellationToken);
+                replies.TryRead(out _);
             }
         }
         catch (Exception e) when (e is OperationCanceledException or IOException)
