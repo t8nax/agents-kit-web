@@ -112,6 +112,8 @@ public sealed class DeployScriptTests : IDisposable
         var (exitCode, output) = await Deploy(Build(version), waitSeconds: 30);
         Assert.True(exitCode == 0, output);
         await AssertRunning(version, output);
+        // Консольную панель Планировщик запускал бы с окном терминала поверх работы (B-254).
+        Assert.Equal(WindowsSubsystem, Subsystem(Path.Combine(_target, "AgentsKitWeb.Api.exe")));
     }
 
     /// <summary>
@@ -147,16 +149,29 @@ public sealed class DeployScriptTests : IDisposable
     /// </summary>
     private static void MarkWindowless(string exe)
     {
-        const int console = 3, windows = 2;
         using var file = new FileStream(exe, FileMode.Open, FileAccess.ReadWrite);
-        using var reader = new BinaryReader(file);
+        Assert.Equal(ConsoleSubsystem, ReadSubsystem(file));
+        file.Position -= 2;
         using var writer = new BinaryWriter(file);
+        writer.Write(WindowsSubsystem);
+    }
+
+    private const ushort ConsoleSubsystem = 3, WindowsSubsystem = 2;
+
+    /// <summary>Подсистема exe; запущенную панель Windows даёт читать, но не писать.</summary>
+    private static ushort Subsystem(string exe)
+    {
+        using var file = new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return ReadSubsystem(file);
+    }
+
+    private static ushort ReadSubsystem(FileStream file)
+    {
+        using var reader = new BinaryReader(file, Encoding.UTF8, leaveOpen: true);
         file.Position = 0x3C;
         // Подпись «PE\0\0», заголовок файла в 20 байт, подсистема — со смещения 68 необязательного заголовка.
         file.Position = reader.ReadInt32() + 4 + 20 + 68;
-        Assert.Equal(console, reader.ReadUInt16());
-        file.Position -= 2;
-        writer.Write((ushort)windows);
+        return reader.ReadUInt16();
     }
 
     /// <summary>Сборка, какой её оставляет постановка: с published.json рядом с exe.</summary>
