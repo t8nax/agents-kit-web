@@ -7,7 +7,7 @@ import { WarningIcon } from './Problems'
 export type Artifact = { label: string; address: string }
 
 /** Адрес — ссылка на сайт: её открывает браузер, а файл — панель, в VS Code. */
-export const isLink = (address: string) => /^https?:\/\//i.test(address)
+const isLink = (address: string) => /^https?:\/\//i.test(address)
 
 /**
  * Артефакты записи бэклога блоком под её описанием — как вкладка «Артефакты» окна ответа (макет B-260): подпись,
