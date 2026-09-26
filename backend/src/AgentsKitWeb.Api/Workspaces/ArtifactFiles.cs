@@ -1,7 +1,15 @@
+using System.Text.RegularExpressions;
+
 namespace AgentsKitWeb.Api.Workspaces;
 
+/// <summary>Файл, который оператор приложил в окне: имя, как его назвал браузер, и содержимое в base64.</summary>
+public sealed record AttachedFile(string Name, string Data);
+
+/// <summary>Приложенный файл не лёг в базу: Problem — too-large (крупнее потолка) или unreadable (не base64).</summary>
+public sealed record AttachRejected(string Name, string Problem);
+
 /// <summary>Файлы артефактов в базе — по раскладке кита: плоский каталог artifacts/ в корне базы.</summary>
-public static class ArtifactFiles
+public static partial class ArtifactFiles
 {
     public const string Folder = "artifacts";
 
@@ -25,6 +33,86 @@ public static class ArtifactFiles
         var folder = Path.GetFullPath(Path.Combine(basePath, Folder));
         var path = Path.GetFullPath(Path.Combine(basePath, address));
         return string.Equals(Path.GetDirectoryName(path), folder, StringComparison.OrdinalIgnoreCase) ? path : null;
+    }
+
+    // В имени файла остаются буквы, цифры, точка, дефис и подчёркивание: пробел, скобки, кавычки и знаки cmd
+    // оборвали бы ссылку при сверке кита или не прошли бы в запуск VS Code.
+    [GeneratedRegex(@"[^\p{L}\p{N}._-]+")]
+    private static partial Regex Unsafe { get; }
+
+    /// <summary>
+    /// Кладёт приложенные файлы копиями в artifacts/ базы и отдаёт их адреса artifacts/&lt;имя&gt; по порядку. Имя —
+    /// как у файла, с номером задачи или записи спереди, если он известен; занятое — с числом, чужой файл не
+    /// перезаписывается. Сначала проверяются все файлы: не прошёл один — не ложится ни один. В git не кладёт.
+    /// </summary>
+    public static async Task<(IReadOnlyList<string>? Addresses, AttachRejected? Rejected)> SaveAsync(
+        string basePath, IReadOnlyList<AttachedFile> files, string? number, CancellationToken cancellationToken)
+    {
+        var (decoded, rejected) = Decode(files);
+        if (rejected is not null)
+            return (null, rejected);
+
+        var folder = Path.Combine(basePath, Folder);
+        Directory.CreateDirectory(folder);
+        var addresses = new List<string>();
+        foreach (var (name, bytes) in decoded)
+        {
+            var path = FreePath(folder, FileName(name, number));
+            // CreateNew: файл, заведённый соседней сессией между проверкой имени и записью, не перезапишется.
+            await using (var stream = new FileStream(path, FileMode.CreateNew))
+                await stream.WriteAsync(bytes, cancellationToken);
+            addresses.Add($"{Folder}/{Path.GetFileName(path)}");
+        }
+        return (addresses, null);
+    }
+
+    /// <summary>Приложенное, которое в базу не ляжет: крупнее потолка или не base64. null — ложится всё.</summary>
+    public static AttachRejected? Check(IReadOnlyList<AttachedFile> files) => Decode(files).Rejected;
+
+    /// <summary>Слова отказа для оператора.</summary>
+    public static string Refusal(AttachRejected rejected) => rejected.Problem == "too-large"
+        ? $"Файл не приложен: {rejected.Name} крупнее {MaxBytes / 1024 / 1024} МБ"
+        : $"Файл не приложен: {rejected.Name} не прочитан";
+
+    private static (List<(string Name, byte[] Bytes)> Decoded, AttachRejected? Rejected) Decode(IReadOnlyList<AttachedFile> files)
+    {
+        var decoded = new List<(string Name, byte[] Bytes)>();
+        foreach (var file in files)
+        {
+            byte[] bytes;
+            try
+            {
+                bytes = Convert.FromBase64String(file.Data);
+            }
+            catch (FormatException)
+            {
+                return (decoded, new AttachRejected(file.Name, "unreadable"));
+            }
+            if (bytes.Length > MaxBytes)
+                return (decoded, new AttachRejected(file.Name, "too-large"));
+            decoded.Add((file.Name, bytes));
+        }
+        return (decoded, null);
+    }
+
+    /// <summary>Имя файла в artifacts/: безопасные знаки, номер спереди, если его ещё нет в имени.</summary>
+    public static string FileName(string name, string? number)
+    {
+        var file = Path.GetFileName(name.Replace('\\', '/'));
+        var stem = Unsafe.Replace(Path.GetFileNameWithoutExtension(file), "-").Trim('-', '.');
+        var extension = Unsafe.Replace(Path.GetExtension(file), "");
+        var own = (stem.Length == 0 ? "файл" : stem) + (extension.Length > 1 ? extension : "");
+        return number is null || own.StartsWith(number + "-", StringComparison.OrdinalIgnoreCase) ? own : $"{number}-{own}";
+    }
+
+    private static string FreePath(string folder, string name)
+    {
+        var path = Path.Combine(folder, name);
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var extension = Path.GetExtension(name);
+        for (var i = 2; File.Exists(path) || Directory.Exists(path); i++)
+            path = Path.Combine(folder, $"{stem}-{i}{extension}");
+        return path;
     }
 
     /// <summary>

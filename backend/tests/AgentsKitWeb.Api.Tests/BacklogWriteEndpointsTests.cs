@@ -126,7 +126,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal("dontAsk", args[args.IndexOf("--permission-mode") + 1]);
         Assert.Equal(_base, args[args.IndexOf("--add-dir") + 1]);
         var allowed = args.Skip(args.IndexOf("--allowedTools") + 1).TakeWhile(a => !a.StartsWith("--")).ToList();
-        Assert.Equal(["Read", "Grep", "Glob", "Skill", $"Edit({BacklogPath})", $"PowerShell({Commit})"], allowed);
+        Assert.Equal(["Read", "Grep", "Glob", "Skill", $"Edit({BacklogPath})", $"PowerShell({Commit})", $"PowerShell({Commit} artifacts)"], allowed);
         // Правило пускает команду, только когда она записана целиком, поэтому промпт диктует её слово в слово.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(Commit, prompt);
@@ -134,6 +134,80 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(args, a => a.Contains("bypassPermissions", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Write_AttachedFileGoesToBaseArtifactsAndAgentCommitsItWithEntry()
+    {
+        // Навык вписывает приложенный файл в «Артефакты» записи и коммитит второй разрешённой командой.
+        _agent.Answers = [[Result("Приложил к B-1.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(
+                "### Агенту\n- где: App.tsx\n", "### Артефакты\n- снимок: artifacts/B-1-Снимок-экрана.png\n\n### Агенту\n- где: App.tsx\n"));
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md", "artifacts");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок", "B-1", [Shot("Снимок экрана.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var events = await Read(client, 2);
+
+        Assert.Equal(["artifacts/B-1-Снимок-экрана.png"], events[0].Files);
+        Assert.Contains("artifacts/B-1-Снимок-экрана.png", Said(_agent.Input[0]));
+        Assert.Equal(new BacklogWriteEvent("answer", "Приложил к B-1.", DurationMs: 1000), events[1]);
+        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(_base, "artifacts", "B-1-Снимок-экрана.png")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
+    public async Task Write_AttachedFileLeftByAgentIsCommittedByPanel()
+    {
+        // Агент закоммитил только backlog.md: ссылка уже в истории, и файл докоммичивает панель.
+        _agent.Answers = [[Result("Записал B-3.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.AppendAllText(BacklogPath, "\n## B-3 Новая\n\nТекст.\n\n### Артефакты\n- лог: artifacts/лог.txt\n");
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "запиши", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("answer", answer.Type);
+        Assert.Equal("", Git("status", "--porcelain"));
+        Assert.Contains("artifacts/лог.txt", Git("-c", "core.quotepath=false", "log", "-1", "--name-only", "--format="));
+    }
+
+    [Fact]
+    public async Task Write_TooLargeFileIsRefusedAndNothingLands()
+    {
+        var client = Client(_base);
+
+        using var response = await client.SendAsync(Post(_base, "приложи", files: [Shot("видео.mp4", 5 * 1024 * 1024 + 1)]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new AttachRejected("видео.mp4", "too-large"), await response.Content.ReadFromJsonAsync<AttachRejected>(Json));
+        Assert.False(Directory.Exists(Path.Combine(_base, "artifacts")));
+        Assert.Empty(_agent.Starts);
+    }
+
+    [Fact]
+    public async Task Write_IsNotSentOverForeignUncommittedArtifact()
+    {
+        Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
+        File.WriteAllText(Path.Combine(_base, "artifacts", "чужой.txt"), "соседняя сессия");
+        TestGit.Run(_base, "add", "artifacts/чужой.txt");
+        var client = Client(_base);
+
+        await Start(client, "запиши");
+        var events = await Read(client, 2);
+
+        Assert.Equal(new BacklogWriteEvent("error", "В artifacts/ базы есть чужая незакоммиченная правка — просьба не отправлена"), events[1]);
     }
 
     [Fact]
@@ -698,8 +772,12 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         result = text,
     });
 
-    private static HttpRequestMessage Post(string basePath, string text, string? number = null) =>
-        new(HttpMethod.Post, "/api/backlog/write") { Content = JsonContent.Create(new BacklogWriteRequest(basePath, text, number)) };
+    private static HttpRequestMessage Post(string basePath, string text, string? number = null, IReadOnlyList<AttachedFile>? files = null) =>
+        new(HttpMethod.Post, "/api/backlog/write") { Content = JsonContent.Create(new BacklogWriteRequest(basePath, text, number, files)) };
+
+    // Файл из окна: байты 0, 1, 2… нужной длины.
+    private static AttachedFile Shot(string name, int length) =>
+        new(name, Convert.ToBase64String(Enumerable.Range(0, length).Select(i => (byte)i).ToArray()));
 
     private async Task Start(HttpClient client, string text, string? number = null)
     {
