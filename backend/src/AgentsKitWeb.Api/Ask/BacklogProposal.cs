@@ -89,8 +89,10 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
                 if (own.Count != 1 || own[0].Start != 0 || own[0].Number != number)
                     return (null, $"Изменённая запись {number} должна начинаться строкой «## {number} …» и быть одна");
                 // Раздел «Агенту» оператор в окне не видит: пропади он в предложении, «Сохранить» срезал бы его молча.
-                if (HasAgentSection(original.Text) && !HasAgentSection(own[0].Text))
-                    return (null, $"В изменённой записи {number} пропал раздел «### Агенту»");
+                // «Артефакты» — тоже: без раздела файлы записи остались бы в базе без ссылки.
+                foreach (var section in (string[])["Агенту", Backlog.ArtifactsSection])
+                    if (HasSection(original.Text, section) && !HasSection(own[0].Text, section))
+                        return (null, $"В изменённой записи {number} пропал раздел «### {section}»");
                 // В файл идёт запись, как её написал агент: разбор срезает хвостовые пробелы строк, а в markdown
                 // два пробела в конце — перенос строки.
                 changes.Add(new BacklogChange(BacklogChange.Change, number!, Entry(header, own[0].Text))
@@ -146,8 +148,8 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
         return (lastCut ? text.TrimEnd() + newline : text, null);
     }
 
-    private static bool HasAgentSection(string text) =>
-        text.Split('\n').Any(line => line.StartsWith("### ") && line[4..].Trim() == "Агенту");
+    private static bool HasSection(string text, string name) =>
+        text.Split('\n').Any(line => line.StartsWith("### ") && line[4..].Trim() == name);
 
     private static string WithoutTrailingBlankLines(string text)
     {

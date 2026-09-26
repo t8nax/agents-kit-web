@@ -54,6 +54,21 @@ public sealed class BacklogProposalTests
     }
 
     [Fact]
+    public void Build_RefusesChangeThatLosesArtifactsSection()
+    {
+        const string withArtifacts = "# Бэклог\n\n## B-1 Первая\n\nТекст.\n\n### Артефакты\n- снимок: artifacts/B-1-снимок.png\n\n### Агенту\n- где: App.tsx\n";
+
+        Assert.Equal(
+            "В изменённой записи B-1 пропал раздел «### Артефакты»",
+            BacklogProposal.Build(["изменить B-1\n## B-1 Первая\n\nНовый текст.\n\n### Агенту\n- где: App.tsx"], withArtifacts).Error);
+        var kept = BacklogProposal.Build(
+            ["изменить B-1\n## B-1 Первая\n\nНовый текст.\n\n### Артефакты\n- снимок: artifacts/B-1-снимок.png\n\n### Агенту\n- где: App.tsx"],
+            withArtifacts);
+        Assert.Null(kept.Error);
+        Assert.Equal([new TaskArtifact("снимок", "artifacts/B-1-снимок.png")], kept.Proposal!.Changes[0].Entry.Artifacts);
+    }
+
+    [Fact]
     public void Apply_KeepsTrailingSpacesOfChangedEntry()
     {
         var (proposal, _) = BacklogProposal.Build(["изменить B-2\n## B-2 Вторая\n\nСтрока с переносом  \nдальше\n\n"], File);

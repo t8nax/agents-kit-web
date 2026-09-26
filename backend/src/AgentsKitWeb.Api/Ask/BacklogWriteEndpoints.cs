@@ -400,18 +400,19 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var lines = now.Split('\n');
         var old = was.Split('\n');
         var at = 0;
-        var agent = false;
+        var appendable = false;
         foreach (var line in lines)
         {
             if (line.StartsWith("### "))
-                agent = line[4..].Trim() == "Агенту";
+                appendable = line[4..].Trim() is "Агенту" or Backlog.ArtifactsSection;
             if (at < old.Length && line == old[at])
             {
                 at++;
                 continue;
             }
-            // Навык дописывает только строки «Агенту», сам его заголовок и поля: новая фраза в тексте оператору — правка.
-            if (!(agent || line.Trim().Length == 0 || FieldLine.IsMatch(line)))
+            // Навык дописывает только строки «Агенту» и «Артефакты» (приложенный файл), их заголовки и поля:
+            // новая фраза в тексте оператору — правка.
+            if (!(appendable || line.Trim().Length == 0 || FieldLine.IsMatch(line)))
                 return false;
         }
         return at == old.Length;

@@ -394,6 +394,26 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Answer_AcceptsSkillAddingArtifactToFoundEntry()
+    {
+        // Приложенный файл к найденной записи навык кладёт строкой в её «Артефакты», заводя подраздел, — это не правка.
+        _agent.Answers = [[Result("Приложил к B-1.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath)
+                .Replace("### Агенту\n- где: App.tsx\n", "### Артефакты\n- снимок: artifacts/B-1-снимок.png\n\n### Агенту\n- где: App.tsx\n"));
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "приложи снимок к B-1");
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal(new BacklogWriteEvent("answer", "Приложил к B-1.", DurationMs: 1000), answer);
+    }
+
+    [Fact]
     public async Task Reply_IsRefusedWhileProposalIsBeingSaved()
     {
         _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
