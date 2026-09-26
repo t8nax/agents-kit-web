@@ -509,6 +509,19 @@ td.num-col {
   height: 4px;
 }
 
+/* Ответ не прочитан: цвет ожидания без заливки и пульса, точка кольцом — работа стоит, но ждёт не ответа (B-106) */
+.status-unread {
+  background: transparent;
+  color: var(--accent-waiting-text);
+  border-color: var(--accent-waiting-border);
+}
+
+.status-unread::before {
+  border: 1.5px solid var(--accent-waiting-text);
+  width: 4px;
+  height: 4px;
+}
+
 /* Задача запускается: заливка как у свободной копии, а мигающая точка говорит, что это ненадолго */
 .status-starting {
   background: var(--accent-free-bg);

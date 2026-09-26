@@ -27,8 +27,16 @@ import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 
-/** starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал. */
-export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting'
+/**
+ * starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал.
+ * unread — оператор ответил, а прочесть ответ некому: ни сессии VS Code, ни фоновой сессии задачи в копии нет.
+ */
+export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting' | 'unread'
+
+/** Без оператора работа в копии стоит: ждёт его ответа или сессии, которая прочтёт ответ, — решение на B-106. */
+function needsOperator(row: WorkspaceRow) {
+  return row.status === 'waiting' || row.status === 'unread'
+}
 
 export type WorkspaceRow = {
   project: string
@@ -51,6 +59,8 @@ export type WorkspaceRow = {
   sessionState?: SessionState | null
   /** В копии идёт фоновая сессия агента — в неё есть переход из терминала. */
   backgroundSession?: boolean
+  /** В копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора. */
+  vsCodeSession?: boolean
   /** Буквы номеров проекта: по ним номер задачи отделяется от заголовка; null или нет поля — букв панель не знает. */
   letters?: string | null
 }
@@ -101,6 +111,7 @@ const statusLabels: Record<WorkspaceStatus, string> = {
   starting: 'Запускается',
   'in-work': 'В работе',
   waiting: 'Ждёт оператора',
+  unread: 'Ответ не прочитан',
 }
 
 const refreshIntervalMs = 3000
@@ -242,7 +253,7 @@ function App() {
       <div className="app-body">
         <Sidebar
           section={section}
-          waiting={state.rows?.filter((row) => row.status === 'waiting').length ?? 0}
+          waiting={state.rows?.filter(needsOperator).length ?? 0}
           onSection={chooseSection}
         />
         <main className={`content ${section === 'flow' ? 'content-fixed' : ''}`}>
@@ -740,7 +751,7 @@ function WorkspacesTable({
         <WorkspacesHead />
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
-          const waiting = group.rows.some((row) => row.status === 'waiting')
+          const waiting = group.rows.some(needsOperator)
           return (
             <tbody key={group.base}>
               <tr className="group-row">
@@ -796,7 +807,7 @@ function WorkspacesTable({
                   <TaskCells task={row.task} letters={row.letters} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
-                    {row.progress === null ? '—' : <Progress value={row.progress} waiting={row.status === 'waiting'} />}
+                    {row.progress === null ? '—' : <Progress value={row.progress} waiting={needsOperator(row)} />}
                   </td>
                   <td>
                     {row.status && (

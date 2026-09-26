@@ -1098,3 +1098,43 @@ test('возврат к просьбе из шапки открывает раз
   // Раздел встал на базе просьбы: записи соседнего проекта список не показывает
   expect(screen.queryByText('Запись соседнего проекта')).not.toBeInTheDocument()
 })
+
+// Ответ записан, а прочесть его некому — B-106
+const unread: WorkspaceRow = {
+  ...rows[0],
+  status: 'unread',
+  sessionState: null,
+  backgroundSession: false,
+}
+
+test('копия с непрочитанным ответом стоит плашкой, считается ждущей и держит точку свёрнутой группы', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([unread, rows[1]]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+  const row = within(tableRows[1])
+  expect(row.getByText('Ответ не прочитан')).toHaveClass('status-badge', 'status-unread')
+  expect(row.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument()
+  expect(document.querySelector('.progress-fill.waiting')).not.toBeNull()
+
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+  expect(sidebar.getByRole('button', { name: 'Рабочие копии, 1 ждёт' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Свернуть app-knowledge' }))
+  expect(document.querySelectorAll('.group-waiting-dot')).toHaveLength(1)
+})
+
+test('уведомляет, когда ответ в копии остался непрочитанным', async () => {
+  fakeInterval()
+  const { shown } = stubNotification('granted')
+  workspaceResponses([rows[0], rows[1]], [unread, rows[1]])
+
+  render(<App />)
+  expect(await screen.findByText('Ждёт оператора')).toBeInTheDocument()
+
+  await tick(3000)
+  expect(await screen.findByText('Ответ не прочитан')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
+  expect(shown[0].title).toBe('app-knowledge: ответ не прочитан')
+  expect(shown[0].options?.body).toBe('D:\\Projects\\app\nТаблица рабочих копий')
+})

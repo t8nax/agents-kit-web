@@ -40,10 +40,16 @@ export function useNotifications() {
   return { permission, muted, request, setEnabled }
 }
 
+const titles: Record<StatusChange['kind'], string> = {
+  waiting: 'ждёт оператора',
+  unread: 'ответ не прочитан',
+  freed: 'копия свободна',
+}
+
 export function notifyStatusChange({ kind, row }: StatusChange) {
   if (!notificationsActive()) return
-  const title = kind === 'waiting' ? `${row.project}: ждёт оператора` : `${row.project}: копия свободна`
-  const body = kind === 'waiting' && row.task ? `${row.path}\n${row.task}` : row.path
+  const title = `${row.project}: ${titles[kind]}`
+  const body = kind !== 'freed' && row.task ? `${row.path}\n${row.task}` : row.path
   const notification = new Notification(title, { body, tag: `${kind}|${rowKey(row)}` })
   notification.onclick = () => {
     window.focus()
