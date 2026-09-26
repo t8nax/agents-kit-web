@@ -94,9 +94,13 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   // Данные ответы — по вопросу; пустая строка — ответа нет.
   const [answers, setAnswers] = useState<string[]>([])
-  // Файлы, приложенные к ответу, — по вопросу; в черновик браузера они не идут: ответ пишется в память, а файлы — в
-  // artifacts/ базы только отправкой (B-260).
+  // Файлы, приложенные к ответу, — по вопросу. В базу — в artifacts/ — они ложатся только отправкой, а до неё живут
+  // черновиком браузера, как набранный текст (attachmentDrafts.ts, замечание на приёмке B-260). Последний список
+  // держит ещё и ref: приложение идёт после чтения файла, и черновик должен взять то, что в окне сейчас.
   const [files, setFiles] = useState<Attachment[][]>([])
+  const latestFiles = useRef<Attachment[][]>([])
+  // Черновик файлов поднимается в окно один раз: в StrictMode разработки чтение вопросов идёт дважды.
+  const draftTaken = useRef(false)
   const [attachError, setAttachError] = useState<string | null>(null)
   useRevokeOnClose(() => files.flat())
   const [current, setCurrent] = useState(0)
@@ -125,8 +129,13 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         const titles = data.questions.map((q) => q.title)
         const given = takeDrafts(base, copy, titles)
         // Приложенное к ответам тоже переживает закрытие окна; черновик файлов читается следом за текстом.
+        // Приложенное, пока черновик читался, остаётся: поднятый черновик встаёт перед ним, а не вместо него.
         void takeAttachmentDrafts(base, copy, titles).then((kept) => {
-          if (kept.some((list) => list.length > 0)) setFiles(kept)
+          if (draftTaken.current || !kept.some((list) => list.length > 0)) return
+          draftTaken.current = true
+          const merged = kept.map((list, i) => [...list, ...(latestFiles.current[i] ?? [])])
+          latestFiles.current = merged
+          setFiles(merged)
         })
         // Открытое заново окно встаёт на первый вопрос без ответа; всё, что до него, уже пройдено.
         const first = Math.max(0, given.findIndex((a) => !a.trim()))
@@ -195,21 +204,24 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     const { read, error: refused } = await readAttachments(chosen, name)
     setAttachError(refused)
     if (read.length === 0) return
-    const next = [...(files[at] ?? []), ...read]
-    setFiles((prev) => {
-      const all = [...prev]
-      all[at] = [...(all[at] ?? []), ...read]
-      return all
-    })
-    void saveAttachmentDraft(base, copy, questions[at].title, next)
+    changeFiles(at, (list) => [...list, ...read])
     if (error === EMPTY) setError(null)
   }
 
   function detach(id: number) {
-    files.flat().filter((item) => item.id === id).forEach(revokePreview)
-    const at = files.findIndex((list) => list?.some((item) => item.id === id))
-    setFiles((prev) => prev.map((list) => list?.filter((item) => item.id !== id)))
-    if (at >= 0) void saveAttachmentDraft(base, copy, questions[at].title, files[at].filter((item) => item.id !== id))
+    const at = latestFiles.current.findIndex((list) => list?.some((item) => item.id === id))
+    if (at < 0) return
+    latestFiles.current[at].filter((item) => item.id === id).forEach(revokePreview)
+    changeFiles(at, (list) => list.filter((item) => item.id !== id))
+  }
+
+  // Список вопроса меняется в окне и тем же ходом уходит в черновик: оба берут одно и то же.
+  function changeFiles(at: number, change: (list: Attachment[]) => Attachment[]) {
+    const all = [...latestFiles.current]
+    all[at] = change(all[at] ?? [])
+    latestFiles.current = all
+    setFiles(all)
+    void saveAttachmentDraft(base, copy, questions[at].title, all[at])
   }
 
   // Ответ пишется сразу, как его набирают или выбирают: в ленту и в черновик браузера.

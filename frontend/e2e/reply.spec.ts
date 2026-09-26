@@ -265,6 +265,28 @@ test('снимок, приложенный к ответу, переживает
   await expect(tiles.getByText('4 Б')).toBeVisible()
 })
 
+test('снимки к двум вопросам подряд оба остаются в черновике', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?'), plain('Как быть с переносами?')])
+
+  await page.goto('/')
+  let dialog = await openReply(page)
+  const png = (name: string) => ({ name, mimeType: 'image/png', buffer: Buffer.from('89504e47', 'hex') })
+  // второй снимок уходит сразу за первым, не дожидаясь его записи в черновик
+  await dialog.getByLabel('Приложить').setInputFiles(png('первый.png'))
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  await dialog.getByLabel('Приложить').setInputFiles(png('второй.png'))
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await page.reload()
+  dialog = await openReply(page)
+
+  await expect(dialog.getByLabel('Приложено').getByText('первый.png')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
+})
+
 test('артефакт из artifacts/ базы — путь файла: щелчок просит панель открыть его тем же адресом', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?')], {

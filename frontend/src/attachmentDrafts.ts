@@ -56,27 +56,43 @@ async function write(key: string, drafts: Drafts): Promise<void> {
   db.close()
 }
 
+// Черновик читается и переписывается целиком, поэтому правки идут одной очередью: две подряд — к разным вопросам
+// или приложить и тут же снять — иначе читали бы прежнее, и последняя затёрла бы первую.
+let queue: Promise<unknown> = Promise.resolve()
+
+function inTurn<T>(work: () => Promise<T>): Promise<T> {
+  const next = queue.then(work, work)
+  queue = next.catch(() => undefined)
+  return next
+}
+
 // Черновики к вопросам, которых в памяти уже нет или на которые ответили, не возвращаются и забываются.
-export async function takeAttachmentDrafts(base: string, copy: string, titles: string[]): Promise<Attachment[][]> {
-  const key = draftsKey(base, copy)
-  const stored = await read(key)
-  const kept: Drafts = {}
-  for (const title of titles) if (stored[title]?.length) kept[title] = stored[title]
-  if (Object.keys(kept).length !== Object.keys(stored).length) await write(key, kept)
-  return titles.map((title) => (kept[title] ?? []).map(restoreAttachment))
+export function takeAttachmentDrafts(base: string, copy: string, titles: string[]): Promise<Attachment[][]> {
+  return inTurn(async () => {
+    const key = draftsKey(base, copy)
+    const stored = await read(key)
+    const kept: Drafts = {}
+    for (const title of titles) if (stored[title]?.length) kept[title] = stored[title]
+    if (Object.keys(kept).length !== Object.keys(stored).length) await write(key, kept)
+    return titles.map((title) => (kept[title] ?? []).map(restoreAttachment))
+  })
 }
 
-export async function saveAttachmentDraft(base: string, copy: string, title: string, files: Attachment[]) {
-  const key = draftsKey(base, copy)
-  const drafts = await read(key)
-  if (files.length === 0) delete drafts[title]
-  else drafts[title] = files.map(({ name, size, data, type }) => ({ name, size, data, type }))
-  await write(key, drafts)
+export function saveAttachmentDraft(base: string, copy: string, title: string, files: Attachment[]) {
+  return inTurn(async () => {
+    const key = draftsKey(base, copy)
+    const drafts = await read(key)
+    if (files.length === 0) delete drafts[title]
+    else drafts[title] = files.map(({ name, size, data, type }) => ({ name, size, data, type }))
+    await write(key, drafts)
+  })
 }
 
-export async function forgetAttachmentDrafts(base: string, copy: string, titles: string[]) {
-  const key = draftsKey(base, copy)
-  const drafts = await read(key)
-  for (const title of titles) delete drafts[title]
-  await write(key, drafts)
+export function forgetAttachmentDrafts(base: string, copy: string, titles: string[]) {
+  return inTurn(async () => {
+    const key = draftsKey(base, copy)
+    const drafts = await read(key)
+    for (const title of titles) delete drafts[title]
+    await write(key, drafts)
+  })
 }
