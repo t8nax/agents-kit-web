@@ -122,6 +122,7 @@ public sealed class DeployScriptTests : IDisposable
     {
         var build = Path.Combine(_root, $"build-{version}-{Guid.NewGuid():N}");
         Copy(AppContext.BaseDirectory, build);
+        MarkWindowless(Path.Combine(build, "AgentsKitWeb.Api.exe"));
         File.WriteAllText(Path.Combine(build, "build.json"), JsonSerializer.Serialize(new
         {
             channel = "dev", sha = "0000000", version, builtAt = DateTimeOffset.UtcNow, releases = "owner/repo",
@@ -136,6 +137,25 @@ public sealed class DeployScriptTests : IDisposable
             CredentialsFile = Path.Combine(profile, "credentials.json"),
         }));
         return build;
+    }
+
+    /// <summary>
+    /// Помечает exe программой без консоли, как помечает его сборка выпуска (OutputType=WinExe в build.ps1):
+    /// вывод тестов собран консольным, и Планировщик открывал каждой запущенной панели окно терминала (B-254).
+    /// Подсистема — два байта необязательного заголовка PE, их же правит SDK для WinExe.
+    /// </summary>
+    private static void MarkWindowless(string exe)
+    {
+        const int console = 3, windows = 2;
+        using var file = new FileStream(exe, FileMode.Open, FileAccess.ReadWrite);
+        using var reader = new BinaryReader(file);
+        using var writer = new BinaryWriter(file);
+        file.Position = 0x3C;
+        // Подпись «PE\0\0», заголовок файла в 20 байт, подсистема — со смещения 68 необязательного заголовка.
+        file.Position = reader.ReadInt32() + 4 + 20 + 68;
+        Assert.Equal(console, reader.ReadUInt16());
+        file.Position -= 2;
+        writer.Write((ushort)windows);
     }
 
     /// <summary>Сборка, какой её оставляет постановка: с published.json рядом с exe.</summary>
