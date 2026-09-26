@@ -367,6 +367,7 @@ if ($system -and $system -match 'правишь флоу проекта') {
     $stageTitle = $null; $stageFile = $null; $scenarioName = $null; $scenario = $null
     $wish = ''
     $turn = 0
+    $reworks = 0
     while ($null -ne ($line = $stdinReader.ReadLine())) {
         if (-not $line.Trim()) { continue }
         $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text) -replace "`r`n", "`n" } catch { $line }
@@ -385,6 +386,25 @@ if ($system -and $system -match 'правишь флоу проекта') {
             $scenarioMatch = [regex]::Match($scenarios, '(?ms)^## ([^\n]*)\n.*?(?=^## |\z)')
             if ($scenarioMatch.Success) { $scenario = $scenarioMatch.Value.TrimEnd(); $scenarioName = $scenarioMatch.Groups[1].Value.Trim() }
             $said = $wish
+        }
+
+        # Неполный этап: по слову «неполный» агент заводит этап черновика без выхода, и панель возвращает ответ
+        # на доработку; дописывает он его сразу, а со словом «дважды» — снова без выхода, и панель показывает ошибку.
+        $draft = 'Черновик подставного агента'
+        $incomplete = "Завёл этап черновика, а выход забыл.`n=== новый этап`n# $draft`n`nисполнитель: оператор`n`n1. Написано подставным агентом песочницы."
+        if ($said -match '^Панель не приняла твой ответ') {
+            if ($reworks -gt 0) {
+                $reworks--
+                Write-Result $incomplete
+            } else {
+                Write-Result "Дописал выход.`n=== новый этап`n# $draft`n`nисполнитель: оператор`nвыход: черновик по просьбе оператора`n`n1. Написано подставным агентом песочницы."
+            }
+            continue
+        }
+        if ($said -match 'неполн') {
+            $reworks = if ($said -match 'дважды') { 1 } else { 0 }
+            Write-Result $incomplete
+            continue
         }
 
         if ($turn -eq 1) {
