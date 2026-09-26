@@ -115,7 +115,7 @@ test('показывает рабочие копии из /api/workspaces', asyn
   render(<App />)
 
   const tableRows = await findTableRows()
-  expect(fetchMock).toHaveBeenCalledWith('/api/workspaces')
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspaces', expect.objectContaining({ signal: expect.any(AbortSignal) }))
   expect(screen.getByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
   expect(tableRows).toHaveLength(4)
 
@@ -756,6 +756,34 @@ test('при сбое опроса оставляет таблицу и прод
   await tick(3000)
   await vi.waitFor(() => expect(screen.queryByText('Нет связи с API')).not.toBeInTheDocument())
   expect(fetchMock).toHaveBeenCalledTimes(3)
+})
+
+test('запрос строк, не ответивший за 10 секунд, бросается, и таблица спрашивает снова', async () => {
+  // Срок запроса стоит на setTimeout: подделан и он, поэтому ожидания здесь — сброс промисов, а не findBy
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+  const fetchMock = vi
+    .fn()
+    .mockImplementationOnce(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) =>
+          init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))),
+        ),
+    )
+    .mockImplementation(async () => new Response(JSON.stringify(rows), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+
+  await tick(9999)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('status', { name: 'Загрузка рабочих копий' })).toBeInTheDocument()
+
+  await tick(1)
+  expect((fetchMock.mock.calls[0][1] as RequestInit).signal!.aborted).toBe(true)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  await act(async () => {})
+  expect(screen.getByText('Ждёт оператора')).toBeInTheDocument()
+  expect(screen.queryByText('Нет связи с API')).not.toBeInTheDocument()
 })
 
 type ShownNotification = { title: string; options?: NotificationOptions; onclick: (() => void) | null; close: () => void }
