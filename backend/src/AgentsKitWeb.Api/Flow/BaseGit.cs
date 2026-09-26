@@ -70,7 +70,20 @@ public static class BaseGit
     {
         var run = await GitRunner.RunAsync(
             basePath, Timeout, cancellationToken, "-c", "core.quotepath=false", "diff", "--name-only", "HEAD", "--", path);
-        return run.ExitCode == 0 ? run.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries) : null;
+        // Вывод склеен с stderr: путями считаются только строки под названным каталогом, а не предупреждения git.
+        return run.ExitCode == 0
+            ? run.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(line => line.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase))
+                .ToList()
+            : null;
+    }
+
+    /// <summary>Файл базы есть в последнем коммите: в индекс добавленный, но не закоммиченный — нет.</summary>
+    public static async Task<bool> CommittedAsync(string basePath, string file, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(
+            basePath, Timeout, cancellationToken, "-c", "core.quotepath=false", "ls-tree", "--name-only", "HEAD", "--", file);
+        return run.ExitCode == 0 && run.Output.Split('\n').Any(line => line.Trim().Equals(file, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Файл базы изменён и не закоммичен. null — git не ответил.</summary>

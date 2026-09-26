@@ -184,6 +184,75 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Write_AttachedFileNotYetUsedLeavesIndexCleanAndNewTalkRemovesIt()
+    {
+        // Агент переспросил, файл ещё не вписан: между ходами он лежит на диске, но не в индексе базы.
+        _agent.Answers = [[Result("Это к B-1 «Старая запись»?")]];
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок к старой записи", files: [Shot("снимок.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        await Read(client, 2);
+
+        Assert.True(File.Exists(Path.Combine(_base, "artifacts", "снимок.png")));
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+
+        _agent.Answers = [[Result("ok")]];
+        await Start(client, "другая просьба");
+
+        Assert.False(File.Exists(Path.Combine(_base, "artifacts", "снимок.png")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
+    public async Task Save_CommitsAttachedFileTheProposalReferences()
+    {
+        // Файл приложен к просьбе про существующую запись: строка о нём приходит предложением и уходит по «Сохранить».
+        _agent.Answers =
+        [
+            [Result("~~~backlog\nизменить B-1\n## B-1 Старая запись\nтип: фича\nприоритет: средний\n\nТекст старой записи.\n\n### Артефакты\n- снимок: artifacts/B-1-снимок.png\n\n### Агенту\n- где: App.tsx\n~~~")],
+        ];
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок", "B-1", [Shot("снимок.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var answer = (await Read(client, 2))[1];
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+
+        Assert.Null((await Save(client, answer.Proposal!.Id)).Error);
+        Assert.Equal("", Git("status", "--porcelain"));
+        Assert.Equal(
+            "A\tartifacts/B-1-снимок.png\nM\tbacklog.md",
+            Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
+    }
+
+    [Fact]
+    public async Task Save_MergeRemovesArtifactsOfGoneEntryButKeepsOnesAnotherEntryHolds()
+    {
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath)
+            .Replace("### Агенту\n- где: App.tsx\n", "### Артефакты\n- общий: artifacts/общий.txt\n\n### Агенту\n- где: App.tsx\n")
+            .Replace("Текст второй записи.\n", "Текст второй записи.\n\n### Артефакты\n- общий: artifacts/общий.txt\n- свой: artifacts/свой.txt\n"));
+        Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
+        File.WriteAllText(Path.Combine(_base, "artifacts", "общий.txt"), "1");
+        File.WriteAllText(Path.Combine(_base, "artifacts", "свой.txt"), "2");
+        TestGit.Run(_base, "add", ".");
+        TestGit.Run(_base, "commit", "-m", "артефакты");
+        _agent.Answers =
+        [
+            [Result("~~~backlog\nизменить B-1\n## B-1 Старая и вторая\n\nОба текста.\n\n### Артефакты\n- общий: artifacts/общий.txt\n\n### Агенту\n- где: App.tsx\n~~~\n~~~backlog\nудалить B-2 в B-1\n~~~")],
+        ];
+        var client = Client(_base);
+        await Start(client, "объедини B-1 и B-2");
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Null((await Save(client, answer.Proposal!.Id)).Error);
+
+        Assert.True(File.Exists(Path.Combine(_base, "artifacts", "общий.txt")));
+        Assert.False(File.Exists(Path.Combine(_base, "artifacts", "свой.txt")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
     public async Task Write_TooLargeFileIsRefusedAndNothingLands()
     {
         var client = Client(_base);

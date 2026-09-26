@@ -55,15 +55,56 @@ public static partial class ArtifactFiles
         var folder = Path.Combine(basePath, Folder);
         Directory.CreateDirectory(folder);
         var addresses = new List<string>();
-        foreach (var (name, bytes) in decoded)
+        try
         {
-            var path = FreePath(folder, FileName(name, number));
-            // CreateNew: файл, заведённый соседней сессией между проверкой имени и записью, не перезапишется.
-            await using (var stream = new FileStream(path, FileMode.CreateNew))
-                await stream.WriteAsync(bytes, cancellationToken);
-            addresses.Add($"{Folder}/{Path.GetFileName(path)}");
+            foreach (var (name, bytes) in decoded)
+            {
+                var path = FreePath(folder, FileName(name, number));
+                // CreateNew: файл, заведённый соседней сессией между проверкой имени и записью, не перезапишется.
+                await using (var stream = new FileStream(path, FileMode.CreateNew))
+                {
+                    addresses.Add($"{Folder}/{Path.GetFileName(path)}");
+                    await stream.WriteAsync(bytes, cancellationToken);
+                }
+            }
+        }
+        catch
+        {
+            // Лёг не весь набор — не остаётся ни одного: файл без ссылки сверка кита назвала бы.
+            Delete(basePath, addresses);
+            throw;
         }
         return (addresses, null);
+    }
+
+    /// <summary>Убирает файлы по адресам artifacts/; не удалившийся остаётся, и его назовёт сверка кита.</summary>
+    public static void Delete(string basePath, IEnumerable<string> addresses)
+    {
+        foreach (var address in addresses)
+        {
+            try
+            {
+                File.Delete(Path.Combine(basePath, address));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    // Ссылка по раскладке кита: путь artifacts/<имя> целым словом; перед ним не часть другого пути, после имени —
+    // конец строки или знак, которым ссылка кончается. HTML-комментарий ссылкой не считается.
+    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
+    private static partial Regex Comment { get; }
+
+    /// <summary>Текст .md ссылается на файл artifacts/ — так, как ссылку считает сверка кита.</summary>
+    public static bool Mentions(string text, string address)
+    {
+        var name = Regex.Escape(address[(address.IndexOf('/') + 1)..]);
+        return Regex.IsMatch(
+            Comment.Replace(text, ""),
+            $@"(?<![\w./\\-])(?:\.\./)*{Folder}/{name}(?![^\s`'""()<>\[\]|,;*/\\])",
+            RegexOptions.IgnoreCase);
     }
 
     /// <summary>Приложенное, которое в базу не ляжет: крупнее потолка или не base64. null — ложится всё.</summary>
@@ -153,7 +194,7 @@ public static partial class ArtifactFiles
         }
 
         return names
-            .Where(name => !texts.Any(text => text.Contains($"{Folder}/{name}", StringComparison.OrdinalIgnoreCase)))
+            .Where(name => !texts.Any(text => Mentions(text, $"{Folder}/{name}")))
             .Select(name => $"{Folder}/{name}")
             .ToList();
     }
