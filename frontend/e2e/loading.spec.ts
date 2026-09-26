@@ -100,21 +100,25 @@ test('заготовка мерцает, содержимое проявляет
 
 test('быстрая загрузка не мигает: ни полос, ни проявления — таблица встаёт сразу', async ({ page }) => {
   const animations = await recordAnimations(page)
-  // Каждый кадр отмечается, была ли видна хоть одна полоса: мигание длится доли секунды
+  // Каждая правка страницы отмечает, была ли видна хоть одна полоса: мигание длится доли секунды.
+  // Наблюдатель правок, а не кадры: под остановленными часами кадры страницы стоят.
   await page.addInitScript(() => {
     Object.assign(window, { barsSeen: false })
-    const tick = () => {
-      const bar = document.querySelector('.sk')
-      if (bar && getComputedStyle(bar).visibility === 'visible') Object.assign(window, { barsSeen: true })
-      requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
+    new MutationObserver(() => {
+      const bars = document.querySelectorAll('.sk')
+      if ([...bars].some((bar) => getComputedStyle(bar).visibility === 'visible')) Object.assign(window, { barsSeen: true })
+    }).observe(document, { subtree: true, childList: true, attributes: true })
   })
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row] }))
+  // Часы страницы стоят, пока строки идут: «быстро» — раньше срока заготовки по часам страницы, а не
+  // по настоящим, иначе нагруженная машина перерастала срок доставкой ответа и видела полосы (B-266).
+  await page.clock.install()
+  await page.clock.pauseAt(Date.now() + 1000)
   await page.goto('/')
 
   await expect(page.getByRole('button', { name: 'Свернуть agents-kit-web' })).toBeVisible()
-  await nextFrames(page)
+  // Срок заготовки выходит уже над прочитанной таблицей: ни полос, ни проявления
+  await page.clock.runFor(1000)
   expect(await page.evaluate(() => (window as unknown as { barsSeen: boolean }).barsSeen)).toBe(false)
   expect(await animations.names()).not.toContain('loaded-in')
 })
