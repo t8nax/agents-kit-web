@@ -528,6 +528,45 @@ test('«Отправить» показывает знак отправки с �
   expect(localStorage.getItem(draftsKey)).toBeNull()
 })
 
+test('к ответу прикладывается файл и снимок из буфера: они видны в ленте и уходят с ответом, файл без текста — тоже ответ', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+
+  fireEvent.change(dialog.getByLabelText('Приложить'), { target: { files: [new File(['лог'], 'api.log')] } })
+  expect(await within(await dialog.findByLabelText('Приложено')).findByText('api.log')).toBeInTheDocument()
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  answerWith(dialog, 'пробелами')
+  fireEvent.paste(dialog.getByLabelText('Ответ'), {
+    clipboardData: { files: [new File(['png'], 'image.png', { type: 'image/png' })] },
+  })
+  const tiles = within(await dialog.findByRole('list', { name: 'Приложенные файлы' }))
+  const shot = (await tiles.findByText(/^снимок-.*\.png$/)).textContent!
+  sendAll(dialog)
+  waitOut()
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
+
+  const post = calls.filter((c) => c.url === '/api/answers')
+  const base64 = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)))
+  expect(JSON.parse(post[0].init!.body as string).answers).toEqual([
+    { question: 'Подтвердить критерий?', answer: '', files: [{ name: 'api.log', data: base64('лог') }] },
+    { question: 'Как быть с переносами?', answer: 'пробелами', files: [{ name: shot, data: base64('png') }] },
+  ])
+})
+
+test('файл крупнее 5 МБ к ответу не прикладывается — строка почему', async () => {
+  stubApi(() => new Response(null, { status: 204 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  const big = new File(['x'], 'видео.mp4')
+  Object.defineProperty(big, 'size', { value: 6 * 1024 * 1024 })
+
+  fireEvent.change(dialog.getByLabelText('Приложить'), { target: { files: [big] } })
+
+  expect(await dialog.findByRole('alert')).toHaveTextContent('Файл не приложен: видео.mp4 весит 6,0 МБ, а принимается до 5 МБ')
+  expect(dialog.queryByRole('list', { name: 'Приложенные файлы' })).not.toBeInTheDocument()
+})
+
 test('«Отменить» ничего не записывает: лента возвращается со всеми ответами', async () => {
   const calls = stubApi(() => new Response(null, { status: 204 }))
   const dialog = within(await openReply())

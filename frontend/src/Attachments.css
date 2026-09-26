@@ -148,6 +148,12 @@
   font-size: 12px;
 }
 
+.att-meta.is-row {
+  grid-auto-flow: column;
+  justify-content: start;
+  gap: 6px;
+}
+
 .att-shot img {
   width: 100%;
   max-width: 300px;

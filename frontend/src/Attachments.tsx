@@ -95,6 +95,36 @@ export function AttachmentTiles({ items, onRemove }: { items: Attachment[]; onRe
   )
 }
 
+/** Приложенное к ответу в ленте до отправки: снимок — картинкой, прочий файл — плиткой (макет B-260). */
+export function AttachedInFeed({ items }: { items: Attachment[] }) {
+  if (items.length === 0) return null
+  return (
+    <div className="att-list att-sent" aria-label="Приложено">
+      {items.map((item) =>
+        item.preview ? (
+          <div className="att-shot" key={item.id}>
+            <img src={item.preview} alt={item.name} />
+            <span className="att-meta is-row">
+              <span className="att-name">{item.name}</span>
+              <span className="att-size">{formatSize(item.size)}</span>
+            </span>
+          </div>
+        ) : (
+          <span className="att-tile" key={item.id}>
+            <Thumb name={item.name} preview={null} />
+            <span className="att-meta">
+              <span className="att-name" title={item.name}>
+                {item.name}
+              </span>
+              <span className="att-size">{formatSize(item.size)}</span>
+            </span>
+          </span>
+        ),
+      )}
+    </div>
+  )
+}
+
 /** Строка отказа под приложенным: файл крупнее 5 МБ или не прочитан. */
 export function AttachError({ text }: { text: string | null }) {
   if (!text) return null

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
+import { AttachButton, AttachedInFeed, AttachError, AttachmentTiles } from './Attachments'
+import { payload, pastedFileName, pastedFiles, readAttachments, type Attachment } from './attachFiles'
 import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { TerminalIcon } from './TerminalIcon'
@@ -91,6 +93,10 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   // Данные ответы — по вопросу; пустая строка — ответа нет.
   const [answers, setAnswers] = useState<string[]>([])
+  // Файлы, приложенные к ответу, — по вопросу; в черновик браузера они не идут: ответ пишется в память, а файлы — в
+  // artifacts/ базы только отправкой (B-260).
+  const [files, setFiles] = useState<Attachment[][]>([])
+  const [attachError, setAttachError] = useState<string | null>(null)
   const [current, setCurrent] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('open')
@@ -171,8 +177,27 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     setError(null)
   }
 
+  // Приложенный файл — тоже ответ: его адрес панель впишет в строку ответа.
   function unansweredIn(list: string[]) {
-    return list.flatMap((a, i) => (a.trim() ? [] : [i]))
+    return list.flatMap((a, i) => (a.trim() || files[i]?.length ? [] : [i]))
+  }
+
+  async function attach(chosen: File[], name?: (file: File) => string) {
+    const at = current
+    setAttachError(null)
+    const { read, error: refused } = await readAttachments(chosen, name)
+    setAttachError(refused)
+    if (read.length === 0) return
+    setFiles((prev) => {
+      const next = [...prev]
+      next[at] = [...(next[at] ?? []), ...read]
+      return next
+    })
+    if (error === EMPTY) setError(null)
+  }
+
+  function detach(id: number) {
+    setFiles((prev) => prev.map((list) => list?.filter((item) => item.id !== id)))
   }
 
   // Ответ пишется сразу, как его набирают или выбирают: в ленту и в черновик браузера.
@@ -192,7 +217,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     setError(null)
     setPhase('sending')
     const given = answers
-    timer.current = window.setTimeout(() => void write(given), UNDO_MS)
+    const attached = files
+    timer.current = window.setTimeout(() => void write(given, attached), UNDO_MS)
   }
 
   function undo() {
@@ -201,7 +227,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   }
 
   // Все ответы пишутся разом и только все вместе; отказ оставляет окно и данные ответы на месте.
-  async function write(given: string[]) {
+  async function write(given: string[], attached: Attachment[][]) {
     setPhase('writing')
     const fail = (text: string, question?: string) => {
       if (!alive.current) return
@@ -220,7 +246,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         body: JSON.stringify({
           base,
           copy,
-          answers: questions.map((q, i) => ({ question: q.title, answer: given[i] })),
+          answers: questions.map((q, i) => ({ question: q.title, answer: given[i], files: payload(attached[i] ?? []) })),
         }),
       })
       if (response.ok) {
@@ -231,6 +257,11 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         if (!alive.current) return
         setPhase('leaving')
         timer.current = window.setTimeout(onClose, FADE_MS)
+        return
+      }
+      if (response.status === 413) {
+        const body = (await response.json().catch(() => ({}))) as { name?: string }
+        fail(`Ответы не записаны: файл ${body.name ?? ''} крупнее 5 МБ`)
         return
       }
       if (response.status === 400 || response.status === 409) {
@@ -583,7 +614,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                       </span>
                     </button>
                   )}
-                  {given.trim() && (
+                  {(given.trim() || (files[i]?.length ?? 0) > 0) && (
                     <div className="op-row">
                       <div className={`op-bubble ${i === current ? 'is-current' : ''}`}>
                         {effect ? (
@@ -592,8 +623,9 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                             <p className="ans-effect">{effect}</p>
                           </>
                         ) : (
-                          <p className="ans-text">{given}</p>
+                          given.trim() && <p className="ans-text">{given}</p>
                         )}
+                        <AttachedInFeed items={files[i] ?? []} />
                       </div>
                     </div>
                   )}
@@ -606,6 +638,12 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         {/* строка ответа — только у переписки; на время отправки на её месте «Отменить» */}
         {question && (phase !== 'open' || tab === 'feed') && (
           <div className={`composer ${error ? 'has-error' : ''}`}>
+            {phase === 'open' && (
+              <>
+                <AttachmentTiles items={files[current] ?? []} onRemove={detach} />
+                <AttachError text={attachError} />
+              </>
+            )}
             {phase === 'open' ? (
               <div className="composer-row">
                 <button
@@ -628,6 +666,12 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                   placeholder={question.variants.length > 0 ? 'Выберите вариант или напишите свой ответ' : 'Ваш ответ'}
                   onChange={(e) => setAnswer(e.target.value)}
                   onKeyDown={onFieldKeyDown}
+                  onPaste={(e) => {
+                    const pasted = pastedFiles(e)
+                    if (pasted.length === 0) return
+                    e.preventDefault()
+                    void attach(pasted, pastedFileName)
+                  }}
                 />
                 <button
                   type="button"
@@ -639,6 +683,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                 >
                   <ChevronIcon direction="right" />
                 </button>
+                <AttachButton label="Приложить" onFiles={(chosen) => void attach(chosen)} />
                 <button type="button" className="btn btn-primary composer-send" onClick={send}>
                   <SendIcon />
                   Отправить

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ClipboardEvent } from 'react'
+import { useCallback, useState, type ClipboardEvent } from 'react'
 
 /** Потолок артефакта по раскладке кита: крупнее файл в базу не кладётся. */
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
@@ -45,30 +45,50 @@ function previewOf(file: File): string | null {
   return file.type.startsWith('image/') && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : null
 }
 
+let nextId = 1
+
+/** Имя вставленного из буфера: у безымянного снимка браузер пишет image.png — ему имя по дате. */
+export const pastedFileName = (file: File) => (file.name && file.name !== 'image.png' ? file.name : pastedName(file.type))
+
+/** Картинки из буфера вставки; нет их — вставляется текст, как обычно. */
+export const pastedFiles = (event: ClipboardEvent) => Array.from(event.clipboardData?.files ?? [])
+
 /**
- * Файлы, приложенные к реплике или ответу: выбранные с диска и вставленные из буфера. Крупнее 5 МБ не прикладывается —
+ * Файлы с диска или из буфера — в приложенное: крупнее 5 МБ не прикладывается, error говорит, какой и почему.
+ */
+export async function readAttachments(
+  files: File[],
+  name: (file: File) => string = (file) => file.name,
+): Promise<{ read: Attachment[]; error: string | null }> {
+  let error: string | null = null
+  const read: Attachment[] = []
+  for (const file of files) {
+    const own = name(file)
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      error = tooLargeText(own, file.size)
+      continue
+    }
+    try {
+      read.push({ id: nextId++, name: own, size: file.size, data: await readData(file), preview: previewOf(file) })
+    } catch {
+      error = `Файл не приложен: ${own} не прочитан`
+    }
+  }
+  return { read, error }
+}
+
+/**
+ * Файлы, приложенные к реплике: выбранные с диска и вставленные из буфера. Крупнее 5 МБ не прикладывается —
  * error говорит, какой и почему; снимает его следующее приложение или отправка.
  */
 export function useAttachments() {
   const [items, setItems] = useState<Attachment[]>([])
   const [error, setError] = useState<string | null>(null)
-  const next = useRef(1)
 
-  const add = useCallback(async (files: File[], name: (file: File) => string = (file) => file.name) => {
+  const add = useCallback(async (files: File[], name?: (file: File) => string) => {
     setError(null)
-    const read: Attachment[] = []
-    for (const file of files) {
-      const own = name(file)
-      if (file.size > MAX_ATTACHMENT_BYTES) {
-        setError(tooLargeText(own, file.size))
-        continue
-      }
-      try {
-        read.push({ id: next.current++, name: own, size: file.size, data: await readData(file), preview: previewOf(file) })
-      } catch {
-        setError(`Файл не приложен: ${own} не прочитан`)
-      }
-    }
+    const { read, error } = await readAttachments(files, name)
+    setError(error)
     if (read.length > 0) setItems((list) => [...list, ...read])
   }, [])
 
@@ -84,15 +104,15 @@ export function useAttachments() {
   /** Вставка в поле: картинка из буфера прикладывается, текст вставляется как обычно. */
   const onPaste = useCallback(
     (event: ClipboardEvent) => {
-      const files = Array.from(event.clipboardData?.files ?? [])
+      const files = pastedFiles(event)
       if (files.length === 0) return
       event.preventDefault()
-      void add(files, (file) => (file.name && file.name !== 'image.png' ? file.name : pastedName(file.type)))
+      void add(files, pastedFileName)
     },
     [add],
   )
 
-  return { items, error, setError, add, remove, clear, onPaste }
+  return { items, error, add, remove, clear, onPaste }
 }
 
 /** Приложенное — в тело запроса: без него поле files не уходит вовсе. */
