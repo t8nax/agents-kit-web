@@ -13,6 +13,9 @@ namespace AgentsKitWeb.Api.Tasks;
 /// </summary>
 public sealed record TaskStartRequest(string? Base, string? Copy, string? Number, string? Flow = null, string? Words = null);
 
+/// <summary>Сессия задачи, которая уже идёт в копии: база и копия из списка панели.</summary>
+public sealed record TaskSessionRequest(string? Base, string? Copy);
+
 /// <summary>Заведённая сессия: её короткий id — им оператор входит в неё из терминала.</summary>
 public sealed record TaskStartResponse(string Session);
 
@@ -89,7 +92,52 @@ public static class TaskEndpoints
             taskSessions.Remember(row.Path, session);
             return Results.Ok(new TaskStartResponse(session));
         });
+
+        // Сессия задачи умерла — после перезагрузки или ночью, — а память цела: новая сессия продолжает
+        // задачу по памяти и становится сессией задачи, как заведённая при взятии (B-106, B-217).
+        app.MapPost("/api/tasks/session", async (
+            TaskSessionRequest request,
+            BasesStore bases,
+            AgentSessions sessions,
+            TaskSessions taskSessions,
+            IAgentProcess agent,
+            CancellationToken cancellationToken) =>
+        {
+            var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
+            if (basePath is null || !Directory.Exists(basePath))
+                return Results.NotFound();
+            if (string.IsNullOrWhiteSpace(request.Copy))
+                return Results.BadRequest();
+
+            var rows = sessions.Annotate(await WorkspaceCollector.CollectAsync([basePath], cancellationToken), taskSessions.SessionIn);
+            var copy = request.Copy;
+            var row = rows.FirstOrDefault(r => WorkspaceCollector.Normalize(r.Path)
+                .Equals(WorkspaceCollector.Normalize(copy), StringComparison.OrdinalIgnoreCase));
+            if (row is null || row.Error is not null)
+                return Results.NotFound();
+
+            // Продолжать нечего: памяти у копии нет, задачу берут из бэклога.
+            if (row.Status is not (WorkspaceStatus.InWork or WorkspaceStatus.Waiting or WorkspaceStatus.Unread))
+                return Results.BadRequest(new TaskStartProblem("no-task"));
+            // Сессия задачи жива — вторая стала бы вести ту же задачу рядом с ней.
+            if (row.BackgroundSession || row.VsCodeSession)
+                return Results.BadRequest(new TaskStartProblem("session-alive"));
+
+            var (session, failure) = await BackgroundSession.StartAsync(agent, ContinueInfo(row.Path), cancellationToken);
+            if (session is null)
+                return Results.BadRequest(new TaskStartProblem("agent", failure));
+
+            taskSessions.Remember(row.Path, session);
+            return Results.Ok(new TaskStartResponse(session));
+        });
     }
+
+    /// <summary>
+    /// Навык кита без номера продолжает задачу, память которой у копии уже есть: перечитывает её, вбирает
+    /// ответы оператора и идёт с первой незакрытой строки.
+    /// </summary>
+    public static ProcessStartInfo ContinueInfo(string copyPath) =>
+        BackgroundSession.StartInfo(copyPath, "/agents-kit:drive");
 
     /// <summary>
     /// Задачу берёт навык кита: правила взятия записи и заведения памяти держит кит, панель их не повторяет.

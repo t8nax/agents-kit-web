@@ -406,6 +406,71 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, again.StatusCode);
     }
 
+    /// <summary>Сессия задачи умерла, память цела: новая сессия продолжает задачу и становится сессией задачи.</summary>
+    [Fact]
+    public async Task ContinueSession_CopyWithTaskAndNoSession_StartsDriveWithoutNumberAndRemembersIt()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("7339dced", (await response.Content.ReadFromJsonAsync<TaskStartResponse>())!.Session);
+        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "/agents-kit:drive"], _agent.StartInfo!.ArgumentList);
+        Assert.Equal(_copy, _agent.StartInfo.WorkingDirectory);
+        var remembered = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+        Assert.Equal("7339dced", remembered.SessionIn(_copy));
+    }
+
+    [Fact]
+    public async Task ContinueSession_StartedSessionIsTheRowsTaskSession()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        WriteSession("7339dced", live: true);
+
+        Assert.True((await Row(client)).BackgroundSession);
+    }
+
+    [Fact]
+    public async Task ContinueSession_FreeCopy_IsRefusedWithoutStartingAnything()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("no-task", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task ContinueSession_TaskSessionAlive_IsRefused()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        WriteSession("7339dced", live: true);
+        _agent.StartInfo = null;
+
+        var response = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("session-alive", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task ContinueSession_UnknownBase_IsNotFound()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(Path.Combine(_root, "other"), _copy));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     public void Dispose()
     {
         _hosts.Dispose();
