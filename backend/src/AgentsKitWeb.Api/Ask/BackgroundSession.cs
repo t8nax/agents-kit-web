@@ -38,10 +38,7 @@ public static partial class BackgroundSession
     public static ProcessStartInfo StartInfo(string copyPath, string? prompt = null)
     {
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, copyPath);
-        foreach (var arg in AgentProcess.AutoMode)
-            startInfo.ArgumentList.Add(arg);
-        startInfo.ArgumentList.Add("--settings");
-        startInfo.ArgumentList.Add(InCopySettings);
+        AgentProcess.AddAutoMode(startInfo, InCopySettings);
         startInfo.ArgumentList.Add("--bg");
         if (!string.IsNullOrWhiteSpace(prompt))
         {

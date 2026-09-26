@@ -62,7 +62,11 @@ public sealed class AgentProcess : IAgentProcess
     /// годится только он — остальные ждут человека, которого рядом нет, или отказывают во всём, что не разрешено
     /// заранее, — задача B-153.
     /// </summary>
-    public static readonly string[] AutoMode = ["--permission-mode", "auto"];
+    public static void AddAutoMode(ProcessStartInfo startInfo, string settings = AutoSettings)
+    {
+        foreach (var arg in new[] { "--permission-mode", "auto", "--settings", settings })
+            startInfo.ArgumentList.Add(arg);
+    }
 
     /// <summary>
     /// Ключ настроек запуска, гасящий указание режима «авто» читать и править файлы командами оболочки: прав оно
@@ -71,7 +75,7 @@ public sealed class AgentProcess : IAgentProcess
     /// </summary>
     public const string NoBashFirstEnv = "\"env\":{\"CLAUDE_CODE_THRIFTY_SONIC\":\"0\"}";
 
-    /// <summary>Настройки запуска разовой просьбы: только выключатель указания работать через оболочку.</summary>
+    /// <summary>Настройки запуска по умолчанию: только выключатель указания работать через оболочку.</summary>
     public const string AutoSettings = "{" + NoBashFirstEnv + "}";
 
     /// <summary>Кодировки потоков и окно — общие для любого процесса агента.</summary>
