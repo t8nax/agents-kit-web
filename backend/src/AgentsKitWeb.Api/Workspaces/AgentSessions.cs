@@ -84,6 +84,8 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
     /// Дописывает строкам таблицы состояние сессии их задачи и отметку о переходе в неё. И то и другое —
     /// про одну сессию: подпись строки не должна говорить об одной, пока переход ведёт в другую. Строке
     /// с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
+    /// Ответ оператора прочтёт только сессия VS Code копии или фоновая сессия задачи — решение оператора
+    /// на B-106; нет ни той, ни другой — строка с непрочитанным ответом получает статус Unread.
     /// </summary>
     public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, Func<string, string?> taskSession) => rows
         .Select(row =>
@@ -91,7 +93,15 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
             if (row.Error is not null)
                 return row;
             var session = BackgroundIn(row.Path, taskSession(row.Path));
-            return row with { SessionState = session?.State, BackgroundSession = session is not null };
+            var vsCode = VsCodeIn(row.Path) is not null;
+            var unread = row.AnswerUnread && row.Status == WorkspaceStatus.InWork && session is null && !vsCode;
+            return row with
+            {
+                SessionState = session?.State,
+                BackgroundSession = session is not null,
+                VsCodeSession = vsCode,
+                Status = unread ? WorkspaceStatus.Unread : row.Status,
+            };
         })
         .ToList();
 

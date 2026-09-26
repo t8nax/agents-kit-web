@@ -271,6 +271,67 @@ public sealed class AgentSessionsTests : IDisposable
         Assert.False(annotated[0].BackgroundSession);
     }
 
+    /// <summary>Ответ оператора лежит в памяти, а прочесть его некому — B-106.</summary>
+    [Fact]
+    public void Annotate_AnsweredCopyWithoutSessions_IsUnread()
+    {
+        var annotated = Sessions(live: true).Annotate([AnsweredRow(@"D:\Projects\app")], _ => "7339dced");
+
+        Assert.Equal(WorkspaceStatus.Unread, annotated[0].Status);
+    }
+
+    [Fact]
+    public void Annotate_AnsweredCopyWithTaskSession_StaysInWork()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced");
+
+        var annotated = Sessions(live: true).Annotate([AnsweredRow(@"D:\Projects\app")], _ => "7339dced");
+
+        Assert.Equal(WorkspaceStatus.InWork, annotated[0].Status);
+    }
+
+    [Fact]
+    public void Annotate_AnsweredCopyWithVsCodeSession_StaysInWorkAndIsMarked()
+    {
+        Write(@"D:\Projects\app", 100);
+
+        var annotated = Sessions(live: true).Annotate([AnsweredRow(@"D:\Projects\app")], _ => null);
+
+        Assert.Equal(WorkspaceStatus.InWork, annotated[0].Status);
+        Assert.True(annotated[0].VsCodeSession);
+    }
+
+    /// <summary>Сессию, заведённую руками, оператор читателем ответа не считает — решение на B-106.</summary>
+    [Fact]
+    public void Annotate_AnsweredCopyWithSomeoneElsesBackgroundSession_IsUnread()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "outsider");
+
+        var annotated = Sessions(live: true).Annotate([AnsweredRow(@"D:\Projects\app")], _ => "7339dced");
+
+        Assert.Equal(WorkspaceStatus.Unread, annotated[0].Status);
+    }
+
+    [Fact]
+    public void Annotate_CopyWithoutAnswerAndSessions_StaysInWork()
+    {
+        var annotated = Sessions(live: true).Annotate(
+            [Row(@"D:\Projects\app") with { Status = WorkspaceStatus.InWork }], _ => null);
+
+        Assert.Equal(WorkspaceStatus.InWork, annotated[0].Status);
+    }
+
+    [Fact]
+    public void Row_AnswerUnread_IsNotSentToTheFront()
+    {
+        var json = JsonSerializer.Serialize(AnsweredRow(@"D:\Projects\app"), JsonSerializerOptions.Web);
+
+        Assert.DoesNotContain("answerUnread", json);
+    }
+
+    private static WorkspaceRow AnsweredRow(string path) =>
+        Row(path) with { Status = WorkspaceStatus.InWork, AnswerUnread = true };
+
     private IReadOnlyList<WorkspaceRow> Annotated(string path, string? started = null) =>
         Sessions(live: true).Annotate([Row(path)], _ => started);
 

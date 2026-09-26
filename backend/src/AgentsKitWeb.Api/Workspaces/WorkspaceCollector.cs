@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -10,6 +11,12 @@ public static class WorkspaceStatus
     public const string Starting = "starting";
     public const string InWork = "in-work";
     public const string Waiting = "waiting";
+
+    /// <summary>
+    /// Оператор ответил, а прочесть ответ некому: ни сессии VS Code, ни фоновой сессии задачи в копии нет
+    /// (AgentSessions.Annotate) — решение оператора на B-106.
+    /// </summary>
+    public const string Unread = "unread";
 }
 
 /// <summary>
@@ -20,6 +27,9 @@ public static class WorkspaceStatus
 /// SessionState — что делает сессия агента в копии (значения — SessionState), null — живой сессии в ней нет.
 /// BackgroundSession — в копии идёт фоновая сессия агента, и в неё есть переход из терминала.
 /// Letters — буквы номеров проекта (Backlog.Letters): по ним фронт отделяет номер задачи от её заголовка.
+/// VsCodeSession — в копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора.
+/// AnswerUnread — в памяти лежит ответ оператора, который сессия ещё не вобрала; наружу не отдаётся,
+/// из него AgentSessions.Annotate ставит статус Unread.
 /// </summary>
 public sealed record WorkspaceRow(
     string Project,
@@ -37,7 +47,9 @@ public sealed record WorkspaceRow(
     int? BaseProblems = null,
     string? SessionState = null,
     bool BackgroundSession = false,
-    string? Letters = null);
+    string? Letters = null,
+    bool VsCodeSession = false,
+    [property: JsonIgnore] bool AnswerUnread = false);
 
 public static class WorkspaceCollector
 {
@@ -136,7 +148,8 @@ public static class WorkspaceCollector
 
     private static WorkspaceRow FromMemory(string project, string basePath, string path, string? branch, WorkMemory memory) =>
         new(project, basePath, path, branch, memory.Task, memory.FlowStep, memory.Progress,
-            memory.WaitingForOperator ? WorkspaceStatus.Waiting : WorkspaceStatus.InWork, null);
+            memory.WaitingForOperator ? WorkspaceStatus.Waiting : WorkspaceStatus.InWork, null,
+            AnswerUnread: memory.AnswerUnread);
 
     private static WorkspaceRow Unavailable(string project, string basePath, string path, string error) =>
         new(project, basePath, path, null, null, null, null, null, error);
