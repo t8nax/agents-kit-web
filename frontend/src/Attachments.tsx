@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import './Attachments.css'
-import { fileName, formatSize, isImage, type Attachment } from './attachFiles'
+import { fileName, formatSize, isImage, type Attachment, type SentFile } from './attachFiles'
 import { WarningIcon } from './Problems'
 
 export function ClipIcon() {
@@ -137,20 +137,25 @@ export function AttachError({ text }: { text: string | null }) {
 }
 
 /**
- * Приложенное к реплике в ленте: адреса artifacts/ из переписки. Картинку, чья миниатюра ещё есть в окне, видно
- * картинкой, прочий файл — плиткой; на приложенное в ленте не нажимают (макет B-260).
+ * Приложенное к реплике в ленте: адреса artifacts/ из переписки. Миниатюру и размер окно помнит, пока открыто:
+ * картинку видно картинкой, прочий файл — плиткой; на приложенное в ленте не нажимают (макет B-260).
  */
-export function SentFiles({ files, previews }: { files: string[]; previews?: Map<string, string> }) {
+export function SentFiles({ files, sent }: { files: string[]; sent?: Map<string, SentFile> }) {
   if (files.length === 0) return null
   return (
     <div className="att-list att-sent" aria-label="Приложено">
       {files.map((address) => {
         const name = fileName(address)
-        const preview = isImage(name) ? (previews?.get(address) ?? null) : null
+        const known = sent?.get(address)
+        const preview = isImage(name) ? (known?.preview ?? null) : null
+        const size = known && <span className="att-size">{formatSize(known.size)}</span>
         return preview ? (
           <div className="att-shot" key={address}>
             <img src={preview} alt={name} />
-            <span className="att-name">{name}</span>
+            <span className="att-meta is-row">
+              <span className="att-name">{name}</span>
+              {size}
+            </span>
           </div>
         ) : (
           <span className="att-tile" key={address}>
@@ -159,6 +164,7 @@ export function SentFiles({ files, previews }: { files: string[]; previews?: Map
               <span className="att-name" title={address}>
                 {name}
               </span>
+              {size}
             </span>
           </span>
         )

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
 import { AttachButton, AttachedInFeed, AttachError, AttachmentTiles } from './Attachments'
-import { payload, pastedFileName, pastedFiles, readAttachments, type Attachment } from './attachFiles'
+import { payload, pastedFileName, pastedFiles, readAttachments, revokePreview, useRevokeOnClose, type Attachment } from './attachFiles'
 import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { TerminalIcon } from './TerminalIcon'
@@ -97,6 +97,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   // artifacts/ базы только отправкой (B-260).
   const [files, setFiles] = useState<Attachment[][]>([])
   const [attachError, setAttachError] = useState<string | null>(null)
+  useRevokeOnClose(() => files.flat())
   const [current, setCurrent] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [phase, setPhase] = useState<Phase>('open')
@@ -197,6 +198,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   }
 
   function detach(id: number) {
+    files.flat().filter((item) => item.id === id).forEach(revokePreview)
     setFiles((prev) => prev.map((list) => list?.filter((item) => item.id !== id)))
   }
 

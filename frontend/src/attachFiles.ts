@@ -1,10 +1,27 @@
-import { useCallback, useState, type ClipboardEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'react'
 
 /** Потолок артефакта по раскладке кита: крупнее файл в базу не кладётся. */
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 
 /** Приложенный файл до отправки: preview — адрес картинки для миниатюры, у прочих файлов его нет. */
 export type Attachment = { id: number; name: string; size: number; data: string; preview: string | null }
+
+/** Отправленный файл в ленте: миниатюра и размер, пока окно их помнит; адрес — ключ, под которым он лёг в базу. */
+export type SentFile = { preview: string | null; size: number }
+
+/** Адрес миниатюры больше не нужен: память вкладки его отпускает. */
+export function revokePreview(item: { preview: string | null }) {
+  if (item.preview && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(item.preview)
+}
+
+/** Миниатюры окна живут, пока открыто окно: закрытое отпускает все, что завело. */
+export function useRevokeOnClose(items: () => { preview: string | null }[]) {
+  const latest = useRef(items)
+  useEffect(() => {
+    latest.current = items
+  })
+  useEffect(() => () => latest.current().forEach(revokePreview), [])
+}
 
 /** Файл, каким его принимает API: имя и содержимое в base64. */
 export type AttachedFile = { name: string; data: string }
@@ -84,16 +101,23 @@ export async function readAttachments(
 export function useAttachments() {
   const [items, setItems] = useState<Attachment[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Все миниатюры, заведённые окном: отправленные остаются в ленте до закрытия окна.
+  const made = useRef<Attachment[]>([])
+  useRevokeOnClose(() => made.current)
 
   const add = useCallback(async (files: File[], name?: (file: File) => string) => {
     setError(null)
     const { read, error } = await readAttachments(files, name)
     setError(error)
+    made.current.push(...read)
     if (read.length > 0) setItems((list) => [...list, ...read])
   }, [])
 
   const remove = useCallback((id: number) => {
-    setItems((list) => list.filter((item) => item.id !== id))
+    setItems((list) => {
+      list.filter((item) => item.id === id).forEach(revokePreview)
+      return list.filter((item) => item.id !== id)
+    })
   }, [])
 
   const clear = useCallback(() => {

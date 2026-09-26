@@ -173,10 +173,31 @@ test('приложенный файл виден плиткой, снимает�
     text: 'Приложи лог',
     files: [{ name: 'api.log', data: btoa(String.fromCharCode(...new TextEncoder().encode('лог'))) }],
   })
-  await waitFor(() => expect(screen.queryByRole('list', { name: 'Приложенные файлы' })).not.toBeInTheDocument())
 
+  // Приложенное уходит из поля, когда его реплика встала в ленту с адресом в базе; размер виден и там.
   stream.send({ type: 'reply', text: 'Приложи лог', files: ['artifacts/api.log'] })
-  expect(await within(await screen.findByLabelText('Приложено')).findByText('api.log')).toBeInTheDocument()
+  const sent = within(await screen.findByLabelText('Приложено'))
+  expect(await sent.findByText('api.log')).toBeInTheDocument()
+  expect(sent.getByText('6 Б')).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByRole('list', { name: 'Приложенные файлы' })).not.toBeInTheDocument())
+})
+
+test('реплика, в которой файл не лёг, оставляет приложенное в поле, и к следующей не пристаёт чужой файл', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal({ initialBase: bases[1].base })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+
+  fireEvent.change(screen.getByLabelText('Приложить файл'), { target: { files: [new File(['лог'], 'api.log')] } })
+  expect(await screen.findByText('api.log')).toBeInTheDocument()
+  await say('Приложи лог')
+  // Панель отказала до файла: реплика встала без него, а следом — ошибка.
+  stream.send({ type: 'reply', text: 'Приложи лог' })
+  stream.send({ type: 'error', text: 'В backlog.md базы есть незакоммиченная правка — просьба не отправлена' })
+
+  expect(await screen.findByText(/незакоммиченная правка/)).toBeInTheDocument()
+  expect(within(screen.getByRole('list', { name: 'Приложенные файлы' })).getByText('api.log')).toBeInTheDocument()
+  expect(screen.queryByLabelText('Приложено')).not.toBeInTheDocument()
 })
 
 test('снимок из буфера прикладывается с именем по дате, а файл крупнее 5 МБ — нет', async () => {

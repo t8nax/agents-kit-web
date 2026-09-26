@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { EntryFields } from './EntryFields'
 import { AttachButton, AttachError, AttachmentTiles, SentFiles } from './Attachments'
-import { payload, useAttachments } from './attachFiles'
+import { payload, useAttachments, type Attachment, type SentFile } from './attachFiles'
 import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
@@ -98,27 +98,28 @@ export default function BacklogWriteModal({
   const conversation = useAgentConversation<WriteEvent>('backlog')
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
   const feed = useRef<HTMLDivElement>(null)
-  // Файлы к следующей реплике и миниатюры отправленных: адрес файла в базе окно узнаёт из реплики в ленте.
+  // Файлы к следующей реплике. Отправленные остаются в поле, пока в ленте не встанет их реплика: из неё окно узнаёт,
+  // легли ли они в базу и под какими адресами. Реплика — та, что встала за отправкой по счёту, а не первая с файлами:
+  // отказанная реплика приходит без файлов, и её приложенное остаётся в поле.
   const attach = useAttachments()
-  const sentPreviews = useRef<(string | null)[][]>([])
-  const [previews, setPreviews] = useState<Map<string, string>>(() => new Map())
-  const withFiles = events.filter((e) => e.type === 'reply' && e.files && e.files.length > 0).length
-  const matched = useRef(0)
+  const inFlight = useRef<{ after: number; items: Attachment[] } | null>(null)
+  const [sent, setSent] = useState<Map<string, SentFile>>(() => new Map())
+  const replies = events.filter((e): e is Extract<WriteEvent, { type: 'reply' }> => e.type === 'reply')
+  const clearAttached = attach.clear
 
   useEffect(() => {
-    if (withFiles <= matched.current) {
-      matched.current = withFiles
-      return
-    }
-    const replies = events.filter((e): e is Extract<WriteEvent, { type: 'reply' }> => e.type === 'reply' && !!e.files?.length)
-    const next = new Map(previews)
-    for (const reply of replies.slice(matched.current)) {
-      const shots = sentPreviews.current.shift() ?? []
-      reply.files!.forEach((address, i) => shots[i] && next.set(address, shots[i]))
-    }
-    matched.current = withFiles
-    setPreviews(next)
-  }, [events, withFiles, previews])
+    const flight = inFlight.current
+    if (!flight || replies.length <= flight.after) return
+    inFlight.current = null
+    const files = replies[flight.after].files ?? []
+    if (files.length !== flight.items.length) return
+    setSent((prev) => {
+      const next = new Map(prev)
+      files.forEach((address, i) => next.set(address, { preview: flight.items[i].preview, size: flight.items[i].size }))
+      return next
+    })
+    clearAttached()
+  }, [replies, clearAttached])
 
   const talking = events.length > 0
   // Пока окно от записи не решило, какой разговор показывать, и пока заменяемый разговор не убран, чужую
@@ -183,16 +184,16 @@ export default function BacklogWriteModal({
     if (!said || !base || running) return
     setFailure(null)
     const files = payload(attach.items)
+    // Счёт ставится до запроса: реплика может встать в ленту раньше, чем запрос вернётся.
+    inFlight.current = files ? { after: replies.length, items: attach.items } : null
     const sent = talking
       ? await send(said, files ? { files } : {})
       : await start({ base, text: said, number: own?.entry.number ?? undefined, files })
     if (sent.ok) {
       setText(null)
-      // Миниатюры отправленного ждут своей реплики в ленте: адреса файлов в базе окно узнает из неё.
-      if (files) sentPreviews.current.push(attach.items.map((item) => item.preview))
-      attach.clear()
       return
     }
+    inFlight.current = null
     setFailure(
       sent.status === 400 && files
         ? 'Панель не приняла приложенный файл: крупнее 5 МБ или не прочитан'
@@ -227,6 +228,7 @@ export default function BacklogWriteModal({
     setText(null)
     setSaveError(null)
     attach.clear()
+    inFlight.current = null
     await forget()
   }
 
@@ -388,7 +390,7 @@ export default function BacklogWriteModal({
                   <div className="op-row" key={i}>
                     <div className={`op-bubble talk-said ${i === lastReply ? 'is-current' : ''}`}>
                       {event.text}
-                      <SentFiles files={event.files ?? []} previews={previews} />
+                      <SentFiles files={event.files ?? []} sent={sent} />
                     </div>
                   </div>
                 )
