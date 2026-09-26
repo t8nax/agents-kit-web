@@ -38,6 +38,12 @@ public sealed record WorkMemory(
 
     public bool WaitingForOperator => Questions.Any(q => q.Answer is null);
 
+    /// <summary>
+    /// Оператор ответил на все вопросы, а сессия ответов ещё не вобрала: вбирая ответ, она удаляет вопрос
+    /// вместе с ним, поэтому отвеченный вопрос в памяти — непрочитанный ответ.
+    /// </summary>
+    public bool AnswerUnread => Questions.Count > 0 && !WaitingForOperator;
+
     // Строки «Флоу» и «Шагов» размечены одинаково; у шага флоу впереди ещё и его номер.
     private static readonly Regex ChecklistItem = new(@"^- \[(?<done>[ xX])\]\s*(?:\d+\.\s*)?(?<name>.*)$");
 

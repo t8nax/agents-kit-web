@@ -22,6 +22,9 @@ public sealed class TestChat : IAgentChat
     /// <summary>Сколько реплик процесс переживает: дальше он кончается, как сорвавшийся агент.</summary>
     public int? StopAfter { get; set; }
 
+    /// <summary>Процесс, переживший StopAfter реплик, уже не читает реплики, но ещё не вышел.</summary>
+    public Func<Task> BeforeExit { get; set; } = () => Task.CompletedTask;
+
     public List<ProcessStartInfo> Starts { get; } = [];
 
     public List<string> Input { get; } = [];
@@ -66,6 +69,7 @@ public sealed class TestChat : IAgentChat
                 if (++answered == StopAfter)
                     break;
             }
+            await BeforeExit().WaitAsync(cancellationToken);
             return Exit;
         }
         catch (OperationCanceledException)

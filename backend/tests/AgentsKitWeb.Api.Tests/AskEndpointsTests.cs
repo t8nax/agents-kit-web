@@ -400,6 +400,22 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task AgentChat_ReturnsWhenProcessExitsWithoutWaitingForReply()
+    {
+        var startInfo = AgentProcess.StartInfo("pwsh", _root);
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add("Write-Output готов; exit 1");
+        var replies = Channel.CreateUnbounded<string>();
+
+        // Реплик процесс не ждёт и выходит сам, а канал реплик открыт: разговор не должен висеть до следующей.
+        var exit = await new AgentChat().RunAsync(
+            startInfo, replies.Reader, _ => Task.CompletedTask, CancellationToken.None).WaitAsync(Wait);
+
+        Assert.Equal(1, exit.ExitCode);
+    }
+
+    [Fact]
     public async Task AgentChat_CancellationKillsProcess()
     {
         var startInfo = AgentProcess.StartInfo("pwsh", _root);
