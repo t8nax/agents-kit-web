@@ -83,6 +83,28 @@
   margin-left: auto;
 }
 
+/* Ответ не в форме кита панель вернула агенту на доработку: одна строка панели, текста ответа нет (B-256). */
+.rework-note {
+  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.ask-body .rework-note svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  color: var(--text-tertiary);
+}
+
 /* Вкладка «Изменения»: группы «Сценарии» и «Этапы», пункт раскрывается щелчком. */
 .rewrite-changes {
   gap: 14px;
