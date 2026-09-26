@@ -223,6 +223,7 @@ public sealed class PanelUpdateTests : IDisposable
     public void Dispose()
     {
         _hosts.Dispose();
-        Directory.Delete(_root, recursive: true);
+        // Каталог скриптов обновления сразу после выхода pwsh держал посторонний, и уборка краснела (B-250).
+        TestDirs.Delete(_root);
     }
 }

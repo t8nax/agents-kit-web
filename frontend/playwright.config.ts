@@ -38,9 +38,18 @@ export default defineConfig({
   // Не больше четырёх браузеров разом: по умолчанию Playwright берёт половину ядер, и на машине
   // с двадцатью ядрами десять браузеров забирали 17 ГБ из 32 — всё прочее на машине вставало,
   // а прогон шёл дольше, чем с четырьмя (B-245). Где половина ядер меньше, остаётся она.
-  workers: Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))),
+  // На GitHub машина занята только прогоном, и браузеры берут все её ядра (B-248).
+  workers: process.env.CI
+    ? availableParallelism()
+    : Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2))),
+  // Слияние в dev ждёт зелёного прогона на GitHub: забытый test.only сделал бы его зелёным на части проверок.
+  forbidOnly: !!process.env.CI,
+  // На GitHub упавшую проверку не перегнать у себя: её след и снимок страницы уходят в артефакт
+  // прогона, а в журнале — строка на каждую проверку, а не точки.
+  reporter: process.env.CI ? 'list' : undefined,
   use: {
     baseURL: `http://localhost:${webPort}`,
+    trace: process.env.CI ? 'retain-on-failure' : undefined,
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [

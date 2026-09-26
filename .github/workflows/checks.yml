@@ -1,0 +1,88 @@
+# Полный прогон проверок: ветку задачи отправили на GitHub — все проверки идут здесь, а не на машине
+# оператора, где их прогоны из нескольких рабочих копий мешали друг другу и самой панели (B-248).
+# Три части разом, каждая на своей машине. Windows, а не Linux: тесты ставят панель Планировщиком
+# заданий и зовут скрипты PowerShell. dev и master сюда не идут — туда код приходит уже проверенным,
+# и там работает выпуск.
+name: Проверки
+
+on:
+  push:
+    branches-ignore: [master, dev]
+
+permissions:
+  contents: read
+
+# Новая отправка ветки делает прежний прогон ненужным: слиянию нужен итог последнего коммита.
+concurrency:
+  group: checks-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Тесты сервера
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+
+      - name: dotnet test
+        working-directory: backend
+        run: dotnet test
+
+  frontend:
+    name: Оформление, тесты экранов и сборка
+    runs-on: windows-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    name: Проверки в браузере
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # e2e поднимают свой API из исходников.
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: backend/global.json
+
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: npm run test:e2e
+
+      # След и снимок страницы упавших проверок: `gh run download <номер> -n e2e-failures`.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-failures
+          path: frontend/test-results
+          retention-days: 7
