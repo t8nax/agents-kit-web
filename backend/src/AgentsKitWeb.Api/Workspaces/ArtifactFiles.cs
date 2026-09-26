@@ -92,19 +92,21 @@ public static partial class ArtifactFiles
         }
     }
 
-    // Ссылка по раскладке кита: путь artifacts/<имя> целым словом; перед ним не часть другого пути, после имени —
-    // конец строки или знак, которым ссылка кончается. HTML-комментарий ссылкой не считается.
+    // Ссылка — как её разбирает сверка кита (base-check.ps1, Get-KitArtifactRefs): путь artifacts/<имя>, перед
+    // которым не часть другого пути; имя — знаки до пробела, кавычки, скобки или разделителя, а точка и двоеточие
+    // на конце — знак препинания, а не имя. HTML-комментарий ссылкой не считается.
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
     private static partial Regex Comment { get; }
+
+    [GeneratedRegex(@"(?<![\w./\\-])(?:\.\./)*artifacts/([^\s`'""()<>\[\]|,;*/\\]+)")]
+    private static partial Regex Reference { get; }
 
     /// <summary>Текст .md ссылается на файл artifacts/ — так, как ссылку считает сверка кита.</summary>
     public static bool Mentions(string text, string address)
     {
-        var name = Regex.Escape(address[(address.IndexOf('/') + 1)..]);
-        return Regex.IsMatch(
-            Comment.Replace(text, ""),
-            $@"(?<![\w./\\-])(?:\.\./)*{Folder}/{name}(?![^\s`'""()<>\[\]|,;*/\\])",
-            RegexOptions.IgnoreCase);
+        var name = address[(address.IndexOf('/') + 1)..];
+        return Reference.Matches(Comment.Replace(text, ""))
+            .Any(m => m.Groups[1].Value.TrimEnd('.', ':').Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Приложенное, которое в базу не ляжет: крупнее потолка или не base64. null — ложится всё.</summary>
