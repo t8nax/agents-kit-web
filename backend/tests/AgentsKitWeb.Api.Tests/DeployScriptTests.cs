@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using AgentsKitWeb.Api.Panel;
 
@@ -167,18 +168,22 @@ public sealed class DeployScriptTests : IDisposable
 
     private async Task<(int ExitCode, string Output)> Deploy(string source, int waitSeconds)
     {
+        // pwsh без окна получает свою консоль с кодировкой OEM, и русский текст провала приходил кракозябрами:
+        // вывод переводится в UTF-8 до запуска скрипта, как делает панель со своими скриптами.
         var startInfo = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+            ArgumentList =
+            {
+                "-NoProfile", "-Command",
+                "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); " +
+                $"& {Quote(Script("deploy.ps1"))} -Source {Quote(source)} -Target {Quote(_target)} " +
+                $"-Port {_port} -TaskName {Quote(_task)} -WaitSeconds {waitSeconds}",
+            },
         };
-        foreach (var argument in new[]
-                 {
-                     "-NoProfile", "-File", Script("deploy.ps1"),
-                     "-Source", source, "-Target", _target, "-Port", _port.ToString(), "-TaskName", _task,
-                     "-WaitSeconds", waitSeconds.ToString(),
-                 })
-            startInfo.ArgumentList.Add(argument);
         using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
@@ -195,6 +200,8 @@ public sealed class DeployScriptTests : IDisposable
         }
         return (process.ExitCode, await output + await error);
     }
+
+    private static string Quote(string value) => "'" + value.Replace("'", "''") + "'";
 
     /// <summary>На порту отвечает сборка с этим номером: по нему видно, новая встала или прежняя.</summary>
     private async Task AssertRunning(string version, string output) =>
