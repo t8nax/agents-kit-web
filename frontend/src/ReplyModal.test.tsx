@@ -563,8 +563,25 @@ test('файл крупнее 5 МБ к ответу не прикладывае
 
   fireEvent.change(dialog.getByLabelText('Приложить'), { target: { files: [big] } })
 
-  expect(await dialog.findByRole('alert')).toHaveTextContent('Файл не приложен: видео.mp4 весит 6,0 МБ, а принимается до 5 МБ')
+  const refusal = await dialog.findByRole('alert')
+  expect(refusal).toHaveTextContent('Файл не приложен: видео.mp4 весит 6,0 МБ, а принимается до 5 МБ')
+  expect(dialog.getByLabelText('Ответ').compareDocumentPosition(refusal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(dialog.queryByRole('list', { name: 'Приложенные файлы' })).not.toBeInTheDocument()
+})
+
+test('сервер не принял запрос целиком по размеру — окно так и говорит, а не «крупнее 5 МБ»', async () => {
+  stubApi(() => new Response('Request body too large', { status: 413 }))
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.change(dialog.getByLabelText('Приложить'), { target: { files: [new File(['лог'], 'api.log')] } })
+  await dialog.findByLabelText('Приложено')
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  answerWith(dialog, 'пробелами')
+
+  sendAll(dialog)
+  waitOut()
+
+  expect(await dialog.findByText('Ответы не записаны: приложенные файлы вместе слишком большие для одной отправки')).toBeInTheDocument()
 })
 
 test('«Отменить» ничего не записывает: лента возвращается со всеми ответами', async () => {

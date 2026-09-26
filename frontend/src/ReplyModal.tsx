@@ -262,12 +262,21 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         return
       }
       if (response.status === 413) {
+        // Без имени файла отказал сам сервер: все файлы вместе больше, чем он принимает одним запросом.
         const body = (await response.json().catch(() => ({}))) as { name?: string }
-        fail(`Ответы не записаны: файл ${body.name ?? ''} крупнее 5 МБ`)
+        fail(
+          body.name
+            ? `Ответы не записаны: файл ${body.name} крупнее 5 МБ`
+            : 'Ответы не записаны: приложенные файлы вместе слишком большие для одной отправки',
+        )
         return
       }
       if (response.status === 400 || response.status === 409) {
-        const body = (await response.json()) as Rejection
+        const body = (await response.json()) as Rejection & { name?: string }
+        if (body.name) {
+          fail(`Ответы не записаны: файл ${body.name} не прочитан`)
+          return
+        }
         fail(problemText[body.problem] ?? 'Ответы не записаны', body.question)
         return
       }
@@ -640,12 +649,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         {/* строка ответа — только у переписки; на время отправки на её месте «Отменить» */}
         {question && (phase !== 'open' || tab === 'feed') && (
           <div className={`composer ${error ? 'has-error' : ''}`}>
-            {phase === 'open' && (
-              <>
-                <AttachmentTiles items={files[current] ?? []} onRemove={detach} />
-                <AttachError text={attachError} />
-              </>
-            )}
+            {phase === 'open' && <AttachmentTiles items={files[current] ?? []} onRemove={detach} />}
             {phase === 'open' ? (
               <div className="composer-row">
                 <button
@@ -704,6 +708,8 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                 </button>
               </div>
             )}
+            {/* отказ приложенному файлу — под полем, по критерию B-260 */}
+            {phase === 'open' && <AttachError text={attachError} />}
             {error && (
               <span className="field-error error-text" role="alert">
                 <WarningIcon />

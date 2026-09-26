@@ -215,9 +215,10 @@ test('снимок из буфера прикладывается с имене�
   Object.defineProperty(big, 'size', { value: 13 * 1024 * 1024 })
   fireEvent.change(screen.getByLabelText('Приложить файл'), { target: { files: [big] } })
 
-  expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Файл не приложен: запись экрана.mp4 весит 13,0 МБ, а принимается до 5 МБ',
-  )
+  const refusal = await screen.findByRole('alert')
+  expect(refusal).toHaveTextContent('Файл не приложен: запись экрана.mp4 весит 13,0 МБ, а принимается до 5 МБ')
+  // строка отказа — под полем
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо').compareDocumentPosition(refusal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(tiles.queryByText('запись экрана.mp4')).not.toBeInTheDocument()
 })
 

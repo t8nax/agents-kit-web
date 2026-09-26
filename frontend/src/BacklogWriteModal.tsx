@@ -195,7 +195,9 @@ export default function BacklogWriteModal({
     }
     inFlight.current = null
     setFailure(
-      sent.status === 400 && files
+      sent.status === 413
+        ? 'Панель не приняла приложенное: файлы вместе слишком большие для одной реплики'
+        : sent.status === 400 && files
         ? 'Панель не приняла приложенный файл: крупнее 5 МБ или не прочитан'
         : sent.status === 404
         ? talking
@@ -480,7 +482,6 @@ export default function BacklogWriteModal({
         ) : (
           <div className="composer talk-composer">
             <AttachmentTiles items={attach.items} onRemove={attach.remove} />
-            <AttachError text={attach.error} />
             <textarea
               className="composer-field talk-field"
               aria-label={`Просьба к ${AGENT_NAME}`}
@@ -499,6 +500,8 @@ export default function BacklogWriteModal({
                 }
               }}
             />
+            {/* строка отказа — под полем, по критерию B-260 */}
+            <AttachError text={attach.error} />
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
                 а «Отменить» встаёт ровно туда, где была «Отправить». «Приложить файл» — слева (макет B-260). */}
             <div className="talk-buttons">
