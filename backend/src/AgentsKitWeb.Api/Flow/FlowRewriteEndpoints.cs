@@ -410,6 +410,7 @@ public static class FlowRewriteEndpoints
                      "--append-system-prompt", systemPrompt,
                  })
             startInfo.ArgumentList.Add(arg);
+        AgentProcess.AddAutoMode(startInfo);
         // Агент в копии читает и базу: она лежит вне текущего каталога.
         if (copyPath is not null)
         {
