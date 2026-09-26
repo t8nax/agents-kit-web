@@ -227,6 +227,42 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_WhileSecondAgentEndsRaisesNewAgentAgain()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")], [Result("Готово.")]];
+        _agent.StopAfter = 1;
+        var ended = new SemaphoreSlim(0);
+        TaskCompletionSource[] exits = [new(), new(), new()];
+        var agents = 0;
+        _agent.BeforeExit = () =>
+        {
+            var exit = exits[agents++].Task;
+            ended.Release();
+            return exit;
+        };
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        // Оба раза реплика уходит, когда агент уже ответил и реплик не читает, но панель ещё не знает о его конце.
+        Assert.True(await ended.WaitAsync(Wait));
+        await Reply(client, "ещё одна");
+        exits[0].SetResult();
+        await Read(client, 5);
+        Assert.True(await ended.WaitAsync(Wait));
+        await Reply(client, "и ещё");
+        exits[1].SetResult();
+        var events = await Read(client, 8);
+        exits[2].SetResult();
+
+        Assert.Equal(new BacklogWriteEvent("reply", "и ещё"), events[5]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[6]);
+        Assert.Equal("answer", events[7].Type);
+        Assert.Equal(3, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog и ещё", Said(_agent.Input[2]));
+    }
+
+    [Fact]
     public async Task Reply_WhileAgentEndsRaisesNewAgent()
     {
         _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];

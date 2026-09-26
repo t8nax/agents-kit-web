@@ -248,7 +248,8 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             turn.Ended = true;
             if (replies.TryRead(out _))
                 return (turn.Said, false);
-            if (!turn.Coming)
+            // Остановленному ответу новый агент не нужен: панель уже пишет, что ответа не будет.
+            if (!turn.Coming || turn.Stopped)
                 return (null, false);
             turn.Next = Restart(request, retried: true);
             return (null, true);
@@ -265,15 +266,23 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     private async Task SayAsync(AgentRequest request, Turn turn, string text, string message, string? number, bool retried)
     {
         request.Reply(new BacklogWriteEvent("reply", text, Number: number));
-        if (await RefusalAsync(request.Base) is { } refusal)
+        try
+        {
+            if (await RefusalAsync(request.Base) is { } refusal)
+            {
+                // Агент, поднятый вместо кончившегося, пока шла проверка, остаётся ждать следующей реплики: пометка
+                // «отвечает заново» уже в переписке, а ответит он на следующую.
+                request.Write(refusal);
+                return;
+            }
+
+            Deliver(request, turn, message, Backlog.Blocks(ReadText(request.Base)!), retried);
+        }
+        finally
         {
             lock (_gate)
                 turn.Coming = false;
-            request.Write(refusal);
-            return;
         }
-
-        Deliver(request, turn, message, Backlog.Blocks(ReadText(request.Base)!), retried);
     }
 
     /// <summary>
@@ -292,6 +301,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                     turn = next;
                     retried = true;
                 }
+                // Оператор остановил ответ, пока реплика шла к агенту: остановленный агент пишет, что ответа не будет.
+                if (turn.Stopped)
+                    return;
                 if (!turn.Ended || retried)
                 {
                     turn.Before = before;
@@ -356,6 +368,8 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                     }
                     if (stream.Finished)
                     {
+                        // Реплику, ради которой агент поднят, он прочёл: следующую, не прочтённую им, получит новый.
+                        turn.Retried = false;
                         turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
                         stream = new ClaudeStream(basePath, copy);
                     }
@@ -553,8 +567,11 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         /// <summary>Нынешняя реплика без приставки навыка: не прочтённую агентом получает новый.</summary>
         public string? Said { get; set; }
 
-        /// <summary>Процесс поднят ради реплики, не прочтённой прежним: не прочтёт и он — нового уже не будет.</summary>
-        public bool Retried { get; init; }
+        /// <summary>
+        /// Процесс поднят ради реплики, не прочтённой прежним, и ещё на неё не ответил: не прочтёт и он — нового уже
+        /// не будет.
+        /// </summary>
+        public bool Retried { get; set; }
     }
 
     /// <summary>Предложение, которое ждёт «Сохранить» или «Отказаться».</summary>
