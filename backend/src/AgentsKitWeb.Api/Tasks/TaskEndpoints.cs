@@ -13,7 +13,7 @@ namespace AgentsKitWeb.Api.Tasks;
 /// </summary>
 public sealed record TaskStartRequest(string? Base, string? Copy, string? Number, string? Flow = null, string? Words = null);
 
-/// <summary>Сессия задачи, которая уже идёт в копии: база и копия из списка панели.</summary>
+/// <summary>Задача, которая идёт в копии без сессии, — ей заводится сессия: база и копия из списка панели.</summary>
 public sealed record TaskSessionRequest(string? Base, string? Copy);
 
 /// <summary>Заведённая сессия: её короткий id — им оператор входит в неё из терминала.</summary>
@@ -100,6 +100,7 @@ public static class TaskEndpoints
             BasesStore bases,
             AgentSessions sessions,
             TaskSessions taskSessions,
+            ResumedSessions resumed,
             IAgentProcess agent,
             CancellationToken cancellationToken) =>
         {
@@ -122,10 +123,16 @@ public static class TaskEndpoints
             // Сессия задачи жива — вторая стала бы вести ту же задачу рядом с ней.
             if (row.BackgroundSession || row.VsCodeSession)
                 return Results.BadRequest(new TaskStartProblem("session-alive"));
+            // Прошлая заведённая сессия ещё не дошла до реестра — второй запрос её не видит (ResumedSessions).
+            if (!resumed.TryStart(row.Path))
+                return Results.BadRequest(new TaskStartProblem("session-starting"));
 
             var (session, failure) = await BackgroundSession.StartAsync(agent, ContinueInfo(row.Path), cancellationToken);
             if (session is null)
+            {
+                resumed.Forget(row.Path);
                 return Results.BadRequest(new TaskStartProblem("agent", failure));
+            }
 
             taskSessions.Remember(row.Path, session);
             return Results.Ok(new TaskStartResponse(session));

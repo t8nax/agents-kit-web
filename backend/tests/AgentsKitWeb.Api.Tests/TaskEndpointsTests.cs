@@ -463,6 +463,48 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    /// <summary>Заведённая сессия ещё не в реестре — повторный запрос не заводит вторую рядом с ней.</summary>
+    [Fact]
+    public async Task ContinueSession_RepeatedBeforeSessionReachedRegistry_IsRefusedUntilTheGraceEnds()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        _agent.StartInfo = null;
+
+        var again = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
+        Assert.Equal("session-starting", (await again.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+
+        _time.Advance(ResumedSessions.Grace);
+        var later = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        Assert.Equal(HttpStatusCode.OK, later.StatusCode);
+    }
+
+    [Fact]
+    public async Task ContinueSession_AgentFailed_SaysSoAndCanBeRepeatedAtOnce()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["Error: not logged in"];
+        _agent.Exit = new(1, "");
+        var client = Client();
+
+        var response = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("agent", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        var remembered = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+        Assert.Null(remembered.SessionIn(_copy));
+
+        _agent.Lines = ["backgrounded · 7339dced"];
+        _agent.Exit = new(0, "");
+        var again = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+    }
+
     [Fact]
     public async Task ContinueSession_UnknownBase_IsNotFound()
     {
