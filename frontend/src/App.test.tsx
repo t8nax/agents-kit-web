@@ -1138,3 +1138,72 @@ test('уведомляет, когда ответ в копии остался �
   expect(shown[0].title).toBe('app-knowledge: ответ не прочитан')
   expect(shown[0].options?.body).toBe('D:\\Projects\\app\nТаблица рабочих копий')
 })
+
+test('«Завести сессию задачи» открыт у копии с задачей без сессии и приглушён у остальных', async () => {
+  // Сессия задачи жива — фоновая или в VS Code — заводить нечего; свободной копии продолжать нечего
+  const withBackground: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-bg' }
+  const withVsCode: WorkspaceRow = { ...unread, path: 'D:\\Projects\\app-vs', status: 'in-work', vsCodeSession: true }
+  const list = [unread, rows[1], withBackground, withVsCode]
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(list), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  const start = (menu: HTMLElement) => within(menu).getByRole('menuitem', { name: 'Завести сессию задачи' })
+  expect(start(await openRowMenu(tableRows[1]))).toBeEnabled()
+  expect(start(await openRowMenu(tableRows[2]))).toBeDisabled()
+  expect(start(await openRowMenu(tableRows[3]))).toBeDisabled()
+  expect(start(await openRowMenu(tableRows[4]))).toBeDisabled()
+})
+
+test('«Завести сессию задачи» заводит сессию молча, и точка копии мигает, пока сессия не покажется', async () => {
+  fakeInterval()
+  const alive: WorkspaceRow = { ...unread, status: 'in-work', sessionState: 'working', backgroundSession: true }
+  let list = [unread, rows[1]]
+  const fetchMock = vi.fn(async (url: string) =>
+    url === '/api/tasks/session'
+      ? new Response(JSON.stringify({ session: '7339dced' }), { status: 200 })
+      : new Response(JSON.stringify(list), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await findTableRows()
+  const menu = await openRowMenu(tableRows[1])
+  await act(async () => {
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Завести сессию задачи' }))
+  })
+
+  expect(fetchMock).toHaveBeenCalledWith('/api/tasks/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\app' }),
+  })
+  // Окна терминала панель не открывает — решение оператора
+  expect(fetchMock).not.toHaveBeenCalledWith('/api/session/terminal', expect.anything())
+  expect(within(tableRows[1]).getByLabelText('сессия заводится')).toHaveClass('session-starting')
+
+  list = [alive, rows[1]]
+  await tick(3000)
+  const row = within((await findTableRows())[1])
+  expect(await row.findByLabelText('сессия работает')).toBeInTheDocument()
+  expect(row.getByText('В работе')).toBeInTheDocument()
+})
+
+test('сессия задачи не завелась — панель говорит об этом строкой, и точка не мигает', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+    url === '/api/tasks/session'
+      ? new Response(JSON.stringify({ problem: 'session-alive' }), { status: 400 })
+      : new Response(JSON.stringify([unread, rows[1]]), { status: 200 }),
+  ))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+  const menu = await openRowMenu(tableRows[1])
+  await act(async () => {
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Завести сессию задачи' }))
+  })
+
+  expect(await screen.findByText('В app сессия задачи уже идёт')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByLabelText('сессии нет')).toBeInTheDocument()
+})

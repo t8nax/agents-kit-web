@@ -428,6 +428,12 @@ td.num-col {
   border: 1px solid var(--border-strong);
 }
 
+/* Сессия задачи заводится: мигает, пока не покажется в опросе (B-106) */
+.session-starting {
+  background: var(--accent-active-text);
+  animation: blink 1.4s ease-in-out infinite;
+}
+
 .progress-container {
   display: flex;
   align-items: center;
@@ -557,7 +563,8 @@ td.num-col {
 
 @media (prefers-reduced-motion: reduce) {
   .status-waiting,
-  .status-starting::before {
+  .status-starting::before,
+  .session-starting {
     animation: none;
   }
 }
