@@ -4,7 +4,10 @@ import { useCallback, useEffect, useRef, useState, type ClipboardEvent } from 'r
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
 
 /** Приложенный файл до отправки: preview — адрес картинки для миниатюры, у прочих файлов его нет. */
-export type Attachment = { id: number; name: string; size: number; data: string; preview: string | null }
+export type Attachment = { id: number; name: string; size: number; data: string; type: string; preview: string | null }
+
+/** Приложенный файл в черновике браузера: без номера и миниатюры — их заводит окно, когда поднимает черновик. */
+export type StoredAttachment = Pick<Attachment, 'name' | 'size' | 'data' | 'type'>
 
 /** Отправленный файл в ленте: миниатюра и размер, пока окно их помнит; адрес — ключ, под которым он лёг в базу. */
 export type SentFile = { preview: string | null; size: number }
@@ -57,12 +60,18 @@ function readData(file: Blob): Promise<string> {
   })
 }
 
-function previewOf(file: File): string | null {
+function previewOf(file: Blob): string | null {
   // В тестах jsdom адресов для файлов не заводит: без миниатюры плитка показывает значок файла.
   return file.type.startsWith('image/') && typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : null
 }
 
 let nextId = 1
+
+/** Файл из черновика — снова приложенный: свой номер и миниатюра из его же содержимого. */
+export function restoreAttachment(stored: StoredAttachment): Attachment {
+  const bytes = Uint8Array.from(atob(stored.data), (c) => c.charCodeAt(0))
+  return { ...stored, id: nextId++, preview: previewOf(new Blob([bytes], { type: stored.type })) }
+}
 
 /** Имя вставленного из буфера: у безымянного снимка браузер пишет image.png — ему имя по дате. */
 export const pastedFileName = (file: File) => (file.name && file.name !== 'image.png' ? file.name : pastedName(file.type))
@@ -86,7 +95,7 @@ export async function readAttachments(
       continue
     }
     try {
-      read.push({ id: nextId++, name: own, size: file.size, data: await readData(file), preview: previewOf(file) })
+      read.push({ id: nextId++, name: own, size: file.size, data: await readData(file), type: file.type, preview: previewOf(file) })
     } catch {
       error = `Файл не приложен: ${own} не прочитан`
     }

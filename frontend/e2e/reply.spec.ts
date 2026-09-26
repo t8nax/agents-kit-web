@@ -246,6 +246,25 @@ test('свёрнутые вопросы одинаковы, у варианто�
   expect(await size('.field-error svg')).toEqual([14, 14])
 })
 
+test('снимок, приложенный к ответу, переживает закрытие окна и перезагрузку страницы', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')])
+
+  await page.goto('/')
+  let dialog = await openReply(page)
+  await dialog.getByLabel('Приложить').setInputFiles({ name: 'снимок.png', mimeType: 'image/png', buffer: Buffer.from('89504e47', 'hex') })
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('снимок.png')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await page.reload()
+  dialog = await openReply(page)
+
+  const tiles = dialog.getByRole('list', { name: 'Приложенные файлы' })
+  await expect(tiles.getByText('снимок.png')).toBeVisible()
+  await expect(tiles.getByText('4 Б')).toBeVisible()
+})
+
 test('артефакт из artifacts/ базы — путь файла: щелчок просит панель открыть его тем же адресом', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?')], {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { forgetDrafts, saveDraft, takeDrafts } from './answerDrafts'
+import { forgetAttachmentDrafts, saveAttachmentDraft, takeAttachmentDrafts } from './attachmentDrafts'
 import { AttachButton, AttachedInFeed, AttachError, AttachmentTiles } from './Attachments'
 import { payload, pastedFileName, pastedFiles, readAttachments, revokePreview, useRevokeOnClose, type Attachment } from './attachFiles'
 import { copyName } from './copies'
@@ -121,7 +122,12 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
         return response.json() as Promise<QuestionsResponse>
       })
       .then((data) => {
-        const given = takeDrafts(base, copy, data.questions.map((q) => q.title))
+        const titles = data.questions.map((q) => q.title)
+        const given = takeDrafts(base, copy, titles)
+        // Приложенное к ответам тоже переживает закрытие окна; черновик файлов читается следом за текстом.
+        void takeAttachmentDrafts(base, copy, titles).then((kept) => {
+          if (kept.some((list) => list.length > 0)) setFiles(kept)
+        })
         // Открытое заново окно встаёт на первый вопрос без ответа; всё, что до него, уже пройдено.
         const first = Math.max(0, given.findIndex((a) => !a.trim()))
         setAnswers(given)
@@ -189,17 +195,21 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
     const { read, error: refused } = await readAttachments(chosen, name)
     setAttachError(refused)
     if (read.length === 0) return
+    const next = [...(files[at] ?? []), ...read]
     setFiles((prev) => {
-      const next = [...prev]
-      next[at] = [...(next[at] ?? []), ...read]
-      return next
+      const all = [...prev]
+      all[at] = [...(all[at] ?? []), ...read]
+      return all
     })
+    void saveAttachmentDraft(base, copy, questions[at].title, next)
     if (error === EMPTY) setError(null)
   }
 
   function detach(id: number) {
     files.flat().filter((item) => item.id === id).forEach(revokePreview)
+    const at = files.findIndex((list) => list?.some((item) => item.id === id))
     setFiles((prev) => prev.map((list) => list?.filter((item) => item.id !== id)))
+    if (at >= 0) void saveAttachmentDraft(base, copy, questions[at].title, files[at].filter((item) => item.id !== id))
   }
 
   // Ответ пишется сразу, как его набирают или выбирают: в ленту и в черновик браузера.
@@ -253,6 +263,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
       })
       if (response.ok) {
         forgetDrafts(base, copy, questions.map((q) => q.title))
+        void forgetAttachmentDrafts(base, copy, questions.map((q) => q.title))
         // ответы в памяти: окно больше не нужно, признак успеха — строка таблицы перестаёт ждать
         onAnswered()
         // окно уходит угасанием, а закрывается, когда оно закончилось

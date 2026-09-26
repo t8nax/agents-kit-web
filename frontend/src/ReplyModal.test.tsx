@@ -2,12 +2,36 @@ import { act, createEvent, fireEvent, render, screen, waitFor, waitForElementToB
 import { StrictMode } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
+import type { StoredAttachment } from './attachFiles'
 import { UNDO_MS, WRITE_TIMEOUT_MS, type QuestionsResponse } from './ReplyModal'
+
+// IndexedDB в jsdom нет: черновик приложенного к ответу держится в памяти теста, по тем же правилам.
+const attachmentStore = vi.hoisted(() => new Map<string, Record<string, StoredAttachment[]>>())
+vi.mock('./attachmentDrafts', async () => {
+  const { restoreAttachment } = await import('./attachFiles')
+  const key = (base: string, copy: string) => `${base}|${copy}`
+  return {
+    takeAttachmentDrafts: async (base: string, copy: string, titles: string[]) =>
+      titles.map((title) => (attachmentStore.get(key(base, copy))?.[title] ?? []).map(restoreAttachment)),
+    saveAttachmentDraft: async (base: string, copy: string, title: string, files: StoredAttachment[]) => {
+      const drafts = { ...(attachmentStore.get(key(base, copy)) ?? {}) }
+      if (files.length === 0) delete drafts[title]
+      else drafts[title] = files.map(({ name, size, data, type }) => ({ name, size, data, type }))
+      attachmentStore.set(key(base, copy), drafts)
+    },
+    forgetAttachmentDrafts: async (base: string, copy: string, titles: string[]) => {
+      const drafts = { ...(attachmentStore.get(key(base, copy)) ?? {}) }
+      for (const title of titles) delete drafts[title]
+      attachmentStore.set(key(base, copy), drafts)
+    },
+  }
+})
 
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   localStorage.clear()
+  attachmentStore.clear()
 })
 
 const row: WorkspaceRow = {
@@ -552,6 +576,33 @@ test('к ответу прикладывается файл и снимок из
     { question: 'Подтвердить критерий?', answer: '', files: [{ name: 'api.log', data: base64('лог') }] },
     { question: 'Как быть с переносами?', answer: 'пробелами', files: [{ name: shot, data: base64('png') }] },
   ])
+})
+
+test('приложенное к ответу переживает закрытие окна без отправки и забывается после отправки', async () => {
+  const calls = stubApi(() => new Response(null, { status: 204 }))
+  let dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  fireEvent.change(dialog.getByLabelText('Приложить'), { target: { files: [new File(['лог'], 'api.log')] } })
+  await dialog.findByLabelText('Приложено')
+  await waitFor(() => expect(Object.keys(attachmentStore.values().next().value ?? {})).toEqual(['Подтвердить критерий?']))
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button', { name: 'Ответить' }))
+  dialog = within(await screen.findByRole('dialog', { name: 'Ответ оператора' }))
+
+  const tiles = within(await dialog.findByRole('list', { name: 'Приложенные файлы' }))
+  expect(tiles.getByText('api.log')).toBeInTheDocument()
+  expect(tiles.getByText('6 Б')).toBeInTheDocument()
+
+  fireEvent.click(collapsed(dialog, 'Как быть с переносами?'))
+  answerWith(dialog, 'пробелами')
+  sendAll(dialog)
+  waitOut()
+  await waitForElementToBeRemoved(() => screen.queryByRole('dialog'))
+  const post = calls.filter((c) => c.url === '/api/answers')
+  expect(JSON.parse(post[0].init!.body as string).answers[0].files).toEqual([{ name: 'api.log', data: btoa(String.fromCharCode(...new TextEncoder().encode('лог'))) }])
+  await waitFor(() => expect(attachmentStore.values().next().value).toEqual({}))
 })
 
 test('файл крупнее 5 МБ к ответу не прикладывается — строка почему', async () => {
