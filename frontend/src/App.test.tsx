@@ -115,7 +115,7 @@ test('показывает рабочие копии из /api/workspaces', asyn
   render(<App />)
 
   const tableRows = await findTableRows()
-  expect(fetchMock).toHaveBeenCalledWith('/api/workspaces')
+  expect(fetchMock).toHaveBeenCalledWith('/api/workspaces', expect.objectContaining({ signal: expect.any(AbortSignal) }))
   expect(screen.getByRole('heading', { name: 'Agents Kit Web' })).toBeInTheDocument()
   expect(tableRows).toHaveLength(4)
 
@@ -757,6 +757,51 @@ test('при сбое опроса оставляет таблицу и прод
   await vi.waitFor(() => expect(screen.queryByText('Нет связи с API')).not.toBeInTheDocument())
   expect(fetchMock).toHaveBeenCalledTimes(3)
 })
+
+test('запрос строк, не ответивший за 10 секунд, бросается, и таблица спрашивает снова', async () => {
+  const fetchMock = hangFirstRequest()
+
+  render(<App />)
+
+  await tick(9999)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('status', { name: 'Загрузка рабочих копий' })).toBeInTheDocument()
+
+  await tick(1)
+  expect((fetchMock.mock.calls[0][1] as RequestInit).signal!.aborted).toBe(true)
+  expect(fetchMock).toHaveBeenCalledTimes(2)
+  await vi.waitFor(() => expect(screen.getByText('Ждёт оператора')).toBeInTheDocument())
+  expect(screen.queryByText('Нет связи с API')).not.toBeInTheDocument()
+})
+
+test('неответивший запрос на скрытой вкладке без уведомлений бросается и не повторяется, таблица говорит о сбое связи', async () => {
+  const fetchMock = hangFirstRequest()
+  setVisibility('hidden')
+
+  render(<App />)
+
+  await tick(10000)
+  expect((fetchMock.mock.calls[0][1] as RequestInit).signal!.aborted).toBe(true)
+  await vi.waitFor(() => expect(screen.getByText('Нет связи с API')).toBeInTheDocument())
+  await tick(30000)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+
+// Срок запроса стоит на setTimeout, и подделан и он: ожидания в этих тестах — vi.waitFor, а не findBy
+function hangFirstRequest() {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
+  const fetchMock = vi
+    .fn()
+    .mockImplementationOnce(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) =>
+          init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))),
+        ),
+    )
+    .mockImplementation(async () => new Response(JSON.stringify(rows), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
 
 type ShownNotification = { title: string; options?: NotificationOptions; onclick: (() => void) | null; close: () => void }
 
