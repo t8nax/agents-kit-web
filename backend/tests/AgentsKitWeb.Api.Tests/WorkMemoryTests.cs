@@ -74,6 +74,7 @@ public class WorkMemoryTests
         Assert.Equal(62, memory.Progress);
         Assert.Empty(memory.Questions);
         Assert.False(memory.WaitingForOperator);
+        Assert.False(memory.AnswerUnread);
     }
 
     [Fact]
@@ -198,6 +199,7 @@ public class WorkMemoryTests
 
         Assert.Equal("да", Assert.Single(memory.Questions).Answer);
         Assert.False(memory.WaitingForOperator);
+        Assert.True(memory.AnswerUnread);
     }
 
     [Fact]
@@ -217,6 +219,7 @@ public class WorkMemoryTests
 
         Assert.Equal(["Первый", "Второй"], memory.Questions.Select(q => q.Title));
         Assert.True(memory.WaitingForOperator);
+        Assert.False(memory.AnswerUnread);
     }
 
     [Fact]
