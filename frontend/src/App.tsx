@@ -104,6 +104,14 @@ const statusLabels: Record<WorkspaceStatus, string> = {
 }
 
 const refreshIntervalMs = 3000
+// Опрос ждёт прошлого ответа, и ответ, который не пришёл, держал бы таблицу пустой или замершей
+// до перезагрузки страницы: не ответивший за этот срок запрос бросается, и таблица спрашивает снова — B-258
+const requestTimeoutMs = 10000
+
+// Скрытая вкладка опрашивается только ради уведомлений
+function pollAllowed() {
+  return document.visibilityState !== 'hidden' || notificationsActive()
+}
 
 // rows — последний удачно прочитанный список: сбой опроса его не стирает
 type State = { rows: WorkspaceRow[] | null; failed: boolean }
@@ -140,14 +148,24 @@ function App() {
   const [fresh, setFresh] = useState<Fresh | null>(null)
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
+  const pending = useRef<{ controller: AbortController; timeout: ReturnType<typeof setTimeout> } | null>(null)
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
   const theme = useTheme()
 
-  const loadRows = useCallback(() => {
+  const loadRows = useCallback(function load() {
     const request = ++lastRequest.current
     inFlight.current++
-    fetch('/api/workspaces')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => {
+      controller.abort()
+      if (request !== lastRequest.current) return
+      // Неответивший сервер — тот же сбой связи, что и отказ, и таблица говорит о нём так же
+      setState((prev) => ({ ...prev, failed: true }))
+      if (pollAllowed()) load()
+    }, requestTimeoutMs)
+    pending.current = { controller, timeout }
+    fetch('/api/workspaces', { signal: controller.signal })
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         return response.json() as Promise<WorkspaceRow[]>
@@ -163,15 +181,16 @@ function App() {
           if (request === lastRequest.current) setState((prev) => ({ ...prev, failed: true }))
         },
       )
-      .finally(() => inFlight.current--)
+      .finally(() => {
+        clearTimeout(timeout)
+        inFlight.current--
+      })
   }, [])
 
   useEffect(() => {
     loadRows()
     const timer = setInterval(() => {
-      if (inFlight.current > 0) return
-      // Скрытая вкладка опрашивается только ради уведомлений
-      if (document.visibilityState === 'hidden' && !notificationsActive()) return
+      if (inFlight.current > 0 || !pollAllowed()) return
       loadRows()
     }, refreshIntervalMs)
     const onVisibility = () => {
@@ -181,6 +200,10 @@ function App() {
     return () => {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
+      if (pending.current) {
+        clearTimeout(pending.current.timeout)
+        pending.current.controller.abort()
+      }
     }
   }, [loadRows])
 
