@@ -171,7 +171,6 @@ public sealed class DeployScriptTests : IDisposable
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            UseShellExecute = false,
         };
         foreach (var argument in new[]
                  {
@@ -180,7 +179,7 @@ public sealed class DeployScriptTests : IDisposable
                      "-WaitSeconds", waitSeconds.ToString(),
                  })
             startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         try
@@ -271,7 +270,7 @@ public sealed class DeployScriptTests : IDisposable
         foreach (var hold in _holds)
             hold.Dispose();
 
-        using (var unregister = Process.Start(new ProcessStartInfo("pwsh")
+        using (var unregister = TestProcess.Start(new ProcessStartInfo("pwsh")
                {
                    ArgumentList =
                    {
@@ -279,8 +278,7 @@ public sealed class DeployScriptTests : IDisposable
                        $"Stop-ScheduledTask -TaskName '{_task}' -ErrorAction SilentlyContinue; " +
                        $"Unregister-ScheduledTask -TaskName '{_task}' -Confirm:$false -ErrorAction SilentlyContinue",
                    },
-                   UseShellExecute = false,
-               })!)
+               }))
         {
             if (!unregister.WaitForExit(TimeSpan.FromMinutes(3)))
                 unregister.Kill();
