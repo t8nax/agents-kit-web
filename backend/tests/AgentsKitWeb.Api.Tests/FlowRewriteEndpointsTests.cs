@@ -150,6 +150,23 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Rewrite_AsksAgentForWholeStagesWithPerformerAndOutput()
+    {
+        _agent.Answers = [[Result("ok")]];
+        var client = await Client();
+
+        await Start(client, "Поправь описание ревью");
+        await Read(client, 2);
+
+        var args = _agent.Starts[0].ArgumentList.ToList();
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        // Агент возвращал этап без выхода, когда менял одну строку (B-256): полный этап требуется прямо.
+        Assert.Contains("исполнитель и выход всегда", prompt);
+        Assert.Contains("даже если меняется одно слово", prompt);
+        Assert.Contains("каждый целиком, а не одни поменявшиеся строки", prompt);
+    }
+
+    [Fact]
     public async Task Rewrite_GivesWholeFlowTasksAndPerformersInFirstReply()
     {
         Directory.CreateDirectory(Path.Combine(_base, "work"));
