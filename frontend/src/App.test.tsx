@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import { type AgentKind, type AgentRequestSummary } from './agentRequest'
+import { forgetRemembered } from './backlogView'
 import NotificationsCard from './NotificationsCard'
 import { applyChosenTheme } from './theme'
 
@@ -24,6 +25,7 @@ afterEach(() => {
   vi.useRealTimers()
   visibility = 'visible'
   localStorage.clear()
+  forgetRemembered()
   delete document.documentElement.dataset.theme
 })
 
@@ -1089,8 +1091,9 @@ test('«Бэклог» из сайдбара открывается списко
 
   expect(await screen.findByRole('heading', { name: 'Бэклог' })).toBeInTheDocument()
   expect(screen.queryByRole('dialog', { name: 'Чудо-Юдо' })).not.toBeInTheDocument()
-  // Фильтр по проекту забыт вместе с окном: в списке снова все проекты
-  expect(await screen.findByText('Запись соседнего проекта')).toBeInTheDocument()
+  // Проект просьбы остался выбранным: раздел помнит его, как выбранный чипом, — решение оператора на B-267
+  expect(await screen.findByText('Запись своего проекта')).toBeInTheDocument()
+  expect(screen.queryByText('Запись соседнего проекта')).not.toBeInTheDocument()
 })
 
 test('возврат к просьбе о флоу открывает раздел «Флоу» с окном переписывания, а сайдбар — без него', async () => {

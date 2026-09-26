@@ -72,6 +72,28 @@ export function arrange(entries: BacklogEntry[], selection: Selection, order: Or
     .map(({ entry }) => entry)
 }
 
+/** Отбор, который раздел помнит между открытиями: проект (null — все) и чипы типа и приоритета. */
+export type Remembered = { project: string | null; types: string[]; priorities: string[] }
+
+const nothingRemembered: Remembered = { project: null, types: [], priorities: [] }
+
+// Отбор живёт в памяти страницы, а не в браузере: уход в другой раздел его не сбрасывает,
+// перезагрузка страницы — сбрасывает. Поиск не помнится — решения оператора на B-267.
+let remembered = nothingRemembered
+
+export function readRemembered(): Remembered {
+  return remembered
+}
+
+export function remember(next: Remembered) {
+  remembered = next
+}
+
+/** Для тестов: каждый начинает с раздела без отбора, как после перезагрузки страницы. */
+export function forgetRemembered() {
+  remembered = nothingRemembered
+}
+
 const orderKey = 'agents-kit-web.backlog-order'
 
 // Порядок помнит браузер между открытиями раздела. Хранилище может быть недоступно — тогда порядок по умолчанию.

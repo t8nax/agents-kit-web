@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
-import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
+import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
@@ -52,10 +52,19 @@ export default function Backlog({
   onStarted?: (copy: string) => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [filter, setFilter] = useState<string | null>(writeFor)
-  // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, отбор каждое открытие раздела пуст
-  const [selection, setSelection] = useState<Selection>(emptySelection)
+  // Проект просьбы главнее запомненного и дальше запоминается сам — решение оператора на B-267
+  const [filter, setFilter] = useState<string | null>(() => writeFor ?? readRemembered().project)
+  // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, чипы — страница,
+  // а поиск каждое открытие раздела пуст
+  const [selection, setSelection] = useState<Selection>(() => {
+    const { types, priorities } = readRemembered()
+    return { ...emptySelection, types, priorities }
+  })
   const [order, setOrder] = useState<Order>(readOrder)
+
+  useEffect(() => {
+    remember({ project: filter, types: selection.types, priorities: selection.priorities })
+  }, [filter, selection.types, selection.priorities])
 
   const changeOrder = useCallback((next: Order) => {
     setOrder(next)
