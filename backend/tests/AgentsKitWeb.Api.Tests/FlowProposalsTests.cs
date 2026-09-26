@@ -116,6 +116,55 @@ public sealed class FlowProposalsTests
     }
 
     [Fact]
+    public void Take_RewrittenStageWithoutPerformerOrOutput_TakesThemFromStageOnScreen()
+    {
+        var withSkip = Review with { Skip = "правка только в текстах" };
+
+        // Агент поменял описание и вернул этап без исполнителя и выхода (B-256).
+        var taken = FlowProposals.Take(
+            "=== этап «Ревью»\n# Ревью\n\nСобрать дифф всей ветки.\n", [withSkip, Merge, Design], Flows, FlowProposal.Empty);
+
+        Assert.Null(taken.Error);
+        var stage = Assert.Single(taken.Proposal.Stages).Stage!;
+        Assert.Equal("reviewer", stage.Executor);
+        Assert.Equal("вердикт по sha", stage.Output);
+        // Пропуск не дописывается: не вернул его агент — значит, убрал.
+        Assert.Null(stage.Skip);
+        Assert.Equal("Собрать дифф всей ветки.", stage.Description);
+    }
+
+    [Fact]
+    public void Take_RewrittenStageWithoutHelpers_DropsThem()
+    {
+        var withHelpers = Merge with { Helpers = ["check-runner"] };
+
+        var taken = FlowProposals.Take(
+            "=== этап «Мерж»\n# Мерж\n\nМержить после «принято».\n", [Review, withHelpers, Design], Flows, FlowProposal.Empty);
+
+        Assert.Null(taken.Error);
+        var stage = Assert.Single(taken.Proposal.Stages).Stage!;
+        Assert.Equal("оркестратор", stage.Executor);
+        Assert.Equal("sha в dev", stage.Output);
+        // Помощники не дописываются: не вернул их агент — значит, убрал.
+        Assert.True(stage.Helpers is null or { Count: 0 });
+    }
+
+    [Fact]
+    public void Take_StageRewrittenAgainWithoutOutput_TakesItFromEarlierChange()
+    {
+        var first = FlowProposals.Take(
+            "=== этап «Ревью»\n# Проверка\n\nисполнитель: reviewer\nвыход: вердикт и тесты\n", Stages, Flows, FlowProposal.Empty);
+
+        var second = FlowProposals.Take(
+            "=== этап «Проверка»\n# Проверка\n\nисполнитель: оркестратор\n", Stages, Flows, first.Proposal);
+
+        Assert.Null(second.Error);
+        var change = Assert.Single(second.Proposal.Stages);
+        Assert.Equal("оркестратор", change.Stage!.Executor);
+        Assert.Equal("вердикт и тесты", change.Stage.Output);
+    }
+
+    [Fact]
     public void Take_NewStageDeletedInSameConversation_LeavesProposal()
     {
         var first = FlowProposals.Take($"=== новый этап\n{Docs}", Stages, Flows, FlowProposal.Empty);
@@ -140,7 +189,8 @@ public sealed class FlowProposalsTests
     [InlineData("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\nвыход: есть\n", "Чудо-Юдо предложил правку этапа «Сборка», которого во флоу нет")]
     [InlineData("=== удалить сценарий «средний»\n", "Чудо-Юдо предложил правку сценария «средний», которого во флоу нет")]
     [InlineData("=== Ревью\n# Ревью\n\nисполнитель: оператор\nвыход: есть\n", "Чудо-Юдо вернул блок с пометкой, которую панель не знает: «=== Ревью»")]
-    [InlineData("=== этап «Ревью»\n# Ревью\n\nисполнитель: оператор\n", "Этап «Ревью» вернулся не в форме кита: не указан выход")]
+    // Новому этапу выход брать неоткуда.
+    [InlineData("=== новый этап\n# Сборка\n\nисполнитель: оператор\n", "Этап «Сборка» вернулся не в форме кита: не указан выход")]
     [InlineData("=== этап «Ревью»\n# Ревью\n\nисполнитель: оператор\nвыход: есть\nвозврат: красное\n", "Этап «Ревью» вернулся не в форме кита: строка 5: ключ вне перечня «возврат: красное»")]
     [InlineData("=== сценарий «мелкий»\n## мелкий\nкогда: мало\n1. Ревью\n", "Сценарий «мелкий» вернулся не в форме кита: строка 3: «1. Ревью»")]
     [InlineData("=== новый сценарий\n## средний\nкогда: средне\n1. [Ревью](stages/review.md)\n## ещё\n", "Чудо-Юдо вернул под пометкой «=== новый сценарий» не один раздел сценария «## Имя»")]

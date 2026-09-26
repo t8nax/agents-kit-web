@@ -131,8 +131,9 @@ public sealed class AgentRequest
     }
 
     /// <summary>
-    /// Пишет событие в просьбу. Событие не «step» закрывает её: агенту больше нечего сказать. У переписки оно
-    /// закрывает только реплику — следующая открывает её снова.
+    /// Пишет событие в просьбу. Событие не «step», «note» или «rework» (ответ, возвращённый агенту на доработку)
+    /// закрывает её: агенту больше нечего сказать. У переписки оно закрывает только реплику — следующая открывает
+    /// её снова.
     /// </summary>
     public void Write(IAgentEvent e)
     {
@@ -142,7 +143,7 @@ public sealed class AgentRequest
             if (_removed || (!Continues && _state != Running))
                 return;
             _lines.Add(line);
-            if (e.Type is not ("step" or "note"))
+            if (e.Type is not ("step" or "note" or "rework"))
             {
                 _state = e.Type == "error" ? Failed : Done;
                 _elapsed.Stop();

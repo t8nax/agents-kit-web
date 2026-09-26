@@ -126,6 +126,37 @@ test('просьба уходит с флоу раздела целиком, «+
   expect(screen.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
 })
 
+test('ответ, вернутый на доработку, остаётся строкой панели, а агент дописывает его', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('Заведи документацию')
+  stream.send({ type: 'reply', text: 'Заведи документацию' })
+  stream.send({ type: 'step', text: 'читает flow/stages/review.md' })
+  const rework =
+    'Этап «Документация» вернулся не в форме кита: не указан выход. Панель вернула ответ Чудо-Юдо на доработку.'
+  stream.send({ type: 'rework', text: rework })
+
+  expect(await screen.findByText('Чудо-Юдо дописывает ответ…')).toBeInTheDocument()
+  // Строка доработки — своя, со значком возврата, а не общее слово панели (макет B-256, вариант А).
+  const line = screen.getByText(rework).closest('.rework-note')
+  expect(line).not.toBeNull()
+  expect(line?.querySelector('svg')).not.toBeNull()
+  // Ход доработки — свой: шаги первого ответа уходят вместе с ним.
+  expect(screen.queryByText('читает flow/stages/review.md')).not.toBeInTheDocument()
+  stream.send({ type: 'step', text: 'дописывает этап «Документация»' })
+  expect(await screen.findByText('дописывает этап «Документация»')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+
+  stream.send({ type: 'answer', text: 'Дописал выход.', durationMs: 20000, proposal, changed: { scenarios: 1, stages: 2 } })
+  expect(await screen.findByText('Дописал выход.')).toBeInTheDocument()
+  // След доработки остаётся над исправленным ответом, ожидания больше нет.
+  expect(screen.getByText(rework)).toBeInTheDocument()
+  expect(screen.queryByText('Чудо-Юдо дописывает ответ…')).not.toBeInTheDocument()
+  expect(screen.getByText(/В изменениях/)).toBeInTheDocument()
+})
+
 test('ответ-вопрос остаётся в переписке, а вкладка «Изменения» погашена', async () => {
   const stream = controlledStream<RewriteEvent>()
   const { replies } = stubFetch(stream)
