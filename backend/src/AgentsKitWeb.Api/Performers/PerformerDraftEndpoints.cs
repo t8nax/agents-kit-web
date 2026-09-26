@@ -216,7 +216,7 @@ public static class PerformerDraftEndpoints
                      "--append-system-prompt", systemPrompt,
                  })
             startInfo.ArgumentList.Add(arg);
-            AgentProcess.AddAutoMode(startInfo);
+        AgentProcess.AddAutoMode(startInfo);
         return startInfo;
     }
 
