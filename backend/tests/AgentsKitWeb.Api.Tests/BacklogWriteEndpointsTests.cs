@@ -181,8 +181,15 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Reply(client, "ещё одна");
         var events = await Read(client, 5);
 
-        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[2]);
-        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[3]);
+        // Реплика, успевшая к агенту до того, как панель узнала о его конце, встаёт в переписку раньше пометки.
+        Assert.Equivalent(
+            new[]
+            {
+                new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"),
+                new BacklogWriteEvent("reply", "ещё одна"),
+            },
+            events[2..4]);
+        Assert.Equal("answer", events[4].Type);
         Assert.Equal(2, _agent.Starts.Count);
         Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
     }
