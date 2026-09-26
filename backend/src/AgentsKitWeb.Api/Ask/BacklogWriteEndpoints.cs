@@ -15,6 +15,7 @@ namespace AgentsKitWeb.Api.Ask;
 public sealed record BacklogWriteRequest(
     string? Base, string? Text, string? Number = null, IReadOnlyList<AttachedFile>? Files = null);
 
+/// <summary>Следующая реплика разговора о бэклоге; Files — приложенные к ней файлы, как у первой.</summary>
 public sealed record BacklogReplyRequest(string? Text, IReadOnlyList<AttachedFile>? Files = null);
 
 public sealed record BacklogProposalRequest(string? Id);

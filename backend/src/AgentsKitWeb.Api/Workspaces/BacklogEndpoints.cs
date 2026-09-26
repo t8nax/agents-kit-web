@@ -33,7 +33,7 @@ public static class BacklogEndpoints
             CancellationToken cancellationToken) =>
         {
             var basePath = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
-            var file = basePath is null ? null : Path.Combine(basePath, "backlog.md");
+            var file = basePath is null ? null : Path.Combine(basePath, Ask.BacklogWriteEndpoints.BacklogFile);
             if (file is null || !File.Exists(file))
                 return Results.NotFound();
 

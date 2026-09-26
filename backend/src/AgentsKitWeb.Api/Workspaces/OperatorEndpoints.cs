@@ -163,30 +163,39 @@ public static class OperatorEndpoints
         {
             if (FindMemory(bases, request.Base, request.Copy) is not { } found)
                 return Results.NotFound();
-            if (ArtifactFiles.Check([.. request.Answers.SelectMany(a => a.Files ?? [])]) is { } tooLarge)
-                return Results.Json(tooLarge, statusCode: StatusCodes.Status413PayloadTooLarge);
+            if (ArtifactFiles.Check([.. request.Answers.SelectMany(a => a.Files ?? [])]) is { } refused)
+                return refused.Problem == "too-large"
+                    ? Results.Json(refused, statusCode: StatusCodes.Status413PayloadTooLarge)
+                    : Results.BadRequest(refused);
 
             // Приложенные файлы ложатся копиями в artifacts/ базы до записи ответов, их адреса — в строку ответа;
             // в git их кладёт сессия, которая вберёт ответ. Ответы не записались — файлы уходят с диска.
-            var number = found.Memory.Task?.Split(' ', 2)[0] is { } first ? BacklogNumber.Normalize(first) : null;
+            var number = TaskNumber(found.Memory.Task, found.Base);
             var saved = new List<string>();
             var answers = new List<OperatorAnswer>();
-            foreach (var answer in request.Answers)
+            AnswerRejection? rejection;
+            try
             {
-                IReadOnlyList<string> addresses = [];
-                if (answer.Files is { Count: > 0 } files)
+                foreach (var answer in request.Answers)
                 {
-                    // Размер и содержимое уже проверены выше: отказа здесь не бывает.
-                    addresses = (await ArtifactFiles.SaveAsync(found.Base, files, number, cancellationToken)).Addresses ?? [];
-                    saved.AddRange(addresses);
+                    IReadOnlyList<string> addresses = [];
+                    if (answer.Files is { Count: > 0 } files)
+                    {
+                        // Размер и содержимое уже проверены выше: отказа здесь не бывает.
+                        addresses = (await ArtifactFiles.SaveAsync(found.Base, files, number, cancellationToken)).Addresses ?? [];
+                        saved.AddRange(addresses);
+                    }
+                    answers.Add(answer with { Answer = OperatorAnswers.WithFiles(answer.Answer, addresses), Files = null });
                 }
-                answers.Add(answer with { Answer = OperatorAnswers.WithFiles(answer.Answer, addresses), Files = null });
+                rejection = await OperatorAnswers.WriteAsync(found.File, answers, cancellationToken);
             }
-
-            var rejection = await OperatorAnswers.WriteAsync(found.File, answers, cancellationToken);
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or OperationCanceledException)
+            {
+                ArtifactFiles.Delete(found.Base, saved);
+                throw;
+            }
             if (rejection is not null)
-                foreach (var path in saved)
-                    File.Delete(Path.Combine(found.Base, path));
+                ArtifactFiles.Delete(found.Base, saved);
             return rejection switch
             {
                 null => Results.NoContent(),
@@ -195,6 +204,13 @@ public static class OperatorEndpoints
             };
         });
     }
+
+    // Номер задачи — первое слово заголовка памяти, если оно номер буквами этой базы: «UTF-8 …» номером не становится.
+    private static string? TaskNumber(string? task, string basePath) =>
+        task?.Split(' ', 2)[0] is { } first && BacklogNumber.Normalize(first) is { } number
+        && Backlog.ReadLetters(basePath) is { } letters && BacklogNumber.Letters(number) == letters
+            ? number
+            : null;
 
     internal static readonly char[] CmdSpecial = ['&', '|', '<', '>', '^', '%', '"'];
 

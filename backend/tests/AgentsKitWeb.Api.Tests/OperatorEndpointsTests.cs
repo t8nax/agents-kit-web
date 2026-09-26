@@ -182,6 +182,34 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "artifacts")));
     }
 
+    [Theory]
+    [InlineData("B-7 Окно ответа", "artifacts/B-7-снимок.png")]
+    [InlineData("UTF-8 в именах ломает выгрузку", "artifacts/снимок.png")]
+    [InlineData("ORD-3 Чужие буквы", "artifacts/снимок.png")]
+    public async Task Answers_AttachedFileTakesTaskNumberOnlyInLettersOfBase(string task, string address)
+    {
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-9\n");
+        File.WriteAllText(_memoryPath, File.ReadAllText(_memoryPath).Replace("# Окно ответа", $"# {task}"));
+
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "да", [File64("снимок.png", 1)]),
+            new OperatorAnswer("Как быть с переносами?", "пробелами"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.True(File.Exists(Path.Combine(_base, address)));
+    }
+
+    [Fact]
+    public async Task Answers_UnreadableFile_IsBadRequestNotTooLarge()
+    {
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "да", [new AttachedFile("снимок.png", "не base64")]),
+            new OperatorAnswer("Как быть с переносами?", "пробелами"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new AttachRejected("снимок.png", "unreadable"), await response.Content.ReadFromJsonAsync<AttachRejected>());
+    }
+
     private static AttachedFile File64(string name, int length) =>
         new(name, Convert.ToBase64String(Enumerable.Range(0, length).Select(i => (byte)i).ToArray()));
 

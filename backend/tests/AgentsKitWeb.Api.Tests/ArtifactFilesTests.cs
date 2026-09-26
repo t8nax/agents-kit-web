@@ -61,6 +61,17 @@ public sealed class ArtifactFilesTests : IDisposable
         Assert.Equal(["artifacts/a.png", "artifacts/c.png"], orphans);
     }
 
+    [Theory]
+    [InlineData("- снимок: artifacts/a.png", true)]
+    [InlineData("- снимок: artifacts/a.png.", false)]
+    [InlineData("см. `artifacts/a.png`", true)]
+    [InlineData("<!-- artifacts/a.png -->", false)]
+    [InlineData("- другой: artifacts/a.png-2.png", false)]
+    [InlineData("- путь проекта: docs/artifacts/a.png", false)]
+    [InlineData("- из подкаталога: ../artifacts/a.png", true)]
+    public void Mentions_CountsReferenceAsKitDoes(string text, bool expected) =>
+        Assert.Equal(expected, ArtifactFiles.Mentions(text, "artifacts/a.png"));
+
     public void Dispose()
     {
         try
