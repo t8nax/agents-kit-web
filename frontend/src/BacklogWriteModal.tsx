@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { EntryFields } from './EntryFields'
+import { AttachButton, AttachError, AttachmentTiles, SentFiles } from './Attachments'
+import { payload, useAttachments } from './attachFiles'
 import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
@@ -29,7 +31,7 @@ export type Proposal = { id: string; changes: ProposalChange[] }
 
 /** События разговора о бэклоге — те, что пишет панель (BacklogWriteEvent в API). */
 export type WriteEvent =
-  | { type: 'reply'; text: string; number?: string | null }
+  | { type: 'reply'; text: string; number?: string | null; files?: string[] | null }
   | { type: 'step'; text: string }
   | { type: 'note'; text: string }
   | { type: 'stopped'; text: string }
@@ -96,6 +98,27 @@ export default function BacklogWriteModal({
   const conversation = useAgentConversation<WriteEvent>('backlog')
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
   const feed = useRef<HTMLDivElement>(null)
+  // Файлы к следующей реплике и миниатюры отправленных: адрес файла в базе окно узнаёт из реплики в ленте.
+  const attach = useAttachments()
+  const sentPreviews = useRef<(string | null)[][]>([])
+  const [previews, setPreviews] = useState<Map<string, string>>(() => new Map())
+  const withFiles = events.filter((e) => e.type === 'reply' && e.files && e.files.length > 0).length
+  const matched = useRef(0)
+
+  useEffect(() => {
+    if (withFiles <= matched.current) {
+      matched.current = withFiles
+      return
+    }
+    const replies = events.filter((e): e is Extract<WriteEvent, { type: 'reply' }> => e.type === 'reply' && !!e.files?.length)
+    const next = new Map(previews)
+    for (const reply of replies.slice(matched.current)) {
+      const shots = sentPreviews.current.shift() ?? []
+      reply.files!.forEach((address, i) => shots[i] && next.set(address, shots[i]))
+    }
+    matched.current = withFiles
+    setPreviews(next)
+  }, [events, withFiles, previews])
 
   const talking = events.length > 0
   // Пока окно от записи не решило, какой разговор показывать, и пока заменяемый разговор не убран, чужую
@@ -159,15 +182,21 @@ export default function BacklogWriteModal({
     const said = value.trim()
     if (!said || !base || running) return
     setFailure(null)
+    const files = payload(attach.items)
     const sent = talking
-      ? await send(said)
-      : await start({ base, text: said, number: own?.entry.number ?? undefined })
+      ? await send(said, files ? { files } : {})
+      : await start({ base, text: said, number: own?.entry.number ?? undefined, files })
     if (sent.ok) {
       setText(null)
+      // Миниатюры отправленного ждут своей реплики в ленте: адреса файлов в базе окно узнает из неё.
+      if (files) sentPreviews.current.push(attach.items.map((item) => item.preview))
+      attach.clear()
       return
     }
     setFailure(
-      sent.status === 404
+      sent.status === 400 && files
+        ? 'Панель не приняла приложенный файл: крупнее 5 МБ или не прочитан'
+        : sent.status === 404
         ? talking
           ? 'Разговор кончился: панель его больше не помнит'
           : 'Базы нет в списке панели или на диске'
@@ -197,6 +226,7 @@ export default function BacklogWriteModal({
     setChosen(to?.base ?? conversation.base ?? chosen)
     setText(null)
     setSaveError(null)
+    attach.clear()
     await forget()
   }
 
@@ -356,7 +386,10 @@ export default function BacklogWriteModal({
               case 'reply':
                 return (
                   <div className="op-row" key={i}>
-                    <div className={`op-bubble talk-said ${i === lastReply ? 'is-current' : ''}`}>{event.text}</div>
+                    <div className={`op-bubble talk-said ${i === lastReply ? 'is-current' : ''}`}>
+                      {event.text}
+                      <SentFiles files={event.files ?? []} previews={previews} />
+                    </div>
                   </div>
                 )
               case 'note':
@@ -444,6 +477,8 @@ export default function BacklogWriteModal({
           </div>
         ) : (
           <div className="composer talk-composer">
+            <AttachmentTiles items={attach.items} onRemove={attach.remove} />
+            <AttachError text={attach.error} />
             <textarea
               className="composer-field talk-field"
               aria-label={`Просьба к ${AGENT_NAME}`}
@@ -454,6 +489,7 @@ export default function BacklogWriteModal({
               // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
               disabled={running || waiting || saving !== null}
               onChange={(e) => setText(e.target.value)}
+              onPaste={attach.onPaste}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault()
@@ -462,8 +498,13 @@ export default function BacklogWriteModal({
               }}
             />
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
-                а «Отменить» встаёт ровно туда, где была «Отправить». */}
+                а «Отменить» встаёт ровно туда, где была «Отправить». «Приложить файл» — слева (макет B-260). */}
             <div className="talk-buttons">
+              <AttachButton
+                label="Приложить файл"
+                disabled={running || waiting || saving !== null}
+                onFiles={(files) => void attach.add(files)}
+              />
               <button
                 type="button"
                 className="btn composer-send"
