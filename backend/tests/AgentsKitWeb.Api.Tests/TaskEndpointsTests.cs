@@ -67,7 +67,8 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.True(startInfo.CreateNoWindow);
         // Просьба уходит после «--»: текст, начатый с «-», claude принял бы за флаг.
         // Настройками сессия оставлена в самой копии: без них claude уходит работать в отдельное дерево.
-        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal(["--permission-mode", "auto", "--settings", """{"worktree":{"bgIsolation":"none"},"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", "--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
         // Панель не правит бэклог и не заводит память: и то и другое делает навык кита в этой сессии.
         Assert.Contains("B-7", File.ReadAllText(Path.Combine(_base, "backlog.md")));
         Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
