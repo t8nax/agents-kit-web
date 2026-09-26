@@ -6,6 +6,7 @@ import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, wri
 import { InlineMarkdown, Markdown } from './Markdown'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
+import EntryArtifacts, { type Artifact } from './EntryArtifacts'
 import { BugIcon, EntryFields, FeatureIcon } from './EntryFields'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
@@ -19,6 +20,8 @@ export type BacklogEntry = {
   /** Поля кита: запись несёт их, когда шапка backlog.md базы объявила их строкой «поля:», иначе они пусты. */
   priority?: string | null
   type?: string | null
+  /** Подраздел «Артефакты» записи — файлы в artifacts/ базы и ссылки; нет артефактов — пусто. */
+  artifacts?: Artifact[] | null
 }
 
 export type BaseBacklog = {
@@ -61,7 +64,7 @@ export default function Backlog({
     setOrder(next)
     writeOrder(next)
   }, [])
-  const [opened, setOpened] = useState<BacklogEntry | null>(null)
+  const [opened, setOpened] = useState<{ base: string; entry: BacklogEntry } | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
   // Запись, от которой окно Чудо-Юдо открыто кнопкой «Изменить»; null — окно из шапки раздела.
   const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry } | null>(null)
@@ -255,7 +258,7 @@ export default function Backlog({
                         className="entry"
                         onClick={(e) => {
                           opener.current = e.currentTarget
-                          setOpened(entry)
+                          setOpened({ base: backlog.base, entry })
                         }}
                       >
                         {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
@@ -314,7 +317,7 @@ export default function Backlog({
         </div>
       )}
 
-      {opened && <EntryModal entry={opened} onClose={closeEntry} />}
+      {opened && <EntryModal base={opened.base} entry={opened.entry} onClose={closeEntry} />}
       {starting && (
         <StartTaskModal
           base={starting.base}
@@ -352,7 +355,7 @@ export default function Backlog({
 }
 
 // Окно записи: текст оператору читают здесь, а список держит одни заголовки.
-function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => void }) {
+function EntryModal({ base, entry, onClose }: { base: string; entry: BacklogEntry; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -394,6 +397,9 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
             <Markdown className="entry-text" text={entry.text} />
           ) : (
             <p className="entry-no-text">Описания нет</p>
+          )}
+          {entry.artifacts && entry.artifacts.length > 0 && (
+            <EntryArtifacts base={base} number={entry.number} artifacts={entry.artifacts} />
           )}
         </div>
       </div>

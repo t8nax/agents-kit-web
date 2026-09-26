@@ -59,7 +59,12 @@ function stubFetch(...responses: BaseBacklog[][]) {
   const posts: unknown[] = []
   let rows = copies
   let taskReply: Response | null = null
+  let artifactReply: () => Response = () => new Response(null, { status: 204 })
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url === '/api/backlog/artifact/open') {
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(artifactReply())
+    }
     if (url === '/api/tasks') {
       posts.push(JSON.parse(String(init?.body)))
       return Promise.resolve(taskReply ?? Response.json({ session: '7339dced' }))
@@ -87,6 +92,9 @@ function stubFetch(...responses: BaseBacklog[][]) {
     backlogReads: () => fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length,
     setCopies: (next: WorkspaceRow[]) => {
       rows = next
+    },
+    setArtifactReply: (next: () => Response) => {
+      artifactReply = next
     },
   })
 }
@@ -212,6 +220,61 @@ test('адрес в тексте записи — ссылка в новую в�
   const link = within(screen.getByRole('dialog')).getByRole('link', { name: 'https://example.com/t/7' })
   expect(link).toHaveAttribute('href', 'https://example.com/t/7')
   expect(link).toHaveAttribute('target', '_blank')
+})
+
+const withArtifacts: BaseBacklog = {
+  ...backlogs[0],
+  entries: [
+    {
+      number: 'B-9',
+      title: 'Со снимком',
+      text: 'Снимок падения приложен.',
+      artifacts: [
+        { label: 'макет', address: 'https://claude.ai/artifact/AbC' },
+        { label: 'снимок падения', address: 'artifacts/B-9-снимок.png' },
+      ],
+    },
+  ],
+}
+
+test('артефакты записи стоят блоком под описанием: ссылка — вкладкой, файл открывается в VS Code', async () => {
+  const fetchMock = stubFetch([withArtifacts])
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-9 Со снимком/ }))
+
+  const block = within(within(screen.getByRole('dialog')).getByRole('region', { name: 'Артефакты' }))
+  expect(block.getByText('снимок падения')).toBeInTheDocument()
+  expect(block.getByRole('link', { name: 'https://claude.ai/artifact/AbC' })).toHaveAttribute('target', '_blank')
+  fireEvent.click(block.getByRole('button', { name: 'artifacts/B-9-снимок.png' }))
+
+  await waitFor(() =>
+    expect(fetchMock.posts).toEqual([
+      { base: withArtifacts.base, number: 'B-9', index: 1, address: 'artifacts/B-9-снимок.png' },
+    ]),
+  )
+})
+
+test('файла артефакта нет в базе — строка ошибки под блоком', async () => {
+  const fetchMock = stubFetch([withArtifacts])
+  fetchMock.setArtifactReply(() => Response.json({ problem: 'missing' }, { status: 404 }))
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-9 Со снимком/ }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'artifacts/B-9-снимок.png' }))
+
+  expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(
+    'Файла нет в базе: artifacts/B-9-снимок.png',
+  )
+})
+
+test('у записи без артефактов блока нет', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-13 У панели есть светлая тема/ }))
+
+  expect(within(screen.getByRole('dialog')).queryByRole('region', { name: 'Артефакты' })).not.toBeInTheDocument()
 })
 
 test('запись без текста открывается окном «Описания нет»', async () => {

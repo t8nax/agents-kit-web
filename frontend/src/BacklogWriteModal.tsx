@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { EntryFields } from './EntryFields'
+import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { useAgentConversation } from './agentConversation'
@@ -345,7 +346,7 @@ export default function BacklogWriteModal({
                 {aboutGone ? (
                   <EntryCard entry={about} badge="удалена" tone="added" removed />
                 ) : (
-                  <EntryCard entry={about} />
+                  <EntryCard entry={about} base={base} />
                 )}
               </ul>
             </div>
@@ -593,19 +594,24 @@ function ChangeCard({ change, state }: { change: ProposalChange; state: Proposal
   )
 }
 
-/** Запись карточкой: номер, заголовок и отметка; удаляемая — только номером и зачёркнутым заголовком. */
+/**
+ * Запись карточкой: номер, заголовок и отметка; удаляемая — только номером и зачёркнутым заголовком. С базой — ещё
+ * и артефакты записи блоком под описанием: так стоит запись, про которую открыт разговор (B-260).
+ */
 function EntryCard({
   entry,
   badge,
   tone,
   removed = false,
   struck = false,
+  base,
 }: {
   entry: WrittenEntry
   badge?: string
   tone?: 'added' | 'removed'
   removed?: boolean
   struck?: boolean
+  base?: string | null
 }) {
   return (
     <li className={`write-entry ${removed ? 'is-removed' : ''} ${struck ? 'is-struck' : ''}`}>
@@ -625,6 +631,9 @@ function EntryCard({
         ) : (
           <p className="write-entry-text entry-no-text">Описания нет</p>
         ))}
+      {!removed && base && entry.artifacts && entry.artifacts.length > 0 && (
+        <EntryArtifacts base={base} number={entry.number} artifacts={entry.artifacts} compact />
+      )}
     </li>
   )
 }

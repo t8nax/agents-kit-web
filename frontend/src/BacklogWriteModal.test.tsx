@@ -137,6 +137,21 @@ test('окно от записи показывает её первой, наз�
   expect(posts[0].body).toEqual({ base: bases[0].base, text: 'Это блокер', number: 'B-40' })
 })
 
+test('у записи, про которую разговор, её артефакты стоят блоком', async () => {
+  stubFetch(controlledStream<WriteEvent>())
+  const withShot: WrittenEntry = {
+    number: 'B-41',
+    title: 'Падение на сохранении',
+    text: 'Снимок приложен.',
+    artifacts: [{ label: 'снимок', address: 'artifacts/B-41-снимок.png' }],
+  }
+  renderModal({ subject: { base: bases[0].base, entry: withShot } })
+
+  const block = within(await screen.findByRole('region', { name: 'Артефакты' }))
+  expect(block.getByText('снимок')).toBeInTheDocument()
+  expect(block.getByRole('button', { name: 'artifacts/B-41-снимок.png' })).toBeEnabled()
+})
+
 test('изменение и удаление ждут «Сохранить», а сохранённые отмечены в прошедшем времени', async () => {
   const stream = controlledStream<WriteEvent>()
   const { calls } = stubFetch(stream)
