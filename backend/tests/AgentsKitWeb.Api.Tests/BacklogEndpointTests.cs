@@ -4,6 +4,8 @@ using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AgentsKitWeb.Api.Tests;
 
@@ -147,6 +149,118 @@ public sealed class BacklogEndpointTests : IDisposable
 
         Assert.Null(entry.Priority);
         Assert.Null(entry.Type);
+    }
+
+    private const string WithArtifacts = """
+        ## B-5 Окно записи показывает снимок
+
+        Снимок приложен.
+
+        ### Артефакты
+        - макет: https://claude.ai/artifact/AbC123
+        - снимок: artifacts/B-5-снимок.png
+        - отчёт: artifacts/R&D.md
+        - побег: artifacts/../product.md
+        - спека: docs/spec.md
+        """;
+
+    [Fact]
+    public async Task Backlog_CarriesEntryArtifacts()
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var entry = Assert.Single(Assert.Single(await GetBacklogs(basePath)).Entries);
+
+        Assert.Equal("Снимок приложен.", entry.Text);
+        Assert.Equal(["макет", "снимок", "отчёт", "побег", "спека"], entry.Artifacts!.Select(a => a.Label));
+    }
+
+    [Fact]
+    public async Task OpenArtifact_OpensBaseFileInBaseWindow()
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+        var shot = Path.Combine(basePath, "artifacts", "B-5-снимок.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(shot)!);
+        File.WriteAllBytes(shot, [1, 2, 3]);
+
+        var response = await PostOpenArtifact(basePath, "b-5", 1, "artifacts/B-5-снимок.png");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(basePath, shot)], _windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_FileNotOnDisk_IsMissing()
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var response = await PostOpenArtifact(basePath, "B-5", 1, "artifacts/B-5-снимок.png");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("missing", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Theory]
+    [InlineData(0, "https://claude.ai/artifact/AbC123", "not-a-file")]
+    [InlineData(2, "artifacts/R&D.md", "unsafe-path")]
+    [InlineData(3, "artifacts/../product.md", "unsafe-path")]
+    [InlineData(4, "docs/spec.md", "unsafe-path")]
+    public async Task OpenArtifact_NotAFileOfBaseArtifacts_IsNotOpened(int index, string address, string problem)
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var response = await PostOpenArtifact(basePath, "B-5", index, address);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(problem, (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Theory]
+    [InlineData("B-5", 5, "docs/spec.md")]
+    [InlineData("B-5", 1, "artifacts/other.png")]
+    [InlineData("B-6", 1, "artifacts/B-5-снимок.png")]
+    public async Task OpenArtifact_UnknownEntryIndexOrChangedAddress_IsNotFound(string number, int index, string address)
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var response = await PostOpenArtifact(basePath, number, index, address);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    private readonly FakeEditorWindows _windows = new();
+
+    private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string number, int index, string address) =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.Sources.Clear();
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, basePath))]);
+            });
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IEditorWindows>();
+                services.AddSingleton<IEditorWindows>(_windows);
+            });
+        })).CreateClient().PostAsJsonAsync("/api/backlog/artifact/open", new OpenBacklogArtifactRequest(basePath, number, index, address));
+
+    private sealed class FakeEditorWindows : IEditorWindows
+    {
+        public List<(string Folder, string File)> OpenedFiles { get; } = [];
+
+        public Task<bool> RaiseAsync(string copyPath, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> OpenFileAsync(string folder, string file, CancellationToken cancellationToken)
+        {
+            OpenedFiles.Add((folder, file));
+            return Task.FromResult(true);
+        }
     }
 
     private string CreateBase(string name, string backlog)

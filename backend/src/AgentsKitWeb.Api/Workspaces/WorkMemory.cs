@@ -45,6 +45,11 @@ public sealed record WorkMemory(
     // а у «https://» и «D:\» пробела за двоеточием нет. Строка без адреса артефактом не считается.
     private static readonly Regex ArtifactItem = new(@"^- (?<label>.+): (?<address>\S.*?)\s*$");
 
+    /// <summary>Строка раздела «Артефакты» — памяти задачи и записи бэклога у кита она одна.</summary>
+    internal static TaskArtifact? Artifact(string line) => ArtifactItem.Match(line) is { Success: true } match
+        ? new TaskArtifact(match.Groups["label"].Value.Trim(), match.Groups["address"].Value.Trim())
+        : null;
+
     public static WorkMemory Parse(string text)
     {
         var lines = MemoryText.Lines(text);
@@ -100,9 +105,9 @@ public sealed record WorkMemory(
                 continue;
             }
 
-            if (section == "Артефакты" && ArtifactItem.Match(line) is { Success: true } artifact)
+            if (section == "Артефакты" && Artifact(line) is { } artifact)
             {
-                artifacts.Add(new TaskArtifact(artifact.Groups["label"].Value.Trim(), artifact.Groups["address"].Value.Trim()));
+                artifacts.Add(artifact);
                 continue;
             }
 

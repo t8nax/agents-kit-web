@@ -174,7 +174,7 @@ public static class OperatorEndpoints
         });
     }
 
-    private static readonly char[] CmdSpecial = ['&', '|', '<', '>', '^', '%', '"'];
+    internal static readonly char[] CmdSpecial = ['&', '|', '<', '>', '^', '%', '"'];
 
     // Пишется только память копии из work/ базы, которая есть в списке баз панели:
     // путь к файлу панель не принимает, а собирает сама.

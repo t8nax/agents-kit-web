@@ -3,10 +3,17 @@ using System.Text.RegularExpressions;
 namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>
-/// Запись бэклога: номер, заголовок, текст оператору и поля кита. Part «Агенту» оператору не
-/// показывается. Поле пустое, когда шапка файла его не объявила или запись его не несёт.
+/// Запись бэклога: номер, заголовок, текст оператору, поля кита и артефакты — подраздел «Артефакты» записи.
+/// Part «Агенту» оператору не показывается. Поле пустое, когда шапка файла его не объявила или запись его
+/// не несёт; Artifacts — null, когда артефактов у записи нет.
 /// </summary>
-public sealed record BacklogEntry(string? Number, string Title, string? Text, string? Priority = null, string? Type = null);
+public sealed record BacklogEntry(
+    string? Number,
+    string Title,
+    string? Text,
+    string? Priority = null,
+    string? Type = null,
+    IReadOnlyList<TaskArtifact>? Artifacts = null);
 
 /// <summary>
 /// Запись бэклога как она лежит в файле: от строки «## » до следующей такой строки или конца файла. Start и End —
@@ -17,6 +24,7 @@ public sealed record BacklogBlock(string? Number, int Start, int End, string Tex
 public static partial class Backlog
 {
     private const string AgentSection = "Агенту";
+    internal const string ArtifactsSection = "Артефакты";
     private const string FieldsDeclaration = "поля:";
     private const string PriorityField = "приоритет";
     private const string TypeField = "тип";
@@ -32,7 +40,10 @@ public static partial class Backlog
     [GeneratedRegex(@"^(?<name>[^:]+):(?<value>.*)$")]
     private static partial Regex FieldLine { get; }
 
-    /// <summary>Записи файла backlog.md: раздел «##» — запись, «### Агенту» в ней обрывает текст оператору.</summary>
+    /// <summary>
+    /// Записи файла backlog.md: раздел «##» — запись, «### Агенту» в ней обрывает текст оператору, строки
+    /// «### Артефакты» идут в артефакты записи, а не в текст.
+    /// </summary>
     public static IReadOnlyList<BacklogEntry> Parse(string text)
     {
         var fileLines = MemoryText.Lines(text).Select(l => l.Text).ToList();
@@ -42,7 +53,9 @@ public static partial class Backlog
         // Заголовок открытой записи и строки её текста оператору; null — мы ещё в шапке файла.
         string? title = null;
         var lines = new List<string>();
-        var skipping = false;
+        var artifacts = new List<TaskArtifact>();
+        // Подраздел «###», в котором стоит строка: null — текст оператору до первого подраздела.
+        string? section = null;
         // Поля стоят парами под заголовком, до текста оператору: с его первой строки их больше нет.
         var fields = new Dictionary<string, string>();
         var beforeText = true;
@@ -59,7 +72,8 @@ public static partial class Backlog
                 entryTitle,
                 MemoryText.Block(lines),
                 Field(fields, PriorityField),
-                Field(fields, TypeField)));
+                Field(fields, TypeField),
+                artifacts.Count > 0 ? artifacts : null));
         }
 
         foreach (var line in fileLines)
@@ -69,18 +83,33 @@ public static partial class Backlog
                 Close();
                 title = line[3..].Trim();
                 lines = [];
+                artifacts = [];
                 fields = [];
-                skipping = false;
+                section = null;
                 beforeText = true;
                 continue;
             }
 
-            // Всё от «### Агенту» и до конца записи — не для оператора.
-            if (line.StartsWith("### "))
-                skipping = line[4..].Trim() == AgentSection;
-
-            if (title is null || skipping)
+            if (title is null)
                 continue;
+
+            // «### Агенту» — не для оператора, «### Артефакты» — не текст, а список; прочий подраздел — снова текст.
+            if (line.StartsWith("### "))
+            {
+                var name = line[4..].Trim();
+                section = name is AgentSection or ArtifactsSection ? name : null;
+                if (section is not null)
+                    continue;
+            }
+
+            if (section is AgentSection)
+                continue;
+            if (section is ArtifactsSection)
+            {
+                if (WorkMemory.Artifact(line) is { } artifact)
+                    artifacts.Add(artifact);
+                continue;
+            }
 
             if (beforeText)
             {
