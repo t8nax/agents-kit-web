@@ -41,7 +41,7 @@ public static class OperatorEndpoints
             if (FindMemory(bases, @base, copy) is not { } found)
                 return Results.NotFound();
 
-            var (_, memory) = found;
+            var (_, _, memory) = found;
             return Results.Ok(new QuestionsResponse(
                 ProjectName.Of(@base),
                 memory.Copy!,
@@ -116,6 +116,7 @@ public static class OperatorEndpoints
         });
 
         // Файл-артефакт задачи открывается в VS Code, в окне копии задачи, — решение оператора на B-87.
+        // Файл из artifacts/ базы — тоже в окне копии: VS Code открывает в нём и файл вне папки окна.
         // Запрос называет артефакт номером в памяти, а не путём: файл, которого нет в «Артефактах»
         // памяти копии, по HTTP не открыть.
         app.MapPost("/api/artifact/open", async (
@@ -124,14 +125,15 @@ public static class OperatorEndpoints
             IEditorWindows windows,
             CancellationToken cancellationToken) =>
         {
-            if (FindMemory(bases, request.Base, request.Copy) is not { Memory: var memory }
+            if (FindMemory(bases, request.Base, request.Copy) is not { Base: var basePath, Memory: var memory }
                 || request.Index < 0 || request.Index >= memory.Artifacts.Count
                 // Окно шлёт номер из памяти, прочитанной при его открытии; агент мог с тех пор переписать
                 // «Артефакты» — тогда под этим номером другой адрес, и открывать его нельзя.
                 || memory.Artifacts[request.Index].Address != request.Address)
                 return Results.NotFound();
 
-            // Адрес без корня — путь от копии задачи; ссылки на сайт открывает браузер, а не панель.
+            // artifacts/<имя> — путь от корня базы (раскладка кита), прочий адрес без корня — путь от копии
+            // задачи, как писали до кита с artifacts/; ссылки на сайт открывает браузер, а не панель.
             var address = memory.Artifacts[request.Index].Address;
             if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
                 return Results.BadRequest(new OpenArtifactFailedResponse("not-a-file"));
@@ -140,7 +142,11 @@ public static class OperatorEndpoints
             // хвост имени командой. Путь из памяти такой запрос не передаёт.
             if (address.IndexOfAny(CmdSpecial) >= 0)
                 return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
-            var path = Path.GetFullPath(Path.Combine(memory.Copy!, address));
+            var path = ArtifactFiles.InBase(address)
+                ? ArtifactFiles.PathIn(basePath, address)
+                : Path.GetFullPath(Path.Combine(memory.Copy!, address));
+            if (path is null)
+                return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
             // Артефактом бывает и папка: она открывается своим окном VS Code, как копия.
             var opened = File.Exists(path) ? windows.OpenFileAsync(memory.Copy!, path, cancellationToken)
                 : Directory.Exists(path) ? windows.OpenAsync(path, cancellationToken)
@@ -172,14 +178,14 @@ public static class OperatorEndpoints
 
     // Пишется только память копии из work/ базы, которая есть в списке баз панели:
     // путь к файлу панель не принимает, а собирает сама.
-    private static (string File, WorkMemory Memory)? FindMemory(BasesStore bases, string basePath, string copy)
+    private static (string Base, string File, WorkMemory Memory)? FindMemory(BasesStore bases, string basePath, string copy)
     {
         var configured = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, basePath));
         if (configured is null || !Directory.Exists(configured))
             return null;
 
         return WorkspaceCollector.MemoryFiles(configured).TryGetValue(WorkspaceCollector.Normalize(copy), out var found)
-            ? found
+            ? (configured, found.File, found.Memory)
             : null;
     }
 

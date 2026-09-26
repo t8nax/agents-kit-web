@@ -37,6 +37,8 @@ public sealed class OperatorEndpointsTests : IDisposable
         - черновик: docs/gone.md
         - отчёт: docs/R&D.md
         - макеты: design
+        - снимок: artifacts/B-1-снимок.png
+        - побег: artifacts/../product.md
 
         ## Оператору
 
@@ -116,6 +118,8 @@ public sealed class OperatorEndpointsTests : IDisposable
                 new TaskArtifact("черновик", "docs/gone.md"),
                 new TaskArtifact("отчёт", "docs/R&D.md"),
                 new TaskArtifact("макеты", "design"),
+                new TaskArtifact("снимок", "artifacts/B-1-снимок.png"),
+                new TaskArtifact("побег", "artifacts/../product.md"),
             ],
             response.Artifacts);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
@@ -514,7 +518,7 @@ public sealed class OperatorEndpointsTests : IDisposable
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(5)]
+    [InlineData(7)]
     public async Task OpenArtifact_UnknownIndex_IsNotFound(int index)
     {
         var response = await PostOpenArtifact(_base, _copy, index);
@@ -547,6 +551,41 @@ public sealed class OperatorEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal([design], _windows.Opened);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_FromBaseArtifacts_OpensFileOfBaseInCopyWindow()
+    {
+        // Кит держит файлы артефактов в artifacts/ базы, а ссылается на них путём от её корня.
+        var shot = Path.Combine(_base, "artifacts", "B-1-снимок.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(shot)!);
+        File.WriteAllBytes(shot, [1, 2, 3]);
+        Directory.CreateDirectory(Path.Combine(_copy, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_copy, "artifacts", "B-1-снимок.png"), [4]);
+
+        var response = await PostOpenArtifact(_base, _copy, 5);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(_copy, shot)], _windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_FromBaseArtifactsNotOnDisk_IsMissing()
+    {
+        var response = await PostOpenArtifact(_base, _copy, 5);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("missing", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_LeavingBaseArtifacts_IsNotOpened()
+    {
+        var response = await PostOpenArtifact(_base, _copy, 6);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("unsafe-path", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
         Assert.Empty(_windows.OpenedFiles);
     }
 
@@ -596,7 +635,8 @@ public sealed class OperatorEndpointsTests : IDisposable
     private Task<HttpResponseMessage> PostOpenWorkspace(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/workspace/open", new OpenWorkspaceRequest(basePath, copy));
 
-    private static readonly string[] ArtifactAddresses = ["https://claude.ai/artifact/AbC123", "docs/spec.md", "docs/gone.md", "docs/R&D.md", "design"];
+    private static readonly string[] ArtifactAddresses = ["https://claude.ai/artifact/AbC123", "docs/spec.md", "docs/gone.md", "docs/R&D.md", "design",
+        "artifacts/B-1-снимок.png", "artifacts/../product.md"];
 
     private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string copy, int index, string? address = null) =>
         _factory.CreateClient().PostAsJsonAsync("/api/artifact/open", new OpenArtifactRequest(
