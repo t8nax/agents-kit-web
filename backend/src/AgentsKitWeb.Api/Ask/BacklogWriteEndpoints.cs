@@ -69,7 +69,6 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     public async Task<AgentRequestSummary> StartAsync(string basePath, string text, string? number, IReadOnlyList<AttachedFile> files)
     {
         await DropUnusedAsync();
-        await ReleaseIndexAsync(basePath);
         var replies = Channel.CreateUnbounded<string>();
         var turn = new Turn(replies.Writer);
         var request = requests.Start(
@@ -312,7 +311,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     private async Task SayAsync(
         AgentRequest request, Turn turn, string text, string message, string? number, IReadOnlyList<AttachedFile> files)
     {
-        if (await RefusalAsync(request.Base) is { } refusal)
+        if (await RefusalAsync(request.Base, files.Count > 0) is { } refusal)
         {
             request.Reply(new BacklogWriteEvent("reply", text, Number: number));
             request.Write(refusal);
@@ -364,7 +363,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         turn.Replies.TryWrite(Message(message));
     }
 
-    private async Task<BacklogWriteEvent?> RefusalAsync(string basePath)
+    private async Task<BacklogWriteEvent?> RefusalAsync(string basePath, bool withFiles)
     {
         if (WorkspaceCollector.ReadCopies(basePath) is not { } copies || WorkspaceCollector.NewCopySource(copies) is null)
             return new BacklogWriteEvent("error", "Нет основной копии проекта на диске: агенту негде запустить навык записи");
@@ -378,13 +377,18 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                 return new BacklogWriteEvent("error", "В backlog.md базы есть незакоммиченная правка — просьба не отправлена");
         }
 
-        // Коммит агента с artifacts берёт всё незакоммиченное в каталоге: чужая правка там уехала бы с ним.
+        // Коммит агента с artifacts, которым уходят приложенные файлы, берёт всё незакоммиченное в каталоге: чужая
+        // правка там уехала бы с ним. Чужой индекс панель не трогает — реплика с файлами ждёт, пока его закоммитят;
+        // реплика без файлов коммитится только backlog.md, и её это не касается.
+        if (!withFiles)
+            return null;
         var changes = await BaseGit.ChangesAsync(basePath, ArtifactFiles.Folder, CancellationToken.None);
         if (changes is null)
             return new BacklogWriteEvent("error", "git не прочитал базу — просьба не отправлена");
         lock (_gate)
-            if (changes.Any(path => !_attached.Contains(path, StringComparer.OrdinalIgnoreCase)))
-                return new BacklogWriteEvent("error", "В artifacts/ базы есть чужая незакоммиченная правка — просьба не отправлена");
+            if (changes.FirstOrDefault(path => !_attached.Contains(path, StringComparer.OrdinalIgnoreCase)) is { } foreign)
+                return new BacklogWriteEvent(
+                    "error", $"В artifacts/ базы есть незакоммиченная правка {foreign} — приложить файл нельзя, пока её не закоммитят");
         return null;
     }
 
@@ -505,22 +509,6 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return;
         await BaseGit.ResetFilesAsync(basePath, unused, CancellationToken.None);
         ArtifactFiles.Delete(basePath, unused);
-    }
-
-    /// <summary>
-    /// Ход, оборванный остановкой панели, оставляет приложенный файл в индексе, а панель после перезапуска его уже не
-    /// помнит: новый разговор снимает с индекса добавленные, но не закоммиченные файлы artifacts/, на которые не
-    /// ссылается ни один .md базы. Файл остаётся на диске — без ссылки его назовёт сверка кита.
-    /// </summary>
-    private static async Task ReleaseIndexAsync(string basePath)
-    {
-        var added = new List<string>();
-        foreach (var address in await BaseGit.ChangesAsync(basePath, ArtifactFiles.Folder, CancellationToken.None) ?? [])
-            if (!await BaseGit.CommittedAsync(basePath, address, CancellationToken.None))
-                added.Add(address);
-        var loose = ArtifactFiles.Orphans(basePath, added, new Dictionary<string, string>());
-        if (loose.Count > 0)
-            await BaseGit.ResetFilesAsync(basePath, loose, CancellationToken.None);
     }
 
     private async Task RunAsync(

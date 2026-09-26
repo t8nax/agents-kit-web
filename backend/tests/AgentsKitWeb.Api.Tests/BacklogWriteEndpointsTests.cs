@@ -234,11 +234,12 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Write_NewTalkReleasesFileLeftInIndexWithoutReference()
+    public async Task Write_ForeignIndexInArtifactsDoesNotStopReplyWithoutFiles()
     {
-        // Ход оборвала остановка панели: файл остался в индексе, а новая панель его не помнит.
+        // В индексе чужой файл artifacts/ — соседняя сессия или ход, оборванный остановкой панели. Панель его не трогает,
+        // а реплика без файлов коммитится только backlog.md и уходит.
         Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
-        File.WriteAllText(Path.Combine(_base, "artifacts", "брошенный.txt"), "1");
+        File.WriteAllText(Path.Combine(_base, "artifacts", "чужой.txt"), "1");
         TestGit.Run(_base, "add", "artifacts");
         _agent.Answers = [[Result("ok")]];
         var client = Client(_base);
@@ -247,8 +248,52 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         var events = await Read(client, 2);
 
         Assert.Equal("answer", events[1].Type);
+        Assert.Equal("artifacts/чужой.txt", Git("-c", "core.quotepath=false", "diff", "--cached", "--name-only"));
+    }
+
+    [Fact]
+    public async Task Write_IndexRefusalTakesAttachedCopiesAway()
+    {
+        // git не принял файл в индекс (его держит соседний git): копия не остаётся в базе, реплика — без файла.
+        _agent.Answers = [[Result("ok")]];
+        var client = Client(_base);
+        var lockFile = Path.Combine(_base, ".git", "index.lock");
+        File.WriteAllText(lockFile, "");
+
+        using var started = await client.SendAsync(Post(_base, "приложи", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var events = await Read(client, 2);
+        File.Delete(lockFile);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "приложи"), events[0]);
+        Assert.Equal("error", events[1].Type);
+        Assert.StartsWith("git не принял приложенный файл", events[1].Text);
+        Assert.False(File.Exists(Path.Combine(_base, "artifacts", "лог.txt")));
+        Assert.Empty(_agent.Input);
+    }
+
+    [Fact]
+    public async Task Answer_TurnedIntoErrorAtEndOfTurnLeavesNoProposalToSave()
+    {
+        // Агент закоммитил только backlog.md со ссылкой и предложил правку, а докоммит файла панелью не прошёл: ответ
+        // становится ошибкой, и сохранять из него оператору нечего.
+        _agent.Answers = [[Result("Записал B-3.\n\n~~~backlog\nудалить B-2\n~~~")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.AppendAllText(BacklogPath, "\n## B-3 Новая\n\nТекст.\n\n### Артефакты\n- лог: artifacts/лог.txt\n");
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            File.WriteAllText(Path.Combine(_base, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "запиши", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("error", answer.Type);
+        Assert.Null(answer.Proposal);
         Assert.Equal("", Git("diff", "--cached", "--name-only"));
-        Assert.True(File.Exists(Path.Combine(_base, "artifacts", "брошенный.txt")));
     }
 
     [Fact]
@@ -318,15 +363,16 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
         File.WriteAllText(Path.Combine(_base, "artifacts", "чужой.txt"), "соседняя сессия");
         TestGit.Run(_base, "add", "artifacts/чужой.txt");
-        // Соседняя сессия уже сослалась на свой файл из памяти задачи: это не брошенный файл, и панель его не трогает.
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "work", "сосед.md"), "## Артефакты\n- лог: artifacts/чужой.txt\n");
         var client = Client(_base);
 
-        await Start(client, "запиши");
+        using var started = await client.SendAsync(Post(_base, "приложи", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
         var events = await Read(client, 2);
 
-        Assert.Equal(new BacklogWriteEvent("error", "В artifacts/ базы есть чужая незакоммиченная правка — просьба не отправлена"), events[1]);
+        Assert.Equal(
+            new BacklogWriteEvent("error", "В artifacts/ базы есть незакоммиченная правка artifacts/чужой.txt — приложить файл нельзя, пока её не закоммитят"),
+            events[1]);
+        Assert.False(File.Exists(Path.Combine(_base, "artifacts", "лог.txt")));
     }
 
     [Fact]
