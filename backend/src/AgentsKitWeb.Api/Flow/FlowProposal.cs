@@ -149,9 +149,17 @@ public static partial class FlowProposals
                 FlowStage? stage = null;
                 if (!delete)
                 {
-                    var slug = earlier >= 0 ? now.FirstOrDefault(s => FlowFolder.Key(s.Title) == FlowFolder.Key(name!))?.Slug : shown?.Slug;
+                    var was = earlier >= 0 ? now.FirstOrDefault(s => FlowFolder.Key(s.Title) == FlowFolder.Key(name!)) : shown;
+                    var slug = was?.Slug;
                     var (read, unread) = FlowFolder.ReadStage(text, slug ?? "");
-                    stage = read with { Slug = slug };
+                    // Переписанный этап агент возвращает и без исполнителя или выхода, когда меняет другое (B-256):
+                    // обязательное берётся из того, каким этап был. Пропуск и помощники не дописываются — их нет, значит убраны.
+                    stage = read with
+                    {
+                        Slug = slug,
+                        Executor = read.Executor.Trim().Length == 0 && was is not null ? was.Executor : read.Executor,
+                        Output = read.Output.Trim().Length == 0 && was is not null ? was.Output : read.Output,
+                    };
                     var label = stage.Title.Length > 0 ? $"«{stage.Title}»" : "без названия";
                     if (unread.Count > 0)
                         return Reject($"Этап {label} вернулся не в форме кита: {unread[0]}");

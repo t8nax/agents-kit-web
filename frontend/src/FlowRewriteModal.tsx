@@ -22,12 +22,14 @@ import './FlowRewriteModal.css'
 
 /**
  * Событие переписки о флоу: реплика оператора, ход агента, его ответ с правками, сбой или слово панели. У ответа
- * proposal — все правки переписки, changed — сколько тронул он сам; у ответа-вопроса changed нет.
+ * proposal — все правки переписки, changed — сколько тронул он сам; у ответа-вопроса changed нет. rework — ответ
+ * не в форме кита, и панель сама вернула его агенту на доработку (B-256).
  */
 export type RewriteEvent =
   | { type: 'reply'; text: string }
   | { type: 'step'; text: string }
   | { type: 'note'; text: string }
+  | { type: 'rework'; text: string }
   | { type: 'stopped'; text: string }
   | { type: 'answer'; text: string; durationMs?: number; proposal?: FlowProposal; changed?: FlowChanged }
   | { type: 'error'; text: string; output?: string }
@@ -83,12 +85,12 @@ function readSeen(key: string | null) {
   }
 }
 
-/** Ход работы нынешней реплики: шаги, набежавшие после последней реплики оператора. */
+/** Ход работы нынешней реплики: шаги, набежавшие после последней реплики оператора или возврата на доработку. */
 function stepsOfTurn(events: RewriteEvent[]) {
   const steps: string[] = []
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i]
-    if (event.type === 'reply') break
+    if (event.type === 'reply' || event.type === 'rework') break
     if (event.type === 'step') steps.unshift(event.text)
   }
   return steps
@@ -116,6 +118,8 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
   const started = events.length > 0
   const value = text ?? (foreign ? '' : (retry ?? ''))
   const steps = running && !foreign ? stepsOfTurn(events) : []
+  // Ответ вернули на доработку: агент дописывает его, а не читает флоу заново.
+  const reworking = running && events.findLast((event) => event.type !== 'step')?.type === 'rework'
   const talk = useRef<HTMLDivElement>(null)
   const seenKey = conversation.id && !foreign ? `flow-rewrite-seen:${conversation.id}` : null
   const seen = Math.max(seenNow, readSeen(seenKey))
@@ -303,7 +307,7 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
               <div className="ask-waiting" role="status">
                 <span className="ask-spinner" aria-hidden="true" />
                 <span className="ask-waiting-text">
-                  {AGENT_NAME} читает флоу {project}…
+                  {reworking ? `${AGENT_NAME} дописывает ответ…` : `${AGENT_NAME} читает флоу ${project}…`}
                 </span>
                 {startedAt !== null && <Elapsed since={startedAt} />}
               </div>
@@ -498,6 +502,16 @@ function Said({ event, onChanges }: { event: RewriteEvent; onChanges: () => void
         <span>Флоу не менялся, прежние правки и переписка остались.</span>
         {event.output && <pre>{event.output}</pre>}
       </div>
+    )
+  }
+
+  // Ответ, вернутый на доработку, остаётся одной строкой панели: его текста в переписке нет (макет B-256, вариант А).
+  if (event.type === 'rework') {
+    return (
+      <p className="rework-note">
+        <ReturnIcon />
+        <span>{event.text}</span>
+      </p>
     )
   }
 
@@ -715,6 +729,15 @@ function ChevronIcon() {
   return (
     <svg className="rewrite-chevron" viewBox="0 0 24 24" aria-hidden="true">
       <polyline points="9 6 15 12 9 18" />
+    </svg>
+  )
+}
+
+function ReturnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="9 14 4 9 9 4" />
+      <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
     </svg>
   )
 }

@@ -150,6 +150,23 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Rewrite_AsksAgentForWholeStagesWithPerformerAndOutput()
+    {
+        _agent.Answers = [[Result("ok")]];
+        var client = await Client();
+
+        await Start(client, "Поправь описание ревью");
+        await Read(client, 2);
+
+        var args = _agent.Starts[0].ArgumentList.ToList();
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        // Агент возвращал этап без выхода, когда менял одну строку (B-256): полный этап требуется прямо.
+        Assert.Contains("исполнитель и выход всегда", prompt);
+        Assert.Contains("даже если меняется одно слово", prompt);
+        Assert.Contains("каждый целиком, а не одни поменявшиеся строки", prompt);
+    }
+
+    [Fact]
     public async Task Rewrite_GivesWholeFlowTasksAndPerformersInFirstReply()
     {
         Directory.CreateDirectory(Path.Combine(_base, "work"));
@@ -264,17 +281,66 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Answer_ThatWriteWouldNotAccept_IsErrorWithAgentWords()
+    public async Task Answer_ThatWriteWouldNotAccept_GoesBackToAgentOnceForRework()
     {
-        _agent.Answers = [[Result("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\nвыход: есть\n")]];
+        _agent.Answers =
+        [
+            [Result("Завёл документацию.\n=== новый этап\n# Документация\n\nисполнитель: оркестратор\n")],
+            [Result("Дописал выход.\n=== новый этап\n# Документация\n\nисполнитель: оркестратор\nвыход: раздел\n")],
+        ];
         var client = await Client();
 
-        await Start(client, "Поправь сборку", [Review], []);
-        var events = await Read(client, 2);
+        await Start(client, "Добавь документацию", [Review], []);
+        var events = await Read(client, 3);
 
-        Assert.Equal("error", events[1].Type);
-        Assert.Equal("Чудо-Юдо предложил правку этапа «Сборка», которого во флоу нет", events[1].Text);
-        Assert.StartsWith("=== этап «Сборка»", events[1].Output);
+        // Неполный этап не пропадает ошибкой: панель сама возвращает ответ агенту в той же переписке (B-256).
+        Assert.Equal(
+            new FlowRewriteEvent(
+                "rework",
+                "Этап «Документация» вернулся не в форме кита: не указан выход. Панель вернула ответ Чудо-Юдо на доработку."),
+            events[1]);
+        Assert.Single(_agent.Starts);
+        var rework = Text(_agent.Input[1]);
+        Assert.StartsWith("Панель не приняла твой ответ: Этап «Документация» вернулся не в форме кита: не указан выход.", rework);
+        Assert.Contains("каждый этап целиком", rework);
+        Assert.Equal("answer", events[2].Type);
+        Assert.Equal("Дописал выход.", events[2].Text);
+        // Время ответа — вся реплика: и отвергнутый ответ, и доработка.
+        Assert.Equal(2 * 9200, events[2].DurationMs);
+        Assert.Equal(new FlowChanged(0, 1), events[2].Changed);
+        Assert.Equal("раздел", Assert.Single(events[2].Proposal!.Stages).Stage!.Output);
+    }
+
+    [Fact]
+    public async Task Answer_ThatWriteWouldNotAcceptTwice_IsErrorWithAgentWords()
+    {
+        _agent.Answers =
+        [
+            [Result("=== новый этап\n# Документация\n\nисполнитель: оркестратор\nвыход: раздел\n")],
+            [Result("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\nвыход: есть\n")],
+            [Result("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\n")],
+            [Result("=== новый этап\n# Заметки\n\nисполнитель: оператор\n")],
+            [Result("Дописал.\n=== новый этап\n# Заметки\n\nисполнитель: оператор\nвыход: заметка\n")],
+        ];
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review], []);
+        await Read(client, 2);
+        await Reply(client, "И поправь сборку", [Review], []);
+        var events = await Read(client, 5);
+
+        Assert.Equal("rework", events[3].Type);
+        // Со второго раза не вышло — ошибка со словами агента, и третий раз ответ ему не возвращается.
+        Assert.Equal("error", events[4].Type);
+        Assert.Equal("Чудо-Юдо предложил правку этапа «Сборка», которого во флоу нет", events[4].Text);
+        Assert.StartsWith("=== этап «Сборка»", events[4].Output);
+        Assert.Equal(3, _agent.Input.Count);
+        // Договорённое раньше осталось, а следующая реплика снова может уйти на доработку.
+        await Reply(client, "Тогда заведи заметки", [Review], []);
+        events = await Read(client, 8);
+        Assert.Equal("rework", events[6].Type);
+        Assert.Equal("answer", events[7].Type);
+        Assert.Equal(["Документация", "Заметки"], events[7].Proposal!.Stages.Select(s => s.Stage!.Title));
     }
 
     [Fact]
