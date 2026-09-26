@@ -140,6 +140,52 @@ public sealed class OperatorEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Answers_AttachedFileGoesToBaseArtifactsAndItsAddressIntoAnswer()
+    {
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "принимаю", [File64("Снимок экрана.png", 3)]),
+            new OperatorAnswer("Как быть с переносами?", "", [File64("лог.txt", 1), File64("лог.txt", 2)]));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var memory = WorkMemory.Parse(await File.ReadAllTextAsync(_memoryPath));
+        Assert.Equal(
+            ["принимаю — файл: artifacts/Снимок-экрана.png", "файлы: artifacts/лог.txt, artifacts/лог-2.txt", "да"],
+            memory.Questions.Select(q => q.Answer));
+        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(_base, "artifacts", "Снимок-экрана.png")));
+        Assert.Equal([0, 1], File.ReadAllBytes(Path.Combine(_base, "artifacts", "лог-2.txt")));
+        Assert.False(Directory.Exists(Path.Combine(_copy, "artifacts")));
+    }
+
+    [Fact]
+    public async Task Answers_TooLargeFile_IsRefusedAndWritesNothing()
+    {
+        var before = await File.ReadAllTextAsync(_memoryPath);
+
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "принимаю", [File64("видео.mp4", 5 * 1024 * 1024 + 1)]),
+            new OperatorAnswer("Как быть с переносами?", "пробелами"));
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Equal(new AttachRejected("видео.mp4", "too-large"), await response.Content.ReadFromJsonAsync<AttachRejected>());
+        Assert.Equal(before, await File.ReadAllTextAsync(_memoryPath));
+        Assert.False(Directory.Exists(Path.Combine(_base, "artifacts")));
+    }
+
+    [Fact]
+    public async Task Answers_RejectedAnswersTakeTheirFilesAway()
+    {
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "принимаю", [File64("снимок.png", 3)]),
+            new OperatorAnswer("Старый вопрос?", "ещё раз"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "artifacts")));
+    }
+
+    private static AttachedFile File64(string name, int length) =>
+        new(name, Convert.ToBase64String(Enumerable.Range(0, length).Select(i => (byte)i).ToArray()));
+
+    [Fact]
     public async Task Answers_EmptyAnswer_IsBadRequestAndWritesNothing()
     {
         var before = await File.ReadAllTextAsync(_memoryPath);
@@ -702,6 +748,9 @@ public sealed class OperatorEndpointsTests : IDisposable
     private Task<HttpResponseMessage> PostAnswers(string basePath, string copy, params (string Question, string Answer)[] answers) =>
         _factory.CreateClient().PostAsJsonAsync("/api/answers",
             new AnswersRequest(basePath, copy, answers.Select(a => new OperatorAnswer(a.Question, a.Answer)).ToList()));
+
+    private Task<HttpResponseMessage> PostAnswers(string basePath, string copy, params OperatorAnswer[] answers) =>
+        _factory.CreateClient().PostAsJsonAsync("/api/answers", new AnswersRequest(basePath, copy, answers));
 
     public void Dispose()
     {

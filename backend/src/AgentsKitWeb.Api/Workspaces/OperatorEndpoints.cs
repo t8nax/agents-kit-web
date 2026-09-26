@@ -163,8 +163,30 @@ public static class OperatorEndpoints
         {
             if (FindMemory(bases, request.Base, request.Copy) is not { } found)
                 return Results.NotFound();
+            if (ArtifactFiles.Check([.. request.Answers.SelectMany(a => a.Files ?? [])]) is { } tooLarge)
+                return Results.Json(tooLarge, statusCode: StatusCodes.Status413PayloadTooLarge);
 
-            var rejection = await OperatorAnswers.WriteAsync(found.File, request.Answers, cancellationToken);
+            // Приложенные файлы ложатся копиями в artifacts/ базы до записи ответов, их адреса — в строку ответа;
+            // в git их кладёт сессия, которая вберёт ответ. Ответы не записались — файлы уходят с диска.
+            var number = found.Memory.Task?.Split(' ', 2)[0] is { } first ? BacklogNumber.Normalize(first) : null;
+            var saved = new List<string>();
+            var answers = new List<OperatorAnswer>();
+            foreach (var answer in request.Answers)
+            {
+                IReadOnlyList<string> addresses = [];
+                if (answer.Files is { Count: > 0 } files)
+                {
+                    // Размер и содержимое уже проверены выше: отказа здесь не бывает.
+                    addresses = (await ArtifactFiles.SaveAsync(found.Base, files, number, cancellationToken)).Addresses ?? [];
+                    saved.AddRange(addresses);
+                }
+                answers.Add(answer with { Answer = OperatorAnswers.WithFiles(answer.Answer, addresses), Files = null });
+            }
+
+            var rejection = await OperatorAnswers.WriteAsync(found.File, answers, cancellationToken);
+            if (rejection is not null)
+                foreach (var path in saved)
+                    File.Delete(Path.Combine(found.Base, path));
             return rejection switch
             {
                 null => Results.NoContent(),
