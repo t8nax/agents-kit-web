@@ -463,6 +463,28 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    /// <summary>Сессия VS Code копии тоже читает ответ и ведёт задачу — вторая рядом с ней не нужна.</summary>
+    [Fact]
+    public async Task ContinueSession_VsCodeSessionAlive_IsRefused()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        File.WriteAllText(
+            Path.Combine(_sessionsDir, $"{Environment.ProcessId}.json"),
+            JsonSerializer.Serialize(new
+            {
+                pid = Environment.ProcessId,
+                cwd = _copy,
+                entrypoint = "claude-vscode",
+                procStart = Process.GetCurrentProcess().StartTime.ToFileTimeUtc().ToString(),
+            }));
+
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("session-alive", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
     /// <summary>Заведённая сессия ещё не в реестре — повторный запрос не заводит вторую рядом с ней.</summary>
     [Fact]
     public async Task ContinueSession_RepeatedBeforeSessionReachedRegistry_IsRefusedUntilTheGraceEnds()
