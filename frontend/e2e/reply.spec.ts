@@ -246,6 +246,31 @@ test('свёрнутые вопросы одинаковы, у варианто�
   expect(await size('.field-error svg')).toEqual([14, 14])
 })
 
+test('артефакт из artifacts/ базы — путь файла: щелчок просит панель открыть его тем же адресом', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')], {
+    artifacts: [{ label: 'снимок окна', address: 'artifacts/B-7-снимок.png' }],
+  })
+  let opened: unknown = null
+  await page.route('**/api/artifact/open', async (route) => {
+    opened = route.request().postDataJSON()
+    await route.fulfill({ status: 204 })
+  })
+
+  await page.goto('/')
+  const dialog = await openReply(page)
+  await dialog.getByRole('tab', { name: 'Артефакты' }).click()
+  await dialog.getByRole('button', { name: 'artifacts/B-7-снимок.png' }).click()
+
+  await expect.poll(() => opened).toEqual({
+    base: row().base,
+    copy: row().path,
+    index: 0,
+    address: 'artifacts/B-7-снимок.png',
+  })
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+})
+
 test('контекст и артефакты — вкладками в шапке: растянуты на всё окно, без строки ответа, окон поверх нет', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?')], {
