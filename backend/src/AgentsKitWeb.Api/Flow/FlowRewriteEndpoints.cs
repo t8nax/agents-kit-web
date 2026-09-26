@@ -163,7 +163,7 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
     private static void Say(AgentRequest request, Turn turn, string text, string message)
     {
         request.Reply(new FlowRewriteEvent("reply", text));
-        turn.Reworked = false;
+        turn.ReworkedMs = null;
         turn.Timeout.CancelAfter(Answer);
         turn.Replies.TryWrite(Message(message));
     }
@@ -220,16 +220,19 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         lock (_gate)
         {
             var taken = FlowProposals.Take(answer.Text, _screen!.Stages, _screen.Flows, _proposal);
-            if (taken.Error is { } error && !turn.Reworked)
+            if (taken.Error is { } error && turn.ReworkedMs is null)
             {
-                turn.Reworked = turn.Reworking = true;
+                turn.ReworkedMs = answer.DurationMs ?? 0;
+                turn.Reworking = true;
                 turn.Replies.TryWrite(Message(FlowRewriteEndpoints.Rework(error)));
                 return new FlowRewriteEvent("rework", $"{error}. Панель вернула ответ {AgentRequests.AgentName} на доработку.");
             }
             if (taken.Error is { } again)
                 return new FlowRewriteEvent("error", again, Output: FlowRewriteEndpoints.Shorten(answer.Text));
             _proposal = taken.Proposal;
-            return new FlowRewriteEvent("answer", taken.Said, answer.DurationMs, Proposal: taken.Proposal, Changed: taken.Changed);
+            // Время ответа — вся реплика: у дописанного ответа Claude Code считает только круг доработки.
+            var duration = answer.DurationMs + turn.ReworkedMs ?? answer.DurationMs;
+            return new FlowRewriteEvent("answer", taken.Said, duration, Proposal: taken.Proposal, Changed: taken.Changed);
         }
     }
 
@@ -284,8 +287,11 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
 
         public bool Stopped { get; set; }
 
-        /// <summary>Ответ на эту реплику уже возвращали на доработку: второй раз панель его не возвращает.</summary>
-        public bool Reworked { get; set; }
+        /// <summary>
+        /// Ответ на эту реплику уже возвращали на доработку — сколько шёл отвергнутый ответ; второй раз панель его
+        /// не возвращает. null — не возвращали.
+        /// </summary>
+        public long? ReworkedMs { get; set; }
 
         /// <summary>Доработку только что попросили: агент отвечает снова, и отсчёт ответа идёт заново.</summary>
         public bool Reworking { get; set; }
@@ -384,7 +390,8 @@ public static class FlowRewriteEndpoints
             Название в пометке — нынешнее, с учётом правок, предложенных раньше в этой переписке. Пункт сценария
             ссылается на этап его названием; адрес ссылки для нового этапа — любой вида stages/<файл>.md.
             Удалённый этап убери и из сценариев, где он стоит. Блоками предлагай только те этапы и сценарии, которые
-            меняешь этим ответом, — каждый целиком, а не одни поменявшиеся строки: прежние правки панель помнит сама. Файлы менять нельзя: правки запишет панель, и только с согласия оператора.
+            меняешь этим ответом, — каждый целиком, а не одни поменявшиеся строки: прежние правки панель помнит сама.
+            Файлы менять нельзя: правки запишет панель, и только с согласия оператора.
             Ниже правила кита о форме сценария и этапа; им правки и должны отвечать.
 
             {rules}

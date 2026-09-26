@@ -305,6 +305,8 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         Assert.Contains("каждый этап целиком", rework);
         Assert.Equal("answer", events[2].Type);
         Assert.Equal("Дописал выход.", events[2].Text);
+        // Время ответа — вся реплика: и отвергнутый ответ, и доработка.
+        Assert.Equal(2 * 9200, events[2].DurationMs);
         Assert.Equal(new FlowChanged(0, 1), events[2].Changed);
         Assert.Equal("раздел", Assert.Single(events[2].Proposal!.Stages).Stage!.Output);
     }
