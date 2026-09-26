@@ -242,6 +242,56 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_DeletingEntryRemovesItsArtifactsNobodyElseReferences()
+    {
+        // B-2 несёт два файла: снимок только у неё, лог ещё и у памяти задачи — он остаётся.
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(
+            "Текст второй записи.\n",
+            "Текст второй записи.\n\n### Артефакты\n- снимок: artifacts/B-2-снимок.png\n- лог: artifacts/B-2-лог.txt\n- макет: https://claude.ai/artifact/AbC\n"));
+        Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllBytes(Path.Combine(_base, "artifacts", "B-2-снимок.png"), [1, 2, 3]);
+        File.WriteAllText(Path.Combine(_base, "artifacts", "B-2-лог.txt"), "лог");
+        File.WriteAllText(Path.Combine(_base, "work", "app.md"), "# B-9\n\n## Артефакты\n- лог: artifacts/B-2-лог.txt\n");
+        TestGit.Run(_base, "add", ".");
+        TestGit.Run(_base, "commit", "-m", "артефакты");
+        _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "удали B-2");
+        var answer = (await Read(client, 2))[1];
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Null(saved.Error);
+        Assert.False(File.Exists(Path.Combine(_base, "artifacts", "B-2-снимок.png")));
+        Assert.True(File.Exists(Path.Combine(_base, "artifacts", "B-2-лог.txt")));
+        Assert.Equal("", Git("status", "--porcelain"));
+        Assert.Equal("D\tartifacts/B-2-снимок.png\nM\tbacklog.md", Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
+    }
+
+    [Fact]
+    public async Task Save_RefusedCommitReturnsDeletedArtifacts()
+    {
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(
+            "Текст второй записи.\n", "Текст второй записи.\n\n### Артефакты\n- снимок: artifacts/B-2-снимок.png\n"));
+        Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_base, "artifacts", "B-2-снимок.png"), [1, 2, 3]);
+        TestGit.Run(_base, "add", ".");
+        TestGit.Run(_base, "commit", "-m", "артефакты");
+        _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "удали B-2");
+        var answer = (await Read(client, 2))[1];
+        File.WriteAllText(Path.Combine(_base, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal("Коммит не прошёл — backlog.md оставлен как был", saved.Error);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(_base, "artifacts", "B-2-снимок.png")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
     public async Task Save_RefusesEntryChangedAfterAnswer()
     {
         _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];

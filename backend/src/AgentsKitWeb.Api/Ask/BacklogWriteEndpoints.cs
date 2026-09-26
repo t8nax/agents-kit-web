@@ -190,31 +190,66 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         if (text is null)
             return new BacklogSaved(null, $"Запись {diverged} изменилась после ответа {AgentRequests.AgentName} — ничего не записано");
 
-        try
+        // Файлы artifacts/ записей, которые правка удалила или переписала без них, уходят тем же коммитом,
+        // если на них больше никто не ссылается (раскладка кита, «Артефакты»); неотслеживаемый файл git не удалит.
+        var orphans = new List<(string Path, byte[] Bytes)>();
+        var addresses = proposal.Changes
+            .SelectMany(c => Backlog.Parse(c.Original) is [var original, ..] ? original.Artifacts ?? [] : [])
+            .Select(a => a.Address);
+        foreach (var orphan in ArtifactFiles.Orphans(basePath, addresses, new Dictionary<string, string> { [BacklogWriteEndpoints.BacklogFile] = text }))
         {
-            await File.WriteAllBytesAsync(file, FlowFolder.Encode(text, hasBom));
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return new BacklogSaved(null, $"backlog.md не записан: {e.Message}");
-        }
-
-        var commit = await BaseGit.CommitFileAsync(basePath, BacklogWriteEndpoints.BacklogFile, SaveMessage, CancellationToken.None);
-        if (commit.Error is { } refused)
-        {
-            // Незакоммиченная правка прихватилась бы чужим коммитом соседней сессии: файл возвращается как был.
+            if (!await BaseGit.TrackedAsync(basePath, orphan, CancellationToken.None))
+                continue;
             try
             {
-                await File.WriteAllBytesAsync(file, before);
+                orphans.Add((orphan, await File.ReadAllBytesAsync(Path.Combine(basePath, orphan))));
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                return new BacklogSaved(null, "Коммит не прошёл, и backlog.md не вернулся как был", $"{refused}\n{e.Message}");
+                return new BacklogSaved(null, $"{orphan} не прочитан: {e.Message}");
             }
+        }
+
+        try
+        {
+            await File.WriteAllBytesAsync(file, FlowFolder.Encode(text, hasBom));
+            foreach (var (path, _) in orphans)
+                File.Delete(Path.Combine(basePath, path));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            var back = await RestoreAsync(basePath, file, before, orphans);
+            return new BacklogSaved(null, back is null ? $"backlog.md не записан: {e.Message}" : "backlog.md не записан и не вернулся как был", back);
+        }
+
+        var commit = await BaseGit.CommitFilesAsync(
+            basePath, [BacklogWriteEndpoints.BacklogFile, .. orphans.Select(o => o.Path)], SaveMessage, CancellationToken.None);
+        if (commit.Error is { } refused)
+        {
+            // Незакоммиченная правка прихватилась бы чужим коммитом соседней сессии: файлы возвращаются как были.
+            if (await RestoreAsync(basePath, file, before, orphans) is { } failed)
+                return new BacklogSaved(null, "Коммит не прошёл, и backlog.md не вернулся как был", $"{refused}\n{failed}");
             return new BacklogSaved(null, "Коммит не прошёл — backlog.md оставлен как был", refused);
         }
 
         return new BacklogSaved(await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None), null);
+    }
+
+    // backlog.md и удалённые файлы артефактов — как до записи; null — вернулось, иначе — что помешало.
+    private static async Task<string?> RestoreAsync(
+        string basePath, string file, byte[] before, IReadOnlyList<(string Path, byte[] Bytes)> orphans)
+    {
+        try
+        {
+            await File.WriteAllBytesAsync(file, before);
+            foreach (var (path, bytes) in orphans)
+                await File.WriteAllBytesAsync(Path.Combine(basePath, path), bytes);
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return e.Message;
+        }
     }
 
     private Turn Restart(AgentRequest request)
