@@ -75,8 +75,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             _pending = null;
             _about = number;
         }
-        // Навык кита зовётся первой репликой: дальше разговор идёт в нём же.
-        await SayAsync(request, turn, text, Skill(number, text), number);
+        // Навык кита зовётся первой репликой: дальше разговор идёт в нём же. Агент, кончившийся до неё, не
+        // поднялся вовсе, и нового ради неё не поднимают: сбой запуска работа уже записала в переписку.
+        await SayAsync(request, turn, text, Skill(number, text), number, retried: true);
         return request.Summary;
     }
 
@@ -94,12 +95,14 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             if (_pending is { Saving: true })
                 return AskReplied.Answering;
             turn = _turn?.Request == request && request.Working && !_turn.Ended ? _turn : null;
+            // Пока идёт проверка перед отправкой, кончившийся агент не пишет провал: реплику получит новый.
+            turn?.Coming = true;
             // Новая просьба заменяет несохранённое предложение: сохранять его больше нечего.
             _pending = null;
         }
 
         turn ??= Restart(request);
-        await SayAsync(request, turn, text, text, null);
+        await SayAsync(request, turn, text, text, null, retried: false);
         return AskReplied.Sent;
     }
 
@@ -235,14 +238,20 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
 
     /// <summary>
     /// Агент кончился: его очередь реплик больше не принимает. Возвращает реплику, которая в ней осталась, — её
-    /// агент так и не прочёл.
+    /// агент так и не прочёл. Реплика, которая ещё на проверке перед отправкой, получает нового агента, поднятого
+    /// здесь же: его работа идёт раньше, чем кончится прежняя, и просьба не закрывается провалом.
     /// </summary>
-    private string? End(Turn turn, ChannelReader<string> replies)
+    private (string? Left, bool HandedOver) End(Turn turn, ChannelReader<string> replies, AgentRequest request)
     {
         lock (_gate)
         {
             turn.Ended = true;
-            return replies.TryRead(out _) ? turn.Said : null;
+            if (replies.TryRead(out _))
+                return (turn.Said, false);
+            if (!turn.Coming)
+                return (null, false);
+            turn.Next = Restart(request, retried: true);
+            return (null, true);
         }
     }
 
@@ -253,16 +262,18 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     private static string Skill(string? number, string text) =>
         number is null ? $"/agents-kit:backlog {text}" : $"/agents-kit:backlog Про запись {number}: {text}";
 
-    private async Task SayAsync(AgentRequest request, Turn turn, string text, string message, string? number)
+    private async Task SayAsync(AgentRequest request, Turn turn, string text, string message, string? number, bool retried)
     {
         request.Reply(new BacklogWriteEvent("reply", text, Number: number));
         if (await RefusalAsync(request.Base) is { } refusal)
         {
+            lock (_gate)
+                turn.Coming = false;
             request.Write(refusal);
             return;
         }
 
-        Deliver(request, turn, message, Backlog.Blocks(ReadText(request.Base)!), retried: false);
+        Deliver(request, turn, message, Backlog.Blocks(ReadText(request.Base)!), retried);
     }
 
     /// <summary>
@@ -276,10 +287,16 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         {
             lock (_gate)
             {
+                if (turn is { Ended: true, Next: { } next })
+                {
+                    turn = next;
+                    retried = true;
+                }
                 if (!turn.Ended || retried)
                 {
                     turn.Before = before;
                     turn.Said = message;
+                    turn.Coming = false;
                     turn.Timeout.CancelAfter(Answer);
                     turn.Replies.TryWrite(Message(turn.Restarted ? Skill(_about, message) : message));
                     turn.Restarted = false;
@@ -287,7 +304,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                 }
             }
 
-            turn = Restart(request);
+            turn = Restart(request, retried: true);
             retried = true;
         }
     }
@@ -317,7 +334,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var copy = WorkspaceCollector.ReadCopies(basePath) is { } copies ? WorkspaceCollector.NewCopySource(copies) : null;
         if (copy is null)
         {
-            End(turn, replies);
+            End(turn, replies, writing);
             return;
         }
 
@@ -344,18 +361,27 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                     }
                 },
                 linked.Token);
-            if (End(turn, replies) is { } left && !turn.Retried)
+            var (left, handedOver) = End(turn, replies, writing);
+            if (left is not null && !turn.Retried)
             {
-                // Реплика легла в очередь, когда агент уже кончался, и он её не прочёл: её получает новый.
-                Deliver(writing, Restart(writing, retried: true), left, turn.Before, retried: true);
+                // Реплика легла в очередь, когда агент уже кончался, и он её не прочёл: её получает новый, если
+                // оператор не остановил ответ. Дошедшую до stdin выходящего процесса не вернуть — она кончится
+                // провалом ниже.
+                if (turn.Stopped)
+                    writing.Write(new BacklogWriteEvent(
+                        "stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
+                else
+                    Deliver(writing, Restart(writing, retried: true), left, turn.Before, retried: true);
                 return;
             }
+            if (handedOver)
+                return;
             if (!writing.Finished)
                 writing.Write(await OutcomeAsync(basePath, turn, writing, null, Failure(exit, stream)));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            End(turn, replies);
+            End(turn, replies, writing);
             writing.Write(await OutcomeAsync(basePath, turn, writing, null, turn.Stopped
                 ? new BacklogWriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
                 : new BacklogWriteEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен")));
@@ -517,6 +543,12 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
 
         /// <summary>Процесс кончился: реплика в его очередь уже не идёт. Меняется только под блокировкой разговора.</summary>
         public bool Ended { get; set; }
+
+        /// <summary>Реплика выбрала этот процесс и идёт к нему через проверку перед отправкой.</summary>
+        public bool Coming { get; set; }
+
+        /// <summary>Процесс, поднятый вместо кончившегося для реплики, которая шла к этому.</summary>
+        public Turn? Next { get; set; }
 
         /// <summary>Нынешняя реплика без приставки навыка: не прочтённую агентом получает новый.</summary>
         public string? Said { get; set; }

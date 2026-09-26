@@ -188,6 +188,38 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_WhenAgentEndsDuringCheckBeforeSendingRaisesNewAgentWithoutError()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agent.BeforeExit = () =>
+        {
+            ended.TrySetResult();
+            return exit.Task;
+        };
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        await ended.Task.WaitAsync(Wait);
+        var sending = Reply(client, "ещё одна");
+        // Реплика встала в переписку, и панель проверяет базу перед отправкой: агент кончается в это время.
+        await Read(client, 3);
+        exit.SetResult();
+        using (var response = await sending)
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var events = await Read(client, 5);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[2]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[3]);
+        Assert.Equal("answer", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
+    }
+
+    [Fact]
     public async Task Reply_WhileAgentEndsRaisesNewAgent()
     {
         _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];
