@@ -371,7 +371,8 @@ if ($system -and $system -match 'правишь флоу проекта') {
     while ($null -ne ($line = $stdinReader.ReadLine())) {
         if (-not $line.Trim()) { continue }
         $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text) -replace "`r`n", "`n" } catch { $line }
-        $turn++
+        # Просьба панели дописать ответ — не реплика оператора: счёт реплик она не двигает.
+        if ($said -notmatch '^Панель не приняла твой ответ') { $turn++ }
         Write-Step 'Read' @{ file_path = 'flow/scenarios.md' }
         Write-Step 'Glob' @{ pattern = 'flow/stages/*.md' }
         if ($mode -eq 'truncated') { exit 0 }
