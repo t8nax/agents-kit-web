@@ -101,7 +101,8 @@ test('заготовка мерцает, содержимое проявляет
 test('быстрая загрузка не мигает: ни полос, ни проявления — таблица встаёт сразу', async ({ page }) => {
   const animations = await recordAnimations(page)
   // Каждая правка страницы отмечает, была ли видна хоть одна полоса: мигание длится доли секунды.
-  // Наблюдатель правок, а не кадры: под остановленными часами кадры страницы стоят.
+  // Наблюдатель правок, а не кадры: под остановленными часами кадры страницы стоят. Правку он видит,
+  // потому что полосы показывает снятие класса заготовки (sk-wait), а не задержка в CSS.
   await page.addInitScript(() => {
     Object.assign(window, { barsSeen: false })
     new MutationObserver(() => {
@@ -117,8 +118,11 @@ test('быстрая загрузка не мигает: ни полос, ни �
   await page.goto('/')
 
   await expect(page.getByRole('button', { name: 'Свернуть agents-kit-web' })).toBeVisible()
-  // Срок заготовки выходит уже над прочитанной таблицей: ни полос, ни проявления
+  // Срок заготовки выходит уже над прочитанной таблицей: ни полос, ни проявления. Проявление, взведённое
+  // запоздавшим сроком, начнётся только в настоящем кадре — часы идут дальше, и кадры дожидаются.
   await page.clock.runFor(1000)
+  await page.clock.resume()
+  await nextFrames(page)
   expect(await page.evaluate(() => (window as unknown as { barsSeen: boolean }).barsSeen)).toBe(false)
   expect(await animations.names()).not.toContain('loaded-in')
 })
