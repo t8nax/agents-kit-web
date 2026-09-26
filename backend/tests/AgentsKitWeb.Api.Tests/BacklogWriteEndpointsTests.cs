@@ -205,6 +205,53 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_DeclinedFileDoesNotRideWithNextFileCommit()
+    {
+        // Первый файл оператор отозвал словами, ко второй реплике приложил другой: коммит агента с artifacts
+        // берёт только файл этой реплики.
+        _agent.Answers = [[Result("Это к B-1?")], [Result("Записал B-3.")]];
+        _agent.BeforeLine = _ =>
+        {
+            if (_agent.Input.Count != 2)
+                return Task.CompletedTask;
+            File.AppendAllText(BacklogPath, "\n## B-3 Новая\n\nТекст.\n\n### Артефакты\n- лог: artifacts/лог.txt\n");
+            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md", "artifacts");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок", files: [Shot("снимок.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        await Read(client, 2);
+        using var replied = await client.PostAsJsonAsync(
+            "/api/backlog/write/reply", new BacklogReplyRequest("снимок не нужен, запиши новую с логом", [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.NoContent, replied.StatusCode);
+        Assert.Equal("answer", (await Read(client, 4))[3].Type);
+
+        Assert.Equal("A\tartifacts/лог.txt\nM\tbacklog.md", Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+        Assert.True(File.Exists(Path.Combine(_base, "artifacts", "снимок.png")));
+    }
+
+    [Fact]
+    public async Task Write_NewTalkReleasesFileLeftInIndexWithoutReference()
+    {
+        // Ход оборвала остановка панели: файл остался в индексе, а новая панель его не помнит.
+        Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
+        File.WriteAllText(Path.Combine(_base, "artifacts", "брошенный.txt"), "1");
+        TestGit.Run(_base, "add", "artifacts");
+        _agent.Answers = [[Result("ok")]];
+        var client = Client(_base);
+
+        await Start(client, "запиши");
+        var events = await Read(client, 2);
+
+        Assert.Equal("answer", events[1].Type);
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+        Assert.True(File.Exists(Path.Combine(_base, "artifacts", "брошенный.txt")));
+    }
+
+    [Fact]
     public async Task Save_CommitsAttachedFileTheProposalReferences()
     {
         // Файл приложен к просьбе про существующую запись: строка о нём приходит предложением и уходит по «Сохранить».
@@ -271,6 +318,9 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
         File.WriteAllText(Path.Combine(_base, "artifacts", "чужой.txt"), "соседняя сессия");
         TestGit.Run(_base, "add", "artifacts/чужой.txt");
+        // Соседняя сессия уже сослалась на свой файл из памяти задачи: это не брошенный файл, и панель его не трогает.
+        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        File.WriteAllText(Path.Combine(_base, "work", "сосед.md"), "## Артефакты\n- лог: artifacts/чужой.txt\n");
         var client = Client(_base);
 
         await Start(client, "запиши");

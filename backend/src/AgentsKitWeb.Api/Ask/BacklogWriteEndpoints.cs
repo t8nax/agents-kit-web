@@ -69,6 +69,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     public async Task<AgentRequestSummary> StartAsync(string basePath, string text, string? number, IReadOnlyList<AttachedFile> files)
     {
         await DropUnusedAsync();
+        await ReleaseIndexAsync(basePath);
         var replies = Channel.CreateUnbounded<string>();
         var turn = new Turn(replies.Writer);
         var request = requests.Start(
@@ -336,10 +337,14 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             message += $"\n\nОператор приложил файлы — их копии уже лежат в базе и добавлены в индекс git: {string.Join(", ", attached)}."
                 + " Впиши каждый строкой в «### Артефакты» записи, к которой он относится, и коммить командой с artifacts.";
         }
-        // Приложенное за разговор ложится в индекс только на ход агента: коммит с artifacts его берёт, а между
-        // ходами индекс базы чист — брошенный разговор или перезапуск панели его не оставят в нём.
-        if (await StageAsync(request.Base) is { } unstaged)
+        // Приложенное к реплике ложится в индекс только на ход агента: коммит с artifacts его берёт, а между
+        // ходами индекс базы чист — брошенный разговор его не оставит в нём.
+        if (await StageAsync(request.Base, attached) is { } unstaged)
         {
+            // Реплика ушла без файлов: положенные копии без ссылки в базе не остаются, окно предложит приложить снова.
+            lock (_gate)
+                _attached.RemoveAll(attached.Contains);
+            ArtifactFiles.Delete(request.Base, attached);
             request.Reply(new BacklogWriteEvent("reply", text, Number: number));
             request.Write(new BacklogWriteEvent("error", unstaged));
             return;
@@ -409,13 +414,14 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     }
 
     /// <summary>
-    /// Перед ходом агента — приложенные за разговор файлы, ещё не закоммиченные, в индекс базы: коммит агента с
-    /// artifacts иначе их не увидит. null — легли; иначе — почему нет, и индекс снят обратно.
+    /// Перед ходом агента — файлы этой реплики в индекс базы: коммит агента с artifacts иначе их не увидит. Прежние
+    /// приложенные туда не кладутся: файл, от которого оператор отказался, ушёл бы с чужим коммитом без ссылки, — а
+    /// сосланный в этом ходе докоммичивает SettleAsync. null — легли; иначе — почему нет, и индекс снят обратно.
     /// </summary>
-    private async Task<string?> StageAsync(string basePath)
+    private static async Task<string?> StageAsync(string basePath, IReadOnlyList<string> files)
     {
         var staged = new List<string>();
-        foreach (var address in OnDisk(basePath))
+        foreach (var address in files)
         {
             if (await BaseGit.CommittedAsync(basePath, address, CancellationToken.None))
                 continue;
@@ -430,31 +436,37 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     }
 
     /// <summary>
-    /// Конец хода: приложенные файлы, на которые закоммиченный бэклог уже ссылается, уходят в историю — их докоммичивает
-    /// панель, если агент закоммитил только backlog.md; остальные снимаются с индекса и ждут на диске следующего хода.
+    /// Конец хода: приложенные за разговор файлы, на которые закоммиченный бэклог уже ссылается, уходят в историю — их
+    /// докоммичивает панель, если агент их не взял; остальные снимаются с индекса и ждут на диске следующего хода.
     /// null — всё так; иначе — что не вышло.
     /// </summary>
     private async Task<string?> SettleAsync(string basePath)
     {
-        var mine = OnDisk(basePath);
-        if (mine.Count == 0)
+        var uncommitted = new List<string>();
+        foreach (var address in OnDisk(basePath))
+            if (!await BaseGit.CommittedAsync(basePath, address, CancellationToken.None))
+                uncommitted.Add(address);
+        if (uncommitted.Count == 0)
             return null;
         var staged = await BaseGit.ChangesAsync(basePath, ArtifactFiles.Folder, CancellationToken.None);
         if (staged is null)
             return "git не прочитал базу — приложенные файлы не проверены";
-        var inIndex = mine.Where(a => staged.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList();
-        if (inIndex.Count == 0)
-            return null;
 
         string? problem = null;
         var text = ReadText(basePath) ?? "";
         var referenced = await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None) == false
-            ? inIndex.Where(a => ArtifactFiles.Mentions(text, a)).ToList()
+            ? uncommitted.Where(a => ArtifactFiles.Mentions(text, a)).ToList()
             : [];
-        if (referenced.Count > 0
+        foreach (var address in referenced)
+            if ((await BaseGit.AddFileAsync(basePath, address, CancellationToken.None)).Error is { } notAdded)
+                problem ??= $"git не принял приложенный файл: {notAdded}";
+        if (problem is null && referenced.Count > 0
             && (await BaseGit.CommitFilesAsync(basePath, referenced, BacklogWriteEndpoints.CommitMessage, CancellationToken.None)).Error is { } refused)
             problem = $"Приложенные файлы не закоммичены: {refused}";
-        var left = problem is null ? inIndex.Except(referenced).ToList() : inIndex;
+        // Закоммиченное из индекса ушло само; не вышло — снимается и то, что панель сама туда положила.
+        var left = problem is null
+            ? uncommitted.Where(a => !referenced.Contains(a) && staged.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList()
+            : uncommitted.Where(a => referenced.Contains(a) || staged.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList();
         if (left.Count > 0)
             await BaseGit.ResetFilesAsync(basePath, left, CancellationToken.None);
         return problem;
@@ -491,9 +503,24 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                 unused.Add(address);
         if (unused.Count == 0)
             return;
-        // Ход, оборванный остановкой панели, мог оставить файл в индексе.
         await BaseGit.ResetFilesAsync(basePath, unused, CancellationToken.None);
         ArtifactFiles.Delete(basePath, unused);
+    }
+
+    /// <summary>
+    /// Ход, оборванный остановкой панели, оставляет приложенный файл в индексе, а панель после перезапуска его уже не
+    /// помнит: новый разговор снимает с индекса добавленные, но не закоммиченные файлы artifacts/, на которые не
+    /// ссылается ни один .md базы. Файл остаётся на диске — без ссылки его назовёт сверка кита.
+    /// </summary>
+    private static async Task ReleaseIndexAsync(string basePath)
+    {
+        var added = new List<string>();
+        foreach (var address in await BaseGit.ChangesAsync(basePath, ArtifactFiles.Folder, CancellationToken.None) ?? [])
+            if (!await BaseGit.CommittedAsync(basePath, address, CancellationToken.None))
+                added.Add(address);
+        var loose = ArtifactFiles.Orphans(basePath, added, new Dictionary<string, string>());
+        if (loose.Count > 0)
+            await BaseGit.ResetFilesAsync(basePath, loose, CancellationToken.None);
     }
 
     private async Task RunAsync(
@@ -551,9 +578,13 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     {
         var outcome = await ReadOutcomeAsync(basePath, turn, writing, answer, failure);
         // Ход кончился как угодно — приложенное не остаётся в индексе базы.
-        return await SettleAsync(basePath) is { } unsettled && outcome.Type == "answer"
-            ? new BacklogWriteEvent("error", unsettled, outcome.Entries, Output: outcome.Text.Length > 0 ? outcome.Text : null)
-            : outcome;
+        if (await SettleAsync(basePath) is not { } unsettled || outcome.Type != "answer")
+            return outcome;
+        // Ответ стал ошибкой: предложение из него оператор не увидит, и «Сохранить» его не должно ждать.
+        lock (_gate)
+            if (_pending?.Proposal == outcome.Proposal)
+                _pending = null;
+        return new BacklogWriteEvent("error", unsettled, outcome.Entries, Output: outcome.Text.Length > 0 ? outcome.Text : null);
     }
 
     private async Task<BacklogWriteEvent> ReadOutcomeAsync(
