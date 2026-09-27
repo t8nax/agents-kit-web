@@ -94,6 +94,7 @@ public static partial class Tracker
     [GeneratedRegex(@"^##\s+(.+?)\s*$")]
     private static partial Regex Heading();
 
-    [GeneratedRegex(@"github\.com[/:](?<owner>[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/(?<repo>[A-Za-z0-9._-]+)", RegexOptions.IgnoreCase)]
+    // Хост — сам github.com, а не api.github.com или gist.github.com: там на месте владельца стоит раздел сайта.
+    [GeneratedRegex(@"(?<![\w.-])github\.com[/:](?<owner>[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/(?<repo>[A-Za-z0-9._-]+)", RegexOptions.IgnoreCase)]
     private static partial Regex RepoAddress();
 }

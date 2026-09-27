@@ -29,10 +29,13 @@ public class TrackerTests
         Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, repo), tracker);
     }
 
-    [Fact]
-    public void Parse_GitHubWithoutAddress_IsNoAddress()
+    [Theory]
+    [InlineData("GitHub Issues, ходить через gh; номер — #37.")]
+    [InlineData("GitHub Issues через API https://api.github.com/repos/acme/orders/issues.")]
+    [InlineData("GitHub, заметки в https://gist.github.com/acme/abc123.")]
+    public void Parse_GitHubWithoutRepositoryAddress_IsNoAddress(string where)
     {
-        var tracker = Tracker.Parse(Describe("GitHub Issues, ходить через gh; номер — #37."));
+        var tracker = Tracker.Parse(Describe(where));
 
         Assert.Equal(new TrackerInfo(TrackerInfo.NoAddress), tracker);
     }
