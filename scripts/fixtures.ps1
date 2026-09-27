@@ -566,3 +566,81 @@ exit 0
 '@
     Write-Utf8 (Join-Path $Path 'claude-stub.ps1') $stub
 }
+
+# --- подставной gh -----------------------------------------------------------------------
+
+# Задачи трекера GitHub панель читает программой gh голым именем через PATH, и в песочнице её
+# перехватывает свой gh.exe впереди PATH — всегда, и с -RealAgent тоже: настоящая gh пошла бы
+# в GitHub под аккаунтом оператора. Обёртка — exe по той же причине, что у агента, и так же
+# ничего не делает сама: зовёт gh-stub.ps1, отдав ему аргументы переменной окружения.
+function New-GhStub([string]$Path) {
+    Write-Utf8 (Join-Path $Path 'gh-shim.cs') @'
+using System;
+using System.Diagnostics;
+using System.IO;
+
+public static class GhShim
+{
+    public static int Main(string[] args)
+    {
+        string dir = Path.GetDirectoryName(typeof(GhShim).Assembly.Location);
+        var start = new ProcessStartInfo("pwsh");
+        start.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(dir, "gh-stub.ps1") + "\"";
+        start.UseShellExecute = false;
+        start.EnvironmentVariables["AKW_GH_ARGS"] = string.Join(((char)1).ToString(), args);
+        using (var process = Process.Start(start))
+        {
+            process.WaitForExit();
+            return process.ExitCode;
+        }
+    }
+}
+'@
+
+    $exe = Join-Path $Path 'gh.exe'
+    $source = Join-Path $Path 'gh-shim.cs'
+    & powershell.exe -NoProfile -NonInteractive -Command         "Add-Type -TypeDefinition (Get-Content -Raw '$source') -OutputAssembly '$exe' -OutputType ConsoleApplication" | Out-Null
+    if (-not (Test-Path -LiteralPath $exe)) { throw "не собралась подмена gh: $exe" }
+
+    $stub = @'
+# Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» задачами из gh-issues.json
+# корня песочницы — объект «репозиторий: [задачи]»; репозитория там нет — как GitHub о чужом.
+# Режим читается на каждый вызов из gh-mode.txt корня песочницы:
+#   ok      задачи из gh-issues.json
+#   login   gh не вошла в аккаунт GitHub
+#   error   GitHub отвечает ошибкой сервера
+#   slow    те же задачи через несколько секунд
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+
+$root = Split-Path $PSScriptRoot -Parent
+$modeFile = Join-Path $root 'gh-mode.txt'
+$mode = if (Test-Path -LiteralPath $modeFile) { (Get-Content -LiteralPath $modeFile -Raw).Trim().ToLowerInvariant() } else { 'ok' }
+if (-not $mode) { $mode = 'ok' }
+
+$arguments = if ($env:AKW_GH_ARGS) { @($env:AKW_GH_ARGS -split [char]1) } else { @($args) }
+$repo = $null
+for ($i = 0; $i -lt $arguments.Count - 1; $i++) { if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] } }
+
+switch ($mode) {
+    'login' {
+        [Console]::Error.WriteLine('To get started with GitHub CLI, please run:  gh auth login')
+        exit 4
+    }
+    'error' {
+        [Console]::Error.WriteLine('HTTP 502: Bad Gateway (https://api.github.com/graphql)')
+        exit 1
+    }
+    'slow' { Start-Sleep -Seconds 6 }
+}
+
+$issues = Get-Content -LiteralPath (Join-Path $root 'gh-issues.json') -Raw -Encoding utf8 | ConvertFrom-Json
+if (-not $repo -or -not ($issues.PSObject.Properties.Name -contains $repo)) {
+    [Console]::Error.WriteLine("GraphQL: Could not resolve to a Repository with the name '$repo'. (repository)")
+    exit 1
+}
+[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($issues.$repo) -Depth 4 -Compress))
+exit 0
+'@
+    Write-Utf8 (Join-Path $Path 'gh-stub.ps1') $stub
+}

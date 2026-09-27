@@ -560,6 +560,7 @@ if ($UpdateKit) {
 $pieceList = [ordered]@{
     'house'       = 'здоровый проект «Дом»: три копии, память с тремя вопросами оператору, живые сессии'
     'orders'      = 'проект «Заказы» со своими буквами номеров ORD, записью чужими буквами и артефактами в памяти'
+    'tracker'     = 'проекты с трекером: GitHub с задачами на оператора, GitHub без адреса репозитория и Jira'
     'no-product'  = 'база без описания проекта: название берётся из имени папки'
     'broken-json' = 'база с битым agents-kit.json: базу не прочитать'
     'old-format'  = 'база прежнего формата кита: панель её не читает и называет причину'
@@ -604,11 +605,13 @@ $panelDir = Join-Path $Root 'panel'
 $sessionsDir = Join-Path $Root 'sessions'
 $claudeDir = Join-Path $Root 'claude'
 $binDir = Join-Path $Root 'bin'
+# Подставная gh — в своём каталоге: она впереди PATH и с настоящим агентом.
+$ghDir = Join-Path $Root 'gh-bin'
 $basesDir = Join-Path $Root 'bases'
 $copiesDir = Join-Path $Root 'copies'
 # Журналы расхода: каталог пуст, и «Расход» песочницы не показывает расход оператора с этой машины.
 $projectsDir = Join-Path $Root 'projects'
-foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $basesDir, $copiesDir, $projectsDir)) {
+foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $ghDir, $basesDir, $copiesDir, $projectsDir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
@@ -621,8 +624,12 @@ if (-not $installedKit) { $installedKit = Join-Path $HOME '.claude\skills\agents
 New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md')
 Write-KitPlugin $claudeDir $kitDir $kitVersion
 New-ClaudeStub $binDir
+New-GhStub $ghDir
 Write-Utf8 (Join-Path $Root 'kit-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'claude-mode.txt') "ok`n"
+Write-Utf8 (Join-Path $Root 'gh-mode.txt') "ok`n"
+# Задачи GitHub, назначенные на оператора, по репозиториям; кусок с трекером кладёт свои.
+$ghIssues = [ordered]@{}
 
 $links = [Collections.Generic.List[object]]::new()
 $findings = [Collections.Generic.List[object]]::new()
@@ -680,6 +687,56 @@ if (Test-Piece 'orders') {
     }
     $findings.Add([pscustomobject]@{ base = $ordersBase; findings = @(
         [pscustomobject]@{ severity = 'FAIL'; file = 'backlog.md'; message = 'номер чужими буквами: B-7' }) })
+}
+
+# Проекты с трекером (B-277): задачи GitHub, назначенные на оператора, раздел «Бэклог» показывает группой под
+# записями. Отдаёт их подставная gh из gh-issues.json, а режим gh-mode.txt ломает ответ. У второго проекта трекер
+# GitHub без адреса репозитория, у третьего — Jira: задач панель не читает и называет причину.
+if (Test-Piece 'tracker') {
+    $trackerCopy = Join-Path $copiesDir 'tracker'
+    $trackerBase = Join-Path $basesDir 'tracker-knowledge'
+    New-Repo $trackerCopy
+    Write-Utf8 (Join-Path $trackerCopy 'README.md') "# Трекер`n`nВыдуманный проект песочницы.`n"
+    Add-Commit $trackerCopy 'Первый коммит'
+    New-Base $trackerBase 'Трекер' @($trackerCopy)
+    Write-Utf8 (Join-Path $trackerBase 'tracker.md') @'
+# Трекер — трекер
+
+## Где задачи
+GitHub Issues репозитория https://github.com/sandbox/tracker, ходить программой gh; номер задачи — #37.
+
+## Показ бэклога
+Открытые задачи, назначенные на меня.
+
+## Взятие задачи
+Задача в работе, если на ней метка in-progress. Назначить на себя и поставить метку in-progress.
+
+## Задача закрыта
+Ничего: задачу закрывает мерж.
+
+## Вынос записи бэклога
+Новая задача в том же репозитории, без меток.
+'@
+    Add-Commit $trackerBase 'Трекер проекта'
+    $ghIssues['sandbox/tracker'] = @(
+        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52' }
+        [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48' }
+        [pscustomobject]@{ number = 7; title = 'Установщик проверяет вход в Claude Code до скачивания сборки'; url = 'https://github.com/sandbox/tracker/issues/7' }
+    )
+    $bases.Add($trackerBase)
+    $links.Add([pscustomobject]@{ path = $trackerCopy; status = 'Linked'; base = $trackerBase })
+    $findings.Add([pscustomobject]@{ base = $trackerBase; findings = @() })
+
+    foreach ($other in @(
+            @{ Dir = 'tracker-no-address'; Title = 'Трекер без адреса'; Where = 'GitHub Issues, ходить программой gh; номер задачи — #37.' }
+            @{ Dir = 'tracker-jira'; Title = 'Трекер Jira'; Where = 'Jira, проект PAY на https://sandbox.atlassian.net, MCP-сервер atlassian; номер задачи — PAY-7.' })) {
+        $otherBase = Join-Path $basesDir $other.Dir
+        New-Base $otherBase $other.Title @()
+        Write-Utf8 (Join-Path $otherBase 'tracker.md') "# $($other.Title) — трекер`n`n## Где задачи`n$($other.Where)`n"
+        Add-Commit $otherBase 'Трекер проекта'
+        $bases.Add($otherBase)
+        $findings.Add([pscustomobject]@{ base = $otherBase; findings = @() })
+    }
 }
 
 # --- сломанный набор ---------------------------------------------------------------------
@@ -845,6 +902,7 @@ if ($taskPieceText) {
 Write-Utf8 (Join-Path $kitDir 'scripts\links.json') (ConvertTo-Json -InputObject $links.ToArray() -Depth 6)
 Write-Utf8 (Join-Path $kitDir 'scripts\findings.json') (ConvertTo-Json -InputObject $findings.ToArray() -Depth 6)
 Write-Json (Join-Path $panelDir 'bases.json') ([pscustomobject]@{ bases = $bases.ToArray(); kit = $kitDir })
+Write-Utf8 (Join-Path $Root 'gh-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$ghIssues) -Depth 6)
 
 # --- живые сессии агентов ----------------------------------------------------------------
 
@@ -876,11 +934,12 @@ Write-Json (Join-Path $Root 'live-snapshot.json') $live
 $api = Join-Path $repo 'backend\src\AgentsKitWeb.Api'
 $frontend = Join-Path $repo 'frontend'
 $apiPort = $Port + 1
+# Подставная gh впереди PATH всегда: с настоящим агентом панель всё равно не ходит в GitHub оператора.
 $pathLine = if ($RealAgent) {
-    '# агент настоящий: claude берётся из PATH как обычно'
+    "# агент настоящий: claude берётся из PATH как обычно`n`$env:PATH = '$ghDir;' + `$env:PATH"
 }
 else {
-    "`$env:PATH = '$binDir;' + `$env:PATH"
+    "`$env:PATH = '$binDir;$ghDir;' + `$env:PATH"
 }
 
 # Панель — это фронт и API, как в разработке: API отдаёт собранный фронт только в поставленной
@@ -930,6 +989,7 @@ if ($RealAgent) {
 else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
+Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, login, error, slow); задачи — gh-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
 $self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
 $where = ''
