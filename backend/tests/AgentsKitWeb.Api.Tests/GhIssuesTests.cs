@@ -4,6 +4,21 @@ namespace AgentsKitWeb.Api.Tests;
 
 public class GhIssuesTests
 {
+    /// <summary>«Назначенные на оператора» и «открытые» критерия B-277 держат ключи gh — без них видны чужие и закрытые.</summary>
+    [Fact]
+    public void StartInfo_AsksOpenIssuesAssignedToOperatorWithoutWindow()
+    {
+        var startInfo = GhIssues.StartInfo("acme/orders");
+
+        Assert.Equal("gh", startInfo.FileName);
+        Assert.Equal(
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url"],
+            startInfo.ArgumentList);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.False(startInfo.UseShellExecute);
+        Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
     [Fact]
     public void Parse_NamesIssuesAsKitDoes()
     {

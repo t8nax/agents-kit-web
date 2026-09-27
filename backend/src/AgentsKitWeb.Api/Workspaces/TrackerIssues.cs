@@ -44,6 +44,52 @@ public sealed class GhIssues : IGitHubIssues
 
     public async Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
     {
+        Process? process;
+        try
+        {
+            process = Process.Start(StartInfo(repo));
+        }
+        catch (Win32Exception)
+        {
+            return new TrackerIssues([], TrackerIssues.GhMissing);
+        }
+        if (process is null)
+            return new TrackerIssues([], TrackerIssues.GhMissing);
+
+        using (process)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(Timeout);
+            try
+            {
+                var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
+                var output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
+                var error = (await errorTask).Trim();
+                await process.WaitForExitAsync(timeout.Token);
+                return process.ExitCode == 0 ? Parse(output) : Failed(process.ExitCode, error);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                return new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту");
+            }
+            finally
+            {
+                // gh только читает: брошенная на отмене или сбое, она работала бы впустую — гасится и дожидается выхода.
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync(CancellationToken.None);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Запуск gh: открытые задачи репозитория, назначенные на того, кем gh вошла, — «назначенные на оператора»
+    /// критерия B-277 держат именно эти ключи.
+    /// </summary>
+    public static ProcessStartInfo StartInfo(string repo)
+    {
         var startInfo = new ProcessStartInfo(Gh)
         {
             RedirectStandardOutput = true,
@@ -63,43 +109,7 @@ public sealed class GhIssues : IGitHubIssues
         // gh не должна спрашивать и открывать браузер: отвечать ей некому.
         startInfo.Environment["GH_PROMPT_DISABLED"] = "1";
         startInfo.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
-
-        Process? process;
-        try
-        {
-            process = Process.Start(startInfo);
-        }
-        catch (Win32Exception)
-        {
-            return new TrackerIssues([], TrackerIssues.GhMissing);
-        }
-        if (process is null)
-            return new TrackerIssues([], TrackerIssues.GhMissing);
-
-        using (process)
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(Timeout);
-            string output, error;
-            try
-            {
-                var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
-                output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
-                error = (await errorTask).Trim();
-                await process.WaitForExitAsync(timeout.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // gh только читает: брошенная, она работала бы впустую — гасится и дожидается выхода.
-                if (!process.HasExited)
-                    process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
-                cancellationToken.ThrowIfCancellationRequested();
-                return new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту");
-            }
-
-            return process.ExitCode == 0 ? Parse(output) : Failed(process.ExitCode, error);
-        }
+        return startInfo;
     }
 
     /// <summary>
