@@ -223,7 +223,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                      "--tools", "Read,Grep,Glob",
                      "--no-session-persistence",
                      "--strict-mcp-config",
-                     "--append-system-prompt", AskEndpoints.Prompt(BaseLayout.Read(basePath)?.Operator ?? "<не назван>", copyPath),
+                     "--append-system-prompt", AskEndpoints.Prompt(BaseLayout.Read(basePath)?.Operator, copyPath),
                  })
             startInfo.ArgumentList.Add(arg);
         AgentProcess.AddAutoMode(startInfo);
@@ -284,11 +284,10 @@ public static class AskEndpoints
     /// Раскладку базы агент иначе угадывает: название проекта, например, ищет в README. Раскладка — кита формата 4
     /// (BaseLayout): общее знание в корне, своё у оператора — его папка people\&lt;имя&gt; и личный репозиторий local\me.
     /// </summary>
-    internal static string SystemPrompt(string operatorName) => $"""
+    internal static string SystemPrompt(string? operatorName) => $"""
         Ты разговариваешь с оператором о проекте по его базе знаний agents-kit — это текущий каталог.
         Что где лежит: product.md — что за система, его заголовок — название проекта; team.md — правила команды
-        для любого агента проекта; decisions/*.md — решения по областям. Своё у оператора этого компьютера, {operatorName}, —
-        папка people/{operatorName}/: autonomy.md — рамки агента у него, flow/scenarios.md — сценарии, как ведут задачу,
+        для любого агента проекта; decisions/*.md — решения по областям. {Own(operatorName)}: autonomy.md — рамки агента у него, flow/scenarios.md — сценарии, как ведут задачу,
         и flow/stages/*.md — их этапы, agents/*.md — исполнители; и личный репозиторий local/me/: backlog.md — записи
         бэклога, work/<машина>/*.md — память задач в работе, artifacts/ — их файлы. Папки других операторов в people/ —
         их, не его.
@@ -296,8 +295,13 @@ public static class AskEndpoints
         стоит ответ. Оператор переспрашивает и уточняет: помни, о чём шёл разговор.
         """;
 
+    // Оператор не назван или база не читается панелью — папка называется словами, а не выдуманным именем.
+    private static string Own(string? operatorName) => operatorName is null
+        ? "Своё у оператора этого компьютера (его имя — поле operator в local/me.json) — папка people/<имя>/"
+        : $"Своё у оператора этого компьютера, {operatorName}, — папка people/{operatorName}/";
+
     /// <summary>Без копии агент знает только базу; с копией ему названо, где код проекта.</summary>
-    internal static string Prompt(string operatorName, string? copyPath) => copyPath is null
+    internal static string Prompt(string? operatorName, string? copyPath) => copyPath is null
         ? SystemPrompt(operatorName)
         : $"""
             {SystemPrompt(operatorName)}

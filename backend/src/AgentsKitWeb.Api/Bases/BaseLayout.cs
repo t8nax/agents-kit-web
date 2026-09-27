@@ -45,6 +45,19 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
 
     public static BaseLayout? Read(string basePath, out string problem)
     {
+        // Сведение с сервером, вставшее на конфликте, — до формата, как у кита (Get-KitLinkState): посреди конфликта
+        // метки могут стоять в любом файле, и в agents-kit.json тоже, а сессии в такую базу не пишут.
+        if (Unmerged(basePath))
+        {
+            problem = "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут";
+            return null;
+        }
+        if (Unmerged(PersonalOf(basePath)))
+        {
+            problem = "Сведение личного репозитория с сервером встало на конфликте — сессии агентов не пишут в бэклог и память, пока его не разберут";
+            return null;
+        }
+
         switch (ReadFormat(basePath))
         {
             case null:
@@ -71,7 +84,9 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
         }
 
         var layout = new BaseLayout(basePath, name, machine.Workspaces);
-        if (!Directory.Exists(Path.Combine(layout.Personal, ".git")))
+        // Как Test-KitPersonalRepo: .git бывает и файлом — у worktree и отдельного каталога git.
+        var git = Path.Combine(layout.Personal, ".git");
+        if (!Directory.Exists(git) && !File.Exists(git))
         {
             problem = "На этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard";
             return null;
@@ -79,6 +94,15 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
 
         problem = "";
         return layout;
+    }
+
+    /// <summary>Сведение репозитория с сервером не закончено — метки в его .git, как их смотрит кит (Test-KitUnmerged).</summary>
+    private static bool Unmerged(string repo)
+    {
+        var git = Path.Combine(repo, ".git");
+        return Directory.Exists(Path.Combine(git, "rebase-merge"))
+            || Directory.Exists(Path.Combine(git, "rebase-apply"))
+            || File.Exists(Path.Combine(git, "MERGE_HEAD"));
     }
 
     /// <summary>

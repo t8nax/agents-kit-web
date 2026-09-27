@@ -107,6 +107,38 @@ public sealed class BaseLayoutTests : IDisposable
         Assert.Equal("На этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard", problem);
     }
 
+    [Fact]
+    // Как у кита: личный репозиторий бывает и worktree — тогда .git у него файл.
+    public void Read_PersonalRepositoryWithGitFile_IsRead()
+    {
+        var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
+        var git = Path.Combine(basePath, "local", "me", ".git");
+        Directory.Delete(git, recursive: true);
+        File.WriteAllText(git, "gitdir: D:/elsewhere/.git/worktrees/me\n");
+
+        Assert.NotNull(BaseLayout.Read(basePath));
+    }
+
+    [Theory]
+    [InlineData("", "MERGE_HEAD", "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут")]
+    [InlineData("", "rebase-merge/", "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут")]
+    [InlineData(@"local\me", "rebase-apply/", "Сведение личного репозитория с сервером встало на конфликте — сессии агентов не пишут в бэклог и память, пока его не разберут")]
+    // Конфликт называется конфликтом и тогда, когда его метки стоят в самом agents-kit.json (B-275, ревью).
+    public void Read_UnfinishedSync_IsNamedConflict(string repo, string mark, string expected)
+    {
+        var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
+        var git = Path.Combine(basePath, repo, ".git");
+        Directory.CreateDirectory(git);
+        if (mark.EndsWith('/'))
+            Directory.CreateDirectory(Path.Combine(git, mark.TrimEnd('/')));
+        else
+            File.WriteAllText(Path.Combine(git, mark), "0000000\n");
+        File.WriteAllText(Path.Combine(basePath, BaseLayout.MarkerFile), "<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> origin\n");
+
+        Assert.Null(BaseLayout.Read(basePath, out var problem));
+        Assert.Equal(expected, problem);
+    }
+
     [Theory]
     [InlineData(@"D:\Projects\agents-kit-web", "d-projects-agents-kit-web")]
     [InlineData("DESKTOP-V4UUVUJ", "desktop-v4uuvuj")]

@@ -109,6 +109,23 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Оператор этой машины не назван — папку агенту называют словами, а не выдуманным именем (B-275, ревью).
+    public async Task Ask_OperatorNotNamed_FolderIsNamedInWords()
+    {
+        TestLayout.Machine(_base, null);
+        _agent.Answers = [[Result("ok")]];
+
+        var client = Client(_base);
+        await Ask(client, _base, "где флоу?");
+        await Read(client, 2);
+
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains("(его имя — поле operator в local/me.json) — папка people/<имя>/: autonomy.md", prompt);
+        Assert.DoesNotContain("не назван", prompt);
+    }
+
+    [Fact]
     public async Task Copies_ReturnsCopiesOfBaseOnDiskWithMainFirst()
     {
         // Копия задачи по имени идёт раньше основной: порядок «основная первой» ставит API, а не обход каталогов.
