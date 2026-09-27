@@ -81,6 +81,30 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+test('пока задачи трекера читаются, записи бэклога видны, а под подписью группы проступает заготовка', async ({ page }) => {
+  await routeApi(page)
+  // Чтение трекера держится, пока тест не отпустит: gh ходит в GitHub дольше, чем читается файл
+  let release: () => void = () => {}
+  const held = new Promise<void>((resolve) => (release = resolve))
+  await page.route('**/api/backlog/tracker?**', async (route) => {
+    await held
+    await route.fulfill({ json: { issues, problem: null } })
+  })
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+  const project = page.getByRole('region', { name: 'Agents Kit Web' })
+  await expect(project.getByRole('button', { name: /B-7/ })).toBeVisible()
+  const skeleton = project.getByRole('status', { name: 'Загрузка задач трекера' })
+  await expect(skeleton).toBeAttached()
+  // Затянулось чтение — полосы видны
+  await expect(skeleton.locator('.sk').first()).toBeVisible()
+
+  release()
+  await expect(project.getByRole('link', { name: /#52/ })).toBeVisible()
+  await expect(skeleton).toHaveCount(0)
+})
+
 test('«Взять задачу» у задачи трекера запускает её по имени «GitHub #N»', async ({ page }) => {
   const posts = await routeApi(page)
   await page.goto('/')

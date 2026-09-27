@@ -1061,10 +1061,16 @@ test('«Взять задачу» у задачи трекера запуска�
 test('у задачи трекера «Взять задачу» погашена, когда свободной копии нет', async () => {
   const fetchMock = stubFetch(withTracker(github))
   fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
-  fetchMock.setCopies([copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'in-work')])
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'in-work'),
+    copy('D:\\Projects\\nota-knowledge', 'D:\\Projects\\nota-copy', 'free'),
+  ])
 
   render(<Backlog />)
   const row = (await screen.findByRole('link', { name: /#52/ })).closest('.entry-row')!
+  // Кнопка погашена и до прочтения копий: сперва дождаться, что они прочитаны, — у Nota свободная копия есть
+  const nota = (await screen.findByRole('button', { name: /B-2 Экспорт заметок/ })).closest('.entry-row')!
+  await waitFor(() => expect(within(nota as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
 
-  await waitFor(() => expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled())
+  expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
 })

@@ -118,13 +118,14 @@ public sealed class GhIssues : IGitHubIssues
     /// </summary>
     public static TrackerIssues Failed(int exitCode, string error)
     {
-        if (exitCode == 4 || error.Contains("gh auth login", StringComparison.Ordinal)
-            || error.Contains("401", StringComparison.Ordinal) || error.Contains("Bad credentials", StringComparison.Ordinal))
-            return new TrackerIssues([], TrackerIssues.GhLogin);
         var line = error.ReplaceLineEndings("\n").Split('\n').FirstOrDefault(l => l.Trim().Length > 0)?.Trim();
         // Чужой закрытый репозиторий GitHub отвечает так же, как несуществующий; его строка — причиной рядом.
+        // Раньше признаков входа: «401» бывает и в имени репозитория.
         if (error.Contains("Could not resolve to a Repository", StringComparison.Ordinal))
             return new TrackerIssues([], TrackerIssues.RepoUnreachable, line);
+        if (exitCode == 4 || error.Contains("gh auth login", StringComparison.Ordinal)
+            || error.Contains("401 Unauthorized", StringComparison.Ordinal) || error.Contains("Bad credentials", StringComparison.Ordinal))
+            return new TrackerIssues([], TrackerIssues.GhLogin);
         return new TrackerIssues([], TrackerIssues.GitHubError, line ?? $"gh вышла с кодом {exitCode}");
     }
 

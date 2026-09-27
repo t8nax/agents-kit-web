@@ -52,13 +52,16 @@ public class GhIssuesTests
         Assert.Equal(new TrackerIssues([], TrackerIssues.GhLogin), GhIssues.Failed(exitCode, error));
     }
 
-    [Fact]
-    public void Failed_UnknownRepository_IsRepoUnreachable()
+    [Theory]
+    [InlineData("acme/gone")]
+    // «401» в имени репозитория — не отказ входа
+    [InlineData("acme/orders-401")]
+    public void Failed_UnknownRepository_IsRepoUnreachable(string repo)
     {
-        var issues = GhIssues.Failed(1, "GraphQL: Could not resolve to a Repository with the name 'acme/gone'. (repository)\n");
+        var issues = GhIssues.Failed(1, $"GraphQL: Could not resolve to a Repository with the name '{repo}'. (repository)\n");
 
         Assert.Equal(TrackerIssues.RepoUnreachable, issues.Problem);
-        Assert.Equal("GraphQL: Could not resolve to a Repository with the name 'acme/gone'. (repository)", issues.Detail);
+        Assert.Equal($"GraphQL: Could not resolve to a Repository with the name '{repo}'. (repository)", issues.Detail);
     }
 
     [Fact]
