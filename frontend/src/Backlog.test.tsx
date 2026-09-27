@@ -966,17 +966,18 @@ test('поиск находит задачи трекера по номеру и
   expect(screen.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument()
 })
 
-test('поломка трекера видна и при отборе, «задач нет» — скрыта', async () => {
+test('при отборе без подошедших задач группа трекера скрыта целиком, и со строкой поломки тоже', async () => {
   const fetchMock = stubFetch([{ ...backlogs[0], tracker: github }, { ...backlogs[1], tracker: github }])
   fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: 'gh-login' }))
   fetchMock.setTracker(backlogs[1].base, answer({ issues: [], problem: null }))
 
   render(<Backlog />)
   await screen.findByText(/На вас в GitHub нет открытых задач/)
+  expect(screen.getByText(/Программа gh не вошла в аккаунт/)).toBeInTheDocument()
 
-  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'нет такого' } })
-  expect(within(screen.getByRole('region', { name: 'Agents Kit Web' })).getByText(/Программа gh не вошла в аккаунт/)).toBeInTheDocument()
-  expect(screen.queryByRole('region', { name: 'Nota' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(screen.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Программа gh не вошла в аккаунт/)).not.toBeInTheDocument()
   expect(screen.getByText('Под фильтр записей нет')).toBeInTheDocument()
 })
 

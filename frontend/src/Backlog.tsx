@@ -13,7 +13,7 @@ import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
-import { initialTrackerLoad, loadTrackerIssues, trackerBroken, type TrackerInfo, type TrackerLoad } from './tracker'
+import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
@@ -189,15 +189,18 @@ export default function Backlog({
   // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
   // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
   const filtering = isFiltering(selection)
-  // Задачи трекера отбираются тем же поиском и чипами; поломка трекера видна и при отборе, как ошибка бэклога
+  // Задачи трекера отбираются тем же поиском и чипами; ничего не подошло — группа трекера скрыта целиком, со строкой
+  // причины тоже: так записан критерий B-277
   const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
-    .map((backlog) => ({
-      backlog,
-      entries: arrange(backlog.entries, selection, order),
-      issues: trackerIssues(trackers[backlog.base]).filter((issue) => matchesIssue(issue, selection)),
-      trackerShown: !!backlog.tracker && (!filtering || trackerBroken(trackers[backlog.base])),
-    }))
-    .map((one) => ({ ...one, trackerShown: one.trackerShown || one.issues.length > 0 }))
+    .map((backlog) => {
+      const issues = trackerIssues(trackers[backlog.base]).filter((issue) => matchesIssue(issue, selection))
+      return {
+        backlog,
+        entries: arrange(backlog.entries, selection, order),
+        issues,
+        trackerShown: !!backlog.tracker && (!filtering || issues.length > 0),
+      }
+    })
     .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
 
   return (
@@ -369,7 +372,6 @@ export default function Backlog({
                     tracker={backlog.tracker}
                     load={trackers[backlog.base] ?? initialTrackerLoad(backlog.tracker)}
                     issues={issues}
-                    filtering={filtering}
                   >
                     {(issue) => (
                       <button
