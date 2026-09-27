@@ -200,6 +200,9 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Equal(List.ReplaceLineEndings("\n"), File.ReadAllText(_listPath));
         Assert.Equal("Флоу правлен из панели", Git("log", "-1", "--format=%s"));
         Assert.Equal("flow/stages/criterion.md", Git("show", "--name-only", "--format=", "HEAD"));
+        // Флоу — свой у оператора: общая база от его правки не меняется (формат 6 кита).
+        Assert.Equal("init", GitIn(_base, "log", "-1", "--format=%s"));
+        Assert.Equal("", GitIn(_base, "status", "--porcelain"));
         Assert.Equal("A  backlog.md", Git("status", "--porcelain"));
 
         var saved = await response.Content.ReadFromJsonAsync<FlowSavedResponse>();
