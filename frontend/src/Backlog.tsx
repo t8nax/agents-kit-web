@@ -304,7 +304,8 @@ export default function Backlog({
                     {backlog.error}
                   </p>
                 )}
-                {!backlog.error && backlog.entries.length === 0 && (
+                {/* При отборе строки о пустом бэклоге нет, как и подписи записей: проект виден ради задач трекера */}
+                {!backlog.error && backlog.entries.length === 0 && !filtering && (
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
                 {entries.map((entry, index) => {

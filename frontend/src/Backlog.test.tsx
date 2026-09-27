@@ -902,6 +902,21 @@ test('«Обновить» перечитывает задачи трекера'
   expect(fetchMock.trackerReads()).toBe(2)
 })
 
+test('проект с пустым бэклогом при отборе показывает только подошедшие задачи трекера', async () => {
+  const fetchMock = stubFetch([{ ...backlogs[0], entries: [], tracker: github }, backlogs[1]])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(project.getByText('В бэклоге этого проекта записей нет.')).toBeInTheDocument()
+  await project.findByRole('link', { name: /#52/ })
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: '#52' } })
+  expect(project.getByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(project.queryByText('В бэклоге этого проекта записей нет.')).not.toBeInTheDocument()
+  expect(project.queryByText('Записи бэклога')).not.toBeInTheDocument()
+})
+
 test('ответ трекера прошлого чтения, пришедший после «Обновить», не встаёт на место заготовки', async () => {
   let late: (response: Response) => void = () => {}
   const fetchMock = stubFetch(withTracker(github))
