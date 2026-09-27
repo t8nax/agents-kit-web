@@ -241,6 +241,11 @@ public sealed class HealthTests : IDisposable
     [InlineData("BaseMissing", "D:\\gone", "копия указывает на базу «D:\\gone», а её нет на диске")]
     [InlineData("NotBase", "D:\\plain", "копия указывает на «D:\\plain», а это не база кита")]
     [InlineData("Unlisted", "SAME", "база не числит эту копию своей")]
+    [InlineData("Outdated", "SAME", "база прежнего формата — переведите её китом")]
+    [InlineData("Newer", "SAME", "базу перевёл кит новее установленного — обновите кит")]
+    [InlineData("Unnamed", "SAME", "на этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard")]
+    [InlineData("NoPersonal", "SAME", "на этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard")]
+    [InlineData("Unmerged", "SAME", "сведение «D:\\app-knowledge\\» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут")]
     public void LinkProblems_NamesBrokenLink(string status, string? linkBase, string? message)
     {
         const string basePath = "D:\\app-knowledge";
@@ -251,6 +256,18 @@ public sealed class HealthTests : IDisposable
             Assert.Empty(problems);
         else
             Assert.Equal([new HealthProblem("error", null, message)], problems);
+    }
+
+    [Fact]
+    // Кит называет, где встало сведение: в базе или в личном репозитории оператора.
+    public void LinkProblems_UnmergedNamesRepositoryKitPointedAt()
+    {
+        var problems = HealthMonitor.LinkProblems("D:\\app-knowledge",
+            new KitLinkState("D:\\app", "Unmerged", "D:\\app-knowledge", "D:\\app-knowledge\\local\\me"));
+
+        Assert.Equal(
+            [new HealthProblem("error", null, "сведение «D:\\app-knowledge\\local\\me» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут")],
+            problems);
     }
 
     [Fact]

@@ -7,8 +7,11 @@ namespace AgentsKitWeb.Api.Health;
 /// <summary>Находка сверки кита: severity FAIL или WARN, file — файл базы или «.».</summary>
 public sealed record KitFinding(string Severity, string File, string Message);
 
-/// <summary>Состояние связи каталога копии по киту: status из цепочки Get-KitLinkState, base — куда указывает копия.</summary>
-public sealed record KitLinkState(string Path, string Status, string? Base);
+/// <summary>
+/// Состояние связи каталога копии по киту: status из цепочки Get-KitLinkState, base — куда указывает копия,
+/// unmerged — репозиторий, где сведение с сервером встало на конфликте (база или личный репозиторий).
+/// </summary>
+public sealed record KitLinkState(string Path, string Status, string? Base, string? Unmerged = null);
 
 public sealed record KitCheckResult(IReadOnlyList<KitFinding> Findings, IReadOnlyList<KitLinkState> Links);
 
@@ -63,7 +66,7 @@ public sealed class PwshKitChecks : IKitChecks
         $links = [Collections.Generic.List[object]]::new()
         foreach ($c in $copies) {
             $s = Get-KitLinkState $c
-            $links.Add([pscustomobject]@{ path = $c; status = "$($s.status)"; base = $s.base })
+            $links.Add([pscustomobject]@{ path = $c; status = "$($s.status)"; base = $s.base; unmerged = $s.unmerged })
         }
         [pscustomobject]@{ findings = $findings.ToArray(); links = $links.ToArray() } | ConvertTo-Json -Depth 4 -Compress
         }

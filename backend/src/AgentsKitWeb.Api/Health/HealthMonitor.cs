@@ -204,6 +204,12 @@ public sealed class HealthMonitor(
             "Unlisted" when link.Base is not null && !BasesStore.SamePath(link.Base, basePath) =>
                 $"копия указывает на другую базу «{link.Base}», и та её своей не числит",
             "Unlisted" => "база не числит эту копию своей",
+            // Звенья цепочки кита с базами формата 4 (B-275).
+            "Unmerged" => $"сведение «{link.Unmerged ?? link.Base}» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут",
+            "Outdated" => "база прежнего формата — переведите её китом",
+            "Newer" => "базу перевёл кит новее установленного — обновите кит",
+            "Unnamed" => "на этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard",
+            "NoPersonal" => "на этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard",
             var other => $"неизвестное состояние связи «{other}»",
         };
         return message is null ? [] : [new HealthProblem("error", null, message)];
