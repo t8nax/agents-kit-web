@@ -2999,8 +2999,10 @@ function ReturnsField({
 }) {
   const set = (index: number, patch: Partial<DraftReturn>) =>
     onChange(returns.map((back, i) => (i === index ? { ...back, ...patch } : back)))
-  // Возврат, у которого предел только что открыли кнопкой: его поле получает фокус.
+  // Возврат, у которого предел только что открыли кнопкой, — фокус в его поле, а только что убрали крестиком —
+  // на вернувшуюся кнопку: крестик пропадает, и фокус не должен уйти из окна.
   const [opened, setOpened] = useState<number | null>(null)
+  const [closed, setClosed] = useState<number | null>(null)
 
   // Вернуться не к чему — раньше в сценарии нет стадий базы: пустого блока «Возвраты» нет — замечание оператора на приёмке B-192.
   // Возврат из файла всё же покажется: его надо видеть, чтобы убрать.
@@ -3058,6 +3060,7 @@ function ReturnsField({
                   type="button"
                   className="flow-limit-add"
                   aria-label={`Предел кругов возврата ${index + 1}`}
+                  autoFocus={closed === index}
                   onClick={() => {
                     setOpened(index)
                     set(index, { rounds: '' })
@@ -3087,7 +3090,10 @@ function ReturnsField({
                   className="btn btn-icon"
                   aria-label={`Убрать предел кругов возврата ${index + 1}`}
                   title="Убрать предел кругов"
-                  onClick={() => set(index, { rounds: null })}
+                  onClick={() => {
+                    setClosed(index)
+                    set(index, { rounds: null })
+                  }}
                 >
                   <CloseIcon />
                 </button>

@@ -538,7 +538,8 @@ test('предел кругов задают кнопкой, правят чис
   const again = await returnsOf(region, /^Этап 2: Приёмка/)
   expect(again.getByRole('textbox', { name: 'Предел кругов возврата 1' })).toHaveValue('2')
   fireEvent.click(again.getByRole('button', { name: 'Убрать предел кругов возврата 1' }))
-  expect(again.getByRole('button', { name: 'Предел кругов возврата 1' })).toBeInTheDocument()
+  // Крестик пропал — фокус на вернувшейся кнопке, а не вне окна
+  expect(again.getByRole('button', { name: 'Предел кругов возврата 1' })).toHaveFocus()
   fireEvent.click(again.getByRole('button', { name: 'Предел кругов возврата 1' }))
   fireEvent.change(again.getByRole('textbox', { name: 'Предел кругов возврата 1' }), { target: { value: '0' } })
   // Убранный возврат уносит и свой предел, даже неверный: сохранить можно
