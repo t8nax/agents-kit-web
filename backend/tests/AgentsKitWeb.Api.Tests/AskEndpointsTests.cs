@@ -308,6 +308,23 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_AfterAgentEndedRaisesOnlyOneNewAgent()
+    {
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        _agent.StopAfter = 1;
+        _agent.StopAfterRun[1] = 0;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        await Reply(client, "Второй вопрос");
+        var events = await Read(client, 5);
+
+        Assert.Equal(["reply", "answer", "note", "reply", "error"], events.Select(e => e.Type));
+        Assert.Equal(2, _agent.Starts.Count);
+    }
+
+    [Fact]
     public async Task Stop_WhileAgentEndsStopsReplyWithoutNewAgent()
     {
         HoldFirstExit(out var ended);

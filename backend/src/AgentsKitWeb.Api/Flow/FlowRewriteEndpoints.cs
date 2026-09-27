@@ -69,6 +69,8 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
     public AgentRequestSummary Start(
         string basePath, string? copyPath, string rules, string wish, IReadOnlyList<FlowStage> stages, IReadOnlyList<NamedFlow> flows)
     {
+        // Флоу целиком агент получает первой репликой: дальше разговор идёт о нём.
+        var message = FlowRewriteEndpoints.Input(wish, stages, flows, Tasks(basePath, flows), PerformerList.OfProject(basePath));
         var replies = Channel.CreateUnbounded<string>();
         var turn = new Turn(replies.Writer, copyPath, rules);
         var request = requests.Start(
@@ -77,18 +79,19 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
             ProjectName.Of(basePath),
             wish,
             (rewriting, cancellationToken) => RunAsync(basePath, replies.Reader, turn, rewriting, cancellationToken),
-            continues: true);
+            continues: true,
+            // Просьба встаёт в переписку до того, как пошла работа: сбой запуска агента встаёт под ней (B-263).
+            reply: new FlowRewriteEvent("reply", wish));
 
         turn.Request = request;
-        var screen = new Screen(stages, flows);
         lock (_gate)
         {
             _turn = turn;
-            _screen = screen;
+            _screen = new Screen(stages, flows);
             _proposal = FlowProposal.Empty;
+            if (!turn.Ended)
+                Send(turn, wish, message);
         }
-        // Флоу целиком агент получает первой репликой: дальше разговор идёт о нём.
-        Say(request, turn, wish, FlowRewriteEndpoints.Input(wish, screen.Stages, screen.Flows, Tasks(basePath, flows), PerformerList.OfProject(basePath)));
         return request.Summary;
     }
 
@@ -99,28 +102,31 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         if (!request.Finished)
             return AskReplied.Answering;
 
-        Turn? turn;
-        Screen screen;
-        FlowProposal proposal;
         lock (_gate)
         {
-            turn = _turn?.Request == request && request.Working ? _turn : null;
-            screen = stages is null || flows is null ? _screen! : new Screen(stages, flows);
+            var screen = stages is null || flows is null ? _screen! : new Screen(stages, flows);
             _screen = screen;
             // Записанное оператором из правок уходит: дальше они ложатся на флоу, каким он стал.
-            _proposal = proposal = FlowProposals.Rebase(screen.Stages, screen.Flows, _proposal);
+            _proposal = FlowProposals.Rebase(screen.Stages, screen.Flows, _proposal);
+
+            // Живой агент выбирается и реплика уходит в его очередь под той же блокировкой, которой его работа
+            // отмечает свой конец: кончившемуся агенту она не достаётся, а поднимает нового (B-262, как B-259 у бэклога).
+            if (_turn?.Request == request && request.Working && !_turn.Ended)
+            {
+                request.Reply(new FlowRewriteEvent("reply", text));
+                Send(_turn, text, text);
+                return AskReplied.Sent;
+            }
         }
 
-        var message = text;
-        if (turn is null)
+        // Прежний агент кончился и живым уже не станет: новый поднимается вне гонки с его концом.
+        var fresh = Fresh(request, text);
+        lock (_gate)
         {
-            // Новый агент прежнего разговора не знает: флоу он получает заново — с правками, до которых договорились.
-            turn = Restart(request);
-            var (proposedStages, proposedFlows) = FlowProposals.Apply(screen.Stages, screen.Flows, proposal);
-            message = FlowRewriteEndpoints.Input(
-                text, proposedStages, proposedFlows, Tasks(request.Base, screen.Flows), PerformerList.OfProject(request.Base));
+            var turn = Restart(request);
+            request.Reply(new FlowRewriteEvent("reply", text));
+            Send(turn, text, fresh);
         }
-        Say(request, turn, text, message);
         return AskReplied.Sent;
     }
 
@@ -130,14 +136,13 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         if (requests.Of(AgentRequests.Flow) is not { Continues: true } request || request.Finished)
             return false;
 
-        Turn? turn;
         lock (_gate)
-            turn = _turn?.Request == request ? _turn : null;
-        if (turn is null)
-            return false;
-
-        turn.Stopped = true;
-        turn.Timeout.Cancel();
+        {
+            if (_turn?.Request != request)
+                return false;
+            _turn.Stopped = true;
+            _turn.Timeout.Cancel();
+        }
         return true;
     }
 
@@ -159,13 +164,47 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         return turn;
     }
 
-    /// <summary>Реплика встаёт в переписку своими словами, а агенту уходит строкой stdin; пошёл отсчёт ответа.</summary>
-    private static void Say(AgentRequest request, Turn turn, string text, string message)
+    /// <summary>
+    /// Реплика для нового агента: прежнего разговора он не знает, и флоу получает заново — с правками, до которых
+    /// договорились. Читает задачи и исполнителей с диска, поэтому зовётся вне блокировки разговора.
+    /// </summary>
+    private string Fresh(AgentRequest request, string text)
     {
-        request.Reply(new FlowRewriteEvent("reply", text));
+        Screen screen;
+        FlowProposal proposal;
+        lock (_gate)
+        {
+            screen = _screen!;
+            proposal = _proposal;
+        }
+        var (proposedStages, proposedFlows) = FlowProposals.Apply(screen.Stages, screen.Flows, proposal);
+        return FlowRewriteEndpoints.Input(
+            text, proposedStages, proposedFlows, Tasks(request.Base, screen.Flows), PerformerList.OfProject(request.Base));
+    }
+
+    /// <summary>
+    /// Реплика уходит агенту строкой stdin — у нового агента флоу целиком, а в переписке она стоит своими словами;
+    /// пошёл отсчёт ответа. Зовётся под блокировкой разговора.
+    /// </summary>
+    private static void Send(Turn turn, string text, string message)
+    {
+        turn.Said = text;
         turn.ReworkedMs = null;
         turn.Timeout.CancelAfter(Answer);
         turn.Replies.TryWrite(Message(message));
+    }
+
+    /// <summary>
+    /// Агент кончился: его очередь реплик больше не принимает. Возвращает реплику оператора, если в очереди осталось
+    /// непрочтённое, — её или просьбу панели доработать ответ на неё.
+    /// </summary>
+    private string? End(Turn turn, ChannelReader<string> replies)
+    {
+        lock (_gate)
+        {
+            turn.Ended = true;
+            return replies.TryRead(out _) ? turn.Said : null;
+        }
     }
 
     private async Task RunAsync(
@@ -188,19 +227,38 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
                         rewriting.Write(e.Type == "step" ? new FlowRewriteEvent("step", e.Text) : Outcome(e, turn));
                     if (stream.Finished)
                     {
-                        // Ответ ушёл на доработку — отсчёт идёт заново, как на реплику оператора.
+                        // Ответ ушёл на доработку — отсчёт идёт заново, как на реплику оператора. Реплику, ради
+                        // которой агент поднят, он прочёл и ответил: следующую, не прочтённую им, получит новый.
                         turn.Timeout.CancelAfter(turn.Reworking ? Answer : Timeout.InfiniteTimeSpan);
+                        if (!turn.Reworking)
+                            turn.Raised = false;
                         turn.Reworking = false;
                         stream = new ClaudeStream(basePath, turn.Copy);
                     }
                     return Task.CompletedTask;
                 },
                 linked.Token);
+            if (End(turn, replies) is { } left && !turn.Raised)
+            {
+                // Реплика легла в очередь, когда агент уже кончался, и он её не прочёл: её получает новый — с флоу
+                // целиком, — если оператор не остановил ответ. Дошедшую до stdin выходящего процесса не вернуть — она
+                // кончится сбоем ниже, как и та, которую не прочёл уже поднятый ради неё агент.
+                var fresh = Fresh(rewriting, left);
+                lock (_gate)
+                {
+                    if (turn.Stopped)
+                        rewriting.Write(new FlowRewriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
+                    else
+                        Send(Restart(rewriting), left, fresh);
+                }
+                return;
+            }
             if (!rewriting.Finished)
                 rewriting.Write(Failure(exit, stream));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            End(turn, replies);
             rewriting.Write(turn.Stopped
                 ? new FlowRewriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
                 : new FlowRewriteEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен"));
@@ -295,6 +353,18 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
 
         /// <summary>Доработку только что попросили: агент отвечает снова, и отсчёт ответа идёт заново.</summary>
         public bool Reworking { get; set; }
+
+        /// <summary>Процесс кончился: реплика в его очередь уже не идёт. Меняется только под блокировкой разговора.</summary>
+        public bool Ended { get; set; }
+
+        /// <summary>Нынешняя реплика оператора своими словами: не прочтённую агентом получает новый.</summary>
+        public string? Said { get; set; }
+
+        /// <summary>
+        /// Процесс поднят ради нынешней реплики и ещё на неё не ответил: не прочтёт он её — нового ради неё уже не
+        /// будет, и сбой встаёт в переписку. Так незапустившийся агент не поднимается без конца.
+        /// </summary>
+        public bool Raised { get; set; } = true;
     }
 }
 

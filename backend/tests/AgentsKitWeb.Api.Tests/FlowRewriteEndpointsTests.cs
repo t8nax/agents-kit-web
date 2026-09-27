@@ -234,6 +234,114 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_WhileAgentEnds_NewAgentGetsFlowWithAgreedChanges()
+    {
+        var exit = HoldFirstExit(out var ended);
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review, Merge], [Big]);
+        await Read(client, 2);
+        // Агент ответил и реплик больше не читает, но панель ещё не знает, что он кончился.
+        await ended.Task.WaitAsync(Wait);
+        using (var response = await Reply(client, "В обоих", [Review, Merge], [Big]))
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(
+            [
+                ("reply", "В обоих"),
+                ("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"),
+                ("answer", "Понял."),
+            ],
+            events[2..].Select(e => (e.Type, e.Text)));
+        Assert.Equal(2, _agent.Starts.Count);
+        // Новый агент прежнего разговора не знает: флоу он получает целиком, с правкой, до которой договорились.
+        var input = Text(_agent.Input[1]);
+        Assert.StartsWith("Просьба оператора:\nВ обоих", input);
+        Assert.Contains("# Документация", input);
+    }
+
+    [Fact]
+    public async Task Reply_WhileAgentEndsIsNotRetriedTwice()
+    {
+        var exit = HoldFirstExit(out var ended);
+        // Новый агент, поднятый ради реплики, кончается, не прочтя и её: третьего панель не поднимает.
+        _agent.StopAfterRun[1] = 0;
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review, Merge], [Big]);
+        await Read(client, 2);
+        await ended.Task.WaitAsync(Wait);
+        await Reply(client, "В обоих", [Review, Merge], [Big]);
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(["reply", "answer", "reply", "note", "error"], events.Select(e => e.Type));
+        Assert.Equal("Чудо-Юдо завершился без ответа", events[4].Text);
+        Assert.Equal(2, _agent.Starts.Count);
+    }
+
+    [Fact]
+    public async Task Reply_AfterAgentEndedRaisesOnlyOneNewAgent()
+    {
+        _agent.Answers = [[Result("В обоих сценариях?")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        _agent.StopAfterRun[1] = 0;
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review, Merge], [Big]);
+        await Read(client, 2);
+        await Reply(client, "В обоих", [Review, Merge], [Big]);
+        var events = await Read(client, 5);
+
+        Assert.Equal(["reply", "answer", "note", "reply", "error"], events.Select(e => e.Type));
+        Assert.Equal(2, _agent.Starts.Count);
+    }
+
+    [Fact]
+    public async Task Stop_WhileAgentEndsStopsReplyWithoutNewAgent()
+    {
+        HoldFirstExit(out var ended);
+        var client = await Client();
+
+        await Start(client, "Добавь документацию", [Review, Merge], [Big]);
+        await Read(client, 2);
+        await ended.Task.WaitAsync(Wait);
+        await Reply(client, "В обоих", [Review, Merge], [Big]);
+        using (var stopped = await client.PostAsync("/api/flow/rewrite/stop", null))
+            Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        var events = await Read(client, 4);
+
+        Assert.Equal("stopped", events[3].Type);
+        Assert.Single(_agent.Starts);
+    }
+
+    /// <summary>
+    /// Первый агент предлагает этап на первую реплику и больше реплик не читает, пока тест не отпустит его выход.
+    /// </summary>
+    private TaskCompletionSource HoldFirstExit(out TaskCompletionSource ended)
+    {
+        _agent.Answers =
+        [
+            [Result("Завёл документацию.\n=== новый этап\n# Документация\n\nисполнитель: оркестратор\nвыход: раздел\n")],
+            [Result("Понял.")],
+        ];
+        _agent.StopAfter = 1;
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agent.BeforeExit = () =>
+        {
+            if (first.Task.IsCompleted)
+                return Task.CompletedTask;
+            first.TrySetResult();
+            return exit.Task;
+        };
+        ended = first;
+        return exit;
+    }
+
+    [Fact]
     public async Task Answers_AccumulateProposalAndCountWhatEachChanged()
     {
         _agent.Answers =
@@ -411,8 +519,12 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         await Start(client, "Напиши этап");
         var events = await Read(client, 2);
 
+        // Просьба встаёт первой, даже когда агент кончился раньше, чем панель отправила её (B-263).
+        Assert.Equal(new FlowRewriteEvent("reply", "Напиши этап"), events[0]);
         Assert.Equal("Claude Code не запустился", events[1].Text);
         Assert.Equal("Не удаётся найти указанный файл", events[1].Output);
+        // Незапустившегося агента ради первой просьбы заново не поднимают.
+        Assert.Single(_agent.Starts);
     }
 
     [Fact]

@@ -37,8 +37,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     public AgentRequestSummary Start(string basePath, string? copyPath, string question)
     {
         var replies = Channel.CreateUnbounded<string>();
-        // Первый агент поднят ради первой реплики: не запустился он — нового ради неё не поднимают, сбой уже в переписке.
-        var turn = new Turn(replies.Writer, copyPath) { Retried = true };
+        var turn = new Turn(replies.Writer, copyPath);
         var request = requests.Start(
             AgentRequests.Ask,
             basePath,
@@ -103,12 +102,11 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     /// <summary>
     /// Процесс прежнего разговора кончился — сорвался или остановлен. Переписка остаётся на экране, новый
     /// процесс поднимается на следующей реплике, и панель честно говорит, что прошлого он не помнит.
-    /// retried — новый поднят ради реплики, которую прежний так и не прочёл: не прочтёт и он — третьего не будет.
     /// </summary>
-    private Turn Restart(AgentRequest request, string? copyPath, bool retried = false)
+    private Turn Restart(AgentRequest request, string? copyPath)
     {
         var replies = Channel.CreateUnbounded<string>();
-        var turn = new Turn(replies.Writer, copyPath) { Request = request, Retried = retried };
+        var turn = new Turn(replies.Writer, copyPath) { Request = request };
         lock (_gate)
             _turn = turn;
 
@@ -163,14 +161,14 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                     {
                         // Реплика отвечена: следующей ждём сколько угодно, а прочитанные файлы считаются заново.
                         // Реплику, ради которой агент поднят, он прочёл: следующую, не прочтённую им, получит новый.
-                        turn.Retried = false;
+                        turn.Raised = false;
                         turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
                         stream = new ClaudeStream(basePath, turn.Copy);
                     }
                     return Task.CompletedTask;
                 },
                 linked.Token);
-            if (End(turn, replies) is { } left && !turn.Retried)
+            if (End(turn, replies) is { } left && !turn.Raised)
             {
                 // Реплика легла в очередь, когда агент уже кончался, и он её не прочёл: её получает новый, если
                 // оператор не остановил ответ. Дошедшую до stdin выходящего процесса не вернуть — она кончится
@@ -180,7 +178,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                     if (turn.Stopped)
                         asking.Write(new AskEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
                     else
-                        Send(Restart(asking, turn.Copy, retried: true), left);
+                        Send(Restart(asking, turn.Copy), left);
                 }
                 return;
             }
@@ -270,10 +268,10 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         public string? Said { get; set; }
 
         /// <summary>
-        /// Процесс поднят ради реплики, не прочтённой прежним, и ещё на неё не ответил: не прочтёт и он — нового уже
-        /// не будет.
+        /// Процесс поднят ради нынешней реплики и ещё на неё не ответил: не прочтёт он её — нового ради неё уже не
+        /// будет, и сбой встаёт в переписку. Так незапустившийся агент не поднимается без конца.
         /// </summary>
-        public bool Retried { get; set; }
+        public bool Raised { get; set; } = true;
     }
 }
 
