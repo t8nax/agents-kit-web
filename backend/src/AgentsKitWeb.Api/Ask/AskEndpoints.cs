@@ -177,7 +177,8 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                 {
                     if (turn.Stopped)
                         asking.Write(new AskEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
-                    else
+                    // Разговор, сменённый новым, агента себе не поднимает: новый разговор держит своего.
+                    else if (_turn == turn)
                         Send(Restart(asking, turn.Copy), left);
                 }
                 return;

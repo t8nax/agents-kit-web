@@ -102,8 +102,10 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         if (!request.Finished)
             return AskReplied.Answering;
 
+        Turn? ended;
         lock (_gate)
         {
+            ended = _turn;
             var screen = stages is null || flows is null ? _screen! : new Screen(stages, flows);
             _screen = screen;
             // Записанное оператором из правок уходит: дальше они ложатся на флоу, каким он стал.
@@ -123,6 +125,9 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         var fresh = Fresh(request, text);
         lock (_gate)
         {
+            // Пока читался диск, нового агента подняла другая реплика: эта ждёт, как при идущем ответе.
+            if (_turn != ended || !request.Finished)
+                return AskReplied.Answering;
             var turn = Restart(request);
             request.Reply(new FlowRewriteEvent("reply", text));
             Send(turn, text, fresh);
@@ -248,7 +253,8 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
                 {
                     if (turn.Stopped)
                         rewriting.Write(new FlowRewriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
-                    else
+                    // Разговор, сменённый новым, агента себе не поднимает: новый разговор держит своего.
+                    else if (_turn == turn)
                         Send(Restart(rewriting), left, fresh);
                 }
                 return;

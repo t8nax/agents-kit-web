@@ -295,7 +295,10 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         await Reply(client, "В обоих", [Review, Merge], [Big]);
         var events = await Read(client, 5);
 
-        Assert.Equal(["reply", "answer", "note", "reply", "error"], events.Select(e => e.Type));
+        // Реплика, успевшая к прежнему агенту до того, как панель узнала о его конце, встаёт раньше пометки.
+        Assert.Equal(["reply", "answer"], events[..2].Select(e => e.Type));
+        Assert.Equal(["note", "reply"], events[2..4].Select(e => e.Type).Order());
+        Assert.Equal("error", events[4].Type);
         Assert.Equal(2, _agent.Starts.Count);
     }
 
