@@ -261,9 +261,13 @@ public sealed class AgentRequests
         string text,
         Func<AgentRequest, CancellationToken, Task> work,
         bool continues = false,
-        string? subject = null)
+        string? subject = null,
+        IAgentEvent? reply = null)
     {
         var request = new AgentRequest(kind, basePath, project, text, continues, subject);
+        // Реплика переписки встаёт первой до того, как пошла работа: сбой запуска агента иначе встал бы над ней (B-263).
+        if (reply is not null)
+            request.Reply(reply);
         lock (_gate)
         {
             if (_requests.Remove(kind, out var previous))
