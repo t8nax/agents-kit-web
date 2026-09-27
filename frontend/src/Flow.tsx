@@ -2049,7 +2049,8 @@ const ARC_WIDTH = 150
 const ARC_ROUND = 12
 const CHAIN_PAD = 16
 
-type ReturnArc = { from: number; to: number; condition: string; lane: number }
+// rounds — предел кругов возврата, если он задан верно: неверный назван ошибкой окна возвратов.
+type ReturnArc = { from: number; to: number; condition: string; rounds: number | null; lane: number }
 
 /**
  * Возвраты флоу дугами: у каждой своя дорожка, чтобы соседние круги не сливались в одну линию.
@@ -2063,7 +2064,8 @@ function returnArcs(flow: DraftFlow): ReturnArc[] {
       if (to < 0 || to >= from) continue
       let lane = 0
       while (arcs.some((arc) => arc.lane === lane && arc.to <= from && to <= arc.from)) lane++
-      arcs.push({ from, to, condition: back.condition, lane })
+      const rounds = back.rounds !== null && validRounds(back.rounds) ? Number(back.rounds.trim()) : null
+      arcs.push({ from, to, condition: back.condition, rounds, lane })
     }
   })
   return arcs
@@ -2099,8 +2101,17 @@ function ReturnArcs({ flow, lit }: { flow: DraftFlow; lit: number[] }) {
                 } Q ${lane} ${y2} ${lane + ARC_ROUND} ${y2} H ${ARC_WIDTH - 10}`}
               />
               <path d={`M ${ARC_WIDTH - 16} ${y2 - 5} L ${ARC_WIDTH - 6} ${y2} L ${ARC_WIDTH - 16} ${y2 + 5}`} />
+              {/* Предел кругов стоит кружком на своей дуге всегда — вариант «А» макета B-271. */}
+              {arc.rounds !== null && (
+                <g className="flow-arc-limit" data-rounds={arc.rounds}>
+                  <rect x={lane - 10} y={(y1 + y2) / 2 - 10} width={20} height={20} rx={10} />
+                  <text x={lane} y={(y1 + y2) / 2 + 0.5} textAnchor="middle">
+                    {arc.rounds}
+                  </text>
+                </g>
+              )}
               {lighted && arc.condition.trim() && (
-                <text className="flow-arc-label" x={lane - 8} y={(y1 + y2) / 2} textAnchor="end">
+                <text className="flow-arc-label" x={lane - (arc.rounds !== null ? 18 : 8)} y={(y1 + y2) / 2} textAnchor="end">
                   {arc.condition.trim()}
                 </text>
               )}

@@ -964,6 +964,30 @@ fieldset.flow-stage-set.flow-stage-rows {
   dominant-baseline: middle;
 }
 
+/* Предел кругов возврата — кружок с числом на своей дуге, подсвечивается вместе с ней (B-271). */
+.flow-arc .flow-arc-limit rect {
+  fill: var(--bg-base);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.flow-arc-limit text {
+  fill: var(--text-secondary);
+  stroke: none;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  dominant-baseline: central;
+}
+
+.flow-arc-open .flow-arc-limit rect {
+  stroke: var(--accent-done-text);
+}
+
+.flow-arc-open .flow-arc-limit text {
+  fill: var(--accent-done-text);
+}
+
 /* Верх раздела: заголовок слева, справа вкладки переключателем, проект и «…» — выбор оператора на B-192. */
 .vc-head {
   flex: none;

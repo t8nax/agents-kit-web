@@ -647,6 +647,25 @@ test('возвраты нарисованы дугами: у стадии с о�
   expect(document.querySelector('.flow-arc-label')).toHaveTextContent('замечания')
 })
 
+test('предел кругов стоит числом на своей дуге всегда, у дуги без предела числа нет', async () => {
+  const limited: NamedFlow = {
+    ...full,
+    entries: [
+      { stage: 'Критерий' },
+      { stage: 'Ревью', returns: [{ condition: 'нет критерия', stage: 'Критерий' }] },
+      { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Ревью', rounds: 3 }] },
+    ],
+  }
+  stubApi(api([{ ...app, flows: [limited, small] }]))
+  await renderFlow()
+
+  const arcs = [...document.querySelectorAll('.flow-arc')]
+  expect(arcs).toHaveLength(2)
+  expect(arcs.map((arc) => arc.querySelector('.flow-arc-limit')?.textContent ?? null).sort()).toEqual(['3', null])
+  // Не под мышью дуга не подсвечена, а число всё равно видно.
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
+})
+
 // Флоу с кругами: у «Ревью» возврат к «Критерию», у «Приёмки» — два, к «Ревью» и к «Критерию».
 const circles: NamedFlow = {
   name: 'круги',
