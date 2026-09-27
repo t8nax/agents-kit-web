@@ -41,7 +41,8 @@ function trackerState(load: TrackerLoad, repo: string | null | undefined): State
         warning: true,
         text: (
           <>
-            GitHub не нашёл репозиторий <code>{repo}</code> или у вашего аккаунта нет к нему доступа.
+            GitHub не нашёл репозиторий <code>{repo}</code> или у вашего аккаунта нет к нему доступа
+            {load.detail ? <>: {load.detail}</> : '.'}
           </>
         ),
       }

@@ -57,7 +57,8 @@ public class GhIssuesTests
     {
         var issues = GhIssues.Failed(1, "GraphQL: Could not resolve to a Repository with the name 'acme/gone'. (repository)\n");
 
-        Assert.Equal(new TrackerIssues([], TrackerIssues.RepoUnreachable), issues);
+        Assert.Equal(TrackerIssues.RepoUnreachable, issues.Problem);
+        Assert.Equal("GraphQL: Could not resolve to a Repository with the name 'acme/gone'. (repository)", issues.Detail);
     }
 
     [Fact]

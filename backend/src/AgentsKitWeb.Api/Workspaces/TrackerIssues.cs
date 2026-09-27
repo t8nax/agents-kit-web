@@ -121,10 +121,10 @@ public sealed class GhIssues : IGitHubIssues
         if (exitCode == 4 || error.Contains("gh auth login", StringComparison.Ordinal)
             || error.Contains("401", StringComparison.Ordinal) || error.Contains("Bad credentials", StringComparison.Ordinal))
             return new TrackerIssues([], TrackerIssues.GhLogin);
-        // Чужой закрытый репозиторий GitHub отвечает так же, как несуществующий.
-        if (error.Contains("Could not resolve to a Repository", StringComparison.Ordinal))
-            return new TrackerIssues([], TrackerIssues.RepoUnreachable);
         var line = error.ReplaceLineEndings("\n").Split('\n').FirstOrDefault(l => l.Trim().Length > 0)?.Trim();
+        // Чужой закрытый репозиторий GitHub отвечает так же, как несуществующий; его строка — причиной рядом.
+        if (error.Contains("Could not resolve to a Repository", StringComparison.Ordinal))
+            return new TrackerIssues([], TrackerIssues.RepoUnreachable, line);
         return new TrackerIssues([], TrackerIssues.GitHubError, line ?? $"gh вышла с кодом {exitCode}");
     }
 

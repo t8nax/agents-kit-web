@@ -909,7 +909,11 @@ test.each([
   [{ issues: [], problem: null }, /На вас в GitHub нет открытых задач этого репозитория/, false],
   [{ issues: [], problem: 'gh-missing' }, /Программа gh не установлена\. Установите GitHub CLI и войдите в аккаунт командой gh auth login/, true],
   [{ issues: [], problem: 'gh-login' }, /Программа gh не вошла в аккаунт GitHub\. Войдите командой gh auth login/, true],
-  [{ issues: [], problem: 'repo-unreachable' }, /GitHub не нашёл репозиторий acme\/orders или у вашего аккаунта нет к нему доступа/, true],
+  [
+    { issues: [], problem: 'repo-unreachable', detail: "GraphQL: Could not resolve to a Repository with the name 'acme/orders'." },
+    /GitHub не нашёл репозиторий acme\/orders или у вашего аккаунта нет к нему доступа: GraphQL: Could not resolve to a Repository/,
+    true,
+  ],
   [{ issues: [], problem: 'github-error', detail: 'HTTP 502: Bad Gateway' }, /GitHub ответил ошибкой: HTTP 502: Bad Gateway/, true],
 ])('ответ трекера %o — своей строкой на месте задач', async (reply, text, warning) => {
   const fetchMock = stubFetch(withTracker(github))
