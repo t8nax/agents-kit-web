@@ -58,9 +58,9 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
         _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
-        Directory.CreateDirectory(Path.Combine(TestLayout.OperatorDir(_base), "flow", "stages"));
-        File.WriteAllText(Path.Combine(TestLayout.OperatorDir(_base), "flow", "scenarios.md"), Flow.ReplaceLineEndings("\n"));
-        File.WriteAllText(Path.Combine(TestLayout.OperatorDir(_base), "flow", "stages", "review.md"), Review.ReplaceLineEndings("\n"));
+        Directory.CreateDirectory(Path.Combine(TestLayout.Personal(_base), "flow", "stages"));
+        File.WriteAllText(Path.Combine(TestLayout.Personal(_base), "flow", "scenarios.md"), Flow.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(TestLayout.Personal(_base), "flow", "stages", "review.md"), Review.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -107,9 +107,10 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         // И базу: её путь стоит в системном промпте, а флоу приходит текстом в stdin.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(_base, prompt);
-        // Исполнители и флоу — в папке оператора этой машины (B-275).
+        // Исполнители и флоу — в личном репозитории оператора этой машины (формат 6 кита).
         Assert.Contains($"в каталоге {TestLayout.Agents(_base)},", prompt);
-        Assert.Contains($"оператора {TestLayout.OperatorDir(_base)} — его флоу", prompt);
+        Assert.Contains($"репозитории оператора {TestLayout.Personal(_base)} — его флоу", prompt);
+        Assert.Contains("Флоу оператора, файлы flow/ его личного репозитория:", _agent.Input);
         Assert.Contains("--help, ревьюер ветки", _agent.Input);
         // Флоу уходит агенту файлами нынешнего вида кита: список сценариев и каждый этап.
         Assert.Contains("flow/scenarios.md:\n# App — сценарии", _agent.Input);
@@ -160,13 +161,13 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
 
         Assert.Equal("drafted", events[^1].Type);
         Assert.False(Directory.Exists(Path.Combine(_copy, ".claude", "agents")));
-        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(TestLayout.OperatorDir(_base), "flow", "scenarios.md")));
+        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(TestLayout.Personal(_base), "flow", "scenarios.md")));
     }
 
     [Fact]
     public async Task Draft_GoesOnWhenBaseHasNoFlow()
     {
-        Directory.Delete(Path.Combine(TestLayout.OperatorDir(_base), "flow"), recursive: true);
+        Directory.Delete(Path.Combine(TestLayout.Personal(_base), "flow"), recursive: true);
         _agent.Lines = [Result(Drafted)];
 
         var events = await Draft(await Client(), "Ревьюер ветки");

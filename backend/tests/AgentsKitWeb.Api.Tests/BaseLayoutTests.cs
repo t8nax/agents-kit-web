@@ -19,7 +19,6 @@ public sealed class BaseLayoutTests : IDisposable
         Assert.Equal(TestLayout.Operator, layout.Operator);
         Assert.Equal([Path.Combine(_root, "app"), Path.Combine(_root, "lib")], layout.Workspaces);
         Assert.Equal(Path.Combine(basePath, "local", "me"), layout.Personal);
-        Assert.Equal(Path.Combine(basePath, "people", TestLayout.Operator), layout.OperatorDir);
         Assert.Equal(Path.Combine(basePath, "local", "me", "work"), layout.WorkDir);
         Assert.Equal(Path.Combine(basePath, "local", "me", "work", BaseLayout.Machine()), layout.MemoryDir);
     }

@@ -31,7 +31,7 @@ import { useReveal, withReveal } from './reveal'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /**
- * Стадия флоу — файл flow/stages/ папки оператора в базе, один на все флоу, где она стоит. slug — имя файла; у стадии,
+ * Стадия флоу — файл flow/stages/ личного репозитория оператора, один на все флоу, где она стоит. slug — имя файла; у стадии,
  * заведённой в панели и ещё не записанной, его нет.
  */
 export type FlowStage = {

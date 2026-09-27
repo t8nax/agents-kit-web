@@ -48,12 +48,12 @@ public static class TaskEndpoints
             if (number is null)
                 return Results.BadRequest();
 
-            // Имя флоу уходит в просьбу сессии: берётся то, что стоит во флоу оператора этой машины — его папке
-            // в базе, — а не присланное.
+            // Имя флоу уходит в просьбу сессии: берётся то, что стоит во флоу оператора этой машины — его личном
+            // репозитории, — а не присланное.
             string? flow = null;
             if (!string.IsNullOrWhiteSpace(request.Flow))
             {
-                flow = (BaseLayout.Read(basePath) is { } layout ? FlowFolder.ReadFlows(layout.OperatorDir) : [])
+                flow = (BaseLayout.Read(basePath) is { } layout ? FlowFolder.ReadFlows(layout.Personal) : [])
                     .FirstOrDefault(f => FlowFolder.Key(f.Name) == FlowFolder.Key(request.Flow))?.Name;
                 if (flow is null)
                     return Results.BadRequest(new TaskStartProblem("flow-unknown"));

@@ -45,8 +45,9 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
-    // Исполнители — в папке оператора этой машины; каталог agents/ в корне базы — прежнее место кита, и его не видно.
-    public async Task Performers_OnlyFromOperatorFolder()
+    // Исполнители — в личном репозитории оператора этой машины. Каталог agents/ в корне базы — прежнее место кита,
+    // папки операторов в people\ — выложенное для коллег (формат 6 кита), даже своя: их не видно.
+    public async Task Performers_OnlyFromPersonalRepository()
     {
         var basePath = CreateBase("app-knowledge");
         Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
@@ -55,6 +56,9 @@ public sealed class PerformersEndpointsTests : IDisposable
         var colleague = Path.Combine(basePath, "people", "colleague", "agents");
         Directory.CreateDirectory(colleague);
         File.WriteAllText(Path.Combine(colleague, "theirs.md"), "---\nname: theirs\n---\n\nЧужой.\n");
+        var published = Path.Combine(TestLayout.Published(basePath), "agents");
+        Directory.CreateDirectory(published);
+        File.WriteAllText(Path.Combine(published, "shared.md"), "---\nname: shared\n---\n\nВыложенный.\n");
 
         var performers = Assert.Single(await Get(basePath));
 
@@ -84,7 +88,7 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Performers_WritesFileIntoTheBaseAndCommitsIt()
+    public async Task Performers_WritesFileIntoPersonalRepositoryAndLeavesTheBaseAlone()
     {
         var basePath = CreateBase("app-knowledge");
 
@@ -107,9 +111,12 @@ public sealed class PerformersEndpointsTests : IDisposable
 
             """.ReplaceLineEndings("\n"), File.ReadAllText(file).ReplaceLineEndings("\n"));
 
-        // Исполнитель уходит в базу коммитом: сессии, которая его закоммитила бы, у панели нет.
+        // Исполнитель уходит в личный репозиторий коммитом: сессии, которая его закоммитила бы, у панели нет.
+        // Общая база от него не меняется.
+        Assert.Empty(Status(TestLayout.Personal(basePath)));
+        Assert.Contains("Исполнитель reviewer записан из панели", Run(TestLayout.Personal(basePath), "log", "-1", "--format=%s"));
         Assert.Empty(Status(basePath));
-        Assert.Contains("Исполнитель reviewer записан из панели", Run(basePath, "log", "-1", "--format=%s"));
+        Assert.Equal("база", Run(basePath, "log", "-1", "--format=%s").Trim());
     }
 
     [Fact]
@@ -192,7 +199,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         // Иначе в базе оказались бы два файла с одним именем, и в копию уехали бы оба.
         Assert.Equal(["reviewer.md"], Directory.GetFiles(TestLayout.Agents(basePath)).Select(Path.GetFileName));
-        Assert.Empty(Status(basePath));
+        Assert.Empty(Status(TestLayout.Personal(basePath)));
     }
 
     [Fact]
@@ -254,7 +261,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
         Assert.Equal(["code-reviewer.md"], Directory.GetFiles(TestLayout.Agents(basePath)).Select(Path.GetFileName));
         // Прежний файл уходит тем же коммитом: иначе база осталась бы с двумя одинаковыми исполнителями.
-        Assert.Empty(Status(basePath));
+        Assert.Empty(Status(TestLayout.Personal(basePath)));
     }
 
     [Fact]
@@ -293,7 +300,7 @@ public sealed class PerformersEndpointsTests : IDisposable
     [Fact]
     public async Task Performers_KeepsNothingWhenTheBaseRefusesTheCommit()
     {
-        // База не под git: коммит не пройдёт, и незакоммиченный исполнитель уехал бы в чужой коммит.
+        // Личный репозиторий не принимает коммит: незакоммиченный исполнитель уехал бы в чужой коммит.
         var basePath = CreateBase("app-knowledge", git: false);
 
         var response = await Save(basePath, new SavePerformerRequest(
@@ -309,9 +316,9 @@ public sealed class PerformersEndpointsTests : IDisposable
     {
         var basePath = CreateBase("app-knowledge");
         Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое тело.\n");
-        TestGit.Run(basePath, "add", "--", "people/tester/agents/reviewer.md");
-        TestGit.Run(basePath, "commit", "-m", "исполнитель");
-        File.WriteAllText(Path.Combine(basePath, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: база не приняла' >&2\nexit 1\n");
+        TestGit.Run(TestLayout.Personal(basePath), "add", "--", "agents/reviewer.md");
+        TestGit.Run(TestLayout.Personal(basePath), "commit", "-m", "исполнитель");
+        File.WriteAllText(Path.Combine(TestLayout.Personal(basePath), ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: база не приняла' >&2\nexit 1\n");
 
         var response = await Save(basePath, new SavePerformerRequest(
             basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"));
@@ -323,7 +330,7 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         // Правимый исполнитель остался в базе, каким был, и отказанная правка не ждёт в индексе.
         Assert.Equal("Первое тело.", PerformerFile.Parse(File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md"))).Prompt);
-        Assert.Empty(Status(basePath));
+        Assert.Empty(Status(TestLayout.Personal(basePath)));
     }
 
     [Fact]
@@ -353,12 +360,23 @@ public sealed class PerformersEndpointsTests : IDisposable
 
     private string CreateBase(string name, params string[] copies) => CreateBase(name, true, copies);
 
-    /// <summary>База прогона: маркер кита и, когда нужно, git — панель коммитит исполнителя в неё.</summary>
+    /// <summary>
+    /// База прогона под git и личный репозиторий, в который панель коммитит исполнителя; git: false — личный
+    /// репозиторий коммита не примет: его .git указывает в никуда.
+    /// </summary>
     private string CreateBase(string name, bool git, params string[] copies)
     {
         var basePath = TestLayout.Base(Path.Combine(_root, name), copies);
+        var personal = TestLayout.Personal(basePath);
         if (!git)
+        {
+            Directory.Delete(Path.Combine(personal, ".git"), recursive: true);
+            File.WriteAllText(Path.Combine(personal, ".git"), "gitdir: " + Path.Combine(_root, "gone.git") + "\n");
             return basePath;
+        }
+
+        TestGit.Run(personal, "config", "user.name", "t");
+        TestGit.Run(personal, "config", "user.email", "t@t");
 
         TestGit.Run(basePath, "init", "-b", "main");
         TestGit.Run(basePath, "config", "user.name", "t");
