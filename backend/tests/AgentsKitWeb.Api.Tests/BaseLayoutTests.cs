@@ -120,23 +120,41 @@ public sealed class BaseLayoutTests : IDisposable
     }
 
     [Theory]
-    [InlineData("", "MERGE_HEAD", "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут")]
-    [InlineData("", "rebase-merge/", "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут")]
-    [InlineData(@"local\me", "rebase-apply/", "Сведение личного репозитория с сервером встало на конфликте — сессии агентов не пишут в бэклог и память, пока его не разберут")]
-    // Конфликт называется конфликтом и тогда, когда его метки стоят в самом agents-kit.json (B-275, ревью).
-    public void Read_UnfinishedSync_IsNamedConflict(string repo, string mark, string expected)
+    [InlineData("MERGE_HEAD")]
+    [InlineData("rebase-merge/")]
+    [InlineData("rebase-apply/")]
+    // Метки конфликта в самом agents-kit.json — причина называется конфликтом, а не «не прочитан» (B-275, ревью).
+    public void Read_UnfinishedSyncBrokeMarker_IsNamedConflict(string mark)
     {
         var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
-        var git = Path.Combine(basePath, repo, ".git");
+        Mark(basePath, mark);
+        File.WriteAllText(Path.Combine(basePath, BaseLayout.MarkerFile), "<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> origin\n");
+
+        Assert.Null(BaseLayout.Read(basePath, out var problem));
+        Assert.Equal("Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут", problem);
+    }
+
+    [Theory]
+    [InlineData("", "rebase-merge/")]
+    [InlineData(@"local\me", "MERGE_HEAD")]
+    // Метка сведения при целой разметке базу не гасит: она бывает и у бесконфликтного rebase, а о конфликте скажет
+    // сверка кита (B-275, ревью круга 2).
+    public void Read_UnfinishedSyncWithIntactMarker_IsRead(string repo, string mark)
+    {
+        var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
+        Mark(Path.Combine(basePath, repo), mark);
+
+        Assert.NotNull(BaseLayout.Read(basePath));
+    }
+
+    private static void Mark(string repo, string mark)
+    {
+        var git = Path.Combine(repo, ".git");
         Directory.CreateDirectory(git);
         if (mark.EndsWith('/'))
             Directory.CreateDirectory(Path.Combine(git, mark.TrimEnd('/')));
         else
             File.WriteAllText(Path.Combine(git, mark), "0000000\n");
-        File.WriteAllText(Path.Combine(basePath, BaseLayout.MarkerFile), "<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> origin\n");
-
-        Assert.Null(BaseLayout.Read(basePath, out var problem));
-        Assert.Equal(expected, problem);
     }
 
     [Theory]

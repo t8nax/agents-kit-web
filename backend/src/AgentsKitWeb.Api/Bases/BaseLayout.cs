@@ -45,21 +45,14 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
 
     public static BaseLayout? Read(string basePath, out string problem)
     {
-        // Сведение с сервером, вставшее на конфликте, — до формата, как у кита (Get-KitLinkState): посреди конфликта
-        // метки могут стоять в любом файле, и в agents-kit.json тоже, а сессии в такую базу не пишут.
-        if (Unmerged(basePath))
-        {
-            problem = "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут";
-            return null;
-        }
-        if (Unmerged(PersonalOf(basePath)))
-        {
-            problem = "Сведение личного репозитория с сервером встало на конфликте — сессии агентов не пишут в бэклог и память, пока его не разберут";
-            return null;
-        }
-
         switch (ReadFormat(basePath))
         {
+            // Посреди конфликта сведения с сервером метки стоят в любом файле базы, и в agents-kit.json тоже: тогда
+            // причина — конфликт. Метка без поломки разметки базу не гасит — она бывает и у бесконфликтного rebase
+            // сведения, а о конфликте копии скажет сверка кита (Unmerged в «Проблемах баз»). local\me.json вне git.
+            case null when Unmerged(basePath):
+                problem = "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут";
+                return null;
             case null:
                 problem = "Не прочитан agents-kit.json базы";
                 return null;
