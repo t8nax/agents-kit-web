@@ -31,7 +31,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         var performers = Assert.Single(await Get(basePath));
 
         Assert.Equal("Order Service", performers.Project);
-        Assert.Equal(Path.Combine(basePath, "agents"), performers.Directory);
+        Assert.Equal(TestLayout.Agents(basePath), performers.Directory);
         Assert.Null(performers.Error);
 
         // Имя — то, которым зовёт исполнителя шаг флоу: приставки проекта у него больше нет.
@@ -41,7 +41,24 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.Equal("opus", reviewer.Model);
         Assert.Equal("Read, Glob, Grep", reviewer.Tools);
         Assert.Equal("Ты читаешь дифф ветки целиком.", reviewer.Prompt);
-        Assert.Equal(Path.Combine(basePath, "agents", "reviewer.md"), reviewer.Path);
+        Assert.Equal(Path.Combine(TestLayout.Agents(basePath), "reviewer.md"), reviewer.Path);
+    }
+
+    [Fact]
+    // Исполнители — в папке оператора этой машины; каталог agents/ в корне базы — прежнее место кита, и его не видно.
+    public async Task Performers_OnlyFromOperatorFolder()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+        Directory.CreateDirectory(Path.Combine(basePath, "agents"));
+        File.WriteAllText(Path.Combine(basePath, "agents", "old.md"), "---\nname: old\n---\n\nПрежнее место.\n");
+        var colleague = Path.Combine(basePath, "people", "colleague", "agents");
+        Directory.CreateDirectory(colleague);
+        File.WriteAllText(Path.Combine(colleague, "theirs.md"), "---\nname: theirs\n---\n\nЧужой.\n");
+
+        var performers = Assert.Single(await Get(basePath));
+
+        Assert.Equal(["reviewer"], performers.Performers.Select(p => p.Name));
     }
 
     [Fact]
@@ -75,7 +92,7 @@ public sealed class PerformersEndpointsTests : IDisposable
             basePath, "reviewer", "Читает дифф ветки задачи.", "opus", "Read, Glob, Grep", "Ты читаешь дифф.", null));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var file = Path.Combine(basePath, "agents", "reviewer.md");
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
         Assert.Equal(file, (await response.Content.ReadFromJsonAsync<PerformerSavedResponse>())!.Path);
 
         Assert.Equal("""
@@ -120,10 +137,10 @@ public sealed class PerformersEndpointsTests : IDisposable
             basePath, "reviewer", "Второе", null, null, "Другое тело", "reviewer"));
 
         Assert.Equal(HttpStatusCode.OK, second.StatusCode);
-        var text = File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md"));
+        var text = File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md"));
         Assert.Contains("description: Второе", text);
         Assert.DoesNotContain("Первое", text);
-        Assert.Single(Directory.GetFiles(Path.Combine(basePath, "agents")));
+        Assert.Single(Directory.GetFiles(TestLayout.Agents(basePath)));
     }
 
     [Fact]
@@ -138,7 +155,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         // Молча переписать заведённого в базе — потерять его.
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         Assert.Equal("name-taken", (await again.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
-        Assert.Contains("Первое", File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md")));
+        Assert.Contains("Первое", File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
     }
 
     [Fact]
@@ -159,7 +176,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         var rejected = (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!;
         Assert.Equal("name-in-project", rejected.Problem);
         Assert.Equal(copy, rejected.Detail);
-        Assert.False(File.Exists(Path.Combine(basePath, "agents", "reviewer.md")));
+        Assert.False(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
     }
 
     [Fact]
@@ -174,7 +191,7 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         // Иначе в базе оказались бы два файла с одним именем, и в копию уехали бы оба.
-        Assert.Equal(["reviewer.md"], Directory.GetFiles(Path.Combine(basePath, "agents")).Select(Path.GetFileName));
+        Assert.Equal(["reviewer.md"], Directory.GetFiles(TestLayout.Agents(basePath)).Select(Path.GetFileName));
         Assert.Empty(Status(basePath));
     }
 
@@ -189,7 +206,7 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("name-taken", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
-        Assert.False(File.Exists(Path.Combine(basePath, "agents", "reviewer.md")));
+        Assert.False(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
     }
 
     [Fact]
@@ -205,7 +222,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         // Иначе чужая работа молча ушла бы в историю базы под чужим именем.
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("name-taken", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
-        Assert.Contains("Чужая работа.", File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md")));
+        Assert.Contains("Чужая работа.", File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
     }
 
     [Fact]
@@ -221,8 +238,8 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("name-taken", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
-        Assert.Contains("Чужая работа.", File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md")));
-        Assert.Contains("Правимый.", File.ReadAllText(Path.Combine(basePath, "agents", "foo.md")));
+        Assert.Contains("Чужая работа.", File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+        Assert.Contains("Правимый.", File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "foo.md")));
     }
 
     [Fact]
@@ -235,7 +252,7 @@ public sealed class PerformersEndpointsTests : IDisposable
             basePath, "code-reviewer", "Описание", null, null, "Тело", "reviewer"));
 
         Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
-        Assert.Equal(["code-reviewer.md"], Directory.GetFiles(Path.Combine(basePath, "agents")).Select(Path.GetFileName));
+        Assert.Equal(["code-reviewer.md"], Directory.GetFiles(TestLayout.Agents(basePath)).Select(Path.GetFileName));
         // Прежний файл уходит тем же коммитом: иначе база осталась бы с двумя одинаковыми исполнителями.
         Assert.Empty(Status(basePath));
     }
@@ -250,7 +267,7 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("invalid-name", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
-        Assert.False(Directory.Exists(Path.Combine(basePath, "agents")));
+        Assert.False(Directory.Exists(TestLayout.Agents(basePath)));
     }
 
     [Theory]
@@ -270,7 +287,7 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("invalid-description", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
-        Assert.False(Directory.Exists(Path.Combine(basePath, "agents")));
+        Assert.False(Directory.Exists(TestLayout.Agents(basePath)));
     }
 
     [Fact]
@@ -284,7 +301,7 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("not-committed", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
-        Assert.False(File.Exists(Path.Combine(basePath, "agents", "reviewer.md")));
+        Assert.False(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
     }
 
     [Fact]
@@ -292,7 +309,7 @@ public sealed class PerformersEndpointsTests : IDisposable
     {
         var basePath = CreateBase("app-knowledge");
         Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое тело.\n");
-        TestGit.Run(basePath, "add", "--", "agents/reviewer.md");
+        TestGit.Run(basePath, "add", "--", "people/tester/agents/reviewer.md");
         TestGit.Run(basePath, "commit", "-m", "исполнитель");
         File.WriteAllText(Path.Combine(basePath, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: база не приняла' >&2\nexit 1\n");
 
@@ -305,7 +322,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.Contains("сверка: база не приняла", rejected.Detail);
 
         // Правимый исполнитель остался в базе, каким был, и отказанная правка не ждёт в индексе.
-        Assert.Equal("Первое тело.", PerformerFile.Parse(File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md"))).Prompt);
+        Assert.Equal("Первое тело.", PerformerFile.Parse(File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md"))).Prompt);
         Assert.Empty(Status(basePath));
     }
 
@@ -314,22 +331,22 @@ public sealed class PerformersEndpointsTests : IDisposable
     {
         var basePath = CreateBase("app-knowledge");
         // Пишется как есть, без приведения к LF: тест как раз про перевод строк прежнего файла.
-        Directory.CreateDirectory(Path.Combine(basePath, "agents"));
-        File.WriteAllText(Path.Combine(basePath, "agents", "reviewer.md"), "---\r\nname: reviewer\r\n---\r\n\r\nПервое тело.\r\n");
+        Directory.CreateDirectory(TestLayout.Agents(basePath));
+        File.WriteAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md"), "---\r\nname: reviewer\r\n---\r\n\r\nПервое тело.\r\n");
 
         var response = await Save(basePath, new SavePerformerRequest(
             basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         // Файл лежит в чужой базе под git: смена перевода строк дала бы коммит «изменился весь файл».
-        var text = File.ReadAllText(Path.Combine(basePath, "agents", "reviewer.md"));
+        var text = File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md"));
         Assert.Contains("\r\n", text);
         Assert.DoesNotContain("\n", text.Replace("\r\n", ""));
     }
 
     private static void Performer(string basePath, string name, string text)
     {
-        var directory = Path.Combine(basePath, "agents");
+        var directory = TestLayout.Agents(basePath);
         Directory.CreateDirectory(directory);
         File.WriteAllText(Path.Combine(directory, name + ".md"), text.ReplaceLineEndings("\n"));
     }

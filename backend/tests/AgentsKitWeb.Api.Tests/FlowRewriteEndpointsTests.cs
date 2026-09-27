@@ -67,9 +67,9 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
         _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
-        Directory.CreateDirectory(Path.Combine(_base, "agents"));
+        Directory.CreateDirectory(TestLayout.Agents(_base));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
-        File.WriteAllText(Path.Combine(_base, "agents", "reviewer.md"), Reviewer.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(TestLayout.Agents(_base), "reviewer.md"), Reviewer.ReplaceLineEndings("\n"));
 
         _kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
         var rules = FlowRules.File(_kit);
