@@ -312,6 +312,16 @@ test('предел кругов: число на своей дуге, в окн�
   await expect(region.locator('.flow-arc-open')).toHaveCount(0)
   await expect(region.locator('.flow-arc-limit')).toHaveText(['2'])
   await expect(region.locator('.flow-arc-limit')).toBeVisible()
+  // Под мышью кружок подсвечивается вместе с дугой: рамка и число — цвета подсвеченной линии
+  const ring = region.locator('.flow-arc-limit rect')
+  const quiet = await ring.evaluate((el) => getComputedStyle(el).stroke)
+  await region.getByRole('button', { name: /^Этап 2: Ревью/ }).hover()
+  await expect(region.locator('.flow-arc-open .flow-arc-limit')).toHaveCount(1)
+  const line = await region.locator('.flow-arc-open path').first().evaluate((el) => getComputedStyle(el).stroke)
+  await expect(ring).toHaveCSS('stroke', line)
+  await expect(region.locator('.flow-arc-limit text')).toHaveCSS('fill', line)
+  expect(line).not.toBe(quiet)
+  await page.mouse.move(900, 40)
 
   await region.getByRole('button', { name: /^Этап 3: Приёмка/ }).click({ button: 'right' })
   await page.getByRole('menu', { name: 'Этап «Приёмка»' }).getByRole('menuitem', { name: 'Возвраты' }).click()
