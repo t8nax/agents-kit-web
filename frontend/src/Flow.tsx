@@ -2999,6 +2999,8 @@ function ReturnsField({
 }) {
   const set = (index: number, patch: Partial<DraftReturn>) =>
     onChange(returns.map((back, i) => (i === index ? { ...back, ...patch } : back)))
+  // Возврат, у которого предел только что открыли кнопкой: его поле получает фокус.
+  const [opened, setOpened] = useState<number | null>(null)
 
   // Вернуться не к чему — раньше в сценарии нет стадий базы: пустого блока «Возвраты» нет — замечание оператора на приёмке B-192.
   // Возврат из файла всё же покажется: его надо видеть, чтобы убрать.
@@ -3049,6 +3051,48 @@ function ReturnsField({
                 ))}
               </select>
             </div>
+            {/* Предел кругов добавляется кнопкой и убирается крестиком — вариант «Б» макета B-271. */}
+            {back.rounds === null ? (
+              <div className="flow-return-row">
+                <button
+                  type="button"
+                  className="flow-limit-add"
+                  aria-label={`Предел кругов возврата ${index + 1}`}
+                  onClick={() => {
+                    setOpened(index)
+                    set(index, { rounds: '' })
+                  }}
+                >
+                  <PlusIcon />
+                  Предел кругов
+                </button>
+              </div>
+            ) : (
+              <div className="flow-return-row">
+                <span className="flow-return-mark" aria-hidden="true">
+                  <RoundsIcon />
+                </span>
+                <span className="flow-return-limit-label">Предел кругов</span>
+                <input
+                  className="flow-input flow-limit-input"
+                  inputMode="numeric"
+                  aria-label={`Предел кругов возврата ${index + 1}`}
+                  aria-invalid={!validRounds(back.rounds)}
+                  autoFocus={opened === index}
+                  value={back.rounds}
+                  onChange={(event) => set(index, { rounds: event.target.value })}
+                />
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  aria-label={`Убрать предел кругов возврата ${index + 1}`}
+                  title="Убрать предел кругов"
+                  onClick={() => set(index, { rounds: null })}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            )}
           </div>
         )
       })}
@@ -3615,6 +3659,18 @@ function ReturnIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 9h11a4 4 0 0 1 0 8H9" />
       <polyline points="8 5 4 9 8 13" />
+    </svg>
+  )
+}
+
+/** Значок предела кругов — две круговые стрелки. */
+function RoundsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
     </svg>
   )
 }

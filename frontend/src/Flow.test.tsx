@@ -507,6 +507,46 @@ test('возвраты правятся окном поверх схемы и п
   expect(posts(fetchMock)).toBe(1)
 })
 
+test('предел кругов задают кнопкой, правят числом, неверное не сохраняют, а крестик и убранный возврат его уносят', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  await renderFlow()
+  fireEvent.click(screen.getByRole('button', { name: 'Сценарий: полный' }))
+  fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
+  const region = within(screen.getByRole('region', { name: 'Сценарий «мелкий»' }))
+
+  const dialog = await returnsOf(region, /^Этап 2: Приёмка/)
+  // Предела нет — вместо поля кнопка; она открывает поле и ставит в него фокус
+  expect(dialog.queryByRole('textbox', { name: 'Предел кругов возврата 1' })).not.toBeInTheDocument()
+  fireEvent.click(dialog.getByRole('button', { name: 'Предел кругов возврата 1' }))
+  const field = dialog.getByRole('textbox', { name: 'Предел кругов возврата 1' })
+  expect(field).toHaveFocus()
+
+  // Пустое, дробное и ноль — не целое от 1: окно называет причину и не сохраняет
+  for (const value of ['', '2,5', '0']) {
+    fireEvent.change(field, { target: { value } })
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(dialog.getByText('Возвраты не сохранить: предел кругов — целое число от 1.')).toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  }
+  fireEvent.change(field, { target: { value: '2' } })
+  expect(dialog.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
+  expect((await saveAndRead(fetchMock)).flows[1].entries[1].returns).toEqual([
+    { condition: 'замечания', stage: 'Ревью', rounds: 2 },
+  ])
+
+  // Крестик убирает предел: снова кнопка, и в запись предел не идёт
+  const again = await returnsOf(region, /^Этап 2: Приёмка/)
+  expect(again.getByRole('textbox', { name: 'Предел кругов возврата 1' })).toHaveValue('2')
+  fireEvent.click(again.getByRole('button', { name: 'Убрать предел кругов возврата 1' }))
+  expect(again.getByRole('button', { name: 'Предел кругов возврата 1' })).toBeInTheDocument()
+  fireEvent.click(again.getByRole('button', { name: 'Предел кругов возврата 1' }))
+  fireEvent.change(again.getByRole('textbox', { name: 'Предел кругов возврата 1' }), { target: { value: '0' } })
+  // Убранный возврат уносит и свой предел, даже неверный: сохранить можно
+  fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 1' }))
+  expect(again.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
+  expect((await saveAndRead(fetchMock)).flows[1].entries[1].returns).toEqual([])
+})
+
 test('«Править стадию» из меню открывает окно правки поверх сценария, не уходя на вкладку «Этапы»', async () => {
   const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
