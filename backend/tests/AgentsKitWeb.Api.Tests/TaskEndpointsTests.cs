@@ -161,8 +161,11 @@ public sealed class TaskEndpointsTests : IDisposable
 
     private void WriteFlows()
     {
+        // Флоу — в папке оператора; тот же файл в корне базы, на прежнем месте кита, запуск не видит.
         Directory.CreateDirectory(Path.Combine(_base, "flow"));
-        File.WriteAllText(Path.Combine(_base, "flow", "scenarios.md"), """
+        File.WriteAllText(Path.Combine(_base, "flow", "scenarios.md"), "# Прежнее место\n\n## срочный\nкогда: всегда\n1. [Ветка](stages/branch.md)\n");
+        Directory.CreateDirectory(TestLayout.Flow(_base));
+        File.WriteAllText(Path.Combine(TestLayout.Flow(_base), "scenarios.md"), """
             # App — сценарии
 
             ## полный
