@@ -788,7 +788,7 @@ if (Test-Piece 'quirks') {
     $links.Add([pscustomobject]@{ path = (Join-Path $copiesDir 'dotted'); status = 'Unlisted'; base = $quirksBase })
     $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
         [pscustomobject]@{ severity = 'FAIL'; file = "local/me/work/$(Get-SandboxMachine)/копия-с-кириллицей-вторая.md"; message = 'две памяти на одну копию' }
-        [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
+        [pscustomobject]@{ severity = 'WARN'; file = 'local/me/backlog.md'; message = 'запись без номера' }
         [pscustomobject]@{ severity = 'WARN'; file = 'people/sandbox/flow/scenarios.md'; message = 'сценарии не в истории git' }) })
 
     # Исполнитель, заведённый «оператором» прямо в базе и мимо панели: в разделе он виден наравне
