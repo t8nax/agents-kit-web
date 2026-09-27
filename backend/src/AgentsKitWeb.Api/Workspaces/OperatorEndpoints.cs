@@ -222,7 +222,7 @@ public static class OperatorEndpoints
         if (configured is null || BaseLayout.Read(configured) is not { } layout)
             return null;
 
-        return WorkspaceCollector.MemoryFiles(layout).TryGetValue(WorkspaceCollector.Normalize(copy), out var found)
+        return WorkspaceCollector.MemoryFiles(layout).TryGetValue(WorkspaceCollector.FullPath(copy), out var found)
             ? (layout, found.File, found.Memory)
             : null;
     }

@@ -175,6 +175,20 @@ public sealed class WorkspacesEndpointTests : IDisposable
         Assert.Equal(WorkspaceStatus.Free, row.Status);
     }
 
+    [Fact]
+    // Путь копии кит приводит к полному и в списке, и в памяти: «a\..\app» — та же копия, что «app».
+    public async Task Workspaces_MemoryNamingCopyThroughDotsIsThatCopy()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", Path.Combine(_root, "x", "..", "app"));
+        File.WriteAllText(Path.Combine(TestLayout.Work(basePath), "app.md"),
+            $"# Задача\nрабочая копия: {Path.Combine(_root, "y", "..", "app")}\n\n## Агенту\n\n### Сценарий\n- [ ] 1. Ветка\n");
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal(copy, row.Path);
+        Assert.Equal("Задача", row.Task);
+    }
+
     [Theory]
     [InlineData(3, "База прежнего формата — переведите её китом")]
     [InlineData(5, "База нового формата, которого панель не знает, — обновите панель")]

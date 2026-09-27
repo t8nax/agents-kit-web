@@ -130,7 +130,7 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
             var copies = root.TryGetProperty("workspaces", out var list) && list.ValueKind == JsonValueKind.Array
                 ? list.EnumerateArray()
                     .Where(e => e.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(e.GetString()))
-                    .Select(e => FullPath(e.GetString()!))
+                    .Select(e => WorkspaceCollector.FullPath(e.GetString()!))
                     .ToList()
                 : [];
             return new MachineFile(name, copies);
@@ -138,19 +138,6 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
         {
             return null;
-        }
-    }
-
-    /// <summary>Путь копии, как его приводит кит (ConvertTo-KitPath).</summary>
-    private static string FullPath(string path)
-    {
-        try
-        {
-            return WorkspaceCollector.Normalize(Path.GetFullPath(path));
-        }
-        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return WorkspaceCollector.Normalize(path);
         }
     }
 

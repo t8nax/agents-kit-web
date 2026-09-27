@@ -169,8 +169,21 @@ function Stop-OldDummies {
 
 # --- содержимое баз ----------------------------------------------------------------------
 
-# Исполнители базы: их зовёт флоу песочницы, и оттуда же кит развозит их по копиям. Кладутся
-# в каждую базу до первого коммита — в живой базе они тоже лежат в истории.
+# Раскладка базы кита формата 4, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
+# личный репозиторий оператора local\me со своим git — бэклог, память задач по машинам и их артефакты,
+# папка оператора people\<имя> — его флоу и исполнители. Оператор песочницы — «sandbox».
+$sandboxOperator = 'sandbox'
+function Get-SandboxMachine {
+    $name = if ($env:COMPUTERNAME) { $env:COMPUTERNAME } else { [Environment]::MachineName }
+    return ([regex]::Replace($name.ToLowerInvariant(), '[^\p{L}\p{Nd}]+', '-')).Trim('-')
+}
+function Get-Personal([string]$Base) { Join-Path $Base 'local\me' }
+function Get-OperatorDir([string]$Base) { Join-Path $Base "people\$sandboxOperator" }
+# Каталог памяти задач копий этой машины.
+function Get-MemoryDir([string]$Base) { Join-Path (Get-Personal $Base) "work\$(Get-SandboxMachine)" }
+
+# Исполнители оператора: их зовёт флоу песочницы, и оттуда же кит развозит их по копиям. Кладутся
+# в папку оператора каждой базы до первого коммита — в живой базе они тоже лежат в истории.
 function New-Agents([string]$Path) {
     Write-Utf8 (Join-Path $Path 'agents\reviewer.md') @"
 ---
@@ -192,7 +205,7 @@ description: Пишет документацию по коду.
 "@
 }
 
-# Флоу в форме кита: сценарии в flow\scenarios.md и этапы по файлу в flow\stages. Сценариев два — «полный»
+# Флоу в форме кита — в папке оператора: сценарии в flow\scenarios.md и этапы по файлу в flow\stages. Сценариев два — «полный»
 # и «мелкий» из общих этапов: на них видно, что этап правится один раз, а возвраты у каждого сценария свои.
 # У возврата «Ревью» стоит предел кругов, у возврата «Приёмки» — нет: видны оба случая.
 function New-Flow([string]$Path) {
@@ -288,11 +301,11 @@ function New-Flow([string]$Path) {
     }
 }
 
-# Бэклог базы. Буквы номеров у проекта свои: $Orders даёт бэклог с буквами «ORD» — с записью
+# Бэклог оператора — в личном репозитории, $Path — его корень. Буквы номеров у проекта свои: $Orders даёт бэклог с буквами «ORD» — с записью
 # чужими буквами, которую кит перенумерует, и с записью без номера.
 function New-Backlog([string]$Path, [switch]$Orders) {
     if ($Orders) {
-        # Артефакт записи ORD-14 — файл в artifacts/ базы, как его кладёт кит: окно записи открывает его в VS Code.
+        # Артефакт записи ORD-14 — файл в artifacts/ личного репозитория, как его кладёт кит: окно записи открывает его в VS Code.
         Write-Utf8 (Join-Path $Path 'artifacts\ORD-14-образец-выгрузки.csv') "номер;дата;сумма`nORD-1001;2026-09-01;1200`n"
         Write-Utf8 (Join-Path $Path 'backlog.md') @'
 # Заказы — бэклог
@@ -407,9 +420,10 @@ function New-Memory([string]$Path, [string]$Copy, [string]$Branch, [switch]$Crlf
 
     # Артефакты по форме кита: ссылка открывается вкладкой браузера, путь к файлу — в VS Code.
     $artifactsBlock = if ($Artifacts) {
-        # Файл кита лежит в artifacts/ базы, и ссылка на него — путь от её корня.
-        $base = Split-Path (Split-Path $Path)
-        Write-Utf8 (Join-Path $base 'artifacts\ORD-12-снимок-выгрузки.md') "# Снимок выгрузки`n`nВыдуманный артефакт песочницы в artifacts/ базы.`n"
+        # Файл кита лежит в artifacts/ личного репозитория рядом с памятью, и ссылка на него — путь от его корня:
+        # память — work\<машина>\<файл>.md.
+        $personal = Split-Path (Split-Path (Split-Path $Path))
+        Write-Utf8 (Join-Path $personal 'artifacts\ORD-12-снимок-выгрузки.md') "# Снимок выгрузки`n`nВыдуманный артефакт песочницы в artifacts/ личного репозитория.`n"
         # Файл по-старому — полным путём вне копии: в копии он был бы неотслеживаемой правкой её git. Щелчок
         # в окне ответа открывает его в VS Code, как раньше.
         $spec = Join-Path $Root 'files\export-spec.md'
@@ -460,7 +474,7 @@ $designBlock$artifactsBlock$question
     Write-Utf8 $Path $text -Crlf:$Crlf
 }
 
-# Выдуманная база знаний: та же раскладка, что у настоящей, — панель читает её теми же правилами.
+# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 4, и панель читает её теми же правилами.
 # $StagesOnly — этапы без списка сценариев, $NoFlow — ни этапов, ни сценариев.
 function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
     [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow) {
@@ -475,21 +489,42 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
 - Живого кода за ним нет.
 "@
     }
+    $prefix = if ($Orders) { 'ORD' } else { 'B' }
     if ($BrokenJson) {
-        Write-Utf8 (Join-Path $Path 'agents-kit.json') '{ "kit": "agents-kit", "workspaces": [ тут оборвалось'
+        Write-Utf8 (Join-Path $Path 'agents-kit.json') '{ "kit": "agents-kit", "version": тут оборвалось'
     }
     else {
-        Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; workspaces = $Copies })
+        Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; prefix = $prefix; version = 4 })
     }
-    if (-not $FlowUncommitted -and -not $NoFlow) { New-Flow $Path }
-    if ($StagesOnly) { Remove-Item -LiteralPath (Join-Path $Path 'flow\scenarios.md') }
-    New-Agents $Path
-    New-Backlog $Path -Orders:$Orders
-    New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
+    Write-Json (Join-Path $Path 'local\me.json') ([pscustomobject]@{ operator = $sandboxOperator; workspaces = @($Copies) })
+    $operatorDir = Get-OperatorDir $Path
+    if (-not $FlowUncommitted -and -not $NoFlow) { New-Flow $operatorDir }
+    if ($StagesOnly) { Remove-Item -LiteralPath (Join-Path $operatorDir 'flow\scenarios.md') }
+    New-Agents $operatorDir
     Write-Utf8 (Join-Path $Path '.gitignore') "local/`n"
     Add-Commit $Path 'Каркас базы песочницы'
     # Флоу, которого нет в истории: список флоу панель коммитит без git add, и такой файл ей не закоммитить.
-    if ($FlowUncommitted) { New-Flow $Path }
+    if ($FlowUncommitted) { New-Flow $operatorDir }
+
+    $personal = Get-Personal $Path
+    New-Repo $personal
+    New-Backlog $personal -Orders:$Orders
+    New-Item -ItemType Directory -Path (Get-MemoryDir $Path) -Force | Out-Null
+    Add-Commit $personal 'Каркас личного репозитория'
+}
+
+# База прежнего формата кита — как до перевода: копии в agents-kit.json, флоу, исполнители, бэклог и память
+# в корне базы. Панель такую не читает и называет причину.
+function New-OldBase([string]$Path, [string]$Title, [string[]]$Copies) {
+    New-Repo $Path
+    Write-Utf8 (Join-Path $Path 'product.md') "# $Title — продукт`n`n- Выдуманный проект песочницы в прежнем формате кита.`n"
+    Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; prefix = 'B'; version = 1; workspaces = @($Copies) })
+    New-Flow $Path
+    New-Agents $Path
+    New-Backlog $Path
+    New-Item -ItemType Directory -Path (Join-Path $Path 'work') -Force | Out-Null
+    Write-Utf8 (Join-Path $Path '.gitignore') "local/`n"
+    Add-Commit $Path 'Каркас базы прежнего формата'
 }
 
 # --- сборка ------------------------------------------------------------------------------
@@ -532,7 +567,8 @@ $pieceList = [ordered]@{
     'house'       = 'здоровый проект «Дом»: три копии, память с тремя вопросами оператору, живые сессии'
     'orders'      = 'проект «Заказы» со своими буквами номеров ORD, записью чужими буквами и артефактами в памяти'
     'no-product'  = 'база без описания проекта: название берётся из имени папки'
-    'broken-json' = 'база с битым agents-kit.json: список копий не прочитать'
+    'broken-json' = 'база с битым agents-kit.json: базу не прочитать'
+    'old-format'  = 'база прежнего формата кита: панель её не читает и называет причину'
     'stages-only' = 'база с этапами без сценариев: пустое состояние вкладки «Сценарии»'
     'no-flow'     = 'база без этапов и сценариев: пустые состояния раздела «Флоу»'
     'quirks'      = 'кривые копии и памяти: кириллица, не git, «..», пропавшая копия, CRLF, две памяти, файл мёртвой сессии'
@@ -617,8 +653,8 @@ if (Test-Piece 'house') {
     New-Base $goodBase 'Дом' @($goodCopy)
     # Три вопроса разом: с рекомендованным вариантом, с вариантами без рекомендованного и без вариантов —
     # на них видна лента окна ответа, пропуск, правка ответа и отмена отправки.
-    New-Memory (Join-Path $goodBase 'work\house-task.md') $goodWorktree 'feat/polling' -ThreeQuestions
-    Add-Commit $goodBase 'Память задачи'
+    New-Memory (Join-Path (Get-MemoryDir $goodBase) 'house-task.md') $goodWorktree 'feat/polling' -ThreeQuestions
+    Add-Commit (Get-Personal $goodBase) 'Память задачи'
     $bases.Add($goodBase)
     foreach ($copy in @($goodCopy, $goodWorktree, $goodDone)) {
         $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $goodBase })
@@ -641,9 +677,9 @@ if (Test-Piece 'orders') {
     git -C $ordersCopy worktree add -b fix/utf-names $ordersUtf --quiet
 
     New-Base $ordersBase 'Заказы' @($ordersCopy) -Orders
-    New-Memory (Join-Path $ordersBase 'work\orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период' -Artifacts
-    New-Memory (Join-Path $ordersBase 'work\orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку' -OldDesign
-    Add-Commit $ordersBase 'Памяти задач'
+    New-Memory (Join-Path (Get-MemoryDir $ordersBase) 'orders-export.md') $ordersTask 'feat/ord-12-export' -Task 'ORD-12 Выгрузка заказов за период' -Artifacts
+    New-Memory (Join-Path (Get-MemoryDir $ordersBase) 'orders-utf.md') $ordersUtf 'fix/utf-names' -Task 'UTF-8 в именах файлов ломает выгрузку' -OldDesign
+    Add-Commit (Get-Personal $ordersBase) 'Памяти задач'
     $bases.Add($ordersBase)
     foreach ($copy in @($ordersCopy, $ordersTask, $ordersUtf)) {
         $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $ordersBase })
@@ -670,13 +706,27 @@ if (Test-Piece 'no-product') {
         [pscustomobject]@{ severity = 'FAIL'; file = 'product.md'; message = 'нет product.md — название проекта взять неоткуда' }) })
 }
 
-# База с битым agents-kit.json: список копий не прочитать.
+# База с битым agents-kit.json: базу не прочитать.
 if (Test-Piece 'broken-json') {
     $brokenJsonBase = Join-Path $basesDir 'broken-json'
     New-Base $brokenJsonBase 'Битый список копий' @() -BrokenJson
     $bases.Add($brokenJsonBase)
     $findings.Add([pscustomobject]@{ base = $brokenJsonBase; findings = @(
         [pscustomobject]@{ severity = 'FAIL'; file = 'agents-kit.json'; message = 'список копий не разобран' }) })
+}
+
+# База прежнего формата кита, как до перевода: таблица, «Флоу», «Исполнители», «Бэклог» и «Проблемы баз» называют
+# причину — перевести её китом, — а связь копии кит отдаёт состоянием «прежний формат».
+if (Test-Piece 'old-format') {
+    $oldCopy = Join-Path $copiesDir 'old-format'
+    New-Repo $oldCopy
+    Write-Utf8 (Join-Path $oldCopy 'README.md') "# Проект на базе прежнего формата`n"
+    Add-Commit $oldCopy 'Первый коммит'
+    $oldBase = Join-Path $basesDir 'old-format'
+    New-OldBase $oldBase 'Прежний формат' @($oldCopy)
+    $links.Add([pscustomobject]@{ path = $oldCopy; status = 'Outdated'; base = $oldBase })
+    $bases.Add($oldBase)
+    $findings.Add([pscustomobject]@{ base = $oldBase; findings = @() })
 }
 
 # База с этапами без сценариев и база без этапов и сценариев: на них видны пустые состояния
@@ -719,17 +769,17 @@ if (Test-Piece 'quirks') {
     $bases.Add($quirksBase)
 
     # Память с CRLF — на копию с кириллицей.
-    New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей.md') $cyrillicCopy 'main' -Crlf
+    New-Memory (Join-Path (Get-MemoryDir $quirksBase) 'копия-с-кириллицей.md') $cyrillicCopy 'main' -Crlf
     # Вопрос без строки «ответ:» — панели нечего заполнить, а форма памяти нарушена.
-    New-Memory (Join-Path $quirksBase 'work\dotted.md') $dottedCopy 'main' -NoAnswerKey
+    New-Memory (Join-Path (Get-MemoryDir $quirksBase) 'dotted.md') $dottedCopy 'main' -NoAnswerKey
     # Несколько вопросов в одной памяти.
-    New-Memory (Join-Path $quirksBase 'work\not-git.md') $notGitCopy 'main' -TwoQuestions
+    New-Memory (Join-Path (Get-MemoryDir $quirksBase) 'not-git.md') $notGitCopy 'main' -TwoQuestions
     # Две памяти на одну копию: какая из них настоящая, панель не знает.
-    New-Memory (Join-Path $quirksBase 'work\копия-с-кириллицей-вторая.md') $cyrillicCopy 'feat/вторая'
-    Add-Commit $quirksBase 'Памяти кривых копий'
+    New-Memory (Join-Path (Get-MemoryDir $quirksBase) 'копия-с-кириллицей-вторая.md') $cyrillicCopy 'feat/вторая'
+    Add-Commit (Get-Personal $quirksBase) 'Памяти кривых копий'
 
     # Незакоммиченная правка бэклога: агент записи унёс бы её в свой коммит.
-    Add-Content -LiteralPath (Join-Path $quirksBase 'backlog.md') -Value "`n## Запись без номера, дописанная руками`n" -Encoding utf8NoBOM
+    Add-Content -LiteralPath (Join-Path (Get-Personal $quirksBase) 'backlog.md') -Value "`n## Запись без номера, дописанная руками`n" -Encoding utf8NoBOM
 
     $links.Add([pscustomobject]@{ path = $cyrillicCopy; status = 'Linked'; base = $quirksBase })
     $links.Add([pscustomobject]@{ path = $notGitCopy; status = 'NotGit'; base = $null })
@@ -737,11 +787,11 @@ if (Test-Piece 'quirks') {
     $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
         [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
         [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
-        [pscustomobject]@{ severity = 'WARN'; file = 'flow/scenarios.md'; message = 'сценарии не в истории git' }) })
+        [pscustomobject]@{ severity = 'WARN'; file = 'people/sandbox/flow/scenarios.md'; message = 'сценарии не в истории git' }) })
 
     # Исполнитель, заведённый «оператором» прямо в базе и мимо панели: в разделе он виден наравне
     # с остальными, хотя панель его не заводила.
-    Write-Utf8 (Join-Path $quirksBase 'agents\spec-writer.md') @"
+    Write-Utf8 (Join-Path (Get-OperatorDir $quirksBase) 'agents\spec-writer.md') @"
 ---
 name: spec-writer
 description: Пишет спеку экрана по разговору с оператором.
@@ -775,9 +825,9 @@ if (Test-Piece 'load') {
         $worktree = Join-Path $copiesDir "load-$i"
         git -C $loadCopy worktree add -b "load/$i" $worktree --quiet
         $links.Add([pscustomobject]@{ path = $worktree; status = 'Linked'; base = $loadBase })
-        if ($i % 5 -eq 0) { New-Memory (Join-Path $loadBase "work\load-$i.md") $worktree "load/$i" }
+        if ($i % 5 -eq 0) { New-Memory (Join-Path (Get-MemoryDir $loadBase) "load-$i.md") $worktree "load/$i" }
     }
-    Add-Commit $loadBase 'Памяти копий под нагрузку'
+    Add-Commit (Get-Personal $loadBase) 'Памяти копий под нагрузку'
     $bases.Add($loadBase)
     $findings.Add([pscustomobject]@{ base = $loadBase; findings = @() })
 }

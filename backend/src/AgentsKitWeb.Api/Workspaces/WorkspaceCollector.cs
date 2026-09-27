@@ -171,7 +171,8 @@ public static class WorkspaceCollector
     {
         var result = new Dictionary<string, (string, WorkMemory)>(StringComparer.OrdinalIgnoreCase);
         foreach (var (file, memory) in ReadMemoryFiles(layout.MemoryDir, SearchOption.TopDirectoryOnly))
-            result.TryAdd(Normalize(memory.Copy!), (file, memory));
+            // Копия памяти — полным путём, как её приводит кит: «a\..\b» в памяти — та же копия, что «b» в списке.
+            result.TryAdd(FullPath(memory.Copy!), (file, memory));
         return result;
     }
 
@@ -205,4 +206,17 @@ public static class WorkspaceCollector
 
     internal static string Normalize(string path) =>
         path.Replace('/', '\\').TrimEnd('\\');
+
+    /// <summary>Путь копии, как его приводит кит (ConvertTo-KitPath): полный, без «..» и хвостового «\».</summary>
+    internal static string FullPath(string path)
+    {
+        try
+        {
+            return Normalize(Path.GetFullPath(path));
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return Normalize(path);
+        }
+    }
 }
