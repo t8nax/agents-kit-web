@@ -111,7 +111,7 @@ public sealed class AskEndpointsTests : IDisposable
 
     [Fact]
     // Оператор этой машины не назван — имя агенту не выдумывается (B-275, ревью).
-    public async Task Ask_OperatorNotNamed_FolderIsNamedInWords()
+    public async Task Ask_OperatorNotNamed_NameIsNotMadeUp()
     {
         TestLayout.Machine(_base, null);
         _agent.Answers = [[Result("ok")]];

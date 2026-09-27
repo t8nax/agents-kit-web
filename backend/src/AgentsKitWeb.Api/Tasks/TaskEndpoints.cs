@@ -48,8 +48,8 @@ public static class TaskEndpoints
             if (number is null)
                 return Results.BadRequest();
 
-            // Имя флоу уходит в просьбу сессии: берётся то, что стоит во флоу оператора этой машины — его папке
-            // в базе, — а не присланное.
+            // Имя флоу уходит в просьбу сессии: берётся то, что стоит во флоу оператора этой машины — его личном
+            // репозитории, — а не присланное.
             string? flow = null;
             if (!string.IsNullOrWhiteSpace(request.Flow))
             {

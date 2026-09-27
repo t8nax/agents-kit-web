@@ -88,7 +88,7 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Performers_WritesFileIntoTheBaseAndCommitsIt()
+    public async Task Performers_WritesFileIntoPersonalRepositoryAndLeavesTheBaseAlone()
     {
         var basePath = CreateBase("app-knowledge");
 
