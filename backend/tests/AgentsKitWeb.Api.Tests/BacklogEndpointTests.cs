@@ -104,6 +104,22 @@ public sealed class BacklogEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task Backlog_CarriesTrackerOfBase()
+    {
+        var withTracker = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(withTracker, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders, через gh\n");
+        var withoutTracker = CreateBase("nota-knowledge", "## B-1 Первая\n");
+        var withoutBacklog = TestLayout.Base(Path.Combine(_root, "empty-knowledge"));
+        File.WriteAllText(Path.Combine(withoutBacklog, "tracker.md"), "# Трекер\n\n## Где задачи\nJira PAY\n");
+
+        var backlogs = await GetBacklogs(withTracker, withoutTracker, withoutBacklog);
+
+        Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, "acme/orders"), Assert.Single(backlogs, b => b.Base == withTracker).Tracker);
+        Assert.Null(Assert.Single(backlogs, b => b.Base == withoutTracker).Tracker);
+        Assert.Equal(new TrackerInfo(TrackerInfo.NotGitHub), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
+    }
+
+    [Fact]
     public async Task Backlog_NoBasesConfigured_ReturnsEmptyList()
     {
         Assert.Empty(await GetBacklogs());

@@ -5,13 +5,16 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// <summary>
 /// Бэклог одной базы. Error задан — записей панель не прочитала. Letters — буквы номеров проекта
 /// (Backlog.Letters): запись с другими буквами задачей не запускается; null — букв панель не знает.
+/// Tracker — трекер проекта из tracker.md базы; null — трекера у проекта нет. Задачи трекера приходят
+/// отдельным запросом: их чтение идёт в GitHub и дольше чтения файла.
 /// </summary>
 public sealed record BaseBacklog(
     string Base,
     string Project,
     IReadOnlyList<BacklogEntry> Entries,
     string? Error,
-    string? Letters = null);
+    string? Letters = null,
+    TrackerInfo? Tracker = null);
 
 /// <summary>Артефакт записи бэклога — номером записи и номером строки в её «Артефактах», с адресом, который видело окно.</summary>
 public sealed record OpenBacklogArtifactRequest(string Base, string Number, int Index, string Address);
@@ -68,18 +71,19 @@ public static class BacklogEndpoints
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
             return new BaseBacklog(basePath, project, [], problem);
 
+        var tracker = Tracker.Read(layout);
         var file = layout.BacklogFile;
         if (!File.Exists(file))
-            return new BaseBacklog(basePath, project, [], "В личном репозитории нет backlog.md");
+            return new BaseBacklog(basePath, project, [], "В личном репозитории нет backlog.md", Tracker: tracker);
 
         try
         {
             var text = File.ReadAllText(file);
-            return new BaseBacklog(basePath, project, Backlog.Parse(text), null, Backlog.Letters(text));
+            return new BaseBacklog(basePath, project, Backlog.Parse(text), null, Backlog.Letters(text), tracker);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return new BaseBacklog(basePath, project, [], "Бэклог базы не прочитан");
+            return new BaseBacklog(basePath, project, [], "Бэклог базы не прочитан", Tracker: tracker);
         }
     }
 }

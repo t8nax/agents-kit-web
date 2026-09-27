@@ -35,6 +35,11 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     /// <summary>Бэклог оператора — в его личном репозитории.</summary>
     public string BacklogFile => Path.Combine(Personal, BacklogName);
 
+    public const string TrackerName = "tracker.md";
+
+    /// <summary>Описание трекера проекта — общее знание, в корне базы; файла нет — трекера у проекта нет.</summary>
+    public string TrackerFile => Path.Combine(Base, TrackerName);
+
     /// <summary>Память задач копий этой машины.</summary>
     public string MemoryDir => Path.Combine(WorkDir, Machine());
 
