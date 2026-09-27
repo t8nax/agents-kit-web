@@ -654,7 +654,7 @@ public sealed class FlowEndpointsTests : IDisposable
         };
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEnd();
         process.WaitForExit();
         return output.Trim();

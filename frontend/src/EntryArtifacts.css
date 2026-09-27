@@ -1,0 +1,103 @@
+/* Артефакты записи бэклога — как вкладка «Артефакты» окна ответа (макет B-260): подпись, под ней адрес,
+   между строками линии, ошибка открытия — строкой под списком. */
+.entry-artifacts {
+  margin-top: 22px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.entry-artifacts-label {
+  padding: 16px 0 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.entry-artifacts ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entry-artifacts li {
+  padding: 12px 0;
+}
+
+.entry-artifacts li + li {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.entry-artifact-label {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.entry-artifact-address {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+a.entry-artifact-address {
+  color: var(--accent-waiting-text);
+  text-decoration: none;
+}
+
+a.entry-artifact-address:hover,
+.entry-artifact-address.is-file:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+/* путь к файлу — кнопка открытия в VS Code, но выглядит строкой адреса */
+.entry-artifact-address.is-file {
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.entry-artifact-address.is-file:disabled {
+  cursor: default;
+}
+
+.entry-artifacts-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--accent-error-text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.entry-artifacts-error svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+/* В карточке записи окна Чудо-Юдо блок плотнее. */
+.entry-artifacts.is-compact {
+  margin-top: 12px;
+}
+
+.entry-artifacts.is-compact .entry-artifacts-label {
+  padding: 10px 0 2px;
+}
+
+.entry-artifacts.is-compact li {
+  padding: 7px 0;
+}

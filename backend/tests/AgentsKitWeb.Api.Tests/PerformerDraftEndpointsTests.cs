@@ -104,7 +104,9 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         Assert.True(startInfo.CreateNoWindow);
         var args = startInfo.ArgumentList.ToList();
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
-        Assert.DoesNotContain(args, a => a.Contains("--permission-mode"));
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
+        Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         // И базу: её путь стоит в системном промпте, а флоу приходит текстом в stdin.
         Assert.Contains(_base, args[args.IndexOf("--append-system-prompt") + 1]);

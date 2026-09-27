@@ -368,7 +368,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         };
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
-        using var process = System.Diagnostics.Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEnd();
         process.WaitForExit();
         return output.ReplaceLineEndings("\n");

@@ -119,7 +119,9 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
         Assert.Equal("stream-json", args[args.IndexOf("--input-format") + 1]);
         Assert.Equal(_base, args[args.IndexOf("--add-dir") + 1]);
-        Assert.DoesNotContain(args, a => a.Contains("--permission-mode"));
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
+        Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         // Правила формы сценария и этапа агент получает из справки кита, а не своими словами панели.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];

@@ -5,8 +5,8 @@ namespace AgentsKitWeb.Api.Ask;
 
 /// <summary>
 /// Заведение фоновой сессии claude — общее для запуска задачи и для сессии не под задачу. Сессия переживает
-/// панель: оператор входит в неё «claude attach &lt;id&gt;» и гасит «claude stop &lt;id&gt;». Прав панель
-/// не навязывает — сессия идёт в обычном режиме оператора.
+/// панель: оператор входит в неё «claude attach &lt;id&gt;» и гасит «claude stop &lt;id&gt;». Режим — «авто»,
+/// заданный явно, а не унаследованный от машины оператора.
 /// </summary>
 public static partial class BackgroundSession
 {
@@ -25,20 +25,20 @@ public static partial class BackgroundSession
     /// <summary>
     /// Фоновая сессия claude по умолчанию правит файлы не в каталоге запуска, а в отдельном рабочем дереве
     /// git внутри него. Панель отключает это настройкой запуска: копия должна стоять в таблице на ветке
-    /// задачи, а лишнее дерево показалось бы ещё одной свободной копией — задача B-66.
+    /// задачи, а лишнее дерево показалось бы ещё одной свободной копией — задача B-66. Здесь же гасится указание
+    /// режима «авто» работать через оболочку — задача B-153.
     /// </summary>
-    private const string InCopySettings = """{"worktree":{"bgIsolation":"none"}}""";
+    private const string InCopySettings = """{"worktree":{"bgIsolation":"none"},""" + AgentProcess.NoBashFirstEnv + "}";
 
     /// <summary>
-    /// `claude --settings &lt;настройки&gt; --bg -- &lt;просьба&gt;` в каталоге копии. Просьба уходит
+    /// `claude --permission-mode auto --settings &lt;настройки&gt; --bg -- &lt;просьба&gt;` в каталоге копии. Просьба уходит
     /// после «--»: текст, начатый с «-», claude принял бы за флаг. Просьбы нет — сессия заводится
     /// простаивающей и ждёт оператора.
     /// </summary>
     public static ProcessStartInfo StartInfo(string copyPath, string? prompt = null)
     {
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, copyPath);
-        startInfo.ArgumentList.Add("--settings");
-        startInfo.ArgumentList.Add(InCopySettings);
+        AgentProcess.AddAutoMode(startInfo, InCopySettings);
         startInfo.ArgumentList.Add("--bg");
         if (!string.IsNullOrWhiteSpace(prompt))
         {

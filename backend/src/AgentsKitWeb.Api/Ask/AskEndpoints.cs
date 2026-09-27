@@ -189,6 +189,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                      "--append-system-prompt", AskEndpoints.Prompt(copyPath),
                  })
             startInfo.ArgumentList.Add(arg);
+        AgentProcess.AddAutoMode(startInfo);
         if (copyPath is not null)
         {
             startInfo.ArgumentList.Add("--add-dir");
