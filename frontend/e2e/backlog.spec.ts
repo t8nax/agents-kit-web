@@ -1,6 +1,13 @@
 import { expect, test, type Page } from '@playwright/test'
 
-type Entry = { number: string | null; title: string; text: string | null; priority?: string; type?: string }
+type Entry = {
+  number: string | null
+  title: string
+  text: string | null
+  priority?: string
+  type?: string
+  artifacts?: { label: string; address: string }[]
+}
 
 const entries: Record<'akw' | 'nota', Entry[]> = {
   akw: [
@@ -98,6 +105,44 @@ test('тип и приоритет записи видны в списке и в
   // В окне плашки идут своей строкой под заголовком
   await expect(dialog.locator('.entry-modal-line')).toHaveText(/B-1\s*Копия не пускает следующую задачу/)
   await expect(dialog.locator('.entry-modal-fields')).toHaveText(/баг\s*блокер/)
+})
+
+test('артефакты записи стоят блоком под описанием: файл открывается запросом к панели, ошибка — строкой под блоком', async ({ page }) => {
+  await mockApi(page, [
+    {
+      number: 'B-9',
+      title: 'Со снимком',
+      text: 'Снимок падения приложен.',
+      artifacts: [
+        { label: 'макет', address: 'https://claude.ai/artifact/AbC' },
+        { label: 'снимок падения', address: 'artifacts/B-9-снимок.png' },
+      ],
+    },
+  ])
+  let opened: unknown = null
+  await page.route('**/api/backlog/artifact/open', async (route) => {
+    opened = route.request().postDataJSON()
+    await route.fulfill({ status: 404, json: { problem: 'missing' } })
+  })
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+  await page.getByRole('button', { name: 'B-9 Со снимком' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Со снимком' })
+  const block = dialog.getByRole('region', { name: 'Артефакты' })
+  // блок — под описанием, а в самом описании списка нет
+  expect((await block.boundingBox())!.y).toBeGreaterThan((await dialog.getByText('Снимок падения приложен.').boundingBox())!.y)
+  await expect(dialog.locator('.entry-text')).not.toContainText('artifacts/')
+  await expect(block.getByRole('link', { name: 'https://claude.ai/artifact/AbC' })).toHaveAttribute('target', '_blank')
+  await block.getByRole('button', { name: 'artifacts/B-9-снимок.png' }).click()
+
+  await expect.poll(() => opened).toEqual({
+    base: 'D:\\Projects\\app-knowledge',
+    number: 'B-9',
+    index: 1,
+    address: 'artifacts/B-9-снимок.png',
+  })
+  await expect(block.getByRole('alert')).toHaveText('Файла нет в базе: artifacts/B-9-снимок.png')
 })
 
 test('запись без текста открывается окном «Описания нет»', async ({ page }) => {
@@ -217,4 +262,40 @@ test('записи отбираются чипами и поиском, поря
   await expect(bar.getByRole('button', { name: 'По убыванию' })).toBeVisible()
   await expect(bar.getByRole('button', { name: 'блокер' })).toHaveAttribute('aria-pressed', 'false')
   await expect(numbers).toHaveText(['B-2', 'B-3', 'B-1'])
+})
+
+test('проект и чипы остаются после перехода в другой раздел, поиск очищается, перезагрузка сбрасывает отбор', async ({ page }) => {
+  await mockApi(page, [
+    { number: 'B-1', title: 'Старый баг', text: null, type: 'баг', priority: 'средний' },
+    { number: 'B-2', title: 'Фича про импорт', text: null, type: 'фича', priority: 'блокер' },
+    { number: 'B-3', title: 'Срочный баг импорта', text: null, type: 'баг', priority: 'высокий' },
+  ])
+  await page.goto('/')
+  const sidebar = page.getByRole('navigation', { name: 'Разделы панели' })
+  await sidebar.getByRole('button', { name: 'Бэклог' }).click()
+
+  const projects = page.getByRole('group', { name: 'Фильтр по проектам' })
+  const bar = page.getByRole('group', { name: 'Отбор и порядок записей' })
+  const numbers = page.getByRole('region', { name: 'Agents Kit Web' }).locator('.entry-num')
+  await projects.getByRole('button', { name: 'Agents Kit Web' }).click()
+  await bar.getByRole('button', { name: 'баг' }).click()
+  await bar.getByRole('textbox', { name: 'Поиск' }).fill('импорт')
+  await expect(numbers).toHaveText(['B-3'])
+
+  await sidebar.getByRole('button', { name: 'Рабочие копии' }).click()
+  await expect(page.getByRole('heading', { name: 'Бэклог', level: 2 })).toHaveCount(0)
+  await sidebar.getByRole('button', { name: 'Бэклог' }).click()
+
+  await expect(projects.getByRole('button', { name: 'Agents Kit Web' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(bar.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(bar.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
+  await expect(numbers).toHaveText(['B-1', 'B-3'])
+  await expect(page.getByRole('region', { name: 'Nota' })).toHaveCount(0)
+
+  await page.reload()
+  await sidebar.getByRole('button', { name: 'Бэклог' }).click()
+  await expect(projects.getByRole('button', { name: 'Все проекты' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(bar.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(numbers).toHaveText(['B-1', 'B-2', 'B-3'])
+  await expect(page.getByRole('region', { name: 'Nota' })).toBeVisible()
 })

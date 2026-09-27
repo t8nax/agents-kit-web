@@ -37,6 +37,8 @@ public sealed class OperatorEndpointsTests : IDisposable
         - черновик: docs/gone.md
         - отчёт: docs/R&D.md
         - макеты: design
+        - снимок: artifacts/B-1-снимок.png
+        - побег: artifacts/../product.md
 
         ## Оператору
 
@@ -116,6 +118,8 @@ public sealed class OperatorEndpointsTests : IDisposable
                 new TaskArtifact("черновик", "docs/gone.md"),
                 new TaskArtifact("отчёт", "docs/R&D.md"),
                 new TaskArtifact("макеты", "design"),
+                new TaskArtifact("снимок", "artifacts/B-1-снимок.png"),
+                new TaskArtifact("побег", "artifacts/../product.md"),
             ],
             response.Artifacts);
         Assert.Equal(["Подтвердить критерий?", "Как быть с переносами?"], response.Questions.Select(q => q.Title));
@@ -134,6 +138,80 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.False(memory.WaitingForOperator);
         Assert.Equal(["принимаю", "заменять пробелами", "да"], memory.Questions.Select(q => q.Answer));
     }
+
+    [Fact]
+    public async Task Answers_AttachedFileGoesToBaseArtifactsAndItsAddressIntoAnswer()
+    {
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "принимаю", [File64("Снимок экрана.png", 3)]),
+            new OperatorAnswer("Как быть с переносами?", "", [File64("лог.txt", 1), File64("лог.txt", 2)]));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var memory = WorkMemory.Parse(await File.ReadAllTextAsync(_memoryPath));
+        Assert.Equal(
+            ["принимаю — файл: artifacts/Снимок-экрана.png", "файлы: artifacts/лог.txt, artifacts/лог-2.txt", "да"],
+            memory.Questions.Select(q => q.Answer));
+        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(_base, "artifacts", "Снимок-экрана.png")));
+        Assert.Equal([0, 1], File.ReadAllBytes(Path.Combine(_base, "artifacts", "лог-2.txt")));
+        Assert.False(Directory.Exists(Path.Combine(_copy, "artifacts")));
+    }
+
+    [Fact]
+    public async Task Answers_TooLargeFile_IsRefusedAndWritesNothing()
+    {
+        var before = await File.ReadAllTextAsync(_memoryPath);
+
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "принимаю", [File64("видео.mp4", 5 * 1024 * 1024 + 1)]),
+            new OperatorAnswer("Как быть с переносами?", "пробелами"));
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Equal(new AttachRejected("видео.mp4", "too-large"), await response.Content.ReadFromJsonAsync<AttachRejected>());
+        Assert.Equal(before, await File.ReadAllTextAsync(_memoryPath));
+        Assert.False(Directory.Exists(Path.Combine(_base, "artifacts")));
+    }
+
+    [Fact]
+    public async Task Answers_RejectedAnswersTakeTheirFilesAway()
+    {
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "принимаю", [File64("снимок.png", 3)]),
+            new OperatorAnswer("Старый вопрос?", "ещё раз"));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "artifacts")));
+    }
+
+    [Theory]
+    [InlineData("B-7 Окно ответа", "artifacts/B-7-снимок.png")]
+    [InlineData("UTF-8 в именах ломает выгрузку", "artifacts/снимок.png")]
+    [InlineData("ORD-3 Чужие буквы", "artifacts/снимок.png")]
+    public async Task Answers_AttachedFileTakesTaskNumberOnlyInLettersOfBase(string task, string address)
+    {
+        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-9\n");
+        File.WriteAllText(_memoryPath, File.ReadAllText(_memoryPath).Replace("# Окно ответа", $"# {task}"));
+
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "да", [File64("снимок.png", 1)]),
+            new OperatorAnswer("Как быть с переносами?", "пробелами"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.True(File.Exists(Path.Combine(_base, address)));
+    }
+
+    [Fact]
+    public async Task Answers_UnreadableFile_IsBadRequestNotTooLarge()
+    {
+        var response = await PostAnswers(_base, _copy,
+            new OperatorAnswer("Подтвердить критерий?", "да", [new AttachedFile("снимок.png", "не base64")]),
+            new OperatorAnswer("Как быть с переносами?", "пробелами"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new AttachRejected("снимок.png", "unreadable"), await response.Content.ReadFromJsonAsync<AttachRejected>());
+    }
+
+    private static AttachedFile File64(string name, int length) =>
+        new(name, Convert.ToBase64String(Enumerable.Range(0, length).Select(i => (byte)i).ToArray()));
 
     [Fact]
     public async Task Answers_EmptyAnswer_IsBadRequestAndWritesNothing()
@@ -514,7 +592,7 @@ public sealed class OperatorEndpointsTests : IDisposable
 
     [Theory]
     [InlineData(-1)]
-    [InlineData(5)]
+    [InlineData(7)]
     public async Task OpenArtifact_UnknownIndex_IsNotFound(int index)
     {
         var response = await PostOpenArtifact(_base, _copy, index);
@@ -547,6 +625,41 @@ public sealed class OperatorEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal([design], _windows.Opened);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_FromBaseArtifacts_OpensFileOfBaseInCopyWindow()
+    {
+        // Кит держит файлы артефактов в artifacts/ базы, а ссылается на них путём от её корня.
+        var shot = Path.Combine(_base, "artifacts", "B-1-снимок.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(shot)!);
+        File.WriteAllBytes(shot, [1, 2, 3]);
+        Directory.CreateDirectory(Path.Combine(_copy, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_copy, "artifacts", "B-1-снимок.png"), [4]);
+
+        var response = await PostOpenArtifact(_base, _copy, 5);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(_copy, shot)], _windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_FromBaseArtifactsNotOnDisk_IsMissing()
+    {
+        var response = await PostOpenArtifact(_base, _copy, 5);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("missing", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_LeavingBaseArtifacts_IsNotOpened()
+    {
+        var response = await PostOpenArtifact(_base, _copy, 6);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("unsafe-path", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
         Assert.Empty(_windows.OpenedFiles);
     }
 
@@ -596,7 +709,8 @@ public sealed class OperatorEndpointsTests : IDisposable
     private Task<HttpResponseMessage> PostOpenWorkspace(string basePath, string copy) =>
         _factory.CreateClient().PostAsJsonAsync("/api/workspace/open", new OpenWorkspaceRequest(basePath, copy));
 
-    private static readonly string[] ArtifactAddresses = ["https://claude.ai/artifact/AbC123", "docs/spec.md", "docs/gone.md", "docs/R&D.md", "design"];
+    private static readonly string[] ArtifactAddresses = ["https://claude.ai/artifact/AbC123", "docs/spec.md", "docs/gone.md", "docs/R&D.md", "design",
+        "artifacts/B-1-снимок.png", "artifacts/../product.md"];
 
     private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string copy, int index, string? address = null) =>
         _factory.CreateClient().PostAsJsonAsync("/api/artifact/open", new OpenArtifactRequest(
@@ -662,6 +776,9 @@ public sealed class OperatorEndpointsTests : IDisposable
     private Task<HttpResponseMessage> PostAnswers(string basePath, string copy, params (string Question, string Answer)[] answers) =>
         _factory.CreateClient().PostAsJsonAsync("/api/answers",
             new AnswersRequest(basePath, copy, answers.Select(a => new OperatorAnswer(a.Question, a.Answer)).ToList()));
+
+    private Task<HttpResponseMessage> PostAnswers(string basePath, string copy, params OperatorAnswer[] answers) =>
+        _factory.CreateClient().PostAsJsonAsync("/api/answers", new AnswersRequest(basePath, copy, answers));
 
     public void Dispose()
     {

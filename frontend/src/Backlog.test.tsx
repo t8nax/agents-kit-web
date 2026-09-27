@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
 import Backlog, { type BaseBacklog } from './Backlog'
+import { forgetRemembered } from './backlogView'
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  // Порядок записей раздел помнит в браузере: каждый тест начинает с порядка по умолчанию
+  // Порядок записей раздел помнит в браузере, отбор — страница: каждый тест начинает с раздела по умолчанию
   localStorage.clear()
+  forgetRemembered()
 })
 
 const backlogs: BaseBacklog[] = [
@@ -59,7 +61,12 @@ function stubFetch(...responses: BaseBacklog[][]) {
   const posts: unknown[] = []
   let rows = copies
   let taskReply: Response | null = null
+  let artifactReply: () => Response = () => new Response(null, { status: 204 })
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url === '/api/backlog/artifact/open') {
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(artifactReply())
+    }
     if (url === '/api/tasks') {
       posts.push(JSON.parse(String(init?.body)))
       return Promise.resolve(taskReply ?? Response.json({ session: '7339dced' }))
@@ -87,6 +94,9 @@ function stubFetch(...responses: BaseBacklog[][]) {
     backlogReads: () => fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length,
     setCopies: (next: WorkspaceRow[]) => {
       rows = next
+    },
+    setArtifactReply: (next: () => Response) => {
+      artifactReply = next
     },
   })
 }
@@ -212,6 +222,61 @@ test('адрес в тексте записи — ссылка в новую в�
   const link = within(screen.getByRole('dialog')).getByRole('link', { name: 'https://example.com/t/7' })
   expect(link).toHaveAttribute('href', 'https://example.com/t/7')
   expect(link).toHaveAttribute('target', '_blank')
+})
+
+const withArtifacts: BaseBacklog = {
+  ...backlogs[0],
+  entries: [
+    {
+      number: 'B-9',
+      title: 'Со снимком',
+      text: 'Снимок падения приложен.',
+      artifacts: [
+        { label: 'макет', address: 'https://claude.ai/artifact/AbC' },
+        { label: 'снимок падения', address: 'artifacts/B-9-снимок.png' },
+      ],
+    },
+  ],
+}
+
+test('артефакты записи стоят блоком под описанием: ссылка — вкладкой, файл открывается в VS Code', async () => {
+  const fetchMock = stubFetch([withArtifacts])
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-9 Со снимком/ }))
+
+  const block = within(within(screen.getByRole('dialog')).getByRole('region', { name: 'Артефакты' }))
+  expect(block.getByText('снимок падения')).toBeInTheDocument()
+  expect(block.getByRole('link', { name: 'https://claude.ai/artifact/AbC' })).toHaveAttribute('target', '_blank')
+  fireEvent.click(block.getByRole('button', { name: 'artifacts/B-9-снимок.png' }))
+
+  await waitFor(() =>
+    expect(fetchMock.posts).toEqual([
+      { base: withArtifacts.base, number: 'B-9', index: 1, address: 'artifacts/B-9-снимок.png' },
+    ]),
+  )
+})
+
+test('файла артефакта нет в базе — строка ошибки под блоком', async () => {
+  const fetchMock = stubFetch([withArtifacts])
+  fetchMock.setArtifactReply(() => Response.json({ problem: 'missing' }, { status: 404 }))
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-9 Со снимком/ }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'artifacts/B-9-снимок.png' }))
+
+  expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(
+    'Файла нет в базе: artifacts/B-9-снимок.png',
+  )
+})
+
+test('у записи без артефактов блока нет', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-13 У панели есть светлая тема/ }))
+
+  expect(within(screen.getByRole('dialog')).queryByRole('region', { name: 'Артефакты' })).not.toBeInTheDocument()
 })
 
 test('запись без текста открывается окном «Описания нет»', async () => {
@@ -598,7 +663,7 @@ test('порядок выбирается полем и кнопкой напр�
   expect(shownNumbers()).toEqual(['B-3', 'B-1', 'B-2', 'B-4'])
 })
 
-test('порядок помнится между открытиями раздела, а фильтры и поиск — нет', async () => {
+test('порядок, чипы типа и приоритета помнятся между открытиями раздела, а поиск — нет', async () => {
   stubFetch(fielded)
 
   const { unmount } = render(<Backlog />)
@@ -606,6 +671,8 @@ test('порядок помнится между открытиями разде
   fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
   fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
   fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  fireEvent.click(screen.getByRole('button', { name: 'высокий' }))
+  fireEvent.click(screen.getByRole('button', { name: 'блокер' }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'импорт' } })
   unmount()
 
@@ -613,9 +680,66 @@ test('порядок помнится между открытиями разде
   await screen.findByRole('heading', { name: 'Agents Kit Web' })
   expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('priority')
   expect(screen.getByRole('button', { name: 'По убыванию' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'фича' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('button', { name: 'высокий' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'блокер' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'низкий' })).toHaveAttribute('aria-pressed', 'false')
   expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
-  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
+  expect(shownNumbers()).toEqual(['B-3'])
+
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(shownNumbers()).toEqual(['B-2', 'B-3'])
+})
+
+test('выбранный проект помнится между открытиями раздела', async () => {
+  stubFetch(backlogs)
+
+  const { unmount } = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  const projects = () => within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  fireEvent.click(projects().getByRole('button', { name: 'Nota' }))
+  unmount()
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  expect(projects().getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
+})
+
+test('запомненного проекта нет в списке баз — раздел показывает все проекты', async () => {
+  stubFetch(backlogs)
+
+  const { unmount } = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  fireEvent.click(within(screen.getByRole('group', { name: 'Фильтр по проектам' })).getByRole('button', { name: 'Nota' }))
+  unmount()
+
+  stubFetch([backlogs[0], { ...backlogs[1], base: 'D:\\Projects\\other-knowledge', project: 'Other' }])
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Other' })
+  const projects = within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  expect(projects.getByRole('button', { name: 'Все проекты' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('region', { name: 'Agents Kit Web' })).toBeInTheDocument()
+})
+
+test('проект просьбы, с которым открыт раздел, дальше запоминается как выбранный', async () => {
+  stubFetch(backlogs)
+
+  const first = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  fireEvent.click(within(screen.getByRole('group', { name: 'Фильтр по проектам' })).getByRole('button', { name: 'Agents Kit Web' }))
+  first.unmount()
+
+  const second = render(<Backlog writeFor={backlogs[1].base} />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  second.unmount()
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  const projects = within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  expect(projects.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
 })
 
 test('проект, где под отбор ничего не подошло, скрыт; не подошло нигде — строка на месте списка', async () => {

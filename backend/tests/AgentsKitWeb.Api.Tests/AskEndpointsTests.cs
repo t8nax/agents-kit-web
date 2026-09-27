@@ -262,6 +262,108 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_WhileAgentEndsRaisesNewAgent()
+    {
+        var exit = HoldFirstExit(out var ended);
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        // Агент ответил и реплик больше не читает, но панель ещё не знает, что он кончился.
+        await ended.Task.WaitAsync(Wait);
+        using (var response = await Reply(client, "Второй вопрос"))
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(
+            [
+                ("reply", "Второй вопрос"),
+                ("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"),
+                ("answer", "Второй ответ"),
+            ],
+            events[2..].Select(e => (e.Type, e.Text)));
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Contains("Второй вопрос", _agent.Input[1]);
+    }
+
+    [Fact]
+    public async Task Reply_WhileAgentEndsIsNotRetriedTwice()
+    {
+        var exit = HoldFirstExit(out var ended);
+        // Новый агент, поднятый ради реплики, кончается, не прочтя и её: третьего панель не поднимает.
+        _agent.StopAfterRun[1] = 0;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        await ended.Task.WaitAsync(Wait);
+        await Reply(client, "Второй вопрос");
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(["reply", "answer", "reply", "note", "error"], events.Select(e => e.Type));
+        Assert.Equal("Чудо-Юдо завершился без ответа", events[4].Text);
+        Assert.Equal(2, _agent.Starts.Count);
+    }
+
+    [Fact]
+    public async Task Reply_AfterAgentEndedRaisesOnlyOneNewAgent()
+    {
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        _agent.StopAfter = 1;
+        _agent.StopAfterRun[1] = 0;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        await Reply(client, "Второй вопрос");
+        var events = await Read(client, 5);
+
+        // Реплика, успевшая к прежнему агенту до того, как панель узнала о его конце, встаёт раньше пометки.
+        Assert.Equal(["reply", "answer"], events[..2].Select(e => e.Type));
+        Assert.Equal(["note", "reply"], events[2..4].Select(e => e.Type).Order());
+        Assert.Equal("error", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+    }
+
+    [Fact]
+    public async Task Stop_WhileAgentEndsStopsReplyWithoutNewAgent()
+    {
+        HoldFirstExit(out var ended);
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        await ended.Task.WaitAsync(Wait);
+        await Reply(client, "Второй вопрос");
+        using (var stopped = await client.PostAsync("/api/ask/stop", null))
+            Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        var events = await Read(client, 4);
+
+        Assert.Equal("stopped", events[3].Type);
+        Assert.Single(_agent.Starts);
+    }
+
+    /// <summary>Первый агент отвечает на первую реплику и больше их не читает, пока тест не отпустит его выход.</summary>
+    private TaskCompletionSource HoldFirstExit(out TaskCompletionSource ended)
+    {
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        _agent.StopAfter = 1;
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agent.BeforeExit = () =>
+        {
+            if (first.Task.IsCompleted)
+                return Task.CompletedTask;
+            first.TrySetResult();
+            return exit.Task;
+        };
+        ended = first;
+        return exit;
+    }
+
+    [Fact]
     public async Task Stop_EndsCurrentAnswerAndKeepsConversation()
     {
         var release = new TaskCompletionSource();
@@ -357,8 +459,12 @@ public sealed class AskEndpointsTests : IDisposable
         await Ask(client, _base, "Вопрос");
         var events = await Read(client, 2);
 
+        // Вопрос встаёт первым, даже когда агент кончился раньше, чем панель отправила его.
+        Assert.Equal(("reply", "Вопрос"), (events[0].Type, events[0].Text));
         Assert.Equal("Claude Code не запустился", events[1].Text);
         Assert.Equal("Не удаётся найти указанный файл", events[1].Output);
+        // Незапустившегося агента ради первого вопроса заново не поднимают.
+        Assert.Single(_agent.Starts);
     }
 
     [Fact]
