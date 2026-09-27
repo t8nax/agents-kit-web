@@ -1440,6 +1440,61 @@ test('«Переписать с Чудо-Юдо» шлёт флоу раздел
   expect(screen.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
 })
 
+test('предел кругов из правки Чудо-Юдо уходит в запись: заданный, изменённый и убранный', async () => {
+  const limited: NamedFlow = {
+    ...small,
+    entries: [
+      { stage: 'Ревью', returns: [] },
+      {
+        stage: 'Приёмка',
+        returns: [
+          { condition: 'замечания', stage: 'Ревью', rounds: 2 },
+          { condition: 'вид', stage: 'Ревью', rounds: 4 },
+        ],
+      },
+    ],
+  }
+  const answer = {
+    type: 'answer',
+    text: 'Поправил пределы.',
+    changed: { scenarios: 2, stages: 0 },
+    proposal: {
+      stages: [],
+      scenarios: [
+        {
+          of: 'полный',
+          flow: { ...full, entries: [full.entries[0], full.entries[1], { stage: 'Приёмка', returns: [{ condition: 'заново', stage: 'Ревью', rounds: 1 }] }] },
+        },
+        {
+          of: 'мелкий',
+          flow: {
+            ...limited,
+            entries: [
+              limited.entries[0],
+              { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Ревью', rounds: 5 }, { condition: 'вид', stage: 'Ревью' }] },
+            ],
+          },
+        },
+      ],
+    },
+  }
+  const fetchMock = stubApi(api([{ ...app, flows: [full, limited] }], { ...saved(), ...rewriteApi([answer]) }))
+  await renderFlow()
+
+  fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  await askForChanges(modal, 'Поправь пределы кругов', '2 сценария')
+  fireEvent.click(modal.getByRole('button', { name: 'Принять правки' }))
+
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
+  const written = body(fetchMock, 'POST /api/flow')
+  expect(written.flows[0].entries[2].returns).toEqual([{ condition: 'заново', stage: 'Ревью', rounds: 1 }])
+  expect(written.flows[1].entries[1].returns).toEqual([
+    { condition: 'замечания', stage: 'Ревью', rounds: 5 },
+    { condition: 'вид', stage: 'Ревью' },
+  ])
+})
+
 test('удалённые Чудо-Юдо сценарий и этап уходят из записи', async () => {
   const answer = {
     type: 'answer',
