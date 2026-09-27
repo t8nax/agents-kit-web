@@ -120,6 +120,87 @@ public sealed class BacklogEndpointTests : IDisposable
     }
 
     [Fact]
+    public async Task TrackerIssues_GitHubTracker_AsksGhForItsRepository()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(basePath, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(["acme/orders"], _github.Asked);
+        Assert.Null(issues.Problem);
+        Assert.Equal("GitHub #37", Assert.Single(issues.Issues).Name);
+    }
+
+    [Theory]
+    [InlineData(null, TrackerIssues.NoTracker)]
+    [InlineData("## Где задачи\nJira PAY\n", TrackerInfo.NotGitHub)]
+    [InlineData("## Где задачи\nGitHub Issues через gh\n", TrackerInfo.NoAddress)]
+    public async Task TrackerIssues_WithoutGitHubAddress_DoesNotRunGh(string? tracker, string problem)
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        if (tracker is not null)
+            File.WriteAllText(Path.Combine(basePath, "tracker.md"), tracker);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Empty(_github.Asked);
+        Assert.Equal(problem, issues.Problem);
+        Assert.Empty(issues.Issues);
+    }
+
+    [Fact]
+    public async Task TrackerIssues_BaseNotInList_IsNotFound()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        var other = CreateBase("other-knowledge", "## B-1 Первая\n");
+
+        var response = await TrackerClient(basePath).GetAsync($"/api/backlog/tracker?base={Uri.EscapeDataString(other)}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_github.Asked);
+    }
+
+    private readonly FakeGitHubIssues _github = new();
+
+    private HttpClient TrackerClient(string basePath) =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.Sources.Clear();
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, basePath))]);
+            });
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IGitHubIssues>();
+                services.AddSingleton<IGitHubIssues>(_github);
+            });
+        })).CreateClient();
+
+    private async Task<TrackerIssues> GetTrackerIssues(string listed, string asked)
+    {
+        var response = await TrackerClient(listed).GetAsync($"/api/backlog/tracker?base={Uri.EscapeDataString(asked)}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<TrackerIssues>())!;
+    }
+
+    private sealed class FakeGitHubIssues : IGitHubIssues
+    {
+        public TrackerIssues Answer { get; set; } = new([]);
+
+        public List<string> Asked { get; } = [];
+
+        public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
+        {
+            Asked.Add(repo);
+            return Task.FromResult(Answer);
+        }
+    }
+
+    [Fact]
     public async Task Backlog_NoBasesConfigured_ReturnsEmptyList()
     {
         Assert.Empty(await GetBacklogs());
