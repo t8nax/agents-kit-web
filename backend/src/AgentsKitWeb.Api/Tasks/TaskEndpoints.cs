@@ -63,6 +63,20 @@ public static partial class TaskEndpoints
                     return Results.BadRequest(new TaskStartProblem("flow-unknown"));
             }
 
+            // Задачу трекера панель перепроверяет по GitHub: закрытую или назначенную не на оператора не запускает
+            // — критерий B-277. До проверки копии: иначе между нею и запуском вставало бы ожидание GitHub.
+            string? issueTitle = null;
+            if (issue is not null)
+            {
+                if (BaseLayout.Read(basePath) is not { } layout)
+                    return Results.NotFound();
+                var issues = await BacklogEndpoints.TrackerIssuesOf(layout, github, cancellationToken);
+                if (issues.Problem is not null)
+                    return Results.BadRequest(new TaskStartProblem("tracker-unavailable", issues.Detail ?? issues.Problem));
+                issueTitle = issues.Issues.FirstOrDefault(i => i.Number == issue)?.Title;
+                if (issueTitle is null)
+                    return Results.BadRequest(new TaskStartProblem("issue-unknown"));
+            }
             var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
             var copy = request.Copy;
             var row = rows.FirstOrDefault(r => WorkspaceCollector.Normalize(r.Path)
@@ -83,24 +97,11 @@ public static partial class TaskEndpoints
             if (request.Words is { Length: > WordsLimit })
                 return Results.BadRequest(new TaskStartProblem("words-too-long"));
 
-            string? title;
+            string? title = issueTitle;
             if (issue is null)
             {
                 if (!Entries(basePath).TryGetValue(number, out title))
                     return Results.BadRequest(new TaskStartProblem("record-unknown"));
-            }
-            else
-            {
-                // Задачу трекера панель перепроверяет по GitHub: закрытую или назначенную не на оператора не запускает
-                // — критерий B-277.
-                if (BaseLayout.Read(basePath) is not { } layout)
-                    return Results.NotFound();
-                var issues = await BacklogEndpoints.TrackerIssuesOf(layout, github, cancellationToken);
-                if (issues.Problem is not null)
-                    return Results.BadRequest(new TaskStartProblem("tracker-unavailable", issues.Detail ?? issues.Problem));
-                title = issues.Issues.FirstOrDefault(i => i.Number == issue)?.Title;
-                if (title is null)
-                    return Results.BadRequest(new TaskStartProblem("issue-unknown"));
             }
 
             var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow, request.Words), cancellationToken);
