@@ -203,6 +203,82 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    private readonly FakeGitHubIssues _github = new();
+
+    private sealed class FakeGitHubIssues : IGitHubIssues
+    {
+        public TrackerIssues Answer { get; set; } = new([]);
+
+        public List<string> Asked { get; } = [];
+
+        public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
+        {
+            Asked.Add(repo);
+            return Task.FromResult(Answer);
+        }
+    }
+
+    private void WriteGitHubTracker() =>
+        File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+
+    /// <summary>Задачу трекера берёт навык кита по её имени, как кит её называет, — B-277.</summary>
+    [Theory]
+    [InlineData("GitHub #37")]
+    [InlineData("github#37")]
+    public async Task Start_TakesTrackerIssueByItsName(string name)
+    {
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
+        _agent.Lines = ["backgrounded · abc123"];
+        var client = Client();
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, name));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["acme/orders"], _github.Asked);
+        Assert.Equal("/agents-kit:drive GitHub #37", _agent.StartInfo!.ArgumentList[^1]);
+        var rows = await client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
+        Assert.Equal("GitHub #37 Оплата падает", Assert.Single(rows!, r => r.Path == _copy).Task);
+    }
+
+    /// <summary>Закрытую или назначенную не на оператора задачу панель не запускает — критерий B-277.</summary>
+    [Fact]
+    public async Task Start_RejectsTrackerIssueNotAssignedAndOpen()
+    {
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #36", 36, "Другая", "https://github.com/acme/orders/issues/36")]);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("issue-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task Start_TrackerUnreadable_SaysWhy()
+    {
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([], TrackerIssues.GhLogin);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new TaskStartProblem("tracker-unavailable", TrackerIssues.GhLogin), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task Start_TrackerIssueWithoutGitHubTracker_IsNotStarted()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new TaskStartProblem("tracker-unavailable", TrackerIssues.NoTracker), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Empty(_github.Asked);
+        Assert.Null(_agent.StartInfo);
+    }
+
     [Fact]
     public async Task CopyRow_CarriesTheProjectsLetters()
     {
@@ -604,6 +680,8 @@ public sealed class TaskEndpointsTests : IDisposable
             {
                 services.RemoveAll<IAgentProcess>();
                 services.AddSingleton<IAgentProcess>(_agent);
+                services.RemoveAll<IGitHubIssues>();
+                services.AddSingleton<IGitHubIssues>(_github);
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(_time);
             });
