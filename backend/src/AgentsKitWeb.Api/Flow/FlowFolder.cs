@@ -89,7 +89,8 @@ public static partial class FlowFolder
     [GeneratedRegex(@"^(?<indent>\s+)-\s+кругов\s*:\s*(?<value>.*?)\s*$")]
     private static partial Regex RoundsLine { get; }
 
-    [GeneratedRegex(@"^[1-9]\d{0,8}$")]
+    // Как у кита — «^[1-9]\d*$» в PowerShell, где \d только ASCII; в .NET \d взял бы и другие цифры Юникода.
+    [GeneratedRegex(@"^[1-9][0-9]*$")]
     private static partial Regex RoundsValue { get; }
 
     [GeneratedRegex(@"^\s*когда\s*:\s*(?<value>.*)$")]
@@ -151,11 +152,13 @@ public static partial class FlowFolder
                     returnIndent = line.Length - line.TrimStart().Length;
                 }
                 // Предел не под возвратом, второй у возврата или не целое от 1 кит считает ошибкой — запись его не воспроизведёт.
+                // Число больше int кит принял бы, а панель не удержит: оно тоже остаётся непонятой строкой.
                 else if (RoundsLine.Match(line) is { Success: true } rounds
                          && returnIndent >= 0 && rounds.Groups["indent"].Length > returnIndent
                          && entries[^1].Returns[^1].Rounds is null
-                         && RoundsValue.IsMatch(rounds.Groups["value"].Value))
-                    entries[^1].Returns[^1] = entries[^1].Returns[^1] with { Rounds = int.Parse(rounds.Groups["value"].Value) };
+                         && RoundsValue.IsMatch(rounds.Groups["value"].Value)
+                         && int.TryParse(rounds.Groups["value"].Value, out var limit))
+                    entries[^1].Returns[^1] = entries[^1].Returns[^1] with { Rounds = limit };
                 else
                 {
                     unread.Add($"строка {number}: «{line.Trim()}»");
