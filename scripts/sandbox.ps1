@@ -106,8 +106,8 @@ if (-not $Root) {
 
 $state = Join-Path $Root 'state.json'
 
-# Снимок живого состояния: список отслеживаемых баз оператора и каждая живая база — её HEAD
-# и незакоммиченные правки. Песочница ничего этого касаться не должна, и «-Verify» это показывает.
+# Снимок живого состояния: список отслеживаемых баз оператора и каждая живая база и её личный репозиторий
+# local\me — у каждого свой git, их HEAD и незакоммиченные правки. Песочница ничего этого касаться не должна, и «-Verify» это показывает.
 # Живые базы меняют и соседние сессии, поэтому расхождение называет файл: по нему видно, чья это
 # работа — панели песочницы или сессии в другой копии.
 function Get-LiveSnapshot {
@@ -118,7 +118,9 @@ function Get-LiveSnapshot {
     $live = try { (Get-Content -LiteralPath $file -Raw | ConvertFrom-Json).bases } catch { @() }
     # Живая база бывает и не под git, и без коммитов: её снимок — пустые строки, а не падение сборки.
     $PSNativeCommandUseErrorActionPreference = $false
-    foreach ($base in @($live)) {
+    # Личный репозиторий git базы не видит — local\ у неё в .gitignore, — а панель пишет туда ответы, бэклог и файлы.
+    $repos = @($live | ForEach-Object { $_; Join-Path $_ 'local\me' })
+    foreach ($base in $repos) {
         if (-not (Test-Path -LiteralPath $base -PathType Container)) { continue }
         $head = (git -C $base rev-parse HEAD 2>$null) -join ''
         $dirty = (git -C $base status --porcelain 2>$null) -join "`n"
@@ -785,7 +787,7 @@ if (Test-Piece 'quirks') {
     $links.Add([pscustomobject]@{ path = $notGitCopy; status = 'NotGit'; base = $null })
     $links.Add([pscustomobject]@{ path = (Join-Path $copiesDir 'dotted'); status = 'Unlisted'; base = $quirksBase })
     $findings.Add([pscustomobject]@{ base = $quirksBase; findings = @(
-        [pscustomobject]@{ severity = 'FAIL'; file = 'work/копия-с-кириллицей-вторая.md'; message = 'две памяти на одну копию' }
+        [pscustomobject]@{ severity = 'FAIL'; file = "local/me/work/$(Get-SandboxMachine)/копия-с-кириллицей-вторая.md"; message = 'две памяти на одну копию' }
         [pscustomobject]@{ severity = 'WARN'; file = 'backlog.md'; message = 'запись без номера' }
         [pscustomobject]@{ severity = 'WARN'; file = 'people/sandbox/flow/scenarios.md'; message = 'сценарии не в истории git' }) })
 

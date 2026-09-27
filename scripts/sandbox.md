@@ -116,7 +116,7 @@ ORD-5» — вторую в первую; в файл он их не пишет,
 |---|---|
 | нет описания проекта — название панель берёт из имени папки | `no-product` |
 | битый `agents-kit.json` — базу не прочитать | `broken-json` |
-| база прежнего формата — копии, флоу, исполнители, бэклог и память в корне базы, как до перевода китом; панель называет причину, а кит — состояние связи «прежний формат» | `old-format` |
+| база прежнего формата — копии, флоу, исполнители, бэклог и память в корне базы, как до перевода китом; таблица, «Флоу», «Исполнители», «Бэклог» и «Проблемы баз» называют причину — перевести её китом | `old-format` |
 | копии нет на диске; копия не под git; путь с `..`; кириллица в пути | `quirks` |
 | память в CRLF; вопрос без строки `ответ:`; два вопроса в одной памяти; две памяти на одну копию | `quirks`, каталог `local\me\work\<машина>` |
 | флоу (`people\sandbox\flow\`) не в истории git — панель не сможет его закоммитить; незакоммиченный `local\me\backlog.md` | `quirks` |
@@ -134,7 +134,10 @@ ORD-5» — вторую в первую; в файл он их не пишет,
 Скрипт выполняется после названных кусков в той же области, что и сборка. Ему видны:
 
 - кирпичи `fixtures.ps1` — `New-Repo`, `Add-Commit`, `Write-Utf8`, `Write-Json`, `Start-Dummy`, `Write-Session`;
-- функции баз `sandbox.ps1` — `New-Base`, `New-Memory`, `New-Flow`, `New-Backlog`, `New-Agents`;
+- функции баз `sandbox.ps1` — `New-Base`, `New-OldBase`, `New-Memory`, `New-Flow`, `New-Backlog`, `New-Agents`, и адреса
+  раскладки базы — `Get-Personal` (личный репозиторий), `Get-MemoryDir` (память копий этой машины),
+  `Get-OperatorDir` (папка оператора): `New-Flow` и `New-Agents` берут папку оператора, `New-Backlog` — личный
+  репозиторий, `New-Memory` — путь файла в каталоге памяти; память по-старому, в `<база>\work`, панель не увидит;
 - каталоги `$Root`, `$basesDir`, `$copiesDir`, `$sessionsDir`, `$claudeDir`, `$panelDir`, `$projectsDir`
   (журналы расхода) и `$kitDir` (заглушка кита);
 - списки, куда кусок дописывает своё: `$bases` — базы в списке панели, `$links` — связь копий с базами
@@ -152,6 +155,9 @@ Write-Utf8 (Join-Path $copy 'README.md') "# Магазин`n"
 Add-Commit $copy 'Первый коммит'
 $base = Join-Path $basesDir 'shop-knowledge'
 New-Base $base 'Магазин' @($copy)
+# Память задачи — в личном репозитории, в каталоге этой машины, и коммитится в его git.
+New-Memory (Join-Path (Get-MemoryDir $base) 'shop.md') $copy 'main'
+Add-Commit (Get-Personal $base) 'Память задачи'
 $bases.Add($base)
 $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $base })
 $findings.Add([pscustomobject]@{ base = $base; findings = @() })
