@@ -172,12 +172,15 @@ public static partial class FlowFolder
         return new FlowList(Raw(intro), flows, unread);
     }
 
-    /// <summary>Флоу базы по её flow/scenarios.md — только имена, «когда» и названия пунктов. Флоу нет или файл не прочитан — пусто.</summary>
-    public static IReadOnlyList<NamedFlow> ReadFlows(string basePath)
+    /// <summary>
+    /// Флоу по flow/scenarios.md от корня флоу — папки оператора в базе (BaseLayout.OperatorDir): только имена, «когда»
+    /// и названия пунктов. Флоу нет или файл не прочитан — пусто.
+    /// </summary>
+    public static IReadOnlyList<NamedFlow> ReadFlows(string root)
     {
         try
         {
-            var list = Path.Combine(basePath, ListFile);
+            var list = Path.Combine(root, ListFile);
             return File.Exists(list) ? ParseList(Decode(File.ReadAllBytes(list)).Text, new Dictionary<string, string>()).Flows : [];
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

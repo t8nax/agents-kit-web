@@ -362,7 +362,7 @@ if ($mode -eq 'garbage') {
 # Подставной на первую реплику переспрашивает, на вторую предлагает правки: дописывает к выходу первого этапа слова
 # просьбы, заводит этап заметок и ставит его в конец первого сценария; по слову «удали» убирает этап заметок.
 $system = Get-Argument '--append-system-prompt'
-if ($system -and $system -match 'правишь флоу проекта') {
+if ($system -and $system -match 'правишь (его )?флоу проекта') {
     $notes = 'Заметки подставного агента'
     $stageTitle = $null; $stageFile = $null; $scenarioName = $null; $scenario = $null
     $wish = ''
@@ -446,8 +446,10 @@ $baseDir = Get-Argument '--add-dir'
 # Разговор о бэклоге: реплики приходят строками stream-json. Новую запись агент дописывает и коммитит,
 # изменение, удаление и объединение только предлагает блоками ~~~backlog — пишет их панель по «Сохранить».
 # Запись, названная без номера, уточняется вопросом; «да» в ответ делает прежнюю просьбу с этой записью.
+# Бэклог — в личном репозитории оператора local\me базы, коммит — в его git.
 if ($baseDir) {
-    $backlog = Join-Path $baseDir 'backlog.md'
+    $personal = Join-Path $baseDir 'local\me'
+    $backlog = Join-Path $personal 'backlog.md'
     $asked = $null
     function Get-Block([string]$Text, [string]$Number) {
         $found = [regex]::Match($Text, "(?ms)^## $([regex]::Escape($Number))\s.*?(?=^## |\z)")
@@ -527,8 +529,8 @@ if ($baseDir) {
         $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said$artifacts`n`n### Агенту`n- записано подставным агентом песочницы`n"
         [IO.File]::WriteAllText($backlog, $text, [Text.UTF8Encoding]::new($false))
         Write-Step 'Edit' @{ file_path = $backlog }
-        if ($attached.Count -gt 0) { git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md artifacts }
-        else { git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md }
+        if ($attached.Count -gt 0) { git -C $personal commit -q -m 'Записано из панели' -- backlog.md artifacts }
+        else { git -C $personal commit -q -m 'Записано из панели' -- backlog.md }
         Write-Result "Записал $letters-$number."
     }
     exit 0

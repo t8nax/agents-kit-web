@@ -1,3 +1,5 @@
+using AgentsKitWeb.Api.Bases;
+
 namespace AgentsKitWeb.Api.Performers;
 
 /// <summary>Файл исполнителя, найденный на диске: Name — то имя, которым зовёт его шаг флоу.</summary>
@@ -11,13 +13,16 @@ internal sealed record FoundPerformer(string Name, PerformerFields Fields, strin
 internal static class PerformerList
 {
     /// <summary>
-    /// Исполнители проекта — все файлы каталога `agents` его базы. Имя — то, которым зовёт
-    /// исполнителя шаг флоу: строка `name` файла, а её нет — имя самого файла.
+    /// Исполнители проекта — все файлы каталога `agents` папки оператора этой машины в его базе. Имя — то, которым
+    /// зовёт исполнителя шаг флоу: строка `name` файла, а её нет — имя самого файла. Базу панель не читает — их нет.
     /// </summary>
-    public static List<Performer> OfProject(string basePath)
+    public static List<Performer> OfProject(string basePath) =>
+        BaseLayout.Read(basePath) is { } layout ? OfProject(layout) : [];
+
+    public static List<Performer> OfProject(BaseLayout layout)
     {
         var performers = new List<Performer>();
-        foreach (var file in Read(Directory(basePath)))
+        foreach (var file in Read(Directory(layout)))
             performers.Add(new Performer(
                 file.Name,
                 file.Fields.Description,
@@ -29,8 +34,10 @@ internal static class PerformerList
         return performers.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    /// <summary>Каталог исполнителей базы — тот, откуда кит развозит их по рабочим копиям.</summary>
-    public static string Directory(string basePath) => System.IO.Path.Combine(basePath, "agents");
+    /// <summary>Каталог исполнителей оператора — тот, откуда кит развозит их по его рабочим копиям.</summary>
+    public static string Directory(BaseLayout layout) => System.IO.Path.Combine(layout.OperatorDir, Folder);
+
+    public const string Folder = "agents";
 
     /// <summary>Файлы каталога исполнителей. Каталога нет или он не читается — исполнителей нет.</summary>
     public static List<FoundPerformer> Read(string directory)

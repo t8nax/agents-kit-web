@@ -128,8 +128,12 @@ public sealed class HealthMonitor(
         string? kit, string basePath, IReadOnlyList<WorkspaceRow> rows, CancellationToken cancellationToken)
     {
         var project = ProjectName.Of(basePath);
-        if (!Directory.Exists(basePath) || !File.Exists(Path.Combine(basePath, "agents-kit.json")))
+        if (!Directory.Exists(basePath) || !BaseLayout.IsBase(basePath))
             return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, "База не читается", [], []);
+        // Базу прежнего формата, без оператора этой машины или без личного репозитория панель не читает — причину
+        // называет раскладка; сверка кита такой базе ничего не добавит, кроме того же «перевести» или «завести».
+        if (BaseLayout.Read(basePath, out var unreadable) is null)
+            return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, unreadable, [], []);
         if (kit is null)
             return new BaseHealth(basePath, project, BaseHealthStatus.Unchecked, null, [], []);
 
@@ -200,6 +204,12 @@ public sealed class HealthMonitor(
             "Unlisted" when link.Base is not null && !BasesStore.SamePath(link.Base, basePath) =>
                 $"копия указывает на другую базу «{link.Base}», и та её своей не числит",
             "Unlisted" => "база не числит эту копию своей",
+            // Звенья цепочки кита с базами формата 4 (B-275).
+            "Unmerged" => $"сведение «{link.Unmerged ?? link.Base}» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут",
+            "Outdated" => "база прежнего формата — переведите её китом",
+            "Newer" => "базу перевёл кит новее установленного — обновите кит",
+            "Unnamed" => "на этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard",
+            "NoPersonal" => "на этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard",
             var other => $"неизвестное состояние связи «{other}»",
         };
         return message is null ? [] : [new HealthProblem("error", null, message)];

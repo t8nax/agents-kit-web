@@ -31,7 +31,7 @@ import { useReveal, withReveal } from './reveal'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /**
- * Стадия флоу — файл flow/stages/ базы, один на все флоу, где она стоит. slug — имя файла; у стадии,
+ * Стадия флоу — файл flow/stages/ папки оператора в базе, один на все флоу, где она стоит. slug — имя файла; у стадии,
  * заведённой в панели и ещё не записанной, его нет.
  */
 export type FlowStage = {
@@ -1372,7 +1372,7 @@ function saveError(status: number, body: RejectedBody | null, from: Source) {
   if (status === 502 && body?.problem === 'not-written')
     return `Флоу не сохранён: файл флоу не записался, файлы возвращены как были.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 502 && body?.problem === 'not-restored')
-    return `Флоу не сохранён, и не все файлы удалось вернуть — проверьте flow/ базы.${body.detail ? ` ${body.detail}` : ''}`
+    return `Флоу не сохранён, и не все файлы удалось вернуть — проверьте flow/ в своей папке базы.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 502 && body?.problem === 'not-committed')
     return `Флоу не сохранён: коммит в базу не прошёл, файлы оставлены как были.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 404) return 'Флоу не сохранён: база не найдена'

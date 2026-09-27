@@ -22,9 +22,7 @@ public sealed class HealthTests : IDisposable
         _worktree = Path.Combine(_root, "app-wt");
         TestGit.Run(_main, "worktree", "add", "-b", "feat/wt", _worktree);
 
-        _base = Directory.CreateDirectory(Path.Combine(_root, "app-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { workspaces = new[] { _main } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _main);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
 
         var file = TestBases.File(_root, _base);
@@ -55,6 +53,21 @@ public sealed class HealthTests : IDisposable
             Assert.Null(row.Problems);
             Assert.Null(row.BaseProblems);
         });
+    }
+
+    [Fact]
+    // Базу прежнего формата панель не читает: сверка кита её не проверяет, причина — словами раскладки.
+    public async Task Health_BaseOfOldFormat_IsUnavailableWithReason()
+    {
+        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = 3 }));
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(TestKit.Create(Path.Combine(_root, "agents-kit"))));
+
+        var snapshot = await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status != BaseHealthStatus.Unchecked));
+
+        var baseHealth = Assert.Single(snapshot.Bases);
+        Assert.Equal(BaseHealthStatus.Unavailable, baseHealth.Status);
+        Assert.Equal("База прежнего формата — переведите её китом", baseHealth.Error);
     }
 
     [Fact]
@@ -155,8 +168,7 @@ public sealed class HealthTests : IDisposable
         Directory.Delete(kit, recursive: true);
         // Смену на диске монитор видит на следующем круге; здесь его будит повторное сохранение списка.
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(_base));
-        var extra = Directory.CreateDirectory(Path.Combine(_root, "other-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(extra, "agents-kit.json"), """{ "workspaces": [] }""");
+        var extra = TestLayout.Base(Path.Combine(_root, "other-knowledge"));
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(extra));
 
         var snapshot = await WaitFor(s => s.Kit == KitStatus.NotFound);
@@ -229,6 +241,11 @@ public sealed class HealthTests : IDisposable
     [InlineData("BaseMissing", "D:\\gone", "копия указывает на базу «D:\\gone», а её нет на диске")]
     [InlineData("NotBase", "D:\\plain", "копия указывает на «D:\\plain», а это не база кита")]
     [InlineData("Unlisted", "SAME", "база не числит эту копию своей")]
+    [InlineData("Outdated", "SAME", "база прежнего формата — переведите её китом")]
+    [InlineData("Newer", "SAME", "базу перевёл кит новее установленного — обновите кит")]
+    [InlineData("Unnamed", "SAME", "на этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard")]
+    [InlineData("NoPersonal", "SAME", "на этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard")]
+    [InlineData("Unmerged", "SAME", "сведение «D:\\app-knowledge\\» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут")]
     public void LinkProblems_NamesBrokenLink(string status, string? linkBase, string? message)
     {
         const string basePath = "D:\\app-knowledge";
@@ -239,6 +256,18 @@ public sealed class HealthTests : IDisposable
             Assert.Empty(problems);
         else
             Assert.Equal([new HealthProblem("error", null, message)], problems);
+    }
+
+    [Fact]
+    // Кит называет, где встало сведение: в базе или в личном репозитории оператора.
+    public void LinkProblems_UnmergedNamesRepositoryKitPointedAt()
+    {
+        var problems = HealthMonitor.LinkProblems("D:\\app-knowledge",
+            new KitLinkState("D:\\app", "Unmerged", "D:\\app-knowledge", "D:\\app-knowledge\\local\\me"));
+
+        Assert.Equal(
+            [new HealthProblem("error", null, "сведение «D:\\app-knowledge\\local\\me» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут")],
+            problems);
     }
 
     [Fact]

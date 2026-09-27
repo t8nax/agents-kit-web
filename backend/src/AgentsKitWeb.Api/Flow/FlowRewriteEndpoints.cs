@@ -304,7 +304,7 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
     {
         try
         {
-            return FlowEndpoints.Tasks(basePath, flows);
+            return BaseLayout.Read(basePath) is { } layout ? FlowEndpoints.Tasks(layout, flows) : [];
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -441,9 +441,11 @@ public static class FlowRewriteEndpoints
             ? "Текущий каталог — база знаний проекта."
             : $"Текущий каталог — рабочая копия проекта: читай её код, чтобы понять, чем проект сделан и чем проверяется работа. База знаний проекта лежит в {basePath}.";
 
+        // Флоу — свой у каждого оператора: он лежит в его папке базы, а не в её корне (раскладка кита формата 4).
+        var folder = BaseLayout.Read(basePath)?.OperatorDir ?? basePath;
         var systemPrompt = $"""
-            Ты с оператором веб-панели правишь флоу проекта «{project}» — сценарии flow/scenarios.md и этапы
-            flow/stages/*.md базы знаний agents-kit. Это переписка: оператор просит и уточняет, ты отвечаешь.
+            Ты с оператором веб-панели правишь его флоу проекта «{project}» — сценарии flow/scenarios.md и этапы
+            flow/stages/*.md в его папке {folder} базы знаний agents-kit. Это переписка: оператор просит и уточняет, ты отвечаешь.
             {place} В базе и решения проекта — decisions/.
             Флоу целиком придёт первым сообщением — таким, каким его видит оператор; оно важнее файлов на диске.
             Непонятно, чего хочет оператор, или просьба спорит с тем, что уже есть во флоу, — спроси или скажи об этом,

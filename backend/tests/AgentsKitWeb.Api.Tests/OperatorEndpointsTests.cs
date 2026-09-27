@@ -65,16 +65,13 @@ public sealed class OperatorEndpointsTests : IDisposable
     public OperatorEndpointsTests()
     {
         _copy = Path.Combine(_root, "app");
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{\"workspaces\":[]}");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
-        _memoryPath = Path.Combine(_base, "work", "app.md");
+        _memoryPath = Path.Combine(TestLayout.Work(_base), "app.md");
         File.WriteAllText(_memoryPath, $"# Окно ответа\nрабочая копия: {_copy}\nветка: feat/x\n\n{Sections}\n\n## Агенту\n\n### Флоу\n- [ ] 1. Критерий\n");
 
-        var outsider = Path.Combine(_root, "other-knowledge");
-        Directory.CreateDirectory(Path.Combine(outsider, "work"));
-        File.WriteAllText(Path.Combine(outsider, "work", "app.md"), File.ReadAllText(_memoryPath));
+        var outsider = TestLayout.Base(Path.Combine(_root, "other-knowledge"));
+        File.WriteAllText(Path.Combine(TestLayout.Work(outsider), "app.md"), File.ReadAllText(_memoryPath));
 
         _sessionsDir = Path.Combine(_root, "sessions");
         Directory.CreateDirectory(_sessionsDir);
@@ -151,8 +148,8 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal(
             ["принимаю — файл: artifacts/Снимок-экрана.png", "файлы: artifacts/лог.txt, artifacts/лог-2.txt", "да"],
             memory.Questions.Select(q => q.Answer));
-        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(_base, "artifacts", "Снимок-экрана.png")));
-        Assert.Equal([0, 1], File.ReadAllBytes(Path.Combine(_base, "artifacts", "лог-2.txt")));
+        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(TestLayout.Personal(_base), "artifacts", "Снимок-экрана.png")));
+        Assert.Equal([0, 1], File.ReadAllBytes(Path.Combine(TestLayout.Personal(_base), "artifacts", "лог-2.txt")));
         Assert.False(Directory.Exists(Path.Combine(_copy, "artifacts")));
     }
 
@@ -168,7 +165,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
         Assert.Equal(new AttachRejected("видео.mp4", "too-large"), await response.Content.ReadFromJsonAsync<AttachRejected>());
         Assert.Equal(before, await File.ReadAllTextAsync(_memoryPath));
-        Assert.False(Directory.Exists(Path.Combine(_base, "artifacts")));
+        Assert.False(Directory.Exists(Path.Combine(TestLayout.Personal(_base), "artifacts")));
     }
 
     [Fact]
@@ -179,7 +176,7 @@ public sealed class OperatorEndpointsTests : IDisposable
             new OperatorAnswer("Старый вопрос?", "ещё раз"));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "artifacts")));
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(TestLayout.Personal(_base), "artifacts")));
     }
 
     [Theory]
@@ -188,7 +185,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     [InlineData("ORD-3 Чужие буквы", "artifacts/снимок.png")]
     public async Task Answers_AttachedFileTakesTaskNumberOnlyInLettersOfBase(string task, string address)
     {
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-9\n");
+        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-9\n");
         File.WriteAllText(_memoryPath, File.ReadAllText(_memoryPath).Replace("# Окно ответа", $"# {task}"));
 
         var response = await PostAnswers(_base, _copy,
@@ -196,7 +193,7 @@ public sealed class OperatorEndpointsTests : IDisposable
             new OperatorAnswer("Как быть с переносами?", "пробелами"));
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.True(File.Exists(Path.Combine(_base, address)));
+        Assert.True(File.Exists(Path.Combine(TestLayout.Personal(_base), address)));
     }
 
     [Fact]
@@ -240,7 +237,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     [Fact]
     public async Task Answers_BaseNotInConfiguration_IsNotFoundAndWritesNothing()
     {
-        var outsiderMemory = Path.Combine(_root, "other-knowledge", "work", "app.md");
+        var outsiderMemory = Path.Combine(TestLayout.Work(Path.Combine(_root, "other-knowledge")), "app.md");
         var before = await File.ReadAllTextAsync(outsiderMemory);
 
         var response = await PostAnswers(Path.Combine(_root, "other-knowledge"), _copy, ("Подтвердить критерий?", "да"));
@@ -548,9 +545,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     private string FreeCopy()
     {
         var free = TestGit.Repository(Path.Combine(_root, "free"));
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { free } }));
+        TestLayout.Machine(_base, TestLayout.Operator, free);
         return free;
     }
 
@@ -631,12 +626,15 @@ public sealed class OperatorEndpointsTests : IDisposable
     [Fact]
     public async Task OpenArtifact_FromBaseArtifacts_OpensFileOfBaseInCopyWindow()
     {
-        // Кит держит файлы артефактов в artifacts/ базы, а ссылается на них путём от её корня.
-        var shot = Path.Combine(_base, "artifacts", "B-1-снимок.png");
+        // Кит держит артефакты памяти в artifacts/ личного репозитория и ссылается на них путём от его корня;
+        // файл того же имени в общей базе и в копии — не тот.
+        var shot = Path.Combine(TestLayout.Personal(_base), "artifacts", "B-1-снимок.png");
         Directory.CreateDirectory(Path.GetDirectoryName(shot)!);
         File.WriteAllBytes(shot, [1, 2, 3]);
         Directory.CreateDirectory(Path.Combine(_copy, "artifacts"));
         File.WriteAllBytes(Path.Combine(_copy, "artifacts", "B-1-снимок.png"), [4]);
+        Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_base, "artifacts", "B-1-снимок.png"), [5]);
 
         var response = await PostOpenArtifact(_base, _copy, 5);
 

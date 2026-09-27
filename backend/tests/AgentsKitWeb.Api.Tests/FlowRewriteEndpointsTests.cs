@@ -66,13 +66,10 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     public FlowRewriteEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(Path.Combine(_base, "agents"));
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { _copy } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
+        Directory.CreateDirectory(TestLayout.Agents(_base));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
-        File.WriteAllText(Path.Combine(_base, "agents", "reviewer.md"), Reviewer.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(TestLayout.Agents(_base), "reviewer.md"), Reviewer.ReplaceLineEndings("\n"));
 
         _kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
         var rules = FlowRules.File(_kit);
@@ -126,6 +123,8 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         // Правила формы сценария и этапа агент получает из справки кита, а не своими словами панели.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(_base, prompt);
+        // Флоу — в папке оператора этой машины, а не в корне базы (B-275).
+        Assert.Contains($"flow/stages/*.md в его папке {TestLayout.OperatorDir(_base)} базы", prompt);
         Assert.Contains("Сценарии — flow/scenarios.md.", prompt);
         Assert.Contains("Ключи — закрытый перечень: исполнитель, выход, пропуск.", prompt);
         Assert.Contains("Инвариантов кита во флоу нет.", prompt);
@@ -171,9 +170,9 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     [Fact]
     public async Task Rewrite_GivesWholeFlowTasksAndPerformersInFirstReply()
     {
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        Directory.CreateDirectory(TestLayout.Work(_base));
         File.WriteAllText(
-            Path.Combine(_base, "work", "d-app-task.md"),
+            Path.Combine(TestLayout.Work(_base), "d-app-task.md"),
             "# Поправить вход\nрабочая копия: D:\\app-task\nсценарий: Крупные\n");
         _agent.Answers = [[Result("ok")]];
         var client = await Client();
@@ -475,7 +474,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     [Fact]
     public async Task Rewrite_WithoutMainCopy_RunsInBase()
     {
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
+        TestLayout.Machine(_base, TestLayout.Operator);
         _agent.Answers = [[Result("ok")]];
         var client = await Client();
 
@@ -495,7 +494,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         await Start(client, "Напиши этап");
         await Read(client, 2);
 
-        Assert.False(Directory.Exists(Path.Combine(_base, "flow")));
+        Assert.False(Directory.Exists(Path.Combine(TestLayout.OperatorDir(_base), "flow")));
     }
 
     [Fact]

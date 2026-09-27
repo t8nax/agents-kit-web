@@ -18,7 +18,7 @@ public sealed record ClosingCriterion(string Title, string? Text);
 /// <summary>Артефакт задачи — строка «- что это: адрес» раздела «## Артефакты».</summary>
 public sealed record TaskArtifact(string Label, string Address);
 
-/// <summary>Рабочая память задачи — файл work/*.md базы.</summary>
+/// <summary>Рабочая память задачи — файл work\&lt;машина&gt;\*.md личного репозитория оператора.</summary>
 public sealed record WorkMemory(
     string? Copy,
     string? Branch,

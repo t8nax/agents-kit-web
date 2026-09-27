@@ -28,11 +28,7 @@ public sealed class SessionsEndpointsTests : IDisposable
     public SessionsEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { workspaces = new[] { _copy } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
         _sessionsDir = Path.Combine(_root, "sessions");
         Directory.CreateDirectory(_sessionsDir);
@@ -365,7 +361,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
     /// <summary>Память копии с одним вопросом оператору: пустой ответ — копия его ждёт.</summary>
     private void WriteMemory(string answer) =>
-        File.WriteAllText(Path.Combine(_base, "work", "app.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
             # Задача копии
             рабочая копия: {_copy}
             ветка: dev

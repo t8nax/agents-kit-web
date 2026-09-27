@@ -116,7 +116,7 @@ public static class OperatorEndpoints
         });
 
         // Файл-артефакт задачи открывается в VS Code, в окне копии задачи, — решение оператора на B-87.
-        // Файл из artifacts/ базы — тоже в окне копии: VS Code открывает в нём и файл вне папки окна.
+        // Файл из artifacts/ личного репозитория — тоже в окне копии: VS Code открывает в нём и файл вне папки окна.
         // Запрос называет артефакт номером в памяти, а не путём: файл, которого нет в «Артефактах»
         // памяти копии, по HTTP не открыть.
         app.MapPost("/api/artifact/open", async (
@@ -125,15 +125,15 @@ public static class OperatorEndpoints
             IEditorWindows windows,
             CancellationToken cancellationToken) =>
         {
-            if (FindMemory(bases, request.Base, request.Copy) is not { Base: var basePath, Memory: var memory }
+            if (FindMemory(bases, request.Base, request.Copy) is not { Layout.Personal: var personal, Memory: var memory }
                 || request.Index < 0 || request.Index >= memory.Artifacts.Count
                 // Окно шлёт номер из памяти, прочитанной при его открытии; агент мог с тех пор переписать
                 // «Артефакты» — тогда под этим номером другой адрес, и открывать его нельзя.
                 || memory.Artifacts[request.Index].Address != request.Address)
                 return Results.NotFound();
 
-            // artifacts/<имя> — путь от корня базы (раскладка кита), прочий адрес без корня — путь от копии
-            // задачи, как писали до кита с artifacts/; ссылки на сайт открывает браузер, а не панель.
+            // artifacts/<имя> — путь от корня личного репозитория, где лежит память (раскладка кита), прочий адрес
+            // без корня — путь от копии задачи, как писали до кита с artifacts/; ссылки на сайт открывает браузер.
             var address = memory.Artifacts[request.Index].Address;
             if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
                 return Results.BadRequest(new OpenArtifactFailedResponse("not-a-file"));
@@ -143,7 +143,7 @@ public static class OperatorEndpoints
             if (address.IndexOfAny(CmdSpecial) >= 0)
                 return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
             var path = ArtifactFiles.InBase(address)
-                ? ArtifactFiles.PathIn(basePath, address)
+                ? ArtifactFiles.PathIn(personal, address)
                 : Path.GetFullPath(Path.Combine(memory.Copy!, address));
             if (path is null)
                 return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
@@ -168,9 +168,9 @@ public static class OperatorEndpoints
                     ? Results.Json(refused, statusCode: StatusCodes.Status413PayloadTooLarge)
                     : Results.BadRequest(refused);
 
-            // Приложенные файлы ложатся копиями в artifacts/ базы до записи ответов, их адреса — в строку ответа;
+            // Приложенные файлы ложатся копиями в artifacts/ личного репозитория, рядом с памятью, до записи ответов, их адреса — в строку ответа;
             // в git их кладёт сессия, которая вберёт ответ. Ответы не записались — файлы уходят с диска.
-            var number = TaskNumber(found.Memory.Task, found.Base);
+            var number = TaskNumber(found.Memory.Task, found.Layout);
             var saved = new List<string>();
             var answers = new List<OperatorAnswer>();
             AnswerRejection? rejection;
@@ -182,7 +182,7 @@ public static class OperatorEndpoints
                     if (answer.Files is { Count: > 0 } files)
                     {
                         // Размер и содержимое уже проверены выше: отказа здесь не бывает.
-                        addresses = (await ArtifactFiles.SaveAsync(found.Base, files, number, cancellationToken)).Addresses ?? [];
+                        addresses = (await ArtifactFiles.SaveAsync(found.Layout.Personal, files, number, cancellationToken)).Addresses ?? [];
                         saved.AddRange(addresses);
                     }
                     answers.Add(answer with { Answer = OperatorAnswers.WithFiles(answer.Answer, addresses), Files = null });
@@ -191,11 +191,11 @@ public static class OperatorEndpoints
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or OperationCanceledException)
             {
-                ArtifactFiles.Delete(found.Base, saved);
+                ArtifactFiles.Delete(found.Layout.Personal, saved);
                 throw;
             }
             if (rejection is not null)
-                ArtifactFiles.Delete(found.Base, saved);
+                ArtifactFiles.Delete(found.Layout.Personal, saved);
             return rejection switch
             {
                 null => Results.NoContent(),
@@ -206,24 +206,24 @@ public static class OperatorEndpoints
     }
 
     // Номер задачи — первое слово заголовка памяти, если оно номер буквами этой базы: «UTF-8 …» номером не становится.
-    private static string? TaskNumber(string? task, string basePath) =>
+    private static string? TaskNumber(string? task, BaseLayout layout) =>
         task?.Split(' ', 2)[0] is { } first && BacklogNumber.Normalize(first) is { } number
-        && Backlog.ReadLetters(basePath) is { } letters && BacklogNumber.Letters(number) == letters
+        && Backlog.ReadLetters(layout) is { } letters && BacklogNumber.Letters(number) == letters
             ? number
             : null;
 
     internal static readonly char[] CmdSpecial = ['&', '|', '<', '>', '^', '%', '"'];
 
-    // Пишется только память копии из work/ базы, которая есть в списке баз панели:
+    // Пишется только память копии этой машины из личного репозитория базы, которая есть в списке баз панели:
     // путь к файлу панель не принимает, а собирает сама.
-    private static (string Base, string File, WorkMemory Memory)? FindMemory(BasesStore bases, string basePath, string copy)
+    private static (BaseLayout Layout, string File, WorkMemory Memory)? FindMemory(BasesStore bases, string basePath, string copy)
     {
         var configured = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, basePath));
-        if (configured is null || !Directory.Exists(configured))
+        if (configured is null || BaseLayout.Read(configured) is not { } layout)
             return null;
 
-        return WorkspaceCollector.MemoryFiles(configured).TryGetValue(WorkspaceCollector.Normalize(copy), out var found)
-            ? (configured, found.File, found.Memory)
+        return WorkspaceCollector.MemoryFiles(layout).TryGetValue(WorkspaceCollector.FullPath(copy), out var found)
+            ? (layout, found.File, found.Memory)
             : null;
     }
 

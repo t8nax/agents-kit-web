@@ -67,11 +67,12 @@ public static class FlowEndpoints
             FlowIconsStore icons,
             CancellationToken cancellationToken) =>
         {
-            // Пишется только flow/ базы из списка панели: пути к файлам панель собирает сама.
-            if (Configured(bases, request.Base) is not { } basePath)
+            // Пишется только flow/ оператора этой машины в базе из списка панели: пути к файлам панель собирает сама.
+            if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
 
-            var files = Files(basePath);
+            var root = layout.OperatorDir;
+            var files = Files(root);
             if (FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))) != request.Version)
                 return Results.Conflict(new FlowRejectedResponse("changed"));
 
@@ -83,7 +84,7 @@ public static class FlowEndpoints
                 return Results.BadRequest(new FlowRejectedResponse(rejection.Problem, rejection.Flow, rejection.Stage));
 
             // Флоу, по которому идёт задача, и его стадии не правятся: задача дошла бы по другим стадиям, чем начала.
-            if (Busy(basePath, files, request) is { } busy)
+            if (Busy(layout, files, request) is { } busy)
                 return Results.Conflict(busy);
 
             var writes = Plan(basePath, files, request);
@@ -93,12 +94,13 @@ public static class FlowEndpoints
             if (writes.Count == 0)
                 return Results.Ok(new FlowSavedResponse(request.Version));
 
-            if (await CommitAsync(basePath, writes, cancellationToken) is { } failure)
+            // Git зовётся из папки оператора: она внутри репозитория базы, и пути flow/… git берёт от неё.
+            if (await CommitAsync(root, writes, cancellationToken) is { } failure)
                 return Results.Json(
                     new FlowRejectedResponse(failure.Problem, Detail: failure.Detail),
                     statusCode: StatusCodes.Status502BadGateway);
 
-            return Results.Ok(new FlowSavedResponse(FlowFolder.Fingerprint(Files(basePath).Select(f => (f.Path, f.Bytes)))));
+            return Results.Ok(new FlowSavedResponse(FlowFolder.Fingerprint(Files(root).Select(f => (f.Path, f.Bytes)))));
         });
 
         // Флоу целиком читают в VS Code, в окне на каталоге базы: список флоу, а без него — первую стадию,
@@ -109,33 +111,35 @@ public static class FlowEndpoints
             IEditorWindows windows,
             CancellationToken cancellationToken) =>
         {
-            if (Configured(bases, request.Base) is not { } basePath || Files(basePath).FirstOrDefault() is not { } first)
+            if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout
+                || Files(layout.OperatorDir).FirstOrDefault() is not { } first)
                 return Results.NotFound();
 
-            var file = Path.GetFullPath(Path.Combine(basePath, first.Path));
+            var file = Path.GetFullPath(Path.Combine(layout.OperatorDir, first.Path));
             return await windows.OpenFileAsync(basePath, file, cancellationToken)
                 ? Results.NoContent()
                 : Results.StatusCode(StatusCodes.Status502BadGateway);
         });
     }
 
-    /// <summary>Файл флоу базы: путь от корня базы через «/» и байты как на диске.</summary>
+    /// <summary>Файл флоу: путь от папки оператора через «/» и байты как на диске.</summary>
     private sealed record FlowFileBytes(string Path, byte[] Bytes);
 
     /// <summary>Правка одного файла: Bytes — что записать (null — удалить), Before — что было (null — файла не было).</summary>
     private sealed record FileWrite(string Path, byte[]? Bytes, byte[]? Before);
 
     /// <summary>
-    /// flow/scenarios.md, если он есть, — всегда первым, — и файлы этапов. Этапы читаются и без flow/scenarios.md: они лежат
-    /// в базе, и первая запись флоу не должна ни занять их имена файлов, ни стереть их.
+    /// flow/scenarios.md, если он есть, — всегда первым, — и файлы этапов из папки оператора (BaseLayout.OperatorDir).
+    /// Этапы читаются и без flow/scenarios.md: они лежат в базе, и первая запись флоу не должна ни занять их имена
+    /// файлов, ни стереть их.
     /// </summary>
-    private static List<FlowFileBytes> Files(string basePath)
+    private static List<FlowFileBytes> Files(string root)
     {
-        var list = Path.Combine(basePath, FlowFolder.ListFile);
+        var list = Path.Combine(root, FlowFolder.ListFile);
         var files = new List<FlowFileBytes>();
         if (File.Exists(list))
             files.Add(new(FlowFolder.ListFile, File.ReadAllBytes(list)));
-        var stages = Path.Combine(basePath, FlowFolder.StagesFolder);
+        var stages = Path.Combine(root, FlowFolder.StagesFolder);
         if (Directory.Exists(stages))
             files.AddRange(Directory.EnumerateFiles(stages, "*.md")
                 .Select(f => new FlowFileBytes($"{FlowFolder.StagesFolder}/{Path.GetFileName(f)}", File.ReadAllBytes(f))));
@@ -148,14 +152,16 @@ public static class FlowEndpoints
 
         if (!Directory.Exists(basePath))
             return new BaseFlow(basePath, project, [], [], null, "База не найдена на диске", Empty);
+        if (BaseLayout.Read(basePath, out var problem) is not { } layout)
+            return new BaseFlow(basePath, project, [], [], null, problem, Empty);
 
         try
         {
-            var files = Files(basePath);
+            var files = Files(layout.OperatorDir);
             var stages = Stages(files);
             var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
             var flows = list is null ? [] : FlowFolder.ParseList(Text(list.Bytes), Titles(stages)).Flows;
-            var tasks = Tasks(basePath, flows);
+            var tasks = Tasks(layout, flows);
             return new BaseFlow(
                 basePath,
                 project,
@@ -177,12 +183,12 @@ public static class FlowEndpoints
     /// Тронутое занятое: флоу, по которому идёт задача, изменён или убран, или изменена либо удалена стоящая в нём
     /// стадия. Задача без узнанного флоу держит все флоу и стадии базы; новые стадия и флоу не заняты никем.
     /// </summary>
-    private static FlowRejectedResponse? Busy(string basePath, List<FlowFileBytes> files, SaveFlowRequest request)
+    private static FlowRejectedResponse? Busy(BaseLayout layout, List<FlowFileBytes> files, SaveFlowRequest request)
     {
         var stages = Stages(files);
         var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
         var flows = list is null ? [] : FlowFolder.ParseList(Text(list.Bytes), Titles(stages)).Flows;
-        var tasks = Tasks(basePath, flows);
+        var tasks = Tasks(layout, flows);
         if (tasks.Count == 0)
             return null;
 
@@ -221,11 +227,15 @@ public static class FlowEndpoints
         && after.Count > before.Count
         && after.Any(f => !string.IsNullOrWhiteSpace(f.When) && f.Equals(flow with { When = f.When }));
 
-    /// <summary>Задачи в работе по памятям work/*.md и флоу каждой: имя флоу сравнивается, как их сравнивает кит.</summary>
-    internal static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
+    /// <summary>
+    /// Задачи в работе по памяти всех машин оператора и флоу каждой: флоу у оператора один на все его машины, и сценарий
+    /// не должен меняться под задачей, которая идёт на другой, — решение оператора на B-275. Имя флоу сравнивается,
+    /// как их сравнивает кит.
+    /// </summary>
+    internal static List<FlowTask> Tasks(BaseLayout layout, IReadOnlyList<NamedFlow> flows)
     {
-        var letters = Backlog.ReadLetters(basePath);
-        return WorkspaceCollector.MemoryFiles(basePath).Values
+        var letters = Backlog.ReadLetters(layout);
+        return WorkspaceCollector.AllMemories(layout)
             .Select(entry => new FlowTask(
                 TaskLabel(entry.Memory.Task, entry.File, letters),
                 entry.Memory.Flow is { } named

@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using AgentsKitWeb.Api.Bases;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -187,12 +188,12 @@ public static partial class Backlog
             .FirstOrDefault()?.Key;
     }
 
-    /// <summary>Буквы номеров проекта из backlog.md базы; файла нет или он не прочитан — null.</summary>
-    public static string? ReadLetters(string basePath)
+    /// <summary>Буквы номеров проекта из backlog.md личного репозитория; файла нет или он не прочитан — null.</summary>
+    public static string? ReadLetters(BaseLayout layout)
     {
         try
         {
-            return Letters(File.ReadAllText(Path.Combine(basePath, "backlog.md")));
+            return Letters(File.ReadAllText(layout.BacklogFile));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

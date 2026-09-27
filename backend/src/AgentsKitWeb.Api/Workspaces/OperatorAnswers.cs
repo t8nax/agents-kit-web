@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
-/// <summary>Files — файлы, которые оператор приложил к ответу: панель кладёт их в artifacts/ базы, а адреса — в ответ.</summary>
+/// <summary>Files — файлы, которые оператор приложил к ответу: панель кладёт их в artifacts/ личного репозитория, а адреса — в ответ.</summary>
 public sealed record OperatorAnswer(string Question, string Answer, IReadOnlyList<AttachedFile>? Files = null);
 
 public enum AnswerProblem

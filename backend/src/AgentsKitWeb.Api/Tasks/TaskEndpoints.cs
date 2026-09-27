@@ -48,11 +48,12 @@ public static class TaskEndpoints
             if (number is null)
                 return Results.BadRequest();
 
-            // Имя флоу уходит в просьбу сессии: берётся то, что стоит в файле базы, а не присланное.
+            // Имя флоу уходит в просьбу сессии: берётся то, что стоит во флоу оператора этой машины — его папке
+            // в базе, — а не присланное.
             string? flow = null;
             if (!string.IsNullOrWhiteSpace(request.Flow))
             {
-                flow = FlowFolder.ReadFlows(basePath)
+                flow = (BaseLayout.Read(basePath) is { } layout ? FlowFolder.ReadFlows(layout.OperatorDir) : [])
                     .FirstOrDefault(f => FlowFolder.Key(f.Name) == FlowFolder.Key(request.Flow))?.Name;
                 if (flow is null)
                     return Results.BadRequest(new TaskStartProblem("flow-unknown"));
@@ -161,14 +162,16 @@ public static class TaskEndpoints
     }
 
     /// <summary>
-    /// Записи бэклога базы с буквами её проекта: номер — заголовок. Запись чужими буквами кит считает ошибкой
+    /// Записи бэклога оператора с буквами проекта базы: номер — заголовок. Запись чужими буквами кит считает ошибкой
     /// и перенумерует, поэтому задачей её панель не запускает. Бэклога нет или он не прочитан — записей нет.
     /// </summary>
     private static Dictionary<string, string> Entries(string basePath)
     {
         try
         {
-            var text = File.ReadAllText(Path.Combine(basePath, "backlog.md"));
+            if (BaseLayout.Read(basePath) is not { } layout)
+                return [];
+            var text = File.ReadAllText(layout.BacklogFile);
             var letters = Backlog.Letters(text);
             return Backlog.Parse(text)
                 .Where(e => e.Number is not null && BacklogNumber.Letters(e.Number) == letters)

@@ -221,7 +221,7 @@ function BasesSettings() {
                 <li key={base.path}>
                   <span className="bases-path mono">{base.path}</span>
                   <span className="bases-meta">
-                    {base.copies === null ? 'нет agents-kit.json' : `${base.copies} коп.`}
+                    {base.copies === null ? 'не читается' : `${base.copies} коп.`}
                   </span>
                   <button
                     type="button"

@@ -26,9 +26,7 @@ public sealed class AgentRequestsTests : IDisposable
 
     public AgentRequestsTests()
     {
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(_base);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт");
     }
 

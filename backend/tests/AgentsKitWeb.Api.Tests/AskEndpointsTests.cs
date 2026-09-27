@@ -24,9 +24,7 @@ public sealed class AskEndpointsTests : IDisposable
 
     public AskEndpointsTests()
     {
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(_base);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
     }
 
@@ -100,9 +98,31 @@ public sealed class AskEndpointsTests : IDisposable
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains("flow/scenarios.md", prompt);
         Assert.Contains("flow/stages/*.md", prompt);
+        // Раскладка кита формата 4: своё у оператора — его папка и личный репозиторий (B-275).
+        Assert.Contains("team.md", prompt);
+        Assert.Contains($"папка people/{TestLayout.Operator}/: autonomy.md", prompt);
+        Assert.Contains("личный репозиторий local/me/: backlog.md", prompt);
+        Assert.DoesNotContain("boundaries.md", prompt);
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);
         Assert.Equal("user", JsonDocument.Parse(sent).RootElement.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    // Оператор этой машины не назван — папку агенту называют словами, а не выдуманным именем (B-275, ревью).
+    public async Task Ask_OperatorNotNamed_FolderIsNamedInWords()
+    {
+        TestLayout.Machine(_base, null);
+        _agent.Answers = [[Result("ok")]];
+
+        var client = Client(_base);
+        await Ask(client, _base, "где флоу?");
+        await Read(client, 2);
+
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains("(его имя — поле operator в local/me.json) — папка people/<имя>/: autonomy.md", prompt);
+        Assert.DoesNotContain("не назван", prompt);
     }
 
     [Fact]
@@ -608,13 +628,11 @@ public sealed class AskEndpointsTests : IDisposable
         }
     }
 
-    /// <summary>Копии проекта на диске; первая в agents-kit.json — основная.</summary>
+    /// <summary>Копии проекта на диске; первая в списке копий машины — основная.</summary>
     private string[] WithCopies(params string[] names)
     {
         var copies = names.Select(name => TestGit.Repository(Path.Combine(_root, name))).ToArray();
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = copies }));
+        TestLayout.Machine(_base, TestLayout.Operator, copies);
         return copies;
     }
 

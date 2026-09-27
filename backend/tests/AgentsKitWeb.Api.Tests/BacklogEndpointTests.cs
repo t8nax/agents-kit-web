@@ -71,7 +71,7 @@ public sealed class BacklogEndpointTests : IDisposable
         var client = factory.CreateClient();
 
         var before = await Get(client);
-        File.WriteAllText(Path.Combine(basePath, "backlog.md"), "## B-1 Первая\n\nТекст.\n\n## B-2 Вторая\n\nДописана соседней сессией.\n");
+        File.WriteAllText(TestLayout.Backlog(basePath), "## B-1 Первая\n\nТекст.\n\n## B-2 Вторая\n\nДописана соседней сессией.\n");
         var after = await Get(client);
 
         Assert.Equal(["B-1"], Assert.Single(before).Entries.Select(e => e.Number));
@@ -92,13 +92,14 @@ public sealed class BacklogEndpointTests : IDisposable
     [Fact]
     public async Task Backlog_MissingFileAndMissingBaseAreReportedSeparately()
     {
-        var withoutFile = Path.Combine(_root, "no-file-knowledge");
-        Directory.CreateDirectory(withoutFile);
+        var withoutFile = TestLayout.Base(Path.Combine(_root, "no-file-knowledge"));
+        // Бэклог на прежнем месте кита — в корне базы — не бэклог оператора.
+        File.WriteAllText(Path.Combine(withoutFile, "backlog.md"), "## B-1 Прежнее место\n");
         var missingBase = Path.Combine(_root, "gone-knowledge");
 
         var backlogs = await GetBacklogs(withoutFile, missingBase);
 
-        Assert.Equal("В базе нет backlog.md", Assert.Single(backlogs, b => b.Base == withoutFile).Error);
+        Assert.Equal("В личном репозитории нет backlog.md", Assert.Single(backlogs, b => b.Base == withoutFile).Error);
         Assert.Equal("База не найдена на диске", Assert.Single(backlogs, b => b.Base == missingBase).Error);
     }
 
@@ -179,7 +180,7 @@ public sealed class BacklogEndpointTests : IDisposable
     public async Task OpenArtifact_OpensBaseFileInBaseWindow()
     {
         var basePath = CreateBase("app-knowledge", WithArtifacts);
-        var shot = Path.Combine(basePath, "artifacts", "B-5-снимок.png");
+        var shot = Path.Combine(TestLayout.Personal(basePath), "artifacts", "B-5-снимок.png");
         Directory.CreateDirectory(Path.GetDirectoryName(shot)!);
         File.WriteAllBytes(shot, [1, 2, 3]);
 
@@ -265,9 +266,8 @@ public sealed class BacklogEndpointTests : IDisposable
 
     private string CreateBase(string name, string backlog)
     {
-        var basePath = Path.Combine(_root, name);
-        Directory.CreateDirectory(basePath);
-        File.WriteAllText(Path.Combine(basePath, "backlog.md"), backlog.ReplaceLineEndings("\n"));
+        var basePath = TestLayout.Base(Path.Combine(_root, name));
+        File.WriteAllText(TestLayout.Backlog(basePath), backlog.ReplaceLineEndings("\n"));
         return basePath;
     }
 

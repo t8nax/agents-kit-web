@@ -10,7 +10,7 @@ namespace AgentsKitWeb.Api.Ask;
 
 /// <summary>
 /// Number — запись, от которой открыт разговор кнопкой «Изменить»; null — разговор из шапки раздела. Files — файлы,
-/// которые оператор приложил к реплике: панель кладёт их копиями в artifacts/ базы.
+/// которые оператор приложил к реплике: панель кладёт их копиями в artifacts/ личного репозитория.
 /// </summary>
 public sealed record BacklogWriteRequest(
     string? Base, string? Text, string? Number = null, IReadOnlyList<AttachedFile>? Files = null);
@@ -185,7 +185,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         List<string> attached;
         lock (_gate)
             attached = [.. _attached];
-        var saved = await WriteAsync(pending.Request.Base, pending.Proposal, attached);
+        var saved = await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
         lock (_gate)
         {
             pending.Saving = false;
@@ -197,15 +197,16 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         return saved;
     }
 
+    /// <summary>Бэклог и его артефакты лежат в личном репозитории оператора: basePath здесь — его корень.</summary>
     private static async Task<BacklogSaved> WriteAsync(string basePath, BacklogProposal proposal, IReadOnlyList<string> attached)
     {
         var file = Path.Combine(basePath, BacklogWriteEndpoints.BacklogFile);
         switch (await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None))
         {
             case null:
-                return new BacklogSaved(null, "git не прочитал базу — ничего не записано");
+                return new BacklogSaved(null, "git не прочитал личный репозиторий — ничего не записано");
             case true:
-                return new BacklogSaved(null, "В backlog.md базы есть незакоммиченная правка — ничего не записано");
+                return new BacklogSaved(null, "В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано");
         }
 
         byte[] before;
@@ -377,7 +378,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                 string? about;
                 lock (_gate)
                     about = _about;
-                var (saved, problem) = await AttachAsync(request.Base, files, number ?? about);
+                var (saved, problem) = await AttachAsync(BaseLayout.PersonalOf(request.Base), files, number ?? about);
                 if (saved is null)
                 {
                     Reply();
@@ -386,24 +387,24 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                 }
                 attached = saved;
                 // Навык кладёт приложенный файл копией в artifacts/ сам; здесь копия уже лежит, и навыку остаётся строка.
-                message += $"\n\nОператор приложил файлы — их копии уже лежат в базе и добавлены в индекс git: {string.Join(", ", attached)}."
+                message += $"\n\nОператор приложил файлы — их копии уже лежат в личном репозитории рядом с бэклогом и добавлены в индекс git: {string.Join(", ", attached)}."
                     + " Впиши каждый строкой в «### Артефакты» записи, к которой он относится, и коммить командой с artifacts.";
             }
             // Приложенное к реплике ложится в индекс только на ход агента: коммит с artifacts его берёт, а между
             // ходами индекс базы чист — брошенный разговор его не оставит в нём.
-            if (await StageAsync(request.Base, attached) is { } unstaged)
+            if (await StageAsync(BaseLayout.PersonalOf(request.Base), attached) is { } unstaged)
             {
                 // Реплика ушла без файлов: положенные копии без ссылки в базе не остаются, окно предложит приложить снова.
                 lock (_gate)
                     _attached.RemoveAll(attached.Contains);
-                ArtifactFiles.Delete(request.Base, attached);
+                ArtifactFiles.Delete(BaseLayout.PersonalOf(request.Base), attached);
                 Reply();
                 request.Write(new BacklogWriteEvent("error", unstaged));
                 return;
             }
             Reply(attached.Count > 0 ? attached : null);
 
-            Deliver(request, turn, message, Backlog.Blocks(ReadText(request.Base)!), retried);
+            Deliver(request, turn, message, Backlog.Blocks(ReadText(BaseLayout.PersonalOf(request.Base))!), retried);
         }
         finally
         {
@@ -450,16 +451,19 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
 
     private async Task<BacklogWriteEvent?> RefusalAsync(string basePath, bool withFiles)
     {
-        if (WorkspaceCollector.ReadCopies(basePath) is not { } copies || WorkspaceCollector.NewCopySource(copies) is null)
+        if (BaseLayout.Read(basePath, out var unreadable) is not { } layout)
+            return new BacklogWriteEvent("error", unreadable);
+        if (WorkspaceCollector.NewCopySource(layout.Workspaces) is null)
             return new BacklogWriteEvent("error", "Нет основной копии проекта на диске: агенту негде запустить навык записи");
-        if (ReadText(basePath) is null)
-            return new BacklogWriteEvent("error", "В базе нет backlog.md или он не прочитан");
-        switch (await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None))
+        var personal = layout.Personal;
+        if (ReadText(personal) is null)
+            return new BacklogWriteEvent("error", "В личном репозитории нет backlog.md или он не прочитан");
+        switch (await BaseGit.IsDirtyAsync(personal, BacklogWriteEndpoints.BacklogFile, CancellationToken.None))
         {
             case null:
-                return new BacklogWriteEvent("error", "git не прочитал базу — просьба не отправлена");
+                return new BacklogWriteEvent("error", "git не прочитал личный репозиторий — просьба не отправлена");
             case true:
-                return new BacklogWriteEvent("error", "В backlog.md базы есть незакоммиченная правка — просьба не отправлена");
+                return new BacklogWriteEvent("error", "В backlog.md личного репозитория есть незакоммиченная правка — просьба не отправлена");
         }
 
         // Коммит агента с artifacts, которым уходят приложенные файлы, берёт всё незакоммиченное в каталоге: чужая
@@ -467,18 +471,18 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         // реплика без файлов коммитится только backlog.md, и её это не касается.
         if (!withFiles)
             return null;
-        var changes = await BaseGit.ChangesAsync(basePath, ArtifactFiles.Folder, CancellationToken.None);
+        var changes = await BaseGit.ChangesAsync(personal, ArtifactFiles.Folder, CancellationToken.None);
         if (changes is null)
-            return new BacklogWriteEvent("error", "git не прочитал базу — просьба не отправлена");
+            return new BacklogWriteEvent("error", "git не прочитал личный репозиторий — просьба не отправлена");
         lock (_gate)
             if (changes.FirstOrDefault(path => !_attached.Contains(path, StringComparer.OrdinalIgnoreCase)) is { } foreign)
                 return new BacklogWriteEvent(
-                    "error", $"В artifacts/ базы есть незакоммиченная правка {foreign} — приложить файл нельзя, пока её не закоммитят");
+                    "error", $"В artifacts/ личного репозитория есть незакоммиченная правка {foreign} — приложить файл нельзя, пока её не закоммитят");
         return null;
     }
 
     /// <summary>
-    /// Приложенные файлы — копиями в artifacts/ базы; в индекс их кладёт ход агента (StageAsync). Не легли — ни одного
+    /// Приложенные файлы — копиями в artifacts/ личного репозитория (basePath — его корень); в индекс их кладёт ход агента (StageAsync). Не легли — ни одного
     /// не остаётся, и слова, почему, идут в переписку.
     /// </summary>
     private async Task<(IReadOnlyList<string>? Saved, string? Problem)> AttachAsync(
@@ -492,7 +496,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return (null, $"Файл не положен в базу: {e.Message}");
+            return (null, $"Файл не положен в личный репозиторий: {e.Message}");
         }
         if (rejected is not null)
             return (null, ArtifactFiles.Refusal(rejected));
@@ -539,7 +543,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return null;
         var staged = await BaseGit.ChangesAsync(basePath, ArtifactFiles.Folder, CancellationToken.None);
         if (staged is null)
-            return "git не прочитал базу — приложенные файлы не проверены";
+            return "git не прочитал личный репозиторий — приложенные файлы не проверены";
 
         string? problem = null;
         var text = ReadText(basePath) ?? "";
@@ -578,7 +582,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         List<string> attached;
         lock (_gate)
         {
-            basePath = _turn?.Request?.Base;
+            basePath = _turn?.Request?.Base is { } requested ? BaseLayout.PersonalOf(requested) : null;
             attached = [.. _attached];
             _attached.Clear();
         }
@@ -625,7 +629,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                         if (e.Type == "step")
                             writing.Write(new BacklogWriteEvent("step", e.Text));
                         else
-                            writing.Write(await OutcomeAsync(basePath, turn, writing, e));
+                            writing.Write(await OutcomeAsync(BaseLayout.PersonalOf(basePath), turn, writing, e));
                     }
                     if (stream.Finished)
                     {
@@ -652,12 +656,12 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             if (handedOver)
                 return;
             if (!writing.Finished)
-                writing.Write(await OutcomeAsync(basePath, turn, writing, null, Failure(exit, stream)));
+                writing.Write(await OutcomeAsync(BaseLayout.PersonalOf(basePath), turn, writing, null, Failure(exit, stream)));
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             End(turn, replies, writing);
-            writing.Write(await OutcomeAsync(basePath, turn, writing, null, turn.Stopped
+            writing.Write(await OutcomeAsync(BaseLayout.PersonalOf(basePath), turn, writing, null, turn.Stopped
                 ? new BacklogWriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
                 : new BacklogWriteEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен")));
         }
@@ -667,6 +671,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     /// Итог реплики по файлу, а не по словам агента: новые записи — номера, которых не было до реплики, и они
     /// должны быть закоммичены. Прежние записи агент трогать не должен — их правку он только предлагает.
     /// </summary>
+    // basePath здесь и ниже — корень личного репозитория, где лежит бэклог.
     private async Task<BacklogWriteEvent> OutcomeAsync(
         string basePath, Turn turn, AgentRequest writing, AskEvent? answer, BacklogWriteEvent? failure = null)
     {
@@ -720,12 +725,12 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var dirty = await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
         if (touched.Count > 0)
         {
-            // Оператору надо знать, где искать правку, сделанную без его «Сохранить»: в истории базы или в файле.
+            // Оператору надо знать, где искать правку, сделанную без его «Сохранить»: в истории личного репозитория или в файле.
             var where = dirty switch
             {
                 true => "правка не закоммичена — backlog.md остался изменённым",
                 false when await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None) is { } sha =>
-                    $"правка уже в истории базы, коммит {sha}",
+                    $"правка уже в истории личного репозитория, коммит {sha}",
                 _ => "закоммичена ли правка, git не сказал",
             };
             return new BacklogWriteEvent(
@@ -733,7 +738,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         }
 
         if (dirty is null)
-            return new BacklogWriteEvent("error", "git не прочитал базу — итог ответа не проверен", entries, Output: output);
+            return new BacklogWriteEvent("error", "git не прочитал личный репозиторий — итог ответа не проверен", entries, Output: output);
         if (dirty == true)
             return new BacklogWriteEvent("error", "Бэклог изменён, но backlog.md не закоммичен", entries, Output: output);
 
@@ -915,22 +920,25 @@ public static class BacklogWriteEndpoints
     }
 
     /// <summary>
-    /// Агент видит код копии и базу, но меняет только backlog.md базы и коммитит только его: остальные
-    /// инструменты отключены, а режим dontAsk отказывает всему, что не разрешено правилом. Реплики оператора
-    /// уходят в stdin — не в аргументы.
+    /// Агент видит код копии и базу, но меняет только backlog.md личного репозитория оператора и коммитит только его
+    /// туда же: остальные инструменты отключены, а режим dontAsk отказывает всему, что не разрешено правилом. Реплики
+    /// оператора уходят в stdin — не в аргументы.
     /// </summary>
     public static ProcessStartInfo StartInfo(string basePath, string copyPath)
     {
-        var backlog = Path.Combine(basePath, BacklogFile);
+        var personal = BaseLayout.PersonalOf(basePath);
+        var backlog = Path.Combine(personal, BacklogFile);
         // Команда коммита — одна строка и для правила, и для промпта: правило PowerShell со звёздочкой
         // не совпадает с командой git ни в каком виде, совпадает только записанная целиком. Поэтому
-        // сообщение коммита пишет панель, а не агент: его текст — часть разрешённой команды.
-        var commit = $"git -C \"{basePath}\" commit -m \"{CommitMessage}\" -- {BacklogFile}";
+        // сообщение коммита пишет панель, а не агент: его текст — часть разрешённой команды. Коммит — в git
+        // личного репозитория: у него свой git, а local\ общая база не видит.
+        var commit = $"git -C \"{personal}\" commit -m \"{CommitMessage}\" -- {BacklogFile}";
         // Приложенные файлы панель уже положила в artifacts/ и в индекс; их имена меняются от реплики к реплике,
         // а правило пускает только команду целиком — поэтому вторая команда берёт каталог.
         var withFiles = $"{commit} {ArtifactFiles.Folder}";
         var systemPrompt = $"""
-            Ты ведёшь с оператором разговор о бэклоге базы знаний в веб-панели: он просит и уточняет в том же разговоре.
+            Ты ведёшь с оператором разговор о его бэклоге в веб-панели: он просит и уточняет в том же разговоре.
+            Бэклог лежит в личном репозитории оператора внутри базы знаний, у этого репозитория свой git.
             Менять можно только файл {backlog}. Коммит — ровно одной командой PowerShell, слово в слово: {commit}
             Если к реплике приложены файлы и ты вписал их в «### Артефакты» — коммит ровно этой командой: {withFiles}
             Сообщение коммита не менять: разрешены ровно эти команды. Другие команды запрещены и не нужны.
