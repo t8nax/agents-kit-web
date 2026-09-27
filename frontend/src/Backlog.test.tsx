@@ -1056,6 +1056,9 @@ test('«Взять задачу» у задачи трекера запуска�
     { base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\noble-keen-walrus', number: 'GitHub #52', flow: 'полный' },
   ])
   expect(start).toHaveFocus()
+  // Бэклог после запуска перечитывается, а трекер — только при открытии раздела и по «Обновить»
+  await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
+  expect(fetchMock.trackerReads()).toBe(1)
 })
 
 test('у задачи трекера «Взять задачу» погашена, когда свободной копии нет', async () => {

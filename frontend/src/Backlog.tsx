@@ -124,7 +124,9 @@ export default function Backlog({
     }
   }, [])
 
-  const loadBacklogs = useCallback(() => {
+  // Задачи трекера перечитываются только при открытии раздела и по «Обновить» — критерий B-277: запись Чудо-Юдо
+  // и запуск задачи перечитывают бэклог, но gh заново не зовут
+  const loadBacklogs = useCallback((readTrackers = false) => {
     fetch('/api/backlog')
       .then((response) => {
         if (!response.ok) throw new Error(`Бэклог не загрузился: HTTP ${response.status}`)
@@ -133,7 +135,7 @@ export default function Backlog({
       .then(
         (backlogs) => {
           setLoad({ kind: 'loaded', backlogs })
-          loadTrackers(backlogs)
+          if (readTrackers) loadTrackers(backlogs)
           forgetGoneStartWords(backlogs)
           // База могла уйти из списка, пока раздел был открыт: показываем тогда все проекты.
           setFilter((current) => (backlogs.some((b) => b.base === current) ? current : null))
@@ -157,7 +159,7 @@ export default function Backlog({
   }, [])
 
   // Бэклог и копии читаются при открытии раздела и кнопкой «Обновить», без опроса по таймеру.
-  useEffect(loadBacklogs, [loadBacklogs])
+  useEffect(() => loadBacklogs(true), [loadBacklogs])
   useEffect(loadCopies, [loadCopies])
 
   const refresh = useCallback(() => {
@@ -166,7 +168,7 @@ export default function Backlog({
     trackerRound.current++
     setTrackers({})
     setFresh(new Set())
-    loadBacklogs()
+    loadBacklogs(true)
     loadCopies()
   }, [loadBacklogs, loadCopies])
 
