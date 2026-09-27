@@ -3014,6 +3014,12 @@ function ReturnsField({
   // на вернувшуюся кнопку: крестик пропадает, и фокус не должен уйти из окна.
   const [opened, setOpened] = useState<number | null>(null)
   const [closed, setClosed] = useState<number | null>(null)
+  // Строки возвратов идут по месту: добавленный или убранный возврат сдвигает места, и прежняя метка фокуса
+  // досталась бы чужой строке.
+  const forget = () => {
+    setOpened(null)
+    setClosed(null)
+  }
 
   // Вернуться не к чему — раньше в сценарии нет стадий базы: пустого блока «Возвраты» нет — замечание оператора на приёмке B-192.
   // Возврат из файла всё же покажется: его надо видеть, чтобы убрать.
@@ -3040,7 +3046,10 @@ function ReturnsField({
                 className="btn btn-icon"
                 aria-label={`Убрать возврат ${index + 1}`}
                 title={`Убрать возврат ${index + 1}`}
-                onClick={() => onChange(returns.filter((_, i) => i !== index))}
+                onClick={() => {
+                  forget()
+                  onChange(returns.filter((_, i) => i !== index))
+                }}
               >
                 <CloseIcon />
               </button>
@@ -3073,6 +3082,7 @@ function ReturnsField({
                   aria-label={`Предел кругов возврата ${index + 1}`}
                   autoFocus={closed === index}
                   onClick={() => {
+                    setClosed(null)
                     setOpened(index)
                     set(index, { rounds: '' })
                   }}
@@ -3102,6 +3112,7 @@ function ReturnsField({
                   aria-label={`Убрать предел кругов возврата ${index + 1}`}
                   title="Убрать предел кругов"
                   onClick={() => {
+                    setOpened(null)
                     setClosed(index)
                     set(index, { rounds: null })
                   }}
@@ -3117,7 +3128,10 @@ function ReturnsField({
         <button
           type="button"
           className="flow-add-dashed"
-          onClick={() => onChange([...returns, { condition: '', target: null, rounds: null }])}
+          onClick={() => {
+            forget()
+            onChange([...returns, { condition: '', target: null, rounds: null }])
+          }}
         >
           <PlusIcon />
           Добавить возврат

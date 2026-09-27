@@ -549,6 +549,11 @@ test('предел кругов задают кнопкой, правят чис
   fireEvent.click(again.getByRole('button', { name: 'Добавить возврат' }))
   fireEvent.click(again.getByRole('button', { name: 'Предел кругов возврата 2' }))
   expect(again.getByText('Возвраты не сохранить: предел кругов — целое число от 1, в возврате не указано условие, возврат ведёт на этап, которого во флоу нет.')).toBeInTheDocument()
+  // Метка фокуса не переходит к новому возврату на том же месте: его кнопка предела фокус не забирает
+  fireEvent.click(again.getByRole('button', { name: 'Убрать предел кругов возврата 2' }))
+  fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 2' }))
+  fireEvent.click(again.getByRole('button', { name: 'Добавить возврат' }))
+  expect(again.getByRole('button', { name: 'Предел кругов возврата 2' })).not.toHaveFocus()
   fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 2' }))
   // Убранный возврат уносит и свой предел, даже неверный: сохранить можно
   fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 1' }))
