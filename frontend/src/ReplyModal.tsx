@@ -94,7 +94,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   // Данные ответы — по вопросу; пустая строка — ответа нет.
   const [answers, setAnswers] = useState<string[]>([])
-  // Файлы, приложенные к ответу, — по вопросу. В базу — в artifacts/ — они ложатся только отправкой, а до неё живут
+  // Файлы, приложенные к ответу, — по вопросу. В личный репозиторий — в artifacts/ — они ложатся только отправкой, а до неё живут
   // черновиком браузера, как набранный текст (attachmentDrafts.ts, замечание на приёмке B-260). Последний список
   // держит ещё и ref: приложение идёт после чтения файла, и черновик должен взять то, что в окне сейчас.
   const [files, setFiles] = useState<Attachment[][]>([])

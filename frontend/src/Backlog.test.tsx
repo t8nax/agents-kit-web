@@ -365,13 +365,13 @@ test('фильтр сбрасывается, когда его базы боль
 test('пустой бэклог и непрочитанный названы словами', async () => {
   stubFetch([
     { base: 'D:\\Projects\\app-knowledge', project: 'Agents Kit Web', entries: [], error: null },
-    { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: 'В базе нет backlog.md' },
+    { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: 'В личном репозитории нет backlog.md' },
   ])
 
   render(<Backlog />)
 
   expect(await screen.findByText('В бэклоге этого проекта записей нет.')).toBeInTheDocument()
-  expect(screen.getByText('В базе нет backlog.md')).toBeInTheDocument()
+  expect(screen.getByText('В личном репозитории нет backlog.md')).toBeInTheDocument()
 })
 
 test('без отслеживаемых баз зовёт в окно «Базы знаний»', async () => {
@@ -795,13 +795,13 @@ test('недоступное хранилище не мешает выбират
 })
 
 test('проект, чей бэклог не читается, при отборе остаётся со строкой ошибки', async () => {
-  stubFetch([...fielded, { ...backlogs[1], entries: [], error: 'В базе нет backlog.md' }])
+  stubFetch([...fielded, { ...backlogs[1], entries: [], error: 'В личном репозитории нет backlog.md' }])
 
   render(<Backlog />)
   await screen.findByRole('heading', { name: 'Nota' })
 
   fireEvent.click(screen.getByRole('button', { name: 'баг' }))
-  expect(within(screen.getByRole('region', { name: 'Nota' })).getByText('В базе нет backlog.md')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Nota' })).getByText('В личном репозитории нет backlog.md')).toBeInTheDocument()
   expect(screen.queryByText('Под фильтр записей нет')).not.toBeInTheDocument()
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'нет такого' } })
