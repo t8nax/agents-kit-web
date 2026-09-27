@@ -105,7 +105,11 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         // И базу: её путь стоит в системном промпте, а флоу приходит текстом в stdin.
-        Assert.Contains(_base, args[args.IndexOf("--append-system-prompt") + 1]);
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains(_base, prompt);
+        // Исполнители и флоу — в папке оператора этой машины (B-275).
+        Assert.Contains($"в каталоге {TestLayout.Agents(_base)},", prompt);
+        Assert.Contains($"оператора {TestLayout.OperatorDir(_base)} — его флоу", prompt);
         Assert.Contains("--help, ревьюер ветки", _agent.Input);
         // Флоу уходит агенту файлами нынешнего вида кита: список сценариев и каждый этап.
         Assert.Contains("flow/scenarios.md:\n# App — сценарии", _agent.Input);
