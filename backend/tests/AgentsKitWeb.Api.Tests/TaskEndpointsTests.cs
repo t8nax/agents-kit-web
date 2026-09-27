@@ -43,12 +43,10 @@ public sealed class TaskEndpointsTests : IDisposable
     public TaskEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         _sessionsDir = Path.Combine(_root, "sessions");
         Directory.CreateDirectory(_sessionsDir);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), JsonSerializer.Serialize(new { workspaces = new[] { _copy } }));
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), Backlog.ReplaceLineEndings("\n") + "\n");
+        File.WriteAllText(TestLayout.Backlog(_base), Backlog.ReplaceLineEndings("\n") + "\n");
     }
 
     [Fact]
@@ -70,8 +68,8 @@ public sealed class TaskEndpointsTests : IDisposable
         // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
         Assert.Equal(["--permission-mode", "auto", "--settings", """{"worktree":{"bgIsolation":"none"},"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", "--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
         // Панель не правит бэклог и не заводит память: и то и другое делает навык кита в этой сессии.
-        Assert.Contains("B-7", File.ReadAllText(Path.Combine(_base, "backlog.md")));
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
+        Assert.Contains("B-7", File.ReadAllText(TestLayout.Backlog(_base)));
+        Assert.Empty(Directory.EnumerateFiles(TestLayout.Work(_base)));
     }
 
     /// <summary>Переход в сессию копии ведёт по этой отметке: иначе «ту самую» сессию не узнать.</summary>
@@ -213,7 +211,7 @@ public sealed class TaskEndpointsTests : IDisposable
     [Fact]
     public async Task Start_RejectsCopyThatAlreadyHasTaskMemory()
     {
-        File.WriteAllText(Path.Combine(_base, "work", "app.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
             # B-5 Прошлая задача
             рабочая копия: {_copy}
             ветка: dev
@@ -315,7 +313,7 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal("B-7 Панель показывает задачу сразу", row.Task);
         Assert.Null(row.FlowStep);
         Assert.Null(row.Progress);
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
+        Assert.Empty(Directory.EnumerateFiles(TestLayout.Work(_base)));
     }
 
     /// <summary>Появилась память — строка живёт по ней, и отметка панели о запуске больше ничего не значит.</summary>
@@ -556,11 +554,11 @@ public sealed class TaskEndpointsTests : IDisposable
         return Assert.Single(rows!, row => row.Path == _copy);
     }
 
-    private void WriteBacklog(string text) => File.WriteAllText(Path.Combine(_base, "backlog.md"), text);
+    private void WriteBacklog(string text) => File.WriteAllText(TestLayout.Backlog(_base), text);
 
     /// <summary>Память задачи, какой её завёл агент: копия занята, и строка идёт уже из неё.</summary>
     private void WriteMemory(string task) =>
-        File.WriteAllText(Path.Combine(_base, "work", "app.md"), string.Join('\n', [
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), string.Join('\n', [
             "# " + task,
             "рабочая копия: " + _copy,
             "ветка: feat/row",

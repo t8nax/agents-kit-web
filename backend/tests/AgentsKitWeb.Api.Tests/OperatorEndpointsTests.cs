@@ -65,16 +65,13 @@ public sealed class OperatorEndpointsTests : IDisposable
     public OperatorEndpointsTests()
     {
         _copy = Path.Combine(_root, "app");
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{\"workspaces\":[]}");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
-        _memoryPath = Path.Combine(_base, "work", "app.md");
+        _memoryPath = Path.Combine(TestLayout.Work(_base), "app.md");
         File.WriteAllText(_memoryPath, $"# Окно ответа\nрабочая копия: {_copy}\nветка: feat/x\n\n{Sections}\n\n## Агенту\n\n### Флоу\n- [ ] 1. Критерий\n");
 
-        var outsider = Path.Combine(_root, "other-knowledge");
-        Directory.CreateDirectory(Path.Combine(outsider, "work"));
-        File.WriteAllText(Path.Combine(outsider, "work", "app.md"), File.ReadAllText(_memoryPath));
+        var outsider = TestLayout.Base(Path.Combine(_root, "other-knowledge"));
+        File.WriteAllText(Path.Combine(TestLayout.Work(outsider), "app.md"), File.ReadAllText(_memoryPath));
 
         _sessionsDir = Path.Combine(_root, "sessions");
         Directory.CreateDirectory(_sessionsDir);
@@ -188,7 +185,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     [InlineData("ORD-3 Чужие буквы", "artifacts/снимок.png")]
     public async Task Answers_AttachedFileTakesTaskNumberOnlyInLettersOfBase(string task, string address)
     {
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-9\n");
+        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-9\n");
         File.WriteAllText(_memoryPath, File.ReadAllText(_memoryPath).Replace("# Окно ответа", $"# {task}"));
 
         var response = await PostAnswers(_base, _copy,
@@ -240,7 +237,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     [Fact]
     public async Task Answers_BaseNotInConfiguration_IsNotFoundAndWritesNothing()
     {
-        var outsiderMemory = Path.Combine(_root, "other-knowledge", "work", "app.md");
+        var outsiderMemory = Path.Combine(TestLayout.Work(Path.Combine(_root, "other-knowledge")), "app.md");
         var before = await File.ReadAllTextAsync(outsiderMemory);
 
         var response = await PostAnswers(Path.Combine(_root, "other-knowledge"), _copy, ("Подтвердить критерий?", "да"));
@@ -548,9 +545,7 @@ public sealed class OperatorEndpointsTests : IDisposable
     private string FreeCopy()
     {
         var free = TestGit.Repository(Path.Combine(_root, "free"));
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { free } }));
+        TestLayout.Machine(_base, TestLayout.Operator, free);
         return free;
     }
 

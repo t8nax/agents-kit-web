@@ -37,8 +37,7 @@ public sealed class FoldersEndpointsTests : IDisposable
     {
         var parent = Directory.CreateDirectory(Path.Combine(_root, "projects")).FullName;
         Directory.CreateDirectory(Path.Combine(parent, "app"));
-        var knowledge = Directory.CreateDirectory(Path.Combine(parent, "zeta-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(knowledge, "agents-kit.json"), "{\"workspaces\":[\"D:\\\\a\",\"D:\\\\b\"]}");
+        var knowledge = TestLayout.Base(Path.Combine(parent, "zeta-knowledge"), @"D:\a", @"D:\b");
         var broken = Directory.CreateDirectory(Path.Combine(parent, "broken-knowledge")).FullName;
         File.WriteAllText(Path.Combine(broken, "agents-kit.json"), "not json");
         var hidden = Directory.CreateDirectory(Path.Combine(parent, ".hidden"));

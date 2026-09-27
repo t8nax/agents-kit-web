@@ -24,9 +24,7 @@ public sealed class AskEndpointsTests : IDisposable
 
     public AskEndpointsTests()
     {
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(_base);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
     }
 
@@ -608,13 +606,11 @@ public sealed class AskEndpointsTests : IDisposable
         }
     }
 
-    /// <summary>Копии проекта на диске; первая в agents-kit.json — основная.</summary>
+    /// <summary>Копии проекта на диске; первая в списке копий машины — основная.</summary>
     private string[] WithCopies(params string[] names)
     {
         var copies = names.Select(name => TestGit.Repository(Path.Combine(_root, name))).ToArray();
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = copies }));
+        TestLayout.Machine(_base, TestLayout.Operator, copies);
         return copies;
     }
 

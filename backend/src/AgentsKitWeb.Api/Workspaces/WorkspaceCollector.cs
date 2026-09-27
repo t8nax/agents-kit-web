@@ -1,5 +1,5 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
+using AgentsKitWeb.Api.Bases;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -70,12 +70,12 @@ public static class WorkspaceCollector
         if (!Directory.Exists(basePath))
             return [Unavailable(project, basePath, basePath, "База не найдена на диске")];
 
-        var copies = ReadCopies(basePath);
-        if (copies is null)
-            return [Unavailable(project, basePath, basePath, "Не прочитан agents-kit.json базы")];
+        if (BaseLayout.Read(basePath, out var problem) is not { } layout)
+            return [Unavailable(project, basePath, basePath, problem)];
 
-        var memories = ReadMemories(basePath);
-        var letters = Backlog.ReadLetters(basePath);
+        var copies = layout.Workspaces;
+        var memories = ReadMemories(layout);
+        var letters = Backlog.ReadLetters(layout);
         var source = NewCopySource(copies);
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var rows = new List<WorkspaceRow>();
@@ -154,40 +154,40 @@ public static class WorkspaceCollector
     private static WorkspaceRow Unavailable(string project, string basePath, string path, string error) =>
         new(project, basePath, path, null, null, null, null, null, error);
 
-    /// <summary>Копия, от которой заводятся новые: первая из agents-kit.json, что есть на диске.</summary>
+    /// <summary>Копия, от которой заводятся новые: первая из списка копий этой машины, что есть на диске.</summary>
     internal static string? NewCopySource(IEnumerable<string> copies) => copies.FirstOrDefault(Directory.Exists);
 
-    internal static List<string>? ReadCopies(string basePath)
-    {
-        try
-        {
-            using var stream = File.OpenRead(Path.Combine(basePath, "agents-kit.json"));
-            using var json = JsonDocument.Parse(stream);
-            return json.RootElement.GetProperty("workspaces")
-                .EnumerateArray()
-                .Select(e => e.GetString())
-                .OfType<string>()
-                .ToList();
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException
-                                      or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
+    /// <summary>Копии этой машины из local\me.json базы; null — база не читается (BaseLayout).</summary>
+    internal static IReadOnlyList<string>? ReadCopies(string basePath) => BaseLayout.Read(basePath)?.Workspaces;
 
-    private static Dictionary<string, WorkMemory> ReadMemories(string basePath) =>
-        MemoryFiles(basePath).ToDictionary(e => e.Key, e => e.Value.Memory, StringComparer.OrdinalIgnoreCase);
+    private static Dictionary<string, WorkMemory> ReadMemories(BaseLayout layout) =>
+        MemoryFiles(layout).ToDictionary(e => e.Key, e => e.Value.Memory, StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Памяти work/*.md базы по нормализованному пути копии.</summary>
-    internal static Dictionary<string, (string File, WorkMemory Memory)> MemoryFiles(string basePath)
+    /// <summary>
+    /// Памяти задач копий этой машины — work\&lt;машина&gt;\*.md личного репозитория — по нормализованному пути копии.
+    /// Память других машин оператора — о копиях чужого диска, и ответ в неё панель не пишет.
+    /// </summary>
+    internal static Dictionary<string, (string File, WorkMemory Memory)> MemoryFiles(BaseLayout layout)
     {
         var result = new Dictionary<string, (string, WorkMemory)>(StringComparer.OrdinalIgnoreCase);
-        var workDir = Path.Combine(basePath, "work");
-        if (!Directory.Exists(workDir))
-            return result;
+        foreach (var (file, memory) in ReadMemoryFiles(layout.MemoryDir, SearchOption.TopDirectoryOnly))
+            result.TryAdd(Normalize(memory.Copy!), (file, memory));
+        return result;
+    }
 
-        foreach (var file in Directory.EnumerateFiles(workDir, "*.md"))
+    /// <summary>
+    /// Памяти задач всех машин оператора, какие приехали в его личный репозиторий: одинаковый путь копии
+    /// на двух машинах — две задачи, поэтому по копии они не схлопываются.
+    /// </summary>
+    internal static IEnumerable<WorkMemory> AllMemories(BaseLayout layout) =>
+        ReadMemoryFiles(layout.WorkDir, SearchOption.AllDirectories).Select(m => m.Memory);
+
+    private static IEnumerable<(string File, WorkMemory Memory)> ReadMemoryFiles(string workDir, SearchOption search)
+    {
+        if (!Directory.Exists(workDir))
+            yield break;
+
+        foreach (var file in Directory.EnumerateFiles(workDir, "*.md", search))
         {
             WorkMemory memory;
             try
@@ -199,9 +199,8 @@ public static class WorkspaceCollector
                 continue;
             }
             if (!string.IsNullOrWhiteSpace(memory.Copy))
-                result.TryAdd(Normalize(memory.Copy), (file, memory));
+                yield return (file, memory);
         }
-        return result;
     }
 
     internal static string Normalize(string path) =>

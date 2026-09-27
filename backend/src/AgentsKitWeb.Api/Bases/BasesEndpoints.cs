@@ -68,18 +68,6 @@ public static class BasesEndpoints
         return new KitResponse(kit, found, found ? KitLocator.Version(kit) : null, plugin.Plugin, plugin.Update);
     }
 
-    internal static int? CountCopies(string basePath)
-    {
-        try
-        {
-            using var stream = File.OpenRead(Path.Combine(basePath, "agents-kit.json"));
-            using var json = JsonDocument.Parse(stream);
-            return json.RootElement.GetProperty("workspaces").GetArrayLength();
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException
-                                      or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
+    /// <summary>Число копий этой машины; null — база не читается (BaseLayout).</summary>
+    internal static int? CountCopies(string basePath) => BaseLayout.Read(basePath)?.Workspaces.Count;
 }

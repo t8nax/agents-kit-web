@@ -27,6 +27,11 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     /// <summary>Память задач всех машин оператора: work\&lt;машина&gt;\&lt;слаг копии&gt;.md.</summary>
     public string WorkDir => Path.Combine(Personal, "work");
 
+    public const string BacklogName = "backlog.md";
+
+    /// <summary>Бэклог оператора — в его личном репозитории.</summary>
+    public string BacklogFile => Path.Combine(Personal, BacklogName);
+
     /// <summary>Память задач копий этой машины.</summary>
     public string MemoryDir => Path.Combine(WorkDir, Machine());
 

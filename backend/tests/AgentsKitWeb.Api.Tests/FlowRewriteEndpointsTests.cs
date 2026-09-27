@@ -66,11 +66,8 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     public FlowRewriteEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         Directory.CreateDirectory(Path.Combine(_base, "agents"));
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { _copy } }));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
         File.WriteAllText(Path.Combine(_base, "agents", "reviewer.md"), Reviewer.ReplaceLineEndings("\n"));
 
@@ -171,9 +168,9 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     [Fact]
     public async Task Rewrite_GivesWholeFlowTasksAndPerformersInFirstReply()
     {
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        Directory.CreateDirectory(TestLayout.Work(_base));
         File.WriteAllText(
-            Path.Combine(_base, "work", "d-app-task.md"),
+            Path.Combine(TestLayout.Work(_base), "d-app-task.md"),
             "# Поправить вход\nрабочая копия: D:\\app-task\nсценарий: Крупные\n");
         _agent.Answers = [[Result("ok")]];
         var client = await Client();
@@ -475,7 +472,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     [Fact]
     public async Task Rewrite_WithoutMainCopy_RunsInBase()
     {
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
+        TestLayout.Machine(_base, TestLayout.Operator);
         _agent.Answers = [[Result("ok")]];
         var client = await Client();
 

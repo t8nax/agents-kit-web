@@ -56,11 +56,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     public PerformerDraftEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(_base);
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { _copy } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
         Directory.CreateDirectory(Path.Combine(_base, "flow", "stages"));
         File.WriteAllText(Path.Combine(_base, "flow", "scenarios.md"), Flow.ReplaceLineEndings("\n"));

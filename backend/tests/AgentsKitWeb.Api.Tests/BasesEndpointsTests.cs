@@ -114,7 +114,7 @@ public sealed class BasesEndpointsTests : IDisposable
     {
         var copy = Path.Combine(_root, "app");
         var basePath = CreateBase("app-knowledge");
-        await File.WriteAllTextAsync(Path.Combine(basePath, "work", "app.md"),
+        await File.WriteAllTextAsync(Path.Combine(TestLayout.Work(basePath), "app.md"),
             $"# Задача\nрабочая копия: {copy}\n\n- Оператору: Вопрос?\n  - контекст: к\n");
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(basePath));
         await Client.DeleteAsync($"/api/bases?path={Uri.EscapeDataString(basePath)}");
@@ -132,11 +132,7 @@ public sealed class BasesEndpointsTests : IDisposable
 
     private string CreateBase(string name, params string[] copies)
     {
-        var basePath = Path.Combine(_root, name);
-        Directory.CreateDirectory(Path.Combine(basePath, "work"));
-        File.WriteAllText(Path.Combine(basePath, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { workspaces = copies }));
-        return basePath;
+        return TestLayout.Base(Path.Combine(_root, name), copies);
     }
 
     public void Dispose()

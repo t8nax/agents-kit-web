@@ -38,8 +38,7 @@ public sealed class KitEndpointsTests : IDisposable
     [Fact]
     public async Task SetKit_DirectoryWithKitScripts_IsSavedAndKeepsBases()
     {
-        var basePath = Directory.CreateDirectory(Path.Combine(_root, "app-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(basePath, "agents-kit.json"), """{ "workspaces": [] }""");
+        var basePath = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(basePath));
         var kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
 
@@ -56,8 +55,7 @@ public sealed class KitEndpointsTests : IDisposable
     {
         var kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
         await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
-        var basePath = Directory.CreateDirectory(Path.Combine(_root, "app-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(basePath, "agents-kit.json"), """{ "workspaces": [] }""");
+        var basePath = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
 
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(basePath));
         await Client.DeleteAsync($"/api/bases?path={Uri.EscapeDataString(basePath)}");

@@ -30,10 +30,7 @@ public sealed class RemoveWorkspaceTests : IDisposable
         _copy = Path.Combine(_root, "quiet-cedar");
         TestGit.Run(_main, "worktree", "add", "-b", "quiet-cedar", _copy);
 
-        _base = Directory.CreateDirectory(Path.Combine(_root, "app-knowledge")).FullName;
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { workspaces = new[] { _main } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _main);
 
         var file = TestBases.File(_root, _base);
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -105,7 +102,7 @@ public sealed class RemoveWorkspaceTests : IDisposable
     public async Task Remove_CopyWithTaskInWork_IsRefusedWithoutCallingKit()
     {
         var kit = await SetKit(Succeeds);
-        File.WriteAllText(Path.Combine(_base, "work", "quiet-cedar.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "quiet-cedar.md"), $"""
             # B-55 Оператор удаляет рабочую копию
             рабочая копия: {_copy}
             ветка: quiet-cedar

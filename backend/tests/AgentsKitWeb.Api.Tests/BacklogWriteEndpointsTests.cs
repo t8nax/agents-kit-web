@@ -53,13 +53,12 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     {
         _copy = Path.Combine(_root, "app");
         Directory.CreateDirectory(Path.Combine(_copy, "frontend", "src"));
-        _base = TestGit.Repository(Path.Combine(_root, "app-knowledge"));
+        _base = TestGit.Repository(TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy));
         TestGit.Run(_base, "config", "user.name", "t");
         TestGit.Run(_base, "config", "user.email", "t@t");
         TestGit.Run(_base, "config", "core.autocrlf", "false");
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), JsonSerializer.Serialize(new { workspaces = new[] { _copy } }));
         File.WriteAllText(BacklogPath, Backlog.ReplaceLineEndings("\n") + "\n");
-        TestGit.Run(_base, "add", "agents-kit.json", "backlog.md");
+        TestGit.Run(_base, "add", "agents-kit.json", ".gitignore", "backlog.md");
         TestGit.Run(_base, "commit", "-m", "base");
     }
 
@@ -639,10 +638,10 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
             "Текст второй записи.\n",
             "Текст второй записи.\n\n### Артефакты\n- снимок: artifacts/B-2-снимок.png\n- лог: artifacts/B-2-лог.txt\n- макет: https://claude.ai/artifact/AbC\n"));
         Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        Directory.CreateDirectory(TestLayout.Work(_base));
         File.WriteAllBytes(Path.Combine(_base, "artifacts", "B-2-снимок.png"), [1, 2, 3]);
         File.WriteAllText(Path.Combine(_base, "artifacts", "B-2-лог.txt"), "лог");
-        File.WriteAllText(Path.Combine(_base, "work", "app.md"), "# B-9\n\n## Артефакты\n- лог: artifacts/B-2-лог.txt\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), "# B-9\n\n## Артефакты\n- лог: artifacts/B-2-лог.txt\n");
         TestGit.Run(_base, "add", ".");
         TestGit.Run(_base, "commit", "-m", "артефакты");
         _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];

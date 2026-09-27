@@ -128,8 +128,12 @@ public sealed class HealthMonitor(
         string? kit, string basePath, IReadOnlyList<WorkspaceRow> rows, CancellationToken cancellationToken)
     {
         var project = ProjectName.Of(basePath);
-        if (!Directory.Exists(basePath) || !File.Exists(Path.Combine(basePath, "agents-kit.json")))
+        if (!Directory.Exists(basePath) || !BaseLayout.IsBase(basePath))
             return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, "База не читается", [], []);
+        // Базу прежнего формата, без оператора этой машины или без личного репозитория панель не читает — причину
+        // называет раскладка; сверка кита такой базе ничего не добавит, кроме того же «перевести» или «завести».
+        if (BaseLayout.Read(basePath, out var unreadable) is null)
+            return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, unreadable, [], []);
         if (kit is null)
             return new BaseHealth(basePath, project, BaseHealthStatus.Unchecked, null, [], []);
 

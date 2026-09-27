@@ -5,7 +5,7 @@ namespace AgentsKitWeb.Api.Tests;
 
 /// <summary>
 /// База кита нынешнего формата для тестов (BaseLayout): agents-kit.json, local\me.json с копиями и оператором этой
-/// машины и личный репозиторий local\me со своим git. Git самой базы тест заводит сам, когда он ему нужен.
+/// машины и личный репозиторий local\me со своим git, пока без коммитов. Git самой базы тест заводит сам, когда он ему нужен.
 /// </summary>
 internal static class TestLayout
 {
@@ -19,7 +19,9 @@ internal static class TestLayout
             JsonSerializer.Serialize(new { kit = "agents-kit", prefix = "B", version = BaseLayout.Format }));
         File.WriteAllText(Path.Combine(path, ".gitignore"), "local/\n");
         Machine(path, Operator, copies);
-        TestGit.Repository(Personal(path));
+        // Без коммита: объекты git лежат «только для чтения», и уборка классов, не ждущих git, на них падала бы.
+        Directory.CreateDirectory(Personal(path));
+        TestGit.Run(Personal(path), "init", "-q", "-b", "dev");
         Directory.CreateDirectory(Work(path));
         Directory.CreateDirectory(Path.Combine(OperatorDir(path), "flow"));
         return path;

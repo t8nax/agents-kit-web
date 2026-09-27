@@ -63,7 +63,7 @@ public static class FoldersEndpoints
         bool isBase, isKit;
         try
         {
-            isBase = File.Exists(System.IO.Path.Combine(path, "agents-kit.json"));
+            isBase = BaseLayout.IsBase(path);
             isKit = BasesStore.IsKit(path);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

@@ -22,9 +22,7 @@ public sealed class HealthTests : IDisposable
         _worktree = Path.Combine(_root, "app-wt");
         TestGit.Run(_main, "worktree", "add", "-b", "feat/wt", _worktree);
 
-        _base = Directory.CreateDirectory(Path.Combine(_root, "app-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { workspaces = new[] { _main } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _main);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
 
         var file = TestBases.File(_root, _base);
@@ -55,6 +53,21 @@ public sealed class HealthTests : IDisposable
             Assert.Null(row.Problems);
             Assert.Null(row.BaseProblems);
         });
+    }
+
+    [Fact]
+    // Базу прежнего формата панель не читает: сверка кита её не проверяет, причина — словами раскладки.
+    public async Task Health_BaseOfOldFormat_IsUnavailableWithReason()
+    {
+        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = 3 }));
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(TestKit.Create(Path.Combine(_root, "agents-kit"))));
+
+        var snapshot = await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status != BaseHealthStatus.Unchecked));
+
+        var baseHealth = Assert.Single(snapshot.Bases);
+        Assert.Equal(BaseHealthStatus.Unavailable, baseHealth.Status);
+        Assert.Equal("База прежнего формата — переведите её китом", baseHealth.Error);
     }
 
     [Fact]
@@ -155,8 +168,7 @@ public sealed class HealthTests : IDisposable
         Directory.Delete(kit, recursive: true);
         // Смену на диске монитор видит на следующем круге; здесь его будит повторное сохранение списка.
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(_base));
-        var extra = Directory.CreateDirectory(Path.Combine(_root, "other-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(extra, "agents-kit.json"), """{ "workspaces": [] }""");
+        var extra = TestLayout.Base(Path.Combine(_root, "other-knowledge"));
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(extra));
 
         var snapshot = await WaitFor(s => s.Kit == KitStatus.NotFound);

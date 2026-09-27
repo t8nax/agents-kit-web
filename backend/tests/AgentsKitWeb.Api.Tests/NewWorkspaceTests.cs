@@ -27,10 +27,7 @@ public sealed class NewWorkspaceTests : IDisposable
     public NewWorkspaceTests()
     {
         _main = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Directory.CreateDirectory(Path.Combine(_root, "app-knowledge")).FullName;
-        var gone = Path.Combine(_root, "gone");
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { workspaces = new[] { gone, _main } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), Path.Combine(_root, "gone"), _main);
 
         var file = TestBases.File(_root, _base);
         _factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -107,7 +104,7 @@ public sealed class NewWorkspaceTests : IDisposable
     public async Task Create_NoCopyOnDisk_IsRejected()
     {
         await SetKit(Succeeds);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), """{ "workspaces": ["Z:\\nowhere"] }""");
+        TestLayout.Machine(_base, TestLayout.Operator, @"Z:\nowhere");
 
         var response = await Client.PostAsJsonAsync("/api/workspaces", new NewWorkspaceRequest(_base, null));
 

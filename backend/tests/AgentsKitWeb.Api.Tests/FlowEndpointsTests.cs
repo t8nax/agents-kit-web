@@ -72,9 +72,9 @@ public sealed class FlowEndpointsTests : IDisposable
     [Fact]
     public async Task Flow_ReturnsStagesFlowsTasksInWorkAndVersionPerBase()
     {
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# Задача\nрабочая копия: D:\\a\n");
-        File.WriteAllText(Path.Combine(_base, "work", "b.md"), "# Задача\nрабочая копия: D:\\b\n");
+        Directory.CreateDirectory(TestLayout.Work(_base));
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# Задача\nрабочая копия: D:\\a\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "b.md"), "# Задача\nрабочая копия: D:\\b\n");
         var withoutFlow = Path.Combine(_root, "empty-knowledge");
         Directory.CreateDirectory(withoutFlow);
         var oldForm = Path.Combine(_root, "old-knowledge");
@@ -114,15 +114,15 @@ public sealed class FlowEndpointsTests : IDisposable
     [Fact]
     public async Task Flow_NamesTaskInWorkByBacklogNumberWithTheFlowItGoesBy()
     {
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        Directory.CreateDirectory(TestLayout.Work(_base));
         // Флоу памяти сравнивается, как у кита: без регистра и со схлопнутыми пробелами.
-        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу:  Полный \n");
-        File.WriteAllText(Path.Combine(_base, "work", "b.md"), "# Задача без номера\nрабочая копия: D:\\b\nфлоу: старый\n");
-        File.WriteAllText(Path.Combine(_base, "work", "c.md"), "рабочая копия: D:\\c\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу:  Полный \n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "b.md"), "# Задача без номера\nрабочая копия: D:\\b\nфлоу: старый\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "c.md"), "рабочая копия: D:\\c\n");
         // Слово вида номера с чужими буквами номером не становится: у проекта буквы B. Память кита 0.10 называет
         // сценарий строкой «сценарий:».
-        File.WriteAllText(Path.Combine(_base, "work", "d.md"), "# UTF-8 в выгрузке\nрабочая копия: D:\\d\nсценарий: полный\n");
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "d.md"), "# UTF-8 в выгрузке\nрабочая копия: D:\\d\nсценарий: полный\n");
+        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-8\n");
 
         var flow = Assert.Single(await GetFlows(Client(_base)));
 
@@ -297,9 +297,9 @@ public sealed class FlowEndpointsTests : IDisposable
     [Fact]
     public async Task Save_TouchingFlowTaskGoesByOrItsStage_IsRejectedAndTheRestIsWritten()
     {
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
-        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: мелкий\n");
+        Directory.CreateDirectory(TestLayout.Work(_base));
+        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-8\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: мелкий\n");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
 
@@ -336,8 +336,8 @@ public sealed class FlowEndpointsTests : IDisposable
         // Один флоу — «когда» кит у него не требует
         File.WriteAllText(_listPath, "# App — сценарии\n\n## полный\n1. [Критерий](stages/criterion.md)\n2. [Приёмка](stages/acceptance.md)\n");
         TestGit.Run(_base, "commit", "-am", "один флоу");
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка\nрабочая копия: D:\\a\nфлоу: полный\n");
+        Directory.CreateDirectory(TestLayout.Work(_base));
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка\nрабочая копия: D:\\a\nфлоу: полный\n");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
         var busy = flow.Flows[0];
@@ -363,9 +363,9 @@ public sealed class FlowEndpointsTests : IDisposable
     [Fact]
     public async Task Save_TaskWithUnknownFlow_HoldsEveryFlowAndStageButNotNewOnes()
     {
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), "следующий номер: B-8\n");
-        File.WriteAllText(Path.Combine(_base, "work", "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: переименованный\n");
+        Directory.CreateDirectory(TestLayout.Work(_base));
+        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-8\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: переименованный\n");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
 
@@ -602,13 +602,13 @@ public sealed class FlowEndpointsTests : IDisposable
     /// <summary>База с git и product.md: проект называется по заголовку продукта.</summary>
     private string Knowledge(string name)
     {
-        var path = TestGit.Repository(Path.Combine(_root, name));
+        var path = TestGit.Repository(TestLayout.Base(Path.Combine(_root, name)));
         TestGit.Run(path, "config", "user.name", "t");
         TestGit.Run(path, "config", "user.email", "t@t");
         TestGit.Run(path, "config", "core.autocrlf", "false");
         var project = name == "app-knowledge" ? "App" : "Bare";
         File.WriteAllText(Path.Combine(path, "product.md"), $"# {project} — продукт\n");
-        TestGit.Run(path, "add", "product.md");
+        TestGit.Run(path, "add", "product.md", "agents-kit.json", ".gitignore");
         TestGit.Run(path, "commit", "-m", "init");
         return path;
     }

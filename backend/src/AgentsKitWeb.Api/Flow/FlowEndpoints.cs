@@ -224,8 +224,10 @@ public static class FlowEndpoints
     /// <summary>Задачи в работе по памятям work/*.md и флоу каждой: имя флоу сравнивается, как их сравнивает кит.</summary>
     internal static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
     {
-        var letters = Backlog.ReadLetters(basePath);
-        return WorkspaceCollector.MemoryFiles(basePath).Values
+        if (BaseLayout.Read(basePath) is not { } layout)
+            return [];
+        var letters = Backlog.ReadLetters(layout);
+        return WorkspaceCollector.MemoryFiles(layout).Values
             .Select(entry => new FlowTask(
                 TaskLabel(entry.Memory.Task, entry.File, letters),
                 entry.Memory.Flow is { } named

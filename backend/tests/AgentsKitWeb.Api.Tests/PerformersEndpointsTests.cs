@@ -339,17 +339,14 @@ public sealed class PerformersEndpointsTests : IDisposable
     /// <summary>База прогона: маркер кита и, когда нужно, git — панель коммитит исполнителя в неё.</summary>
     private string CreateBase(string name, bool git, params string[] copies)
     {
-        var basePath = Path.Combine(_root, name);
-        Directory.CreateDirectory(Path.Combine(basePath, "work"));
-        var json = System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = copies });
-        File.WriteAllText(Path.Combine(basePath, "agents-kit.json"), json);
+        var basePath = TestLayout.Base(Path.Combine(_root, name), copies);
         if (!git)
             return basePath;
 
         TestGit.Run(basePath, "init", "-b", "main");
         TestGit.Run(basePath, "config", "user.name", "t");
         TestGit.Run(basePath, "config", "user.email", "t@t");
-        TestGit.Run(basePath, "add", "--", "agents-kit.json");
+        TestGit.Run(basePath, "add", "--", "agents-kit.json", ".gitignore");
         TestGit.Run(basePath, "commit", "-m", "база");
         return basePath;
     }
