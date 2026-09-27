@@ -56,6 +56,45 @@ public class BacklogTests
     }
 
     [Fact]
+    public void Parse_ReadsArtifactsApartFromOperatorText()
+    {
+        var entries = Backlog.Parse("""
+            ## B-2 Окно записи показывает снимок
+
+            Снимок падения приложен.
+
+            ### Артефакты
+            - снимок падения: artifacts/B-2-снимок.png
+            - макет: https://claude.ai/artifact/AbC123
+
+            ### Агенту
+            - где: frontend/src/Backlog.tsx
+            """.ReplaceLineEndings("\n"));
+
+        var entry = Assert.Single(entries);
+        Assert.Equal("Снимок падения приложен.", entry.Text);
+        Assert.Equal(
+            [new TaskArtifact("снимок падения", "artifacts/B-2-снимок.png"), new TaskArtifact("макет", "https://claude.ai/artifact/AbC123")],
+            entry.Artifacts);
+    }
+
+    [Fact]
+    public void Parse_EntryWithoutArtifactsHasNone()
+    {
+        Assert.All(Backlog.Parse(File), e => Assert.Null(e.Artifacts));
+    }
+
+    [Fact]
+    public void Parse_KeepsOtherSubsectionAfterArtifactsAsText()
+    {
+        var entry = Assert.Single(Backlog.Parse(
+            "## B-3 Запись\n\nТекст.\n\n### Артефакты\n- лог: artifacts/B-3-лог.txt\n\n### Как воспроизвести\nОткрыть окно.\n"));
+
+        Assert.Equal("Текст.\n\n### Как воспроизвести\nОткрыть окно.", entry.Text);
+        Assert.Equal([new TaskArtifact("лог", "artifacts/B-3-лог.txt")], entry.Artifacts);
+    }
+
+    [Fact]
     public void Parse_KeepsEntryWithoutNumberAsTitle()
     {
         var entry = Backlog.Parse(File)[2];

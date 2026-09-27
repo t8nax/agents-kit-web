@@ -3,7 +3,8 @@ using System.Text.RegularExpressions;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
-public sealed record OperatorAnswer(string Question, string Answer);
+/// <summary>Files — файлы, которые оператор приложил к ответу: панель кладёт их в artifacts/ базы, а адреса — в ответ.</summary>
+public sealed record OperatorAnswer(string Question, string Answer, IReadOnlyList<AttachedFile>? Files = null);
 
 public enum AnswerProblem
 {
@@ -26,6 +27,18 @@ public static class OperatorAnswers
 
     /// <summary>Ответ пишется одной строкой: переносы строк заменяются пробелами.</summary>
     public static string Normalize(string answer) => LineBreaks.Replace(answer.Trim(), " ");
+
+    /// <summary>
+    /// Ответ с адресами приложенных файлов — той же строкой: сессия, вбирая ответ, переносит их в артефакты задачи
+    /// и коммитит. В память панель по-прежнему пишет только ответ — решение оператора на B-260.
+    /// </summary>
+    public static string WithFiles(string answer, IReadOnlyList<string> addresses)
+    {
+        if (addresses.Count == 0)
+            return answer;
+        var files = (addresses.Count == 1 ? "файл: " : "файлы: ") + string.Join(", ", addresses);
+        return answer.Trim().Length == 0 ? files : $"{answer.Trim()} — {files}";
+    }
 
     public static (string? Text, AnswerRejection? Rejection) Apply(string text, IReadOnlyList<OperatorAnswer> answers)
     {

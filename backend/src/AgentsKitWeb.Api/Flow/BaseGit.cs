@@ -61,6 +61,31 @@ public static class BaseGit
         await GitRunner.RunAsync(basePath, Timeout, cancellationToken, args);
     }
 
+    /// <summary>
+    /// Незакоммиченное под путём базы — пути от корня через «/»: правленые, удалённые и добавленные в индекс файлы,
+    /// без неотслеживаемых — их коммит путём не берёт. null — git не ответил.
+    /// </summary>
+    public static async Task<IReadOnlyList<string>?> ChangesAsync(
+        string basePath, string path, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(
+            basePath, Timeout, cancellationToken, "-c", "core.quotepath=false", "diff", "--name-only", "HEAD", "--", path);
+        // Вывод склеен с stderr: путями считаются только строки под названным каталогом, а не предупреждения git.
+        return run.ExitCode == 0
+            ? run.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(line => line.StartsWith(path + "/", StringComparison.OrdinalIgnoreCase))
+                .ToList()
+            : null;
+    }
+
+    /// <summary>Файл базы есть в последнем коммите: в индекс добавленный, но не закоммиченный — нет.</summary>
+    public static async Task<bool> CommittedAsync(string basePath, string file, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(
+            basePath, Timeout, cancellationToken, "-c", "core.quotepath=false", "ls-tree", "--name-only", "HEAD", "--", file);
+        return run.ExitCode == 0 && run.Output.Split('\n').Any(line => line.Trim().Equals(file, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>Файл базы изменён и не закоммичен. null — git не ответил.</summary>
     public static async Task<bool?> IsDirtyAsync(string basePath, string file, CancellationToken cancellationToken)
     {
