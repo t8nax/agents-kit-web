@@ -64,6 +64,8 @@ function stubFetch(...responses: BaseBacklog[][]) {
   let artifactReply: () => Response = () => new Response(null, { status: 204 })
   // Задачи трекера по базам: ответ или обещание ответа — им тест держит чтение трекера незаконченным
   const trackerReplies = new Map<string, () => Promise<Response>>()
+  // Задержка ответов бэклога: пока она стоит, чтение бэклога не кончается
+  let backlogGate: Promise<void> | null = null
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     if (url.startsWith('/api/backlog/tracker?')) {
       const base = new URLSearchParams(url.slice(url.indexOf('?'))).get('base')!
@@ -93,7 +95,8 @@ function stubFetch(...responses: BaseBacklog[][]) {
         ),
       )
     expect(url).toBe('/api/backlog')
-    return Promise.resolve(Response.json(queue.length > 1 ? queue.shift()! : queue[0]))
+    const reply = Response.json(queue.length > 1 ? queue.shift()! : queue[0])
+    return backlogGate ? backlogGate.then(() => reply) : Promise.resolve(reply)
   })
   vi.stubGlobal('fetch', fetchMock)
   return Object.assign(fetchMock, {
@@ -110,6 +113,15 @@ function stubFetch(...responses: BaseBacklog[][]) {
       trackerReplies.set(base, reply)
     },
     trackerReads: () => fetchMock.mock.calls.filter(([url]) => url.startsWith('/api/backlog/tracker?')).length,
+    /** Держит следующие ответы бэклога, пока не позвали возвращённую функцию. */
+    holdBacklog: () => {
+      let release: () => void = () => {}
+      backlogGate = new Promise<void>((resolve) => (release = resolve))
+      return () => {
+        backlogGate = null
+        release()
+      }
+    },
   })
 }
 
@@ -888,6 +900,27 @@ test('«Обновить» перечитывает задачи трекера'
   await waitFor(() => expect(screen.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument())
   expect(await screen.findByRole('link', { name: /#7/ })).toBeInTheDocument()
   expect(fetchMock.trackerReads()).toBe(2)
+})
+
+test('ответ трекера прошлого чтения, пришедший после «Обновить», не встаёт на место заготовки', async () => {
+  let late: (response: Response) => void = () => {}
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (late = resolve)))
+
+  render(<Backlog />)
+  await screen.findByRole('region', { name: 'Agents Kit Web' })
+  const first = late
+
+  // Второе чтение трекера не кончается; первое приходит, пока бэклог ещё перечитывается
+  const release = fetchMock.holdBacklog()
+  fireEvent.click(screen.getByRole('button', { name: 'Обновить' }))
+  first(Response.json({ issues, problem: null }))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  release()
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(await project.findByRole('status', { name: 'Загрузка задач трекера' })).toBeInTheDocument()
+  expect(project.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument()
 })
 
 test.each([

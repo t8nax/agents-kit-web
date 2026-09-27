@@ -162,6 +162,8 @@ export default function Backlog({
 
   const refresh = useCallback(() => {
     setLoad({ kind: 'loading' })
+    // Ответ трекера прошлого чтения, пришедший после «Обновить», не встаёт на место заготовки
+    trackerRound.current++
     setTrackers({})
     setFresh(new Set())
     loadBacklogs()
