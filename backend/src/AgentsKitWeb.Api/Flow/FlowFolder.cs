@@ -31,8 +31,11 @@ public sealed record FlowStage(
     public override int GetHashCode() => HashCode.Combine(Title, Executor, Output, Skip, Description, Slug);
 }
 
-/// <summary>Возврат стадии во флоу: при Condition работа идёт заново к стадии Stage, стоящей в этом флоу раньше.</summary>
-public sealed record StageReturn(string Condition, string Stage);
+/// <summary>
+/// Возврат стадии во флоу: при Condition работа идёт заново к стадии Stage, стоящей в этом флоу раньше.
+/// Rounds — предел кругов: Stage прошла столько кругов — вместо возврата вопрос оператору; null — предела нет.
+/// </summary>
+public sealed record StageReturn(string Condition, string Stage, int? Rounds = null);
 
 /// <summary>Пункт флоу: стадия по названию и её возвраты в этом флоу — у той же стадии в другом флоу они свои.</summary>
 public sealed record FlowEntry(string Stage, IReadOnlyList<StageReturn>? Returns = null)
@@ -82,6 +85,13 @@ public static partial class FlowFolder
     [GeneratedRegex(@"^\s+-\s+возврат\s*:\s*(?<value>.*)$")]
     private static partial Regex ReturnLine { get; }
 
+    // Предел кругов — сразу под своим возвратом и глубже него; число кит принимает только целое от 1.
+    [GeneratedRegex(@"^(?<indent>\s+)-\s+кругов\s*:\s*(?<value>.*?)\s*$")]
+    private static partial Regex RoundsLine { get; }
+
+    [GeneratedRegex(@"^[1-9]\d{0,8}$")]
+    private static partial Regex RoundsValue { get; }
+
     [GeneratedRegex(@"^\s*когда\s*:\s*(?<value>.*)$")]
     private static partial Regex WhenLine { get; }
 
@@ -116,6 +126,8 @@ public static partial class FlowFolder
             var name = lines[i++][3..].Trim();
             string? when = null;
             var entries = new List<(string Stage, List<StageReturn> Returns)>();
+            // Отступ последнего возврата пункта; -1 — предел кругов здесь не под возвратом.
+            var returnIndent = -1;
 
             while (i < lines.Length && !lines[i].StartsWith("## "))
             {
@@ -131,11 +143,24 @@ public static partial class FlowFolder
                     // Пункт адресует файл стадии; название берётся из заголовка файла, а нет файла — из текста ссылки.
                     var title = titlesBySlug.TryGetValue(slug, out var known) ? known : entry.Groups["title"].Value.Trim();
                     entries.Add((title, []));
+                    returnIndent = -1;
                 }
                 else if (ReturnLine.Match(line) is { Success: true } back && entries.Count > 0)
+                {
                     entries[^1].Returns.Add(ParseReturn(back.Groups["value"].Value.Trim()));
+                    returnIndent = line.Length - line.TrimStart().Length;
+                }
+                // Предел не под возвратом, второй у возврата или не целое от 1 кит считает ошибкой — запись его не воспроизведёт.
+                else if (RoundsLine.Match(line) is { Success: true } rounds
+                         && returnIndent >= 0 && rounds.Groups["indent"].Length > returnIndent
+                         && entries[^1].Returns[^1].Rounds is null
+                         && RoundsValue.IsMatch(rounds.Groups["value"].Value))
+                    entries[^1].Returns[^1] = entries[^1].Returns[^1] with { Rounds = int.Parse(rounds.Groups["value"].Value) };
                 else
+                {
                     unread.Add($"строка {number}: «{line.Trim()}»");
+                    returnIndent = -1;
+                }
             }
 
             flows.Add(new NamedFlow(name, Nullable(when ?? ""), entries.Select(e => new FlowEntry(e.Stage, e.Returns)).ToList()));
@@ -236,7 +261,11 @@ public static partial class FlowFolder
                 var entry = flow.Entries[index];
                 block.Append($"\n{index + 1}. [{entry.Stage.Trim()}](stages/{slugsByTitle[Key(entry.Stage)]}.md)");
                 foreach (var back in Returns(entry))
+                {
                     block.Append($"\n   - возврат: {back.Condition.Trim()} — этап «{back.Stage.Trim()}»");
+                    if (back.Rounds is { } rounds)
+                        block.Append($"\n     - кругов: {rounds}");
+                }
             }
             parts.Add(block.ToString());
         }
@@ -305,6 +334,8 @@ public static partial class FlowFolder
                         return Reject("return-unknown-stage", entry.Stage);
                     if (!placed.Contains(Key(back.Stage)))
                         return Reject("return-stage-not-earlier", entry.Stage);
+                    if (back.Rounds < 1)
+                        return Reject("return-rounds-invalid", entry.Stage);
                 }
                 placed.Add(Key(entry.Stage));
             }
