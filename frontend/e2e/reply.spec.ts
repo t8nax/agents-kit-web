@@ -67,6 +67,7 @@ test('оператор отвечает лентой, ответы уходят 
     await route.fulfill({ status: 204 })
   })
 
+  await page.clock.install()
   await page.goto('/')
   const tableRow = page.getByRole('row', { name: /Окно ответа/ })
   await expect(tableRow.getByText('Ждёт оператора')).toBeVisible()
@@ -84,6 +85,9 @@ test('оператор отвечает лентой, ответы уходят 
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
   await dialog.getByRole('button', { name: /Заменять пробелами/ }).click()
   await expect(answer).toHaveValue('Заменять пробелами')
+  // Часы страницы стоят, пока тест смотрит знак отправки и «Отменить»: на занятой машине GitHub полторы
+  // секунды выходили раньше, и окно отправляло ответы и закрывалось само (B-264, как B-248 ниже).
+  await page.clock.pauseAt(Date.now() + 1000)
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
   // ленты не видно: знак отправки по центру, «Отменить» внизу
@@ -93,6 +97,7 @@ test('оператор отвечает лентой, ответы уходят 
   expect([Math.round(check.width), Math.round(check.height)]).toEqual([34, 34])
   await expect(dialog.getByRole('button', { name: 'Отменить' })).toBeVisible()
   expect(posted).toBeNull()
+  await page.clock.resume()
 
   // записанные ответы уводят окно угасанием: оно длится доли секунды, поэтому ловим его каждый кадр —
   // на это время оверлей гаснет и не ловит щелчки
