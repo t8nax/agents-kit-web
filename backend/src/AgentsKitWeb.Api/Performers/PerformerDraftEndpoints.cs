@@ -182,7 +182,7 @@ public static class PerformerDraftEndpoints
     /// </summary>
     public static ProcessStartInfo StartInfo(string basePath, string copyPath, string project, bool editing)
     {
-        // Исполнители и флоу — свои у каждого оператора: они лежат в его папке базы (раскладка кита формата 4).
+        // Исполнители и флоу — свои у каждого оператора: они лежат в его папке базы (раскладка кита с формата 4).
         var folder = BaseLayout.Read(basePath)?.OperatorDir ?? basePath;
         var agents = Path.Combine(folder, PerformerList.Folder);
         var task = editing

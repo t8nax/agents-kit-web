@@ -98,7 +98,7 @@ public sealed class AskEndpointsTests : IDisposable
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains("flow/scenarios.md", prompt);
         Assert.Contains("flow/stages/*.md", prompt);
-        // Раскладка кита формата 4: своё у оператора — его папка и личный репозиторий (B-275).
+        // Раскладка кита с формата 4: своё у оператора — его папка и личный репозиторий (B-275).
         Assert.Contains("team.md", prompt);
         Assert.Contains($"папка people/{TestLayout.Operator}/: autonomy.md", prompt);
         Assert.Contains("личный репозиторий local/me/: backlog.md", prompt);

@@ -60,7 +60,7 @@ public sealed class HealthTests : IDisposable
     public async Task Health_BaseOfOldFormat_IsUnavailableWithReason()
     {
         File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = 3 }));
+            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = BaseLayout.Format - 1 }));
         await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(TestKit.Create(Path.Combine(_root, "agents-kit"))));
 
         var snapshot = await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status != BaseHealthStatus.Unchecked));

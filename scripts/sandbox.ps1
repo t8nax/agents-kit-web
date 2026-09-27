@@ -171,7 +171,7 @@ function Stop-OldDummies {
 
 # --- содержимое баз ----------------------------------------------------------------------
 
-# Раскладка базы кита формата 4, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
+# Раскладка базы кита формата 5, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
 # личный репозиторий оператора local\me со своим git — бэклог, память задач по машинам и их артефакты,
 # папка оператора people\<имя> — его флоу и исполнители. Оператор песочницы — «sandbox».
 $sandboxOperator = 'sandbox'
@@ -476,7 +476,7 @@ $designBlock$artifactsBlock$question
     Write-Utf8 $Path $text -Crlf:$Crlf
 }
 
-# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 4, и панель читает её теми же правилами.
+# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 5, и панель читает её теми же правилами.
 # $StagesOnly — этапы без списка сценариев, $NoFlow — ни этапов, ни сценариев.
 function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
     [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow) {
@@ -496,7 +496,7 @@ function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoP
         Write-Utf8 (Join-Path $Path 'agents-kit.json') '{ "kit": "agents-kit", "version": тут оборвалось'
     }
     else {
-        Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; prefix = $prefix; version = 4 })
+        Write-Json (Join-Path $Path 'agents-kit.json') ([pscustomobject]@{ kit = 'agents-kit'; prefix = $prefix; version = 5 })
     }
     Write-Json (Join-Path $Path 'local\me.json') ([pscustomobject]@{ operator = $sandboxOperator; workspaces = @($Copies) })
     $operatorDir = Get-OperatorDir $Path

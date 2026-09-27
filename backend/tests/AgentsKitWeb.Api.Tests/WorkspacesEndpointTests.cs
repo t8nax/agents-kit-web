@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -190,8 +191,8 @@ public sealed class WorkspacesEndpointTests : IDisposable
     }
 
     [Theory]
-    [InlineData(3, "База прежнего формата — переведите её китом")]
-    [InlineData(5, "База нового формата, которого панель не знает, — обновите панель")]
+    [InlineData(BaseLayout.Format - 1, "База прежнего формата — переведите её китом")]
+    [InlineData(BaseLayout.Format + 1, "База нового формата, которого панель не знает, — обновите панель")]
     public async Task Workspaces_BaseOfOtherFormat_IsOneRowWithReason(int format, string reason)
     {
         var copy = TestGit.Repository(Path.Combine(_root, "app"));
