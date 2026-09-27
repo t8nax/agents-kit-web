@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace AgentsKitWeb.Api.Bases;
 
-/// <summary>База в списке панели. Copies — число копий из agents-kit.json, null — файл не прочитан.</summary>
+/// <summary>База в списке панели. Copies — число копий этой машины из local\me.json, null — база не читается (BaseLayout).</summary>
 public sealed record BaseEntry(string Path, int? Copies);
 
 public sealed record AddBaseRequest(string? Path);

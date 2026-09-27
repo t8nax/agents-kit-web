@@ -233,7 +233,7 @@ public static class PerformerDraftEndpoints
             .Append("Просьба оператора:\n")
             .Append(wish);
         if (flow is not null)
-            text.Append("\n\nФлоу проекта, файлы flow/ базы:\n").Append(flow);
+            text.Append("\n\nФлоу оператора, файлы flow/ его папки в базе:\n").Append(flow);
         if (current is not null)
             text.Append("\n\nНынешний исполнитель:\n").Append(PerformerFile.Serialize(
                 new PerformerFields(current.Name, current.Description, current.Model, current.Tools, current.Prompt)));

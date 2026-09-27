@@ -170,9 +170,10 @@ public static class PerformersEndpoints
     {
         var project = ProjectName.Of(basePath);
         if (!System.IO.Directory.Exists(basePath))
-            return new BasePerformers(basePath, project, System.IO.Path.Combine(basePath, PerformerList.Folder), [], "База не найдена на диске");
+            return new BasePerformers(basePath, project, "", [], "База не найдена на диске");
+        // Папки оператора у нечитаемой базы нет: каталог исполнителей не называется вовсе.
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
-            return new BasePerformers(basePath, project, System.IO.Path.Combine(basePath, PerformerList.Folder), [], problem);
+            return new BasePerformers(basePath, project, "", [], problem);
 
         return new BasePerformers(basePath, project, PerformerList.Directory(layout), PerformerList.OfProject(layout), null);
     }
@@ -217,7 +218,7 @@ public static class PerformersEndpoints
     private static string Message(string name, bool renamed) =>
         renamed ? $"Исполнитель {name} переименован из панели" : $"Исполнитель {name} записан из панели";
 
-    /// <summary>Копии проекта, что есть на диске; первая копия из agents-kit.json помечена основной.</summary>
+    /// <summary>Копии проекта, что есть на диске; первая копия из списка копий этой машины помечена основной.</summary>
     internal static async Task<IReadOnlyList<PerformerCopy>> CopiesAsync(string basePath, CancellationToken cancellationToken)
     {
         var main = WorkspaceCollector.ReadCopies(basePath) is { } configured

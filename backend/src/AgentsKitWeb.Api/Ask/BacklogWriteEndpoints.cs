@@ -10,7 +10,7 @@ namespace AgentsKitWeb.Api.Ask;
 
 /// <summary>
 /// Number — запись, от которой открыт разговор кнопкой «Изменить»; null — разговор из шапки раздела. Files — файлы,
-/// которые оператор приложил к реплике: панель кладёт их копиями в artifacts/ базы.
+/// которые оператор приложил к реплике: панель кладёт их копиями в artifacts/ личного репозитория.
 /// </summary>
 public sealed record BacklogWriteRequest(
     string? Base, string? Text, string? Number = null, IReadOnlyList<AttachedFile>? Files = null);
