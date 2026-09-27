@@ -281,7 +281,7 @@ public static class AskEndpoints
     public const string Claude = "claude";
 
     /// <summary>
-    /// Раскладку базы агент иначе угадывает: название проекта, например, ищет в README. Раскладка — кита формата 4
+    /// Раскладку базы агент иначе угадывает: название проекта, например, ищет в README. Раскладка — кита формата 5
     /// (BaseLayout): общее знание в корне, своё у оператора — его папка people\&lt;имя&gt; и личный репозиторий local\me.
     /// </summary>
     internal static string SystemPrompt(string? operatorName) => $"""

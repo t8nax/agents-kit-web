@@ -25,9 +25,9 @@ public sealed class BaseLayoutTests : IDisposable
     }
 
     [Theory]
-    [InlineData(3, "База прежнего формата — переведите её китом")]
+    [InlineData(BaseLayout.Format - 1, "База прежнего формата — переведите её китом")]
     [InlineData(1, "База прежнего формата — переведите её китом")]
-    [InlineData(5, "База нового формата, которого панель не знает, — обновите панель")]
+    [InlineData(BaseLayout.Format + 1, "База нового формата, которого панель не знает, — обновите панель")]
     public void Read_OtherFormat_IsNotRead(int format, string expected)
     {
         var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
