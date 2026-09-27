@@ -955,6 +955,7 @@ test.each([
 
 test.each([
   [{ issues: [], problem: null }, /На вас в GitHub нет открытых задач этого репозитория/, false],
+  [{ issues: [], problem: 'no-tracker' }, /Описания трекера у проекта больше нет — нажмите «Обновить»/, false],
   [{ issues: [], problem: 'gh-missing' }, /Программа gh не установлена\. Установите GitHub CLI и войдите в аккаунт командой gh auth login/, true],
   [{ issues: [], problem: 'gh-login' }, /Программа gh не вошла в аккаунт GitHub\. Войдите командой gh auth login/, true],
   [

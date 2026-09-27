@@ -18,6 +18,9 @@ function trackerState(load: TrackerLoad, repo: string | null | undefined): State
       return { warning: true, text: 'В описании трекера нет адреса репозитория GitHub. Укажите его в описании трекера проекта.' }
     case 'unreadable':
       return { warning: true, text: 'Описание трекера проекта не прочитано.' }
+    // Описание трекера убрали, пока раздел его читал
+    case 'no-tracker':
+      return { warning: false, text: 'Описания трекера у проекта больше нет — нажмите «Обновить».' }
     case 'gh-missing':
       return {
         warning: true,
