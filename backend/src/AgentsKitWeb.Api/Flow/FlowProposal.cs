@@ -234,8 +234,8 @@ public static partial class FlowProposals
         && one.Entries.Count == other.Entries.Count
         && one.Entries.Zip(other.Entries).All(pair =>
             FlowFolder.Key(pair.First.Stage) == FlowFolder.Key(pair.Second.Stage)
-            && FlowFolder.Returns(pair.First).Select(r => (r.Condition.Trim(), FlowFolder.Key(r.Stage)))
-                .SequenceEqual(FlowFolder.Returns(pair.Second).Select(r => (r.Condition.Trim(), FlowFolder.Key(r.Stage)))));
+            && FlowFolder.Returns(pair.First).Select(r => (r.Condition.Trim(), FlowFolder.Key(r.Stage), r.Rounds))
+                .SequenceEqual(FlowFolder.Returns(pair.Second).Select(r => (r.Condition.Trim(), FlowFolder.Key(r.Stage), r.Rounds))));
 
     // Ответ по строкам «=== …»: слова до первой пометки и блоки под пометками. Внутри блока строка из одних «=» —
     // текст: так в описании подчёркивают заголовок. Любая другая «=== …» — пометка, и неверную разбор назовёт.
@@ -301,6 +301,7 @@ public static partial class FlowProposals
             "return-without-condition" => "возврат без условия",
             "return-unknown-stage" => "возврат ведёт к этапу, которого в сценарии нет",
             "return-stage-not-earlier" => "возврат ведёт к этапу, который стоит не раньше",
+            "return-rounds-invalid" => "предел кругов у возврата — не целое число от 1",
             "line-break" => "перевод строки там, где его быть не должно",
             var other => Problem(other),
         };

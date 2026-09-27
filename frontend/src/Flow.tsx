@@ -46,8 +46,11 @@ export type FlowStage = {
   slug?: string | null
 }
 
-/** Возврат стадии во флоу: при condition работа идёт заново к стадии stage, стоящей в этом флоу раньше. */
-export type StageReturn = { condition: string; stage: string }
+/**
+ * Возврат стадии во флоу: при condition работа идёт заново к стадии stage, стоящей в этом флоу раньше.
+ * rounds — предел кругов: stage прошла столько кругов — вместо возврата вопрос оператору; нет — предела нет.
+ */
+export type StageReturn = { condition: string; stage: string; rounds?: number | null }
 
 /** Пункт флоу: стадия по названию и её возвраты — у той же стадии в другом флоу они свои. */
 export type FlowEntry = { stage: string; returns?: StageReturn[] }
@@ -100,7 +103,8 @@ type DraftStage = {
 
 // Пункты и возвраты ссылаются на стадию её key: переименование стадии не рвёт их. stage === null —
 // пункт ведёт на стадию, которой в базе нет, и title хранит, как он назван в файле.
-type DraftReturn = { condition: string; target: number | null }
+// rounds — предел кругов, как набран в поле; null — предела нет.
+type DraftReturn = { condition: string; target: number | null; rounds: string | null }
 type DraftEntry = { key: number; stage: number | null; title: string; returns: DraftReturn[] }
 type DraftFlow = { key: number; name: string; when: string; entries: DraftEntry[] }
 type Draft = { stages: DraftStage[]; flows: DraftFlow[] }
@@ -167,13 +171,23 @@ function toDraft(flow: BaseFlow, previous: Draft | null = null): Draft {
             key: same?.key ?? nextKey++,
             stage,
             title: entry.stage,
-            returns: (entry.returns ?? []).map((back) => ({ condition: back.condition, target: keyOf(back.stage) })),
+            returns: (entry.returns ?? []).map((back) => fromApiReturn(back, keyOf(back.stage))),
           }
         }),
       }
     }),
   }
 }
+
+function fromApiReturn(back: StageReturn, target: number | null): DraftReturn {
+  return { condition: back.condition, target, rounds: back.rounds == null ? null : String(back.rounds) }
+}
+
+// Предел кругов кит принимает только целым от 1; больше int его не удержит API — та же граница, что при чтении базы.
+const validRounds = (rounds: string) => /^[1-9]\d*$/.test(rounds.trim()) && Number(rounds.trim()) <= 2147483647
+
+// Неверный предел в запись не уходит — его держит ошибка окна; 0 лишь отличает его от «предела нет».
+const roundsOf = (rounds: string) => (validRounds(rounds) ? Number(rounds.trim()) : 0)
 
 function toStage(draft: DraftStage): FlowStage {
   return {
@@ -198,7 +212,11 @@ function toApi(draft: Draft): { stages: FlowStage[]; flows: NamedFlow[] } {
       when: f.when.trim() || null,
       entries: f.entries.map((entry) => ({
         stage: entry.stage === null ? entry.title : titleOf(entry.stage),
-        returns: entry.returns.map((back) => ({ condition: back.condition.trim(), stage: titleOf(back.target) })),
+        returns: entry.returns.map((back) => ({
+          condition: back.condition.trim(),
+          stage: titleOf(back.target),
+          ...(back.rounds === null ? {} : { rounds: roundsOf(back.rounds) }),
+        })),
       })),
     })),
   }
@@ -256,8 +274,10 @@ function entryErrors(flow: DraftFlow, index: number) {
     const target = flow.entries.findIndex((other) => back.target !== null && other.stage === back.target)
     if (target < 0) errors.push('возврат ведёт на этап, которого во флоу нет')
     else if (target >= index) errors.push('возврат ведёт на этап, который стоит не раньше')
+    if (back.rounds !== null && !validRounds(back.rounds)) errors.push('предел кругов — целое число от 1')
   }
-  return errors
+  // Два возврата с одной бедой — одна причина в строке окна, а не две одинаковые.
+  return [...new Set(errors)]
 }
 
 function flowErrors(flow: DraftFlow, flows: DraftFlow[]) {
@@ -397,6 +417,7 @@ const invalidLabels: Record<string, string> = {
   'return-without-condition': 'в возврате не указано условие',
   'return-unknown-stage': 'возврат ведёт на этап, которого во флоу нет',
   'return-stage-not-earlier': 'возврат ведёт на этап, который стоит не раньше',
+  'return-rounds-invalid': 'предел кругов — целое число от 1',
 }
 
 /**
@@ -743,7 +764,7 @@ export default function Flow({
         key: nextKey++,
         stage: keyOf(entry.stage),
         title: entry.stage,
-        returns: (entry.returns ?? []).map((back) => ({ condition: back.condition, target: keyOf(back.stage) })),
+        returns: (entry.returns ?? []).map((back) => fromApiReturn(back, keyOf(back.stage))),
       })),
     })
     let flows = saved.flows
@@ -2029,7 +2050,8 @@ const ARC_WIDTH = 150
 const ARC_ROUND = 12
 const CHAIN_PAD = 16
 
-type ReturnArc = { from: number; to: number; condition: string; lane: number }
+// rounds — предел кругов возврата, если он задан верно: неверный назван ошибкой окна возвратов.
+type ReturnArc = { from: number; to: number; condition: string; rounds: number | null; lane: number }
 
 /**
  * Возвраты флоу дугами: у каждой своя дорожка, чтобы соседние круги не сливались в одну линию.
@@ -2043,11 +2065,15 @@ function returnArcs(flow: DraftFlow): ReturnArc[] {
       if (to < 0 || to >= from) continue
       let lane = 0
       while (arcs.some((arc) => arc.lane === lane && arc.to <= from && to <= arc.from)) lane++
-      arcs.push({ from, to, condition: back.condition, lane })
+      const rounds = back.rounds !== null && validRounds(back.rounds) ? Number(back.rounds.trim()) : null
+      arcs.push({ from, to, condition: back.condition, rounds, lane })
     }
   })
   return arcs
 }
+
+// Ширина кружка предела кругов: 20px на одну-две цифры, дальше — по 7px на цифру.
+const limitWidth = (rounds: number) => Math.max(20, String(rounds).length * 7 + 6)
 
 const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
 
@@ -2079,8 +2105,24 @@ function ReturnArcs({ flow, lit }: { flow: DraftFlow; lit: number[] }) {
                 } Q ${lane} ${y2} ${lane + ARC_ROUND} ${y2} H ${ARC_WIDTH - 10}`}
               />
               <path d={`M ${ARC_WIDTH - 16} ${y2 - 5} L ${ARC_WIDTH - 6} ${y2} L ${ARC_WIDTH - 16} ${y2 + 5}`} />
+              {/* Предел кругов стоит кружком на своей дуге всегда — вариант «А» макета B-271. */}
+              {arc.rounds !== null && (
+                <g className="flow-arc-limit" data-rounds={arc.rounds}>
+                  {/* Кружок, а для длинного числа — пилюля: цифры не вылезают на дугу. */}
+                  <rect
+                    x={lane - limitWidth(arc.rounds) / 2}
+                    y={(y1 + y2) / 2 - 10}
+                    width={limitWidth(arc.rounds)}
+                    height={20}
+                    rx={10}
+                  />
+                  <text x={lane} y={(y1 + y2) / 2 + 0.5} textAnchor="middle">
+                    {arc.rounds}
+                  </text>
+                </g>
+              )}
               {lighted && arc.condition.trim() && (
-                <text className="flow-arc-label" x={lane - 8} y={(y1 + y2) / 2} textAnchor="end">
+                <text className="flow-arc-label" x={lane - (arc.rounds !== null ? limitWidth(arc.rounds) / 2 + 8 : 8)} y={(y1 + y2) / 2} textAnchor="end">
                   {arc.condition.trim()}
                 </text>
               )}
@@ -2968,6 +3010,16 @@ function ReturnsField({
 }) {
   const set = (index: number, patch: Partial<DraftReturn>) =>
     onChange(returns.map((back, i) => (i === index ? { ...back, ...patch } : back)))
+  // Возврат, у которого предел только что открыли кнопкой, — фокус в его поле, а только что убрали крестиком —
+  // на вернувшуюся кнопку: крестик пропадает, и фокус не должен уйти из окна.
+  const [opened, setOpened] = useState<number | null>(null)
+  const [closed, setClosed] = useState<number | null>(null)
+  // Строки возвратов идут по месту: добавленный или убранный возврат сдвигает места, и прежняя метка фокуса
+  // досталась бы чужой строке.
+  const forget = () => {
+    setOpened(null)
+    setClosed(null)
+  }
 
   // Вернуться не к чему — раньше в сценарии нет стадий базы: пустого блока «Возвраты» нет — замечание оператора на приёмке B-192.
   // Возврат из файла всё же покажется: его надо видеть, чтобы убрать.
@@ -2994,7 +3046,10 @@ function ReturnsField({
                 className="btn btn-icon"
                 aria-label={`Убрать возврат ${index + 1}`}
                 title={`Убрать возврат ${index + 1}`}
-                onClick={() => onChange(returns.filter((_, i) => i !== index))}
+                onClick={() => {
+                  forget()
+                  onChange(returns.filter((_, i) => i !== index))
+                }}
               >
                 <CloseIcon />
               </button>
@@ -3018,6 +3073,54 @@ function ReturnsField({
                 ))}
               </select>
             </div>
+            {/* Предел кругов добавляется кнопкой и убирается крестиком — вариант «Б» макета B-271. */}
+            {back.rounds === null ? (
+              <div className="flow-return-row">
+                <button
+                  type="button"
+                  className="flow-limit-add"
+                  aria-label={`Предел кругов возврата ${index + 1}`}
+                  autoFocus={closed === index}
+                  onClick={() => {
+                    setClosed(null)
+                    setOpened(index)
+                    set(index, { rounds: '' })
+                  }}
+                >
+                  <PlusIcon />
+                  Предел кругов
+                </button>
+              </div>
+            ) : (
+              <div className="flow-return-row">
+                <span className="flow-return-mark" aria-hidden="true">
+                  <RoundsIcon />
+                </span>
+                <span className="flow-return-limit-label">Предел кругов</span>
+                <input
+                  className="flow-input flow-limit-input"
+                  inputMode="numeric"
+                  aria-label={`Предел кругов возврата ${index + 1}`}
+                  aria-invalid={!validRounds(back.rounds)}
+                  autoFocus={opened === index}
+                  value={back.rounds}
+                  onChange={(event) => set(index, { rounds: event.target.value })}
+                />
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  aria-label={`Убрать предел кругов возврата ${index + 1}`}
+                  title="Убрать предел кругов"
+                  onClick={() => {
+                    setOpened(null)
+                    setClosed(index)
+                    set(index, { rounds: null })
+                  }}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            )}
           </div>
         )
       })}
@@ -3025,7 +3128,10 @@ function ReturnsField({
         <button
           type="button"
           className="flow-add-dashed"
-          onClick={() => onChange([...returns, { condition: '', target: null }])}
+          onClick={() => {
+            forget()
+            onChange([...returns, { condition: '', target: null, rounds: null }])
+          }}
         >
           <PlusIcon />
           Добавить возврат
@@ -3584,6 +3690,18 @@ function ReturnIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 9h11a4 4 0 0 1 0 8H9" />
       <polyline points="8 5 4 9 8 13" />
+    </svg>
+  )
+}
+
+/** Значок предела кругов — две круговые стрелки. */
+function RoundsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
     </svg>
   )
 }

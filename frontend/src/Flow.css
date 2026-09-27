@@ -885,6 +885,44 @@ fieldset.flow-stage-set.flow-stage-rows {
   height: 16px;
 }
 
+/* Предел кругов возврата: пока его нет — кнопка, открытый — подпись, узкое поле числа и крестик (B-271). */
+.flow-return-limit-label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.flow-return-row .flow-input.flow-limit-input {
+  flex: 0 0 128px;
+  width: 128px;
+}
+
+.flow-limit-add {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.flow-limit-add:hover {
+  color: var(--text-primary);
+  border-color: var(--text-tertiary);
+}
+
+/* Сильнее общего .flow-stage-modal svg (16px), что стоит ниже. */
+.flow-returns-modal .flow-limit-add svg {
+  width: 13px;
+  height: 13px;
+}
+
 /* Помощники шага: по чипу на исполнителя. */
 .flow-chips {
   display: flex;
@@ -962,6 +1000,30 @@ fieldset.flow-stage-set.flow-stage-rows {
   stroke: none;
   font-size: 12px;
   dominant-baseline: middle;
+}
+
+/* Предел кругов возврата — кружок с числом на своей дуге, подсвечивается вместе с ней (B-271). */
+.flow-arc .flow-arc-limit rect {
+  fill: var(--bg-base);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.flow-arc-limit text {
+  fill: var(--text-secondary);
+  stroke: none;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  dominant-baseline: central;
+}
+
+.flow-arc-open .flow-arc-limit rect {
+  stroke: var(--accent-done-text);
+}
+
+.flow-arc-open .flow-arc-limit text {
+  fill: var(--accent-done-text);
 }
 
 /* Верх раздела: заголовок слева, справа вкладки переключателем, проект и «…» — выбор оператора на B-192. */

@@ -15,6 +15,7 @@ public sealed class FlowFolderTests
         2. [Реализация](stages/implementation.md)
         3. [Ревью](stages/review.md)
            - возврат: замечания — этап «Реализация»
+             - кругов: 3
 
         ## мелкий
         когда: правка в одном месте
@@ -40,7 +41,7 @@ public sealed class FlowFolderTests
         Assert.Equal(["полный", "мелкий"], flows.Select(f => f.Name));
         Assert.Equal("новая возможность", flows[0].When);
         Assert.Equal(["Ветка", "Реализация", "Ревью"], flows[0].Entries.Select(e => e.Stage));
-        Assert.Equal(new StageReturn("замечания", "Реализация"), Assert.Single(FlowFolder.Returns(flows[0].Entries[2])));
+        Assert.Equal(new StageReturn("замечания", "Реализация", 3), Assert.Single(FlowFolder.Returns(flows[0].Entries[2])));
         // У той же стадии в другом флоу возвратов нет: их пишет флоу, а не стадия.
         Assert.Empty(FlowFolder.Returns(flows[1].Entries[1]));
     }
@@ -86,6 +87,56 @@ public sealed class FlowFolderTests
         Assert.Empty(unread);
         Assert.Equal("новая возможность", flows[0].When);
         Assert.Equal(new StageReturn("замечания", "Ветка"), Assert.Single(flows[0].Entries[1].Returns!));
+    }
+
+    [Fact]
+    public void ParseList_RoundsGoToTheirOwnReturn()
+    {
+        var (_, flows, unread) = FlowFolder.ParseList("""
+            ## полный
+            1. [Ветка](stages/branch.md)
+            2. [Реализация](stages/implementation.md)
+            3. [Ревью](stages/review.md)
+               - возврат: вид — этап «Ветка»
+               - возврат: замечания — этап «Реализация»
+
+                 - кругов : 2
+            """, Titles);
+
+        Assert.Empty(unread);
+        Assert.Equal(
+            [new StageReturn("вид", "Ветка"), new StageReturn("замечания", "Реализация", 2)],
+            FlowFolder.Returns(flows[0].Entries[2]));
+    }
+
+    [Fact]
+    public void ParseList_NamesRoundsKitCallsBroken()
+    {
+        var (_, flows, unread) = FlowFolder.ParseList("""
+            ## полный
+            1. [Ветка](stages/branch.md)
+               - кругов: 2
+            2. [Ревью](stages/review.md)
+               - возврат: замечания — этап «Ветка»
+               - кругов: 2
+               - возврат: вид — этап «Ветка»
+                 - кругов: 0
+               - возврат: ещё — этап «Ветка»
+                 - кругов: 2
+                 - кругов: 3
+               - возврат: цифры — этап «Ветка»
+                 - кругов: 1٣
+               - возврат: много — этап «Ветка»
+                 - кругов: 99999999999
+            """, Titles);
+
+        Assert.Equal(
+            [
+                "строка 3: «- кругов: 2»", "строка 6: «- кругов: 2»", "строка 8: «- кругов: 0»", "строка 11: «- кругов: 3»",
+                "строка 13: «- кругов: 1٣»", "строка 15: «- кругов: 99999999999»",
+            ],
+            unread);
+        Assert.Equal([null, null, 2, null, null], FlowFolder.Returns(flows[0].Entries[1]).Select(r => r.Rounds));
     }
 
     [Fact]
@@ -209,6 +260,7 @@ public sealed class FlowFolderTests
         { "return-without-condition", "полный", "Ревью" },
         { "return-unknown-stage", "мелкий", "Ревью" },
         { "return-stage-not-earlier", "полный", "Ветка" },
+        { "return-rounds-invalid", "полный", "Ревью" },
         { "line-break", "полный", null },
     };
 
@@ -245,6 +297,9 @@ public sealed class FlowFolderTests
                 break;
             case "return-stage-not-earlier":
                 flows[0] = full with { Entries = [new FlowEntry("Ветка", [new StageReturn("замечания", "Ревью")]), full.Entries[1]] };
+                break;
+            case "return-rounds-invalid":
+                flows[0] = full with { Entries = [full.Entries[0], new FlowEntry("Ревью", [new StageReturn("замечания", "Ветка", 0)])] };
                 break;
             case "line-break": flows[0] = full with { When = "две\nстроки" }; break;
         }

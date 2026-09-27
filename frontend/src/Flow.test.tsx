@@ -507,6 +507,60 @@ test('возвраты правятся окном поверх схемы и п
   expect(posts(fetchMock)).toBe(1)
 })
 
+test('предел кругов задают кнопкой, правят числом, неверное не сохраняют, а крестик и убранный возврат его уносят', async () => {
+  const fetchMock = stubApi(api([app], saved()))
+  await renderFlow()
+  fireEvent.click(screen.getByRole('button', { name: 'Сценарий: полный' }))
+  fireEvent.click(screen.getByRole('option', { name: 'мелкий' }))
+  const region = within(screen.getByRole('region', { name: 'Сценарий «мелкий»' }))
+
+  const dialog = await returnsOf(region, /^Этап 2: Приёмка/)
+  // Предела нет — вместо поля кнопка; она открывает поле и ставит в него фокус
+  expect(dialog.queryByRole('textbox', { name: 'Предел кругов возврата 1' })).not.toBeInTheDocument()
+  fireEvent.click(dialog.getByRole('button', { name: 'Предел кругов возврата 1' }))
+  const field = dialog.getByRole('textbox', { name: 'Предел кругов возврата 1' })
+  expect(field).toHaveFocus()
+
+  // Пустое, дробное, ноль и больше, чем удержит API, — не годится: окно называет причину и не сохраняет
+  for (const value of ['', '2,5', '0', '2147483648']) {
+    fireEvent.change(field, { target: { value } })
+    expect(field).toHaveAttribute('aria-invalid', 'true')
+    expect(dialog.getByText('Возвраты не сохранить: предел кругов — целое число от 1.')).toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  }
+  // Десять цифр в пределах int — годятся, как их принимает и чтение базы
+  fireEvent.change(field, { target: { value: '2147483647' } })
+  expect(dialog.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
+  fireEvent.change(field, { target: { value: '2' } })
+  expect(dialog.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
+  expect((await saveAndRead(fetchMock)).flows[1].entries[1].returns).toEqual([
+    { condition: 'замечания', stage: 'Ревью', rounds: 2 },
+  ])
+
+  // Крестик убирает предел: снова кнопка, и в запись предел не идёт
+  const again = await returnsOf(region, /^Этап 2: Приёмка/)
+  expect(again.getByRole('textbox', { name: 'Предел кругов возврата 1' })).toHaveValue('2')
+  fireEvent.click(again.getByRole('button', { name: 'Убрать предел кругов возврата 1' }))
+  // Крестик пропал — фокус на вернувшейся кнопке, а не вне окна
+  expect(again.getByRole('button', { name: 'Предел кругов возврата 1' })).toHaveFocus()
+  fireEvent.click(again.getByRole('button', { name: 'Предел кругов возврата 1' }))
+  fireEvent.change(again.getByRole('textbox', { name: 'Предел кругов возврата 1' }), { target: { value: '0' } })
+  // Два неверных предела — причина в строке одна
+  fireEvent.click(again.getByRole('button', { name: 'Добавить возврат' }))
+  fireEvent.click(again.getByRole('button', { name: 'Предел кругов возврата 2' }))
+  expect(again.getByText('Возвраты не сохранить: предел кругов — целое число от 1, в возврате не указано условие, возврат ведёт на этап, которого во флоу нет.')).toBeInTheDocument()
+  // Метка фокуса не переходит к новому возврату на том же месте: его кнопка предела фокус не забирает
+  fireEvent.click(again.getByRole('button', { name: 'Убрать предел кругов возврата 2' }))
+  fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 2' }))
+  fireEvent.click(again.getByRole('button', { name: 'Добавить возврат' }))
+  expect(again.getByRole('button', { name: 'Предел кругов возврата 2' })).not.toHaveFocus()
+  fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 2' }))
+  // Убранный возврат уносит и свой предел, даже неверный: сохранить можно
+  fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 1' }))
+  expect(again.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
+  expect((await saveAndRead(fetchMock)).flows[1].entries[1].returns).toEqual([])
+})
+
 test('«Править стадию» из меню открывает окно правки поверх сценария, не уходя на вкладку «Этапы»', async () => {
   const fetchMock = stubApi(api([app], saved()))
   const region = await renderFlow()
@@ -645,6 +699,35 @@ test('возвраты нарисованы дугами: у стадии с о�
 
   expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(1)
   expect(document.querySelector('.flow-arc-label')).toHaveTextContent('замечания')
+})
+
+test('предел кругов стоит числом на своей дуге всегда, у дуги без предела числа нет', async () => {
+  const limited: NamedFlow = {
+    ...full,
+    entries: [
+      { stage: 'Критерий' },
+      { stage: 'Ревью', returns: [{ condition: 'нет критерия', stage: 'Критерий' }] },
+      {
+        stage: 'Приёмка',
+        returns: [
+          { condition: 'замечания', stage: 'Ревью', rounds: 3 },
+          { condition: 'всё заново', stage: 'Критерий', rounds: 120 },
+        ],
+      },
+    ],
+  }
+  stubApi(api([{ ...app, flows: [limited, small] }]))
+  await renderFlow()
+
+  const arcs = [...document.querySelectorAll('.flow-arc')]
+  expect(arcs).toHaveLength(3)
+  expect(arcs.map((arc) => arc.querySelector('.flow-arc-limit')?.textContent ?? null).sort()).toEqual(['120', '3', null])
+  // Кружок под одну цифру, а длинное число растягивает его: цифры не вылезают на дугу
+  const width = (text: string) =>
+    [...document.querySelectorAll('.flow-arc-limit')].find((one) => one.textContent === text)?.querySelector('rect')?.getAttribute('width')
+  expect([width('3'), width('120')]).toEqual(['20', '27'])
+  // Не под мышью дуга не подсвечена, а число всё равно видно.
+  expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
 })
 
 // Флоу с кругами: у «Ревью» возврат к «Критерию», у «Приёмки» — два, к «Ревью» и к «Критерию».
@@ -1381,6 +1464,61 @@ test('«Переписать с Чудо-Юдо» шлёт флоу раздел
   expect(screen.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
 })
 
+test('предел кругов из правки Чудо-Юдо уходит в запись: заданный, изменённый и убранный', async () => {
+  const limited: NamedFlow = {
+    ...small,
+    entries: [
+      { stage: 'Ревью', returns: [] },
+      {
+        stage: 'Приёмка',
+        returns: [
+          { condition: 'замечания', stage: 'Ревью', rounds: 2 },
+          { condition: 'вид', stage: 'Ревью', rounds: 4 },
+        ],
+      },
+    ],
+  }
+  const answer = {
+    type: 'answer',
+    text: 'Поправил пределы.',
+    changed: { scenarios: 2, stages: 0 },
+    proposal: {
+      stages: [],
+      scenarios: [
+        {
+          of: 'полный',
+          flow: { ...full, entries: [full.entries[0], full.entries[1], { stage: 'Приёмка', returns: [{ condition: 'заново', stage: 'Ревью', rounds: 1 }] }] },
+        },
+        {
+          of: 'мелкий',
+          flow: {
+            ...limited,
+            entries: [
+              limited.entries[0],
+              { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Ревью', rounds: 5 }, { condition: 'вид', stage: 'Ревью' }] },
+            ],
+          },
+        },
+      ],
+    },
+  }
+  const fetchMock = stubApi(api([{ ...app, flows: [full, limited] }], { ...saved(), ...rewriteApi([answer]) }))
+  await renderFlow()
+
+  fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
+  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
+  await askForChanges(modal, 'Поправь пределы кругов', '2 сценария')
+  fireEvent.click(modal.getByRole('button', { name: 'Принять правки' }))
+
+  await vi.waitFor(() => expect(posts(fetchMock)).toBe(1))
+  const written = body(fetchMock, 'POST /api/flow')
+  expect(written.flows[0].entries[2].returns).toEqual([{ condition: 'заново', stage: 'Ревью', rounds: 1 }])
+  expect(written.flows[1].entries[1].returns).toEqual([
+    { condition: 'замечания', stage: 'Ревью', rounds: 5 },
+    { condition: 'вид', stage: 'Ревью' },
+  ])
+})
+
 test('удалённые Чудо-Юдо сценарий и этап уходят из записи', async () => {
   const answer = {
     type: 'answer',
@@ -1827,6 +1965,21 @@ test('у единственного сценария без «когда», по
   ])
   // Порядок и стадии занятого сценария не тронуты
   expect(sent.flows[0].entries).toEqual(full.entries.map((entry) => ({ stage: entry.stage, returns: entry.returns ?? [] })))
+})
+
+test('предел кругов из базы не теряется, когда записывают другое', async () => {
+  const limited: NamedFlow = {
+    ...small,
+    entries: [small.entries[0], { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Ревью', rounds: 3 }] }],
+  }
+  const fetchMock = stubApi(api([{ ...app, flows: [full, limited] }], saved()))
+  await renderFlow()
+
+  const free = await stagesTab('Запас')
+  fireEvent.change(free.getByRole('textbox', { name: 'Выход этапа' }), { target: { value: 'кое-что' } })
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows[1].entries[1].returns).toEqual([{ condition: 'замечания', stage: 'Ревью', rounds: 3 }])
 })
 
 test('незаписанный новый сценарий и описание со схемы уходят с окном: следующее действие их не записывает', async () => {

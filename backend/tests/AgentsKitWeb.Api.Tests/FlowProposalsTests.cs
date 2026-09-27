@@ -185,6 +185,25 @@ public sealed class FlowProposalsTests
         Assert.Equal("раздел", taken.Proposal.Stages[0].Stage!.Output);
     }
 
+    [Fact]
+    public void Take_RewrittenScenarioWithRoundLimit_KeepsIt()
+    {
+        var taken = FlowProposals.Take("""
+            === сценарий «крупный»
+            ## крупный
+            когда: много работы
+            1. [Дизайн](stages/design.md)
+            2. [Ревью](stages/review.md)
+            3. [Мерж](stages/merge.md)
+               - возврат: dev ушёл — этап «Ревью»
+                 - кругов: 2
+            """.ReplaceLineEndings("\n"), Stages, Flows, FlowProposal.Empty);
+
+        Assert.Null(taken.Error);
+        Assert.Equal(new FlowChanged(1, 0), taken.Changed);
+        Assert.Equal(new StageReturn("dev ушёл", "Ревью", 2), Assert.Single(taken.Proposal.Scenarios).Flow!.Entries[2].Returns![0]);
+    }
+
     [Theory]
     [InlineData("=== этап «Сборка»\n# Сборка\n\nисполнитель: оператор\nвыход: есть\n", "Чудо-Юдо предложил правку этапа «Сборка», которого во флоу нет")]
     [InlineData("=== удалить сценарий «средний»\n", "Чудо-Юдо предложил правку сценария «средний», которого во флоу нет")]
@@ -193,6 +212,7 @@ public sealed class FlowProposalsTests
     [InlineData("=== новый этап\n# Сборка\n\nисполнитель: оператор\n", "Этап «Сборка» вернулся не в форме кита: не указан выход")]
     [InlineData("=== этап «Ревью»\n# Ревью\n\nисполнитель: оператор\nвыход: есть\nвозврат: красное\n", "Этап «Ревью» вернулся не в форме кита: строка 5: ключ вне перечня «возврат: красное»")]
     [InlineData("=== сценарий «мелкий»\n## мелкий\nкогда: мало\n1. Ревью\n", "Сценарий «мелкий» вернулся не в форме кита: строка 3: «1. Ревью»")]
+    [InlineData("=== сценарий «мелкий»\n## мелкий\nкогда: мало\n1. [Ревью](stages/review.md)\n2. [Мерж](stages/merge.md)\n   - возврат: красное — этап «Ревью»\n     - кругов: 0\n", "Сценарий «мелкий» вернулся не в форме кита: строка 6: «- кругов: 0»")]
     [InlineData("=== новый сценарий\n## средний\nкогда: средне\n1. [Ревью](stages/review.md)\n## ещё\n", "Чудо-Юдо вернул под пометкой «=== новый сценарий» не один раздел сценария «## Имя»")]
     // Удалённый этап остался в сценарии: запись флоу такое не примет, и правки не копятся.
     [InlineData("=== удалить этап «Мерж»\n", "С правками Чудо-Юдо флоу не сойдётся с правилами кита: пункт сценария ссылается на этап, которого нет (сценарий «крупный», этап «Мерж»)")]
@@ -233,6 +253,16 @@ public sealed class FlowProposalsTests
         var rebased = FlowProposals.Rebase(Stages, [Big, Small], new FlowProposal([new ScenarioChange("мелкий", proposed)], []));
 
         Assert.Empty(rebased.Scenarios);
+    }
+
+    [Fact]
+    public void Rebase_ScenarioDifferingOnlyInRoundLimit_StaysProposed()
+    {
+        var limited = Big with { Entries = [Big.Entries[0], Big.Entries[1], new FlowEntry("Мерж", [new StageReturn("dev ушёл", "Ревью", 3)])] };
+
+        var rebased = FlowProposals.Rebase(Stages, Flows, new FlowProposal([new ScenarioChange("крупный", limited)], []));
+
+        Assert.Equal([new ScenarioChange("крупный", limited)], rebased.Scenarios);
     }
 
     [Fact]
