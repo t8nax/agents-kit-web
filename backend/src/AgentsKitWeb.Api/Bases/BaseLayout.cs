@@ -19,7 +19,9 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     public const string MarkerFile = "agents-kit.json";
 
     /// <summary>Личный репозиторий оператора: бэклог, память задач и их артефакты, свой git.</summary>
-    public string Personal => Path.Combine(Base, "local", "me");
+    public string Personal => PersonalOf(Base);
+
+    public static string PersonalOf(string basePath) => Path.Combine(basePath, "local", "me");
 
     /// <summary>Папка оператора этой машины в базе: его флоу и исполнители.</summary>
     public string OperatorDir => Path.Combine(Base, "people", Operator);

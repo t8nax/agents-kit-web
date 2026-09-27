@@ -24,7 +24,7 @@ public static class BacklogEndpoints
         app.MapGet("/api/backlog", (BasesStore bases) => bases.List().Select(Read).ToList());
 
         // Файл-артефакт записи открывается в VS Code окном на каталоге базы: копии у записи нет, а файл лежит
-        // в artifacts/ базы. Как у артефакта задачи, запрос называет его номером, а не путём: файл, которого
+        // в artifacts/ личного репозитория, рядом с бэклогом. Как у артефакта задачи, запрос называет его номером, а не путём: файл, которого
         // нет в «Артефактах» записи, по HTTP не открыть.
         app.MapPost("/api/backlog/artifact/open", async (
             OpenBacklogArtifactRequest request,
@@ -33,9 +33,9 @@ public static class BacklogEndpoints
             CancellationToken cancellationToken) =>
         {
             var basePath = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
-            var file = basePath is null ? null : Path.Combine(basePath, Ask.BacklogWriteEndpoints.BacklogFile);
-            if (file is null || !File.Exists(file))
+            if (basePath is null || BaseLayout.Read(basePath) is not { } layout || !File.Exists(layout.BacklogFile))
                 return Results.NotFound();
+            var file = layout.BacklogFile;
 
             var number = BacklogNumber.Normalize(request.Number);
             var artifacts = Backlog.Parse(await File.ReadAllTextAsync(file, cancellationToken))
@@ -46,13 +46,13 @@ public static class BacklogEndpoints
             var address = artifacts[request.Index].Address;
             if (Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
                 return Results.BadRequest(new OpenArtifactFailedResponse("not-a-file"));
-            // У записи файл — только artifacts/<имя> базы; и путь туда не уходит с метасимволами cmd.
-            if (address.IndexOfAny(OperatorEndpoints.CmdSpecial) >= 0 || ArtifactFiles.PathIn(basePath!, address) is not { } path)
+            // У записи файл — только artifacts/<имя> личного репозитория; и путь туда не уходит с метасимволами cmd.
+            if (address.IndexOfAny(OperatorEndpoints.CmdSpecial) >= 0 || ArtifactFiles.PathIn(layout.Personal, address) is not { } path)
                 return Results.BadRequest(new OpenArtifactFailedResponse("unsafe-path"));
             if (!File.Exists(path))
                 return Results.NotFound(new OpenArtifactFailedResponse("missing"));
 
-            return await windows.OpenFileAsync(basePath!, path, cancellationToken)
+            return await windows.OpenFileAsync(basePath, path, cancellationToken)
                 ? Results.NoContent()
                 : Results.Json(new OpenArtifactFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
         });
@@ -65,9 +65,12 @@ public static class BacklogEndpoints
         if (!Directory.Exists(basePath))
             return new BaseBacklog(basePath, project, [], "База не найдена на диске");
 
-        var file = Path.Combine(basePath, "backlog.md");
+        if (BaseLayout.Read(basePath, out var problem) is not { } layout)
+            return new BaseBacklog(basePath, project, [], problem);
+
+        var file = layout.BacklogFile;
         if (!File.Exists(file))
-            return new BaseBacklog(basePath, project, [], "В базе нет backlog.md");
+            return new BaseBacklog(basePath, project, [], "В личном репозитории нет backlog.md");
 
         try
         {
