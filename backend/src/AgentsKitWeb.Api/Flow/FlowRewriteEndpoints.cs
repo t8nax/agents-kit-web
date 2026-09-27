@@ -304,7 +304,7 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
     {
         try
         {
-            return FlowEndpoints.Tasks(basePath, flows);
+            return BaseLayout.Read(basePath) is { } layout ? FlowEndpoints.Tasks(layout, flows) : [];
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

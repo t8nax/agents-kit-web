@@ -492,7 +492,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         await Start(client, "Напиши этап");
         await Read(client, 2);
 
-        Assert.False(Directory.Exists(Path.Combine(_base, "flow")));
+        Assert.False(Directory.Exists(Path.Combine(TestLayout.OperatorDir(_base), "flow")));
     }
 
     [Fact]

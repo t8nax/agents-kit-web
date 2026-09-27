@@ -179,8 +179,8 @@ public static class WorkspaceCollector
     /// Памяти задач всех машин оператора, какие приехали в его личный репозиторий: одинаковый путь копии
     /// на двух машинах — две задачи, поэтому по копии они не схлопываются.
     /// </summary>
-    internal static IEnumerable<WorkMemory> AllMemories(BaseLayout layout) =>
-        ReadMemoryFiles(layout.WorkDir, SearchOption.AllDirectories).Select(m => m.Memory);
+    internal static IEnumerable<(string File, WorkMemory Memory)> AllMemories(BaseLayout layout) =>
+        ReadMemoryFiles(layout.WorkDir, SearchOption.AllDirectories);
 
     private static IEnumerable<(string File, WorkMemory Memory)> ReadMemoryFiles(string workDir, SearchOption search)
     {

@@ -23,7 +23,6 @@ internal static class TestLayout
         Directory.CreateDirectory(Personal(path));
         TestGit.Run(Personal(path), "init", "-q", "-b", "dev");
         Directory.CreateDirectory(Work(path));
-        Directory.CreateDirectory(Path.Combine(OperatorDir(path), "flow"));
         return path;
     }
 

@@ -58,9 +58,9 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
         _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
-        Directory.CreateDirectory(Path.Combine(_base, "flow", "stages"));
-        File.WriteAllText(Path.Combine(_base, "flow", "scenarios.md"), Flow.ReplaceLineEndings("\n"));
-        File.WriteAllText(Path.Combine(_base, "flow", "stages", "review.md"), Review.ReplaceLineEndings("\n"));
+        Directory.CreateDirectory(Path.Combine(TestLayout.OperatorDir(_base), "flow", "stages"));
+        File.WriteAllText(Path.Combine(TestLayout.OperatorDir(_base), "flow", "scenarios.md"), Flow.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(TestLayout.OperatorDir(_base), "flow", "stages", "review.md"), Review.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -156,13 +156,13 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
 
         Assert.Equal("drafted", events[^1].Type);
         Assert.False(Directory.Exists(Path.Combine(_copy, ".claude", "agents")));
-        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(_base, "flow", "scenarios.md")));
+        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(TestLayout.OperatorDir(_base), "flow", "scenarios.md")));
     }
 
     [Fact]
     public async Task Draft_GoesOnWhenBaseHasNoFlow()
     {
-        Directory.Delete(Path.Combine(_base, "flow"), recursive: true);
+        Directory.Delete(Path.Combine(TestLayout.OperatorDir(_base), "flow"), recursive: true);
         _agent.Lines = [Result(Drafted)];
 
         var events = await Draft(await Client(), "Ревьюер ветки");

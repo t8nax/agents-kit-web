@@ -155,13 +155,15 @@ public static class PerformerDraftEndpoints
     {
         try
         {
-            var list = Path.Combine(basePath, FlowFolder.ListFile);
+            if (BaseLayout.Read(basePath) is not { } layout)
+                return null;
+            var list = Path.Combine(layout.OperatorDir, FlowFolder.ListFile);
             if (!File.Exists(list))
                 return null;
 
             var text = new System.Text.StringBuilder()
                 .Append(FlowFolder.ListFile).Append(":\n").Append(await File.ReadAllTextAsync(list, cancellationToken));
-            var stages = Path.Combine(basePath, FlowFolder.StagesFolder);
+            var stages = Path.Combine(layout.OperatorDir, FlowFolder.StagesFolder);
             if (Directory.Exists(stages))
                 foreach (var file in Directory.EnumerateFiles(stages, "*.md").Order(StringComparer.Ordinal))
                     text.Append("\n\n").Append(FlowFolder.StagesFolder).Append('/').Append(Path.GetFileName(file)).Append(":\n")
