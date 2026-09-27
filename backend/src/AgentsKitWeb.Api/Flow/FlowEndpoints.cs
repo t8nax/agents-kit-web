@@ -71,7 +71,7 @@ public static class FlowEndpoints
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
 
-            var root = layout.OperatorDir;
+            var root = layout.Personal;
             var files = Files(root);
             if (FlowFolder.Fingerprint(files.Select(f => (f.Path, f.Bytes))) != request.Version)
                 return Results.Conflict(new FlowRejectedResponse("changed"));
@@ -94,7 +94,7 @@ public static class FlowEndpoints
             if (writes.Count == 0)
                 return Results.Ok(new FlowSavedResponse(request.Version));
 
-            // Git зовётся из папки оператора: она внутри репозитория базы, и пути flow/… git берёт от неё.
+            // Git зовётся из личного репозитория: флоу коммитится в его git, и пути flow/… git берёт от него.
             if (await CommitAsync(root, writes, cancellationToken) is { } failure)
                 return Results.Json(
                     new FlowRejectedResponse(failure.Problem, Detail: failure.Detail),
@@ -112,24 +112,24 @@ public static class FlowEndpoints
             CancellationToken cancellationToken) =>
         {
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout
-                || Files(layout.OperatorDir).FirstOrDefault() is not { } first)
+                || Files(layout.Personal).FirstOrDefault() is not { } first)
                 return Results.NotFound();
 
-            var file = Path.GetFullPath(Path.Combine(layout.OperatorDir, first.Path));
+            var file = Path.GetFullPath(Path.Combine(layout.Personal, first.Path));
             return await windows.OpenFileAsync(basePath, file, cancellationToken)
                 ? Results.NoContent()
                 : Results.StatusCode(StatusCodes.Status502BadGateway);
         });
     }
 
-    /// <summary>Файл флоу: путь от папки оператора через «/» и байты как на диске.</summary>
+    /// <summary>Файл флоу: путь от личного репозитория через «/» и байты как на диске.</summary>
     private sealed record FlowFileBytes(string Path, byte[] Bytes);
 
     /// <summary>Правка одного файла: Bytes — что записать (null — удалить), Before — что было (null — файла не было).</summary>
     private sealed record FileWrite(string Path, byte[]? Bytes, byte[]? Before);
 
     /// <summary>
-    /// flow/scenarios.md, если он есть, — всегда первым, — и файлы этапов из папки оператора (BaseLayout.OperatorDir).
+    /// flow/scenarios.md, если он есть, — всегда первым, — и файлы этапов из личного репозитория оператора (BaseLayout.Personal).
     /// Этапы читаются и без flow/scenarios.md: они лежат в базе, и первая запись флоу не должна ни занять их имена
     /// файлов, ни стереть их.
     /// </summary>
@@ -157,7 +157,7 @@ public static class FlowEndpoints
 
         try
         {
-            var files = Files(layout.OperatorDir);
+            var files = Files(layout.Personal);
             var stages = Stages(files);
             var list = files.FirstOrDefault(f => f.Path == FlowFolder.ListFile);
             var flows = list is null ? [] : FlowFolder.ParseList(Text(list.Bytes), Titles(stages)).Flows;

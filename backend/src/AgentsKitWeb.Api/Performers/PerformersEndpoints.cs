@@ -66,11 +66,11 @@ public static class PerformersEndpoints
             HealthMonitor health,
             CancellationToken cancellationToken) =>
         {
-            // Пишется только в папку оператора базы из списка панели: путь к файлу панель собирает сама.
+            // Пишется только в личный репозиторий базы из списка панели: путь к файлу панель собирает сама.
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
-            // Git зовётся из папки оператора: она внутри репозитория базы, и путь agents/… git берёт от неё.
-            var root = layout.OperatorDir;
+            // Git зовётся из личного репозитория: исполнитель коммитится в его git, и путь agents/… git берёт от него.
+            var root = layout.Personal;
 
             var name = request.Name?.Trim();
             if (!PerformerFile.ValidName(name))
@@ -171,7 +171,7 @@ public static class PerformersEndpoints
         var project = ProjectName.Of(basePath);
         if (!System.IO.Directory.Exists(basePath))
             return new BasePerformers(basePath, project, "", [], "База не найдена на диске");
-        // Папки оператора у нечитаемой базы нет: каталог исполнителей не называется вовсе.
+        // Личного репозитория у нечитаемой базы не опознать: каталог исполнителей не называется вовсе.
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
             return new BasePerformers(basePath, project, "", [], problem);
 
@@ -212,7 +212,7 @@ public static class PerformersEndpoints
     /// </summary>
     private static string Newline(string text) => text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
 
-    /// <summary>Путь файла от папки оператора — таким его берут git add и git commit, запущенные из неё.</summary>
+    /// <summary>Путь файла от личного репозитория — таким его берут git add и git commit, запущенные из него.</summary>
     private static string Relative(string file) => PerformerList.Folder + "/" + System.IO.Path.GetFileName(file);
 
     private static string Message(string name, bool renamed) =>

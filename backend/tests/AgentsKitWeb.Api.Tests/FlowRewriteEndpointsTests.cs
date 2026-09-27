@@ -124,7 +124,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(_base, prompt);
         // Флоу — в папке оператора этой машины, а не в корне базы (B-275).
-        Assert.Contains($"flow/stages/*.md в его папке {TestLayout.OperatorDir(_base)} базы", prompt);
+        Assert.Contains($"flow/stages/*.md в его папке {TestLayout.Personal(_base)} базы", prompt);
         Assert.Contains("Сценарии — flow/scenarios.md.", prompt);
         Assert.Contains("Ключи — закрытый перечень: исполнитель, выход, пропуск.", prompt);
         Assert.Contains("Инвариантов кита во флоу нет.", prompt);
@@ -494,7 +494,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         await Start(client, "Напиши этап");
         await Read(client, 2);
 
-        Assert.False(Directory.Exists(Path.Combine(TestLayout.OperatorDir(_base), "flow")));
+        Assert.False(Directory.Exists(Path.Combine(TestLayout.Personal(_base), "flow")));
     }
 
     [Fact]

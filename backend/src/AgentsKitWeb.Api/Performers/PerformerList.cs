@@ -7,13 +7,13 @@ internal sealed record FoundPerformer(string Name, PerformerFields Fields, strin
 
 /// <summary>
 /// Что панель нашла в каталоге исполнителей базы и как из этого складывается список раздела.
-/// Файл исполнителя живёт в базе проекта, а по рабочим копиям его развозит кит, поэтому строка
+/// Файл исполнителя живёт в личном репозитории оператора, а по рабочим копиям его развозит кит, поэтому строка
 /// списка — это файл базы, и заведённые в базе помимо панели видны наравне с её собственными.
 /// </summary>
 internal static class PerformerList
 {
     /// <summary>
-    /// Исполнители проекта — все файлы каталога `agents` папки оператора этой машины в его базе. Имя — то, которым
+    /// Исполнители проекта — все файлы каталога `agents` личного репозитория оператора этой машины. Имя — то, которым
     /// зовёт исполнителя шаг флоу: строка `name` файла, а её нет — имя самого файла. Базу панель не читает — их нет.
     /// </summary>
     public static List<Performer> OfProject(string basePath) =>
@@ -35,7 +35,7 @@ internal static class PerformerList
     }
 
     /// <summary>Каталог исполнителей оператора — тот, откуда кит развозит их по его рабочим копиям.</summary>
-    public static string Directory(BaseLayout layout) => System.IO.Path.Combine(layout.OperatorDir, Folder);
+    public static string Directory(BaseLayout layout) => System.IO.Path.Combine(layout.Personal, Folder);
 
     public const string Folder = "agents";
 

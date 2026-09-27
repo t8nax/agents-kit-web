@@ -60,13 +60,13 @@ public sealed class FlowEndpointsTests : IDisposable
     public FlowEndpointsTests()
     {
         _base = Knowledge("app-knowledge");
-        Directory.CreateDirectory(Path.Combine(TestLayout.OperatorDir(_base), "flow", "stages"));
-        _listPath = Path.Combine(TestLayout.OperatorDir(_base), "flow", "scenarios.md");
+        Directory.CreateDirectory(Path.Combine(TestLayout.Flow(_base), "stages"));
+        _listPath = Path.Combine(TestLayout.Flow(_base), "scenarios.md");
         File.WriteAllText(_listPath, List.ReplaceLineEndings("\n"));
         File.WriteAllText(Stage("criterion"), Criterion.ReplaceLineEndings("\n"));
         File.WriteAllText(Stage("acceptance"), Acceptance.ReplaceLineEndings("\n"));
-        TestGit.Run(_base, "add", "people");
-        TestGit.Run(_base, "commit", "-m", "flow");
+        TestGit.Run(TestLayout.Personal(_base), "add", "flow");
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-m", "flow");
     }
 
     [Fact]
@@ -76,9 +76,12 @@ public sealed class FlowEndpointsTests : IDisposable
         File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# Задача\nрабочая копия: D:\\a\n");
         File.WriteAllText(Path.Combine(TestLayout.Work(_base), "b.md"), "# Задача\nрабочая копия: D:\\b\n");
         var withoutFlow = TestLayout.Base(Path.Combine(_root, "empty-knowledge"));
+        // Выложенный для коллег флоу в папке оператора общей базы — не свой: агент по нему не работает (формат 6 кита).
+        Directory.CreateDirectory(Path.Combine(TestLayout.Published(withoutFlow), "flow", "stages"));
+        File.WriteAllText(Path.Combine(TestLayout.Published(withoutFlow), "flow", "scenarios.md"), List.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(TestLayout.Published(withoutFlow), "flow", "stages", "criterion.md"), Criterion.ReplaceLineEndings("\n"));
         var oldForm = TestLayout.Base(Path.Combine(_root, "old-knowledge"));
-        Directory.CreateDirectory(TestLayout.OperatorDir(oldForm));
-        File.WriteAllText(Path.Combine(TestLayout.OperatorDir(oldForm), "flow.md"), "## 1. Ветка\n\nисполнитель: оркестратор\nвыход: ветка\n");
+        File.WriteAllText(Path.Combine(TestLayout.Personal(oldForm), "flow.md"), "## 1. Ветка\n\nисполнитель: оркестратор\nвыход: ветка\n");
         // Прежний вид кита: флоу в flow/flow.md, а не в flow/scenarios.md.
         var priorKit = TestLayout.Base(Path.Combine(_root, "prior-knowledge"));
         Directory.CreateDirectory(TestLayout.Flow(priorKit));
@@ -97,7 +100,7 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Equal(["полный", "мелкий"], flow.Flows.Select(f => f.Name));
         Assert.Equal(["Критерий", "Приёмка"], flow.Flows[0].Entries.Select(e => e.Stage));
         Assert.Equal(new StageReturn("замечания", "Критерий"), Assert.Single(flow.Flows[0].Entries[1].Returns!));
-        // Базе без флоу нынешнего вида — и без флоу вовсе, и со флоу старой формы или прежнего вида кита — показывать
+        // Базе без флоу нынешнего вида — и без флоу вовсе, и только с выложенным, и со флоу старой формы или прежнего вида кита — показывать
         // нечего, но это не ошибка.
         foreach (var empty in new[] { withoutFlow, oldForm, priorKit })
         {
@@ -174,9 +177,9 @@ public sealed class FlowEndpointsTests : IDisposable
     {
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
-        // Соседняя сессия оставила в индексе базы свою правку: коммит панели её не берёт.
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), "# бэклог\n");
-        TestGit.Run(_base, "add", "backlog.md");
+        // Соседняя сессия оставила в индексе личного репозитория свою правку: коммит панели её не берёт.
+        File.WriteAllText(TestLayout.Backlog(_base), "# бэклог\n");
+        TestGit.Run(TestLayout.Personal(_base), "add", "backlog.md");
 
         var response = await Save(client, flow, flow.Stages.Select(s =>
             s.Title == "Критерий" ? s with { Skip = "правка только в текстах", Helpers = ["scout"] } : s).ToList());
@@ -196,7 +199,7 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Equal(Acceptance.ReplaceLineEndings("\n"), File.ReadAllText(Stage("acceptance")));
         Assert.Equal(List.ReplaceLineEndings("\n"), File.ReadAllText(_listPath));
         Assert.Equal("Флоу правлен из панели", Git("log", "-1", "--format=%s"));
-        Assert.Equal("people/tester/flow/stages/criterion.md", Git("show", "--name-only", "--format=", "HEAD"));
+        Assert.Equal("flow/stages/criterion.md", Git("show", "--name-only", "--format=", "HEAD"));
         Assert.Equal("A  backlog.md", Git("status", "--porcelain"));
 
         var saved = await response.Content.ReadFromJsonAsync<FlowSavedResponse>();
@@ -244,7 +247,7 @@ public sealed class FlowEndpointsTests : IDisposable
             File.ReadAllText(Stage("fiksatsiya-znaniya")));
         Assert.StartsWith("# Сдача\n", File.ReadAllText(Stage("acceptance")));
         Assert.Equal(
-            ["people/tester/flow/scenarios.md", "people/tester/flow/stages/acceptance.md", "people/tester/flow/stages/fiksatsiya-znaniya.md"],
+            ["flow/scenarios.md", "flow/stages/acceptance.md", "flow/stages/fiksatsiya-znaniya.md"],
             Git("show", "--name-only", "--format=", "HEAD").Split('\n').Order());
         Assert.Equal("", Git("status", "--porcelain"));
     }
@@ -262,7 +265,7 @@ public sealed class FlowEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.False(File.Exists(Stage("criterion")));
-        Assert.Contains("people/tester/flow/stages/criterion.md", Git("show", "--name-only", "--format=", "HEAD"));
+        Assert.Contains("flow/stages/criterion.md", Git("show", "--name-only", "--format=", "HEAD"));
         Assert.Equal("", Git("status", "--porcelain"));
     }
 
@@ -271,7 +274,7 @@ public sealed class FlowEndpointsTests : IDisposable
     {
         byte[] bom = [0xEF, 0xBB, 0xBF];
         File.WriteAllBytes(Stage("criterion"), [.. bom, .. Encoding.UTF8.GetBytes(Criterion.ReplaceLineEndings("\r\n"))]);
-        TestGit.Run(_base, "commit", "-am", "crlf");
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-am", "crlf");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
 
@@ -287,7 +290,7 @@ public sealed class FlowEndpointsTests : IDisposable
     {
         byte[] bom = [0xEF, 0xBB, 0xBF];
         File.WriteAllBytes(_listPath, [.. bom, .. Encoding.UTF8.GetBytes(List.ReplaceLineEndings("\r\n"))]);
-        TestGit.Run(_base, "commit", "-am", "crlf");
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-am", "crlf");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
 
@@ -368,7 +371,7 @@ public sealed class FlowEndpointsTests : IDisposable
     {
         // Один флоу — «когда» кит у него не требует
         File.WriteAllText(_listPath, "# App — сценарии\n\n## полный\n1. [Критерий](stages/criterion.md)\n2. [Приёмка](stages/acceptance.md)\n");
-        TestGit.Run(_base, "commit", "-am", "один флоу");
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-am", "один флоу");
         Directory.CreateDirectory(TestLayout.Work(_base));
         File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка\nрабочая копия: D:\\a\nфлоу: полный\n");
         var client = Client(_base);
@@ -416,7 +419,7 @@ public sealed class FlowEndpointsTests : IDisposable
         var fresh = await Save(client, flow, [.. flow.Stages, new FlowStage("Мерж", "оркестратор", "смержено", null, null)]);
 
         Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
-        Assert.Equal(3, Directory.GetFiles(Path.Combine(TestLayout.OperatorDir(_base), "flow", "stages")).Length);
+        Assert.Equal(3, Directory.GetFiles(Path.Combine(TestLayout.Flow(_base), "stages")).Length);
     }
 
     [Fact]
@@ -458,7 +461,7 @@ public sealed class FlowEndpointsTests : IDisposable
     {
         File.AppendAllText(_listPath, "3. Мерж\n");
         File.WriteAllText(Stage("criterion"), Criterion.ReplaceLineEndings("\n").Replace("выход:", "возврат: замечания — этап «Ревью»\nвыход:"));
-        TestGit.Run(_base, "commit", "-am", "руками");
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-am", "руками");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
 
@@ -478,7 +481,7 @@ public sealed class FlowEndpointsTests : IDisposable
     [Fact]
     public async Task Save_CommitRefusedByHook_RestoresEveryFileAndIndex()
     {
-        File.WriteAllText(Path.Combine(_base, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: флоу не прошёл' >&2\nexit 1\n");
+        File.WriteAllText(Path.Combine(TestLayout.Personal(_base), ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: флоу не прошёл' >&2\nexit 1\n");
         var client = Client(_base);
         var flow = Assert.Single(await GetFlows(client));
 
@@ -529,8 +532,9 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(
             "# Bare — сценарии\n\n## полный\n1. [Ветка](stages/vetka.md)\n",
-            File.ReadAllText(Path.Combine(TestLayout.OperatorDir(bare), "flow", "scenarios.md")));
-        Assert.True(File.Exists(Path.Combine(TestLayout.OperatorDir(bare), "flow", "stages", "vetka.md")));
+            File.ReadAllText(Path.Combine(TestLayout.Flow(bare), "scenarios.md")));
+        Assert.True(File.Exists(Path.Combine(TestLayout.Flow(bare), "stages", "vetka.md")));
+        Assert.Equal("", GitIn(TestLayout.Personal(bare), "status", "--porcelain"));
         Assert.Equal("", GitIn(bare, "status", "--porcelain"));
     }
 
@@ -538,11 +542,11 @@ public sealed class FlowEndpointsTests : IDisposable
     public async Task Save_FirstFlowBesideStageFilesWithoutList_KeepsThemAndTakesFreeName()
     {
         var bare = Knowledge("bare-knowledge");
-        Directory.CreateDirectory(Path.Combine(TestLayout.OperatorDir(bare), "flow", "stages"));
-        var own = Path.Combine(TestLayout.OperatorDir(bare), "flow", "stages", "vetka.md");
+        Directory.CreateDirectory(Path.Combine(TestLayout.Flow(bare), "stages"));
+        var own = Path.Combine(TestLayout.Flow(bare), "stages", "vetka.md");
         File.WriteAllText(own, "# Ветка\n\nисполнитель: оператор\nвыход: своя ветка\n");
-        TestGit.Run(bare, "add", "people");
-        TestGit.Run(bare, "commit", "-m", "стадия без флоу");
+        TestGit.Run(TestLayout.Personal(bare), "add", "flow");
+        TestGit.Run(TestLayout.Personal(bare), "commit", "-m", "стадия без флоу");
         var client = Client(bare);
         var flow = Assert.Single(await GetFlows(client));
         // Флоу нет, а стадия в базе лежит — её и видно
@@ -558,7 +562,8 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("# Ветка\n\nисполнитель: оператор\nвыход: своя ветка\n", File.ReadAllText(own));
         // Новая стадия, чьё имя файла совпало бы с лежащим, получает свободное
-        Assert.True(File.Exists(Path.Combine(TestLayout.OperatorDir(bare), "flow", "stages", "vetka-2.md")));
+        Assert.True(File.Exists(Path.Combine(TestLayout.Flow(bare), "stages", "vetka-2.md")));
+        Assert.Equal("", GitIn(TestLayout.Personal(bare), "status", "--porcelain"));
         Assert.Equal("", GitIn(bare, "status", "--porcelain"));
     }
 
@@ -643,10 +648,13 @@ public sealed class FlowEndpointsTests : IDisposable
         File.WriteAllText(Path.Combine(path, "product.md"), $"# {project} — продукт\n");
         TestGit.Run(path, "add", "product.md", "agents-kit.json", ".gitignore");
         TestGit.Run(path, "commit", "-m", "init");
+        TestGit.Run(TestLayout.Personal(path), "config", "user.name", "t");
+        TestGit.Run(TestLayout.Personal(path), "config", "user.email", "t@t");
+        TestGit.Run(TestLayout.Personal(path), "config", "core.autocrlf", "false");
         return path;
     }
 
-    private string Stage(string slug) => Path.Combine(TestLayout.OperatorDir(_base), "flow", "stages", slug + ".md");
+    private string Stage(string slug) => Path.Combine(TestLayout.Flow(_base), "stages", slug + ".md");
 
     private static Task<HttpResponseMessage> Save(
         HttpClient client,
@@ -675,7 +683,8 @@ public sealed class FlowEndpointsTests : IDisposable
     private static async Task<List<BaseFlow>> GetFlows(HttpClient client) =>
         await client.GetFromJsonAsync<List<BaseFlow>>("/api/flow") ?? [];
 
-    private string Git(params string[] args) => GitIn(_base, args);
+    /// <summary>Git личного репозитория: флоу коммитится в него.</summary>
+    private string Git(params string[] args) => GitIn(TestLayout.Personal(_base), args);
 
     private static string GitIn(string repository, params string[] args)
     {

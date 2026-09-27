@@ -5,26 +5,27 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Bases;
 
 /// <summary>
-/// Где что лежит в базе кита на этом компьютере — раскладка кита формата 5 (base-layout.md кита,
+/// Где что лежит в базе кита на этом компьютере — раскладка кита формата 6 (base-layout.md кита,
 /// адреса — как в его scripts/link-state.ps1). Общее знание — в корне базы; список копий этой машины
 /// и имя её оператора — local\me.json вне git; личный репозиторий оператора local\me со своим git —
-/// бэклог, память задач и их артефакты; папка оператора people\&lt;имя&gt; — его флоу и исполнители.
+/// его рамки, флоу, исполнители, бэклог, память задач и их артефакты. Папка оператора people\&lt;имя&gt;
+/// держит только выложенное для коллег, и панель её не читает: агент оператора по ней не работает.
 /// Базу другого формата панель не читает: кит сначала переводит её сам — решение оператора на B-275.
 /// </summary>
 public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyList<string> Workspaces)
 {
     /// <summary>Формат базы, который понимает панель, — поле version в agents-kit.json.</summary>
-    public const int Format = 5;
+    public const int Format = 6;
 
     public const string MarkerFile = "agents-kit.json";
 
-    /// <summary>Личный репозиторий оператора: бэклог, память задач и их артефакты, свой git.</summary>
+    /// <summary>
+    /// Личный репозиторий оператора, свой git: рамки, флоу (flow/), исполнители (agents/), бэклог, память задач
+    /// и их артефакты.
+    /// </summary>
     public string Personal => PersonalOf(Base);
 
     public static string PersonalOf(string basePath) => Path.Combine(basePath, "local", "me");
-
-    /// <summary>Папка оператора этой машины в базе: его флоу и исполнители.</summary>
-    public string OperatorDir => Path.Combine(Base, "people", Operator);
 
     /// <summary>Память задач всех машин оператора: work\&lt;машина&gt;\&lt;слаг копии&gt;.md.</summary>
     public string WorkDir => Path.Combine(Personal, "work");

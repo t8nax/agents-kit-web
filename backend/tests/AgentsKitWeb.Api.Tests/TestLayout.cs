@@ -39,11 +39,12 @@ internal static class TestLayout
     /// <summary>Каталог памяти задач этой машины в личном репозитории.</summary>
     public static string Work(string basePath) => Path.Combine(Personal(basePath), "work", BaseLayout.Machine());
 
-    public static string OperatorDir(string basePath) => Path.Combine(basePath, "people", Operator);
+    /// <summary>Папка оператора в общей базе — выложенное для коллег; панель её не читает.</summary>
+    public static string Published(string basePath) => Path.Combine(basePath, "people", Operator);
 
-    public static string Flow(string basePath) => Path.Combine(OperatorDir(basePath), "flow");
+    public static string Flow(string basePath) => Path.Combine(Personal(basePath), "flow");
 
-    public static string Agents(string basePath) => Path.Combine(OperatorDir(basePath), "agents");
+    public static string Agents(string basePath) => Path.Combine(Personal(basePath), "agents");
 
     public static string Backlog(string basePath) => Path.Combine(Personal(basePath), "backlog.md");
 }

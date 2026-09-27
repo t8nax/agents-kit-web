@@ -173,7 +173,7 @@ public static partial class FlowFolder
     }
 
     /// <summary>
-    /// Флоу по flow/scenarios.md от корня флоу — папки оператора в базе (BaseLayout.OperatorDir): только имена, «когда»
+    /// Флоу по flow/scenarios.md от корня флоу — личного репозитория оператора (BaseLayout.Personal): только имена, «когда»
     /// и названия пунктов. Флоу нет или файл не прочитан — пусто.
     /// </summary>
     public static IReadOnlyList<NamedFlow> ReadFlows(string root)

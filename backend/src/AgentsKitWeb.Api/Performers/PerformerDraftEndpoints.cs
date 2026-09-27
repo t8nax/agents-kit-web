@@ -157,13 +157,13 @@ public static class PerformerDraftEndpoints
         {
             if (BaseLayout.Read(basePath) is not { } layout)
                 return null;
-            var list = Path.Combine(layout.OperatorDir, FlowFolder.ListFile);
+            var list = Path.Combine(layout.Personal, FlowFolder.ListFile);
             if (!File.Exists(list))
                 return null;
 
             var text = new System.Text.StringBuilder()
                 .Append(FlowFolder.ListFile).Append(":\n").Append(await File.ReadAllTextAsync(list, cancellationToken));
-            var stages = Path.Combine(layout.OperatorDir, FlowFolder.StagesFolder);
+            var stages = Path.Combine(layout.Personal, FlowFolder.StagesFolder);
             if (Directory.Exists(stages))
                 foreach (var file in Directory.EnumerateFiles(stages, "*.md").Order(StringComparer.Ordinal))
                     text.Append("\n\n").Append(FlowFolder.StagesFolder).Append('/').Append(Path.GetFileName(file)).Append(":\n")
@@ -183,7 +183,7 @@ public static class PerformerDraftEndpoints
     public static ProcessStartInfo StartInfo(string basePath, string copyPath, string project, bool editing)
     {
         // Исполнители и флоу — свои у каждого оператора: они лежат в его папке базы (раскладка кита с формата 4).
-        var folder = BaseLayout.Read(basePath)?.OperatorDir ?? basePath;
+        var folder = BaseLayout.Read(basePath)?.Personal ?? basePath;
         var agents = Path.Combine(folder, PerformerList.Folder);
         var task = editing
             ? "Оператор правит заведённого исполнителя: его нынешний файл придёт там же. Меняй только то, о чём просит оператор, остальное оставь слово в слово."

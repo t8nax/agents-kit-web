@@ -442,7 +442,7 @@ public static class FlowRewriteEndpoints
             : $"Текущий каталог — рабочая копия проекта: читай её код, чтобы понять, чем проект сделан и чем проверяется работа. База знаний проекта лежит в {basePath}.";
 
         // Флоу — свой у каждого оператора: он лежит в его папке базы, а не в её корне (раскладка кита с формата 4).
-        var folder = BaseLayout.Read(basePath)?.OperatorDir ?? basePath;
+        var folder = BaseLayout.Read(basePath)?.Personal ?? basePath;
         var systemPrompt = $"""
             Ты с оператором веб-панели правишь его флоу проекта «{project}» — сценарии flow/scenarios.md и этапы
             flow/stages/*.md в его папке {folder} базы знаний agents-kit. Это переписка: оператор просит и уточняет, ты отвечаешь.
