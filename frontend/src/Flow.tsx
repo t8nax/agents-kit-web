@@ -46,8 +46,11 @@ export type FlowStage = {
   slug?: string | null
 }
 
-/** Возврат стадии во флоу: при condition работа идёт заново к стадии stage, стоящей в этом флоу раньше. */
-export type StageReturn = { condition: string; stage: string }
+/**
+ * Возврат стадии во флоу: при condition работа идёт заново к стадии stage, стоящей в этом флоу раньше.
+ * rounds — предел кругов: stage прошла столько кругов — вместо возврата вопрос оператору; нет — предела нет.
+ */
+export type StageReturn = { condition: string; stage: string; rounds?: number | null }
 
 /** Пункт флоу: стадия по названию и её возвраты — у той же стадии в другом флоу они свои. */
 export type FlowEntry = { stage: string; returns?: StageReturn[] }
@@ -100,7 +103,8 @@ type DraftStage = {
 
 // Пункты и возвраты ссылаются на стадию её key: переименование стадии не рвёт их. stage === null —
 // пункт ведёт на стадию, которой в базе нет, и title хранит, как он назван в файле.
-type DraftReturn = { condition: string; target: number | null }
+// rounds — предел кругов, как набран в поле; null — предела нет.
+type DraftReturn = { condition: string; target: number | null; rounds: string | null }
 type DraftEntry = { key: number; stage: number | null; title: string; returns: DraftReturn[] }
 type DraftFlow = { key: number; name: string; when: string; entries: DraftEntry[] }
 type Draft = { stages: DraftStage[]; flows: DraftFlow[] }
@@ -167,13 +171,23 @@ function toDraft(flow: BaseFlow, previous: Draft | null = null): Draft {
             key: same?.key ?? nextKey++,
             stage,
             title: entry.stage,
-            returns: (entry.returns ?? []).map((back) => ({ condition: back.condition, target: keyOf(back.stage) })),
+            returns: (entry.returns ?? []).map((back) => fromApiReturn(back, keyOf(back.stage))),
           }
         }),
       }
     }),
   }
 }
+
+function fromApiReturn(back: StageReturn, target: number | null): DraftReturn {
+  return { condition: back.condition, target, rounds: back.rounds == null ? null : String(back.rounds) }
+}
+
+// Предел кругов кит принимает только целым от 1.
+const validRounds = (rounds: string) => /^[1-9]\d{0,8}$/.test(rounds.trim())
+
+// Неверный предел в запись не уходит — его держит ошибка окна; 0 лишь отличает его от «предела нет».
+const roundsOf = (rounds: string) => (validRounds(rounds) ? Number(rounds.trim()) : 0)
 
 function toStage(draft: DraftStage): FlowStage {
   return {
@@ -198,7 +212,11 @@ function toApi(draft: Draft): { stages: FlowStage[]; flows: NamedFlow[] } {
       when: f.when.trim() || null,
       entries: f.entries.map((entry) => ({
         stage: entry.stage === null ? entry.title : titleOf(entry.stage),
-        returns: entry.returns.map((back) => ({ condition: back.condition.trim(), stage: titleOf(back.target) })),
+        returns: entry.returns.map((back) => ({
+          condition: back.condition.trim(),
+          stage: titleOf(back.target),
+          ...(back.rounds === null ? {} : { rounds: roundsOf(back.rounds) }),
+        })),
       })),
     })),
   }
@@ -256,6 +274,7 @@ function entryErrors(flow: DraftFlow, index: number) {
     const target = flow.entries.findIndex((other) => back.target !== null && other.stage === back.target)
     if (target < 0) errors.push('возврат ведёт на этап, которого во флоу нет')
     else if (target >= index) errors.push('возврат ведёт на этап, который стоит не раньше')
+    if (back.rounds !== null && !validRounds(back.rounds)) errors.push('предел кругов — целое число от 1')
   }
   return errors
 }
@@ -397,6 +416,7 @@ const invalidLabels: Record<string, string> = {
   'return-without-condition': 'в возврате не указано условие',
   'return-unknown-stage': 'возврат ведёт на этап, которого во флоу нет',
   'return-stage-not-earlier': 'возврат ведёт на этап, который стоит не раньше',
+  'return-rounds-invalid': 'предел кругов — целое число от 1',
 }
 
 /**
@@ -743,7 +763,7 @@ export default function Flow({
         key: nextKey++,
         stage: keyOf(entry.stage),
         title: entry.stage,
-        returns: (entry.returns ?? []).map((back) => ({ condition: back.condition, target: keyOf(back.stage) })),
+        returns: (entry.returns ?? []).map((back) => fromApiReturn(back, keyOf(back.stage))),
       })),
     })
     let flows = saved.flows
@@ -3025,7 +3045,7 @@ function ReturnsField({
         <button
           type="button"
           className="flow-add-dashed"
-          onClick={() => onChange([...returns, { condition: '', target: null }])}
+          onClick={() => onChange([...returns, { condition: '', target: null, rounds: null }])}
         >
           <PlusIcon />
           Добавить возврат

@@ -1829,6 +1829,21 @@ test('у единственного сценария без «когда», по
   expect(sent.flows[0].entries).toEqual(full.entries.map((entry) => ({ stage: entry.stage, returns: entry.returns ?? [] })))
 })
 
+test('предел кругов из базы не теряется, когда записывают другое', async () => {
+  const limited: NamedFlow = {
+    ...small,
+    entries: [small.entries[0], { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Ревью', rounds: 3 }] }],
+  }
+  const fetchMock = stubApi(api([{ ...app, flows: [full, limited] }], saved()))
+  await renderFlow()
+
+  const free = await stagesTab('Запас')
+  fireEvent.change(free.getByRole('textbox', { name: 'Выход этапа' }), { target: { value: 'кое-что' } })
+
+  const sent = await saveAndRead(fetchMock)
+  expect(sent.flows[1].entries[1].returns).toEqual([{ condition: 'замечания', stage: 'Ревью', rounds: 3 }])
+})
+
 test('незаписанный новый сценарий и описание со схемы уходят с окном: следующее действие их не записывает', async () => {
   let refuse = true
   const fetchMock = stubApi(
