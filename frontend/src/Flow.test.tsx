@@ -542,6 +542,11 @@ test('предел кругов задают кнопкой, правят чис
   expect(again.getByRole('button', { name: 'Предел кругов возврата 1' })).toHaveFocus()
   fireEvent.click(again.getByRole('button', { name: 'Предел кругов возврата 1' }))
   fireEvent.change(again.getByRole('textbox', { name: 'Предел кругов возврата 1' }), { target: { value: '0' } })
+  // Два неверных предела — причина в строке одна
+  fireEvent.click(again.getByRole('button', { name: 'Добавить возврат' }))
+  fireEvent.click(again.getByRole('button', { name: 'Предел кругов возврата 2' }))
+  expect(again.getByText('Возвраты не сохранить: предел кругов — целое число от 1, в возврате не указано условие, возврат ведёт на этап, которого во флоу нет.')).toBeInTheDocument()
+  fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 2' }))
   // Убранный возврат уносит и свой предел, даже неверный: сохранить можно
   fireEvent.click(again.getByRole('button', { name: 'Убрать возврат 1' }))
   expect(again.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
@@ -694,15 +699,25 @@ test('предел кругов стоит числом на своей дуге
     entries: [
       { stage: 'Критерий' },
       { stage: 'Ревью', returns: [{ condition: 'нет критерия', stage: 'Критерий' }] },
-      { stage: 'Приёмка', returns: [{ condition: 'замечания', stage: 'Ревью', rounds: 3 }] },
+      {
+        stage: 'Приёмка',
+        returns: [
+          { condition: 'замечания', stage: 'Ревью', rounds: 3 },
+          { condition: 'всё заново', stage: 'Критерий', rounds: 120 },
+        ],
+      },
     ],
   }
   stubApi(api([{ ...app, flows: [limited, small] }]))
   await renderFlow()
 
   const arcs = [...document.querySelectorAll('.flow-arc')]
-  expect(arcs).toHaveLength(2)
-  expect(arcs.map((arc) => arc.querySelector('.flow-arc-limit')?.textContent ?? null).sort()).toEqual(['3', null])
+  expect(arcs).toHaveLength(3)
+  expect(arcs.map((arc) => arc.querySelector('.flow-arc-limit')?.textContent ?? null).sort()).toEqual(['120', '3', null])
+  // Кружок под одну цифру, а длинное число растягивает его: цифры не вылезают на дугу
+  const width = (text: string) =>
+    [...document.querySelectorAll('.flow-arc-limit')].find((one) => one.textContent === text)?.querySelector('rect')?.getAttribute('width')
+  expect([width('3'), width('120')]).toEqual(['20', '27'])
   // Не под мышью дуга не подсвечена, а число всё равно видно.
   expect(document.querySelectorAll('.flow-arc-open')).toHaveLength(0)
 })

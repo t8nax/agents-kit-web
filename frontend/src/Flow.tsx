@@ -276,7 +276,8 @@ function entryErrors(flow: DraftFlow, index: number) {
     else if (target >= index) errors.push('возврат ведёт на этап, который стоит не раньше')
     if (back.rounds !== null && !validRounds(back.rounds)) errors.push('предел кругов — целое число от 1')
   }
-  return errors
+  // Два возврата с одной бедой — одна причина в строке окна, а не две одинаковые.
+  return [...new Set(errors)]
 }
 
 function flowErrors(flow: DraftFlow, flows: DraftFlow[]) {
@@ -2071,6 +2072,9 @@ function returnArcs(flow: DraftFlow): ReturnArc[] {
   return arcs
 }
 
+// Ширина кружка предела кругов: 20px на одну-две цифры, дальше — по 7px на цифру.
+const limitWidth = (rounds: number) => Math.max(20, String(rounds).length * 7 + 6)
+
 const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
 
 /**
@@ -2104,14 +2108,21 @@ function ReturnArcs({ flow, lit }: { flow: DraftFlow; lit: number[] }) {
               {/* Предел кругов стоит кружком на своей дуге всегда — вариант «А» макета B-271. */}
               {arc.rounds !== null && (
                 <g className="flow-arc-limit" data-rounds={arc.rounds}>
-                  <rect x={lane - 10} y={(y1 + y2) / 2 - 10} width={20} height={20} rx={10} />
+                  {/* Кружок, а для длинного числа — пилюля: цифры не вылезают на дугу. */}
+                  <rect
+                    x={lane - limitWidth(arc.rounds) / 2}
+                    y={(y1 + y2) / 2 - 10}
+                    width={limitWidth(arc.rounds)}
+                    height={20}
+                    rx={10}
+                  />
                   <text x={lane} y={(y1 + y2) / 2 + 0.5} textAnchor="middle">
                     {arc.rounds}
                   </text>
                 </g>
               )}
               {lighted && arc.condition.trim() && (
-                <text className="flow-arc-label" x={lane - (arc.rounds !== null ? 18 : 8)} y={(y1 + y2) / 2} textAnchor="end">
+                <text className="flow-arc-label" x={lane - (arc.rounds !== null ? limitWidth(arc.rounds) / 2 + 8 : 8)} y={(y1 + y2) / 2} textAnchor="end">
                   {arc.condition.trim()}
                 </text>
               )}
