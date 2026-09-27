@@ -21,6 +21,7 @@ public class TrackerTests
     [InlineData("GitHub Issues репозитория https://github.com/acme/orders, ходить через gh; номер — #37.", "acme/orders")]
     [InlineData("Задачи — github.com/acme/orders-tasks.", "acme/orders-tasks")]
     [InlineData("Клон: git@github.com:acme/orders.git", "acme/orders")]
+    [InlineData("Задачи на https://www.github.com/acme/orders/issues", "acme/orders")]
     [InlineData("Доска https://github.com/orgs/acme/projects/3, задачи в https://github.com/acme/orders/issues", "acme/orders")]
     public void Parse_TakesRepositoryFromWhereSection(string where, string repo)
     {
