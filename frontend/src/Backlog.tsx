@@ -102,19 +102,27 @@ export default function Backlog({
   const [trackers, setTrackers] = useState<Record<string, TrackerLoad>>({})
   const trackerRound = useRef(0)
 
-  const loadTrackers = useCallback((backlogs: BaseBacklog[]) => {
-    const round = ++trackerRound.current
+  // Вид трекера каждой базы, как его знало последнее чтение: бэклог, перечитанный после записи или запуска, узнаёт по
+  // нему базу, чей трекер появился или сменился, пока раздел открыт, — её трекер читается сразу, а не висит заготовкой
+  const trackerKinds = useRef<Record<string, string>>({})
+
+  // all — читать трекеры всех баз (открытие раздела и «Обновить»); иначе только появившихся и сменивших вид
+  const loadTrackers = useCallback((backlogs: BaseBacklog[], all: boolean) => {
+    const round = all ? ++trackerRound.current : trackerRound.current
+    const read = new Set(
+      backlogs.filter((b) => b.tracker && (all || trackerKinds.current[b.base] !== b.tracker.kind)).map((b) => b.base),
+    )
+    trackerKinds.current = Object.fromEntries(backlogs.flatMap((b) => (b.tracker ? [[b.base, b.tracker.kind]] : [])))
     setTrackers((prev) => {
       const next: Record<string, TrackerLoad> = {}
       for (const backlog of backlogs) {
         if (!backlog.tracker) continue
-        // Прочитанное остаётся на месте, пока идёт новое чтение: дописанная запись не гасит задачи трекера
-        next[backlog.base] = backlog.tracker.kind === 'github' && prev[backlog.base] ? prev[backlog.base] : initialTrackerLoad(backlog.tracker)
+        next[backlog.base] = read.has(backlog.base) || !prev[backlog.base] ? initialTrackerLoad(backlog.tracker) : prev[backlog.base]
       }
       return next
     })
     for (const backlog of backlogs) {
-      if (backlog.tracker?.kind !== 'github') continue
+      if (backlog.tracker?.kind !== 'github' || !read.has(backlog.base)) continue
       void loadTrackerIssues(backlog.base).then((result) => {
         if (round !== trackerRound.current) return
         setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
@@ -125,7 +133,7 @@ export default function Backlog({
   }, [])
 
   // Задачи трекера перечитываются только при открытии раздела и по «Обновить» — критерий B-277: запись Чудо-Юдо
-  // и запуск задачи перечитывают бэклог, но gh заново не зовут
+  // и запуск задачи перечитывают бэклог, но gh заново зовут только для трекера, которого раздел ещё не читал
   const loadBacklogs = useCallback((readTrackers = false) => {
     fetch('/api/backlog')
       .then((response) => {
@@ -135,7 +143,7 @@ export default function Backlog({
       .then(
         (backlogs) => {
           setLoad({ kind: 'loaded', backlogs })
-          if (readTrackers) loadTrackers(backlogs)
+          loadTrackers(backlogs, readTrackers)
           forgetGoneStartWords(backlogs)
           // База могла уйти из списка, пока раздел был открыт: показываем тогда все проекты.
           setFilter((current) => (backlogs.some((b) => b.base === current) ? current : null))

@@ -917,6 +917,24 @@ test('проект с пустым бэклогом при отборе пока
   expect(project.queryByText('Записи бэклога')).not.toBeInTheDocument()
 })
 
+test('трекер, появившийся, пока раздел открыт, читается при перечитывании бэклога, а не висит заготовкой', async () => {
+  const fetchMock = stubFetch(backlogs, withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog onStarted={vi.fn()} />)
+  const row = (await screen.findByRole('button', { name: /B-2 Экспорт заметок/ })).closest('.entry-row')!
+  expect(screen.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+
+  // Запуск задачи перечитывает бэклог — в нём у проекта уже есть трекер
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' }))
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /nota-copy/ }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
 test('ответ трекера прошлого чтения, пришедший после «Обновить», не встаёт на место заготовки', async () => {
   let late: (response: Response) => void = () => {}
   const fetchMock = stubFetch(withTracker(github))
