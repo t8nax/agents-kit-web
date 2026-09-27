@@ -521,13 +521,16 @@ test('предел кругов задают кнопкой, правят чис
   const field = dialog.getByRole('textbox', { name: 'Предел кругов возврата 1' })
   expect(field).toHaveFocus()
 
-  // Пустое, дробное и ноль — не целое от 1: окно называет причину и не сохраняет
-  for (const value of ['', '2,5', '0']) {
+  // Пустое, дробное, ноль и больше, чем удержит API, — не годится: окно называет причину и не сохраняет
+  for (const value of ['', '2,5', '0', '2147483648']) {
     fireEvent.change(field, { target: { value } })
     expect(field).toHaveAttribute('aria-invalid', 'true')
     expect(dialog.getByText('Возвраты не сохранить: предел кругов — целое число от 1.')).toBeInTheDocument()
     expect(dialog.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
   }
+  // Десять цифр в пределах int — годятся, как их принимает и чтение базы
+  fireEvent.change(field, { target: { value: '2147483647' } })
+  expect(dialog.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
   fireEvent.change(field, { target: { value: '2' } })
   expect(dialog.queryByText(/Возвраты не сохранить/)).not.toBeInTheDocument()
   expect((await saveAndRead(fetchMock)).flows[1].entries[1].returns).toEqual([

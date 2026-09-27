@@ -183,8 +183,8 @@ function fromApiReturn(back: StageReturn, target: number | null): DraftReturn {
   return { condition: back.condition, target, rounds: back.rounds == null ? null : String(back.rounds) }
 }
 
-// Предел кругов кит принимает только целым от 1.
-const validRounds = (rounds: string) => /^[1-9]\d{0,8}$/.test(rounds.trim())
+// Предел кругов кит принимает только целым от 1; больше int его не удержит API — та же граница, что при чтении базы.
+const validRounds = (rounds: string) => /^[1-9]\d*$/.test(rounds.trim()) && Number(rounds.trim()) <= 2147483647
 
 // Неверный предел в запись не уходит — его держит ошибка окна; 0 лишь отличает его от «предела нет».
 const roundsOf = (rounds: string) => (validRounds(rounds) ? Number(rounds.trim()) : 0)
