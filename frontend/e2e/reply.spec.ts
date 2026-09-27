@@ -246,6 +246,72 @@ test('свёрнутые вопросы одинаковы, у варианто�
   expect(await size('.field-error svg')).toEqual([14, 14])
 })
 
+test('снимок, приложенный к ответу, переживает закрытие окна и перезагрузку страницы', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')])
+
+  await page.goto('/')
+  let dialog = await openReply(page)
+  await dialog.getByLabel('Приложить').setInputFiles({ name: 'снимок.png', mimeType: 'image/png', buffer: Buffer.from('89504e47', 'hex') })
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('снимок.png')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await page.reload()
+  dialog = await openReply(page)
+
+  const tiles = dialog.getByRole('list', { name: 'Приложенные файлы' })
+  await expect(tiles.getByText('снимок.png')).toBeVisible()
+  await expect(tiles.getByText('4 Б')).toBeVisible()
+})
+
+test('снимки к двум вопросам подряд оба остаются в черновике', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?'), plain('Как быть с переносами?')])
+
+  await page.goto('/')
+  let dialog = await openReply(page)
+  const png = (name: string) => ({ name, mimeType: 'image/png', buffer: Buffer.from('89504e47', 'hex') })
+  // второй снимок уходит сразу за первым, не дожидаясь его записи в черновик
+  await dialog.getByLabel('Приложить').setInputFiles(png('первый.png'))
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  await dialog.getByLabel('Приложить').setInputFiles(png('второй.png'))
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await page.reload()
+  dialog = await openReply(page)
+
+  await expect(dialog.getByLabel('Приложено').getByText('первый.png')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
+})
+
+test('артефакт из artifacts/ базы — путь файла: щелчок просит панель открыть его тем же адресом', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')], {
+    artifacts: [{ label: 'снимок окна', address: 'artifacts/B-7-снимок.png' }],
+  })
+  let opened: unknown = null
+  await page.route('**/api/artifact/open', async (route) => {
+    opened = route.request().postDataJSON()
+    await route.fulfill({ status: 204 })
+  })
+
+  await page.goto('/')
+  const dialog = await openReply(page)
+  await dialog.getByRole('tab', { name: 'Артефакты' }).click()
+  await dialog.getByRole('button', { name: 'artifacts/B-7-снимок.png' }).click()
+
+  await expect.poll(() => opened).toEqual({
+    base: row().base,
+    copy: row().path,
+    index: 0,
+    address: 'artifacts/B-7-снимок.png',
+  })
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+})
+
 test('контекст и артефакты — вкладками в шапке: растянуты на всё окно, без строки ответа, окон поверх нет', async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?')], {
