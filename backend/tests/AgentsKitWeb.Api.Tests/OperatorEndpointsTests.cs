@@ -148,8 +148,8 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal(
             ["принимаю — файл: artifacts/Снимок-экрана.png", "файлы: artifacts/лог.txt, artifacts/лог-2.txt", "да"],
             memory.Questions.Select(q => q.Answer));
-        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(_base, "artifacts", "Снимок-экрана.png")));
-        Assert.Equal([0, 1], File.ReadAllBytes(Path.Combine(_base, "artifacts", "лог-2.txt")));
+        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(TestLayout.Personal(_base), "artifacts", "Снимок-экрана.png")));
+        Assert.Equal([0, 1], File.ReadAllBytes(Path.Combine(TestLayout.Personal(_base), "artifacts", "лог-2.txt")));
         Assert.False(Directory.Exists(Path.Combine(_copy, "artifacts")));
     }
 
@@ -165,7 +165,7 @@ public sealed class OperatorEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
         Assert.Equal(new AttachRejected("видео.mp4", "too-large"), await response.Content.ReadFromJsonAsync<AttachRejected>());
         Assert.Equal(before, await File.ReadAllTextAsync(_memoryPath));
-        Assert.False(Directory.Exists(Path.Combine(_base, "artifacts")));
+        Assert.False(Directory.Exists(Path.Combine(TestLayout.Personal(_base), "artifacts")));
     }
 
     [Fact]
@@ -176,7 +176,7 @@ public sealed class OperatorEndpointsTests : IDisposable
             new OperatorAnswer("Старый вопрос?", "ещё раз"));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "artifacts")));
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(TestLayout.Personal(_base), "artifacts")));
     }
 
     [Theory]
@@ -193,7 +193,7 @@ public sealed class OperatorEndpointsTests : IDisposable
             new OperatorAnswer("Как быть с переносами?", "пробелами"));
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.True(File.Exists(Path.Combine(_base, address)));
+        Assert.True(File.Exists(Path.Combine(TestLayout.Personal(_base), address)));
     }
 
     [Fact]
@@ -626,12 +626,15 @@ public sealed class OperatorEndpointsTests : IDisposable
     [Fact]
     public async Task OpenArtifact_FromBaseArtifacts_OpensFileOfBaseInCopyWindow()
     {
-        // Кит держит файлы артефактов в artifacts/ базы, а ссылается на них путём от её корня.
-        var shot = Path.Combine(_base, "artifacts", "B-1-снимок.png");
+        // Кит держит артефакты памяти в artifacts/ личного репозитория и ссылается на них путём от его корня;
+        // файл того же имени в общей базе и в копии — не тот.
+        var shot = Path.Combine(TestLayout.Personal(_base), "artifacts", "B-1-снимок.png");
         Directory.CreateDirectory(Path.GetDirectoryName(shot)!);
         File.WriteAllBytes(shot, [1, 2, 3]);
         Directory.CreateDirectory(Path.Combine(_copy, "artifacts"));
         File.WriteAllBytes(Path.Combine(_copy, "artifacts", "B-1-снимок.png"), [4]);
+        Directory.CreateDirectory(Path.Combine(_base, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_base, "artifacts", "B-1-снимок.png"), [5]);
 
         var response = await PostOpenArtifact(_base, _copy, 5);
 

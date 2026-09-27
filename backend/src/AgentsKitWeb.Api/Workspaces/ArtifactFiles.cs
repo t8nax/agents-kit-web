@@ -8,7 +8,11 @@ public sealed record AttachedFile(string Name, string Data);
 /// <summary>Приложенный файл не лёг в базу: Problem — too-large (крупнее потолка) или unreadable (не base64).</summary>
 public sealed record AttachRejected(string Name, string Problem);
 
-/// <summary>Файлы артефактов в базе — по раскладке кита: плоский каталог artifacts/ в корне базы.</summary>
+/// <summary>
+/// Файлы артефактов — по раскладке кита: плоский каталог artifacts/ в корне того репозитория, чей .md на них ссылается.
+/// Артефакты бэклога и памяти задач живут в личном репозитории оператора (BaseLayout.Personal), и корнем для них
+/// зовут его; «база» в именах ниже — этот корень.
+/// </summary>
 public static partial class ArtifactFiles
 {
     public const string Folder = "artifacts";
