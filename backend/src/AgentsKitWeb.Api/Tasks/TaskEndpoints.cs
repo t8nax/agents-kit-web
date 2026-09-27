@@ -79,6 +79,7 @@ public static partial class TaskEndpoints
                 if (issueTitle is null)
                     return Results.BadRequest(new TaskStartProblem("issue-unknown"));
             }
+
             var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
             var copy = request.Copy;
             var row = rows.FirstOrDefault(r => WorkspaceCollector.Normalize(r.Path)
