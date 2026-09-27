@@ -38,11 +38,19 @@ public class GhIssuesTests
     }
 
     [Fact]
+    public void Failed_UnknownRepository_IsRepoUnreachable()
+    {
+        var issues = GhIssues.Failed(1, "GraphQL: Could not resolve to a Repository with the name 'acme/gone'. (repository)\n");
+
+        Assert.Equal(new TrackerIssues([], TrackerIssues.RepoUnreachable), issues);
+    }
+
+    [Fact]
     public void Failed_Otherwise_CarriesFirstLineOfGitHub()
     {
-        var issues = GhIssues.Failed(1, "\nGraphQL: Could not resolve to a Repository with the name 'acme/gone'. (repository)\n");
+        var issues = GhIssues.Failed(1, "\nHTTP 502: Bad Gateway (https://api.github.com/graphql)\nretry later\n");
 
         Assert.Equal(TrackerIssues.GitHubError, issues.Problem);
-        Assert.Equal("GraphQL: Could not resolve to a Repository with the name 'acme/gone'. (repository)", issues.Detail);
+        Assert.Equal("HTTP 502: Bad Gateway (https://api.github.com/graphql)", issues.Detail);
     }
 }

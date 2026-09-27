@@ -12,13 +12,15 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// <summary>
 /// Задачи трекера базы. Problem задан — задач панель не прочитала: вид трекера из TrackerInfo («not-github»,
 /// «no-address», «unreadable»), «no-tracker», «gh-missing» — нет программы gh, «gh-login» — gh не вошла
-/// в аккаунт GitHub, «github-error» — GitHub отказал, Detail — его строка.
+/// в аккаунт GitHub, «repo-unreachable» — репозитория нет или к нему нет доступа (GitHub их не различает),
+/// «github-error» — GitHub отказал иначе, Detail — его строка.
 /// </summary>
 public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null)
 {
     public const string NoTracker = "no-tracker";
     public const string GhMissing = "gh-missing";
     public const string GhLogin = "gh-login";
+    public const string RepoUnreachable = "repo-unreachable";
     public const string GitHubError = "github-error";
 }
 
@@ -109,6 +111,9 @@ public sealed class GhIssues : IGitHubIssues
         if (exitCode == 4 || error.Contains("gh auth login", StringComparison.Ordinal)
             || error.Contains("401", StringComparison.Ordinal) || error.Contains("Bad credentials", StringComparison.Ordinal))
             return new TrackerIssues([], TrackerIssues.GhLogin);
+        // Чужой закрытый репозиторий GitHub отвечает так же, как несуществующий.
+        if (error.Contains("Could not resolve to a Repository", StringComparison.Ordinal))
+            return new TrackerIssues([], TrackerIssues.RepoUnreachable);
         var line = error.ReplaceLineEndings("\n").Split('\n').FirstOrDefault(l => l.Trim().Length > 0)?.Trim();
         return new TrackerIssues([], TrackerIssues.GitHubError, line ?? $"gh вышла с кодом {exitCode}");
     }

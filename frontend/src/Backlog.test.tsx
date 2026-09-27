@@ -62,7 +62,15 @@ function stubFetch(...responses: BaseBacklog[][]) {
   let rows = copies
   let taskReply: Response | null = null
   let artifactReply: () => Response = () => new Response(null, { status: 204 })
+  // Задачи трекера по базам: ответ или обещание ответа — им тест держит чтение трекера незаконченным
+  const trackerReplies = new Map<string, () => Promise<Response>>()
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url.startsWith('/api/backlog/tracker?')) {
+      const base = new URLSearchParams(url.slice(url.indexOf('?'))).get('base')!
+      const reply = trackerReplies.get(base)
+      expect(reply, `задачи трекера ${base} не ожидались`).toBeDefined()
+      return reply!()
+    }
     if (url === '/api/backlog/artifact/open') {
       posts.push(JSON.parse(String(init?.body)))
       return Promise.resolve(artifactReply())
@@ -98,6 +106,10 @@ function stubFetch(...responses: BaseBacklog[][]) {
     setArtifactReply: (next: () => Response) => {
       artifactReply = next
     },
+    setTracker: (base: string, reply: () => Promise<Response>) => {
+      trackerReplies.set(base, reply)
+    },
+    trackerReads: () => fetchMock.mock.calls.filter(([url]) => url.startsWith('/api/backlog/tracker?')).length,
   })
 }
 
@@ -808,4 +820,117 @@ test('проект, чей бэклог не читается, при отбор
   expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
   expect(screen.getByRole('region', { name: 'Nota' })).toBeInTheDocument()
   expect(screen.getByText('Под фильтр записей нет')).toBeInTheDocument()
+})
+
+// ——— Задачи трекера, назначенные на оператора (B-277) ———
+
+const withTracker = (tracker: BaseBacklog['tracker']): BaseBacklog[] => [{ ...backlogs[0], tracker }, backlogs[1]]
+
+const github = { kind: 'github' as const, repo: 'acme/orders' }
+
+const issues = [
+  { name: 'GitHub #52', number: 52, title: 'Панель не стартует с пробелом в пути', url: 'https://github.com/acme/orders/issues/52' },
+  { name: 'GitHub #7', number: 7, title: 'Показывать версию кита', url: 'https://github.com/acme/orders/issues/7' },
+]
+
+const answer = (body: unknown) => () => Promise.resolve(Response.json(body))
+
+test('у проекта с трекером GitHub под записями бэклога — задачи трекера ссылками на GitHub', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const link = await project.findByRole('link', { name: /#52 Панель не стартует с пробелом в пути/ })
+  expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/52')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('title', 'Открыть GitHub #52 во вкладке браузера')
+  expect(project.getByRole('link', { name: /#7 Показывать версию кита/ })).toBeInTheDocument()
+  // Обе группы подписаны, записи бэклога — первыми
+  const heads = project.getAllByText(/^(Записи бэклога|Задачи трекера, назначенные на вас)$/).map((el) => el.textContent)
+  expect(heads).toEqual(['Записи бэклога', 'Задачи трекера, назначенные на вас'])
+  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+  // У проекта без трекера ни подписей, ни группы
+  const nota = within(screen.getByRole('region', { name: 'Nota' }))
+  expect(nota.queryByText('Записи бэклога')).not.toBeInTheDocument()
+  expect(nota.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+test('записи бэклога не ждут трекера: пока он читается, под подписью группы — заготовка', async () => {
+  let reply: (response: Response) => void = () => {}
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (reply = resolve)))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+  expect(project.getByText('Задачи трекера, назначенные на вас')).toBeInTheDocument()
+  expect(await project.findByRole('status', { name: 'Загрузка задач трекера' })).toBeInTheDocument()
+
+  reply(Response.json({ issues, problem: null }))
+  expect(await project.findByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
+})
+
+test('«Обновить» перечитывает задачи трекера', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#52/ })
+
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [issues[1]], problem: null }))
+  fireEvent.click(screen.getByRole('button', { name: 'Обновить' }))
+
+  await waitFor(() => expect(screen.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument())
+  expect(await screen.findByRole('link', { name: /#7/ })).toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(2)
+})
+
+test.each([
+  [{ kind: 'not-github' as const }, 'Трекер проекта — не GitHub. Панель пока читает только GitHub.', false],
+  [{ kind: 'no-address' as const }, 'В описании трекера нет адреса репозитория GitHub. Укажите его в описании трекера проекта.', true],
+])('трекер без адреса GitHub (%o) — строка на месте задач, gh не зовётся', async (tracker, text, warning) => {
+  const fetchMock = stubFetch(withTracker(tracker))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const line = project.getByText(text).closest('p')!
+  expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
+  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(0)
+})
+
+test.each([
+  [{ issues: [], problem: null }, /На вас в GitHub нет открытых задач этого репозитория/, false],
+  [{ issues: [], problem: 'gh-missing' }, /Программа gh не установлена\. Установите GitHub CLI и войдите в аккаунт командой gh auth login/, true],
+  [{ issues: [], problem: 'gh-login' }, /Программа gh не вошла в аккаунт GitHub\. Войдите командой gh auth login/, true],
+  [{ issues: [], problem: 'repo-unreachable' }, /GitHub не нашёл репозиторий acme\/orders или у вашего аккаунта нет к нему доступа/, true],
+  [{ issues: [], problem: 'github-error', detail: 'HTTP 502: Bad Gateway' }, /GitHub ответил ошибкой: HTTP 502: Bad Gateway/, true],
+])('ответ трекера %o — своей строкой на месте задач', async (reply, text, warning) => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer(reply))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  // Текст строки разбит кодом команды: ищется по всему тексту строки
+  const line = (await project.findByText((_, el) => el?.matches('p.tracker-state > span') === true && text.test(el.textContent))).closest('p')!
+  expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
+  // Записи бэклога при этом видны как обычно
+  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+})
+
+test('задачи трекера не загрузились — красная строка с причиной', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, () => Promise.resolve(new Response(null, { status: 500 })))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect((await project.findByText('Задачи трекера не загрузились: HTTP 500.')).closest('p')).toHaveClass('warning-text')
 })

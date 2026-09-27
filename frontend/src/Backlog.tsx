@@ -12,6 +12,8 @@ import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { forgetGoneStartWords } from './startWords'
 import { numberLetters } from './taskTitle'
+import TrackerGroup from './TrackerGroup'
+import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
@@ -31,6 +33,8 @@ export type BaseBacklog = {
   error: string | null
   /** Буквы номеров проекта: запись с другими буквами кит перенумерует, и задачей она не запускается. */
   letters?: string | null
+  /** Трекер проекта из tracker.md базы; нет — у проекта нет трекера, и группы задач трекера нет. */
+  tracker?: TrackerInfo | null
 }
 
 /** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
@@ -93,6 +97,30 @@ export default function Backlog({
     focusOpener()
   }, [focusOpener])
 
+  // Задачи трекера по базам. Их читает gh из GitHub — дольше файла, поэтому своим запросом на базу: записи
+  // бэклога их не ждут. Ответ прошлого чтения, пришедший после нового, отбрасывается.
+  const [trackers, setTrackers] = useState<Record<string, TrackerLoad>>({})
+  const trackerRound = useRef(0)
+
+  const loadTrackers = useCallback((backlogs: BaseBacklog[]) => {
+    const round = ++trackerRound.current
+    setTrackers((prev) => {
+      const next: Record<string, TrackerLoad> = {}
+      for (const backlog of backlogs) {
+        if (!backlog.tracker) continue
+        // Прочитанное остаётся на месте, пока идёт новое чтение: дописанная запись не гасит задачи трекера
+        next[backlog.base] = backlog.tracker.kind === 'github' && prev[backlog.base] ? prev[backlog.base] : initialTrackerLoad(backlog.tracker)
+      }
+      return next
+    })
+    for (const backlog of backlogs) {
+      if (backlog.tracker?.kind !== 'github') continue
+      void loadTrackerIssues(backlog.base).then((result) => {
+        if (round === trackerRound.current) setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
+      })
+    }
+  }, [])
+
   const loadBacklogs = useCallback(() => {
     fetch('/api/backlog')
       .then((response) => {
@@ -102,6 +130,7 @@ export default function Backlog({
       .then(
         (backlogs) => {
           setLoad({ kind: 'loaded', backlogs })
+          loadTrackers(backlogs)
           forgetGoneStartWords(backlogs)
           // База могла уйти из списка, пока раздел был открыт: показываем тогда все проекты.
           setFilter((current) => (backlogs.some((b) => b.base === current) ? current : null))
@@ -112,7 +141,7 @@ export default function Backlog({
             message: e instanceof TypeError ? 'Нет связи с API' : String((e as Error).message),
           }),
       )
-  }, [])
+  }, [loadTrackers])
 
   // Занятость копий нужна одной кнопке записи, поэтому сбой чтения раздел не показывает: кнопки просто гаснут.
   const loadCopies = useCallback(() => {
@@ -130,6 +159,7 @@ export default function Backlog({
 
   const refresh = useCallback(() => {
     setLoad({ kind: 'loading' })
+    setTrackers({})
     setFresh(new Set())
     loadBacklogs()
     loadCopies()
@@ -249,6 +279,8 @@ export default function Backlog({
                 <div className="base-head">
                   <h3>{backlog.project}</h3>
                 </div>
+                {/* У проекта с трекером в проекте две группы, и обе подписаны — ответ оператора на макет B-277 */}
+                {backlog.tracker && <div className="backlog-group-head">Записи бэклога</div>}
                 {backlog.error && (
                   <p className="backlog-note warning-text">
                     <WarningIcon />
@@ -320,6 +352,15 @@ export default function Backlog({
                     </div>
                   )
                 })}
+                {backlog.tracker && (
+                  <TrackerGroup
+                    tracker={backlog.tracker}
+                    load={trackers[backlog.base] ?? initialTrackerLoad(backlog.tracker)}
+                    issues={trackerIssues(trackers[backlog.base])}
+                  >
+                    {() => null}
+                  </TrackerGroup>
+                )}
               </section>
             ))}
           </div>
@@ -470,6 +511,10 @@ function BacklogSkeleton({ shown }: { shown: boolean }) {
       </div>
     </Skeleton>
   )
+}
+
+function trackerIssues(load: TrackerLoad | undefined) {
+  return load?.kind === 'loaded' ? load.issues : []
 }
 
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */
