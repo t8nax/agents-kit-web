@@ -100,6 +100,22 @@ describe('proposalItems', () => {
       ['removed', 'крупный', null],
     ])
   })
+
+  it('правка одного предела кругов — правка возвратов: видна в списке и не уходит из него сама', () => {
+    const limited = (rounds: number) => ({
+      ...big,
+      entries: [big.entries[0], big.entries[1], { stage: 'Мерж', returns: [{ condition: 'dev ушёл', stage: 'Ревью', rounds }] }],
+    })
+
+    expect(proposalItems(stages, flows, { scenarios: [{ of: 'крупный', flow: limited(3) }], stages: [] }).scenarios[0].returns).toEqual([
+      'Мерж → Ревью: dev ушёл · не больше 3 кругов',
+    ])
+    expect(proposalItems(stages, flows, { scenarios: [{ of: 'крупный', flow: limited(1) }], stages: [] }).scenarios[0].returns).toEqual([
+      'Мерж → Ревью: dev ушёл · не больше 1 круга',
+    ])
+    expect(pending(stages, flows, { scenarios: [{ of: 'крупный', flow: limited(2) }], stages: [] }).scenarios).toHaveLength(1)
+    expect(pending(stages, [limited(2), small], { scenarios: [{ of: 'крупный', flow: limited(2) }], stages: [] }).scenarios).toHaveLength(0)
+  })
 })
 
 describe('убранное из раздела после ответа', () => {

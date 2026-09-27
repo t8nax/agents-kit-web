@@ -78,9 +78,16 @@ const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
 
 const sameStage = (one: FlowStage, other: FlowStage) => fieldNames.every((field) => fieldValue(one, field) === fieldValue(other, field))
 
+// «не больше 1 круга», «не больше 21 круга», «не больше 3 кругов».
+const roundsText = (rounds: number) => `не больше ${rounds} ${rounds % 10 === 1 && rounds % 100 !== 11 ? 'круга' : 'кругов'}`
+
+// Возврат строкой с его пределом кругов: правка одного предела — тоже правка возвратов.
 const returnsOf = (flow: NamedFlow) =>
   flow.entries.flatMap((entry) =>
-    (entry.returns ?? []).map((back: StageReturn) => `${entry.stage} → ${back.stage}: ${back.condition}`),
+    (entry.returns ?? []).map(
+      (back: StageReturn) =>
+        `${entry.stage} → ${back.stage}: ${back.condition}${back.rounds == null ? '' : ` · ${roundsText(back.rounds)}`}`,
+    ),
   )
 
 const sameFlow = (one: NamedFlow, other: NamedFlow) =>
