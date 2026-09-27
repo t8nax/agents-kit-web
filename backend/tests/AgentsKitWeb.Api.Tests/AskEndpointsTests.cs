@@ -98,10 +98,11 @@ public sealed class AskEndpointsTests : IDisposable
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains("flow/scenarios.md", prompt);
         Assert.Contains("flow/stages/*.md", prompt);
-        // Раскладка кита с формата 4: своё у оператора — его папка и личный репозиторий (B-275).
+        // Раскладка кита формата 6: своё у оператора — личный репозиторий, в people/ — выложенное для коллег.
         Assert.Contains("team.md", prompt);
-        Assert.Contains($"папка people/{TestLayout.Operator}/: autonomy.md", prompt);
-        Assert.Contains("личный репозиторий local/me/: backlog.md", prompt);
+        Assert.Contains($"Своё у оператора этого компьютера, {TestLayout.Operator}, — его личный репозиторий local/me/ со своим git: autonomy.md", prompt);
+        Assert.Contains("agents/*.md — исполнители,\nbacklog.md — записи бэклога".ReplaceLineEndings(), prompt.ReplaceLineEndings());
+        Assert.Contains("В people/<имя>/ — флоу и исполнители, которые операторы выложили для коллег: агент по ним не работает", prompt);
         Assert.DoesNotContain("boundaries.md", prompt);
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);
@@ -109,7 +110,7 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
-    // Оператор этой машины не назван — папку агенту называют словами, а не выдуманным именем (B-275, ревью).
+    // Оператор этой машины не назван — имя агенту не выдумывается (B-275, ревью).
     public async Task Ask_OperatorNotNamed_FolderIsNamedInWords()
     {
         TestLayout.Machine(_base, null);
@@ -121,7 +122,7 @@ public sealed class AskEndpointsTests : IDisposable
 
         var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
-        Assert.Contains("(его имя — поле operator в local/me.json) — папка people/<имя>/: autonomy.md", prompt);
+        Assert.Contains("Своё у оператора этого компьютера — его личный репозиторий local/me/", prompt);
         Assert.DoesNotContain("не назван", prompt);
     }
 

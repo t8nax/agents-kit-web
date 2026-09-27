@@ -107,9 +107,10 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         // И базу: её путь стоит в системном промпте, а флоу приходит текстом в stdin.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(_base, prompt);
-        // Исполнители и флоу — в папке оператора этой машины (B-275).
+        // Исполнители и флоу — в личном репозитории оператора этой машины (формат 6 кита).
         Assert.Contains($"в каталоге {TestLayout.Agents(_base)},", prompt);
-        Assert.Contains($"оператора {TestLayout.Personal(_base)} — его флоу", prompt);
+        Assert.Contains($"репозитории оператора {TestLayout.Personal(_base)} — его флоу", prompt);
+        Assert.Contains("Флоу оператора, файлы flow/ его личного репозитория:", _agent.Input);
         Assert.Contains("--help, ревьюер ветки", _agent.Input);
         // Флоу уходит агенту файлами нынешнего вида кита: список сценариев и каждый этап.
         Assert.Contains("flow/scenarios.md:\n# App — сценарии", _agent.Input);

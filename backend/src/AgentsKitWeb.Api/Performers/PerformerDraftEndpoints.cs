@@ -182,7 +182,7 @@ public static class PerformerDraftEndpoints
     /// </summary>
     public static ProcessStartInfo StartInfo(string basePath, string copyPath, string project, bool editing)
     {
-        // Исполнители и флоу — свои у каждого оператора: они лежат в его папке базы (раскладка кита с формата 4).
+        // Исполнители и флоу — свои у каждого оператора: они лежат в его личном репозитории (раскладка кита формата 6).
         var folder = BaseLayout.Read(basePath)?.Personal ?? basePath;
         var agents = Path.Combine(folder, PerformerList.Folder);
         var task = editing
@@ -193,8 +193,8 @@ public static class PerformerDraftEndpoints
             Ты придумываешь исполнителя — субагента Claude Code — для проекта «{project}» по просьбе оператора
             из веб-панели; спросить оператора нельзя.
             Текущий каталог — рабочая копия проекта: читай её код, чтобы понять, чем проект сделан и чем
-            проверяется работа. База знаний проекта лежит в {basePath}, в ней — решения проекта в decisions/, а в папке
-            оператора {folder} — его флоу: сценарии в flow/scenarios.md и этапы в flow/stages/.
+            проверяется работа. База знаний проекта лежит в {basePath}, в ней — решения проекта в decisions/, а в личном
+            репозитории оператора {folder} — его флоу: сценарии в flow/scenarios.md и этапы в flow/stages/.
             Просьба оператора придёт одним сообщением вместе с флоу базы.
             {task}
             Ответом верни файл субагента целиком и ничего больше: ни пояснений, ни разговора. Текст можно
@@ -233,7 +233,7 @@ public static class PerformerDraftEndpoints
             .Append("Просьба оператора:\n")
             .Append(wish);
         if (flow is not null)
-            text.Append("\n\nФлоу оператора, файлы flow/ его папки в базе:\n").Append(flow);
+            text.Append("\n\nФлоу оператора, файлы flow/ его личного репозитория:\n").Append(flow);
         if (current is not null)
             text.Append("\n\nНынешний исполнитель:\n").Append(PerformerFile.Serialize(
                 new PerformerFields(current.Name, current.Description, current.Model, current.Tools, current.Prompt)));

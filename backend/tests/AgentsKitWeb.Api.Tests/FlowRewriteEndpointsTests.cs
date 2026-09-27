@@ -123,8 +123,8 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
         // Правила формы сценария и этапа агент получает из справки кита, а не своими словами панели.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(_base, prompt);
-        // Флоу — в папке оператора этой машины, а не в корне базы (B-275).
-        Assert.Contains($"flow/stages/*.md в его папке {TestLayout.Personal(_base)} базы", prompt);
+        // Флоу — в личном репозитории оператора этой машины, а не в корне базы (формат 6 кита).
+        Assert.Contains($"flow/stages/*.md в его личном репозитории {TestLayout.Personal(_base)} базы", prompt);
         Assert.Contains("Сценарии — flow/scenarios.md.", prompt);
         Assert.Contains("Ключи — закрытый перечень: исполнитель, выход, пропуск.", prompt);
         Assert.Contains("Инвариантов кита во флоу нет.", prompt);
