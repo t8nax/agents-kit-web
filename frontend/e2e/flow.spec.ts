@@ -10,7 +10,11 @@ type Stage = {
   slug?: string | null
 }
 
-type Flow = { name: string; when: string | null; entries: { stage: string; returns?: { condition: string; stage: string }[] }[] }
+type Flow = {
+  name: string
+  when: string | null
+  entries: { stage: string; returns?: { condition: string; stage: string; rounds?: number }[] }[]
+}
 
 const stages: Stage[] = [
   {
@@ -283,6 +287,69 @@ test('меню стадии встаёт у курсора, окна возвр�
   await stage.getByRole('button', { name: 'Отмена' }).click()
   await expect(stage).toHaveCount(0)
   await expect(block).toBeFocused()
+})
+
+test('предел кругов: число на своей дуге, в окне возвратов кнопкой задаётся, крестиком убирается и уходит в запись', async ({
+  page,
+}) => {
+  const calls = await mockApi(page, [], {
+    stages,
+    flows: [
+      {
+        ...flows[0],
+        entries: [
+          { stage: 'Критерий', returns: [] },
+          { stage: 'Ревью', returns: [{ condition: 'нет критерия', stage: 'Критерий', rounds: 2 }] },
+          { stage: 'Приёмка', returns: [{ condition: 'есть замечания', stage: 'Ревью' }] },
+        ],
+      },
+      flows[1],
+    ],
+  })
+  const region = await openFlow(page)
+
+  // Число стоит на дуге без мыши над блоком — у дуги без предела его нет
+  await expect(region.locator('.flow-arc-open')).toHaveCount(0)
+  await expect(region.locator('.flow-arc-limit')).toHaveText(['2'])
+  await expect(region.locator('.flow-arc-limit')).toBeVisible()
+
+  await region.getByRole('button', { name: /^Этап 3: Приёмка/ }).click({ button: 'right' })
+  await page.getByRole('menu', { name: 'Этап «Приёмка»' }).getByRole('menuitem', { name: 'Возвраты' }).click()
+  const returns = page.getByRole('dialog', { name: 'Возвраты этапа «Приёмка»' })
+  const add = returns.getByRole('button', { name: 'Предел кругов возврата 1' })
+  await expect(add).toBeVisible()
+  await expect(add.locator('svg')).toHaveCSS('width', '13px')
+  await add.click()
+  const field = returns.getByRole('textbox', { name: 'Предел кругов возврата 1' })
+  await expect(field).toBeFocused()
+  await expect(async () => expect(Math.round((await field.boundingBox())!.width)).toBe(128)).toPass()
+
+  await field.fill('0')
+  await expect(returns.getByText('Возвраты не сохранить: предел кругов — целое число от 1.')).toBeVisible()
+  await expect(returns.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  await field.fill('3')
+  // Правка видна на схеме сразу: у дуги «Приёмки» своё число
+  await expect(region.locator('.flow-arc-limit')).toHaveCount(2)
+  await returns.getByRole('button', { name: 'Сохранить' }).click()
+  await expect(returns).toHaveCount(0)
+  await expect.poll(() => calls.flow.length).toBe(1)
+  const sent = calls.flow[0] as { flows: Flow[] }
+  expect(sent.flows[0].entries.map((entry) => entry.returns)).toEqual([
+    [],
+    [{ condition: 'нет критерия', stage: 'Критерий', rounds: 2 }],
+    [{ condition: 'есть замечания', stage: 'Ревью', rounds: 3 }],
+  ])
+
+  // Крестик убирает предел: снова кнопка
+  await region.getByRole('button', { name: /^Этап 2: Ревью/ }).click({ button: 'right' })
+  await page.getByRole('menu', { name: 'Этап «Ревью»' }).getByRole('menuitem', { name: 'Возвраты' }).click()
+  const review = page.getByRole('dialog', { name: 'Возвраты этапа «Ревью»' })
+  await expect(review.getByRole('textbox', { name: 'Предел кругов возврата 1' })).toHaveValue('2')
+  await review.getByRole('button', { name: 'Убрать предел кругов возврата 1' }).click()
+  await expect(review.getByRole('button', { name: 'Предел кругов возврата 1' })).toBeVisible()
+  await review.getByRole('button', { name: 'Сохранить' }).click()
+  await expect.poll(() => calls.flow.length).toBe(2)
+  expect((calls.flow[1] as { flows: Flow[] }).flows[0].entries[1].returns).toEqual([{ condition: 'нет критерия', stage: 'Критерий' }])
 })
 
 test('возвраты блока подсвечены под мышью и под курсором клавиатуры, ведущие в него — нет', async ({ page }) => {
