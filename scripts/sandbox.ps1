@@ -770,7 +770,9 @@ if (Test-Piece 'quirks') {
     New-Memory (Join-Path (Get-MemoryDir $quirksBase) 'not-git.md') $notGitCopy 'main' -TwoQuestions
     # Две памяти на одну копию: какая из них настоящая, панель не знает.
     New-Memory (Join-Path (Get-MemoryDir $quirksBase) 'копия-с-кириллицей-вторая.md') $cyrillicCopy 'feat/вторая'
-    Add-Commit (Get-Personal $quirksBase) 'Памяти кривых копий'
+    # Только памяти: флоу этой базы лежит в том же личном репозитории нарочно вне истории git.
+    git -C (Get-Personal $quirksBase) add -- work
+    git -C (Get-Personal $quirksBase) commit -q -m 'Памяти кривых копий'
 
     # Незакоммиченная правка бэклога: агент записи унёс бы её в свой коммит.
     Add-Content -LiteralPath (Join-Path (Get-Personal $quirksBase) 'backlog.md') -Value "`n## Запись без номера, дописанная руками`n" -Encoding utf8NoBOM
