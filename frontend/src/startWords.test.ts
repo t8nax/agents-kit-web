@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'vitest'
-import { forgetGoneStartWords, readStartWords, saveStartWords } from './startWords'
+import { forgetGoneIssueWords, forgetGoneStartWords, readStartWords, saveStartWords } from './startWords'
 
 afterEach(() => localStorage.clear())
 
@@ -27,4 +27,23 @@ test('черновики ушедших записей и баз забываю�
   expect(readStartWords(b, 'N-3')).toBe('база не прочиталась')
   expect(readStartWords(c, 'X-4')).toBe('')
   expect(localStorage.getItem(`agents-kit-web.answer-drafts|${a}|copy`)).not.toBeNull()
+})
+
+test('черновики задач трекера чтение бэклога не трогает, а чтение трекера забывает ушедшие', () => {
+  saveStartWords(a, 'GitHub #37', 'живая задача')
+  saveStartWords(a, 'GitHub #36', 'закрыта в GitHub')
+  saveStartWords(b, 'GitHub #5', 'другая база')
+  saveStartWords(c, 'GitHub #9', 'базы нет в списке')
+
+  forgetGoneStartWords([backlog(a, ['B-1']), backlog(b, [])])
+
+  expect(readStartWords(a, 'GitHub #37')).toBe('живая задача')
+  expect(readStartWords(a, 'GitHub #36')).toBe('закрыта в GitHub')
+  expect(readStartWords(c, 'GitHub #9')).toBe('')
+
+  forgetGoneIssueWords(a, ['GitHub #37'])
+
+  expect(readStartWords(a, 'GitHub #37')).toBe('живая задача')
+  expect(readStartWords(a, 'GitHub #36')).toBe('')
+  expect(readStartWords(b, 'GitHub #5')).toBe('другая база')
 })

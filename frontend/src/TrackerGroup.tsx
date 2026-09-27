@@ -58,22 +58,26 @@ export default function TrackerGroup({
   tracker,
   load,
   issues,
+  filtering,
   children,
 }: {
   tracker: TrackerInfo
   load: TrackerLoad
   /** Задачи, прошедшие отбор раздела. */
   issues: TrackerIssue[]
+  /** Отбор включён: видны только подошедшие задачи и поломка трекера — заготовка и спокойные строки скрыты. */
+  filtering: boolean
   /** Кнопка запуска задачи — её держит раздел: окно запуска у него. */
   children: (issue: TrackerIssue) => ReactNode
 }) {
   const reveal = useReveal(load.kind === 'loading')
-  const state = trackerState(load, tracker.repo)
+  const found = trackerState(load, tracker.repo)
+  const state = found && (found.warning || !filtering) ? found : null
   const width = Math.max(0, ...issues.map((issue) => `#${issue.number}`.length))
   return (
     <>
       <div className="backlog-group-head">Задачи трекера, назначенные на вас</div>
-      {load.kind === 'loading' && <TrackerSkeleton shown={reveal.shown} />}
+      {load.kind === 'loading' && !filtering && <TrackerSkeleton shown={reveal.shown} />}
       {state && (
         <p className={`tracker-state ${state.warning ? 'warning-text' : 'text-sec'}`}>
           {state.warning && <WarningIcon />}

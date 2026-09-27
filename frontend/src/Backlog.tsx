@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
-import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
+import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
@@ -10,10 +10,10 @@ import EntryArtifacts, { type Artifact } from './EntryArtifacts'
 import { BugIcon, EntryFields, FeatureIcon } from './EntryFields'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
-import { forgetGoneStartWords } from './startWords'
+import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
-import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
+import { initialTrackerLoad, loadTrackerIssues, trackerBroken, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
@@ -116,7 +116,10 @@ export default function Backlog({
     for (const backlog of backlogs) {
       if (backlog.tracker?.kind !== 'github') continue
       void loadTrackerIssues(backlog.base).then((result) => {
-        if (round === trackerRound.current) setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
+        if (round !== trackerRound.current) return
+        setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
+        if (result.kind === 'loaded' && result.problem === null)
+          forgetGoneIssueWords(backlog.base, result.issues.map((issue) => issue.name))
       })
     }
   }, [])
@@ -186,9 +189,16 @@ export default function Backlog({
   // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
   // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
   const filtering = isFiltering(selection)
+  // Задачи трекера отбираются тем же поиском и чипами; поломка трекера видна и при отборе, как ошибка бэклога
   const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
-    .map((backlog) => ({ backlog, entries: arrange(backlog.entries, selection, order) }))
-    .filter(({ backlog, entries }) => entries.length > 0 || !filtering || backlog.error)
+    .map((backlog) => ({
+      backlog,
+      entries: arrange(backlog.entries, selection, order),
+      issues: trackerIssues(trackers[backlog.base]).filter((issue) => matchesIssue(issue, selection)),
+      trackerShown: !!backlog.tracker && (!filtering || trackerBroken(trackers[backlog.base])),
+    }))
+    .map((one) => ({ ...one, trackerShown: one.trackerShown || one.issues.length > 0 }))
+    .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
 
   return (
     <>
@@ -263,12 +273,12 @@ export default function Backlog({
             <OrderBox order={order} onChange={changeOrder} />
           </div>
 
-          {filtering && shown.every(({ entries }) => entries.length === 0) && (
+          {filtering && shown.every(({ entries, issues }) => entries.length === 0 && issues.length === 0) && (
             <p className="empty-message">Под фильтр записей нет</p>
           )}
 
           <div className="backlog-list">
-            {shown.map(({ backlog, entries }) => (
+            {shown.map(({ backlog, entries, issues, trackerShown }) => (
               <section
                 key={backlog.base}
                 aria-label={backlog.project}
@@ -280,7 +290,9 @@ export default function Backlog({
                   <h3>{backlog.project}</h3>
                 </div>
                 {/* У проекта с трекером в проекте две группы, и обе подписаны — ответ оператора на макет B-277 */}
-                {backlog.tracker && <div className="backlog-group-head">Записи бэклога</div>}
+                {backlog.tracker && (entries.length > 0 || !filtering || backlog.error) && (
+                  <div className="backlog-group-head">Записи бэклога</div>
+                )}
                 {backlog.error && (
                   <p className="backlog-note warning-text">
                     <WarningIcon />
@@ -352,13 +364,28 @@ export default function Backlog({
                     </div>
                   )
                 })}
-                {backlog.tracker && (
+                {backlog.tracker && trackerShown && (
                   <TrackerGroup
                     tracker={backlog.tracker}
                     load={trackers[backlog.base] ?? initialTrackerLoad(backlog.tracker)}
-                    issues={trackerIssues(trackers[backlog.base])}
+                    issues={issues}
+                    filtering={filtering}
                   >
-                    {() => null}
+                    {(issue) => (
+                      <button
+                        type="button"
+                        className="entry-start"
+                        // Как у записи: копий ещё не прочитали или свободных не осталось — запускать некуда
+                        disabled={copies === null || freeCopies(copies, backlog.base).length === 0}
+                        onClick={(e) => {
+                          opener.current = e.currentTarget
+                          setStarting({ base: backlog.base, entry: { number: issue.name, title: issue.title, text: null } })
+                        }}
+                      >
+                        <PlayIcon />
+                        Взять задачу
+                      </button>
+                    )}
                   </TrackerGroup>
                 )}
               </section>

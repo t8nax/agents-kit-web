@@ -20,6 +20,14 @@ export function initialTrackerLoad(tracker: TrackerInfo): TrackerLoad {
     : { kind: 'loaded', issues: [], problem: tracker.kind, detail: null }
 }
 
+/**
+ * Задачи трекера не прочитаны из-за поломки, которую надо чинить, — такая строка видна и при отборе, как ошибка
+ * бэклога базы (B-78); спокойные строки — «задач нет», «не GitHub» — отбор скрывает.
+ */
+export function trackerBroken(load: TrackerLoad | undefined): boolean {
+  return load?.kind === 'failed' || (load?.kind === 'loaded' && load.problem !== null && load.problem !== 'not-github')
+}
+
 export function loadTrackerIssues(base: string): Promise<TrackerLoad> {
   return fetch(`/api/backlog/tracker?base=${encodeURIComponent(base)}`)
     .then((response) => {
