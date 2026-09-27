@@ -255,16 +255,20 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
-    [Fact]
-    public async Task Start_TrackerUnreadable_SaysWhy()
+    /// <summary>Окну — код причины, его оно называет словами; строку GitHub — только у причины без кода.</summary>
+    [Theory]
+    [InlineData(TrackerIssues.GhLogin, null, TrackerIssues.GhLogin)]
+    [InlineData(TrackerIssues.RepoUnreachable, "GraphQL: Could not resolve to a Repository", TrackerIssues.RepoUnreachable)]
+    [InlineData(TrackerIssues.GitHubError, "HTTP 502: Bad Gateway", "HTTP 502: Bad Gateway")]
+    public async Task Start_TrackerUnreadable_SaysWhy(string problem, string? detail, string message)
     {
         WriteGitHubTracker();
-        _github.Answer = new TrackerIssues([], TrackerIssues.GhLogin);
+        _github.Answer = new TrackerIssues([], problem, detail);
 
         var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(new TaskStartProblem("tracker-unavailable", TrackerIssues.GhLogin), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Equal(new TaskStartProblem("tracker-unavailable", message), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
         Assert.Null(_agent.StartInfo);
     }
 

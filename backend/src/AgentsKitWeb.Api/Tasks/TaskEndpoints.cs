@@ -72,7 +72,9 @@ public static partial class TaskEndpoints
                     return Results.NotFound();
                 var issues = await BacklogEndpoints.TrackerIssuesOf(layout, github, cancellationToken);
                 if (issues.Problem is not null)
-                    return Results.BadRequest(new TaskStartProblem("tracker-unavailable", issues.Detail ?? issues.Problem));
+                    // Окну — код причины, его оно называет словами; строку GitHub — только когда кода у причины нет
+                    return Results.BadRequest(new TaskStartProblem("tracker-unavailable",
+                        issues.Problem == TrackerIssues.GitHubError ? issues.Detail : issues.Problem));
                 issueTitle = issues.Issues.FirstOrDefault(i => i.Number == issue)?.Title;
                 if (issueTitle is null)
                     return Results.BadRequest(new TaskStartProblem("issue-unknown"));
