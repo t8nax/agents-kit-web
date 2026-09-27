@@ -987,6 +987,7 @@ test('задачи трекера не загрузились — красная
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   expect((await project.findByText('Задачи трекера не загрузились: HTTP 500.')).closest('p')).toHaveClass('warning-text')
 })
+
 test('поиск находит задачи трекера по номеру и заголовку, чип типа или приоритета скрывает группу', async () => {
   const fetchMock = stubFetch(withTracker(github))
   fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
