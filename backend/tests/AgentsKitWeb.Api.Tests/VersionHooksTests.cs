@@ -277,7 +277,7 @@ public sealed class VersionHooksTests : IDisposable
         };
         foreach (var argument in (string[])["-c", "user.name=t", "-c", "user.email=t@t", .. args])
             startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEndAsync();
         var errors = process.StandardError.ReadToEnd();
         process.WaitForExit();

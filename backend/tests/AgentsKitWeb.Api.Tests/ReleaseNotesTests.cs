@@ -100,7 +100,7 @@ public sealed class ReleaseNotesTests : IDisposable
                      "-NoProfile", "-File", Script, "-Channel", channel, "-Repository", repository,
                  })
             startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEnd();
         var errors = process.StandardError.ReadToEnd();
         process.WaitForExit();

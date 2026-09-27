@@ -1063,7 +1063,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         };
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEnd().Trim();
         process.WaitForExit();
         return output;

@@ -101,7 +101,7 @@ public sealed class UpdateScriptTests : IDisposable
                      "-Api", _address, "-Downloads", _address, "-StallSeconds", stallSeconds.ToString(),
                  })
             startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         await process.StandardOutput.ReadToEndAsync();
         await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));

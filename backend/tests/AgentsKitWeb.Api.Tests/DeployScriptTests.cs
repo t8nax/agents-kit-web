@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using AgentsKitWeb.Api.Panel;
 
@@ -111,6 +112,8 @@ public sealed class DeployScriptTests : IDisposable
         var (exitCode, output) = await Deploy(Build(version), waitSeconds: 30);
         Assert.True(exitCode == 0, output);
         await AssertRunning(version, output);
+        // Консольную панель Планировщик запускал бы с окном терминала поверх работы (B-254).
+        Assert.Equal(WindowsSubsystem, Subsystem(Path.Combine(_target, "AgentsKitWeb.Api.exe")));
     }
 
     /// <summary>
@@ -122,6 +125,7 @@ public sealed class DeployScriptTests : IDisposable
     {
         var build = Path.Combine(_root, $"build-{version}-{Guid.NewGuid():N}");
         Copy(AppContext.BaseDirectory, build);
+        MarkWindowless(Path.Combine(build, "AgentsKitWeb.Api.exe"));
         File.WriteAllText(Path.Combine(build, "build.json"), JsonSerializer.Serialize(new
         {
             channel = "dev", sha = "0000000", version, builtAt = DateTimeOffset.UtcNow, releases = "owner/repo",
@@ -138,6 +142,38 @@ public sealed class DeployScriptTests : IDisposable
         return build;
     }
 
+    /// <summary>
+    /// Помечает exe программой без консоли, как помечает его сборка выпуска (OutputType=WinExe в build.ps1):
+    /// вывод тестов собран консольным, и Планировщик открывал каждой запущенной панели окно терминала (B-254).
+    /// Подсистема — два байта необязательного заголовка PE, их же правит SDK для WinExe.
+    /// </summary>
+    private static void MarkWindowless(string exe)
+    {
+        using var file = new FileStream(exe, FileMode.Open, FileAccess.ReadWrite);
+        Assert.Equal(ConsoleSubsystem, ReadSubsystem(file));
+        file.Position -= 2;
+        using var writer = new BinaryWriter(file);
+        writer.Write(WindowsSubsystem);
+    }
+
+    private const ushort ConsoleSubsystem = 3, WindowsSubsystem = 2;
+
+    /// <summary>Подсистема exe; запущенную панель Windows даёт читать, но не писать.</summary>
+    private static ushort Subsystem(string exe)
+    {
+        using var file = new FileStream(exe, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        return ReadSubsystem(file);
+    }
+
+    private static ushort ReadSubsystem(FileStream file)
+    {
+        using var reader = new BinaryReader(file, Encoding.UTF8, leaveOpen: true);
+        file.Position = 0x3C;
+        // Подпись «PE\0\0», заголовок файла в 20 байт, подсистема — со смещения 68 необязательного заголовка.
+        file.Position = reader.ReadInt32() + 4 + 20 + 68;
+        return reader.ReadUInt16();
+    }
+
     /// <summary>Сборка, какой её оставляет постановка: с published.json рядом с exe.</summary>
     private static string Deployed(string build)
     {
@@ -147,20 +183,23 @@ public sealed class DeployScriptTests : IDisposable
 
     private async Task<(int ExitCode, string Output)> Deploy(string source, int waitSeconds)
     {
+        // pwsh без окна получает свою консоль с кодировкой OEM, и русский текст провала приходил кракозябрами:
+        // вывод переводится в UTF-8 до запуска скрипта, как делает панель со своими скриптами.
         var startInfo = new ProcessStartInfo("pwsh")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
-            UseShellExecute = false,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+            ArgumentList =
+            {
+                "-NoProfile", "-Command",
+                "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); " +
+                $"& {Quote(Script("deploy.ps1"))} -Source {Quote(source)} -Target {Quote(_target)} " +
+                $"-Port {_port} -TaskName {Quote(_task)} -WaitSeconds {waitSeconds}",
+            },
         };
-        foreach (var argument in new[]
-                 {
-                     "-NoProfile", "-File", Script("deploy.ps1"),
-                     "-Source", source, "-Target", _target, "-Port", _port.ToString(), "-TaskName", _task,
-                     "-WaitSeconds", waitSeconds.ToString(),
-                 })
-            startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();
         try
@@ -176,6 +215,8 @@ public sealed class DeployScriptTests : IDisposable
         }
         return (process.ExitCode, await output + await error);
     }
+
+    private static string Quote(string value) => "'" + value.Replace("'", "''") + "'";
 
     /// <summary>На порту отвечает сборка с этим номером: по нему видно, новая встала или прежняя.</summary>
     private async Task AssertRunning(string version, string output) =>
@@ -251,7 +292,7 @@ public sealed class DeployScriptTests : IDisposable
         foreach (var hold in _holds)
             hold.Dispose();
 
-        using (var unregister = Process.Start(new ProcessStartInfo("pwsh")
+        using (var unregister = TestProcess.Start(new ProcessStartInfo("pwsh")
                {
                    ArgumentList =
                    {
@@ -259,8 +300,7 @@ public sealed class DeployScriptTests : IDisposable
                        $"Stop-ScheduledTask -TaskName '{_task}' -ErrorAction SilentlyContinue; " +
                        $"Unregister-ScheduledTask -TaskName '{_task}' -Confirm:$false -ErrorAction SilentlyContinue",
                    },
-                   UseShellExecute = false,
-               })!)
+               }))
         {
             if (!unregister.WaitForExit(TimeSpan.FromMinutes(3)))
                 unregister.Kill();

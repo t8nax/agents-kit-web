@@ -89,6 +89,9 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
         Assert.Equal("stream-json", args[args.IndexOf("--input-format") + 1]);
         Assert.Contains("--no-session-persistence", args);
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
+        Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
         // Копия не выбрана — разговор идёт по одной базе.
         Assert.DoesNotContain("--add-dir", args);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
