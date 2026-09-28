@@ -350,6 +350,21 @@ test('пустое задание открывается кнопкой «Нап
   expect(screen.getByRole('button', { name: 'Показать задание' })).toBeInTheDocument()
 })
 
+test('задание в правке можно надиктовать: микрофон слева в подвале окна задания', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open({ ...reviewer, prompt: '' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Написать задание' }))
+  const task = within(screen.getByRole('dialog', { name: /Задание/ }))
+  fireEvent.change(task.getByRole('textbox', { name: 'Задание' }), { target: { value: 'Ты гоняешь проверки' } })
+  const mic = task.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('ask-actions')
+  expect(mic.parentElement?.firstElementChild).toBe(mic)
+  fireEvent.click(mic)
+
+  expect(task.getByRole('textbox', { name: 'Задание' })).toHaveValue('Ты гоняешь проверки и пишет отчёт.')
+})
+
 test('у заведённого с пустым заданием модель и инструменты всё равно сохраняются', async () => {
   const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   const onSaved = open({ ...reviewer, description: null, prompt: '' })

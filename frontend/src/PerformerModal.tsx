@@ -629,6 +629,7 @@ function TaskView({
   const empty = !prompt.trim()
   const [editing, setEditing] = useState(empty && editable)
   const [text, setText] = useState(prompt)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   // Открытое окно задания забирает фокус: иначе он остался бы на кнопке под подложкой.
   const close = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -700,31 +701,38 @@ function TaskView({
           ) : (
             <Markdown className="pf-task-view" text={prompt} />
           )}
+          {editing && <AttachError text={voiceError} />}
         </div>
         <div className="modal-footer ask-footer">
-          <div className="footer-right">
-            {editing ? (
-              <>
-                <button type="button" className="btn" onClick={cancel}>
-                  Отменить
-                </button>
-                <button type="button" className="btn btn-primary" onClick={done}>
-                  Готово
-                </button>
-              </>
-            ) : (
-              <>
-                {editable && (
-                  <button type="button" className="btn" onClick={edit}>
-                    <PencilIcon />
-                    Редактировать
-                  </button>
-                )}
-                <button type="button" ref={close} className="btn" onClick={onClose}>
-                  Закрыть
-                </button>
-              </>
+          <div className="ask-actions">
+            {/* В правке задание можно надиктовать: микрофон слева в подвале, напротив кнопок (макет B-291) */}
+            {editing && (
+              <VoiceButton onText={(spoken) => setText(appendSpoken(text, spoken))} onError={setVoiceError} />
             )}
+            <div className="footer-right">
+              {editing ? (
+                <>
+                  <button type="button" className="btn" onClick={cancel}>
+                    Отменить
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={done}>
+                    Готово
+                  </button>
+                </>
+              ) : (
+                <>
+                  {editable && (
+                    <button type="button" className="btn" onClick={edit}>
+                      <PencilIcon />
+                      Редактировать
+                    </button>
+                  )}
+                  <button type="button" ref={close} className="btn" onClick={onClose}>
+                    Закрыть
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

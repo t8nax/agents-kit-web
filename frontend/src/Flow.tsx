@@ -17,6 +17,7 @@ import './Backlog.css'
 import './PerformerModal.css'
 import './ReplyModal.css'
 import './Flow.css'
+import { AttachError } from './Attachments'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { ChoiceMark } from './ChoiceMark'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
@@ -28,6 +29,8 @@ import PickMenu, { ChevronDownIcon, ChevronUpIcon } from './PickMenu'
 import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /**
@@ -3182,6 +3185,7 @@ export function DescriptionEditor({
   const [editing, setEditing] = useState(empty && !lock && !readOnly)
   const [text, setText] = useState(description ?? '')
   const [failure, setFailure] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   // Открытое окно забирает фокус: иначе он остался бы на кнопке под подложкой.
   const close = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -3257,31 +3261,47 @@ export function DescriptionEditor({
               {failure}
             </p>
           )}
+          {editing && <AttachError text={voiceError} />}
         </div>
         <div className="modal-footer ask-footer">
-          <div className="footer-right">
-            {editing ? (
-              <>
-                <button type="button" className="btn" onClick={cancel}>
-                  Отмена
-                </button>
-                <button type="button" className="btn btn-primary" disabled={saving || blocked || !changed} onClick={() => void save()}>
-                  {saving ? 'Сохранение…' : 'Сохранить'}
-                </button>
-              </>
-            ) : (
-              <>
-                {!lock && !readOnly && (
-                  <button type="button" className="btn" onClick={edit}>
-                    <PencilIcon />
-                    Редактировать
-                  </button>
-                )}
-                <button type="button" ref={close} className="btn" onClick={onClose}>
-                  Закрыть
-                </button>
-              </>
+          <div className="ask-actions">
+            {/* В правке описание можно надиктовать: микрофон слева в подвале, напротив кнопок (макет B-291) */}
+            {editing && (
+              <VoiceButton
+                disabled={saving}
+                onText={(spoken) => setText(appendSpoken(text, spoken))}
+                onError={setVoiceError}
+              />
             )}
+            <div className="footer-right">
+              {editing ? (
+                <>
+                  <button type="button" className="btn" onClick={cancel}>
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={saving || blocked || !changed}
+                    onClick={() => void save()}
+                  >
+                    {saving ? 'Сохранение…' : 'Сохранить'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {!lock && !readOnly && (
+                    <button type="button" className="btn" onClick={edit}>
+                      <PencilIcon />
+                      Редактировать
+                    </button>
+                  )}
+                  <button type="button" ref={close} className="btn" onClick={onClose}>
+                    Закрыть
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

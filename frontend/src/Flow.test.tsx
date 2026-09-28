@@ -2,6 +2,13 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import Flow, { type BaseFlow, type FlowStage, type NamedFlow } from './Flow'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне описания и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('И сверить с критерием.')} />
+  ),
+}))
+
 afterEach(() => vi.unstubAllGlobals())
 
 const criterion: FlowStage = {
@@ -1054,6 +1061,25 @@ test('описание стадии показано оформленным, п�
   expect(screen.queryByRole('dialog', { name: /^Описание этапа/ })).not.toBeInTheDocument()
   // Окно стадии под ним записанное описание не считает своей несохранённой правкой
   expect(edit.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('описание этапа в правке можно надиктовать: микрофон слева в подвале, в просмотре его нет', async () => {
+  stubApi(api([app], saved()))
+  await renderFlow()
+  const edit = await stagesTab('Ревью')
+  fireEvent.click(edit.getByRole('button', { name: /Редактировать описание/ }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Описание этапа «Ревью»' }))
+  expect(dialog.queryByRole('button', { name: 'Голосовой ввод' })).not.toBeInTheDocument()
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Редактировать' }))
+  const mic = dialog.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('ask-actions')
+  expect(mic.parentElement?.firstElementChild).toBe(mic)
+  fireEvent.click(mic)
+
+  expect(dialog.getByRole('textbox', { name: 'Описание этапа' })).toHaveValue(
+    '1. Собрать дифф всей ветки. И сверить с критерием.',
+  )
 })
 
 test('значок стадии выбирается из списка значков и уходит в запись', async () => {
