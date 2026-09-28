@@ -427,6 +427,7 @@ const invalidLabels: Record<string, string> = {
 export default function Flow({
   baseFor = null,
   rewriteAt = null,
+  rewriteWish = null,
   onPerformers,
 }: {
   baseFor?: string | null
@@ -435,6 +436,8 @@ export default function Flow({
    * уже открытый, не пересоздаётся, а только открывает окно: правка в открытом окне остаётся на месте.
    */
   rewriteAt?: number | null
+  /** Просьба, которую окно переписывания получает в поле: её вписывает отчёт о флоу по находке (B-270). */
+  rewriteWish?: string | null
   onPerformers?: () => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
@@ -1236,6 +1239,7 @@ export default function Flow({
             const named = saved.flows.find((one) => norm(one.name) === norm(name))
             return (named && lockOfFlow(named.key)?.tasks) || null
           }}
+          wish={rewriteWish}
           onApply={applyProposal}
           onClose={() => setModal(null)}
         />

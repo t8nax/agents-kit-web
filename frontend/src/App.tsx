@@ -14,6 +14,7 @@ import { notificationsActive, notifyStatusChange } from './notifications'
 import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
+import Reports, { ReportIcon } from './Reports'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
@@ -139,6 +140,7 @@ type Section =
   | 'performers'
   | 'sessions'
   | 'usage'
+  | 'reports'
   | 'problems'
   | 'settings'
 
@@ -153,6 +155,8 @@ function App() {
     kind: AgentKind
     base: string
     subject?: string | null
+    /** Просьба к Чудо-Юдо, которую отчёт вписывает в поле окна переписывания флоу. */
+    wish?: string
     at: number
   } | null>(null)
   const [creating, setCreating] = useState(false)
@@ -265,7 +269,15 @@ function App() {
               setAsking(true)
               return
             }
-            setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
+            setSection(
+              request.kind === 'backlog'
+                ? 'backlog'
+                : request.kind === 'flow'
+                  ? 'flow'
+                  : request.kind === 'report'
+                    ? 'reports'
+                    : 'performers',
+            )
             setOpenRequest({ kind: request.kind, base: request.base, subject: request.subject, at: Date.now() })
           }}
         />
@@ -335,6 +347,7 @@ function App() {
             <Flow
               baseFor={openRequest?.kind === 'flow' ? openRequest.base : null}
               rewriteAt={openRequest?.kind === 'flow' ? openRequest.at : null}
+              rewriteWish={openRequest?.kind === 'flow' ? (openRequest.wish ?? null) : null}
               onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (
@@ -348,6 +361,16 @@ function App() {
             <Sessions />
           ) : section === 'usage' ? (
             <Usage />
+          ) : section === 'reports' ? (
+            <Reports
+              reportFor={openRequest?.kind === 'report' ? openRequest.base : null}
+              onProblems={() => setSection('problems')}
+              // Правки флоу пишет раздел «Флоу»: окно переписывания открывается там, с просьбой по находке в поле.
+              onRewrite={(base, wish) => {
+                setSection('flow')
+                setOpenRequest({ kind: 'flow', base, wish, at: Date.now() })
+              }}
+            />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
           ) : (
@@ -491,6 +514,15 @@ function Sidebar({
         {/* Расход стоит за сессиями: это тоже про происходящее сейчас, только про его цену */}
         <SideItem label="Расход" expanded={expanded} active={section === 'usage'} onClick={() => onSection('usage')}>
           <UsageIcon />
+        </SideItem>
+        {/* Отчёты стоят за расходом: это оценка того, как устроена работа, а не сама работа */}
+        <SideItem
+          label="Отчёты"
+          expanded={expanded}
+          active={section === 'reports'}
+          onClick={() => onSection('reports')}
+        >
+          <ReportIcon />
         </SideItem>
         <SideItem
           label="Проблемы баз"

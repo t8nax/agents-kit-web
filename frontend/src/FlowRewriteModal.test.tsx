@@ -68,6 +68,7 @@ function renderModal(
     apply?: () => Promise<string | null>
     lockedFlow?: (name: string) => string[] | null
     screen?: { stages: FlowStage[]; flows: NamedFlow[] }
+    wish?: string
   } = {},
 ) {
   const onApply = vi.fn(options.apply ?? (async () => null))
@@ -78,6 +79,7 @@ function renderModal(
     mark: (title: string) => <span data-testid={`mark-${title}`} />,
     lockedStage: () => null,
     lockedFlow: options.lockedFlow ?? (() => null),
+    wish: options.wish,
     onApply,
     onClose,
   }
@@ -406,4 +408,16 @@ test('число правок — в нужной форме, ноль не на
   expect(changedText({ scenarios: 0, stages: 21 })).toBe('21 этап')
   expect(changedText({ scenarios: 11, stages: 0 })).toBe('11 сценариев')
   expect(changedText({ scenarios: 0, stages: 0 })).toBe('')
+})
+
+test('просьба, вписанная отчётом о флоу, стоит в поле и уходит, только когда её отправили', async () => {
+  const panel = stubFetch(controlledStream<RewriteEvent>())
+  renderModal({ wish: 'Прошу исправить находку отчёта.' })
+
+  expect(await screen.findByLabelText('Просьба')).toHaveValue('Прошу исправить находку отчёта.')
+  expect(panel.posts).toEqual([])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
+  await waitFor(() => expect(panel.posts.map((post) => post.body.wish)).toEqual(['Прошу исправить находку отчёта.']))
 })

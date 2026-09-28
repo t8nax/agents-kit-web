@@ -1547,6 +1547,14 @@ test('раздел, открытый с отметки просьбы в шап�
   expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
 })
 
+test('переход из отчёта о флоу открывает окно переписывания с просьбой по находке в поле', async () => {
+  stubApi(api([app], rewriteApi([])))
+  render(<Flow baseFor={app.base} rewriteAt={1} rewriteWish="Прошу исправить находку отчёта." />)
+
+  const dialog = await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
+  expect(within(dialog).getByLabelText('Просьба')).toHaveValue('Прошу исправить находку отчёта.')
+})
+
 test('отметка в шапке при открытом разделе открывает окно переписывания, не бросая правку в открытом окне', async () => {
   stubApi(api([app], rewriteApi([])))
   const view = render(<Flow />)

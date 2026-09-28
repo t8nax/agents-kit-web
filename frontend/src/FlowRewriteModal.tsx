@@ -45,6 +45,8 @@ type Props = {
   /** Задачи, которые держат этап или сценарий: его не записать, пока они в работе (B-226). */
   lockedStage: (title: string) => string[] | null
   lockedFlow: (name: string) => string[] | null
+  /** Просьба, вписанная в поле при открытии: её готовит отчёт о флоу по находке, а отправляет оператор (B-270). */
+  wish?: string | null
   /** Записать правки в базу; вернуть, почему не записались, или null. */
   onApply: (proposal: FlowProposal) => Promise<string | null>
   onClose: () => void
@@ -96,9 +98,20 @@ function stepsOfTurn(events: RewriteEvent[]) {
   return steps
 }
 
-export default function FlowRewriteModal({ base, project, stages, flows, mark, lockedStage, lockedFlow, onApply, onClose }: Props) {
+export default function FlowRewriteModal({
+  base,
+  project,
+  stages,
+  flows,
+  mark,
+  lockedStage,
+  lockedFlow,
+  wish = null,
+  onApply,
+  onClose,
+}: Props) {
   // Поле не трогали, пока text — null: тогда в нём стоит реплика, на которой агент сорвался.
-  const [text, setText] = useState<string | null>(null)
+  const [text, setText] = useState<string | null>(wish)
   const [tab, setTab] = useState<Tab>('talk')
   // Сколько событий переписки было, когда оператор последний раз смотрел вкладку «Изменения»: точка на ней горит,
   // пока ответ, поменявший список, пришёл позже. Отметку помнит браузер по переписке: окно, открытое заново, не
