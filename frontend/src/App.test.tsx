@@ -258,6 +258,29 @@ test('группа сворачивается кликом по любому м�
   expect(localStorage.getItem('agents-kit-web.collapsed-groups')).toBe('[]')
 })
 
+test('база нового формата — строки копий как обычно, под шапкой группы строка предупреждения, и у свёрнутой тоже', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  const newer = rows.map((row) => ({ ...row, formatWarning: warning }))
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([...newer, otherBase]), { status: 200 })))
+
+  render(<App />)
+
+  const line = await screen.findByText(warning)
+  expect(line).toHaveAttribute('role', 'status')
+  expect(screen.getAllByText(warning)).toHaveLength(1)
+  // Копии базы видны обычными строками, и на вопрос агента ответить можно
+  const task = screen.getByText('Таблица рабочих копий').closest('tr')!
+  expect(within(task).getByRole('button', { name: 'Ответить' })).toBeEnabled()
+  // Строка стоит сразу под шапкой своей группы
+  const all = screen.getAllByRole('row')
+  const header = all.findIndex((row) => within(row).queryByRole('rowheader')?.textContent === 'app-knowledge')
+  expect(within(all[header + 1]).getByText(warning)).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Свернуть app-knowledge' }))
+  expect(screen.queryByText('Таблица рабочих копий')).not.toBeInTheDocument()
+  expect(screen.getByText(warning)).toBeInTheDocument()
+})
+
 test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
   const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой', letters: 'B' }
   const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога', letters: 'B' }
