@@ -51,6 +51,18 @@ public sealed class TrackerServersStoreTests : IDisposable
         Assert.True(store.Contains(asked));
     }
 
+    /// <summary>Битый файл — отказ, и «Добавить» его не перезаписывает: ключи других серверов не пропадают (ревью B-288).</summary>
+    [Fact]
+    public void BrokenFile_IsRefusedAndNotOverwritten()
+    {
+        System.IO.File.WriteAllText(File, "{ \"servers\": [ оборвалось");
+        var store = new TrackerServersStore(File);
+
+        Assert.Throws<TrackersFileBroken>(() => store.List());
+        Assert.Throws<TrackersFileBroken>(() => store.Save("https://yt.acme.local", "b", "key"));
+        Assert.Equal("{ \"servers\": [ оборвалось", System.IO.File.ReadAllText(File));
+    }
+
     [Fact]
     public void KeyOf_UnknownServerOrBrokenKey_IsNull()
     {

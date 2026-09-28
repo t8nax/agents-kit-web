@@ -131,6 +131,21 @@ public sealed class TrackerServersEndpointsTests : IDisposable
         Assert.Empty(new TrackerServersStore(TrackersFile).List());
     }
 
+    [Fact]
+    public async Task BrokenFile_IsNamedAndNotOverwritten()
+    {
+        File.WriteAllText(TrackersFile, "не json");
+        var client = Client();
+
+        using var list = await client.GetAsync("/api/trackers");
+        using var added = await client.PostAsJsonAsync("/api/trackers", new { server = Server, key = "k" });
+
+        Assert.Equal(HttpStatusCode.InternalServerError, list.StatusCode);
+        Assert.Equal(new TrackerServerProblem(TrackerServersEndpoints.FileBroken, TrackersFile), await list.Content.ReadFromJsonAsync<TrackerServerProblem>());
+        Assert.Equal(HttpStatusCode.InternalServerError, added.StatusCode);
+        Assert.Equal("не json", File.ReadAllText(TrackersFile));
+    }
+
     /// <summary>Без своей настройки файл серверов ложится рядом с bases.json — у песочницы и тестов он свой.</summary>
     [Fact]
     public async Task Store_LiesBesideBasesFile()

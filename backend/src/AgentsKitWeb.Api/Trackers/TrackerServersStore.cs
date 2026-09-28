@@ -7,6 +7,12 @@ namespace AgentsKitWeb.Api.Trackers;
 /// <summary>Сервер трекера в «Настройках»: адрес и логин владельца ключа. Сам ключ наружу не отдаётся.</summary>
 public sealed record TrackerServer(string Server, string Login);
 
+/// <summary>Файл серверов трекеров не разобран: его не читают как пустой и не перезаписывают.</summary>
+public sealed class TrackersFileBroken(string file) : Exception($"Файл серверов трекеров не разобран: {file}")
+{
+    public string File { get; } = file;
+}
+
 /// <summary>
 /// Серверы трекеров и ключи оператора к ним — trackers.json в профиле оператора, рядом с bases.json. Ключ лежит
 /// зашифрованным под учётную запись Windows (DPAPI, CurrentUser): прочитать его может только этот пользователь
@@ -22,6 +28,14 @@ public sealed class TrackerServersStore(string file)
     // Ключ шифруется со своей добавкой: чужая программа того же пользователя, расшифровав его без неё, получит отказ.
     private static readonly byte[] Entropy = "agents-kit-web tracker key"u8.ToArray();
 
+    /// <summary>
+    /// Место по умолчанию — локальный профиль, а не перемещаемый рядом с bases.json: перемещаемый профиль уезжает
+    /// на другие компьютеры домена вместе с ключом DPAPI, а ключ обещан только этому компьютеру (ревью B-288).
+    /// </summary>
+    public static string DefaultFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "agents-kit-web", "trackers.json");
+
+    /// <summary>Рядом со своим списком баз — у песочницы и тестов: ключи оператора им не видны.</summary>
     public static string FileBeside(string basesFile) =>
         Path.Combine(Path.GetDirectoryName(Path.GetFullPath(basesFile))!, "trackers.json");
 
@@ -50,21 +64,27 @@ public sealed class TrackerServersStore(string file)
     }
 
     /// <summary>Ключ к серверу; null — сервера в списке нет или ключ не расшифровать.</summary>
-    public string? KeyOf(string server)
+    public string? KeyOf(string server) => Find(server).Key;
+
+    /// <summary>
+    /// Сервер в списке и его ключ. Known без Key — ключ не расшифровать: пароль Windows сброшен или профиль
+    /// перенесён с другого компьютера; совет тогда — «Заменить ключ», а не добавить сервер (ревью B-288).
+    /// </summary>
+    public (bool Known, string? Key) Find(string server)
     {
         lock (_lock)
         {
             var stored = Read().FirstOrDefault(s => SameServer(s.Server, server));
             if (stored is null)
-                return null;
+                return (false, null);
             try
             {
-                return Encoding.UTF8.GetString(
-                    ProtectedData.Unprotect(Convert.FromBase64String(stored.Key), Entropy, DataProtectionScope.CurrentUser));
+                return (true, Encoding.UTF8.GetString(
+                    ProtectedData.Unprotect(Convert.FromBase64String(stored.Key), Entropy, DataProtectionScope.CurrentUser)));
             }
             catch (Exception e) when (e is CryptographicException or FormatException)
             {
-                return null;
+                return (true, null);
             }
         }
     }
@@ -99,6 +119,10 @@ public sealed class TrackerServersStore(string file)
         }
     }
 
+    /// <summary>
+    /// Битый файл — отказ, а не пустой список: иначе следующее «Добавить» перезаписало бы его одним сервером,
+    /// и ключи остальных пропали бы молча (ревью B-288).
+    /// </summary>
     private List<StoredServer> Read()
     {
         if (!File.Exists(file))
@@ -106,11 +130,11 @@ public sealed class TrackerServersStore(string file)
         try
         {
             using var stream = File.OpenRead(file);
-            return JsonSerializer.Deserialize<StoredFile>(stream, JsonOptions)?.Servers ?? [];
+            return JsonSerializer.Deserialize<StoredFile>(stream, JsonOptions)?.Servers ?? throw new TrackersFileBroken(file);
         }
         catch (JsonException)
         {
-            return [];
+            throw new TrackersFileBroken(file);
         }
     }
 

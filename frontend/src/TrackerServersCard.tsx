@@ -34,6 +34,8 @@ function refusalOf(problem: string, detail: string | null | undefined): Refusal 
         text: 'Сервер отклонил ключ, ключ не сохранён. Проверьте, что ключ скопирован полностью и действует.',
         field: 'key',
       }
+    case 'file-broken':
+      return { text: brokenText(detail), field: null }
     case 'server-silent':
       return {
         text: `Сервер не ответил: ${detail ?? 'нет связи'}. Ключ не сохранён. Проверьте адрес сервера и подключение к сети.`,
@@ -44,8 +46,13 @@ function refusalOf(problem: string, detail: string | null | undefined): Refusal 
   }
 }
 
+/** Файл серверов с ключами не разобран: панель его не перезаписывает, поправить или удалить его — оператору. */
+function brokenText(file: string | null | undefined): string {
+  return `Файл серверов трекеров не разобран${file ? `: ${file}` : ''}. Поправьте или удалите его — после удаления ключи придётся ввести заново.`
+}
+
 async function refusalFrom(response: Response): Promise<Refusal> {
-  if (response.status === 400 || response.status === 409) {
+  if (response.status === 400 || response.status === 409 || response.status === 500) {
     const body = (await response.json()) as { problem: string; detail?: string | null }
     return refusalOf(body.problem, body.detail)
   }
@@ -66,7 +73,11 @@ export default function TrackerServersCard() {
 
   useEffect(() => {
     fetch('/api/trackers')
-      .then((response) => {
+      .then(async (response) => {
+        if (response.status === 500) {
+          const body = (await response.json().catch(() => null)) as { problem?: string; detail?: string } | null
+          if (body?.problem === 'file-broken') throw new Error(brokenText(body.detail))
+        }
         if (!response.ok) throw new Error(`Список серверов не загрузился: HTTP ${response.status}`)
         return response.json() as Promise<TrackerServer[]>
       })

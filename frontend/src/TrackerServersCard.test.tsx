@@ -42,6 +42,17 @@ test('пустой список — «Список пуст.», ключ вво�
   expect(screen.getByLabelText('Ключ')).toHaveAttribute('type', 'password')
 })
 
+test('битый файл серверов назван путём, а не пустым списком', async () => {
+  stubApi({ 'GET /api/trackers': () => json({ problem: 'file-broken', detail: 'C:\\Users\\me\\trackers.json' }, 500) })
+
+  render(<TrackerServersCard />)
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Файл серверов трекеров не разобран: C:\\Users\\me\\trackers.json. Поправьте или удалите его',
+  )
+  expect(screen.queryByText('Список пуст.')).not.toBeInTheDocument()
+})
+
 test('добавленный сервер проверяется на сервере и встаёт в список с логином владельца ключа', async () => {
   let answer: (response: Response) => void = () => {}
   let posted: unknown = null
