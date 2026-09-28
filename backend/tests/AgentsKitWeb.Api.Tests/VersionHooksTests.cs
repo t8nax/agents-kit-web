@@ -11,6 +11,11 @@ public sealed class VersionHooksTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("akw-hooks-").FullName;
 
+    // Каждый отказ называет, какое число за что: сессия, привыкшая к номеру из трёх чисел, иначе поднимет не то.
+    private const string Rule =
+        "Номер — 0.X.Y.Z: сломано привычное — поднимается второе число, добавлено новое — третье, починено — четвёртое; " +
+        "числа правее поднятого — нули.";
+
     [Fact]
     public void MergeIntoDev_WithoutNewVersion_IsRefused()
     {
@@ -22,6 +27,7 @@ public sealed class VersionHooksTests : IDisposable
         Assert.NotEqual(0, exitCode);
         Assert.Contains("в dev 0.10.0, после слияния 0.10.0", errors);
         Assert.Contains("version.txt", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
@@ -80,6 +86,7 @@ public sealed class VersionHooksTests : IDisposable
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains($"поднят не на один шаг: в dev {dev}, после слияния {task}", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
@@ -93,7 +100,8 @@ public sealed class VersionHooksTests : IDisposable
         var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/three", "-m", "Merge feat/three");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("номер из трёх чисел: «0.11.0»", errors);
+        Assert.Contains("номер прежней записи: «0.11.0»", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
@@ -107,6 +115,7 @@ public sealed class VersionHooksTests : IDisposable
         Assert.NotEqual(0, exitCode);
         Assert.Contains("не номер версии: «0.1o.1»", errors);
         Assert.Contains("0.25.1.0", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
@@ -208,6 +217,7 @@ public sealed class VersionHooksTests : IDisposable
         Assert.Contains($"на сервере в {channel} 0.10.0, в отправляемом 0.10.0", errors);
         // Прямой коммит в канал ветки задачи не имеет — совет о ней был бы не к месту.
         Assert.DoesNotContain("ветке задачи", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Theory]
@@ -247,7 +257,8 @@ public sealed class VersionHooksTests : IDisposable
         var (exitCode, errors) = Git(repository, "push", "origin", "master");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("номер из трёх чисел: «0.11.0»", errors);
+        Assert.Contains("номер прежней записи: «0.11.0»", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]

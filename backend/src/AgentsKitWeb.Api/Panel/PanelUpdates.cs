@@ -134,7 +134,7 @@ public sealed partial class GitHubReleases(IHttpClientFactory clients, TimeProvi
             .Select(line => line[2..].Trim())
             .ToList();
 
-    // Номер — три числа до 0.25.0 и четыре после: выпуски обеих записей лежат в канале рядом.
+    // Номер — три числа до 0.25.1 и четыре с 0.25.2.0: выпуски обеих записей лежат в канале рядом.
     [GeneratedRegex(@"^v(\d+\.\d+\.\d+(?:\.\d+)?)$")]
     private static partial Regex MasterTag();
 
