@@ -29,6 +29,8 @@ import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
 import { VsCodeIcon } from './VsCodeIcon'
+import { NEWER_FORMAT_REFUSAL } from './newerFormat'
+import { WarningIcon } from './Problems'
 
 /**
  * Стадия флоу — файл flow/stages/ личного репозитория оператора, один на все флоу, где она стоит. slug — имя файла; у стадии,
@@ -80,6 +82,8 @@ export type BaseFlow = {
   unread?: string[]
   /** Задачи в работе: сценарий, по которому идёт задача, и его стадии не правятся (B-226). */
   tasks?: FlowTask[]
+  /** База нового формата кита: флоу виден, но не правится ни в чём, и новое не заводится (B-281). */
+  formatWarning?: string | null
 }
 
 type Load =
@@ -322,8 +326,18 @@ function firstProblem(
   return null
 }
 
-/** Почему правка закрыта: tasks — номера задач, которые держат, before и after — фраза вокруг них. */
-type Lock = { before: string; tasks: string[]; after?: string }
+/**
+ * Почему правка закрыта: tasks — номера задач, которые держат, before и after — фраза вокруг них. format — держит
+ * не задача, а формат базы, которого панель не знает (B-281): задач нет, а причина — в before.
+ */
+type Lock = { before: string; tasks: string[]; after?: string; format?: true }
+
+/** Базу нового формата держит формат: закрыто всё, в том числе новое. */
+const formatLock: Lock = {
+  before: NEWER_FORMAT_REFUSAL.replace(/^Правка закрыта: /, ''),
+  tasks: [],
+  format: true,
+}
 
 /** Причина одной строкой: так её читает программа чтения экрана с карточки стадии. */
 const lockText = (lock: Lock) => [lock.before, lock.tasks.join(', '), lock.after].filter(Boolean).join(' ')
@@ -561,8 +575,10 @@ export default function Flow({
   const unread = flow?.unread ?? []
   // Пока по сценарию идёт задача, ни он, ни его стадии не правятся: окна открываются только для чтения (B-226).
   const tasks = flow?.tasks ?? []
-  const lockOfFlow = (key: number) => flowLock(tasks, saved, key)
-  const lockOfStage = (key: number) => stageLock(tasks, saved, key)
+  // Базу нового формата панель не пишет вовсе: формат держит всё, что держат задачи, и ещё новое (B-281).
+  const newer = flow?.formatWarning ? formatLock : null
+  const lockOfFlow = (key: number) => newer ?? flowLock(tasks, saved, key)
+  const lockOfStage = (key: number) => newer ?? stageLock(tasks, saved, key)
   const held = { stage: (key: number) => lockOfStage(key) !== null, flow: (key: number) => lockOfFlow(key) !== null }
   // Строку, которую панель не воспроизведёт, стёрла бы любая запись. Ошибка формы запирает только ту запись,
   // после которой она останется во флоу: правка, которая её чинит, — окном или уборкой со схемы — проходит.
@@ -577,7 +593,9 @@ export default function Flow({
   // Стадия выбрана, только пока её правят окном: оно открывается вместе с выбором карточки (B-192).
   const currentStage = draft.stages.find((s) => s.key === stageKey) ?? null
   const currentLock = currentFlow ? lockOfFlow(currentFlow.key) : null
-  const projectLock = unknownLock(tasks)
+  const projectLock = newer ?? unknownLock(tasks)
+  // Новый этап и сценарий задачи не держат, а формат — держит: подсказка у погашенных кнопок.
+  const closed = newer ? NEWER_FORMAT_REFUSAL : null
 
   const refresh = () => {
     setNotice(null)
@@ -980,6 +998,8 @@ export default function Flow({
                     type="button"
                     role="menuitem"
                     className="row-menu-item"
+                    disabled={closed !== null}
+                    title={closed ?? undefined}
                     onClick={() => {
                       close()
                       setModal('rewrite')
@@ -1037,7 +1057,14 @@ export default function Flow({
       )}
       {/* Строка о занятом: на вкладке «Сценарии» — у занятого сценария, а задача с неузнанным сценарием закрывает
           весь проект — о ней строка и на вкладке «Этапы» (макет B-226). */}
-      {editable && (tab === 'flow' ? currentLock : projectLock) && (
+      {/* База нового формата — строкой того же вида полным предупреждением, на обеих вкладках (макет B-281). */}
+      {editable && flow.formatWarning && (
+        <p className="flow-lock" role="status">
+          <WarningIcon />
+          {flow.formatWarning}
+        </p>
+      )}
+      {editable && !newer && (tab === 'flow' ? currentLock : projectLock) && (
         <LockLine
           lock={(tab === 'flow' ? currentLock : projectLock)!}
           what={projectLock ? 'Правка этапов и сценариев закрыта' : 'Правка сценария закрыта'}
@@ -1079,7 +1106,13 @@ export default function Flow({
               </span>
               <h3>В этом проекте нет сценариев</h3>
               <p>Сценарий — цепочка этапов, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
-              <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
+              <button
+                type="button"
+                className="bases-btn bases-btn-primary"
+                disabled={closed !== null}
+                title={closed ?? undefined}
+                onClick={newFlow}
+              >
                 <PlusIcon />
                 Создать первый сценарий
               </button>
@@ -1093,7 +1126,13 @@ export default function Flow({
               </span>
               <h3>В этом проекте нет этапов</h3>
               <p>Этап — шаг работы над задачей: кто его делает и что должно получиться. Сценарии собираются из этапов.</p>
-              <button type="button" className="bases-btn bases-btn-primary" onClick={newStage}>
+              <button
+                type="button"
+                className="bases-btn bases-btn-primary"
+                disabled={closed !== null}
+                title={closed ?? undefined}
+                onClick={newStage}
+              >
                 <PlusIcon />
                 Создать первый этап
               </button>
@@ -1108,6 +1147,7 @@ export default function Flow({
               open={stageOpen}
               lockOf={lockOfStage}
               window={stageWindow}
+              closed={closed}
               onSelect={openStage}
               onNew={newStage}
             />
@@ -1123,6 +1163,7 @@ export default function Flow({
               guard={guard}
               busy={saving || unread.length > 0 || currentLock !== null}
               locked={currentLock !== null}
+              closed={closed}
               focus={focus}
               drawer={{
                 lock: currentLock,
@@ -1354,6 +1395,9 @@ function saveError(status: number, body: RejectedBody | null, from: Source) {
       ? `Флоу не сохранён: по сценарию «${body.flow}» ${going(count)} ${body.detail ?? ''}. Пока ${one ? 'она' : 'они'} в работе, сценарий и его этапы не правятся.${reread}`
       : `Флоу не сохранён: ${one ? 'задача' : 'задачи'} ${body.detail ?? ''} ${one ? 'идёт' : 'идут'} по сценарию, которого панель не узнала. Пока ${one ? 'она' : 'они'} в работе, этапы и сценарии проекта не правятся.${reread}`
   }
+  // Кит перевёл базу, пока правили: правка закрыта, пока панель не узнает формат (B-281).
+  if (status === 409 && body?.problem === 'newer-format')
+    return `Флоу не сохранён: кит перевёл базу на формат, которого эта версия панели не знает.${reread}`
   if (status === 409)
     return from === 'window'
       ? 'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения — раздел перечитает флоу, когда все окна будут закрыты, и правку можно будет сделать заново.'
@@ -1428,6 +1472,7 @@ function StagesTab({
   open,
   lockOf,
   window,
+  closed,
   onSelect,
   onNew,
 }: {
@@ -1439,6 +1484,8 @@ function StagesTab({
   lockOf: (key: number) => Lock | null
   /** Окно правки выбранной стадии — всё, кроме того, куда вернуть фокус: это знает сетка. */
   window: Omit<StageWindow, 'onReturnFocus'> | null
+  /** Почему новый этап не завести; null — можно. */
+  closed: string | null
   onSelect: (key: number) => void
   onNew: () => void
 }) {
@@ -1489,7 +1536,14 @@ function StagesTab({
           </li>
         ))}
         <li>
-          <button type="button" className="flow-stage-card flow-stage-card-add" ref={add} onClick={onNew}>
+          <button
+            type="button"
+            className="flow-stage-card flow-stage-card-add"
+            ref={add}
+            disabled={closed !== null}
+            title={closed ?? undefined}
+            onClick={onNew}
+          >
             <PlusIcon />
             Новый этап
           </button>
@@ -1826,6 +1880,7 @@ function FlowTab({
   drawer,
   returns,
   onFocus,
+  closed,
   onPick,
   onNew,
   onOpen,
@@ -1846,6 +1901,8 @@ function FlowTab({
   busy: boolean
   /** По сценарию идёт задача: схема только для чтения, у блоков нет ручки перетаскивания. */
   locked: boolean
+  /** Почему новый сценарий не завести; null — можно. */
+  closed: string | null
   focus: Focus
   /** Сайдбар сценария: его поля, запись и удаление сценария. */
   drawer: DrawerActions
@@ -1923,7 +1980,13 @@ function FlowTab({
             selected={String(flow.key)}
             onPick={(id) => onPick(Number(id))}
           />
-          <button type="button" className="bases-btn bases-btn-small" onClick={onNew}>
+          <button
+            type="button"
+            className="bases-btn bases-btn-small"
+            disabled={closed !== null}
+            title={closed ?? undefined}
+            onClick={onNew}
+          >
             <PlusIcon />
             Новый сценарий
           </button>
@@ -3629,7 +3692,7 @@ function LockLine({ lock, what }: { lock: Lock; what: string }) {
 function LockNote({ lock }: { lock: Lock }) {
   return (
     <p className="flow-scope-warning flow-scope-lock" role="status">
-      <LockIcon />
+      {lock.format ? <WarningIcon /> : <LockIcon />}
       Правка закрыта: {lock.before} <TaskTags tasks={lock.tasks} />
       {lock.after && ` ${lock.after}`}
     </p>
