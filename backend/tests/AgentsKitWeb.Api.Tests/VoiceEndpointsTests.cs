@@ -5,6 +5,7 @@ using AgentsKitWeb.Api.Voice;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AgentsKitWeb.Api.Tests;
 
@@ -15,6 +16,7 @@ public sealed class VoiceEndpointsTests : IDisposable
     private readonly string _root = Directory.CreateTempSubdirectory("akw-voice-").FullName;
     private readonly TestHosts _hosts = new();
     private readonly ModelServer _server = new();
+    private readonly Recognizer _recognizer = new();
 
     private string VoiceDir => Path.Combine(_root, "voice");
 
@@ -152,6 +154,88 @@ public sealed class VoiceEndpointsTests : IDisposable
         portions.Writer.Complete(new IOException("оборвалось"));
     }
 
+    [Fact]
+    public async Task Recognize_HandsSamplesToRecognizerAndAnswersText()
+    {
+        InstallModel();
+        _recognizer.Answer = "Привет, агент.";
+        var client = Factory().CreateClient();
+
+        var response = await client.PostAsync("/api/voice/recognize", Samples(0.5f, -0.25f, 1f));
+        var answer = await response.Content.ReadFromJsonAsync<VoiceTextResponse>();
+
+        Assert.Equal("Привет, агент.", answer?.Text);
+        Assert.Equal([0.5f, -0.25f, 1f], _recognizer.Heard!);
+    }
+
+    [Fact]
+    public async Task Recognize_WithoutModel_IsConflict()
+    {
+        var client = Factory().CreateClient();
+
+        var response = await client.PostAsync("/api/voice/recognize", Samples(0.5f));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Null(_recognizer.Heard);
+    }
+
+    [Fact]
+    public async Task Recognize_LongerThanAChunk_IsRefused()
+    {
+        InstallModel();
+        var client = Factory().CreateClient();
+
+        var response = await client.PostAsync("/api/voice/recognize",
+            Samples(new float[VoiceEndpoints.MaxSeconds * VoiceEndpoints.SampleRate + 1]));
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Null(_recognizer.Heard);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    public async Task Recognize_NotWholeSamples_IsBadRequest(int bytes)
+    {
+        InstallModel();
+        var client = Factory().CreateClient();
+
+        var response = await client.PostAsync("/api/voice/recognize", new ByteArrayContent(new byte[bytes]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public void Runtime_IsFoundBesideThePanel()
+    {
+        // Рантайм грузится до разбора модели: на негодном файле отказ — от разбора, а не «библиотека не найдена».
+        var file = Path.Combine(_root, "not-a-model.bin");
+        File.WriteAllText(file, "не модель");
+
+        var failure = Record.Exception(() =>
+        {
+            using var factory = Whisper.net.WhisperFactory.FromPath(file);
+            using var processor = factory.CreateBuilder().Build();
+        });
+
+        Assert.NotNull(failure);
+        Assert.IsNotType<DllNotFoundException>(failure);
+        Assert.DoesNotContain("library", failure.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void InstallModel()
+    {
+        Directory.CreateDirectory(VoiceDir);
+        File.WriteAllText(Path.Combine(VoiceDir, VoiceModel.FileName), "модель");
+    }
+
+    private static ByteArrayContent Samples(params float[] samples)
+    {
+        var bytes = new byte[samples.Length * sizeof(float)];
+        Buffer.BlockCopy(samples, 0, bytes, 0, bytes.Length);
+        return new ByteArrayContent(bytes);
+    }
+
     private static async Task<VoiceState> WaitAsync(HttpClient client, string expected, Func<VoiceState, bool>? also = null)
     {
         var deadline = DateTime.UtcNow + Patience;
@@ -180,7 +264,11 @@ public sealed class VoiceEndpointsTests : IDisposable
                 ]);
             });
             builder.ConfigureServices(services =>
-                services.AddHttpClient(VoiceModel.Client).ConfigurePrimaryHttpMessageHandler(() => _server));
+            {
+                services.AddHttpClient(VoiceModel.Client).ConfigurePrimaryHttpMessageHandler(() => _server);
+                services.RemoveAll<ISpeechRecognizer>();
+                services.AddSingleton<ISpeechRecognizer>(_recognizer);
+            });
         }));
 
     public void Dispose()
@@ -228,6 +316,19 @@ public sealed class VoiceEndpointsTests : IDisposable
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(_answer());
+    }
+
+    /// <summary>Распознавание без модели: запоминает, что услышало, и отвечает заданным текстом.</summary>
+    private sealed class Recognizer : ISpeechRecognizer
+    {
+        public string Answer { get; set; } = "";
+        public float[]? Heard { get; private set; }
+
+        public Task<string> RecognizeAsync(float[] samples, CancellationToken cancellationToken)
+        {
+            Heard = samples;
+            return Task.FromResult(Answer);
+        }
     }
 
     private sealed class PortionStream(ChannelReader<byte[]> portions) : Stream

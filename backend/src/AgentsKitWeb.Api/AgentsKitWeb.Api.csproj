@@ -6,4 +6,20 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+  </ItemGroup>
+
+  <!--
+    Рантайм распознавания речи пакет кладёт под все платформы — около 16 МБ; панель работает только
+    на Windows x64, и голосовой ввод — модуль по желанию (B-291): в сборке остаётся только win-x64.
+  -->
+  <Target Name="KeepOnlyWindowsWhisperRuntime" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <None Remove="@(None)"
+            Condition="$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes/')) and !$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes/win-x64/'))" />
+    </ItemGroup>
+  </Target>
+
 </Project>

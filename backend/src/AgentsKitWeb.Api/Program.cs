@@ -70,6 +70,7 @@ builder.Services.AddSingleton(services =>
         config["VoiceModelUrl"] is { } url ? new Uri(url) : VoiceModel.DefaultSource,
         services.GetRequiredService<IHttpClientFactory>());
 });
+builder.Services.AddSingleton<ISpeechRecognizer, WhisperRecognizer>();
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
