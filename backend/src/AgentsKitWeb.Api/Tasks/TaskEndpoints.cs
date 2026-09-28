@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
@@ -22,7 +23,7 @@ public sealed record TaskStartResponse(string Session);
 /// <summary>Почему задача не запущена: problem — чем именно, message — что сказал запуск.</summary>
 public sealed record TaskStartProblem(string Problem, string? Message = null);
 
-public static class TaskEndpoints
+public static partial class TaskEndpoints
 {
     /// <summary>Предел начальных слов оператора в знаках; тот же стоит у поля окна запуска.</summary>
     public const int WordsLimit = 8000;
@@ -35,6 +36,7 @@ public static class TaskEndpoints
             StartedTasks started,
             TaskSessions taskSessions,
             IAgentProcess agent,
+            IGitHubIssues github,
             CancellationToken cancellationToken) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
@@ -43,8 +45,10 @@ public static class TaskEndpoints
             if (string.IsNullOrWhiteSpace(request.Copy) || string.IsNullOrWhiteSpace(request.Number))
                 return Results.BadRequest();
 
-            // Номер набран кириллицей или строчными — тот же номер (Workspaces/BacklogNumber).
-            var number = BacklogNumber.Normalize(request.Number);
+            // Номер набран кириллицей или строчными — тот же номер (Workspaces/BacklogNumber). Задача трекера
+            // называется именем трекера и номером в нём, как у кита: «GitHub #37».
+            var issue = TrackerIssueNumber(request.Number);
+            var number = issue is null ? BacklogNumber.Normalize(request.Number) : $"GitHub #{issue}";
             if (number is null)
                 return Results.BadRequest();
 
@@ -57,6 +61,23 @@ public static class TaskEndpoints
                     .FirstOrDefault(f => FlowFolder.Key(f.Name) == FlowFolder.Key(request.Flow))?.Name;
                 if (flow is null)
                     return Results.BadRequest(new TaskStartProblem("flow-unknown"));
+            }
+
+            // Задачу трекера панель перепроверяет по GitHub: закрытую или назначенную не на оператора не запускает
+            // — критерий B-277. До проверки копии: иначе между нею и запуском вставало бы ожидание GitHub.
+            string? issueTitle = null;
+            if (issue is not null)
+            {
+                if (BaseLayout.Read(basePath) is not { } layout)
+                    return Results.NotFound();
+                var issues = await BacklogEndpoints.TrackerIssuesOf(layout, github, cancellationToken);
+                if (issues.Problem is not null)
+                    // Окну — код причины, его оно называет словами; строку GitHub — только когда кода у причины нет
+                    return Results.BadRequest(new TaskStartProblem("tracker-unavailable",
+                        issues.Problem == TrackerIssues.GitHubError ? issues.Detail : issues.Problem));
+                issueTitle = issues.Issues.FirstOrDefault(i => i.Number == issue)?.Title;
+                if (issueTitle is null)
+                    return Results.BadRequest(new TaskStartProblem("issue-unknown"));
             }
 
             var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
@@ -79,8 +100,12 @@ public static class TaskEndpoints
             if (request.Words is { Length: > WordsLimit })
                 return Results.BadRequest(new TaskStartProblem("words-too-long"));
 
-            if (!Entries(basePath).TryGetValue(number, out var title))
-                return Results.BadRequest(new TaskStartProblem("record-unknown"));
+            string? title = issueTitle;
+            if (issue is null)
+            {
+                if (!Entries(basePath).TryGetValue(number, out title))
+                    return Results.BadRequest(new TaskStartProblem("record-unknown"));
+            }
 
             var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow, request.Words), cancellationToken);
             if (session is null)
@@ -160,6 +185,15 @@ public static class TaskEndpoints
             prompt += "\n\n" + words.TrimStart('\r', '\n').TrimEnd();
         return BackgroundSession.StartInfo(copyPath, prompt);
     }
+
+    /// <summary>Номер задачи GitHub в имени «GitHub #37», регистр и пробел перед «#» ничего не значат; не оно — null.</summary>
+    public static int? TrackerIssueNumber(string text) =>
+        TrackerIssueName().Match(text.Trim()) is { Success: true } match && int.TryParse(match.Groups[1].Value, out var value) && value > 0
+            ? value
+            : null;
+
+    [GeneratedRegex(@"^github\s*#(\d{1,9})$", RegexOptions.IgnoreCase)]
+    private static partial Regex TrackerIssueName();
 
     /// <summary>
     /// Записи бэклога оператора с буквами проекта базы: номер — заголовок. Запись чужими буквами кит считает ошибкой
