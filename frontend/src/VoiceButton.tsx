@@ -1,6 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
 import './VoiceButton.css'
-import { isDenied, microphoneSupported, openMicrophone, watchMicrophonePermission, type Microphone } from './microphone'
+import {
+  isDenied,
+  microphoneDenied,
+  microphoneSupported,
+  openMicrophone,
+  watchMicrophonePermission,
+  type Microphone,
+} from './microphone'
 import {
   HOLD_MS,
   MIC_FAILED,
@@ -136,7 +143,8 @@ export default function VoiceButton<T = undefined>({
     } catch (error) {
       if (chunks.current === cut) chunks.current = null
       changeMode('idle')
-      if (isDenied(error)) setDenied(true)
+      // Закрытый крестиком запрос — не запрет: кнопка остаётся рабочей, следующий щелчок спросит снова.
+      if (isDenied(error)) setDenied(await microphoneDenied())
       else callbacks.current.onError?.(MIC_FAILED)
     }
   }

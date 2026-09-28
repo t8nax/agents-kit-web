@@ -18,6 +18,8 @@ import VoiceButton from './VoiceButton'
 const mic = vi.hoisted(() => ({
   supported: true,
   denied: false,
+  // Что браузер скажет о разрешении после отказа: запрет или только закрытый запрос.
+  deniedAfterFailure: true,
   failure: null as unknown,
   feed: null as ((samples: Float32Array) => void) | null,
   closed: 0,
@@ -30,6 +32,7 @@ vi.mock('./microphone', async (original) => ({
     onChange(mic.denied)
     return () => {}
   },
+  microphoneDenied: async () => mic.deniedAfterFailure,
   openMicrophone: async (onSamples: (samples: Float32Array) => void) => {
     if (mic.failure) throw mic.failure
     mic.feed = onSamples
@@ -43,7 +46,7 @@ vi.mock('./microphone', async (original) => ({
 }))
 
 beforeEach(() => {
-  Object.assign(mic, { supported: true, denied: false, failure: null, feed: null, closed: 0 })
+  Object.assign(mic, { supported: true, denied: false, deniedAfterFailure: true, failure: null, feed: null, closed: 0 })
 })
 
 afterEach(() => {
@@ -201,6 +204,19 @@ test('запрет, узнанный при записи, гасит кнопк�
 
   await vi.waitFor(() => expect(button()).toHaveAttribute('title', VOICE_TITLES.denied))
   expect(button()).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('закрытый крестиком запрос разрешения — не запрет: кнопка остаётся рабочей', async () => {
+  mic.failure = new DOMException('закрыли', 'NotAllowedError')
+  mic.deniedAfterFailure = false
+  render(<Field />)
+
+  click()
+
+  await vi.waitFor(() => expect(button()).toHaveAttribute('aria-pressed', 'false'))
+  await act(async () => {})
+  expect(button()).toHaveAttribute('title', VOICE_TITLES.ready)
+  expect(button()).not.toHaveAttribute('aria-disabled')
 })
 
 test('щелчок пишет до второго щелчка, сказанное дописывается к набранному', async () => {

@@ -29,6 +29,20 @@ export async function watchMicrophonePermission(onChange: (denied: boolean) => v
   }
 }
 
+/**
+ * Отказ в микрофоне — запрет или только закрытый запрос? Chrome отвечает одним и тем же NotAllowedError, когда
+ * запрос разрешения закрыли крестиком, а тогда запрета нет, и следующий щелчок спросит снова. Браузер без
+ * Permissions API не скажет — отказ считается запретом.
+ */
+export async function microphoneDenied(): Promise<boolean> {
+  try {
+    const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName })
+    return status ? status.state === 'denied' : true
+  } catch {
+    return true
+  }
+}
+
 // Отсчёты уходят из потока звука порциями по 0,1 с: по кадру в 128 отсчётов сообщений было бы сотни в секунду.
 const tap = `
 class VoiceTap extends AudioWorkletProcessor {
