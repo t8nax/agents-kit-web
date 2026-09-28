@@ -85,6 +85,22 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Empty(performers.Performers);
         Assert.Null(performers.Error);
+        Assert.Null(performers.FormatWarning);
+    }
+
+    [Fact]
+    // Исполнители базы нового формата видны, как были, с предупреждением (B-281).
+    public async Task Performers_BaseOfNewerFormat_IsReadWithWarning()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+        TestLayout.NewerFormat(basePath);
+
+        var performers = Assert.Single(await Get(basePath));
+
+        Assert.Null(performers.Error);
+        Assert.Equal(["reviewer"], performers.Performers.Select(p => p.Name));
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatWarning, performers.FormatWarning);
     }
 
     [Fact]
@@ -163,6 +179,21 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         Assert.Equal("name-taken", (await again.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
         Assert.Contains("Первое", File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+    }
+
+    [Fact]
+    // Исполнителей базы нового формата панель не пишет (B-281).
+    public async Task Performers_RefusesBaseOfNewerFormat()
+    {
+        var basePath = CreateBase("app-knowledge");
+        TestLayout.NewerFormat(basePath);
+
+        var response = await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Первое", null, null, "Тело", null));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var rejected = (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!;
+        Assert.Equal(("newer-format", AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal), (rejected.Problem, rejected.Detail));
+        Assert.False(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
     }
 
     [Fact]

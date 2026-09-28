@@ -12,7 +12,8 @@ test('страница показывает таблицу рабочих коп
   for (const column of ['Копия', '№', 'Задача', 'Этап флоу', 'Прогресс', 'Статус', 'Проблемы']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible()
   }
-  await expect(table.locator('tbody tr:not(.group-row)')).toHaveCount(rows.length)
+  // Строка предупреждения о базе нового формата — не копия (B-281)
+  await expect(table.locator('tbody tr:not(.group-row):not(.format-row)')).toHaveCount(rows.length)
   await expect(table.locator('tbody tr.group-row')).toHaveCount(new Set(rows.map((r) => r.base)).size)
   await expect(page.getByText('pong')).toHaveCount(0)
 })
@@ -67,6 +68,38 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const free = bodyRows.nth(2).getByRole('cell')
     await expect(free.nth(1)).toHaveText('—')
     await expect(free.nth(2)).toHaveText('—')
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`база нового формата — янтарная строка во всю ширину между шапкой группы и копиями, и у свёрнутой (${colorScheme})`, async ({ page }) => {
+    const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+    await page.emulateMedia({ colorScheme })
+    await page.route('**/api/workspaces', (route) =>
+      route.fulfill({ json: rows.map((one) => ({ ...one, formatWarning: warning })) }),
+    )
+    await page.goto('/')
+
+    const table = page.getByRole('table')
+    const line = table.locator('tr.format-row')
+    await expect(line).toHaveCount(1)
+    await expect(line).toHaveText(warning)
+    // Строка стоит сразу под шапкой группы и над первой копией
+    const header = table.locator('tr.group-row')
+    const first = table.locator('tbody tr:not(.group-row):not(.format-row)').first()
+    await expect(async () => {
+      const [head, own, copy] = await Promise.all([header.boundingBox(), line.boundingBox(), first.boundingBox()])
+      expect(own!.y).toBeGreaterThanOrEqual(head!.y + head!.height - 1)
+      expect(copy!.y).toBeGreaterThanOrEqual(own!.y + own!.height - 1)
+      // Во всю ширину таблицы
+      expect(Math.abs(own!.width - head!.width)).toBeLessThan(2)
+    }).toPass()
+    // Янтарная заливка, а не прозрачная строка таблицы
+    await expect(line.locator('.format-line')).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+
+    await header.click()
+    await expect(first).toBeHidden()
+    await expect(line).toBeVisible()
   })
 }
 

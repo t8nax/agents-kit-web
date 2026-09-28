@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -87,6 +88,21 @@ public sealed class BacklogEndpointTests : IDisposable
 
         Assert.Empty(backlog.Entries);
         Assert.Null(backlog.Error);
+        Assert.Null(backlog.FormatWarning);
+    }
+
+    [Fact]
+    // Бэклог базы нового формата читается, как был, с предупреждением: записи из него берут в работу (B-281).
+    public async Task Backlog_BaseOfNewerFormat_IsReadWithWarning()
+    {
+        var basePath = CreateBase("app-knowledge", "# Проект — бэклог\n\nследующий номер: B-2\n\n## B-1 Запись\n\nТекст.\n");
+        TestLayout.NewerFormat(basePath);
+
+        var backlog = Assert.Single(await GetBacklogs(basePath));
+
+        Assert.Null(backlog.Error);
+        Assert.Equal("B-1", Assert.Single(backlog.Entries).Number);
+        Assert.Equal(BaseLayout.NewerFormatWarning, backlog.FormatWarning);
     }
 
     [Fact]

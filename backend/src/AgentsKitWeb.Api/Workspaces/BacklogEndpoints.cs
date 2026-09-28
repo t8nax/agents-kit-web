@@ -6,7 +6,8 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// Бэклог одной базы. Error задан — записей панель не прочитала. Letters — буквы номеров проекта
 /// (Backlog.Letters): запись с другими буквами задачей не запускается; null — букв панель не знает.
 /// Tracker — трекер проекта из tracker.md базы; null — трекера у проекта нет. Задачи трекера приходят
-/// отдельным запросом: их чтение идёт в GitHub и дольше чтения файла.
+/// отдельным запросом: их чтение идёт в GitHub и дольше чтения файла. FormatWarning — база нового формата
+/// (BaseLayout.NewerFormat): записи показываются и берутся в работу, но не правятся.
 /// </summary>
 public sealed record BaseBacklog(
     string Base,
@@ -14,7 +15,8 @@ public sealed record BaseBacklog(
     IReadOnlyList<BacklogEntry> Entries,
     string? Error,
     string? Letters = null,
-    TrackerInfo? Tracker = null);
+    TrackerInfo? Tracker = null,
+    string? FormatWarning = null);
 
 /// <summary>Артефакт записи бэклога — номером записи и номером строки в её «Артефактах», с адресом, который видело окно.</summary>
 public sealed record OpenBacklogArtifactRequest(string Base, string Number, int Index, string Address);
@@ -90,18 +92,19 @@ public static class BacklogEndpoints
             return new BaseBacklog(basePath, project, [], problem);
 
         var tracker = Tracker.Read(layout);
+        var warning = layout.FormatWarning;
         var file = layout.BacklogFile;
         if (!File.Exists(file))
-            return new BaseBacklog(basePath, project, [], "В личном репозитории нет backlog.md", Tracker: tracker);
+            return new BaseBacklog(basePath, project, [], "В личном репозитории нет backlog.md", Tracker: tracker, FormatWarning: warning);
 
         try
         {
             var text = File.ReadAllText(file);
-            return new BaseBacklog(basePath, project, Backlog.Parse(text), null, Backlog.Letters(text), tracker);
+            return new BaseBacklog(basePath, project, Backlog.Parse(text), null, Backlog.Letters(text), tracker, warning);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return new BaseBacklog(basePath, project, [], "Бэклог базы не прочитан", Tracker: tracker);
+            return new BaseBacklog(basePath, project, [], "Бэклог базы не прочитан", Tracker: tracker, FormatWarning: warning);
         }
     }
 }

@@ -245,6 +245,19 @@ public sealed class SessionsEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Сессию в копии базы нового формата завести можно: ради этого базу и не гасят — B-281.
+    public async Task New_InBaseOfNewerFormat_LaunchesSession()
+    {
+        TestLayout.NewerFormat(_base);
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        var response = await Client().PostAsJsonAsync("/api/sessions/new", new SessionStartRequest(_base, _copy, "посмотри"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("7339dced", (await response.Content.ReadFromJsonAsync<SessionStartResponse>())!.Session);
+    }
+
+    [Fact]
     public async Task New_WithoutPrompt_StartsSessionThatJustWaits()
     {
         _agent.Lines = ["backgrounded · abc123 (idle — send a prompt to start)"];

@@ -12,6 +12,7 @@ namespace AgentsKitWeb.Api.Flow;
 /// оператором значки стадий, они живут в настройках панели, а не в базе. Unread — строки файлов флоу, которые панель
 /// не сохранит («flow/scenarios.md, строка 7: «…»»): пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
 /// Tasks — задачи в работе и флоу, по которому каждая идёт: занятый флоу и его стадии не правятся.
+/// FormatWarning — база нового формата (BaseLayout.NewerFormat): флоу показывается, но не правится.
 /// </summary>
 public sealed record BaseFlow(
     string Base,
@@ -22,7 +23,8 @@ public sealed record BaseFlow(
     string? Error,
     IReadOnlyDictionary<string, string> Icons,
     IReadOnlyList<string>? Unread = null,
-    IReadOnlyList<FlowTask>? Tasks = null);
+    IReadOnlyList<FlowTask>? Tasks = null,
+    string? FormatWarning = null);
 
 /// <summary>
 /// Задача в работе: Task — её номер из бэклога, а без номера — заголовок памяти или имя файла; Flow — флоу базы,
@@ -43,7 +45,7 @@ public sealed record SaveFlowRequest(
 public sealed record FlowSavedResponse(string Version);
 
 /// <summary>
-/// Problem: changed · not-written · not-committed · not-restored · unread · busy · проблема из FlowFolder.Validate; Flow и Stage —
+/// Problem: changed · not-written · not-committed · not-restored · unread · busy · newer-format · проблема из FlowFolder.Validate; Flow и Stage —
 /// где она, Detail — что сказали запись или git, первая строка, которую панель не сохранит, или задачи, которые держат
 /// тронутый флоу.
 /// </summary>
@@ -70,6 +72,9 @@ public static class FlowEndpoints
             // Пишется только flow/ оператора этой машины в базе из списка панели: пути к файлам панель собирает сама.
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
+            // Флоу базы нового формата панель не пишет: её правила разметки флоу могли смениться (B-281).
+            if (layout.NewerFormat)
+                return Results.Conflict(new FlowRejectedResponse("newer-format", Detail: BaseLayout.NewerFormatRefusal));
 
             var root = layout.Personal;
             var files = Files(root);
@@ -171,7 +176,8 @@ public static class FlowEndpoints
                 null,
                 icons.Of(basePath),
                 Unread(files),
-                tasks);
+                tasks,
+                layout.FormatWarning);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

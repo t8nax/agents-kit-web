@@ -342,3 +342,40 @@ for (const theme of ['dark', 'light'] as const) {
     await page.screenshot({ path: `test-results/backlog-talk-${theme}.png` })
   })
 }
+
+test('база нового формата в окне Чудо-Юдо: плашка сразу под шапкой, значок 16px, как в списке', async ({ page }) => {
+  await mockApi(page)
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  // Позже поставленная подмена главнее: бэклог «Agents Kit Web» — базы нового формата
+  await page.route('**/api/backlog', (route) =>
+    route.fulfill({
+      json: [
+        { base: akwBase, project: 'Agents Kit Web', entries: [B1, B2], error: null, letters: 'B', formatWarning: warning },
+        { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: null, letters: 'B' },
+      ],
+    }),
+  )
+
+  const dialog = await openFromHead(page)
+  await dialog.getByRole('button', { name: 'Проект: Nota' }).click()
+  await dialog.getByRole('option', { name: 'Agents Kit Web' }).click()
+
+  const notice = dialog.locator('.format-notice')
+  await expect(notice).toBeVisible()
+  await expect(dialog.getByLabel('Просьба к Чудо-Юдо')).toBeDisabled()
+  await expect(async () => {
+    const [head, own, icon] = await Promise.all([
+      dialog.locator('.reply-head').boundingBox(),
+      notice.boundingBox(),
+      notice.locator('svg').boundingBox(),
+    ])
+    expect(own!.y).toBeGreaterThanOrEqual(head!.y + head!.height - 1)
+    expect(own!.y).toBeLessThan(head!.y + head!.height + 24)
+    expect(icon!.width).toBe(16)
+  }).toPass()
+
+  // В списке бэклога значок той же плашки — тоже 16px
+  await page.keyboard.press('Escape')
+  const listed = page.locator('.backlog-list .format-notice svg')
+  await expect(async () => expect((await listed.boundingBox())!.width).toBe(16)).toPass()
+})

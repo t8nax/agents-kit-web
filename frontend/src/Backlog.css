@@ -17,6 +17,11 @@
   font-weight: 500;
 }
 
+/* Плашка о базе нового формата под заголовком проекта — во всю ширину списка, без отступов раздела (B-281) */
+.backlog-list .format-notice {
+  margin: 0 0 2px;
+}
+
 .backlog-note {
   margin: 0;
   padding: 4px 0;

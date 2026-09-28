@@ -72,6 +72,19 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Empty(Directory.EnumerateFiles(TestLayout.Work(_base)));
     }
 
+    [Fact]
+    // Задачу в базе нового формата взять можно: ради этого её и не гасят — B-281.
+    public async Task Start_InBaseOfNewerFormat_LaunchesSession()
+    {
+        TestLayout.NewerFormat(_base);
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("/agents-kit:drive B-7", _agent.StartInfo!.ArgumentList[^1]);
+    }
+
     /// <summary>Переход в сессию копии ведёт по этой отметке: иначе «ту самую» сессию не узнать.</summary>
     [Fact]
     public async Task Start_RemembersTheSessionItStartedInTheCopy()

@@ -276,3 +276,14 @@
   width: 13px;
   height: 13px;
 }
+
+/* База нового формата: плашка под шапкой окна, вне ленты (B-281) */
+.backlog-talk .format-notice {
+  margin: 12px 20px 0 24px;
+}
+
+/* Значок плашки — 16px, как в списке бэклога: общее правило значков окна его не раздувает */
+.modal-overlay .format-notice svg {
+  width: 16px;
+  height: 16px;
+}

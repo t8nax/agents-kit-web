@@ -4,6 +4,7 @@ import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { FormatNotice, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import EntryArtifacts, { type Artifact } from './EntryArtifacts'
@@ -35,6 +36,8 @@ export type BaseBacklog = {
   letters?: string | null
   /** Трекер проекта из tracker.md базы; нет — у проекта нет трекера, и группы задач трекера нет. */
   tracker?: TrackerInfo | null
+  /** База нового формата кита: записи видны и берутся в работу, но не правятся (B-281). */
+  formatWarning?: string | null
 }
 
 /** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
@@ -215,6 +218,9 @@ export default function Backlog({
       }
     })
     .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
+  // База нового формата: просить Чудо-Юдо можно, пока в выбранном есть бэклог, который панель знает (B-281).
+  const inScope = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
+  const writeClosed = inScope.length > 0 && inScope.every((b) => b.formatWarning) ? NEWER_FORMAT_REFUSAL : null
 
   return (
     <>
@@ -227,7 +233,8 @@ export default function Backlog({
             setEditing(null)
             setWriting(true)
           }}
-          disabled={backlogs.length === 0}
+          disabled={backlogs.length === 0 || writeClosed !== null}
+          title={writeClosed ?? undefined}
         >
           <WriteIcon />
           Попросить {AGENT_NAME}
@@ -305,6 +312,9 @@ export default function Backlog({
                 <div className="base-head">
                   <h3>{backlog.project}</h3>
                 </div>
+                {/* База нового формата — плашкой прямо под заголовком проекта, выбран он или нет: замечание оператора
+                    на приёмке B-281 */}
+                {backlog.formatWarning && <FormatNotice text={backlog.formatWarning} />}
                 {/* У проекта с трекером в проекте две группы, и обе подписаны — ответ оператора на макет B-277 */}
                 {backlog.tracker && (entries.length > 0 || !filtering || backlog.error) && (
                   <div className="backlog-group-head">Записи бэклога</div>
@@ -347,6 +357,8 @@ export default function Backlog({
                         <button
                           type="button"
                           className="entry-start"
+                          disabled={!!backlog.formatWarning}
+                          title={backlog.formatWarning ? NEWER_FORMAT_REFUSAL : undefined}
                           onClick={(e) => {
                             opener.current = e.currentTarget
                             setEditing({ base: backlog.base, entry })
@@ -437,7 +449,11 @@ export default function Backlog({
       )}
       {writing && (
         <BacklogWriteModal
-          bases={backlogs.map((b) => ({ base: b.base, project: b.project }))}
+          bases={backlogs.map((b) => ({
+            base: b.base,
+            project: b.project,
+            closed: b.formatWarning ? NEWER_FORMAT_REFUSAL : null,
+          }))}
           initialBase={filter}
           subject={editing}
           findEntry={(base, number) =>

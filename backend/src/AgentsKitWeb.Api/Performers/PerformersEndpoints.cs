@@ -20,14 +20,16 @@ public sealed record Performer(
 
 /// <summary>
 /// Исполнители одного проекта. Directory — каталог базы, куда лягут файлы: по нему окно показывает
-/// путь ещё до сохранения. Error задан — показывать нечего.
+/// путь ещё до сохранения. Error задан — показывать нечего. FormatWarning — база нового формата
+/// (BaseLayout.NewerFormat): исполнители показываются, но не правятся.
 /// </summary>
 public sealed record BasePerformers(
     string Base,
     string Project,
     string Directory,
     IReadOnlyList<Performer> Performers,
-    string? Error);
+    string? Error,
+    string? FormatWarning = null);
 
 /// <summary>
 /// Запрос называет базу, а не путь к файлу: путь панель собирает сама. Editing — имя правимого
@@ -44,7 +46,7 @@ public sealed record SavePerformerRequest(
 
 public sealed record PerformerSavedResponse(string Path);
 
-/// <summary>Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed.</summary>
+/// <summary>Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed · newer-format.</summary>
 public sealed record PerformerRejectedResponse(string Problem, string? Detail = null);
 
 public static class PerformersEndpoints
@@ -69,6 +71,9 @@ public static class PerformersEndpoints
             // Пишется только в личный репозиторий базы из списка панели: путь к файлу панель собирает сама.
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
+            // Исполнителей базы нового формата панель не пишет: её правила файла могли смениться (B-281).
+            if (layout.NewerFormat)
+                return Results.Conflict(new PerformerRejectedResponse("newer-format", BaseLayout.NewerFormatRefusal));
             // Git зовётся из личного репозитория: исполнитель коммитится в его git, и путь agents/… git берёт от него.
             var root = layout.Personal;
 
@@ -175,7 +180,8 @@ public static class PerformersEndpoints
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
             return new BasePerformers(basePath, project, "", [], problem);
 
-        return new BasePerformers(basePath, project, PerformerList.Directory(layout), PerformerList.OfProject(layout), null);
+        return new BasePerformers(
+            basePath, project, PerformerList.Directory(layout), PerformerList.OfProject(layout), null, layout.FormatWarning);
     }
 
     /// <summary>Возвращает прежнее содержимое на место; не вышло — файла нет, и об этом скажет сверка базы.</summary>
