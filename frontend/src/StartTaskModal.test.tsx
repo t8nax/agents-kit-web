@@ -133,7 +133,7 @@ test('задача уже идёт, а имени копии API не присл
   fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
-  expect(await screen.findByRole('alert')).toHaveTextContent(/^Эту задачу панель уже запустила — вторую не запускает\.$/)
+  expect(await screen.findByRole('alert')).toHaveTextContent(/^Эта задача уже идёт — вторую панель не запускает\.$/)
 })
 
 test('агент не стартовал: окно показывает, что сказал запуск', async () => {
@@ -167,7 +167,7 @@ test('задача уже идёт в другой копии: окно назы
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
-    'Эту задачу панель уже запустила в копии noble-keen-walrus — вторую не запускает.',
+    'Эта задача уже идёт в копии noble-keen-walrus — вторую панель не запускает.',
   )
   expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
   // Раздел узнаёт, что задача взята, и гасит её кнопку и за окном

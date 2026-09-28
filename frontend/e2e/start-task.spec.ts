@@ -209,7 +209,7 @@ test('запись успели взять из другой вкладки: о�
   await dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }).click()
   await dialog.getByRole('button', { name: 'Взять в работу' }).click()
 
-  await expect(dialog.getByRole('alert')).toHaveText('Эту задачу панель уже запустила в копии noble-keen-walrus — вторую не запускает.')
+  await expect(dialog.getByRole('alert')).toHaveText('Эта задача уже идёт в копии noble-keen-walrus — вторую панель не запускает.')
   await expect(dialog.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
 })
 
