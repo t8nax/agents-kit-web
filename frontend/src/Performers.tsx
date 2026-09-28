@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import PerformerModal, { Select } from './PerformerModal'
+import { NEWER_FORMAT_REFUSAL } from './newerFormat'
+import { WarningIcon } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
 import './Performers.css'
@@ -24,6 +26,8 @@ export type BasePerformers = {
   directory: string
   performers: Performer[]
   error: string | null
+  /** База нового формата кита: исполнители видны, но не правятся и не заводятся (B-281). */
+  formatWarning?: string | null
 }
 
 type Load =
@@ -97,6 +101,10 @@ export default function Performers({
   const shown = project === null ? bases : bases.filter((b) => b.base === project)
   const rows = shown.flatMap((base) => base.performers.map((performer) => ({ base, performer })))
   const errors = shown.filter((base) => base.error !== null)
+  // База нового формата: плашка — когда выбрана она (или она одна), а новый исполнитель заводится только в базу,
+  // которую панель знает (B-281).
+  const warned = project !== null || bases.length === 1 ? shown.filter((base) => base.formatWarning) : []
+  const target = shown.find((base) => !base.formatWarning) ?? (project === null ? bases.find((base) => !base.formatWarning) : undefined)
 
   return (
     <>
@@ -152,6 +160,12 @@ export default function Performers({
               {base.project}: {base.error}
             </p>
           ))}
+          {warned.map((base) => (
+            <div className="kit-notice" key={base.base} role="status">
+              <WarningIcon />
+              <span className="kit-notice-text">{base.formatWarning}</span>
+            </div>
+          ))}
           {/* Новый исполнитель заводится пунктирной карточкой последней в сетке, как «Новая стадия» во «Флоу» (B-198).
               У проекта без исполнителей она стоит в сетке одна: строки о пустом списке нет. */}
           <div className="performer-grid">
@@ -167,7 +181,9 @@ export default function Performers({
             <button
               type="button"
               className="performer-card performer-card-add"
-              onClick={() => setEditing({ performer: null, base: shown[0] ?? bases[0] })}
+              disabled={!target}
+              title={target ? undefined : NEWER_FORMAT_REFUSAL}
+              onClick={() => setEditing({ performer: null, base: target })}
             >
               <PlusIcon />
               Новый исполнитель

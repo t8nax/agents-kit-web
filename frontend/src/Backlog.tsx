@@ -4,6 +4,9 @@ import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { NEWER_FORMAT_REFUSAL } from './newerFormat'
+// Плашка о базе нового формата — того же вида, что о ките (.kit-notice)
+import './Problems.css'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import EntryArtifacts, { type Artifact } from './EntryArtifacts'
@@ -35,6 +38,8 @@ export type BaseBacklog = {
   letters?: string | null
   /** Трекер проекта из tracker.md базы; нет — у проекта нет трекера, и группы задач трекера нет. */
   tracker?: TrackerInfo | null
+  /** База нового формата кита: записи видны и берутся в работу, но не правятся (B-281). */
+  formatWarning?: string | null
 }
 
 /** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
@@ -214,6 +219,11 @@ export default function Backlog({
       }
     })
     .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
+  // База нового формата: просить Чудо-Юдо можно, пока в выбранном есть бэклог, который панель знает, а плашка —
+  // когда выбран проект этой базы или он один (B-281).
+  const inScope = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
+  const writeClosed = inScope.length > 0 && inScope.every((b) => b.formatWarning) ? NEWER_FORMAT_REFUSAL : null
+  const warned = filter !== null || backlogs.length === 1 ? inScope.filter((b) => b.formatWarning) : []
 
   return (
     <>
@@ -226,7 +236,8 @@ export default function Backlog({
             setEditing(null)
             setWriting(true)
           }}
-          disabled={backlogs.length === 0}
+          disabled={backlogs.length === 0 || writeClosed !== null}
+          title={writeClosed ?? undefined}
         >
           <WriteIcon />
           Попросить {AGENT_NAME}
@@ -263,6 +274,13 @@ export default function Backlog({
               ))}
             </div>
           )}
+
+          {warned.map((backlog) => (
+            <div className="kit-notice" key={backlog.base} role="status">
+              <WarningIcon />
+              <span className="kit-notice-text">{backlog.formatWarning}</span>
+            </div>
+          ))}
 
           <div className="filter-bar" role="group" aria-label="Отбор и порядок записей">
             <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
@@ -346,6 +364,8 @@ export default function Backlog({
                         <button
                           type="button"
                           className="entry-start"
+                          disabled={!!backlog.formatWarning}
+                          title={backlog.formatWarning ? NEWER_FORMAT_REFUSAL : undefined}
                           onClick={(e) => {
                             opener.current = e.currentTarget
                             setEditing({ base: backlog.base, entry })
@@ -431,7 +451,11 @@ export default function Backlog({
       )}
       {writing && (
         <BacklogWriteModal
-          bases={backlogs.map((b) => ({ base: b.base, project: b.project }))}
+          bases={backlogs.map((b) => ({
+            base: b.base,
+            project: b.project,
+            closed: b.formatWarning ? NEWER_FORMAT_REFUSAL : null,
+          }))}
           initialBase={filter}
           subject={editing}
           findEntry={(base, number) =>

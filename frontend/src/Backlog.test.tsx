@@ -484,6 +484,42 @@ test('«Изменить» есть только у записи с номеро
   )
 })
 
+test('бэклог базы нового формата виден и берётся в работу, а правка и просьба закрыты с причиной', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  stubFetch([{ ...backlogs[0], formatWarning: warning }, backlogs[1]])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-13 / })).closest('.entry-row') as HTMLElement
+
+  // «Все проекты»: плашки нет, у записей базы нового формата «Изменить» погашена, «Взять задачу» открыта
+  expect(screen.queryByText(warning)).not.toBeInTheDocument()
+  expect(within(row).getByRole('button', { name: 'Изменить' })).toBeDisabled()
+  expect(within(row).getByRole('button', { name: 'Изменить' })).toHaveAttribute('title', refusal)
+  await waitFor(() => expect(within(row).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  const nota = screen.getByRole('button', { name: /B-2 / }).closest('.entry-row') as HTMLElement
+  expect(within(nota).getByRole('button', { name: 'Изменить' })).toBeEnabled()
+
+  // Просить Чудо-Юдо можно, но базу нового формата в его окне не выбрать
+  fireEvent.click(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Чудо-Юдо' }))
+  // Проект выбирается, когда окно узнало, что разговора в панели нет
+  await waitFor(() => expect(dialog.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+  fireEvent.click(dialog.getByRole('button', { name: 'Проект: Nota' }))
+  const closed = dialog.getByRole('option', { name: /Agents Kit Web/ })
+  expect(closed).toHaveAttribute('aria-disabled', 'true')
+  expect(closed).toHaveTextContent(refusal)
+  fireEvent.click(closed)
+  expect(dialog.getByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
+  fireEvent.click(dialog.getAllByRole('button', { name: 'Закрыть' })[0])
+
+  // Выбран проект этой базы: плашка и погашенная просьба
+  fireEvent.click(screen.getByRole('button', { name: 'Agents Kit Web' }))
+  expect(screen.getByText(warning)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toHaveAttribute('title', refusal)
+})
+
 test('без баз добавлять некуда', async () => {
   stubFetch([])
 

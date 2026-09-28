@@ -3,6 +3,7 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { Markdown } from './Markdown'
 import { useAgentRequest } from './agentRequest'
 import { PerformerIcon, type BasePerformers, type Performer } from './Performers'
+import { NEWER_FORMAT_REFUSAL } from './newerFormat'
 import './Modal.css'
 import './AskModal.css'
 import './PerformerModal.css'
@@ -268,6 +269,9 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   }
 
   const locked = busy || phase === 'running'
+  // База нового формата кита: исполнитель читается, а ни правка, ни просьба к агенту его не запишут (B-281).
+  const closed = chosen?.formatWarning ? NEWER_FORMAT_REFUSAL : null
+  const frozen = locked || closed !== null
   const askLabel = editing ? `Переписать с помощью ${AGENT_NAME}` : `Завести с помощью ${AGENT_NAME}`
   const project = chosen?.project ?? ''
 
@@ -320,7 +324,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               </label>
               <Select id="pf-base" value={base} disabled={locked} onChange={setBase} wide>
                 {bases.map((b) => (
-                  <option key={b.base} value={b.base}>
+                  // В базу нового формата исполнителя не завести: её проект не выбирается (B-281).
+                  <option key={b.base} value={b.base} disabled={Boolean(b.formatWarning)}>
                     {b.project}
                   </option>
                 ))}
@@ -330,6 +335,12 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         </div>
 
         <div className="ask-body">
+          {closed && (
+            <p className="pf-closed" role="status">
+              <WarnIcon />
+              {closed}
+            </p>
+          )}
           {/* Просьба — первое поле окна: отдельного окна у исполнителя нет — решение оператора на B-69. */}
           <label htmlFor="pf-wish" className="visually-hidden">
             Просьба к {AGENT_NAME}
@@ -344,7 +355,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                 ? 'Что переписать: например, пусть ещё сверяет работу с решениями базы'
                 : 'Расскажите своими словами, что исполнитель делает и что возвращает'
             }
-            disabled={busy || phase === 'running'}
+            disabled={busy || phase === 'running' || closed !== null}
             onChange={(event) => setWish(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void ask(wish)
@@ -420,7 +431,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                     value={name}
                     autoComplete="off"
                     spellCheck={false}
-                    disabled={locked}
+                    disabled={frozen}
                     aria-invalid={occupied}
                     onChange={(event) => setName(event.target.value)}
                   />
@@ -446,7 +457,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                   className="pf-desc"
                   rows={4}
                   value={description}
-                  disabled={locked}
+                  disabled={frozen}
                   onChange={(event) => setDescription(oneLine(event.target.value))}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.preventDefault()
@@ -468,7 +479,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                     type="button"
                     ref={taskButton}
                     className="btn pf-small"
-                    disabled={locked}
+                    disabled={frozen}
                     onClick={() => setReading(true)}
                   >
                     <PencilIcon />
@@ -487,7 +498,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               <Select
                 id="pf-model"
                 value={model}
-                disabled={locked}
+                disabled={frozen}
                 onChange={(value) => {
                   chose.current.model = true
                   setModel(value)
@@ -508,7 +519,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                   type="button"
                   className="pf-toggle"
                   aria-pressed={readOnly}
-                  disabled={locked}
+                  disabled={frozen}
                   onClick={() => {
                     chose.current.tools = true
                     setReadOnly(!readOnly)
@@ -532,7 +543,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                     placeholder="все инструменты сессии"
                     autoComplete="off"
                     spellCheck={false}
-                    disabled={locked}
+                    disabled={frozen}
                     onChange={(event) => {
                       chose.current.tools = true
                       setTools(event.target.value)
@@ -564,14 +575,21 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           <div className="footer-right">
             {/* Просьба уходит из подвала, рядом с «Сохранить»: она такое же действие окна — выбор оператора на B-69. */}
             {phase !== 'running' && (
-              <button type="button" className="btn" disabled={busy || !wish.trim()} onClick={() => void ask(wish)}>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy || !wish.trim() || closed !== null}
+                title={closed ?? undefined}
+                onClick={() => void ask(wish)}
+              >
                 {phase === 'failed' ? 'Попросить снова' : askLabel}
               </button>
             )}
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={locked || !trimmed || occupied || !hasBasis}
+              disabled={frozen || !trimmed || occupied || !hasBasis}
+              title={closed ?? undefined}
             >
               {busy ? 'Сохраняется…' : 'Сохранить'}
             </button>
@@ -583,7 +601,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         <TaskView
           name={trimmed}
           prompt={prompt}
-          editable={!locked}
+          editable={!frozen}
           onDone={setPrompt}
           onEditing={setTaskEditing}
           onClose={closeTask}

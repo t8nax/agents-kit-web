@@ -15,7 +15,8 @@ import './BacklogWriteModal.css'
 // Имя агента, который ведёт бэклог и отвечает по базе, — выбор оператора.
 export const AGENT_NAME = 'Чудо-Юдо'
 
-export type WriteBase = { base: string; project: string }
+/** closed — почему в бэклог проекта писать нельзя (база нового формата, B-281); в списке он виден, но не выбирается. */
+export type WriteBase = { base: string; project: string; closed?: string | null }
 
 export type WrittenEntry = BacklogEntry
 
@@ -82,7 +83,10 @@ export default function BacklogWriteModal({
   onEntries,
   onSaved,
 }: Props) {
-  const [chosen, setChosen] = useState<string | null>(subject?.base ?? initialBase ?? bases[0]?.base ?? null)
+  const writable = (base: string | null | undefined) => (base && !bases.find((b) => b.base === base)?.closed ? base : null)
+  const [chosen, setChosen] = useState<string | null>(
+    subject?.base ?? writable(initialBase) ?? bases.find((b) => !b.closed)?.base ?? bases[0]?.base ?? null,
+  )
   // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть.
   const [text, setText] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
@@ -322,7 +326,7 @@ export default function BacklogWriteModal({
                   <PickMenu
                     label="Проект"
                     value={project}
-                    options={bases.map((b) => ({ id: b.base, label: b.project, title: b.base }))}
+                    options={bases.map((b) => ({ id: b.base, label: b.project, title: b.base, disabled: !!b.closed, reason: b.closed ?? undefined }))}
                     selected={base}
                     disabled={talking || running || conversation.base !== null || own !== null || asking !== null || waiting}
                     onPick={setChosen}

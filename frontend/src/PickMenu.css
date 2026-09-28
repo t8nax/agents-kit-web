@@ -101,6 +101,23 @@
   gap: 8px;
 }
 
+/* Пункт, который не выбирается, — бледный, с причиной второй строкой обычным шрифтом (B-281) */
+.flow-pick-menu li[aria-disabled='true'] {
+  cursor: default;
+  color: var(--text-tertiary);
+}
+
+.flow-pick-menu li[aria-disabled='true']:hover {
+  background: none;
+}
+
+.flow-pick-reason {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  white-space: normal;
+}
+
 .flow-pick-note {
   font-family: var(--font-mono);
   font-size: 12px;

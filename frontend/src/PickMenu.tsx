@@ -9,6 +9,9 @@ export type PickOption = {
   /** Вторая строка пункта в раскрытом списке — на кнопке её нет. */
   note?: string | null
   title?: string
+  /** Пункт виден, но не выбирается: почему — второй строкой reason (база нового формата в окне Чудо-Юдо, B-281). */
+  disabled?: boolean
+  reason?: string
 }
 
 /**
@@ -65,20 +68,28 @@ export default function PickMenu({
               key={option.id}
               role="option"
               aria-selected={option.id === selected}
+              aria-disabled={option.disabled || undefined}
               tabIndex={0}
-              title={option.title}
+              title={option.disabled ? option.reason : option.title}
               onClick={() => {
+                if (option.disabled) return
                 onPick(option.id)
                 setOpen(false)
               }}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' && event.key !== ' ') return
                 event.preventDefault()
+                if (option.disabled) return
                 onPick(option.id)
                 setOpen(false)
               }}
             >
-              {option.note === undefined ? (
+              {option.reason ? (
+                <span className="flow-pick-item">
+                  <span className="flow-pick-name">{option.label}</span>
+                  <span className="flow-pick-reason">{option.reason}</span>
+                </span>
+              ) : option.note === undefined ? (
                 <>
                   {option.label}
                   {option.tag}
