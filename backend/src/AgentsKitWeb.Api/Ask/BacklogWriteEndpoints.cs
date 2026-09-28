@@ -267,7 +267,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         foreach (var change in pending.Proposal.Changes.Where(c => c.Kind == BacklogChange.Track && !pending.Created.ContainsKey(c.Number)))
         {
             // Заводится ровно та задача, что показала карточка
-            var draft = change.Draft ?? BacklogTracker.Draft(change.Number, change.Original);
+            var draft = change.Draft!;
             var created = await github.CreateAsync(repo, draft.Title, draft.Body);
             if (created.Issue is not { } issue)
                 return new BacklogSaved(null, $"{BacklogTracker.NotCreated(created, $"Задача для {change.Number}")} — бэклог не записан");

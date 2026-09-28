@@ -72,7 +72,7 @@ public sealed class BacklogTrackerTests : IDisposable
     {
         var block = Workspaces.Backlog.Blocks(Backlog.ReplaceLineEndings("\n"))[0];
 
-        var draft = BacklogTracker.Draft("B-1", block.Text);
+        var draft = BacklogTracker.Draft("B-1", block.Text, Workspaces.Backlog.Declared(Backlog));
 
         Assert.Equal("Старая запись", draft.Title);
         Assert.Equal(
@@ -84,10 +84,19 @@ public sealed class BacklogTrackerTests : IDisposable
     [Fact]
     public void Draft_OnlyFiles_DropsArtifactsSection()
     {
-        var draft = BacklogTracker.Draft("B-5", "## B-5 Запись\n\nТекст.\n\n### Артефакты\n- снимок: artifacts/B-5.png");
+        var draft = BacklogTracker.Draft("B-5", "## B-5 Запись\n\nТекст.\n\n### Артефакты\n- снимок: artifacts/B-5.png", []);
 
         Assert.Equal("Текст.", draft.Body);
         Assert.Single(draft.Files);
+    }
+
+    /// <summary>Полем считается только объявленное шапкой — как у разбора записи; прочее — текст, и уходит в задачу.</summary>
+    [Fact]
+    public void Draft_CutsOnlyDeclaredFields()
+    {
+        var draft = BacklogTracker.Draft("B-5", "## B-5 Запись\nтип: баг\nприоритет: высокий\n\nТекст.", ["тип"]);
+
+        Assert.Equal("приоритет: высокий\n\nТекст.", draft.Body);
     }
 
     [Fact]

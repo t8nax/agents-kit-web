@@ -35,8 +35,11 @@ public static partial class BacklogTracker
 {
     public const string WhoseMove = "открытия окна переноса";
 
-    /// <summary>Задача из записи, как она лежит в файле: заголовок, поля и разделы — по раскладке кита.</summary>
-    public static TrackerDraft Draft(string number, string original)
+    /// <summary>
+    /// Задача из записи, как она лежит в файле: заголовок, поля и разделы — по раскладке кита. declared — поля,
+    /// объявленные шапкой файла: только они отсекаются, как их отсекает разбор записи (ревью B-286).
+    /// </summary>
+    public static TrackerDraft Draft(string number, string original, IReadOnlyCollection<string> declared)
     {
         var lines = original.Split('\n');
         var heading = lines[0].StartsWith("## ") ? lines[0][3..].Trim() : lines[0].Trim();
@@ -58,7 +61,7 @@ public static partial class BacklogTracker
                 continue;
             }
             // Поля записи — тип и приоритет — в задачу не уходят: у трекера свои.
-            if (beforeText && section is null && (line.Trim().Length == 0 || FieldLine.IsMatch(line)))
+            if (beforeText && section is null && (line.Trim().Length == 0 || Backlog.IsField(line, declared)))
                 continue;
             beforeText = false;
             if (section == Backlog.ArtifactsSection)
@@ -200,7 +203,7 @@ public static partial class BacklogTracker
         var entry = normalized is null ? null : Backlog.Parse(text).FirstOrDefault(e => e.Number == normalized);
         if (block is null || entry is null)
             return (null, null, StatusCodes.Status404NotFound);
-        return (Draft(normalized!, block.Text), (layout.Personal, repo, entry), StatusCodes.Status200OK);
+        return (Draft(normalized!, block.Text, Backlog.Declared(text)), (layout.Personal, repo, entry), StatusCodes.Status200OK);
     }
 
     private static string Trim(List<string> lines)
@@ -211,7 +214,4 @@ public static partial class BacklogTracker
 
     [GeneratedRegex(@"^(?<number>\S+)\s+(?<title>.+)$")]
     private static partial Regex NumberedTitle { get; }
-
-    [GeneratedRegex(@"^(приоритет|тип):\s")]
-    private static partial Regex FieldLine { get; }
 }

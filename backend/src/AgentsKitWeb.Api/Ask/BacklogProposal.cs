@@ -93,7 +93,7 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
                 var number = BacklogNumber.Normalize(track.Groups["number"].Value);
                 if (Find(entries, number) is not { } original)
                     return (null, $"Записи {track.Groups["number"].Value} в бэклоге нет");
-                changes.Add(new BacklogChange(BacklogChange.Track, number!, Entry(header, original.Text), Draft: BacklogTracker.Draft(number!, original.Text))
+                changes.Add(new BacklogChange(BacklogChange.Track, number!, Entry(header, original.Text), Draft: BacklogTracker.Draft(number!, original.Text, Backlog.Declared(file)))
                 {
                     Original = original.Text,
                 });
