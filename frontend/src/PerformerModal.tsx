@@ -252,6 +252,9 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               : 'Исполнитель уже есть в копии проекта. Выберите другое имя.',
             git: false,
           })
+        } else if (body.problem === 'newer-format') {
+          // Кит перевёл базу, пока окно было открыто: раздел не опрашивается, и о смене он узнаёт отсюда (B-281).
+          setFailure({ text: body.detail ?? NEWER_FORMAT_REFUSAL, git: false })
         } else {
           setFailure({ text: `Исполнитель не записан: панель не поняла отказ «${body.problem}».`, git: false })
         }
