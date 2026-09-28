@@ -267,10 +267,22 @@ const B281: WrittenEntry = {
   ],
 }
 
+// Задачу, какой её заведёт «Сохранить», собирает API: текст записи, её «Агенту» и ссылки
+const B281draft = {
+  number: 'B-281',
+  title: B281.title,
+  body: 'Нужна выгрузка истории.\n\n### Артефакты\n- формат: https://commonmark.org/help/\n\n### Агенту\n- где: ReplyModal.tsx',
+  files: [
+    { label: 'образец', address: 'artifacts/B-281-sample-export.md' },
+    { label: 'снимок', address: 'artifacts/B-281-reply-window.png' },
+  ],
+  original: '## B-281 Экспорт истории задачи копии в markdown',
+}
+
 const withTrack: Proposal = {
   id: 'p5',
   changes: [
-    { kind: 'track', number: 'B-281', entry: B281 },
+    { kind: 'track', number: 'B-281', entry: B281, draft: B281draft },
     { kind: 'change', number: 'B-40', entry: B40 },
   ],
 }
@@ -288,7 +300,10 @@ test('перенос в трекер ждёт «Сохранить» вмест�
   const changes = within(screen.getByRole('list', { name: 'Изменения' }))
   const card = changes.getByText('перенести').closest('li')!
   expect(card).toHaveTextContent('Нужна выгрузка истории.')
-  // Файлы названы, ссылка — нет: она уйдёт в описание задачи
+  // Карточка показывает то, что уйдёт в задачу: часть для агента и ссылки из артефактов тоже (ревью B-286)
+  expect(within(card as HTMLElement).getByRole('heading', { name: 'Агенту' })).toBeInTheDocument()
+  expect(within(card as HTMLElement).getByRole('link', { name: 'https://commonmark.org/help/' })).toBeInTheDocument()
+  // Файлы названы: в задачу они не попадут
   expect(card).toHaveTextContent('Файлы B-281-sample-export.md и B-281-reply-window.png в задачу не попадут и удалятся вместе с записью.')
   // Строки о репозитории и назначении на карточке нет — ответ оператора на макет
   expect(card).not.toHaveTextContent('назначена на вас')
@@ -329,7 +344,7 @@ test('перенос, от которого отказались, зачёркн
 
   const card = (await screen.findByText('отказались')).closest('li')!
   expect(card).toHaveClass('is-struck')
-  expect(within(card).queryByRole('link')).not.toBeInTheDocument()
+  expect(within(card).queryByRole('link', { name: /^#\d+$/ })).not.toBeInTheDocument()
 })
 
 test('несохранённое остаётся с кнопками, а причина видна в ответе', async () => {

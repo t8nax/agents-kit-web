@@ -7,7 +7,7 @@ import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { useAgentConversation } from './agentConversation'
-import type { TrackerIssue } from './tracker'
+import type { TrackerDraft, TrackerIssue } from './tracker'
 import { OutIcon } from './TrackerGroup'
 import './Modal.css'
 import './ReplyModal.css'
@@ -30,6 +30,8 @@ export type ProposalChange = {
   number: string
   entry: WrittenEntry
   into?: string | null
+  /** У переноса — задача, какой её заведёт «Сохранить»: описание и файлы, которые в неё не попадут. */
+  draft?: TrackerDraft | null
 }
 
 export type Proposal = { id: string; changes: ProposalChange[] }
@@ -664,12 +666,14 @@ function ChangeCard({ change, state }: { change: ProposalChange; state: Proposal
 }
 
 /**
- * Перенос записи в трекер (макет B-286, карточка А): пока ждёт — запись с описанием и строкой о файлах, которые
- * в задачу не попадут; после «Сохранить» — заголовок и номер задачи плашкой-ссылкой рядом с отметкой, без вложенной рамки.
+ * Перенос записи в трекер (макет B-286, карточка А): пока ждёт — описание будущей задачи, как его заведёт «Сохранить»,
+ * со строкой о файлах, которые в задачу не попадут; после «Сохранить» — заголовок и номер задачи плашкой-ссылкой рядом
+ * с отметкой, без вложенной рамки.
  */
 function TrackCard({ change, state, issue }: { change: ProposalChange; state: ProposalState; issue: TrackerIssue | null }) {
   const { entry } = change
-  const files = (entry.artifacts ?? []).filter((a) => !/^https?:\/\//i.test(a.address))
+  const body = change.draft ? change.draft.body : entry.text
+  const files = change.draft?.files ?? (entry.artifacts ?? []).filter((a) => !/^https?:\/\//i.test(a.address))
   const badge = { pending: 'перенести', saved: 'перенесена', refused: 'отказались', replaced: 'заменено' }[state]
   const open = state === 'pending' || state === 'replaced' || state === 'refused'
   return (
@@ -686,8 +690,8 @@ function TrackCard({ change, state, issue }: { change: ProposalChange; state: Pr
         <span className={`change-badge ${state === 'saved' ? 'added' : ''}`}>{badge}</span>
       </div>
       {open &&
-        (entry.text ? (
-          <Markdown className="write-entry-text" text={entry.text} />
+        (body ? (
+          <Markdown className="write-entry-text" text={body} />
         ) : (
           <p className="write-entry-text entry-no-text">Описания нет</p>
         ))}

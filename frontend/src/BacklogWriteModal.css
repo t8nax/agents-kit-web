@@ -267,7 +267,15 @@
   border-color: var(--accent-error-border);
 }
 
-/* Перенос в трекер (B-286): файлы, которые в задачу не попадут, — красной строкой под описанием */
+/* Перенос в трекер (B-286): описание задачи несёт разделы записи — «Артефакты» ссылками и «Агенту» */
+.write-entry-text h3 {
+  margin: 12px 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Файлы, которые в задачу не попадут, — красной строкой под описанием */
 .write-entry-warn {
   display: flex;
   align-items: flex-start;

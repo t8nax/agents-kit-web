@@ -6,10 +6,11 @@ namespace AgentsKitWeb.Api.Ask;
 
 /// <summary>
 /// Одна правка предложения. Kind — change (запись станет Entry), delete (запись Entry уходит; Into — в какую
-/// запись она влита при объединении) или track (запись уходит задачей в трекер проекта, B-286). Text — новый текст
-/// записи в файле, Original — её текст, каким его видел агент: по нему «Сохранить» узнаёт, что запись успели поменять.
+/// запись она влита при объединении) или track (запись уходит задачей в трекер проекта, B-286; Draft — задача, какой
+/// её заведёт «Сохранить»: карточка показывает её, а не текст записи). Text — новый текст записи в файле, Original —
+/// её текст, каким его видел агент: по нему «Сохранить» узнаёт, что запись успели поменять.
 /// </summary>
-public sealed record BacklogChange(string Kind, string Number, BacklogEntry Entry, string? Into = null)
+public sealed record BacklogChange(string Kind, string Number, BacklogEntry Entry, string? Into = null, TrackerDraft? Draft = null)
 {
     public const string Change = "change";
     public const string Delete = "delete";
@@ -92,7 +93,10 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
                 var number = BacklogNumber.Normalize(track.Groups["number"].Value);
                 if (Find(entries, number) is not { } original)
                     return (null, $"Записи {track.Groups["number"].Value} в бэклоге нет");
-                changes.Add(new BacklogChange(BacklogChange.Track, number!, Entry(header, original.Text)) { Original = original.Text });
+                changes.Add(new BacklogChange(BacklogChange.Track, number!, Entry(header, original.Text), Draft: BacklogTracker.Draft(number!, original.Text))
+                {
+                    Original = original.Text,
+                });
                 continue;
             }
 

@@ -88,6 +88,8 @@ public sealed class BacklogProposalTests
         Assert.Equal(BacklogChange.Track, track.Kind);
         Assert.Equal("B-2", track.Number);
         Assert.Equal("## B-2 Вторая", track.Original);
+        // Карточка показывает задачу, какой её заведёт «Сохранить», — ревью B-286
+        Assert.Equal(("Вторая", ""), (track.Draft!.Title, track.Draft.Body));
         Assert.True(proposal.Tracks);
         Assert.Equal(
             "# Бэклог\r\n\r\nследующий номер: B-4\r\n\r\n## B-1 Первая\r\n\r\nДругой текст.\r\n\r\n## B-3 Третья\r\nХвост.\r\n",
