@@ -7,14 +7,19 @@ using System.Text.RegularExpressions;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
-/// <summary>Задача трекера, назначенная на оператора. Name — как её называет кит: «GitHub #37».</summary>
+/// <summary>
+/// Задача трекера, назначенная на оператора. Name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
+/// Number — число номера.
+/// </summary>
 public sealed record TrackerIssue(string Name, int Number, string Title, string Url);
 
 /// <summary>
-/// Задачи трекера базы. Problem задан — задач панель не прочитала: вид трекера из TrackerInfo («not-github»,
-/// «no-address», «unreadable»), «no-tracker», «gh-missing» — нет программы gh, «gh-login» — gh не вошла
+/// Задачи трекера базы. Problem задан — задач панель не прочитала: вид трекера из TrackerInfo («other»,
+/// «no-keys», «unreadable»), «no-tracker». У GitHub: «gh-missing» — нет программы gh, «gh-login» — gh не вошла
 /// в аккаунт GitHub, «repo-unreachable» — репозитория нет или к нему нет доступа (GitHub их не различает),
-/// «github-error» — GitHub отказал иначе, Detail — его строка.
+/// «github-error» — GitHub отказал иначе, Detail — его строка. У YouTrack: «no-key» — ключа к серверу нет
+/// в «Настройках», «key-rejected» — сервер ключ отклонил, «server-silent» — сервер не ответил, «project-missing» —
+/// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
 /// </summary>
 public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null)
 {
@@ -23,20 +28,26 @@ public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? P
     public const string GhLogin = "gh-login";
     public const string RepoUnreachable = "repo-unreachable";
     public const string GitHubError = "github-error";
+    public const string NoKey = "no-key";
+    public const string KeyRejected = "key-rejected";
+    public const string ServerSilent = "server-silent";
+    public const string ProjectMissing = "project-missing";
+    public const string YouTrackError = "youtrack-error";
 }
 
 /// <summary>
 /// Задача, заведённая в трекере. Problem задан — задача не заведена, значения те же, что у TrackerIssues;
-/// «github-silent» — GitHub не ответил в срок, «created-unknown» — gh кончила без адреса задачи: в обоих случаях
-/// задача могла завестись.
+/// «github-silent» и «youtrack-silent» — трекер не ответил в срок, «created-unknown» — трекер не назвал номер
+/// задачи: во всех трёх случаях задача могла завестись.
 /// </summary>
 public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, string? Detail = null)
 {
     public const string GitHubSilent = "github-silent";
+    public const string YouTrackSilent = "youtrack-silent";
     public const string CreatedUnknown = "created-unknown";
 
     /// <summary>Задача могла завестись, хотя её адреса нет: повторять заведение вслепую — завести дубль.</summary>
-    public bool MaybeCreated => Problem is GitHubSilent or CreatedUnknown;
+    public bool MaybeCreated => Problem is GitHubSilent or YouTrackSilent or CreatedUnknown;
 }
 
 public interface IGitHubIssues
@@ -205,7 +216,8 @@ public sealed partial class GhIssues : IGitHubIssues
         return new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, url!));
     }
 
-    [GeneratedRegex(@"^https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)$")]
+    // Хост любой: у GitHub Enterprise задача живёт на его сервере.
+    [GeneratedRegex(@"^https://[^/\s]+/[^/\s]+/[^/\s]+/issues/(\d+)$")]
     private static partial Regex IssueUrl();
 
     /// <summary>

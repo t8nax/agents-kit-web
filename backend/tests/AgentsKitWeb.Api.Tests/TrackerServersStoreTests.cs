@@ -1,0 +1,82 @@
+using AgentsKitWeb.Api.Trackers;
+
+namespace AgentsKitWeb.Api.Tests;
+
+public sealed class TrackerServersStoreTests : IDisposable
+{
+    private readonly string _root = Directory.CreateTempSubdirectory("akw-trackers-").FullName;
+
+    private string File => Path.Combine(_root, "trackers.json");
+
+    public void Dispose() => TestDirs.Delete(_root);
+
+    [Fact]
+    public void Save_KeepsKeyReadableOnlyThroughStore()
+    {
+        var store = new TrackerServersStore(File);
+
+        store.Save("https://acme.youtrack.cloud", "boris.k", "perm:секретный-ключ");
+
+        Assert.Equal([new TrackerServer("https://acme.youtrack.cloud", "boris.k")], store.List());
+        Assert.Equal("perm:секретный-ключ", new TrackerServersStore(File).KeyOf("https://acme.youtrack.cloud"));
+        // В файле ключа как есть нет: он зашифрован под учётную запись Windows.
+        Assert.DoesNotContain("секретный", System.IO.File.ReadAllText(File));
+        Assert.DoesNotContain("perm:", System.IO.File.ReadAllText(File));
+    }
+
+    [Fact]
+    public void Save_KnownServer_ReplacesKeyInPlace()
+    {
+        var store = new TrackerServersStore(File);
+        store.Save("https://one.youtrack.cloud", "a", "key-1");
+        store.Save("https://two.youtrack.cloud", "b", "key-2");
+
+        store.Save("https://ONE.youtrack.cloud/", "a2", "key-3");
+
+        Assert.Equal(
+            [new TrackerServer("https://one.youtrack.cloud", "a2"), new TrackerServer("https://two.youtrack.cloud", "b")],
+            store.List());
+        Assert.Equal("key-3", store.KeyOf("https://one.youtrack.cloud"));
+    }
+
+    [Theory]
+    [InlineData("https://yt.acme.local/youtrack/")]
+    [InlineData("https://YT.acme.local/youtrack")]
+    public void KeyOf_SameServerWrittenOtherwise_IsFound(string asked)
+    {
+        var store = new TrackerServersStore(File);
+        store.Save("https://yt.acme.local/youtrack", "b", "key");
+
+        Assert.Equal("key", store.KeyOf(asked));
+        Assert.True(store.Contains(asked));
+    }
+
+    [Fact]
+    public void KeyOf_UnknownServerOrBrokenKey_IsNull()
+    {
+        System.IO.File.WriteAllText(File, """{ "servers": [ { "server": "https://yt.acme.local", "login": "b", "key": "не-base64" } ] }""");
+        var store = new TrackerServersStore(File);
+
+        Assert.Null(store.KeyOf("https://yt.acme.local"));
+        Assert.Null(store.KeyOf("https://other.local"));
+    }
+
+    [Fact]
+    public void Remove_TakesServerWithKey()
+    {
+        var store = new TrackerServersStore(File);
+        store.Save("https://yt.acme.local", "b", "key");
+
+        Assert.True(store.Remove("https://yt.acme.local/"));
+
+        Assert.Empty(store.List());
+        Assert.Null(store.KeyOf("https://yt.acme.local"));
+        Assert.False(store.Remove("https://yt.acme.local"));
+    }
+
+    [Fact]
+    public void List_NoFile_IsEmpty()
+    {
+        Assert.Empty(new TrackerServersStore(File).List());
+    }
+}

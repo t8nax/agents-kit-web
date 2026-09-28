@@ -81,6 +81,9 @@ public static partial class Tracker
         };
     }
 
+    /// <summary>Адрес сервера того вида, что принимает кит в строке «сервер:».</summary>
+    public static bool IsServerAddress(string server) => ServerAddress().IsMatch(server);
+
     private static List<KeyValuePair<string, string>> Keys(string text)
     {
         var keys = new List<KeyValuePair<string, string>>();
