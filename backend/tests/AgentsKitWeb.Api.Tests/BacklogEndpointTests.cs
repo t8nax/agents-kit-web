@@ -187,19 +187,6 @@ public sealed class BacklogEndpointTests : IDisposable
         return (await response.Content.ReadFromJsonAsync<TrackerIssues>())!;
     }
 
-    private sealed class FakeGitHubIssues : IGitHubIssues
-    {
-        public TrackerIssues Answer { get; set; } = new([]);
-
-        public List<string> Asked { get; } = [];
-
-        public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
-        {
-            Asked.Add(repo);
-            return Task.FromResult(Answer);
-        }
-    }
-
     [Fact]
     public async Task Backlog_NoBasesConfigured_ReturnsEmptyList()
     {
