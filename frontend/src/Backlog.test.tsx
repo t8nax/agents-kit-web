@@ -519,7 +519,8 @@ test('бэклог базы нового формата виден и берёт
   expect(option).not.toHaveTextContent(refusal)
   fireEvent.click(option)
   expect(dialog.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeInTheDocument()
-  expect(dialog.getByText(refusal)).toBeInTheDocument()
+  // Плашка — сразу под шапкой окна, вне ленты
+  expect(dialog.getByText(refusal).closest('.format-notice')?.previousElementSibling).toHaveClass('reply-head')
   expect(field).toBeDisabled()
   expect(dialog.getByRole('button', { name: 'Отправить' })).toBeDisabled()
   expect(dialog.getByRole('button', { name: 'Приложить файл' })).toBeDisabled()
