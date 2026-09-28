@@ -379,6 +379,9 @@ test('сбой посреди переписки её не рушит: репл�
 
 for (const theme of ['dark', 'light'] as const) {
   test(`окно разговора читается в теме ${theme}`, async ({ page }) => {
+    // Кнопку шапки openAsk ждёт весь срок теста, и нагруженная машина GitHub не отрисовала
+    // страницу и за 30 секунд — решение оператора: минута этой проверке (B-279, на B-280).
+    test.setTimeout(60_000)
     const panel = await mockConversation(page)
     await page.emulateMedia({ colorScheme: theme })
 

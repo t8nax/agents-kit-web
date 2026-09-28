@@ -17,6 +17,8 @@ public sealed class UpdateScriptTests : IDisposable
     private readonly HttpListener _github = new();
     private readonly string _address;
     private Func<HttpListenerContext, Task> _archive = _ => Task.CompletedTask;
+    private string _releases = """[{"tag_name":"v0.10.2-dev","body":""},{"tag_name":"v0.10.2","body":"- задача"}]""";
+    private string _tag = "v0.10.2";
 
     public UpdateScriptTests()
     {
@@ -45,6 +47,29 @@ public sealed class UpdateScriptTests : IDisposable
         Assert.Contains("[ставлю]", log);
         Assert.Equal("[конец] готово 0.10.2", log[^1]);
         Assert.True(File.Exists(Path.Combine(_root, "app", "published.json")));
+    }
+
+    [Fact]
+    public async Task Update_PicksTheNewestReleaseOfEitherNumberForm()
+    {
+        // Номер из четырёх чисел сменил номер из трёх: новейший — 0.25.1.0, а пятое число — не номер.
+        _releases = """
+            [{"tag_name":"v0.25.0","body":""},{"tag_name":"v0.25.1.0","body":""},
+             {"tag_name":"v0.25.2.0-dev","body":""},{"tag_name":"v0.25.9.0.1","body":""}]
+            """;
+        _tag = "v0.25.1.0";
+        var archive = Archive("0.25.1.0");
+        _archive = async context =>
+        {
+            context.Response.ContentLength64 = archive.Length;
+            await context.Response.OutputStream.WriteAsync(archive);
+            context.Response.Close();
+        };
+
+        var log = await Run();
+
+        Assert.Contains("выпуск v0.25.1.0", log);
+        Assert.Equal("[конец] готово 0.25.1.0", log[^1]);
     }
 
     [Fact]
@@ -125,12 +150,12 @@ public sealed class UpdateScriptTests : IDisposable
             var path = context.Request.Url!.AbsolutePath;
             if (path == "/repos/owner/repo/releases")
             {
-                var body = Encoding.UTF8.GetBytes("""[{"tag_name":"v0.10.2-dev","body":""},{"tag_name":"v0.10.2","body":"- задача"}]""");
+                var body = Encoding.UTF8.GetBytes(_releases);
                 context.Response.ContentType = "application/json";
                 await context.Response.OutputStream.WriteAsync(body);
                 context.Response.Close();
             }
-            else if (path == "/owner/repo/releases/download/v0.10.2/agents-kit-web-win-x64.zip")
+            else if (path == $"/owner/repo/releases/download/{_tag}/agents-kit-web-win-x64.zip")
                 _ = _archive(context);
             else
             {

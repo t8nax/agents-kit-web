@@ -30,8 +30,8 @@ $PSNativeCommandUseErrorActionPreference = $true
 $Limit = 50
 $separator = [char]0x1f
 
-# Тег выпуска master — v<номер>, выпуска dev — v<номер>-dev.
-$pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+)-dev$' } else { '^v(\d+\.\d+\.\d+)$' }
+# Тег выпуска master — v<номер>, выпуска dev — v<номер>-dev. Номер — три числа до 0.25.1 и четыре с 0.25.2.0.
+$pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+(?:\.\d+)?)-dev$' } else { '^v(\d+\.\d+\.\d+(?:\.\d+)?)$' }
 $previous = git -C $Repository tag --list 'v*' --merged $Head |
     Where-Object { $_ -match $pattern } |
     Sort-Object { [version]($_ -replace $pattern, '$1') } |
