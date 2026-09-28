@@ -126,8 +126,8 @@ test('панель спрашивает модуль, когда на экран
   const fetchMock = vi.fn(async () => Response.json({ state: 'installed', downloaded: 1, total: 1 }))
   vi.stubGlobal('fetch', fetchMock)
 
+  // Эффекты панели отработали уже при отрисовке: спроси она модуль сразу, запрос был бы здесь.
   const { rerender } = render(<Panel>{null}</Panel>)
-  await new Promise((resolve) => setTimeout(resolve, 20))
   expect(fetchMock).not.toHaveBeenCalled()
   rerender(
     <Panel>
@@ -305,12 +305,14 @@ test('поле погасло — запись кончается, запозд�
   await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
 
   rerender(<Field disabled />)
-  answerLater({ text: 'опоздал' })
 
   expect(mic.closed).toBe(1)
   expect(button()).toBeDisabled()
   expect(button()).toHaveAttribute('aria-pressed', 'false')
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  // Запоздавший текст не ляжет, потому что его запрос отменён — это и проверяется, а не срок.
+  expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true)
+  answerLater({ text: 'опоздал' })
+  await act(async () => {})
   expect(field()).toHaveValue('Набрано')
 })
 
