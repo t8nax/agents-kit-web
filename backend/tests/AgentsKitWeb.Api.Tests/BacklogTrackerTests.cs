@@ -179,6 +179,35 @@ public sealed class BacklogTrackerTests : IDisposable
         Assert.Equal(file, File.ReadAllText(BacklogPath));
     }
 
+    /// <summary>Два переноса одной записи разом — второй ждёт первого и задачу не заводит (ревью B-286).</summary>
+    [Fact]
+    public async Task Move_SameEntryTwiceAtOnce_CreatesOneIssue()
+    {
+        var inGitHub = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        _github.BeforeCreate = async () =>
+        {
+            inGitHub.TrySetResult();
+            await release.Task;
+        };
+        var client = Client();
+        var draft = await GetDraft(client, "B-2");
+
+        var first = Move(client, draft);
+        await inGitHub.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        var second = Move(client, draft);
+        // Второй стоит за первым, а не идёт в GitHub сам
+        await Task.Delay(300);
+        Assert.Single(_github.Creates);
+        release.SetResult();
+
+        Assert.Equal(58, (await first).Issue?.Number);
+        var late = await second;
+        Assert.Null(late.Issue);
+        Assert.Equal("Запись B-2 изменилась после открытия окна переноса — ничего не записано", late.Error);
+        Assert.Single(_github.Creates);
+    }
+
     [Fact]
     public async Task Move_UncommittedBacklogEdit_DoesNotGoToGitHub()
     {

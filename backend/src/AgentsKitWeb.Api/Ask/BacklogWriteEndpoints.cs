@@ -213,6 +213,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         lock (_gate)
             attached = [.. _attached];
         BacklogSaved saved;
+        await BacklogTracker.Writing.WaitAsync();
         try
         {
             saved = await TrackAsync(pending) ?? await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
@@ -223,6 +224,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             lock (_gate)
                 pending.Saving = false;
             throw;
+        }
+        finally
+        {
+            BacklogTracker.Writing.Release();
         }
         if (pending.Created.Count > 0)
             saved = saved with

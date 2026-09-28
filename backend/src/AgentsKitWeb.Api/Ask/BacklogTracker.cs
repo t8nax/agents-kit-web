@@ -125,18 +125,32 @@ public static partial class BacklogTracker
         var proposal = new BacklogProposal(
             Guid.NewGuid().ToString("N"),
             [new BacklogChange(BacklogChange.Track, draft.Number, entry) { Original = draft.Original }]);
-        if (await BacklogConversations.UnwritableAsync(personal, proposal, WhoseMove) is { } refusal)
-            return new TrackerMoved(null, Error: refusal);
+        await Writing.WaitAsync();
+        try
+        {
+            if (await BacklogConversations.UnwritableAsync(personal, proposal, WhoseMove) is { } refusal)
+                return new TrackerMoved(null, Error: refusal);
 
-        var created = await github.CreateAsync(repo, draft.Title, draft.Body);
-        if (created.Issue is not { } issue)
-            return new TrackerMoved(null, created.Problem, created.Detail, NotCreated(created, "Задача"));
+            var created = await github.CreateAsync(repo, draft.Title, draft.Body);
+            if (created.Issue is not { } issue)
+                return new TrackerMoved(null, created.Problem, created.Detail, NotCreated(created, "Задача"));
 
-        var saved = await BacklogConversations.WriteAsync(personal, proposal, [], WhoseMove);
-        return saved.Error is { } error
-            ? new TrackerMoved(issue, Error: error, Output: saved.Output)
-            : new TrackerMoved(issue, Commit: saved.Commit);
+            var saved = await BacklogConversations.WriteAsync(personal, proposal, [], WhoseMove);
+            return saved.Error is { } error
+                ? new TrackerMoved(issue, Error: error, Output: saved.Output)
+                : new TrackerMoved(issue, Commit: saved.Commit);
+        }
+        finally
+        {
+            Writing.Release();
+        }
     }
+
+    /// <summary>
+    /// Запись бэклога из панели — перенос кнопкой и «Сохранить» разговора — идёт по одной: между проверкой записи
+    /// и её вырезом gh заводит задачу до минуты, и два переноса одной записи иначе завели бы две задачи (ревью B-286).
+    /// </summary>
+    internal static readonly SemaphoreSlim Writing = new(1, 1);
 
     public static void MapBacklogTrackerEndpoints(this IEndpointRouteBuilder app)
     {

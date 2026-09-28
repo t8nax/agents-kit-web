@@ -20,11 +20,19 @@ public sealed class FakeGitHubIssues : IGitHubIssues
         return Task.FromResult(Answer);
     }
 
-    public Task<CreatedIssue> CreateAsync(string repo, string title, string body)
+    /// <summary>Ход перед ответом на заведение: им тест держит gh «в GitHub», пока проверяет, что делает второй перенос.</summary>
+    public Func<Task> BeforeCreate { get; set; } = () => Task.CompletedTask;
+
+    public async Task<CreatedIssue> CreateAsync(string repo, string title, string body)
     {
-        Creates.Add((repo, title, body));
-        var number = 57 + Creates.Count;
-        return Task.FromResult(Created
-            ?? new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, $"https://github.com/{repo}/issues/{number}")));
+        int number;
+        lock (Creates)
+        {
+            Creates.Add((repo, title, body));
+            number = 57 + Creates.Count;
+        }
+        await BeforeCreate();
+        return Created
+            ?? new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, $"https://github.com/{repo}/issues/{number}"));
     }
 }
