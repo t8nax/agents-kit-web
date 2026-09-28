@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { mockAgentPanel, ndjson } from './agentPanel'
+import { mockAgentPanel, ndjson } from './agentPanel.ts'
 
 const base = 'D:\\Projects\\app-knowledge'
 
