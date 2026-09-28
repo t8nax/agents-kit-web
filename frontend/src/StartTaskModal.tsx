@@ -15,12 +15,15 @@ type Props = {
   onClose: () => void
   /** Имя каталога копии, в которую ушла задача: им панель говорит, где она запустилась. */
   onStarted: (copy: string) => void
+  /** Задача уже идёт в другой копии: раздел перечитывает копии, чтобы её кнопка погасла и за окном. */
+  onTaken?: () => void
 }
 
 type Problem =
   | 'copy-busy'
   | 'copy-starting'
   | 'record-unknown'
+  | 'task-running'
   | 'issue-unknown'
   | 'tracker-unavailable'
   | 'flow-unknown'
@@ -61,6 +64,9 @@ function failureOf(problem: Problem, message: string | null): string {
       return 'В этой копии панель уже запустила задачу — агент ещё не завёл её память.'
     case 'record-unknown':
       return 'Этой записи больше нет в бэклоге: её взяли или удалили. Закройте окно и откройте заново.'
+    case 'task-running':
+      // Текст один и для задачи, начатой не из панели: её панель видит по памяти в копии — ответ оператора на ревью B-89.
+      return `Эта задача уже идёт${message ? ` в копии ${message}` : ''} — вторую панель не запускает.`
     case 'issue-unknown':
       return 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub. Закройте окно и обновите бэклог.'
     case 'tracker-unavailable':
@@ -79,7 +85,7 @@ function failureOf(problem: Problem, message: string | null): string {
  * её проекта. Выбор флоу виден всегда, даже при одном флоу, первым выбран первый — ответ оператора. Последним
  * разделом — необязательные начальные слова сессии; набранные помнятся у записи, пока задачу не запустили.
  */
-export default function StartTaskModal({ base, entry, onClose, onStarted }: Props) {
+export default function StartTaskModal({ base, entry, onClose, onStarted, onTaken }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [path, setPath] = useState<string | null>(null)
   const [flows, setFlows] = useState<Flows>({ kind: 'loading' })
@@ -87,6 +93,8 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
   const [words, setWords] = useState(() => readStartWords(base, entry.number))
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  // Задача уже идёт в другой копии — в какую копию её ни пошли, откажет так же: кнопка запуска гаснет до закрытия окна (B-89).
+  const [taken, setTaken] = useState(false)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -163,7 +171,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
 
   async function start(event: FormEvent) {
     event.preventDefault()
-    if (!chosen || !flowReady || busy) return
+    if (!chosen || !flowReady || busy || taken) return
     setBusy(true)
     setFailure(null)
     try {
@@ -181,6 +189,10 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
       if (response.status === 400) {
         const body = (await response.json()) as { problem: Problem; message: string | null }
         setFailure(failureOf(body.problem, body.message))
+        if (body.problem === 'task-running') {
+          setTaken(true)
+          onTaken?.()
+        }
       } else if (response.status === 404) {
         setFailure('Этой базы или копии больше нет в списке панели.')
       } else {
@@ -244,7 +256,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                         disabled={busy}
                         onChange={() => {
                           setFlow(one.name)
-                          setFailure(null)
+                          if (!taken) setFailure(null)
                         }}
                       />
                       <ChoiceMark />
@@ -279,7 +291,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                         disabled={busy}
                         onChange={() => {
                           setPath(row.path)
-                          setFailure(null)
+                          if (!taken) setFailure(null)
                         }}
                       />
                       <ChoiceMark />
@@ -328,7 +340,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
             <button type="button" className="btn" disabled={busy} onClick={onClose}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-primary" disabled={busy || !chosen || !flowReady}>
+            <button type="submit" className="btn btn-primary" disabled={busy || taken || !chosen || !flowReady}>
               {busy ? 'Запускается…' : 'Взять в работу'}
             </button>
           </div>

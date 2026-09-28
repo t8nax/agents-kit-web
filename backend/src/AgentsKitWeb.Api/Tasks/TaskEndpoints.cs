@@ -95,6 +95,12 @@ public static partial class TaskEndpoints
             }
             if (started.SessionIn(row.Path) is { } running)
                 return Results.BadRequest(new TaskStartProblem("copy-starting", running));
+            // Та же задача запускается или идёт в другой копии проекта — вторая сессия над ней не заводится (B-89).
+            // Запись бэклога агент вырезает не сразу, а задача GitHub остаётся в трекере всё время работы.
+            var elsewhere = rows.FirstOrDefault(r => r != row && r.Error is null
+                && TaskNumberOf(r.Status == WorkspaceStatus.Free ? started.TaskIn(r.Path) : r.Task, r.Letters) == number);
+            if (elsewhere is not null)
+                return Results.BadRequest(new TaskStartProblem("task-running", Path.GetFileName(elsewhere.Path)));
 
             // Слова уходят аргументом командной строки, а её длину Windows ограничивает: предел — с большим запасом.
             if (request.Words is { Length: > WordsLimit })
@@ -107,16 +113,26 @@ public static partial class TaskEndpoints
                     return Results.BadRequest(new TaskStartProblem("record-unknown"));
             }
 
-            var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow, request.Words), cancellationToken);
-            if (session is null)
-                return Results.BadRequest(new TaskStartProblem("agent", failure));
+            // Пока заводится сессия, строки копий о задаче ещё не знают: повтор её отбивает только этот захват.
+            if (started.Claim(basePath, number, row.Path) is { } claimedBy)
+                return Results.BadRequest(new TaskStartProblem("task-running", Path.GetFileName(claimedBy)));
+            try
+            {
+                var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow, request.Words), cancellationToken);
+                if (session is null)
+                    return Results.BadRequest(new TaskStartProblem("agent", failure));
 
-            // Номер с заголовком записи — всё, что панель знает о задаче, пока агент не завёл память:
-            // из них и стоит задача в строке копии, чтобы не числить её свободной (Tasks/StartedTasks).
-            started.Add(row.Path, session, $"{number} {title}");
-            // Переход в сессию копии ведёт по этой записи: чем ещё узнать ту самую, панель не знает.
-            taskSessions.Remember(row.Path, session);
-            return Results.Ok(new TaskStartResponse(session));
+                // Номер с заголовком записи — всё, что панель знает о задаче, пока агент не завёл память:
+                // из них и стоит задача в строке копии, чтобы не числить её свободной (Tasks/StartedTasks).
+                started.Add(row.Path, session, $"{number} {title}");
+                // Переход в сессию копии ведёт по этой записи: чем ещё узнать ту самую, панель не знает.
+                taskSessions.Remember(row.Path, session);
+                return Results.Ok(new TaskStartResponse(session));
+            }
+            finally
+            {
+                started.Release(basePath, number);
+            }
         });
 
         // Сессия задачи умерла — после перезагрузки или ночью, — а память цела: новая сессия продолжает
@@ -194,6 +210,18 @@ public static partial class TaskEndpoints
 
     [GeneratedRegex(@"^github\s*#(\d{1,9})$", RegexOptions.IgnoreCase)]
     private static partial Regex TrackerIssueName();
+
+    /// <summary>
+    /// Номер задачи, которым начат её заголовок в строке копии, в том виде, в каком запускается задача:
+    /// «B-7 Заголовок» — «B-7» при буквах проекта «B», «GitHub #37 Заголовок» — «GitHub #37». Без номера — null.
+    /// </summary>
+    public static string? TaskNumberOf(string? task, string? letters) =>
+        task is not null && TrackerIssueTitle().Match(task) is { Success: true } issue
+            ? $"GitHub #{int.Parse(issue.Groups[1].Value)}"
+            : BacklogNumber.OfTask(task, letters);
+
+    [GeneratedRegex(@"^\s*github\s*#(\d{1,9})(?:\s|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex TrackerIssueTitle();
 
     /// <summary>
     /// Записи бэклога оператора с буквами проекта базы: номер — заголовок. Запись чужими буквами кит считает ошибкой
