@@ -188,30 +188,38 @@ export default function Reports({
 
   // Разбор по расписанию начинается без раздела: пока раздел открыт и сам ничего не ведёт, он смотрит список просьб,
   // как шапка, и подхватывает появившийся разбор (ревью B-270).
-  const { follow, running: busy, request: followed } = request
+  // Поток той же просьбы оборвался, а разбор идёт — его подхватывают снова.
+  const { follow, running: busy, request: followed, failure: broken } = request
   useEffect(() => {
     if (busy) return
+    let alive = true
     const timer = setInterval(() => {
       fetch('/api/agent/requests')
         .then((response) => (response.ok ? (response.json() as Promise<AgentRequestSummary[]>) : []))
         .then(
           (list) => {
+            // Ответ пришёл после ухода раздела: поток, открытый сейчас, прервать было бы уже некому.
+            if (!alive) return
             const report = list.find((one) => one.kind === 'report' && one.state === 'running')
-            if (report && report.id !== followed?.id) void follow(report)
+            if (report && (report.id !== followed?.id || broken)) void follow(report)
           },
           () => {},
         )
     }, refreshIntervalMs)
-    return () => clearInterval(timer)
-  }, [busy, followed, follow])
+    return () => {
+      alive = false
+      clearInterval(timer)
+    }
+  }, [busy, followed, broken, follow])
 
-  // Первая сверка после старта панели держит разбор: раздел перечитывает список, пока она не кончится.
+  // Первая сверка после старта панели держит разбор: раздел перечитывает список, пока она не кончится, — и после
+  // отказа чтения тоже.
   const checking = items?.some((one) => one.blocked?.kind === 'check') ?? false
   useEffect(() => {
     if (!checking) return
-    const timer = setTimeout(load, refreshIntervalMs)
-    return () => clearTimeout(timer)
-  }, [checking, items, load])
+    const timer = setInterval(load, refreshIntervalMs)
+    return () => clearInterval(timer)
+  }, [checking, load])
 
   // Время идущего разбора тикает само.
   useEffect(() => {

@@ -379,3 +379,53 @@ test('пока идёт первая сверка после старта пан
   await waitFor(() => expect(screen.getByRole('button', { name: 'Проверить заново' })).not.toBeDisabled(), { timeout: 10000 })
   expect(screen.queryByText('Идёт сверка баз после запуска панели.')).toBeNull()
 })
+
+test('оборвавшийся поток идущего разбора раздел подхватывает снова и дожидается отчёта', async () => {
+  const first = controlledStream<ReportEvent>()
+  const second = controlledStream<ReportEvent>()
+  let streams = 0
+  let reports = [item({ report: null })]
+  stubPanel('report', first, {
+    project: 'Agents Kit Web',
+    running: runningRequest('report', 'Разбор флоу', 'D:\\kb\\app', 'Agents Kit Web'),
+    others: (url) => {
+      if (url === '/api/reports/flow') return Response.json(reports)
+      if (url.startsWith('/api/agent/report/stream')) {
+        streams++
+        return new Response((streams === 1 ? first : second).body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+      }
+      return null
+    },
+  })
+  renderReports()
+  await screen.findByText('Идёт разбор флоу Agents Kit Web.')
+
+  first.close()
+  expect(await screen.findByText('Ответ оборвался: API закрыл поток без ответа агента')).toBeTruthy()
+
+  // Разбор на сервере идёт дальше: раздел подхватывает его снова.
+  expect(await screen.findByText('Идёт разбор флоу Agents Kit Web.', undefined, { timeout: 10000 })).toBeTruthy()
+  reports = [item()]
+  second.send({ type: 'reported', text: 'Отчёт построен.' })
+  expect(await screen.findByRole('button', { name: 'Проходимость: 55 из 100.' })).toBeTruthy()
+})
+
+test('сверку после старта раздел перечитывает и после отказа чтения', async () => {
+  const checking: FlowReportItem['blocked'] = { kind: 'check', reason: 'Идёт сверка баз после запуска панели.' }
+  let reads = 0
+  const stream = controlledStream<ReportEvent>()
+  stubPanel('report', stream, {
+    others: (url) => {
+      if (url !== '/api/reports/flow') return null
+      reads++
+      if (reads === 1) return Response.json([item({ report: null, blocked: checking })])
+      if (reads === 2) return new Response(null, { status: 500 })
+      return Response.json([item()])
+    },
+  })
+  renderReports()
+  expect(await screen.findByText('Идёт сверка баз после запуска панели.')).toBeTruthy()
+
+  expect(await screen.findByRole('button', { name: 'Проходимость: 55 из 100.' }, { timeout: 12000 })).toBeTruthy()
+  expect(reads).toBeGreaterThanOrEqual(3)
+})
