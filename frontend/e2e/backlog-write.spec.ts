@@ -226,6 +226,54 @@ test('«Изменить» открывает разговор про запис
   await expect(page.getByRole('button', { name: /B-1 .*сводкой/ })).toBeVisible()
 })
 
+test('перенос в трекер: карточка со строкой о файлах, после «Сохранить» — номер задачи ссылкой (B-286)', async ({ page }) => {
+  const panel = await mockApi(page)
+  // «Сохранить» переноса возвращает заведённую задачу — событием переписки, как API
+  const issue = { name: 'GitHub #58', number: 58, title: B2.title, url: 'https://github.com/acme/orders/issues/58' }
+  await page.route('**/api/backlog/write/save', async (route) => {
+    const { id } = route.request().postDataJSON() as { id: string }
+    panel.saves.push(id)
+    panel.say({ type: 'saved', text: '', commit: 'c0ffee1', proposalId: id, issues: { 'B-2': issue } })
+    await route.fulfill({ json: { commit: 'c0ffee1', issues: { 'B-2': issue } } })
+  })
+  await page.context().route('https://github.com/**', (route) => route.fulfill({ body: '<title>GitHub</title>', contentType: 'text/html' }))
+
+  const dialog = await openFromHead(page)
+  await say(dialog, 'перенеси B-2 в трекер')
+  const files = [{ label: 'снимок', address: 'artifacts/B-2-снимок.png' }]
+  panel.answer({
+    type: 'answer',
+    text: 'Перенесу B-2 в трекер.',
+    proposal: {
+      id: 'p9',
+      changes: [
+        {
+          kind: 'track',
+          number: 'B-2',
+          entry: { ...B2, artifacts: files },
+          draft: { number: 'B-2', title: B2.title, body: 'Нужна выгрузка.\n\n### Агенту\n- где: Backlog.tsx', files, original: '## B-2 Выгрузка бэклога в CSV' },
+        },
+      ],
+    },
+  })
+
+  await expect(dialog.getByText('Ждёт сохранения: перенести 1 в трекер')).toBeVisible()
+  const card = dialog.locator('.write-entry').filter({ hasText: 'перенести' })
+  await expect(card.getByRole('heading', { name: 'Агенту' })).toBeVisible()
+  const warn = card.locator('.write-entry-warn')
+  await expect(warn).toContainText('Файл B-2-снимок.png в задачу не попадёт и удалится вместе с записью.')
+  // Значок строки о файлах — своего размера, а не общего правила значков окна (decisions/tests.md, B-80)
+  await expect(async () => expect((await warn.locator('svg').boundingBox())!.width).toBe(14)).toPass()
+
+  await dialog.getByRole('button', { name: 'Сохранить' }).click()
+  const moved = dialog.locator('.write-entry').filter({ hasText: 'перенесена' })
+  const link = moved.getByRole('link', { name: '#58' })
+  await expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  await expect(async () => expect((await link.locator('svg').boundingBox())!.width).toBe(12)).toPass()
+  await expect(moved).not.toContainText('Нужна выгрузка.')
+  expect(panel.saves).toEqual(['p9'])
+})
+
 test('«Отказаться» ничего не пишет, а новая просьба гасит прежнее предложение', async ({ page }) => {
   const panel = await mockApi(page)
 
