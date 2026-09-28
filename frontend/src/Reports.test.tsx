@@ -209,6 +209,28 @@ test('код в формулировке требования показан м�
   expect(passed.querySelector('code')?.textContent).toBe('product.md')
 })
 
+test('код в ответе Чудо-Юдо — в месте находки, цитате и «Стоит обсудить» — тоже моноширинным', async () => {
+  const withCode = {
+    ...report,
+    findings: [
+      { ...report.findings[0], place: 'Этап `merge`', quotes: [{ where: 'Файл `stages/merge.md`', text: 'Строка `возврат:`' }] },
+    ],
+    discussions: [{ title: 'Делить ли `merge`', place: 'Мерж', now: 'Один `merge.md`.', for: 'Проще.', against: 'Дольше.' }],
+  }
+  stub(() => [item({ report: withCode })])
+  renderReports()
+
+  const row = (await screen.findByText('Каждый исход куда-то ведёт')).closest('details')!
+  fireEvent.click(within(row).getByText('Каждый исход куда-то ведёт'))
+  await waitFor(() => expect(row.open).toBe(true))
+  expect(row.textContent).not.toContain('`')
+  expect([...row.querySelectorAll('code')].map((code) => code.textContent)).toEqual(['merge', 'stages/merge.md', 'возврат:'])
+
+  const discussion = screen.getByText('Мерж', { selector: '.rp-finding-where' }).closest('details')!
+  expect(discussion.textContent).not.toContain('`')
+  expect([...discussion.querySelectorAll('code')].map((code) => code.textContent)).toEqual(['merge', 'merge.md'])
+})
+
 test('по кольцам находки стоят под своим кольцом со счётом требований, без «вычтено»', async () => {
   stub(() => [item()])
   renderReports()

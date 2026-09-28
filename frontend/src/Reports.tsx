@@ -696,7 +696,9 @@ function FindingRow({
               одно исправление с «{twin.title}»
             </span>
           ))}
-          <span className="rp-finding-where">{finding.place}</span>
+          <span className="rp-finding-where">
+            <Inline text={finding.place} />
+          </span>
         </span>
         <span className="rp-finding-ring">{inRing ? '' : requirement.ring}</span>
         <span className="rp-finding-gain" title={`Исправление вернёт кольцу ${balls(points)}`}>
@@ -733,7 +735,9 @@ function FindingRow({
               <dd>
                 {finding.quotes.map((quote, i) => (
                   <span key={i} className="rp-quote">
-                    <span className="rp-quote-place">{quote.where}</span>
+                    <span className="rp-quote-place">
+                      <Inline text={quote.where} />
+                    </span>
                     <span>
                       <Inline text={quote.text} />
                     </span>
@@ -783,8 +787,14 @@ function Discussions({ discussions }: { discussions: ReportDiscussion[] }) {
               <ChevronIcon />
               <span className="rp-pr rp-pr-q">Вопрос</span>
               <span className="rp-finding-main">
-                <span className="rp-finding-title">{discussion.title}</span>
-                {discussion.place && <span className="rp-finding-where">{discussion.place}</span>}
+                <span className="rp-finding-title">
+                  <Inline text={discussion.title} />
+                </span>
+                {discussion.place && (
+                  <span className="rp-finding-where">
+                    <Inline text={discussion.place} />
+                  </span>
+                )}
               </span>
               <span />
               <span />
@@ -800,7 +810,11 @@ function Discussions({ discussions }: { discussions: ReportDiscussion[] }) {
                   .map(([label, text]) => (
                     <div key={label}>
                       <dt>{label}</dt>
-                      <dd>{text}</dd>
+                      <dd>
+                        <span>
+                          <Inline text={text} />
+                        </span>
+                      </dd>
                     </div>
                   ))}
               </dl>
