@@ -297,3 +297,55 @@ test('разбор, который не удался, называет прич�
   const alert = await screen.findByRole('alert')
   expect(within(alert).getByText('Claude Code не запустился.')).toBeTruthy()
 })
+
+test('разбор по расписанию, начатый при открытом разделе, раздел подхватывает сам', async () => {
+  const stream = controlledStream<ReportEvent>()
+  let started = false
+  let reports = [item({ report: null })]
+  stubPanel('report', stream, {
+    project: 'Agents Kit Web',
+    others: (url) => {
+      if (url === '/api/reports/flow') return Response.json(reports)
+      if (url === '/api/agent/requests')
+        return Response.json(started ? [runningRequest('report', 'Разбор флоу', 'D:\kb\app', 'Agents Kit Web')] : [])
+      if (url.startsWith('/api/agent/report/stream'))
+        return new Response(stream.body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+      return null
+    },
+  })
+  renderReports()
+  expect(await screen.findByRole('button', { name: 'Построить отчёт' })).toBeTruthy()
+
+  started = true
+
+  expect(await screen.findByText('Идёт разбор флоу Agents Kit Web.', undefined, { timeout: 10000 })).toBeTruthy()
+  reports = [item()]
+  stream.send({ type: 'reported', text: 'Отчёт построен.' })
+  expect(await screen.findByRole('button', { name: 'Проходимость: 55 из 100.' })).toBeTruthy()
+})
+
+test('оборвавшийся разбор раздел называет, а не молча гасит строку хода', async () => {
+  const { stream } = stub(() => [item({ report: null })])
+  renderReports()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Построить отчёт' }))
+  await screen.findByText('Идёт разбор флоу Agents Kit Web.')
+  stream.close()
+
+  const alert = await screen.findByRole('alert')
+  expect(within(alert).getByText('Ответ оборвался: API закрыл поток без ответа агента')).toBeTruthy()
+})
+
+test('пока идёт первая сверка после старта панели, раздел говорит об этом и перечитывает отчёт сам', async () => {
+  let reports = [item({ report: null, blocked: { kind: 'check', reason: 'Идёт сверка баз после запуска панели.' } })]
+  stub(() => reports)
+  renderReports()
+
+  const alert = await screen.findByRole('alert')
+  expect(within(alert).getByText('Идёт сверка баз после запуска панели.')).toBeTruthy()
+  expect(within(alert).queryByRole('button')).toBeNull()
+
+  reports = [item()]
+
+  expect(await screen.findByRole('button', { name: 'Проходимость: 55 из 100.' }, { timeout: 10000 })).toBeTruthy()
+})

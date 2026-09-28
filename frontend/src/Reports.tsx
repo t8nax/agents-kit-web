@@ -4,7 +4,7 @@ import Flow from './Flow'
 import PickMenu from './PickMenu'
 import { WarningIcon } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
-import { useAgentRequest } from './agentRequest'
+import { useAgentRequest, type AgentRequestSummary } from './agentRequest'
 import { plural } from './plural'
 import { useReveal } from './reveal'
 import './Tabs.css'
@@ -40,8 +40,11 @@ export type FlowReport = {
 /** Дни — по-дотнетовски: 0 — воскресенье, 1 — понедельник. */
 export type ReportSchedule = { enabled: boolean; days: number[]; hour: number }
 
-/** Почему отчёт не строится: kit — кита или требований нет, health — ошибки сверки во флоу, flow — нет сценариев. */
-export type ReportBlock = { kind: 'kit' | 'health' | 'flow'; reason: string }
+/**
+ * Почему отчёт не строится: kit — кита или требований нет, check — после старта панели идёт первая сверка,
+ * health — ошибки сверки во флоу, flow — нет сценариев.
+ */
+export type ReportBlock = { kind: 'kit' | 'check' | 'health' | 'flow'; reason: string }
 
 export type FlowReportItem = {
   base: string
@@ -54,6 +57,9 @@ export type FlowReportItem = {
 type ReportEvent = { type: 'step' | 'reported' | 'error'; text: string; output?: string }
 
 type Order = 'priority' | 'ring'
+
+/** Как часто раздел смотрит, не начался ли разбор без него, — тем же шагом, что шапка. */
+const refreshIntervalMs = 3000
 
 /** Вычет за находку по приоритету требования — тот же, что считает панель на сервере. */
 const weights: Record<Priority, number> = { high: 15, medium: 7, low: 2 }
@@ -180,6 +186,33 @@ export default function Reports({
     if (outcome) load()
   }, [outcome, load])
 
+  // Разбор по расписанию начинается без раздела: пока раздел открыт и сам ничего не ведёт, он смотрит список просьб,
+  // как шапка, и подхватывает появившийся разбор (ревью B-270).
+  const { follow, running: busy, request: followed } = request
+  useEffect(() => {
+    if (busy) return
+    const timer = setInterval(() => {
+      fetch('/api/agent/requests')
+        .then((response) => (response.ok ? (response.json() as Promise<AgentRequestSummary[]>) : []))
+        .then(
+          (list) => {
+            const report = list.find((one) => one.kind === 'report' && one.state === 'running')
+            if (report && report.id !== followed?.id) void follow(report)
+          },
+          () => {},
+        )
+    }, refreshIntervalMs)
+    return () => clearInterval(timer)
+  }, [busy, followed, follow])
+
+  // Первая сверка после старта панели держит разбор: раздел перечитывает список, пока она не кончится.
+  const checking = items?.some((one) => one.blocked?.kind === 'check') ?? false
+  useEffect(() => {
+    if (!checking) return
+    const timer = setTimeout(load, refreshIntervalMs)
+    return () => clearTimeout(timer)
+  }, [checking, items, load])
+
   // Время идущего разбора тикает само.
   useEffect(() => {
     if (!request.running) return
@@ -190,7 +223,13 @@ export default function Reports({
   const item = items?.find((one) => one.base === selected) ?? null
   const mine = item !== null && request.base === item.base
   const running = request.running
-  const error = mine && outcome?.type === 'error' ? outcome : null
+  // Итог — ошибка агента, или поток просьбы оборвался без итога: раздел говорит об этом, а не молча гасит строку хода.
+  const error =
+    mine && outcome?.type === 'error'
+      ? { text: outcome.text, output: outcome.output }
+      : mine && request.failure
+        ? { text: request.failure, output: undefined }
+        : null
 
   async function run() {
     if (!item) return

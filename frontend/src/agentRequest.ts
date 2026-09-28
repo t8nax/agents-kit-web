@@ -188,7 +188,8 @@ export function useAgentRequest<E extends AgentEvent>(
     }
   }, [kind])
 
-  return { asked, base, request, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure }
+  // follow — подхватить просьбу, начатую без окна: разбор по расписанию, пока раздел открыт (B-270).
+  return { asked, base, request, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure, follow }
 }
 
 /** Своя просьба по умолчанию — любая просьба своего вида: разом идёт по одной каждого вида. */
