@@ -183,6 +183,36 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+// Запись B-8 уже запускается в rustic-silver-sparrow, а агент её ещё не вырезал — второй раз её не взять (B-89).
+const secondFreeRow = { ...freeRow, path: 'D:\\Projects\\brave-quiet-otter' }
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`у взятой записи кнопка погашена, у соседней живая (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await routeApi(page, { status: 200, json: { session: '7339dced' } }, [startingRow, secondFreeRow])
+    const entries = await openBacklog(page)
+
+    await expect(entries.filter({ hasText: 'B-7' }).getByRole('button', { name: 'Взять задачу' })).toBeEnabled()
+    const taken = entries.filter({ hasText: 'B-8' })
+    await expect(taken.getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+    // Переписать запись можно, пока агент её не забрал
+    await expect(taken.getByRole('button', { name: 'Изменить' })).toBeEnabled()
+  })
+}
+
+test('запись успели взять из другой вкладки: окно называет копию и гасит запуск', async ({ page }) => {
+  await routeApi(page, { status: 400, json: { problem: 'task-running', message: 'noble-keen-walrus' } })
+  const entries = await openBacklog(page)
+
+  await entries.filter({ hasText: 'B-7' }).getByRole('button', { name: 'Взять задачу' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
+  await dialog.locator('label').filter({ hasText: 'rustic-silver-sparrow' }).click()
+  await dialog.getByRole('button', { name: 'Взять в работу' }).click()
+
+  await expect(dialog.getByRole('alert')).toHaveText('Эту задачу панель уже запустила в копии noble-keen-walrus — вторую не запускает.')
+  await expect(dialog.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+})
+
 test('в таблице копий задачу не берут: у свободной копии прочерк', async ({ page }) => {
   await routeApi(page, { status: 200, json: { session: '7339dced' } })
   await page.goto('/')
