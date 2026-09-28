@@ -254,6 +254,84 @@ test('изменение и удаление ждут «Сохранить», а
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(bases[0].base))
 })
 
+// ——— Перенос записи в трекер (B-286) ———
+
+const B281: WrittenEntry = {
+  number: 'B-281',
+  title: 'Экспорт истории задачи копии в markdown',
+  text: 'Нужна выгрузка истории.',
+  artifacts: [
+    { label: 'образец', address: 'artifacts/B-281-sample-export.md' },
+    { label: 'снимок', address: 'artifacts/B-281-reply-window.png' },
+    { label: 'формат', address: 'https://commonmark.org/help/' },
+  ],
+}
+
+const withTrack: Proposal = {
+  id: 'p5',
+  changes: [
+    { kind: 'track', number: 'B-281', entry: B281 },
+    { kind: 'change', number: 'B-40', entry: B40 },
+  ],
+}
+
+test('перенос в трекер ждёт «Сохранить» вместе с правкой, а после — номер задачи ссылкой у отметки «перенесена»', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { calls } = stubFetch(stream)
+  renderModal()
+
+  await say('перенеси B-281 в трекер, а в B-40 приоритет высокий')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер, а в B-40 приоритет высокий' })
+  stream.send(answer({ proposal: withTrack }))
+
+  expect(await screen.findByText('Ждут сохранения: изменить 1, перенести 1 в трекер')).toBeInTheDocument()
+  const changes = within(screen.getByRole('list', { name: 'Изменения' }))
+  const card = changes.getByText('перенести').closest('li')!
+  expect(card).toHaveTextContent('Нужна выгрузка истории.')
+  // Файлы названы, ссылка — нет: она уйдёт в описание задачи
+  expect(card).toHaveTextContent('Файлы B-281-sample-export.md и B-281-reply-window.png в задачу не попадут и удалятся вместе с записью.')
+  // Строки о репозитории и назначении на карточке нет — ответ оператора на макет
+  expect(card).not.toHaveTextContent('назначена на вас')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await waitFor(() => expect(calls).toEqual([{ url: '/api/backlog/write/save', body: { id: 'p5' } }]))
+  stream.send({
+    type: 'saved',
+    text: '',
+    commit: 'c0ffee1',
+    proposalId: 'p5',
+    issues: { 'B-281': { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' } },
+  })
+
+  const moved = (await changes.findByText('перенесена')).closest('li')!
+  expect(within(moved).getByText('перенесена')).toHaveClass('added')
+  const link = within(moved).getByRole('link', { name: '#58' })
+  expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  expect(link).toHaveAttribute('target', '_blank')
+  // После сохранения — одна строка заголовка, без описания и без вложенной рамки со строкой задачи
+  expect(moved).not.toHaveTextContent('Нужна выгрузка истории.')
+  expect(moved).not.toHaveTextContent('в задачу не попадут')
+  expect(changes.getByText('изменена')).toBeInTheDocument()
+})
+
+test('перенос, от которого отказались, зачёркнут и задачи не показывает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send(answer({ proposal: { id: 'p6', changes: [withTrack.changes[0]] } }))
+  expect(await screen.findByText('Ждёт сохранения: перенести 1 в трекер')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отказаться' }))
+  stream.send({ type: 'refused', text: '', proposalId: 'p6' })
+
+  const card = (await screen.findByText('отказались')).closest('li')!
+  expect(card).toHaveClass('is-struck')
+  expect(within(card).queryByRole('link')).not.toBeInTheDocument()
+})
+
 test('несохранённое остаётся с кнопками, а причина видна в ответе', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream, {

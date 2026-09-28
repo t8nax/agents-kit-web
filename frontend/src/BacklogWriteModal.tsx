@@ -7,6 +7,8 @@ import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { useAgentConversation } from './agentConversation'
+import type { TrackerIssue } from './tracker'
+import { OutIcon } from './TrackerGroup'
 import './Modal.css'
 import './ReplyModal.css'
 import './AskModal.css'
@@ -19,9 +21,12 @@ export type WriteBase = { base: string; project: string }
 
 export type WrittenEntry = BacklogEntry
 
-/** Правка предложения: change — запись станет entry, delete — запись entry уходит (into — куда влита). */
+/**
+ * Правка предложения: change — запись станет entry, delete — запись entry уходит (into — куда влита), track — запись
+ * уходит задачей в трекер проекта (B-286).
+ */
 export type ProposalChange = {
-  kind: 'change' | 'delete'
+  kind: 'change' | 'delete' | 'track'
   number: string
   entry: WrittenEntry
   into?: string | null
@@ -44,7 +49,8 @@ export type WriteEvent =
       proposal?: Proposal | null
     }
   | { type: 'error'; text: string; output?: string | null; entries?: WrittenEntry[] | null }
-  | { type: 'saved'; text: string; commit?: string | null; proposalId: string }
+  // issues — задачи трекера, в которые ушли записи предложения: номер записи → задача
+  | { type: 'saved'; text: string; commit?: string | null; proposalId: string; issues?: Record<string, TrackerIssue> | null }
   | { type: 'refused'; text: string; proposalId: string }
 
 /**
@@ -137,7 +143,7 @@ export default function BacklogWriteModal({
   // После «Сохранить» запись разговора показывается такой, какой её записали, а удалённая — отметкой «удалена».
   // Что с ней стало, говорит сохранённое предложение, а не список раздела: тот мог и не перечитаться.
   const saved = savedChange(events, aboutNumber)
-  const aboutGone = saved?.kind === 'delete'
+  const aboutGone = saved?.kind === 'delete' || saved?.kind === 'track'
   const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (own?.entry ?? current)
 
   // Закрытое окно разговор не трогает: открытое снова, оно показывает его на месте, а кончает его только
@@ -173,6 +179,8 @@ export default function BacklogWriteModal({
   }, [base, savedCount, hidden, onSaved])
 
   const states = proposalStates(events)
+  // Задачи трекера, заведённые сохранённым предложением: по ним карточка переноса показывает номер задачи ссылкой
+  const issues = new Map(events.flatMap((e) => (e.type === 'saved' ? [[e.proposalId, e.issues ?? {}] as const] : [])))
   const pendingProposal =
     events
       .flatMap((e) => (e.type === 'answer' && e.proposal ? [e.proposal] : []))
@@ -378,7 +386,7 @@ export default function BacklogWriteModal({
               <p className="talk-label">Запись</p>
               <ul className="write-entries">
                 {aboutGone ? (
-                  <EntryCard entry={about} badge="удалена" tone="added" removed />
+                  <EntryCard entry={about} badge={saved?.kind === 'track' ? 'перенесена' : 'удалена'} tone="added" removed />
                 ) : (
                   <EntryCard entry={about} base={base} />
                 )}
@@ -409,6 +417,7 @@ export default function BacklogWriteModal({
                     key={i}
                     event={event}
                     state={event.proposal ? (states.get(event.proposal.id) ?? 'replaced') : null}
+                    issues={event.proposal ? (issues.get(event.proposal.id) ?? {}) : {}}
                   />
                 )
               case 'error':
@@ -545,9 +554,11 @@ export default function BacklogWriteModal({
 function Answer({
   event,
   state,
+  issues,
 }: {
   event: Extract<WriteEvent, { type: 'answer' }>
   state: ProposalState | null
+  issues: Record<string, TrackerIssue>
 }) {
   const entries = event.entries ?? []
   const proposal = event.proposal ?? null
@@ -563,7 +574,7 @@ function Answer({
       )}
       {proposal && state && (
         <div className={`talk-group ${state === 'refused' || state === 'replaced' ? 'is-void' : ''}`}>
-          <ProposalEntries proposal={proposal} state={state} />
+          <ProposalEntries proposal={proposal} state={state} issues={issues} />
         </div>
       )}
     </div>
@@ -571,7 +582,15 @@ function Answer({
 }
 
 /** Записи предложения: объединение — «Останется» и «Уйдёт в …», остальное — списком. */
-function ProposalEntries({ proposal, state }: { proposal: Proposal; state: ProposalState }) {
+function ProposalEntries({
+  proposal,
+  state,
+  issues,
+}: {
+  proposal: Proposal
+  state: ProposalState
+  issues: Record<string, TrackerIssue>
+}) {
   const targets = [...new Set(proposal.changes.filter((c) => c.kind === 'delete' && c.into).map((c) => c.into!))]
   const merged = new Set([
     ...targets,
@@ -582,9 +601,13 @@ function ProposalEntries({ proposal, state }: { proposal: Proposal; state: Propo
     <>
       {rest.length > 0 && (
         <ul className="write-entries" aria-label="Изменения">
-          {rest.map((change) => (
-            <ChangeCard key={change.number} change={change} state={state} />
-          ))}
+          {rest.map((change) =>
+            change.kind === 'track' ? (
+              <TrackCard key={change.number} change={change} state={state} issue={issues[change.number] ?? null} />
+            ) : (
+              <ChangeCard key={change.number} change={change} state={state} />
+            ),
+          )}
         </ul>
       )}
       {targets.map((target) => {
@@ -637,6 +660,63 @@ function ChangeCard({ change, state }: { change: ProposalChange; state: Proposal
       removed={removed}
       struck={state === 'refused'}
     />
+  )
+}
+
+/**
+ * Перенос записи в трекер (макет B-286, карточка А): пока ждёт — запись с описанием и строкой о файлах, которые
+ * в задачу не попадут; после «Сохранить» — заголовок и номер задачи плашкой-ссылкой рядом с отметкой, без вложенной рамки.
+ */
+function TrackCard({ change, state, issue }: { change: ProposalChange; state: ProposalState; issue: TrackerIssue | null }) {
+  const { entry } = change
+  const files = (entry.artifacts ?? []).filter((a) => !/^https?:\/\//i.test(a.address))
+  const badge = { pending: 'перенести', saved: 'перенесена', refused: 'отказались', replaced: 'заменено' }[state]
+  const open = state === 'pending' || state === 'replaced' || state === 'refused'
+  return (
+    <li className={`write-entry ${state === 'refused' ? 'is-struck' : ''}`}>
+      <div className="write-entry-head">
+        <span className="entry-num">{entry.number}</span>
+        <InlineMarkdown className="write-entry-title" text={entry.title} />
+        {state === 'saved' && issue && (
+          <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
+            #{issue.number}
+            <OutIcon />
+          </a>
+        )}
+        <span className={`change-badge ${state === 'saved' ? 'added' : ''}`}>{badge}</span>
+      </div>
+      {open &&
+        (entry.text ? (
+          <Markdown className="write-entry-text" text={entry.text} />
+        ) : (
+          <p className="write-entry-text entry-no-text">Описания нет</p>
+        ))}
+      {open && files.length > 0 && (
+        <p className="write-entry-warn">
+          <WarnIcon />
+          <span>
+            {files.length === 1 ? 'Файл ' : 'Файлы '}
+            {files.map((file, i) => (
+              <span key={file.address}>
+                {i > 0 && (i === files.length - 1 ? ' и ' : ', ')}
+                <span className="mono">{file.address.split('/').pop()}</span>
+              </span>
+            ))}
+            {files.length === 1 ? ' в задачу не попадёт и удалится вместе с записью.' : ' в задачу не попадут и удалятся вместе с записью.'}
+          </span>
+        </p>
+      )}
+    </li>
+  )
+}
+
+function WarnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
   )
 }
 
@@ -736,9 +816,11 @@ function pendingParts(proposal: Proposal) {
   const targets = new Set(into.map((c) => c.into!))
   const changes = proposal.changes.filter((c) => c.kind === 'change' && !targets.has(c.number)).length
   const deletes = proposal.changes.filter((c) => c.kind === 'delete' && !c.into).length
+  const tracks = proposal.changes.filter((c) => c.kind === 'track').length
   const parts = [
     changes > 0 && `изменить ${changes}`,
     deletes > 0 && `удалить ${deletes}`,
+    tracks > 0 && `перенести ${tracks} в трекер`,
     ...[...targets].map((target) => {
       const count = 1 + into.filter((c) => c.into === target).length
       return `объединить ${count} ${plural(count, 'запись', 'записи', 'записей')} в одну`

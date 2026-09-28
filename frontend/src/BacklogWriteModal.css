@@ -267,6 +267,63 @@
   border-color: var(--accent-error-border);
 }
 
+/* Перенос в трекер (B-286): файлы, которые в задачу не попадут, — красной строкой под описанием */
+.write-entry-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent-error-text);
+}
+
+.modal-overlay .write-entry-warn svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+
+.write-entry-warn .mono {
+  color: var(--text-primary);
+}
+
+/* Заведённая задача — номером плашкой номера трекера в строке заголовка, перед отметкой; плашка — ссылка на GitHub */
+.wc-issue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  background: var(--accent-free-bg);
+  border-radius: 4px;
+  padding: 0 6px;
+  text-decoration: none;
+}
+
+.modal-overlay .wc-issue svg {
+  width: 12px;
+  height: 12px;
+  margin: 0;
+  color: var(--text-tertiary);
+}
+
+.wc-issue:hover {
+  color: var(--text-primary);
+}
+
+.modal-overlay .wc-issue:hover svg {
+  color: var(--text-secondary);
+}
+
+.wc-issue:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
 .modal-overlay .talk-pending svg {
   width: 16px;
   height: 16px;
