@@ -8,6 +8,8 @@ export type TrackerInfo = {
   name?: string | null
   server?: string | null
   project?: string | null
+  /** У no-keys — каких строк нет или какие записаны не так: «трекер», «сервер», «проект». */
+  faults?: string[] | null
 }
 
 /** Незакрытая задача трекера, назначенная на оператора. name — как её называет кит: «GitHub #37», «YouTrack ABC-12». */

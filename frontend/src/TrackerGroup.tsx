@@ -24,16 +24,22 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo): State | null {
         warning: false,
         text: `Трекер проекта — ${tracker.name ?? 'не GitHub и не YouTrack'}. Панель пока читает задачи только из GitHub и YouTrack.`,
       }
-    case 'no-keys':
+    case 'no-keys': {
+      // Называются именно те строки, которых нет или что записаны не так, — как на макете B-288
+      const faults = (tracker.faults?.length ? tracker.faults : ['трекер', 'сервер', 'проект']).map((key) => `«${key}:»`)
+      const named = faults.length === 1 ? faults[0] : `${faults.slice(0, -1).join(', ')} и ${faults[faults.length - 1]}`
       return {
         warning: true,
         text: (
           <>
-            В описании трекера проекта нет строк «трекер:», «сервер:» и «проект:» или одна из них записана не так. Допишите
-            их навыком <code>/tracker</code>.
+            {faults.length === 1
+              ? `В описании трекера проекта нет строки ${named} или она записана не так. Допишите её навыком `
+              : `В описании трекера проекта нет строк ${named} или они записаны не так. Допишите их навыком `}
+            <code>/tracker</code>.
           </>
         ),
       }
+    }
     case 'no-key':
       return {
         warning: true,

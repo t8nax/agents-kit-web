@@ -57,21 +57,27 @@ public class TrackerTests
     }
 
     /// <summary>Без трёх строк панель в прозе ничего не ищет — и адрес GitHub в словах не берёт (решение оператора на B-288).</summary>
+    /// <summary>Красная строка называет, каких строк нет или какие записаны не так, — как на макете B-288.</summary>
     [Theory]
-    [InlineData("GitHub Issues репозитория https://github.com/acme/orders, ходить через gh; номер — #37.")]
-    [InlineData("трекер: GitHub\nсервер: https://github.com")]
-    [InlineData("трекер: GitHub\nсервер: https://github.com\nпроект:")]
-    [InlineData("трекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nпроект: acme/other")]
-    [InlineData("трекер: GitHub\n\nсервер: https://github.com\nпроект: acme/orders")]
-    [InlineData("трекер: GitHub\nсервер: github.com\nпроект: acme/orders")]
-    [InlineData("трекер: GitHub\nсервер: https://bot:secret@github.com\nпроект: acme/orders")]
-    [InlineData("трекер: GitHub\nсервер: https://github.com/?token=1\nпроект: acme/orders")]
-    [InlineData("трекер: GitHub\nсервер: https://github.com\nпроект: orders")]
-    [InlineData("трекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: 1PAY")]
-    [InlineData("трекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: PAY-1")]
-    public void Parse_MissingOrMalformedKeys_IsNoKeys(string where)
+    [InlineData("GitHub Issues репозитория https://github.com/acme/orders, ходить через gh; номер — #37.", "трекер,сервер,проект")]
+    [InlineData("трекер: GitHub\nсервер: https://github.com", "проект")]
+    [InlineData("трекер: YouTrack", "сервер,проект")]
+    [InlineData("трекер: GitHub\nсервер: https://github.com\nпроект:", "проект")]
+    [InlineData("трекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nпроект: acme/other", "проект")]
+    [InlineData("трекер: GitHub\n\nсервер: https://github.com\nпроект: acme/orders", "сервер,проект")]
+    [InlineData("трекер: GitHub\nсервер: github.com\nпроект: acme/orders", "сервер")]
+    [InlineData("трекер: GitHub\nсервер: https://bot:secret@github.com\nпроект: acme/orders", "сервер")]
+    [InlineData("трекер: GitHub\nсервер: https://github.com/?token=1\nпроект: acme/orders", "сервер")]
+    [InlineData("трекер: GitHub\nсервер: https://github.com\nпроект: orders", "проект")]
+    [InlineData("трекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: 1PAY", "проект")]
+    [InlineData("трекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: PAY-1", "проект")]
+    [InlineData("трекер: Jira\nпроект: PAY", "сервер")]
+    public void Parse_MissingOrMalformedKeys_IsNoKeysNamingThem(string where, string faults)
     {
-        Assert.Equal(new TrackerInfo(TrackerInfo.NoKeys), Tracker.Parse(Describe(where)));
+        var tracker = Tracker.Parse(Describe(where));
+
+        Assert.Equal(TrackerInfo.NoKeys, tracker.Kind);
+        Assert.Equal(faults.Split(','), tracker.Faults);
     }
 
     [Fact]
@@ -93,7 +99,7 @@ public class TrackerTests
             ```
             """);
 
-        Assert.Equal(new TrackerInfo(TrackerInfo.NoKeys), tracker);
+        Assert.Equal(TrackerInfo.NoKeys, tracker.Kind);
     }
 
     [Fact]
@@ -101,6 +107,6 @@ public class TrackerTests
     {
         var tracker = Tracker.Parse("# Трекер\n\n## Показ бэклога\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\n");
 
-        Assert.Equal(new TrackerInfo(TrackerInfo.NoKeys), tracker);
+        Assert.Equal(TrackerInfo.NoKeys, tracker.Kind);
     }
 }

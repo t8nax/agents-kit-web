@@ -7,10 +7,11 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// <summary>
 /// Трекер проекта по строкам «трекер:», «сервер:», «проект:» раздела «## Где задачи» tracker.md корня базы.
 /// Kind — «github» или «youtrack» (Server и Project названы), «other» — трекер, которого панель не читает
-/// (Name — как его назвал файл), «no-keys» — строк нет, какая-то пуста, повторена или не того вида,
-/// «unreadable» — файл не прочитан.
+/// (Name — как его назвал файл), «no-keys» — строк нет, какая-то пуста, повторена или не того вида (Faults — какие:
+/// «трекер», «сервер», «проект»; красная строка называет их, как на макете B-288), «unreadable» — файл не прочитан.
 /// </summary>
-public sealed record TrackerInfo(string Kind, string? Name = null, string? Server = null, string? Project = null)
+public sealed record TrackerInfo(
+    string Kind, string? Name = null, string? Server = null, string? Project = null, IReadOnlyList<string>? Faults = null)
 {
     public const string GitHub = "github";
     public const string YouTrack = "youtrack";
@@ -65,20 +66,32 @@ public static partial class Tracker
         var name = Single("трекер");
         var server = Single("сервер");
         var project = Single("проект");
-        if (name is null || server is null || project is null || !ServerAddress().IsMatch(server))
-            return new TrackerInfo(TrackerInfo.NoKeys);
-
-        server = server.TrimEnd('/');
-        return name.ToLowerInvariant() switch
+        var kind = name?.ToLowerInvariant() switch
         {
-            "github" => GitHubProject().IsMatch(project)
-                ? new TrackerInfo(TrackerInfo.GitHub, "GitHub", server, project)
-                : new TrackerInfo(TrackerInfo.NoKeys),
-            "youtrack" => YouTrackProject().IsMatch(project)
-                ? new TrackerInfo(TrackerInfo.YouTrack, "YouTrack", server, project)
-                : new TrackerInfo(TrackerInfo.NoKeys),
-            _ => new TrackerInfo(TrackerInfo.Other, name),
+            "github" => TrackerInfo.GitHub,
+            "youtrack" => TrackerInfo.YouTrack,
+            null => null,
+            _ => TrackerInfo.Other,
         };
+        var projectFits = project is not null && kind switch
+        {
+            TrackerInfo.GitHub => GitHubProject().IsMatch(project),
+            TrackerInfo.YouTrack => YouTrackProject().IsMatch(project),
+            _ => true,
+        };
+        List<string> faults = [];
+        if (name is null)
+            faults.Add("трекер");
+        if (server is null || !ServerAddress().IsMatch(server))
+            faults.Add("сервер");
+        if (!projectFits)
+            faults.Add("проект");
+        if (faults.Count > 0)
+            return new TrackerInfo(TrackerInfo.NoKeys, Faults: faults);
+
+        return kind == TrackerInfo.Other
+            ? new TrackerInfo(TrackerInfo.Other, name)
+            : new TrackerInfo(kind!, kind == TrackerInfo.GitHub ? "GitHub" : "YouTrack", server!.TrimEnd('/'), project);
     }
 
     /// <summary>Адрес сервера того вида, что принимает кит в строке «сервер:».</summary>
