@@ -217,11 +217,9 @@ export default function Backlog({
       }
     })
     .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
-  // База нового формата: просить Чудо-Юдо можно, пока в выбранном есть бэклог, который панель знает, а плашка —
-  // когда выбран проект этой базы или он один (B-281).
+  // База нового формата: просить Чудо-Юдо можно, пока в выбранном есть бэклог, который панель знает (B-281).
   const inScope = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
   const writeClosed = inScope.length > 0 && inScope.every((b) => b.formatWarning) ? NEWER_FORMAT_REFUSAL : null
-  const warned = filter !== null || backlogs.length === 1 ? inScope.filter((b) => b.formatWarning) : []
 
   return (
     <>
@@ -273,10 +271,6 @@ export default function Backlog({
             </div>
           )}
 
-          {warned.map((backlog) => (
-            <FormatNotice key={backlog.base} text={backlog.formatWarning!} />
-          ))}
-
           <div className="filter-bar" role="group" aria-label="Отбор и порядок записей">
             <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
             <span className="tool-sep" />
@@ -317,6 +311,9 @@ export default function Backlog({
                 <div className="base-head">
                   <h3>{backlog.project}</h3>
                 </div>
+                {/* База нового формата — плашкой прямо под заголовком проекта, выбран он или нет: замечание оператора
+                    на приёмке B-281 */}
+                {backlog.formatWarning && <FormatNotice text={backlog.formatWarning} />}
                 {/* У проекта с трекером в проекте две группы, и обе подписаны — ответ оператора на макет B-277 */}
                 {backlog.tracker && (entries.length > 0 || !filtering || backlog.error) && (
                   <div className="backlog-group-head">Записи бэклога</div>

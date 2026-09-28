@@ -492,8 +492,13 @@ test('бэклог базы нового формата виден и берёт
   render(<Backlog />)
   const row = (await screen.findByRole('button', { name: /B-13 / })).closest('.entry-row') as HTMLElement
 
-  // «Все проекты»: плашки нет, у записей базы нового формата «Изменить» погашена, «Взять задачу» открыта
-  expect(screen.queryByText(warning)).not.toBeInTheDocument()
+  // «Все проекты»: плашка — прямо под заголовком проекта этой базы, у другого проекта её нет
+  const own = screen.getByRole('region', { name: 'Agents Kit Web' })
+  expect(within(own).getByRole('status')).toHaveTextContent(warning)
+  expect(own.querySelector('.base-head')?.nextElementSibling).toBe(within(own).getByRole('status'))
+  expect(within(screen.getByRole('region', { name: 'Nota' })).queryByText(warning)).not.toBeInTheDocument()
+  expect(screen.getAllByText(warning)).toHaveLength(1)
+  // У записей базы нового формата «Изменить» погашена, «Взять задачу» открыта
   expect(within(row).getByRole('button', { name: 'Изменить' })).toBeDisabled()
   expect(within(row).getByRole('button', { name: 'Изменить' })).toHaveAttribute('title', refusal)
   await waitFor(() => expect(within(row).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
@@ -513,9 +518,11 @@ test('бэклог базы нового формата виден и берёт
   expect(dialog.getByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
   fireEvent.click(dialog.getAllByRole('button', { name: 'Закрыть' })[0])
 
-  // Выбран проект этой базы: плашка и погашенная просьба
+  // Выбран проект этой базы: плашка на том же месте, под заголовком проекта, и погашенная просьба
   fireEvent.click(screen.getByRole('button', { name: 'Agents Kit Web' }))
-  expect(screen.getByText(warning)).toBeInTheDocument()
+  const selected = screen.getByRole('region', { name: 'Agents Kit Web' })
+  expect(selected.querySelector('.base-head')?.nextElementSibling).toHaveTextContent(warning)
+  expect(screen.getAllByText(warning)).toHaveLength(1)
   expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toHaveAttribute('title', refusal)
 })
