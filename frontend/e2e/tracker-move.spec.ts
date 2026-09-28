@@ -33,7 +33,7 @@ async function routeApi(page: Page) {
   await page.route('**/api/backlog/tracker/move', async (route) => {
     posts.push(route.request().postDataJSON())
     moved = true
-    await route.fulfill({ json: { issue, commit: 'c0ffee1' } })
+    await route.fulfill({ json: { issue, commit: 'c0ffee1', removed: ['artifacts/B-281-reply-window.png'] } })
   })
   // Вкладка задачи на GitHub в прогон не ходит в сеть
   await page.context().route('https://github.com/**', (route) => route.fulfill({ body: '<title>GitHub</title>', contentType: 'text/html' }))
