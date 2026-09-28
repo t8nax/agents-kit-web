@@ -218,19 +218,6 @@ public sealed class TaskEndpointsTests : IDisposable
 
     private readonly FakeGitHubIssues _github = new();
 
-    private sealed class FakeGitHubIssues : IGitHubIssues
-    {
-        public TrackerIssues Answer { get; set; } = new([]);
-
-        public List<string> Asked { get; } = [];
-
-        public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
-        {
-            Asked.Add(repo);
-            return Task.FromResult(Answer);
-        }
-    }
-
     private void WriteGitHubTracker() =>
         File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
 

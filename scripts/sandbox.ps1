@@ -719,6 +719,27 @@ GitHub Issues репозитория https://github.com/sandbox/tracker, ход�
 Новая задача в том же репозитории, без меток.
 '@
     Add-Commit $trackerBase 'Трекер проекта'
+    # Запись с приложенным файлом и ссылкой: окно переноса в трекер называет файл, который в задачу не попадёт,
+    # а ссылка уходит в описание задачи (B-286).
+    $trackerPersonal = Get-Personal $trackerBase
+    Write-Utf8 (Join-Path $trackerPersonal 'artifacts\B-3-снимок-окна.png') 'снимок окна ответа'
+    $trackerBacklog = Join-Path $trackerPersonal 'backlog.md'
+    Write-Utf8 $trackerBacklog (((Get-Content -LiteralPath $trackerBacklog -Raw -Encoding utf8) -replace 'следующий номер: B-3', 'следующий номер: B-4').TrimEnd() + @'
+
+
+## B-3 Экспорт истории задачи копии в markdown
+
+Из окна ответа нужна выгрузка всей истории задачи копии одним файлом markdown: вопросы, ответы и шаги — в порядке ленты.
+
+### Артефакты
+- снимок окна ответа: artifacts/B-3-снимок-окна.png
+- образец формата: https://commonmark.org/help/
+
+### Агенту
+- где: вкладка «Контекст» окна ответа
+
+'@)
+    Add-Commit $trackerPersonal 'Запись с файлом для переноса в трекер'
     $ghIssues['sandbox/tracker'] = @(
         [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52' }
         [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48' }

@@ -105,6 +105,7 @@ app.MapAgentRequestEndpoints();
 app.MapAskEndpoints();
 app.MapBacklogEndpoints();
 app.MapBacklogWriteEndpoints();
+app.MapBacklogTrackerEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
 app.MapFlowRewriteEndpoints();

@@ -79,6 +79,34 @@ public sealed class BacklogProposalTests
     }
 
     [Fact]
+    public void Build_TrackCutsEntryLikeDelete()
+    {
+        var (proposal, error) = BacklogProposal.Build(["в трекер b-2", "изменить B-1\n## B-1 Первая\n\nДругой текст."], File);
+        Assert.Null(error);
+
+        var track = proposal!.Changes[0];
+        Assert.Equal(BacklogChange.Track, track.Kind);
+        Assert.Equal("B-2", track.Number);
+        Assert.Equal("## B-2 Вторая", track.Original);
+        // Карточка показывает задачу, какой её заведёт «Сохранить», — ревью B-286
+        Assert.Equal(("Вторая", ""), (track.Draft!.Title, track.Draft.Body));
+        Assert.True(proposal.Tracks);
+        Assert.Equal(
+            "# Бэклог\r\n\r\nследующий номер: B-4\r\n\r\n## B-1 Первая\r\n\r\nДругой текст.\r\n\r\n## B-3 Третья\r\nХвост.\r\n",
+            proposal.Apply(File).Text);
+    }
+
+    [Fact]
+    public void Build_RefusesTrackOfUnknownEntryAndMergeIntoTrackedEntry()
+    {
+        Assert.Equal("Записи B-9 в бэклоге нет", BacklogProposal.Build(["в трекер B-9"], File).Error);
+        Assert.Equal(
+            "Запись B-2 уходит в B-1, а B-1 удаляется в том же предложении",
+            BacklogProposal.Build(["в трекер B-1", "удалить B-2 в B-1"], File).Error);
+        Assert.False(BacklogProposal.Build(["удалить B-2"], File).Proposal!.Tracks);
+    }
+
+    [Fact]
     public void Split_TakesProposalBlocksOutOfAnswer()
     {
         var (text, blocks) = BacklogProposal.Split("Вот так.\r\n\r\n~~~backlog\r\nудалить B-2\r\n~~~\r\n\r\n\r\nГотово.");

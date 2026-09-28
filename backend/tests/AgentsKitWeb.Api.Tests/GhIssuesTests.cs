@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Tests;
@@ -62,6 +63,66 @@ public class GhIssuesTests
 
         Assert.Equal(TrackerIssues.RepoUnreachable, issues.Problem);
         Assert.Equal($"GraphQL: Could not resolve to a Repository with the name '{repo}'. (repository)", issues.Detail);
+    }
+
+    /// <summary>«Назначена на оператора» и «без меток» критерия B-286 держат ключи gh; описание идёт во ввод, а не аргументом.</summary>
+    [Fact]
+    public void CreateStartInfo_AssignsToOperatorWithoutLabelsAndReadsBodyFromInput()
+    {
+        var startInfo = GhIssues.CreateStartInfo("acme/orders", "Оплата \"падает\"");
+
+        Assert.Equal("gh", startInfo.FileName);
+        Assert.Equal(
+            ["issue", "create", "--repo", "acme/orders", "--title", "Оплата \"падает\"", "--body-file", "-", "--assignee", "@me"],
+            startInfo.ArgumentList);
+        Assert.True(startInfo.RedirectStandardInput);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.False(startInfo.UseShellExecute);
+        Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    /// <summary>
+    /// Без входа gh выходит, не прочитав описание: длинное описание не влезает в канал ввода, и его запись падает.
+    /// Панель должна прочесть отказ gh, а не упасть сама (ревью B-286).
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ProgramExitsWithoutReadingLongInput_GivesItsExitCodeAndError()
+    {
+        var startInfo = new ProcessStartInfo("pwsh")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "[Console]::Error.WriteLine('please run gh auth login'); exit 4" })
+            startInfo.ArgumentList.Add(arg);
+
+        var run = await GhIssues.RunAsync(startInfo, new string('ж', 200_000), CancellationToken.None);
+
+        Assert.False(run.Missing);
+        Assert.False(run.TimedOut);
+        Assert.Equal(4, run.ExitCode);
+        Assert.Contains("gh auth login", run.Error);
+    }
+
+    [Fact]
+    public void ParseCreated_TakesNumberFromLastLineAddress()
+    {
+        var created = GhIssues.ParseCreated("\nCreating issue in acme/orders\n\nhttps://github.com/acme/orders/issues/58\n", "Оплата падает");
+
+        Assert.Null(created.Problem);
+        Assert.Equal(new TrackerIssue("GitHub #58", 58, "Оплата падает", "https://github.com/acme/orders/issues/58"), created.Issue);
+    }
+
+    [Fact]
+    public void ParseCreated_WithoutAddress_IsGitHubError()
+    {
+        var created = GhIssues.ParseCreated("done\n", "Оплата падает");
+
+        Assert.Null(created.Issue);
+        Assert.Equal(CreatedIssue.CreatedUnknown, created.Problem);
     }
 
     [Fact]

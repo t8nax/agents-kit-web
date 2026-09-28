@@ -473,7 +473,7 @@ if ($baseDir) {
         else { $numbers = @([regex]::Matches($said, "\b$letters-\d+\b") | ForEach-Object Value) }
         if ($about -and $numbers.Count -eq 0) { $numbers = @($about) }
         $asked = $null
-        $verb = if ($said -match 'объедин') { 'merge' } elseif ($said -match 'удал') { 'delete' } elseif ($said -match 'измен|поправ|переимен|перепиш') { 'change' } else { $null }
+        $verb = if ($said -match 'в трекер') { 'track' } elseif ($said -match 'объедин') { 'merge' } elseif ($said -match 'удал') { 'delete' } elseif ($said -match 'измен|поправ|переимен|перепиш') { 'change' } else { $null }
 
         if ($verb -and $numbers.Count -eq 0) {
             $first = [regex]::Match($text, "(?m)^## ($letters-\d+)\s+(.+)$")
@@ -500,6 +500,10 @@ if ($baseDir) {
                 $blocks += "~~~backlog`nизменить $keep`n$($keptLines -join "`n")`n~~~"
                 $blocks += "~~~backlog`nудалить $gone в $keep`n~~~"
                 $reply = "Объединю $gone в $keep."
+            } elseif ($verb -eq 'track') {
+                # Перенос в трекер (B-286): задачу заведёт панель по «Сохранить», агент только предлагает
+                $blocks += $numbers | ForEach-Object { "~~~backlog`nв трекер $_`n~~~" }
+                $reply = "Перенесу $($numbers -join ', ') в трекер."
             } elseif ($verb -eq 'delete') {
                 $blocks += $numbers | ForEach-Object { "~~~backlog`nудалить $_`n~~~" }
                 $reply = "Удалю $($numbers -join ', ')."
@@ -605,6 +609,9 @@ public static class GhShim
     $stub = @'
 # Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» задачами из gh-issues.json
 # корня песочницы — объект «репозиторий: [задачи]»; репозитория там нет — как GitHub о чужом.
+# «gh issue create --repo … --title …» (перенос записи бэклога, B-286) дописывает задачу в тот же файл
+# следующим номером — она назначена на оператора и видна в разделе после «Обновить», — кладёт описание,
+# пришедшее во ввод, в gh-created\<номер>.md корня песочницы и печатает адрес задачи, как gh.
 # Режим читается на каждый вызов из gh-mode.txt корня песочницы:
 #   ok      задачи из gh-issues.json
 #   login   gh не вошла в аккаунт GitHub
@@ -620,7 +627,16 @@ if (-not $mode) { $mode = 'ok' }
 
 $arguments = if ($env:AKW_GH_ARGS) { @($env:AKW_GH_ARGS -split [char]1) } else { @($args) }
 $repo = $null
-for ($i = 0; $i -lt $arguments.Count - 1; $i++) { if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] } }
+$title = $null
+for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
+    if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] }
+    if ($arguments[$i] -eq '--title') { $title = $arguments[$i + 1] }
+}
+$creating = $arguments.Count -ge 2 -and $arguments[0] -eq 'issue' -and $arguments[1] -eq 'create'
+# Панель пишет описание в UTF-8, как его читает настоящая gh; скрытый pwsh иначе читал бы ввод кодировкой консоли
+[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+# Описание приходит во ввод и читается до всякого ответа: иначе панель ждала бы, пока его заберут.
+$body = if ($creating) { [Console]::In.ReadToEnd() } else { $null }
 
 switch ($mode) {
     'login' {
@@ -634,10 +650,24 @@ switch ($mode) {
     'slow' { Start-Sleep -Seconds 6 }
 }
 
-$issues = Get-Content -LiteralPath (Join-Path $root 'gh-issues.json') -Raw -Encoding utf8 | ConvertFrom-Json
+$issuesFile = Join-Path $root 'gh-issues.json'
+$issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
 if (-not $repo -or -not ($issues.PSObject.Properties.Name -contains $repo)) {
     [Console]::Error.WriteLine("GraphQL: Could not resolve to a Repository with the name '$repo'. (repository)")
     exit 1
+}
+if ($creating) {
+    $known = @($issues.$repo)
+    # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
+    $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
+    $url = "https://github.com/$repo/issues/$number"
+    $issues.$repo = @($known) + [pscustomobject]@{ number = $number; title = $title; url = $url }
+    [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), [Text.UTF8Encoding]::new($false))
+    $created = Join-Path $root 'gh-created'
+    New-Item -ItemType Directory -Force -Path $created | Out-Null
+    [IO.File]::WriteAllText((Join-Path $created "$number.md"), "# $title`n`n$body", [Text.UTF8Encoding]::new($false))
+    [Console]::Out.WriteLine("`nCreating issue in $repo`n`n$url")
+    exit 0
 }
 [Console]::Out.WriteLine((ConvertTo-Json -InputObject @($issues.$repo) -Depth 4 -Compress))
 exit 0
