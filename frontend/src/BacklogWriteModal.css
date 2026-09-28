@@ -332,6 +332,20 @@
   outline-offset: 2px;
 }
 
+/* Задачи, заведённые несохранённым переносом, — строкой пар «запись — задача» под причиной */
+.talk-issues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 6px;
+}
+
+.talk-issue {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .modal-overlay .talk-pending svg {
   width: 16px;
   height: 16px;

@@ -101,12 +101,16 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             subject: number);
 
         turn.Request = request;
+        Pending? dropped;
         lock (_gate)
         {
             _turn = turn;
+            dropped = _pending;
             _pending = null;
             _about = number;
         }
+        if (Abandoned(dropped) is { } note)
+            request.Write(note);
         // Навык кита зовётся первой репликой: дальше разговор идёт в нём же. Агент, кончившийся до неё, не
         // поднялся вовсе, и нового ради неё не поднимают: сбой запуска работа уже записала в переписку.
         await SayAsync(request, turn, text, Skill(number, text), number, files, retried: true);
@@ -121,6 +125,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return AskReplied.Answering;
 
         Turn? turn;
+        Pending? dropped;
         lock (_gate)
         {
             // Пока панель пишет предложение, реплика не уходит: агент застал бы бэклог посреди записи.
@@ -130,8 +135,11 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             // Пока идёт проверка перед отправкой, кончившийся агент не пишет провал: реплику получит новый.
             turn?.Coming = true;
             // Новая просьба заменяет несохранённое предложение: сохранять его больше нечего.
+            dropped = _pending;
             _pending = null;
         }
+        if (Abandoned(dropped) is { } note)
+            request.Write(note);
 
         turn ??= Restart(request);
         await SayAsync(request, turn, text, text, null, files, retried: false);
@@ -157,17 +165,31 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     /// <summary>«Отказаться»: предложение уходит несохранённым, и в переписке это видно.</summary>
     public bool Refuse(string id)
     {
-        AgentRequest? request;
+        Pending dropped;
         lock (_gate)
         {
             if (_pending?.Proposal.Id != id)
                 return false;
-            request = _pending.Request;
+            dropped = _pending;
             _pending = null;
         }
-        request.Write(new BacklogWriteEvent("refused", "", ProposalId: id));
+        dropped.Request.Write(new BacklogWriteEvent("refused", "", ProposalId: id));
+        if (Abandoned(dropped) is { } note)
+            dropped.Request.Write(note);
         return true;
     }
+
+    /// <summary>
+    /// Брошенное предложение, под которое «Сохранить» уже завело задачи трекера, а бэклог не записало: задачи в трекере
+    /// остались, записи — в бэклоге. Молча это не уходит — иначе перенос завели бы снова дублем (ревью B-286).
+    /// </summary>
+    private static BacklogWriteEvent? Abandoned(Pending? dropped) =>
+        dropped is { Created.Count: > 0 }
+            ? new BacklogWriteEvent(
+                "note",
+                $"Задачи в трекере уже заведены, а записи остались в бэклоге: {string.Join(", ", dropped.Created.Select(c => $"{c.Key} — #{c.Value.Number}"))}. Уберите эти записи из бэклога.",
+                Issues: new Dictionary<string, TrackerIssue>(dropped.Created))
+            : null;
 
     /// <summary>
     /// «Сохранить»: панель сама меняет и вырезает ровно записи предложения и коммитит только backlog.md. Запись

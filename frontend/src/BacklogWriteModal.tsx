@@ -40,7 +40,8 @@ export type Proposal = { id: string; changes: ProposalChange[] }
 export type WriteEvent =
   | { type: 'reply'; text: string; number?: string | null; files?: string[] | null }
   | { type: 'step'; text: string }
-  | { type: 'note'; text: string }
+  // issues — задачи трекера, заведённые брошенным предложением: записи о них остались в бэклоге
+  | { type: 'note'; text: string; issues?: Record<string, TrackerIssue> | null }
   | { type: 'stopped'; text: string }
   | {
       type: 'answer'
@@ -94,7 +95,13 @@ export default function BacklogWriteModal({
   // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть.
   const [text, setText] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
-  const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
+  // issues — задачи трекера, уже заведённые этим «Сохранить», хотя бэклог не записан
+  const [saveError, setSaveError] = useState<{
+    id: string
+    text: string
+    output?: string | null
+    issues?: Record<string, TrackerIssue> | null
+  } | null>(null)
   // Переспрос на месте поля ввода: несохранённое предложение не уходит молча — решение оператора на B-228.
   const [asking, setAsking] = useState<Asking | null>(null)
   // Запись, про которую окно: после «Новой переписки» окно от «Изменить» становится общим окном её проекта.
@@ -281,8 +288,13 @@ export default function BacklogWriteModal({
       if (response.status === 404) setSaveError({ id, text: 'Предложение уже не ждёт сохранения' })
       else if (!response.ok) setSaveError({ id, text: 'Панель не сохранила изменения' })
       else {
-        const saved = (await response.json()) as { commit?: string | null; error?: string | null; output?: string | null }
-        if (saved.error) setSaveError({ id, text: saved.error, output: saved.output })
+        const saved = (await response.json()) as {
+          commit?: string | null
+          error?: string | null
+          output?: string | null
+          issues?: Record<string, TrackerIssue> | null
+        }
+        if (saved.error) setSaveError({ id, text: saved.error, output: saved.output, issues: saved.issues })
       }
     } catch {
       setSaveError({ id, text: 'Нет связи с API' })
@@ -378,6 +390,7 @@ export default function BacklogWriteModal({
             <strong>Не сохранено</strong>
             <span>{saveError.text}</span>
             {saveError.output && <pre>{saveError.output}</pre>}
+            <IssueLinks issues={saveError.issues} />
           </div>
         )}
 
@@ -411,6 +424,7 @@ export default function BacklogWriteModal({
                 return (
                   <p className="ask-note" key={i}>
                     {event.text}
+                    {event.type === 'note' && <IssueLinks issues={event.issues} />}
                   </p>
                 )
               case 'answer':
@@ -711,6 +725,28 @@ function TrackCard({ change, state, issue }: { change: ProposalChange; state: Pr
         </p>
       )}
     </li>
+  )
+}
+
+/**
+ * Задачи трекера, заведённые, хотя бэклог не записан: номер записи и номер задачи плашкой-ссылкой, как на карточке
+ * переноса, — по ним оператор найдёт задачу и уберёт запись (ревью B-286).
+ */
+function IssueLinks({ issues }: { issues?: Record<string, TrackerIssue> | null }) {
+  const list = Object.entries(issues ?? {})
+  if (list.length === 0) return null
+  return (
+    <span className="talk-issues">
+      {list.map(([number, issue]) => (
+        <span className="talk-issue" key={number}>
+          <span className="entry-num">{number}</span>
+          <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
+            #{issue.number}
+            <OutIcon />
+          </a>
+        </span>
+      ))}
+    </span>
   )
 }
 

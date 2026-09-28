@@ -329,6 +329,47 @@ test('перенос в трекер ждёт «Сохранить» вмест�
   expect(changes.getByText('изменена')).toBeInTheDocument()
 })
 
+const issue58 = { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' }
+
+test('задача заведена, а бэклог не записан — причина и ссылка на задачу у несохранённого', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, {
+    save: () =>
+      Response.json({
+        error: 'Коммит не прошёл — backlog.md оставлен как был. Уже заведены в трекере: B-281 — #58 — «Сохранить» ещё раз их не повторит',
+        issues: { 'B-281': issue58 },
+      }),
+  })
+  renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send(answer({ proposal: { id: 'p7', changes: [withTrack.changes[0]] } }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Уже заведены в трекере: B-281 — #58')
+  expect(within(alert).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+})
+
+test('брошенное предложение с заведёнными задачами панель называет в ленте со ссылками', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send({
+    type: 'note',
+    text: 'Задачи в трекере уже заведены, а записи остались в бэклоге: B-281 — #58. Уберите эти записи из бэклога.',
+    issues: { 'B-281': issue58 },
+  })
+
+  const note = (await screen.findByText(/Задачи в трекере уже заведены/)).closest('p')!
+  expect(within(note).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+})
+
 test('перенос, от которого отказались, зачёркнут и задачи не показывает', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream)

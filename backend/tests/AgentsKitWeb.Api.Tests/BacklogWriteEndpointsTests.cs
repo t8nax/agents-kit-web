@@ -763,6 +763,27 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
     }
 
+    /// <summary>Заведённые задачи не пропадают молча вместе с брошенным предложением (ревью B-286).</summary>
+    [Fact]
+    public async Task Refuse_AfterIssueCreated_TellsFeedWhichIssuesStayed()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        File.WriteAllText(Path.Combine(_personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n");
+        Assert.NotNull((await Save(client, answer.Proposal!.Id)).Error);
+
+        using var refused = await client.PostAsJsonAsync("/api/backlog/write/refuse", new BacklogProposalRequest(answer.Proposal.Id));
+        Assert.Equal(HttpStatusCode.NoContent, refused.StatusCode);
+
+        var note = (await Read(client, 4))[3];
+        Assert.Equal("note", note.Type);
+        Assert.Equal("Задачи в трекере уже заведены, а записи остались в бэклоге: B-2 — #58. Уберите эти записи из бэклога.", note.Text);
+        Assert.Equal(58, note.Issues!["B-2"].Number);
+    }
+
     [Fact]
     public async Task Answer_TrackWithoutGitHubTracker_IsError()
     {
