@@ -33,8 +33,8 @@ export type TrackerDraft = {
 }
 
 /**
- * Чем кончился перенос. problem — задача не заведена (detail — строка GitHub); error без issue — перенос не начат,
- * error с issue — задача заведена, а запись осталась в бэклоге.
+ * Чем кончился перенос. error — фраза для оператора, её пишет API: без issue — задача не заведена (problem — почему,
+ * detail — строка GitHub) или перенос не начат; с issue — задача заведена, а запись осталась в бэклоге.
  */
 export type TrackerMoved = {
   issue: TrackerIssue | null
@@ -43,22 +43,6 @@ export type TrackerMoved = {
   error?: string | null
   output?: string | null
   commit?: string | null
-}
-
-/** Почему задача не заведена — словами для оператора. */
-export function createProblemText(problem: string, detail: string | null | undefined): string {
-  switch (problem) {
-    case 'gh-missing':
-      return 'Программа gh не установлена. Установите GitHub CLI и войдите в аккаунт командой gh auth login.'
-    case 'gh-login':
-      return 'Программа gh не вошла в аккаунт GitHub. Войдите командой gh auth login.'
-    case 'repo-unreachable':
-      return `GitHub не нашёл репозиторий или у вашего аккаунта нет к нему доступа${detail ? `: ${detail}` : '.'}`
-    case 'github-silent':
-      return 'GitHub не ответил за минуту — задача могла завестись. Проверьте трекер, прежде чем пробовать снова.'
-    default:
-      return `GitHub ответил ошибкой: ${detail ?? problem}.`
-  }
 }
 
 export function loadTrackerIssues(base: string): Promise<TrackerLoad> {

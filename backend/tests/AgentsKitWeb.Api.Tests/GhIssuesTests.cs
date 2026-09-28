@@ -122,7 +122,7 @@ public class GhIssuesTests
         var created = GhIssues.ParseCreated("done\n", "Оплата падает");
 
         Assert.Null(created.Issue);
-        Assert.Equal(TrackerIssues.GitHubError, created.Problem);
+        Assert.Equal(CreatedIssue.CreatedUnknown, created.Problem);
     }
 
     [Fact]

@@ -724,7 +724,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         var saved = await Save(client, answer.Proposal!.Id);
 
         Assert.Equal(
-            "Задача для B-2 не заведена: программа gh не вошла в аккаунт GitHub, войдите командой gh auth login — бэклог не записан",
+            "Задача для B-2 не заведена: программа gh не вошла в аккаунт GitHub — войдите командой gh auth login — бэклог не записан",
             saved.Error);
         Assert.Null(saved.Issues);
         Assert.Equal(file, File.ReadAllText(BacklogPath));

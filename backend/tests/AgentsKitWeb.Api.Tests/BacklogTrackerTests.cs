@@ -156,8 +156,27 @@ public sealed class BacklogTrackerTests : IDisposable
 
         Assert.Null(moved.Issue);
         Assert.Equal(TrackerIssues.GhLogin, moved.Problem);
+        Assert.Equal("Задача не заведена: программа gh не вошла в аккаунт GitHub — войдите командой gh auth login", moved.Error);
         Assert.Equal(file, File.ReadAllText(BacklogPath));
         Assert.Equal("base", Git("log", "-1", "--format=%s"));
+    }
+
+    /// <summary>Задача могла завестись — панель не пишет «не заведена», чтобы её не завели снова дублем (ревью B-286).</summary>
+    [Theory]
+    [InlineData(CreatedIssue.GitHubSilent, "Задача, возможно, заведена: GitHub не ответил за минуту. Проверьте трекер, прежде чем пробовать снова")]
+    [InlineData(CreatedIssue.CreatedUnknown, "Задача, возможно, заведена: gh не назвала адрес задачи. Проверьте трекер, прежде чем пробовать снова")]
+    public async Task Move_IssueMaybeCreated_SaysSoAndLeavesBacklog(string problem, string error)
+    {
+        _github.Created = new CreatedIssue(null, problem);
+        var client = Client();
+        var draft = await GetDraft(client, "B-2");
+        var file = File.ReadAllText(BacklogPath);
+
+        var moved = await Move(client, draft);
+
+        Assert.Null(moved.Issue);
+        Assert.Equal(error, moved.Error);
+        Assert.Equal(file, File.ReadAllText(BacklogPath));
     }
 
     [Fact]

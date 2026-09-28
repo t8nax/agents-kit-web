@@ -243,7 +243,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             var draft = change.Draft ?? BacklogTracker.Draft(change.Number, change.Original);
             var created = await github.CreateAsync(repo, draft.Title, draft.Body);
             if (created.Issue is not { } issue)
-                return new BacklogSaved(null, $"Задача для {change.Number} не заведена: {BacklogTracker.ProblemText(created.Problem!, created.Detail)} — бэклог не записан");
+                return new BacklogSaved(null, $"{BacklogTracker.NotCreated(created, $"Задача для {change.Number}")} — бэклог не записан");
             pending.Created[change.Number] = issue;
         }
         return null;

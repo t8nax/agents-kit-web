@@ -142,12 +142,12 @@ test('задача заведена, а запись осталась — ссы
 })
 
 test('GitHub отказал — окно называет причину, а перенос можно повторить', async () => {
-  stubFetch(draft, { issue: null, problem: 'gh-login' })
+  stubFetch(draft, { issue: null, problem: 'gh-login', error: 'Задача не заведена: программа gh не вошла в аккаунт GitHub — войдите командой gh auth login' })
   const { onMoved } = renderModal()
 
   fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Задача не заведена. Программа gh не вошла в аккаунт GitHub.')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Задача не заведена: программа gh не вошла в аккаунт GitHub')
   expect(screen.getByRole('dialog', { name: 'Перенести в трекер' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Завести задачу' })).toBeEnabled()
   expect(onMoved).not.toHaveBeenCalled()

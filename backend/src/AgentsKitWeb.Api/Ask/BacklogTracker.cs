@@ -86,15 +86,28 @@ public static partial class BacklogTracker
         }
     }
 
-    /// <summary>Почему задача не заведена — словами для оператора, как их пишет окно переноса.</summary>
-    public static string ProblemText(string problem, string? detail) => problem switch
+    /// <summary>
+    /// Что стало с задачей, которую gh не завела или завела без адреса, — одной фразой для оператора. Тексты живут
+    /// только здесь: и окно переноса, и разговор с Чудо-Юдо показывают их как есть (ревью B-286). whose — чья задача:
+    /// «Задача» у окна, «Задача для B-N» у разговора.
+    /// </summary>
+    public static string NotCreated(CreatedIssue created, string whose)
     {
-        TrackerIssues.GhMissing => "программа gh не установлена",
-        TrackerIssues.GhLogin => "программа gh не вошла в аккаунт GitHub, войдите командой gh auth login",
-        TrackerIssues.RepoUnreachable => $"GitHub не нашёл репозиторий или у вашего аккаунта нет к нему доступа{(detail is null ? "" : $" ({detail})")}",
-        CreatedIssue.GitHubSilent => "GitHub не ответил за минуту, и задача могла завестись — проверьте трекер, прежде чем сохранять снова",
-        _ => $"GitHub ответил ошибкой: {detail ?? problem}",
-    };
+        var reason = created.Problem switch
+        {
+            TrackerIssues.GhMissing => "программа gh не установлена — установите GitHub CLI и войдите командой gh auth login",
+            TrackerIssues.GhLogin => "программа gh не вошла в аккаунт GitHub — войдите командой gh auth login",
+            TrackerIssues.RepoUnreachable =>
+                "GitHub не нашёл репозиторий или у вашего аккаунта нет к нему доступа" + (created.Detail is null ? "" : $": {created.Detail}"),
+            CreatedIssue.GitHubSilent => "GitHub не ответил за минуту",
+            CreatedIssue.CreatedUnknown => "gh не назвала адрес задачи",
+            var other => $"GitHub ответил ошибкой: {created.Detail ?? other}",
+        };
+        // Задача могла завестись: «не заведена» подтолкнуло бы завести её снова и получить дубль.
+        return created.MaybeCreated
+            ? $"{whose}, возможно, заведена: {reason}. Проверьте трекер, прежде чем пробовать снова"
+            : $"{whose} не заведена: {reason}";
+    }
 
     public static bool IsLink(string address) =>
         Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
@@ -117,7 +130,7 @@ public static partial class BacklogTracker
 
         var created = await github.CreateAsync(repo, draft.Title, draft.Body);
         if (created.Issue is not { } issue)
-            return new TrackerMoved(null, created.Problem, created.Detail);
+            return new TrackerMoved(null, created.Problem, created.Detail, NotCreated(created, "Задача"));
 
         var saved = await BacklogConversations.WriteAsync(personal, proposal, [], WhoseMove);
         return saved.Error is { } error

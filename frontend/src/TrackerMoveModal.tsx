@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { Markdown } from './Markdown'
 import { OutIcon } from './TrackerGroup'
-import { createProblemText, type TrackerDraft, type TrackerIssue, type TrackerMoved } from './tracker'
+import type { TrackerDraft, TrackerIssue, TrackerMoved } from './tracker'
 import './Modal.css'
 import './ReplyModal.css'
 import './StartTaskModal.css'
@@ -83,9 +83,8 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
       if (moved.issue) {
         setResult({ issue: moved.issue, error: moved.error ?? null })
         onMoved()
-      } else if (moved.problem) {
-        setFailure(`Задача не заведена. ${createProblemText(moved.problem, moved.detail)}`)
       } else {
+        // Фразу пишет API — одна на окно и разговор с Чудо-Юдо; «возможно, заведена» она говорит сама
         setFailure(moved.error ?? 'Задача не заведена.')
       }
     } catch {

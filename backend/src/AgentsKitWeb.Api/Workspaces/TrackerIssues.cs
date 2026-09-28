@@ -26,11 +26,16 @@ public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? P
 
 /// <summary>
 /// Задача, заведённая в трекере. Problem задан — задача не заведена, значения те же, что у TrackerIssues;
-/// «github-silent» — GitHub не ответил в срок, и заведена ли задача, неизвестно.
+/// «github-silent» — GitHub не ответил в срок, «created-unknown» — gh кончила без адреса задачи: в обоих случаях
+/// задача могла завестись.
 /// </summary>
 public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, string? Detail = null)
 {
     public const string GitHubSilent = "github-silent";
+    public const string CreatedUnknown = "created-unknown";
+
+    /// <summary>Задача могла завестись, хотя её адреса нет: повторять заведение вслепую — завести дубль.</summary>
+    public bool MaybeCreated => Problem is GitHubSilent or CreatedUnknown;
 }
 
 public interface IGitHubIssues
@@ -194,7 +199,7 @@ public sealed class GhIssues : IGitHubIssues
         var url = output.ReplaceLineEndings("\n").Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
         var match = url is null ? null : IssueUrl.Match(url);
         if (match is null || !match.Success)
-            return new CreatedIssue(null, TrackerIssues.GitHubError, "gh не назвала адрес заведённой задачи");
+            return new CreatedIssue(null, CreatedIssue.CreatedUnknown);
         var number = int.Parse(match.Groups[1].Value);
         return new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, url!));
     }
