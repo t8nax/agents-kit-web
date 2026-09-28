@@ -51,7 +51,8 @@ public static class ReportEndpoints
             return started is null ? Results.Conflict(block) : Results.Ok(started.Summary);
         });
 
-        app.MapPut("/api/reports/flow/schedule", (FlowReportScheduleRequest request, BasesStore bases, ReportsStore store) =>
+        app.MapPut("/api/reports/flow/schedule", (
+            FlowReportScheduleRequest request, BasesStore bases, ReportsStore store, TimeProvider time) =>
         {
             if (Listed(bases, request.Base) is not { } basePath)
                 return Results.NotFound();
@@ -60,6 +61,8 @@ public static class ReportEndpoints
                 return Results.BadRequest();
 
             store.SaveSchedule(basePath, ReportsStore.FlowKind, schedule);
+            // Расписание действует с записи: время, прошедшее до неё, пропущенным не считается и не догоняется.
+            store.MarkScheduled(basePath, ReportsStore.FlowKind, time.GetLocalNow());
             return Results.Ok(store.Of(basePath, ReportsStore.FlowKind).Schedule);
         });
     }
