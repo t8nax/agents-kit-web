@@ -177,3 +177,33 @@ test('первый отчёт строится кнопкой: идёт разб
 
   await expect(page.getByRole('button', { name: 'Проходимость: 70 из 100.' })).toBeVisible()
 })
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`кольца и плашки приоритета красятся токенами своей темы (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await mockReports(page, { report })
+    await openReports(page)
+    await expect(page.getByRole('button', { name: 'Ясность: 100 из 100.' })).toBeVisible()
+
+    // Токен темы — тем же вычислением, что и цвет: браузер приводит его к rgb.
+    const token = (name: string) =>
+      page.evaluate((variable) => {
+        const probe = document.createElement('span')
+        probe.style.color = `var(${variable})`
+        document.body.append(probe)
+        const value = getComputedStyle(probe).color
+        probe.remove()
+        return value
+      }, name)
+    const stroke = (ring: string) =>
+      page
+        .getByRole('button', { name: new RegExp(`^${ring}:`) })
+        .locator('.rp-gauge-value')
+        .evaluate((circle) => getComputedStyle(circle).stroke)
+
+    expect(await stroke('Ясность')).toBe(await token('--accent-active-text'))
+    expect(await stroke('Проходимость')).toBe(await token('--accent-waiting-fill'))
+    const high = page.locator('.rp-pr-high').first()
+    expect(await high.evaluate((tag) => getComputedStyle(tag).color)).toBe(await token('--accent-error-text'))
+  })
+}
