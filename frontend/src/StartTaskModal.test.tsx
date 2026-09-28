@@ -126,6 +126,16 @@ test('копию успели занять: окно называет идущу
   expect(screen.getByRole('radio', { name: /rustic-silver-sparrow/ })).toBeChecked()
 })
 
+test('задача уже идёт, а имени копии API не прислал: окно не пишет пустую «в копии»', async () => {
+  stub(Response.json({ problem: 'task-running', message: null }, { status: 400 }))
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(/^Эту задачу панель уже запустила — вторую не запускает\.$/)
+})
+
 test('агент не стартовал: окно показывает, что сказал запуск', async () => {
   stub(Response.json({ problem: 'agent', message: 'Не удалось найти указанный файл' }, { status: 400 }))
   renderModal()

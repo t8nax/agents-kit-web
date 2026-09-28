@@ -65,7 +65,7 @@ function failureOf(problem: Problem, message: string | null): string {
     case 'record-unknown':
       return 'Этой записи больше нет в бэклоге: её взяли или удалили. Закройте окно и откройте заново.'
     case 'task-running':
-      return `Эту задачу панель уже запустила в копии ${message ?? ''} — вторую не запускает.`
+      return `Эту задачу панель уже запустила${message ? ` в копии ${message}` : ''} — вторую не запускает.`
     case 'issue-unknown':
       return 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub. Закройте окно и обновите бэклог.'
     case 'tracker-unavailable':
