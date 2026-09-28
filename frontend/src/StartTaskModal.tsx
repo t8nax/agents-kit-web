@@ -5,6 +5,7 @@ import { copyName, freeCopies } from './copies'
 import { ChoiceMark } from './ChoiceMark'
 import type { BaseFlow, NamedFlow } from './Flow'
 import { readStartWords, saveStartWords } from './startWords'
+import { trackerIssueName } from './tracker'
 import './Modal.css'
 import './ReplyModal.css'
 import './StartTaskModal.css'
@@ -30,20 +31,24 @@ type Problem =
   | 'words-too-long'
   | 'agent'
 
-/** Задача трекера называется именем трекера и номером в нём, как у кита: «GitHub #37». */
+/** Задача трекера называется именем трекера и номером в нём, как у кита: «GitHub #37», «YouTrack ABC-12». */
 function isTrackerIssue(number: string): boolean {
-  return number.startsWith('GitHub #')
+  return trackerIssueName(number) !== null
 }
 
-// Почему панель не перепроверила задачу трекера по GitHub — словами строк раздела «Бэклог».
+// Почему панель не перепроверила задачу трекера — словами строк раздела «Бэклог».
 const TRACKER_PROBLEMS: Record<string, string> = {
   'no-tracker': 'у проекта больше нет описания трекера',
-  'not-github': 'трекер проекта — не GitHub',
-  'no-address': 'в описании трекера нет адреса репозитория GitHub',
+  other: 'панель читает задачи только из GitHub и YouTrack',
+  'no-keys': 'в описании трекера нет строк «трекер:», «сервер:» и «проект:»',
   unreadable: 'описание трекера не прочитано',
   'gh-missing': 'программа gh не установлена',
   'gh-login': 'программа gh не вошла в аккаунт GitHub',
   'repo-unreachable': 'GitHub не нашёл репозиторий или к нему нет доступа',
+  'no-key': 'для сервера трекера нет ключа в «Настройках»',
+  'key-rejected': 'сервер трекера отклонил ключ',
+  'server-silent': 'сервер трекера не ответил',
+  'project-missing': 'на сервере трекера нет проекта или к нему нет доступа',
 }
 
 /** Слова уходят сессии аргументом командной строки, а её длину Windows ограничивает — предел с большим запасом. */
@@ -68,9 +73,9 @@ function failureOf(problem: Problem, message: string | null): string {
       // Текст один и для задачи, начатой не из панели: её панель видит по памяти в копии — ответ оператора на ревью B-89.
       return `Эта задача уже идёт${message ? ` в копии ${message}` : ''} — вторую панель не запускает.`
     case 'issue-unknown':
-      return 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub. Закройте окно и обновите бэклог.'
+      return 'Этой задачи больше нет среди незакрытых и назначенных на вас в трекере. Закройте окно и обновите бэклог.'
     case 'tracker-unavailable':
-      return `Задача не запущена: панель не перепроверила её по GitHub — ${(message && TRACKER_PROBLEMS[message]) ?? message ?? 'трекер не прочитан'}.`
+      return `Задача не запущена: панель не перепроверила её по трекеру — ${(message && TRACKER_PROBLEMS[message]) ?? message ?? 'трекер не прочитан'}.`
     case 'words-too-long':
       return `Начальные слова длиннее ${WORDS_LIMIT} знаков — сократите их.`
     case 'flow-unknown':

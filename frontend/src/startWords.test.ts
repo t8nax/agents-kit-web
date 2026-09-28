@@ -47,3 +47,15 @@ test('черновики задач трекера чтение бэклога �
   expect(readStartWords(a, 'GitHub #36')).toBe('')
   expect(readStartWords(b, 'GitHub #5')).toBe('другая база')
 })
+
+test('черновики задач YouTrack держатся так же, как у GitHub', () => {
+  saveStartWords(a, 'YouTrack ABC-12', 'живая задача')
+  saveStartWords(a, 'YouTrack ABC-11', 'закрыта')
+
+  forgetGoneStartWords([backlog(a, ['B-1'])])
+  expect(readStartWords(a, 'YouTrack ABC-12')).toBe('живая задача')
+
+  forgetGoneIssueWords(a, ['YouTrack ABC-12'])
+  expect(readStartWords(a, 'YouTrack ABC-12')).toBe('живая задача')
+  expect(readStartWords(a, 'YouTrack ABC-11')).toBe('')
+})

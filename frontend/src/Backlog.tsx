@@ -15,7 +15,7 @@ import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { normalizeNumber, numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
 import TrackerMoveModal, { SendIcon } from './TrackerMoveModal'
-import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
+import { initialTrackerLoad, loadTrackerIssues, readable, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
@@ -103,22 +103,24 @@ export default function Backlog({
     focusOpener()
   }, [focusOpener])
 
-  // Задачи трекера по базам. Их читает gh из GitHub — дольше файла, поэтому своим запросом на базу: записи
+  // Задачи трекера по базам. Их читают из GitHub или YouTrack — дольше файла, поэтому своим запросом на базу: записи
   // бэклога их не ждут. Ответ прошлого чтения, пришедший после нового, отбрасывается.
   const [trackers, setTrackers] = useState<Record<string, TrackerLoad>>({})
   const trackerRound = useRef(0)
 
-  // Вид трекера каждой базы, как его знало последнее чтение: бэклог, перечитанный после записи или запуска, узнаёт по
-  // нему базу, чей трекер появился или сменился, пока раздел открыт, — её трекер читается сразу, а не висит заготовкой
+  // Трекер каждой базы — вид, сервер и проект, — как его знало последнее чтение: бэклог, перечитанный после записи или
+  // запуска, узнаёт по нему базу, чей трекер появился или сменился, пока раздел открыт, — её трекер читается сразу,
+  // а не висит заготовкой
   const trackerKinds = useRef<Record<string, string>>({})
 
-  // all — читать трекеры всех баз (открытие раздела и «Обновить»); иначе только появившихся и сменивших вид
+  // all — читать трекеры всех баз (открытие раздела и «Обновить»); иначе только появившихся и сменившихся
   const loadTrackers = useCallback((backlogs: BaseBacklog[], all: boolean) => {
     const round = all ? ++trackerRound.current : trackerRound.current
+    const identity = (tracker: TrackerInfo) => `${tracker.kind}|${tracker.server ?? ''}|${tracker.project ?? ''}`
     const read = new Set(
-      backlogs.filter((b) => b.tracker && (all || trackerKinds.current[b.base] !== b.tracker.kind)).map((b) => b.base),
+      backlogs.filter((b) => b.tracker && (all || trackerKinds.current[b.base] !== identity(b.tracker))).map((b) => b.base),
     )
-    trackerKinds.current = Object.fromEntries(backlogs.flatMap((b) => (b.tracker ? [[b.base, b.tracker.kind]] : [])))
+    trackerKinds.current = Object.fromEntries(backlogs.flatMap((b) => (b.tracker ? [[b.base, identity(b.tracker)]] : [])))
     setTrackers((prev) => {
       const next: Record<string, TrackerLoad> = {}
       for (const backlog of backlogs) {
@@ -128,7 +130,7 @@ export default function Backlog({
       return next
     })
     for (const backlog of backlogs) {
-      if (backlog.tracker?.kind !== 'github' || !read.has(backlog.base)) continue
+      if (!readable(backlog.tracker) || !read.has(backlog.base)) continue
       void loadTrackerIssues(backlog.base).then((result) => {
         if (round !== trackerRound.current) return
         setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
