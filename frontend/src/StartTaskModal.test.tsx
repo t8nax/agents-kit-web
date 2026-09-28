@@ -148,6 +148,26 @@ test('запись успели взять: окно говорит, что её
   expect(await screen.findByRole('alert')).toHaveTextContent('Этой записи больше нет в бэклоге')
 })
 
+test('задача уже идёт в другой копии: окно называет её, и запускать больше нечего — B-89', async () => {
+  const posts = stub(Response.json({ problem: 'task-running', message: 'noble-keen-walrus' }, { status: 400 }))
+  const props = renderModal()
+
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Эту задачу панель уже запустила в копии noble-keen-walrus — вторую не запускает.',
+  )
+  expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+  // Другая копия задачу не освобождает: отказ остаётся на виду, кнопка — погашенной.
+  fireEvent.click(screen.getByRole('radio', { name: /noble-keen-walrus/ }))
+  expect(screen.getByRole('alert')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+  fireEvent.keyDown(screen.getByLabelText('Начальные слова'), { key: 'Enter', ctrlKey: true })
+  expect(posts).toHaveLength(1)
+  expect(props.onStarted).not.toHaveBeenCalled()
+})
+
 test.each([
   [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub'],
   [{ problem: 'tracker-unavailable', message: 'gh-login' }, 'панель не перепроверила её по GitHub — программа gh не вошла в аккаунт GitHub'],
