@@ -190,7 +190,18 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         List<string> attached;
         lock (_gate)
             attached = [.. _attached];
-        var saved = await TrackAsync(pending) ?? await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
+        BacklogSaved saved;
+        try
+        {
+            saved = await TrackAsync(pending) ?? await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
+        }
+        catch
+        {
+            // Сорвавшееся «Сохранить» не должно запереть разговор: предложение снова ждёт, реплики снова уходят.
+            lock (_gate)
+                pending.Saving = false;
+            throw;
+        }
         if (pending.Created.Count > 0)
             saved = saved with
             {

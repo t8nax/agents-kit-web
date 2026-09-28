@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Tests;
@@ -78,6 +79,32 @@ public class GhIssuesTests
         Assert.True(startInfo.CreateNoWindow);
         Assert.False(startInfo.UseShellExecute);
         Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    /// <summary>
+    /// Без входа gh выходит, не прочитав описание: длинное описание не влезает в канал ввода, и его запись падает.
+    /// Панель должна прочесть отказ gh, а не упасть сама (ревью B-286).
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ProgramExitsWithoutReadingLongInput_GivesItsExitCodeAndError()
+    {
+        var startInfo = new ProcessStartInfo("pwsh")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "[Console]::Error.WriteLine('please run gh auth login'); exit 4" })
+            startInfo.ArgumentList.Add(arg);
+
+        var run = await GhIssues.RunAsync(startInfo, new string('ж', 200_000), CancellationToken.None);
+
+        Assert.False(run.Missing);
+        Assert.False(run.TimedOut);
+        Assert.Equal(4, run.ExitCode);
+        Assert.Contains("gh auth login", run.Error);
     }
 
     [Fact]

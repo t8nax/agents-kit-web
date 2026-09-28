@@ -83,9 +83,11 @@ public sealed class GhIssues : IGitHubIssues
         return ParseCreated(run.Output, title);
     }
 
-    private sealed record Run(bool Missing, bool TimedOut, int ExitCode, string Output, string Error);
+    /// <summary>Чем кончился запуск gh: Missing — программы нет, TimedOut — не уложилась в срок.</summary>
+    public sealed record Run(bool Missing, bool TimedOut, int ExitCode, string Output, string Error);
 
-    private static async Task<Run> RunAsync(ProcessStartInfo startInfo, string? input, CancellationToken cancellationToken)
+    /// <summary>Запуск gh с вводом input; открыт тестам — отказ, не дочитавший ввод, проверяется настоящим процессом.</summary>
+    public static async Task<Run> RunAsync(ProcessStartInfo startInfo, string? input, CancellationToken cancellationToken)
     {
         Process? process;
         try
@@ -107,8 +109,16 @@ public sealed class GhIssues : IGitHubIssues
             {
                 if (input is not null)
                 {
-                    await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token);
-                    process.StandardInput.Close();
+                    try
+                    {
+                        await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token);
+                        process.StandardInput.Close();
+                    }
+                    catch (IOException)
+                    {
+                        // gh отказала раньше, чем прочла ввод (без входа она выходит сразу): канал закрыт, а причину
+                        // скажут её код выхода и вывод ошибок.
+                    }
                 }
                 var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
                 var output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
