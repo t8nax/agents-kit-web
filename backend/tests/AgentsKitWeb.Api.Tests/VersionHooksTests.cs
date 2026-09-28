@@ -93,7 +93,7 @@ public sealed class VersionHooksTests : IDisposable
         var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/three", "-m", "Merge feat/three");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("номер из трёх чисел: «0.11.0»", errors);
+        Assert.Contains("номер прежней записи: «0.11.0»", errors);
     }
 
     [Fact]
@@ -247,7 +247,7 @@ public sealed class VersionHooksTests : IDisposable
         var (exitCode, errors) = Git(repository, "push", "origin", "master");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("номер из трёх чисел: «0.11.0»", errors);
+        Assert.Contains("номер прежней записи: «0.11.0»", errors);
     }
 
     [Fact]

@@ -28,7 +28,7 @@ public sealed class PanelEndpointsTests : IDisposable
         Assert.False(panel.Installed);
         Assert.Null(panel.Published);
         // Номер приходит из version.txt репозитория, зашитого в сборку.
-        Assert.Matches(@"^\d+\.\d+\.\d+$", panel.Version);
+        Assert.Matches(@"^\d+\.\d+\.\d+(\.\d+)?$", panel.Version);
         Assert.Equal(PanelChannelStore.Master, panel.Channel);
     }
 
@@ -245,7 +245,7 @@ public sealed class PanelEndpointsTests : IDisposable
     [Fact]
     public async Task Updates_OfFourPartPanel_SkipTheBridge()
     {
-        // Мост 0.25.0 — тот же номер, что 0.25.0.0, и старше 0.25.1.0: стоящей панели он не новее.
+        // Мост 0.25.0 старше 0.25.1.0: стоящей панели он не новее.
         _releases.Channel("dev", Release("0.25.1.1"), Release("0.25.1.0"), Release("0.25.0"));
         var file = Published(Panel("dev", "origin/dev", "4189d1f", "0.25.1.0"));
         var factory = Factory(file);
@@ -253,6 +253,19 @@ public sealed class PanelEndpointsTests : IDisposable
         var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
 
         Assert.Equal(["0.25.1.1"], update!.Releases.Select(release => release.Version));
+    }
+
+    [Fact]
+    public async Task Updates_WithTheSameNumberWrittenInFull_ListNothing()
+    {
+        // 0.25.1.0 — тот же номер, что 0.25.1: дописанный ноль номер не поднимает.
+        _releases.Channel("dev", Release("0.25.1.0"));
+        var file = Published(Panel("dev", "origin/dev", "4189d1f", "0.25.1"));
+        var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Empty(update!.Releases);
     }
 
     private static PanelRelease Release(string version, params string[] tasks) => new(version, $"v{version}", tasks);
