@@ -10,12 +10,32 @@ namespace AgentsKitWeb.Api.Bases;
 /// и имя её оператора — local\me.json вне git; личный репозиторий оператора local\me со своим git —
 /// его рамки, флоу, исполнители, бэклог, память задач и их артефакты. Папка оператора people\&lt;имя&gt;
 /// держит только выложенное для коллег, и панель её не читает: агент оператора по ней не работает.
-/// Базу другого формата панель не читает: кит сначала переводит её сам — решение оператора на B-275.
+/// Базу прежнего формата панель не читает: кит сначала переводит её сам — решение оператора на B-275. Базу нового
+/// формата читает по своей раскладке с пометкой NewerFormat: выпуска под новый формат ещё нет, а без базы в панели
+/// не взять и задачу на него — решение оператора на B-281.
 /// </summary>
 public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyList<string> Workspaces)
 {
     /// <summary>Формат базы, который понимает панель, — поле version в agents-kit.json.</summary>
     public const int Format = 6;
+
+    /// <summary>
+    /// База новее формата панели: читается, но панель в неё не пишет — ни флоу, ни исполнителей, ни бэклог;
+    /// ответ агенту, запуск задачи и копии открыты — решение оператора на B-281.
+    /// </summary>
+    public bool NewerFormat { get; init; }
+
+    /// <summary>Предупреждение о базе нового формата — одно на все разделы панели.</summary>
+    public const string NewerFormatWarning =
+        "Кит перевёл базу на формат, которого эта версия панели не знает: часть данных может показываться неверно, " +
+        "правка флоу, исполнителей и бэклога закрыта. Обновите панель, когда выйдет выпуск под новый формат.";
+
+    /// <summary>Причина отказа записи в базу нового формата — её же называют погашенные кнопки панели.</summary>
+    public const string NewerFormatRefusal =
+        "Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.";
+
+    /// <summary>Предупреждение о формате базы для ответа API; null — база формата панели.</summary>
+    public string? FormatWarning => NewerFormat ? NewerFormatWarning : null;
 
     public const string MarkerFile = "agents-kit.json";
 
@@ -51,7 +71,8 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
 
     public static BaseLayout? Read(string basePath, out string problem)
     {
-        switch (ReadFormat(basePath))
+        var format = ReadFormat(basePath);
+        switch (format)
         {
             // Посреди конфликта сведения с сервером метки стоят в любом файле базы, и в agents-kit.json тоже: тогда
             // причина — конфликт. Метка без поломки разметки базу не гасит — она бывает и у бесконфликтного rebase
@@ -64,9 +85,6 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
                 return null;
             case < Format:
                 problem = "База прежнего формата — переведите её китом";
-                return null;
-            case > Format:
-                problem = "База нового формата, которого панель не знает, — обновите панель";
                 return null;
         }
 
@@ -82,7 +100,7 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
             return null;
         }
 
-        var layout = new BaseLayout(basePath, name, machine.Workspaces);
+        var layout = new BaseLayout(basePath, name, machine.Workspaces) { NewerFormat = format > Format };
         // Как Test-KitPersonalRepo: .git бывает и файлом — у worktree и отдельного каталога git.
         var git = Path.Combine(layout.Personal, ".git");
         if (!Directory.Exists(git) && !File.Exists(git))

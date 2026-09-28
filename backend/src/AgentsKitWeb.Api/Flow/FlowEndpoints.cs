@@ -12,6 +12,7 @@ namespace AgentsKitWeb.Api.Flow;
 /// оператором значки стадий, они живут в настройках панели, а не в базе. Unread — строки файлов флоу, которые панель
 /// не сохранит («flow/scenarios.md, строка 7: «…»»): пока они есть, флоу не пишется, иначе запись стёрла бы их из базы.
 /// Tasks — задачи в работе и флоу, по которому каждая идёт: занятый флоу и его стадии не правятся.
+/// FormatWarning — база нового формата (BaseLayout.NewerFormat): флоу показывается, но не правится.
 /// </summary>
 public sealed record BaseFlow(
     string Base,
@@ -22,7 +23,8 @@ public sealed record BaseFlow(
     string? Error,
     IReadOnlyDictionary<string, string> Icons,
     IReadOnlyList<string>? Unread = null,
-    IReadOnlyList<FlowTask>? Tasks = null);
+    IReadOnlyList<FlowTask>? Tasks = null,
+    string? FormatWarning = null);
 
 /// <summary>
 /// Задача в работе: Task — её номер из бэклога, а без номера — заголовок памяти или имя файла; Flow — флоу базы,
@@ -171,7 +173,8 @@ public static class FlowEndpoints
                 null,
                 icons.Of(basePath),
                 Unread(files),
-                tasks);
+                tasks,
+                layout.FormatWarning);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

@@ -20,14 +20,16 @@ public sealed record Performer(
 
 /// <summary>
 /// Исполнители одного проекта. Directory — каталог базы, куда лягут файлы: по нему окно показывает
-/// путь ещё до сохранения. Error задан — показывать нечего.
+/// путь ещё до сохранения. Error задан — показывать нечего. FormatWarning — база нового формата
+/// (BaseLayout.NewerFormat): исполнители показываются, но не правятся.
 /// </summary>
 public sealed record BasePerformers(
     string Base,
     string Project,
     string Directory,
     IReadOnlyList<Performer> Performers,
-    string? Error);
+    string? Error,
+    string? FormatWarning = null);
 
 /// <summary>
 /// Запрос называет базу, а не путь к файлу: путь панель собирает сама. Editing — имя правимого
@@ -175,7 +177,8 @@ public static class PerformersEndpoints
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
             return new BasePerformers(basePath, project, "", [], problem);
 
-        return new BasePerformers(basePath, project, PerformerList.Directory(layout), PerformerList.OfProject(layout), null);
+        return new BasePerformers(
+            basePath, project, PerformerList.Directory(layout), PerformerList.OfProject(layout), null, layout.FormatWarning);
     }
 
     /// <summary>Возвращает прежнее содержимое на место; не вышло — файла нет, и об этом скажет сверка базы.</summary>

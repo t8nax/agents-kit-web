@@ -111,6 +111,20 @@ public sealed class FlowEndpointsTests : IDisposable
             Assert.NotNull(none.Version);
         }
         Assert.Equal("База не найдена на диске", Assert.Single(flows, f => f.Base == missing).Error);
+        Assert.Null(flow.FormatWarning);
+    }
+
+    [Fact]
+    // Флоу базы нового формата читается, как был, с предупреждением (B-281).
+    public async Task Flow_BaseOfNewerFormat_IsReadWithWarning()
+    {
+        TestLayout.NewerFormat(_base);
+
+        var flow = Assert.Single(await GetFlows(Client(_base)));
+
+        Assert.Null(flow.Error);
+        Assert.Equal(["полный", "мелкий"], flow.Flows.Select(f => f.Name));
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatWarning, flow.FormatWarning);
     }
 
     [Fact]

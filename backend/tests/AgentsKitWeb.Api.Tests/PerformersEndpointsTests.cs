@@ -85,6 +85,22 @@ public sealed class PerformersEndpointsTests : IDisposable
 
         Assert.Empty(performers.Performers);
         Assert.Null(performers.Error);
+        Assert.Null(performers.FormatWarning);
+    }
+
+    [Fact]
+    // Исполнители базы нового формата видны, как были, с предупреждением (B-281).
+    public async Task Performers_BaseOfNewerFormat_IsReadWithWarning()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+        TestLayout.NewerFormat(basePath);
+
+        var performers = Assert.Single(await Get(basePath));
+
+        Assert.Null(performers.Error);
+        Assert.Equal(["reviewer"], performers.Performers.Select(p => p.Name));
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatWarning, performers.FormatWarning);
     }
 
     [Fact]
