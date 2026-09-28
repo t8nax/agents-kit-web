@@ -1,37 +1,44 @@
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Bases;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>
-/// Трекер проекта, как его назвал tracker.md корня базы. Kind — «github» (Repo — «владелец/репозиторий»),
-/// «no-address» (трекер GitHub, но адреса репозитория нет), «not-github» или «unreadable» (файл не прочитан).
+/// Трекер проекта по строкам «трекер:», «сервер:», «проект:» раздела «## Где задачи» tracker.md корня базы.
+/// Kind — «github» или «youtrack» (Server и Project названы), «other» — трекер, которого панель не читает
+/// (Name — как его назвал файл), «no-keys» — строк нет, какая-то пуста, повторена или не того вида,
+/// «unreadable» — файл не прочитан.
 /// </summary>
-public sealed record TrackerInfo(string Kind, string? Repo = null)
+public sealed record TrackerInfo(string Kind, string? Name = null, string? Server = null, string? Project = null)
 {
     public const string GitHub = "github";
-    public const string NoAddress = "no-address";
-    public const string NotGitHub = "not-github";
+    public const string YouTrack = "youtrack";
+    public const string Other = "other";
+    public const string NoKeys = "no-keys";
     public const string Unreadable = "unreadable";
+
+    /// <summary>
+    /// Репозиторий для gh: «владелец/репозиторий» на github.com, «хост/владелец/репозиторий» на GitHub Enterprise.
+    /// </summary>
+    [JsonIgnore]
+    public string? GitHubRepo =>
+        Kind != GitHub || Server is null || Project is null ? null
+        : new Uri(Server).Host is var host && host.Equals("github.com", StringComparison.OrdinalIgnoreCase) ? Project
+        : $"{host}/{Project}";
 }
 
 /// <summary>
-/// tracker.md кита — описание трекера словами, строгого формата у него нет. Задачи панель читает только
-/// у GitHub и только из репозитория, чей адрес github.com/&lt;владелец&gt;/&lt;репозиторий&gt; назван в разделе
-/// «## Где задачи», — решения оператора на B-277; репозиторий кода проекта вместо него не подставляется.
-/// Раздел — как у сверки кита (Get-KitTrackerFindings): заголовок «##» вне блока кода до следующего такого же,
-/// HTML-комментарии вырезаны.
+/// tracker.md кита формата 7: раздел «## Где задачи» начинается строками «ключ: значение» до первой пустой
+/// строки или прозы — трекер, сервер и проект, каждый по разу; проект — по шаблону своего трекера из таблицы
+/// трекеров раскладки кита, сервер — http(s)://хост[:порт][/путь] без логина, пароля, запроса и фрагмента.
+/// Разбор — как у сверки кита (Get-KitTrackerKeys в base-check.ps1): заголовок «##» вне блока кода,
+/// HTML-комментарии вырезаны. В прозе раздела панель ничего не ищет — ни у YouTrack, ни у GitHub: решение
+/// оператора на B-288, трекер без строк не читается, пока их не допишут скиллом /tracker.
 /// </summary>
 public static partial class Tracker
 {
     private const string WhereSection = "Где задачи";
-
-    // Адрес GitHub, в котором вместо владельца — раздел сайта, репозитория не называет: доска проекта
-    // организации, профиль, настройки.
-    private static readonly HashSet<string> NotOwners = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "orgs", "users", "enterprises", "settings", "apps", "marketplace", "sponsors", "topics", "features",
-    };
 
     /// <summary>Трекер базы; tracker.md нет — у проекта нет трекера, null.</summary>
     public static TrackerInfo? Read(BaseLayout layout)
@@ -51,26 +58,32 @@ public static partial class Tracker
 
     public static TrackerInfo Parse(string text)
     {
-        var where = Section(Comment().Replace(text, ""), WhereSection);
-        foreach (Match match in RepoAddress().Matches(where))
+        var keys = Keys(Comment().Replace(text, ""));
+        string? Single(string key) =>
+            keys.Where(k => k.Key == key).ToList() is [var only] && only.Value.Length > 0 ? only.Value : null;
+
+        var name = Single("трекер");
+        var server = Single("сервер");
+        var project = Single("проект");
+        if (name is null || server is null || project is null || !ServerAddress().IsMatch(server))
+            return new TrackerInfo(TrackerInfo.NoKeys);
+
+        server = server.TrimEnd('/');
+        return name.ToLowerInvariant() switch
         {
-            var owner = match.Groups["owner"].Value;
-            if (NotOwners.Contains(owner))
-                continue;
-            var repo = match.Groups["repo"].Value.TrimEnd('.');
-            if (repo.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
-                repo = repo[..^4];
-            if (repo.Length > 0)
-                return new TrackerInfo(TrackerInfo.GitHub, $"{owner}/{repo}");
-        }
-        return where.Contains("github", StringComparison.OrdinalIgnoreCase)
-            ? new TrackerInfo(TrackerInfo.NoAddress)
-            : new TrackerInfo(TrackerInfo.NotGitHub);
+            "github" => GitHubProject().IsMatch(project)
+                ? new TrackerInfo(TrackerInfo.GitHub, "GitHub", server, project)
+                : new TrackerInfo(TrackerInfo.NoKeys),
+            "youtrack" => YouTrackProject().IsMatch(project)
+                ? new TrackerInfo(TrackerInfo.YouTrack, "YouTrack", server, project)
+                : new TrackerInfo(TrackerInfo.NoKeys),
+            _ => new TrackerInfo(TrackerInfo.Other, name),
+        };
     }
 
-    private static string Section(string text, string name)
+    private static List<KeyValuePair<string, string>> Keys(string text)
     {
-        var lines = new List<string>();
+        var keys = new List<KeyValuePair<string, string>>();
         var inside = false;
         var fence = false;
         foreach (var line in text.ReplaceLineEndings("\n").Split('\n'))
@@ -79,13 +92,24 @@ public static partial class Tracker
                 fence = !fence;
             if (!fence && Heading().Match(line) is { Success: true } heading)
             {
-                inside = heading.Groups[1].Value == name;
+                if (inside)
+                    break;
+                inside = heading.Groups[1].Value == WhereSection;
                 continue;
             }
-            if (inside)
-                lines.Add(line);
+            if (!inside)
+                continue;
+            if (line.Trim().Length == 0)
+            {
+                if (keys.Count > 0)
+                    break;
+                continue;
+            }
+            if (Pair().Match(line) is not { Success: true } pair)
+                break;
+            keys.Add(new(pair.Groups[1].Value.ToLowerInvariant(), pair.Groups[2].Value));
         }
-        return string.Join('\n', lines);
+        return keys;
     }
 
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
@@ -94,8 +118,16 @@ public static partial class Tracker
     [GeneratedRegex(@"^##\s+(.+?)\s*$")]
     private static partial Regex Heading();
 
-    // Хост — сам github.com или www.github.com, а не api.github.com или gist.github.com: там на месте владельца стоит
-    // раздел сайта.
-    [GeneratedRegex(@"(?<![\w.-])(?:www\.)?github\.com[/:](?<owner>[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/(?<repo>[A-Za-z0-9._-]+)", RegexOptions.IgnoreCase)]
-    private static partial Regex RepoAddress();
+    [GeneratedRegex(@"^\s*([^\s:][^:]*?)\s*:\s*(.*?)\s*$")]
+    private static partial Regex Pair();
+
+    // Логин, пароль, запрос и фрагмент — «@», «?», «#» — адрес не несёт: секрету не место в базе.
+    [GeneratedRegex(@"^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s@?#]*)?$")]
+    private static partial Regex ServerAddress();
+
+    [GeneratedRegex(@"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")]
+    private static partial Regex GitHubProject();
+
+    [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9_]*$")]
+    private static partial Regex YouTrackProject();
 }

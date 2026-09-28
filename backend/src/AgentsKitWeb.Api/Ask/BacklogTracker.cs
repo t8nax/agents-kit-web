@@ -120,9 +120,8 @@ public static partial class BacklogTracker
     public static bool IsLink(string address) =>
         Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
 
-    /// <summary>Репозиторий трекера базы; null — трекер у проекта не GitHub с адресом, и переносить некуда.</summary>
-    public static string? RepoOf(BaseLayout layout) =>
-        Tracker.Read(layout) is { Kind: TrackerInfo.GitHub, Repo: { } repo } ? repo : null;
+    /// <summary>Репозиторий трекера базы; null — трекер у проекта не GitHub со строками сервера и проекта, и переносить некуда.</summary>
+    public static string? RepoOf(BaseLayout layout) => Tracker.Read(layout)?.GitHubRepo;
 
     /// <summary>
     /// Кнопка «В трекер»: сначала проверка, что запись можно вырезать, потом задача в GitHub, потом вырез и коммит.

@@ -218,8 +218,7 @@ public sealed class TaskEndpointsTests : IDisposable
 
     private readonly FakeGitHubIssues _github = new();
 
-    private void WriteGitHubTracker() =>
-        File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+    private void WriteGitHubTracker() => TestLayout.GitHubTracker(_base, "acme/orders");
 
     /// <summary>Задачу трекера берёт навык кита по её имени, как кит её называет, — B-277.</summary>
     [Theory]

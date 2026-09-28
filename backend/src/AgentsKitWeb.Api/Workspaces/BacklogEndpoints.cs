@@ -77,7 +77,7 @@ public static class BacklogEndpoints
         Tracker.Read(layout) switch
         {
             null => new TrackerIssues([], TrackerIssues.NoTracker),
-            { Kind: TrackerInfo.GitHub, Repo: { } repo } => await github.AssignedAsync(repo, cancellationToken),
+            { GitHubRepo: { } repo } => await github.AssignedAsync(repo, cancellationToken),
             var other => new TrackerIssues([], other.Kind),
         };
 

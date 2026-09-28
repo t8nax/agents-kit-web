@@ -55,7 +55,7 @@ public sealed class BacklogTrackerTests : IDisposable
         Directory.CreateDirectory(copy);
         _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), copy);
         _personal = TestLayout.Personal(_base);
-        File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Order Service — трекер\n\n## Где задачи\nGitHub Issues https://github.com/acme/orders, программой gh.\n");
+        TestLayout.GitHubTracker(_base, "acme/orders");
         TestGit.Run(_personal, "config", "user.name", "t");
         TestGit.Run(_personal, "config", "user.email", "t@t");
         TestGit.Run(_personal, "config", "core.autocrlf", "false");
@@ -112,9 +112,9 @@ public sealed class BacklogTrackerTests : IDisposable
     }
 
     [Theory]
-    [InlineData("# Трекер\n\n## Где задачи\nJira, проект PAY.\n")]
-    [InlineData("# Трекер\n\n## Где задачи\nGitHub Issues, адрес потом.\n")]
-    public async Task DraftEndpoint_TrackerNotGitHubWithAddress_IsConflict(string tracker)
+    [InlineData("# Трекер\n\n## Где задачи\n\nтрекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY\n")]
+    [InlineData("# Трекер\n\n## Где задачи\nGitHub Issues https://github.com/acme/orders, строк нет.\n")]
+    public async Task DraftEndpoint_TrackerNotGitHubWithKeys_IsConflict(string tracker)
     {
         File.WriteAllText(Path.Combine(_base, "tracker.md"), tracker);
 

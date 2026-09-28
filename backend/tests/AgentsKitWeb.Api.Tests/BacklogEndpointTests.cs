@@ -123,23 +123,23 @@ public sealed class BacklogEndpointTests : IDisposable
     public async Task Backlog_CarriesTrackerOfBase()
     {
         var withTracker = CreateBase("orders-knowledge", "## B-1 Первая\n");
-        File.WriteAllText(Path.Combine(withTracker, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders, через gh\n");
+        TestLayout.GitHubTracker(withTracker, "acme/orders");
         var withoutTracker = CreateBase("nota-knowledge", "## B-1 Первая\n");
         var withoutBacklog = TestLayout.Base(Path.Combine(_root, "empty-knowledge"));
-        File.WriteAllText(Path.Combine(withoutBacklog, "tracker.md"), "# Трекер\n\n## Где задачи\nJira PAY\n");
+        TestLayout.Tracker(withoutBacklog, "Jira", "https://acme.atlassian.net", "PAY");
 
         var backlogs = await GetBacklogs(withTracker, withoutTracker, withoutBacklog);
 
-        Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, "acme/orders"), Assert.Single(backlogs, b => b.Base == withTracker).Tracker);
+        Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, "GitHub", "https://github.com", "acme/orders"), Assert.Single(backlogs, b => b.Base == withTracker).Tracker);
         Assert.Null(Assert.Single(backlogs, b => b.Base == withoutTracker).Tracker);
-        Assert.Equal(new TrackerInfo(TrackerInfo.NotGitHub), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
+        Assert.Equal(new TrackerInfo(TrackerInfo.Other, "Jira"), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
     }
 
     [Fact]
     public async Task TrackerIssues_GitHubTracker_AsksGhForItsRepository()
     {
         var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
-        File.WriteAllText(Path.Combine(basePath, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
         _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
 
         var issues = await GetTrackerIssues(basePath, basePath);
@@ -151,9 +151,9 @@ public sealed class BacklogEndpointTests : IDisposable
 
     [Theory]
     [InlineData(null, TrackerIssues.NoTracker)]
-    [InlineData("## Где задачи\nJira PAY\n", TrackerInfo.NotGitHub)]
-    [InlineData("## Где задачи\nGitHub Issues через gh\n", TrackerInfo.NoAddress)]
-    public async Task TrackerIssues_WithoutGitHubAddress_DoesNotRunGh(string? tracker, string problem)
+    [InlineData("## Где задачи\n\nтрекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY\n", TrackerInfo.Other)]
+    [InlineData("## Где задачи\nGitHub Issues https://github.com/acme/orders, через gh\n", TrackerInfo.NoKeys)]
+    public async Task TrackerIssues_WithoutGitHubKeys_DoesNotRunGh(string? tracker, string problem)
     {
         var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
         if (tracker is not null)

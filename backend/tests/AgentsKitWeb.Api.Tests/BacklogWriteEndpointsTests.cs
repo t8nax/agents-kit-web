@@ -664,8 +664,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
     // ——— Перенос записи в трекер (B-286) ———
 
-    private void GitHubTracker() =>
-        File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Трекер\n\n## Где задачи\nGitHub Issues https://github.com/acme/orders, программой gh.\n");
+    private void GitHubTracker() => TestLayout.GitHubTracker(_base, "acme/orders");
 
     [Fact]
     public void StartInfo_TellsAgentTrackBlockOnlyForGitHubTracker()
