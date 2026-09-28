@@ -327,6 +327,120 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    /// <summary>Вторая копия того же проекта: запись, запущенная в первой, в неё не запускается — B-89.</summary>
+    private string SecondCopy()
+    {
+        var second = TestGit.Repository(Path.Combine(_root, "app-second"));
+        TestLayout.Machine(_base, TestLayout.Operator, _copy, second);
+        return second;
+    }
+
+    [Fact]
+    public async Task Start_RejectsRecordStillStartingInAnotherCopy()
+    {
+        var second = SecondCopy();
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"))).StatusCode);
+        _agent.StartInfo = null;
+
+        // Запись ещё в бэклоге — агент до неё не добрался, — а номер набран кириллицей.
+        var again = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "в-7"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await again.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+
+        // Другая запись в ту же вторую копию запускается.
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-8"))).StatusCode);
+    }
+
+    /// <summary>Два запуска одной задачи, пока первая сессия ещё заводится, — вторая не заводится (ревью B-89).</summary>
+    [Fact]
+    public async Task Start_RejectsSameTaskWhileItsSessionIsStillStarting()
+    {
+        var second = SecondCopy();
+        var gate = new TaskCompletionSource();
+        _agent.Gate = gate.Task;
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        var first = client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+        while (_agent.StartInfo is null)
+            await Task.Delay(10);
+        var again = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-7"));
+        gate.SetResult();
+
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await again.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Equal(HttpStatusCode.OK, (await first).StatusCode);
+    }
+
+    [Fact]
+    public async Task Start_FreesTheTaskWhenClaudeDidNotStart()
+    {
+        var second = SecondCopy();
+        _agent.Exit = new AgentExit(null, "Не удалось найти указанный файл");
+        var client = Client();
+
+        Assert.Equal("agent", (await (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7")))
+            .Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        _agent.Exit = new AgentExit(0, "");
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-7"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Start_RejectsTaskWhoseMemoryIsInAnotherCopy()
+    {
+        var second = SecondCopy();
+        // Запись осталась в бэклоге — дописана руками или вырезка не удалась, — а задача уже идёт в первой копии.
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
+            # B-7 Панель показывает задачу сразу
+            рабочая копия: {_copy}
+            ветка: dev
+            """);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-7"));
+
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Задача GitHub остаётся в трекере всё время работы: второй запуск отбивает память первой копии.</summary>
+    [Fact]
+    public async Task Start_RejectsTrackerIssueInWorkInAnotherCopy()
+    {
+        var second = SecondCopy();
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
+            # GitHub #37 Оплата падает
+            рабочая копия: {_copy}
+            ветка: dev
+            """);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "github#37"));
+
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Theory]
+    [InlineData("B-7 Панель показывает задачу сразу", "B", "B-7")]
+    [InlineData("в-7 Кириллицей", "B", "B-7")]
+    [InlineData("GitHub #37 Оплата падает", "B", "GitHub #37")]
+    [InlineData("github#037", null, "GitHub #37")]
+    [InlineData("GitHub #37x Не номер", "B", null)]
+    // Номером панель признаёт только номер буквами своего проекта — decisions/backlog-numbers.md
+    [InlineData("UTF-8 в именах файлов", "B", null)]
+    [InlineData("B-7 Буквы проекта не известны", null, null)]
+    [InlineData("Задача без номера", "B", null)]
+    [InlineData(null, "B", null)]
+    public void TaskNumberOf_TakesNumberTheTaskStartsWith(string? task, string? letters, string? number) =>
+        Assert.Equal(number, TaskEndpoints.TaskNumberOf(task, letters));
+
     [Fact]
     public async Task Start_RejectsNumberThatIsNotInBacklog()
     {
@@ -707,10 +821,14 @@ public sealed class TaskEndpointsTests : IDisposable
         public AgentExit Exit { get; set; } = new(0, "");
         public ProcessStartInfo? StartInfo { get; set; }
 
+        /// <summary>Пока не завершится, запуск висит — как `claude --bg`, который идёт секунды.</summary>
+        public Task Gate { get; set; } = Task.CompletedTask;
+
         public async Task<AgentExit> RunAsync(
             ProcessStartInfo startInfo, string input, Func<string, Task> onLine, CancellationToken cancellationToken)
         {
             StartInfo = startInfo;
+            await Gate;
             foreach (var line in Lines)
                 await onLine(line);
             return Exit;

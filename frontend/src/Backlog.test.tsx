@@ -106,6 +106,9 @@ function stubFetch(...responses: BaseBacklog[][]) {
     setCopies: (next: WorkspaceRow[]) => {
       rows = next
     },
+    setTaskReply: (next: Response) => {
+      taskReply = next
+    },
     setArtifactReply: (next: () => Response) => {
       artifactReply = next
     },
@@ -514,8 +517,8 @@ test('«Взять задачу» запускает свою запись в в
     { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota-copy', number: 'B-2', flow: 'полный' },
   ])
   expect(screen.queryByRole('dialog', { name: 'Взять задачу в работу' })).not.toBeInTheDocument()
-  // Фокус возвращается кнопке запуска — клавиатура остаётся на месте в списке
-  expect(start).toHaveFocus()
+  // Кнопка запуска гаснет — задача взята (B-89), — и фокус встаёт на заголовок строки: клавиатура остаётся на месте
+  expect(screen.getByRole('button', { name: /B-2 Экспорт заметок/ })).toHaveFocus()
   // Копия занята, а запись убирает агент, когда до неё дойдёт: раздел перечитывает и то и другое
   await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
 })
@@ -545,6 +548,51 @@ test('у проекта без свободной копии кнопка зап
   )!
 
   await waitFor(() => expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled())
+})
+
+test('у записи, которую уже взяли в копию, кнопка погашена, а «Изменить» живая — B-89', async () => {
+  const fetchMock = stubFetch(backlogs)
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+    // Агент ещё не вырезал запись — она в списке, а её номер уже стоит в строке копии, набранный кириллицей
+    {
+      ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'),
+      task: 'В-1 Панель показывает проблемы баз знаний',
+      letters: 'B',
+    },
+  ])
+
+  render(<Backlog />)
+  const taken = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  const other = screen.getByRole('button', { name: /B-13 У панели есть светлая тема/ }).closest('.entry-row')!
+
+  await waitFor(() => expect(within(other as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Изменить' })).toBeEnabled()
+})
+
+test('запись успели взять из другой вкладки: после отказа окна её кнопка гаснет и в разделе — ревью B-89', async () => {
+  const fetchMock = stubFetch(backlogs)
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  const start = within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })
+  await waitFor(() => expect(start).toBeEnabled())
+  fireEvent.click(start)
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /noble-keen-walrus/ }))
+
+  // Пока окно открыто, запись взяли в другой вкладке
+  fetchMock.setCopies([
+    ...copies,
+    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'), task: 'B-1 Панель показывает проблемы баз знаний', letters: 'B' },
+  ])
+  fetchMock.setTaskReply(Response.json({ problem: 'task-running', message: 'brave-quiet-otter' }, { status: 400 }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+  await within(dialog).findByRole('alert')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }))
+
+  await waitFor(() => expect(start).toBeDisabled())
 })
 
 test('у записи без номера запуска нет: запуск адресует её номером', async () => {
@@ -1074,7 +1122,8 @@ test('«Взять задачу» у задачи трекера запуска�
   expect(fetchMock.posts).toEqual([
     { base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\noble-keen-walrus', number: 'GitHub #52', flow: 'полный' },
   ])
-  expect(start).toHaveFocus()
+  // Фокус — на строке задачи: её кнопка погаснет, когда раздел узнает, что задача взята (B-89)
+  expect(within(row as HTMLElement).getByRole('link', { name: /#52/ })).toHaveFocus()
   // Бэклог после запуска перечитывается, а трекер — только при открытии раздела и по «Обновить»
   await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
   expect(fetchMock.trackerReads()).toBe(1)
@@ -1095,4 +1144,20 @@ test('у задачи трекера «Взять задачу» погашен�
   await waitFor(() => expect(within(nota as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
 
   expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+})
+
+test('у задачи трекера, которая уже идёт в копии, «Взять задачу» погашена всё время работы — B-89', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'waiting'), task: 'GitHub #52 Панель не стартует с пробелом в пути' },
+  ])
+
+  render(<Backlog />)
+  const taken = (await screen.findByRole('link', { name: /#52/ })).closest('.entry-row')!
+  const other = screen.getByRole('link', { name: /#7/ }).closest('.entry-row')!
+
+  await waitFor(() => expect(within(other as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
 })
