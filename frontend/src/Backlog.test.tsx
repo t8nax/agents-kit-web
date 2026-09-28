@@ -106,6 +106,9 @@ function stubFetch(...responses: BaseBacklog[][]) {
     setCopies: (next: WorkspaceRow[]) => {
       rows = next
     },
+    setTaskReply: (next: Response) => {
+      taskReply = next
+    },
     setArtifactReply: (next: () => Response) => {
       artifactReply = next
     },
@@ -566,6 +569,30 @@ test('у записи, которую уже взяли в копию, кноп�
   await waitFor(() => expect(within(other as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
   expect(within(taken as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
   expect(within(taken as HTMLElement).getByRole('button', { name: 'Изменить' })).toBeEnabled()
+})
+
+test('запись успели взять из другой вкладки: после отказа окна её кнопка гаснет и в разделе — ревью B-89', async () => {
+  const fetchMock = stubFetch(backlogs)
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  const start = within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })
+  await waitFor(() => expect(start).toBeEnabled())
+  fireEvent.click(start)
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /noble-keen-walrus/ }))
+
+  // Пока окно открыто, запись взяли в другой вкладке
+  fetchMock.setCopies([
+    ...copies,
+    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'), task: 'B-1 Панель показывает проблемы баз знаний', letters: 'B' },
+  ])
+  fetchMock.setTaskReply(Response.json({ problem: 'task-running', message: 'brave-quiet-otter' }, { status: 400 }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+  await within(dialog).findByRole('alert')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }))
+
+  await waitFor(() => expect(start).toBeDisabled())
 })
 
 test('у записи без номера запуска нет: запуск адресует её номером', async () => {

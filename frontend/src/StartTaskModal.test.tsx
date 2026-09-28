@@ -150,7 +150,8 @@ test('запись успели взять: окно говорит, что её
 
 test('задача уже идёт в другой копии: окно называет её, и запускать больше нечего — B-89', async () => {
   const posts = stub(Response.json({ problem: 'task-running', message: 'noble-keen-walrus' }, { status: 400 }))
-  const props = renderModal()
+  const props = { onClose: vi.fn(), onStarted: vi.fn(), onTaken: vi.fn() }
+  render(<StartTaskModal base={base} entry={entry} {...props} />)
 
   fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
   fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
@@ -159,6 +160,8 @@ test('задача уже идёт в другой копии: окно назы
     'Эту задачу панель уже запустила в копии noble-keen-walrus — вторую не запускает.',
   )
   expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+  // Раздел узнаёт, что задача взята, и гасит её кнопку и за окном
+  expect(props.onTaken).toHaveBeenCalledTimes(1)
   // Другая копия задачу не освобождает: отказ остаётся на виду, кнопка — погашенной.
   fireEvent.click(screen.getByRole('radio', { name: /noble-keen-walrus/ }))
   expect(screen.getByRole('alert')).toBeInTheDocument()

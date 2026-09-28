@@ -15,6 +15,8 @@ type Props = {
   onClose: () => void
   /** Имя каталога копии, в которую ушла задача: им панель говорит, где она запустилась. */
   onStarted: (copy: string) => void
+  /** Задача уже идёт в другой копии: раздел перечитывает копии, чтобы её кнопка погасла и за окном. */
+  onTaken?: () => void
 }
 
 type Problem =
@@ -82,7 +84,7 @@ function failureOf(problem: Problem, message: string | null): string {
  * её проекта. Выбор флоу виден всегда, даже при одном флоу, первым выбран первый — ответ оператора. Последним
  * разделом — необязательные начальные слова сессии; набранные помнятся у записи, пока задачу не запустили.
  */
-export default function StartTaskModal({ base, entry, onClose, onStarted }: Props) {
+export default function StartTaskModal({ base, entry, onClose, onStarted, onTaken }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [path, setPath] = useState<string | null>(null)
   const [flows, setFlows] = useState<Flows>({ kind: 'loading' })
@@ -186,7 +188,10 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
       if (response.status === 400) {
         const body = (await response.json()) as { problem: Problem; message: string | null }
         setFailure(failureOf(body.problem, body.message))
-        if (body.problem === 'task-running') setTaken(true)
+        if (body.problem === 'task-running') {
+          setTaken(true)
+          onTaken?.()
+        }
       } else if (response.status === 404) {
         setFailure('Этой базы или копии больше нет в списке панели.')
       } else {

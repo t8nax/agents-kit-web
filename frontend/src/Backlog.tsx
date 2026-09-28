@@ -421,6 +421,7 @@ export default function Backlog({
             setStarting(null)
             focusOpener()
           }}
+          onTaken={loadCopies}
           onStarted={(copy) => {
             setStarting(null)
             focusOpener()
