@@ -374,8 +374,8 @@ export default function Backlog({
                           Изменить
                         </button>
                       )}
-                      {/* Переносят только в трекер GitHub с адресом репозитория — B-286, между «Изменить» и «Взять задачу» */}
-                      {entry.number && backlog.tracker?.kind === 'github' && (
+                      {/* Переносят в трекер GitHub или YouTrack со строками описания — B-286, B-288; между «Изменить» и «Взять задачу» */}
+                      {entry.number && readable(backlog.tracker) && (
                         <button
                           type="button"
                           className="entry-start"

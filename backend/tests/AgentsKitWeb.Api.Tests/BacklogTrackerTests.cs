@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentsKitWeb.Api.Ask;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -357,6 +358,60 @@ public sealed class BacklogTrackerTests : IDisposable
             {
                 services.RemoveAll<IGitHubIssues>();
                 services.AddSingleton<IGitHubIssues>(_github);
+                services.RemoveAll<IYouTrack>();
+                services.AddSingleton<IYouTrack>(_youTrack);
             });
         })).CreateClient();
+
+    // ——— Перенос в YouTrack (B-288) ———
+
+    private readonly FakeYouTrack _youTrack = new();
+
+    private void YouTrackTracker(bool withKey = true)
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        if (withKey)
+            new TrackerServersStore(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")))
+                .Save("https://acme.youtrack.cloud", "boris.k", "perm:ключ");
+    }
+
+    [Fact]
+    public async Task Move_ToYouTrack_CreatesIssueWithServerKeyAndCutsEntry()
+    {
+        YouTrackTracker();
+        _youTrack.Created = new CreatedIssue(new TrackerIssue("YouTrack ABC-58", 58, "Вторая запись", "https://acme.youtrack.cloud/issue/ABC-58"));
+        var client = Client();
+        var draft = await GetDraft(client, "B-2");
+
+        var moved = await Move(client, draft);
+
+        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC", "Вторая запись", "Текст второй записи.")], _youTrack.Creates);
+        Assert.Empty(_github.Creates);
+        Assert.Equal("YouTrack ABC-58", moved.Issue?.Name);
+        Assert.Null(moved.Error);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+        Assert.Equal("Изменить бэклог из панели", Git("log", "-1", "--format=%s"));
+    }
+
+    [Theory]
+    [InlineData(false, null, "Задача не заведена: для сервера https://acme.youtrack.cloud нет ключа — добавьте его в «Настройках», в карточке «Серверы трекеров»")]
+    [InlineData(true, TrackerIssues.KeyRejected, "Задача не заведена: сервер https://acme.youtrack.cloud отклонил ключ — замените его в «Настройках», в карточке «Серверы трекеров»")]
+    [InlineData(true, TrackerIssues.ProjectMissing, "Задача не заведена: на сервере https://acme.youtrack.cloud нет проекта ABC или у вашего ключа нет к нему доступа")]
+    [InlineData(true, CreatedIssue.YouTrackSilent, "Задача, возможно, заведена: YouTrack не ответил за минуту. Проверьте трекер, прежде чем пробовать снова")]
+    [InlineData(true, CreatedIssue.CreatedUnknown, "Задача, возможно, заведена: YouTrack не назвал номер задачи. Проверьте трекер, прежде чем пробовать снова")]
+    public async Task Move_ToYouTrackRefused_SaysWhyAndLeavesBacklog(bool withKey, string? problem, string error)
+    {
+        YouTrackTracker(withKey);
+        _youTrack.Created = new CreatedIssue(null, problem);
+        var client = Client();
+        var draft = await GetDraft(client, "B-2");
+        var file = File.ReadAllText(BacklogPath);
+
+        var moved = await Move(client, draft);
+
+        Assert.Null(moved.Issue);
+        Assert.Equal(error, moved.Error);
+        Assert.Equal(file, File.ReadAllText(BacklogPath));
+        Assert.Equal(withKey ? 1 : 0, _youTrack.Creates.Count);
+    }
 }

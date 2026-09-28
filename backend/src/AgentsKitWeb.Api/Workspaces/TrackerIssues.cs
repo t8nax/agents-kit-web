@@ -11,7 +11,12 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// Задача трекера, назначенная на оператора. Name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
 /// Number — число номера.
 /// </summary>
-public sealed record TrackerIssue(string Name, int Number, string Title, string Url);
+public sealed record TrackerIssue(string Name, int Number, string Title, string Url)
+{
+    /// <summary>Номер без имени трекера — как на плашке задачи: «#37», «ABC-12».</summary>
+    [JsonIgnore]
+    public string Label => Name[(Name.IndexOf(' ') + 1)..];
+}
 
 /// <summary>
 /// Задачи трекера базы. Problem задан — задач панель не прочитала: вид трекера из TrackerInfo («other»,

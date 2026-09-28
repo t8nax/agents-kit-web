@@ -23,6 +23,9 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
             var other => new TrackerIssues([], other.Kind),
         };
 
+    /// <summary>Почему записи бэклога проекта переносить некуда — продолжением фразы.</summary>
+    public const string NotMovable = "трекер проекта — не GitHub и не YouTrack со строками «трекер:», «сервер:», «проект:»";
+
     /// <summary>Трекер, в который запись бэклога переносится: GitHub или YouTrack; иначе null.</summary>
     public static TrackerInfo? Movable(BaseLayout layout) =>
         Tracker.Read(layout) is { Kind: TrackerInfo.GitHub or TrackerInfo.YouTrack } tracker ? tracker : null;

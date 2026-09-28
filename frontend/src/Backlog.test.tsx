@@ -1286,6 +1286,21 @@ test('«Взять задачу» у задачи YouTrack запускает е
   )
 })
 
+test('«В трекер» есть и у записей проекта с YouTrack, а у проекта с Jira — нет', async () => {
+  const fetchMock = stubFetch([
+    { ...backlogs[0], tracker: youTrack },
+    { ...backlogs[1], tracker: { kind: 'other', name: 'Jira' } },
+  ])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  expect(within(row as HTMLElement).getByRole('button', { name: 'В трекер' })).toBeInTheDocument()
+  const nota = within(screen.getByRole('region', { name: 'Nota' }))
+  expect(nota.queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+})
+
 // ——— Перенос записи в трекер (B-286) ———
 
 test('«В трекер» — у записей с номером в проекте с трекером GitHub, между «Изменить» и «Взять задачу»', async () => {

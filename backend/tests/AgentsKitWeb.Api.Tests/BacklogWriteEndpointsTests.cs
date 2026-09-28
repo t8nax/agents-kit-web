@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentsKitWeb.Api.Ask;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -682,6 +683,52 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
         Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
         Assert.Contains("GitHub acme/orders", Prompt());
+
+        // В YouTrack перенос тоже предлагается — B-288
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+
+        Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
+        Assert.Contains("YouTrack ABC", Prompt());
+    }
+
+    /// <summary>«Сохранить» с переносом у проекта с YouTrack заводит задачу в YouTrack ключом его сервера (B-288).</summary>
+    [Fact]
+    public async Task Save_TrackToYouTrack_CreatesIssueWithServerKey()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        new TrackerServersStore(TrackerServersStore.FileBeside(TestBasesFile)).Save("https://acme.youtrack.cloud", "boris.k", "perm:ключ");
+        _youTrack.Created = new CreatedIssue(new TrackerIssue("YouTrack ABC-58", 58, "Вторая запись", "https://acme.youtrack.cloud/issue/ABC-58"));
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Null(saved.Error);
+        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC", "Вторая запись", "Текст второй записи.")], _youTrack.Creates);
+        Assert.Empty(_github.Creates);
+        Assert.Equal("YouTrack ABC-58", saved.Issues!["B-2"].Name);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
+    public async Task Save_TrackToYouTrackWithoutKey_DoesNotTouchBacklog()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        var before = File.ReadAllText(BacklogPath);
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal(
+            "Задача для B-2 не заведена: для сервера https://acme.youtrack.cloud нет ключа — добавьте его в «Настройках», в карточке «Серверы трекеров» — бэклог не записан",
+            saved.Error);
+        Assert.Empty(_youTrack.Creates);
+        Assert.Equal(before, File.ReadAllText(BacklogPath));
     }
 
     [Fact]
@@ -808,7 +855,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         var answer = (await Read(client, 2))[1];
 
         Assert.Equal("error", answer.Type);
-        Assert.Equal("Чудо-Юдо предложил перенос в трекер, а трекер проекта — не GitHub с адресом репозитория", answer.Text);
+        Assert.Equal($"Чудо-Юдо предложил перенос в трекер, а {ProjectTracker.NotMovable}", answer.Text);
     }
 
     [Fact]
@@ -1328,8 +1375,15 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
                 services.AddSingleton<IBacklogCheckGate>(_checkGate);
                 services.RemoveAll<IGitHubIssues>();
                 services.AddSingleton<IGitHubIssues>(_github);
+                services.RemoveAll<IYouTrack>();
+                services.AddSingleton<IYouTrack>(_youTrack);
             });
         })).CreateClient();
+
+    private readonly FakeYouTrack _youTrack = new();
+
+    /// <summary>bases.json панели теста — рядом с ним лежат её серверы трекеров.</summary>
+    private string TestBasesFile => Path.Combine(_root, "panel", "bases.json");
 
     /// <summary>Ход перед проверкой базы: n — какая по счёту реплика разговора проверяется.</summary>
     private sealed class TestCheckGate : IBacklogCheckGate

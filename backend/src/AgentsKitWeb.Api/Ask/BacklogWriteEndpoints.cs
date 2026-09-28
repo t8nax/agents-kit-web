@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Ask;
@@ -73,7 +74,7 @@ public sealed record BacklogSaved(
 /// коммитит сам; изменение, удаление и объединение он только предлагает, а записывает их панель по «Сохранить».
 /// Память разговора — живой процесс агента, как у вопроса по базе (B-79).
 /// </summary>
-public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate, IGitHubIssues github)
+public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate, ProjectTracker trackers)
 {
     /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
     private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
@@ -192,7 +193,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         dropped is { Created.Count: > 0 }
             ? new BacklogWriteEvent(
                 "note",
-                $"Задачи в трекере уже заведены, а записи остались в бэклоге: {string.Join(", ", dropped.Created.Select(c => $"{c.Key} — #{c.Value.Number}"))}. Уберите эти записи из бэклога.",
+                $"Задачи в трекере уже заведены, а записи остались в бэклоге: {string.Join(", ", dropped.Created.Select(c => $"{c.Key} — {c.Value.Label}"))}. Уберите эти записи из бэклога.",
                 Issues: new Dictionary<string, TrackerIssue>(dropped.Created))
             : null;
 
@@ -244,7 +245,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                 Issues = new Dictionary<string, TrackerIssue>(pending.Created),
                 // Задачи уже заведены, а записи остались в бэклоге: повторное «Сохранить» задач не заводит, а пишет бэклог.
                 Error = saved.Error is { } error
-                    ? $"{error}. Уже заведены в трекере: {string.Join(", ", pending.Created.Select(c => $"{c.Key} — #{c.Value.Number}"))} — «Сохранить» ещё раз их не повторит"
+                    ? $"{error}. Уже заведены в трекере: {string.Join(", ", pending.Created.Select(c => $"{c.Key} — {c.Value.Label}"))} — «Сохранить» ещё раз их не повторит"
                     : null,
             };
         lock (_gate)
@@ -270,16 +271,16 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var personal = BaseLayout.PersonalOf(pending.Request.Base);
         if (await UnwritableAsync(personal, pending.Proposal, $"ответа {AgentRequests.AgentName}") is { } refusal)
             return new BacklogSaved(null, refusal.Text);
-        if (BaseLayout.Read(pending.Request.Base) is not { } layout || BacklogTracker.RepoOf(layout) is not { } repo)
-            return new BacklogSaved(null, "Трекер проекта — не GitHub с адресом репозитория: переносить некуда — ничего не записано");
+        if (BaseLayout.Read(pending.Request.Base) is not { } layout || ProjectTracker.Movable(layout) is not { } tracker)
+            return new BacklogSaved(null, $"Переносить некуда: {ProjectTracker.NotMovable} — ничего не записано");
 
         foreach (var change in pending.Proposal.Changes.Where(c => c.Kind == BacklogChange.Track && !pending.Created.ContainsKey(c.Number)))
         {
             // Заводится ровно та задача, что показала карточка
             var draft = change.Draft!;
-            var created = await github.CreateAsync(repo, draft.Title, draft.Body);
+            var created = await trackers.CreateAsync(tracker, draft.Title, draft.Body);
             if (created.Issue is not { } issue)
-                return new BacklogSaved(null, $"{BacklogTracker.NotCreated(created, $"Задача для {change.Number}")} — бэклог не записан");
+                return new BacklogSaved(null, $"{BacklogTracker.NotCreated(created, $"Задача для {change.Number}", tracker)} — бэклог не записан");
             pending.Created[change.Number] = issue;
         }
         return null;
@@ -870,10 +871,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var (proposal, wrong) = text is null ? (null, null) : BacklogProposal.Build(blocks, text);
         if (wrong is not null)
             return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} предложил правку, которую панель не поняла: {wrong}", entries, Output: output);
-        // Переносить есть куда, только если трекер проекта — GitHub с адресом: агенту без него перенос не предлагается.
-        if (proposal is { Tracks: true } && (BaseLayout.Read(writing.Base) is not { } layout || BacklogTracker.RepoOf(layout) is null))
+        // Переносить есть куда, только если трекер проекта — GitHub или YouTrack: агенту без них перенос не предлагается.
+        if (proposal is { Tracks: true } && (BaseLayout.Read(writing.Base) is not { } layout || ProjectTracker.Movable(layout) is null))
             return new BacklogWriteEvent(
-                "error", $"{AgentRequests.AgentName} предложил перенос в трекер, а трекер проекта — не GitHub с адресом репозитория", entries, Output: output);
+                "error", $"{AgentRequests.AgentName} предложил перенос в трекер, а {ProjectTracker.NotMovable}", entries, Output: output);
 
         var commit = entries is null ? null : await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
         if (proposal is not null)
@@ -1069,15 +1070,15 @@ public static class BacklogWriteEndpoints
         // а правило пускает только команду целиком — поэтому вторая команда берёт каталог.
         var withFiles = $"{commit} {ArtifactFiles.Folder}";
         // Перенос записи в трекер заводит панель по «Сохранить», а не агент: трекер и программу gh он не трогает.
-        // Трекер проекта не GitHub с адресом — переносить некуда, и агент об этом знает (B-286).
-        var track = BaseLayout.Read(basePath) is { } layout && BacklogTracker.RepoOf(layout) is { } repo
+        // Трекер проекта не GitHub и не YouTrack со строками описания — переносить некуда, и агент об этом знает (B-286, B-288).
+        var track = BaseLayout.Read(basePath) is { } layout && ProjectTracker.Movable(layout) is { } tracker
             ? $"""
-              Перенос записи в трекер проекта (GitHub {repo}) — тоже предложение, блоком «в трекер B-14»; задачу заведёт панель, сам трекер и gh не трогай:
+              Перенос записи в трекер проекта ({tracker.Name} {tracker.Project}) — тоже предложение, блоком «в трекер B-14»; задачу заведёт панель, сам трекер и gh не трогай:
               ~~~backlog
               в трекер B-14
               ~~~
               """
-            : "Переноса записей в трекер у этого проекта нет: трекер проекта — не GitHub с адресом репозитория. Попросят перенести — скажи это.";
+            : $"Переноса записей в трекер у этого проекта нет: {ProjectTracker.NotMovable}. Попросят перенести — скажи это.";
         var systemPrompt = $"""
             Ты ведёшь с оператором разговор о его бэклоге в веб-панели: он просит и уточняет в том же разговоре.
             Бэклог лежит в личном репозитории оператора внутри базы знаний, у этого репозитория свой git.
