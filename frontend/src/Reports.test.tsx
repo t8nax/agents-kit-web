@@ -101,6 +101,31 @@ function renderReports(onProblems = vi.fn()) {
   return { onProblems }
 }
 
+test('пока отчёты читаются, на месте выбора проекта заготовка, а заголовок и вид отчёта уже на месте', async () => {
+  let answer: () => void = () => {}
+  stub(() => [item()])
+  const listed = globalThis.fetch
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init?: RequestInit) =>
+      url === '/api/reports/flow'
+        ? new Promise<Response>((resolve) => (answer = () => resolve(Response.json([item()]))))
+        : listed(url, init),
+    ),
+  )
+  renderReports()
+
+  expect(screen.getByRole('heading', { name: 'Отчёты' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Вид отчёта: Как устроен флоу' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: /^Проект:/ })).toBeNull()
+  expect(document.querySelector('.rp-head .sk')).not.toBeNull()
+
+  answer()
+
+  expect(await screen.findByRole('button', { name: 'Проект: Agents Kit Web' })).toBeTruthy()
+  expect(document.querySelector('.rp-head .sk')).toBeNull()
+})
+
 test('раздел показывает вид отчёта, проект, кольца и находки по приоритету без номеров требований', async () => {
   stub(() => [item()])
 

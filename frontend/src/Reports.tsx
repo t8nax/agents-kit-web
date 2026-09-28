@@ -245,6 +245,8 @@ export default function Reports({
             </button>
           )}
           <span className="rp-head-sep" aria-hidden="true" />
+          {/* Выбор проекта приходит с данными: пока список читается, на его месте заготовка (decisions/loading.md). */}
+          {items === null && !failed && <Sk w={136} h={30} style={{ borderRadius: 6 }} />}
           {items && items.length > 0 && (
             <PickMenu
               label="Проект"
