@@ -98,7 +98,7 @@ public static partial class TaskEndpoints
             // Та же задача запускается или идёт в другой копии проекта — вторая сессия над ней не заводится (B-89).
             // Запись бэклога агент вырезает не сразу, а задача GitHub остаётся в трекере всё время работы.
             var elsewhere = rows.FirstOrDefault(r => r != row && r.Error is null
-                && TaskNumberOf(r.Status == WorkspaceStatus.Free ? started.TaskIn(r.Path) : r.Task) == number);
+                && TaskNumberOf(r.Status == WorkspaceStatus.Free ? started.TaskIn(r.Path) : r.Task, r.Letters) == number);
             if (elsewhere is not null)
                 return Results.BadRequest(new TaskStartProblem("task-running", Path.GetFileName(elsewhere.Path)));
 
@@ -213,16 +213,12 @@ public static partial class TaskEndpoints
 
     /// <summary>
     /// Номер задачи, которым начат её заголовок в строке копии, в том виде, в каком запускается задача:
-    /// «B-7 Заголовок» — «B-7», «GitHub #37 Заголовок» — «GitHub #37». Заголовок без номера — null.
+    /// «B-7 Заголовок» — «B-7» при буквах проекта «B», «GitHub #37 Заголовок» — «GitHub #37». Без номера — null.
     /// </summary>
-    public static string? TaskNumberOf(string? task)
-    {
-        if (string.IsNullOrWhiteSpace(task))
-            return null;
-        if (TrackerIssueTitle().Match(task) is { Success: true } issue)
-            return $"GitHub #{int.Parse(issue.Groups[1].Value)}";
-        return BacklogNumber.Normalize(task.TrimStart().Split(' ', 2)[0]);
-    }
+    public static string? TaskNumberOf(string? task, string? letters) =>
+        task is not null && TrackerIssueTitle().Match(task) is { Success: true } issue
+            ? $"GitHub #{int.Parse(issue.Groups[1].Value)}"
+            : BacklogNumber.OfTask(task, letters);
 
     [GeneratedRegex(@"^\s*github\s*#(\d{1,9})(?:\s|$)", RegexOptions.IgnoreCase)]
     private static partial Regex TrackerIssueTitle();

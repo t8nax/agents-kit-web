@@ -428,16 +428,18 @@ public sealed class TaskEndpointsTests : IDisposable
     }
 
     [Theory]
-    [InlineData("B-7 Панель показывает задачу сразу", "B-7")]
-    [InlineData("в-7 Кириллицей", "B-7")]
-    [InlineData("GitHub #37 Оплата падает", "GitHub #37")]
-    [InlineData("github#037", "GitHub #37")]
-    [InlineData("GitHub #37x Не номер", null)]
-    [InlineData("UTF-8 в именах файлов", "UTF-8")]
-    [InlineData("Задача без номера", null)]
-    [InlineData(null, null)]
-    public void TaskNumberOf_TakesNumberTheTaskStartsWith(string? task, string? number) =>
-        Assert.Equal(number, TaskEndpoints.TaskNumberOf(task));
+    [InlineData("B-7 Панель показывает задачу сразу", "B", "B-7")]
+    [InlineData("в-7 Кириллицей", "B", "B-7")]
+    [InlineData("GitHub #37 Оплата падает", "B", "GitHub #37")]
+    [InlineData("github#037", null, "GitHub #37")]
+    [InlineData("GitHub #37x Не номер", "B", null)]
+    // Номером панель признаёт только номер буквами своего проекта — decisions/backlog-numbers.md
+    [InlineData("UTF-8 в именах файлов", "B", null)]
+    [InlineData("B-7 Буквы проекта не известны", null, null)]
+    [InlineData("Задача без номера", "B", null)]
+    [InlineData(null, "B", null)]
+    public void TaskNumberOf_TakesNumberTheTaskStartsWith(string? task, string? letters, string? number) =>
+        Assert.Equal(number, TaskEndpoints.TaskNumberOf(task, letters));
 
     [Fact]
     public async Task Start_RejectsNumberThatIsNotInBacklog()

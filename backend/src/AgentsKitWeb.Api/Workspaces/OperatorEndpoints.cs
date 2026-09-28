@@ -205,12 +205,8 @@ public static class OperatorEndpoints
         });
     }
 
-    // Номер задачи — первое слово заголовка памяти, если оно номер буквами этой базы: «UTF-8 …» номером не становится.
     private static string? TaskNumber(string? task, BaseLayout layout) =>
-        task?.Split(' ', 2)[0] is { } first && BacklogNumber.Normalize(first) is { } number
-        && Backlog.ReadLetters(layout) is { } letters && BacklogNumber.Letters(number) == letters
-            ? number
-            : null;
+        BacklogNumber.OfTask(task, Backlog.ReadLetters(layout));
 
     internal static readonly char[] CmdSpecial = ['&', '|', '<', '>', '^', '%', '"'];
 

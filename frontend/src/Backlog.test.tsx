@@ -552,7 +552,11 @@ test('у записи, которую уже взяли в копию, кноп�
   fetchMock.setCopies([
     copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
     // Агент ещё не вырезал запись — она в списке, а её номер уже стоит в строке копии, набранный кириллицей
-    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'), task: 'В-1 Панель показывает проблемы баз знаний' },
+    {
+      ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'),
+      task: 'В-1 Панель показывает проблемы баз знаний',
+      letters: 'B',
+    },
   ])
 
   render(<Backlog />)
