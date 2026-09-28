@@ -4,6 +4,7 @@ using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Panel;
 using AgentsKitWeb.Api.Performers;
+using AgentsKitWeb.Api.Reports;
 using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Usage;
 using AgentsKitWeb.Api.Workspaces;
@@ -15,6 +16,11 @@ builder.Services.AddSingleton(services =>
 {
     var config = services.GetRequiredService<IConfiguration>();
     return new FlowIconsStore(config["FlowIconsFile"] ?? FlowIconsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
+});
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new ReportsStore(config["ReportsFile"] ?? ReportsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
 builder.Services.AddSingleton(services =>
     new AgentSessions(services.GetRequiredService<IConfiguration>()["SessionsDir"] ?? AgentSessions.DefaultDirectory));

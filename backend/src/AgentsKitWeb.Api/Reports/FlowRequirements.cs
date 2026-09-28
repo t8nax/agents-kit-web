@@ -1,13 +1,15 @@
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Flow;
 
 namespace AgentsKitWeb.Api.Reports;
 
+[JsonConverter(typeof(JsonStringEnumConverter<Priority>))]
 public enum Priority
 {
-    High,
-    Medium,
-    Low,
+    [JsonStringEnumMemberName("high")] High,
+    [JsonStringEnumMemberName("medium")] Medium,
+    [JsonStringEnumMemberName("low")] Low,
 }
 
 /// <summary>Требование к смыслу флоу из справки кита: номер, кольцо — его группа, приоритет, короткое название, формулировка.</summary>
