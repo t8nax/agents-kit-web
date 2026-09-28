@@ -297,7 +297,12 @@ export default function Reports({
           )}
           <span className="rp-head-sep" aria-hidden="true" />
           {/* Выбор проекта приходит с данными: пока список читается, на его месте заготовка (decisions/loading.md). */}
-          {items === null && !failed && <Sk w={136} h={30} style={{ borderRadius: 6 }} />}
+          {/* Как полосы раздела: видна, только если чтение затянулось, и скрыта от диктора. */}
+          {items === null && !failed && (
+            <span className={reveal.shown ? '' : 'sk-wait'} aria-hidden="true">
+              <Sk w={136} h={30} style={{ borderRadius: 6 }} />
+            </span>
+          )}
           {items && items.length > 0 && (
             <PickMenu
               label="Проект"

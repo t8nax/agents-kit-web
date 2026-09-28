@@ -118,7 +118,11 @@ test('пока отчёты читаются, на месте выбора пр�
   expect(screen.getByRole('heading', { name: 'Отчёты' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Вид отчёта: Как устроен флоу' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: /^Проект:/ })).toBeNull()
-  expect(document.querySelector('.rp-head .sk')).not.toBeNull()
+  // Полоса держит место, но скрыта от диктора и видна, только если чтение затянулось (decisions/loading.md).
+  const bar = document.querySelector('.rp-head .sk')!
+  expect(bar.closest('[aria-hidden="true"]')).not.toBeNull()
+  expect(bar.closest('.sk-wait')).not.toBeNull()
+  await waitFor(() => expect(bar.closest('.sk-wait')).toBeNull())
 
   answer()
 
