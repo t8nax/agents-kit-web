@@ -42,11 +42,12 @@ public sealed class ScheduledReports(
 
     /// <summary>
     /// Один круг: разбор по расписанию заводится для первого проекта, чьё назначенное время прошло и ещё не отработано.
-    /// Идёт разбор — круг ждёт: разом идёт одна просьба вида, и новая остановила бы начатую оператором.
+    /// Круг ждёт, пока идёт разбор или его итог не прочитан — разом живёт одна просьба вида, и новая заменила бы прежнюю, —
+    /// и пока после старта панели не прошла первая сверка: без неё ошибки во флоу не видны (ревью B-270).
     /// </summary>
     public async Task TickAsync(CancellationToken cancellationToken)
     {
-        if (reports.Running is not null)
+        if (reports.Busy || reports.Checking)
             return;
 
         var now = time.GetLocalNow();

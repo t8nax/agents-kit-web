@@ -58,8 +58,11 @@ public sealed class FlowReports(
     private static bool InFlow(string? file) =>
         file is not null && file.Replace('\\', '/').Split('/').Contains("flow");
 
-    /// <summary>Разбор идёт — его и видит раздел, пока он не кончился.</summary>
-    public AgentRequest? Running => requests.Of(AgentRequests.Report) is { Finished: false } request ? request : null;
+    /// <summary>
+    /// Разбор идёт или его итог ещё ждёт оператора: итог одноразовой просьбы лежит, пока его не прочли
+    /// (decisions/base-agent.md), и новый разбор его бы заменил.
+    /// </summary>
+    public bool Busy => requests.Of(AgentRequests.Report) is not null;
 
     /// <summary>Заводит разбор флоу базы. Не строится — причина; иначе просьба, ход которой раздел читает потоком.</summary>
     public async Task<(AgentRequest? Started, ReportBlock? Block)> StartAsync(string basePath, CancellationToken cancellationToken)

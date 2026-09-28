@@ -148,6 +148,48 @@ public sealed class ScheduledReportsTests : IDisposable
     }
 
     [Fact]
+    public async Task Tick_WaitsWhileOutcomeIsUnread()
+    {
+        var client = await Client();
+        await Schedule(client, [DayOfWeek.Monday, DayOfWeek.Tuesday], 9);
+        _time.Set(Monday.AddHours(9));
+        await Tick();
+        await Outcome(client);
+
+        // Итог понедельника оператор не прочёл: разбор вторника его не заменяет, а ждёт.
+        File.AppendAllText(Path.Combine(TestLayout.Flow(_base), "stages", "merge.md"), "\n- Мержить после «принято».\n");
+        _time.Set(Monday.AddDays(1).AddHours(9));
+        await Tick();
+        Assert.Equal(1, _agent.Runs);
+
+        (await client.DeleteAsync("/api/agent/report")).EnsureSuccessStatusCode();
+        await Tick();
+        await Outcome(client);
+        Assert.Equal(2, _agent.Runs);
+    }
+
+    [Fact]
+    public async Task Tick_WaitsForFirstCheckAfterStart()
+    {
+        var hold = new TaskCompletionSource();
+        _time.Set(Monday.AddHours(8));
+        var client = await Client(new NoFindings { Hold = hold }, kitAtStart: true);
+        await Schedule(client, [DayOfWeek.Monday], 9);
+        _time.Set(Monday.AddHours(9));
+
+        await Tick();
+        Assert.Equal(0, _agent.Runs);
+
+        hold.SetResult();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while ((await client.GetFromJsonAsync<JsonElement>("/api/health", deadline.Token)).GetProperty("pending").GetBoolean())
+            await Task.Delay(50, deadline.Token);
+        await Tick();
+        await Outcome(client);
+        Assert.Equal(1, _agent.Runs);
+    }
+
+    [Fact]
     public async Task Tick_WithoutSchedule_DoesNothing()
     {
         await Client();
@@ -175,16 +217,25 @@ public sealed class ScheduledReportsTests : IDisposable
     private static async Task<List<FlowReportItem>> List(HttpClient client) =>
         (await client.GetFromJsonAsync<List<FlowReportItem>>("/api/reports/flow", Json))!;
 
-    /// <summary>Разбор идёт просьбой: поток просьбы кончается вместе с ней.</summary>
+    /// <summary>Разбор идёт просьбой: поток просьбы кончается вместе с ней, и оператор её читает — итог уходит.</summary>
     private static async Task Finished(HttpClient client)
+    {
+        await Outcome(client);
+        (await client.DeleteAsync("/api/agent/report")).EnsureSuccessStatusCode();
+    }
+
+    private static async Task Outcome(HttpClient client)
     {
         using var stream = await client.GetAsync("/api/agent/report/stream?from=0");
         Assert.Equal(HttpStatusCode.OK, stream.StatusCode);
         Assert.Contains("\"reported\"", await stream.Content.ReadAsStringAsync());
     }
 
-    private async Task<HttpClient> Client()
+    private async Task<HttpClient> Client(NoFindings? checks = null, bool kitAtStart = false)
     {
+        var settings = TestBases.File(_root, _base);
+        if (kitAtStart)
+            File.WriteAllText(settings, JsonSerializer.Serialize(new { bases = new[] { _base }, kit = _kit }));
         _factory = _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
@@ -192,7 +243,7 @@ public sealed class ScheduledReportsTests : IDisposable
                 config.Sources.Clear();
                 config.AddInMemoryCollection(
                 [
-                    new("BasesFile", TestBases.File(_root, _base)),
+                    new("BasesFile", settings),
                     new("ReportScheduleIntervalSeconds", "86400"),
                 ]);
             });
@@ -201,21 +252,29 @@ public sealed class ScheduledReportsTests : IDisposable
                 services.RemoveAll<IAgentProcess>();
                 services.AddSingleton<IAgentProcess>(_agent);
                 services.RemoveAll<IKitChecks>();
-                services.AddSingleton<IKitChecks>(new NoFindings());
+                services.AddSingleton<IKitChecks>(checks ?? new NoFindings());
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(_time);
             });
         }));
         var client = _factory.CreateClient();
-        (await client.PutAsJsonAsync("/api/kit", new SetKitRequest(_kit))).EnsureSuccessStatusCode();
+        if (!kitAtStart)
+            (await client.PutAsJsonAsync("/api/kit", new SetKitRequest(_kit))).EnsureSuccessStatusCode();
         return client;
     }
 
     private sealed class NoFindings : IKitChecks
     {
-        public Task<(KitCheckResult? Result, string? Error)> RunAsync(
-            string kit, string basePath, IReadOnlyList<string> copies, CancellationToken cancellationToken) =>
-            Task.FromResult<(KitCheckResult?, string?)>((new KitCheckResult([], []), null));
+        /// <summary>Задана — сверка не кончается, пока тест её не отпустит.</summary>
+        public TaskCompletionSource? Hold { get; init; }
+
+        public async Task<(KitCheckResult? Result, string? Error)> RunAsync(
+            string kit, string basePath, IReadOnlyList<string> copies, CancellationToken cancellationToken)
+        {
+            if (Hold is not null)
+                await Hold.Task.WaitAsync(cancellationToken);
+            return (new KitCheckResult([], []), null);
+        }
     }
 
     private sealed class FakeAgent : IAgentProcess
