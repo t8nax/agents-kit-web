@@ -4,9 +4,7 @@ import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
-import { NEWER_FORMAT_REFUSAL } from './newerFormat'
-// Плашка о базе нового формата — того же вида, что о ките (.kit-notice)
-import './Problems.css'
+import { FormatNotice, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import EntryArtifacts, { type Artifact } from './EntryArtifacts'
@@ -276,10 +274,7 @@ export default function Backlog({
           )}
 
           {warned.map((backlog) => (
-            <div className="kit-notice" key={backlog.base} role="status">
-              <WarningIcon />
-              <span className="kit-notice-text">{backlog.formatWarning}</span>
-            </div>
+            <FormatNotice key={backlog.base} text={backlog.formatWarning!} />
           ))}
 
           <div className="filter-bar" role="group" aria-label="Отбор и порядок записей">

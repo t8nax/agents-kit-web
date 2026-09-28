@@ -1,0 +1,16 @@
+/* Плашка о базе нового формата кита (B-281) — вид плашки о ките (.kit-notice), свои стили */
+.format-notice {
+  margin: 0 24px 12px;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.format-notice-text {
+  flex: 1;
+}

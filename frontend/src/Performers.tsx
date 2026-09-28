@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import PerformerModal, { Select } from './PerformerModal'
-import { NEWER_FORMAT_REFUSAL } from './newerFormat'
-import { WarningIcon } from './Problems'
+import { FormatNotice, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
 import './Performers.css'
@@ -104,7 +103,7 @@ export default function Performers({
   // База нового формата: плашка — когда выбрана она (или она одна), а новый исполнитель заводится только в базу,
   // которую панель знает (B-281).
   const warned = project !== null || bases.length === 1 ? shown.filter((base) => base.formatWarning) : []
-  const target = shown.find((base) => !base.formatWarning) ?? (project === null ? bases.find((base) => !base.formatWarning) : undefined)
+  const target = shown.find((base) => !base.formatWarning)
 
   return (
     <>
@@ -161,10 +160,7 @@ export default function Performers({
             </p>
           ))}
           {warned.map((base) => (
-            <div className="kit-notice" key={base.base} role="status">
-              <WarningIcon />
-              <span className="kit-notice-text">{base.formatWarning}</span>
-            </div>
+            <FormatNotice key={base.base} text={base.formatWarning!} />
           ))}
           {/* Новый исполнитель заводится пунктирной карточкой последней в сетке, как «Новая стадия» во «Флоу» (B-198).
               У проекта без исполнителей она стоит в сетке одна: строки о пустом списке нет. */}

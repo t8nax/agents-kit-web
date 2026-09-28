@@ -29,8 +29,7 @@ import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
 import { VsCodeIcon } from './VsCodeIcon'
-import { NEWER_FORMAT_REFUSAL } from './newerFormat'
-import { WarningIcon } from './Problems'
+import { FormatIcon, NEWER_FORMAT_REASON, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 
 /**
  * Стадия флоу — файл flow/stages/ личного репозитория оператора, один на все флоу, где она стоит. slug — имя файла; у стадии,
@@ -334,7 +333,7 @@ type Lock = { before: string; tasks: string[]; after?: string; format?: true }
 
 /** Базу нового формата держит формат: закрыто всё, в том числе новое. */
 const formatLock: Lock = {
-  before: NEWER_FORMAT_REFUSAL.replace(/^Правка закрыта: /, ''),
+  before: NEWER_FORMAT_REASON,
   tasks: [],
   format: true,
 }
@@ -1060,7 +1059,7 @@ export default function Flow({
       {/* База нового формата — строкой того же вида полным предупреждением, на обеих вкладках (макет B-281). */}
       {editable && flow.formatWarning && (
         <p className="flow-lock" role="status">
-          <WarningIcon />
+          <FormatIcon />
           {flow.formatWarning}
         </p>
       )}
@@ -3699,7 +3698,7 @@ function LockLine({ lock, what }: { lock: Lock; what: string }) {
 function LockNote({ lock }: { lock: Lock }) {
   return (
     <p className="flow-scope-warning flow-scope-lock" role="status">
-      {lock.format ? <WarningIcon /> : <LockIcon />}
+      {lock.format ? <FormatIcon /> : <LockIcon />}
       Правка закрыта: {lock.before} <TaskTags tasks={lock.tasks} />
       {lock.after && ` ${lock.after}`}
     </p>
