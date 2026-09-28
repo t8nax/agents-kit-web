@@ -7,6 +7,8 @@ import {
   HOLD_MS,
   RECOGNIZE_FAILED,
   useVoiceModuleSource,
+  VOICE_POLL_MS,
+  VOICE_RETRY_MS,
   VOICE_TITLES,
   VoiceContext,
   type VoiceModuleState,
@@ -137,6 +139,40 @@ test('панель спрашивает модуль, когда на экран
   await vi.waitFor(() => expect(screen.getAllByRole('button', { name: 'Голосовой ввод' })[0]).toHaveAttribute('title', VOICE_TITLES.ready))
   expect(fetchMock).toHaveBeenCalledTimes(1)
   expect(fetchMock).toHaveBeenCalledWith('/api/voice')
+})
+
+test('модель встала, пока «Настроек» нет на экране, — кнопка зажигается сама', async () => {
+  const states = ['downloading', 'downloading', 'installed']
+  const fetchMock = vi.fn(async () => Response.json({ state: states.length > 1 ? states.shift() : states[0] }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(
+    <Panel>
+      <VoiceButton onText={() => {}} />
+    </Panel>,
+  )
+
+  expect(button()).toHaveAttribute('title', VOICE_TITLES.notInstalled)
+  await vi.waitFor(() => expect(button()).toHaveAttribute('title', VOICE_TITLES.ready), { timeout: 4 * VOICE_POLL_MS })
+  expect(fetchMock).toHaveBeenCalledTimes(3)
+})
+
+test('API не ответил — панель спрашивает модуль снова', async () => {
+  let up = false
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => (up ? Response.json({ state: 'installed' }) : Promise.reject(new TypeError('Failed to fetch')))),
+  )
+  render(
+    <Panel>
+      <VoiceButton onText={() => {}} />
+    </Panel>,
+  )
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+
+  up = true
+
+  await vi.waitFor(() => expect(button()).toHaveAttribute('title', VOICE_TITLES.ready), { timeout: 2 * VOICE_RETRY_MS })
 })
 
 test('браузер без микрофона — кнопка погашена со своей причиной', () => {

@@ -25,19 +25,35 @@ export function useVoiceModuleSource(): VoiceModule {
     setAsked(true)
     setRound((value) => value + 1)
   }, [])
+  // Пока модель качается или API не ответил, панель перечитывает модуль сама: оператор нажал «Установить»
+  // и ушёл из «Настроек», а кнопки в окнах должны зажечься, когда модель встала (ревью B-291).
   useEffect(() => {
     if (!asked) return
     let alive = true
-    fetch('/api/voice')
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: { state?: VoiceModuleState } | null) => alive && setState(body?.state ?? 'unknown'))
-      .catch(() => alive && setState('unknown'))
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const read = () =>
+      fetch('/api/voice')
+        .then((response) => (response.ok ? response.json() : null))
+        .then((body: { state?: VoiceModuleState } | null) => body?.state ?? 'unknown')
+        .catch((): VoiceModuleState => 'unknown')
+        .then((next) => {
+          if (!alive) return
+          setState(next)
+          if (next === 'downloading') timer = setTimeout(read, VOICE_POLL_MS)
+          else if (next === 'unknown') timer = setTimeout(read, VOICE_RETRY_MS)
+        })
+    void read()
     return () => {
       alive = false
+      clearTimeout(timer)
     }
   }, [asked, round])
   return useMemo(() => ({ state, ensure, refresh }), [state, ensure, refresh])
 }
+
+/** Как часто панель перечитывает модуль, пока модель качается, и пока API не отвечает. */
+export const VOICE_POLL_MS = 1500
+export const VOICE_RETRY_MS = 5000
 
 export const VOICE_TITLES = {
   ready: 'Надиктовать: щелчок — запись до второго щелчка, удержание — запись, пока кнопка нажата',
