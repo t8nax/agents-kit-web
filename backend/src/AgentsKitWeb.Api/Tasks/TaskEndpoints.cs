@@ -113,16 +113,26 @@ public static partial class TaskEndpoints
                     return Results.BadRequest(new TaskStartProblem("record-unknown"));
             }
 
-            var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow, request.Words), cancellationToken);
-            if (session is null)
-                return Results.BadRequest(new TaskStartProblem("agent", failure));
+            // Пока заводится сессия, строки копий о задаче ещё не знают: повтор её отбивает только этот захват.
+            if (started.Claim(basePath, number, row.Path) is { } claimedBy)
+                return Results.BadRequest(new TaskStartProblem("task-running", Path.GetFileName(claimedBy)));
+            try
+            {
+                var (session, failure) = await BackgroundSession.StartAsync(agent, StartInfo(row.Path, number, flow, request.Words), cancellationToken);
+                if (session is null)
+                    return Results.BadRequest(new TaskStartProblem("agent", failure));
 
-            // Номер с заголовком записи — всё, что панель знает о задаче, пока агент не завёл память:
-            // из них и стоит задача в строке копии, чтобы не числить её свободной (Tasks/StartedTasks).
-            started.Add(row.Path, session, $"{number} {title}");
-            // Переход в сессию копии ведёт по этой записи: чем ещё узнать ту самую, панель не знает.
-            taskSessions.Remember(row.Path, session);
-            return Results.Ok(new TaskStartResponse(session));
+                // Номер с заголовком записи — всё, что панель знает о задаче, пока агент не завёл память:
+                // из них и стоит задача в строке копии, чтобы не числить её свободной (Tasks/StartedTasks).
+                started.Add(row.Path, session, $"{number} {title}");
+                // Переход в сессию копии ведёт по этой записи: чем ещё узнать ту самую, панель не знает.
+                taskSessions.Remember(row.Path, session);
+                return Results.Ok(new TaskStartResponse(session));
+            }
+            finally
+            {
+                started.Release(basePath, number);
+            }
         });
 
         // Сессия задачи умерла — после перезагрузки или ночью, — а память цела: новая сессия продолжает

@@ -356,6 +356,41 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-8"))).StatusCode);
     }
 
+    /// <summary>Два запуска одной задачи, пока первая сессия ещё заводится, — вторая не заводится (ревью B-89).</summary>
+    [Fact]
+    public async Task Start_RejectsSameTaskWhileItsSessionIsStillStarting()
+    {
+        var second = SecondCopy();
+        var gate = new TaskCompletionSource();
+        _agent.Gate = gate.Task;
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        var first = client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"));
+        while (_agent.StartInfo is null)
+            await Task.Delay(10);
+        var again = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-7"));
+        gate.SetResult();
+
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await again.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Equal(HttpStatusCode.OK, (await first).StatusCode);
+    }
+
+    [Fact]
+    public async Task Start_FreesTheTaskWhenClaudeDidNotStart()
+    {
+        var second = SecondCopy();
+        _agent.Exit = new AgentExit(null, "Не удалось найти указанный файл");
+        var client = Client();
+
+        Assert.Equal("agent", (await (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7")))
+            .Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        _agent.Exit = new AgentExit(0, "");
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-7"))).StatusCode);
+    }
+
     [Fact]
     public async Task Start_RejectsTaskWhoseMemoryIsInAnotherCopy()
     {
@@ -784,10 +819,14 @@ public sealed class TaskEndpointsTests : IDisposable
         public AgentExit Exit { get; set; } = new(0, "");
         public ProcessStartInfo? StartInfo { get; set; }
 
+        /// <summary>Пока не завершится, запуск висит — как `claude --bg`, который идёт секунды.</summary>
+        public Task Gate { get; set; } = Task.CompletedTask;
+
         public async Task<AgentExit> RunAsync(
             ProcessStartInfo startInfo, string input, Func<string, Task> onLine, CancellationToken cancellationToken)
         {
             StartInfo = startInfo;
+            await Gate;
             foreach (var line in Lines)
                 await onLine(line);
             return Exit;
