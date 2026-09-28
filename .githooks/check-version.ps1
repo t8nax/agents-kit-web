@@ -68,12 +68,12 @@ function Assert-Grown($where, $wasText, $what, $nowText, $advice, [switch]$OneSt
     $now = ConvertTo-Parts $nowText
     if (-not $was) { return }
     if (-not $now) {
-        [Console]::Error.WriteLine("В version.txt $what не номер версии: «$nowText». Номер пишется как 0.25.1.0. $Rule")
+        [Console]::Error.WriteLine("В version.txt $what не номер версии: «$nowText». $Rule Например, 0.25.1.0.")
         exit 1
     }
     # Номер из четырёх чисел сменил номер из трёх — назад запись не возвращается.
     if ($wasText.Split('.').Count -eq 4 -and $nowText.Split('.').Count -lt 4) {
-        [Console]::Error.WriteLine("В version.txt $what номер прежней записи: «$nowText», а $where уже $wasText. Номер пишется четырьмя числами, как 0.25.1.0. $Rule")
+        [Console]::Error.WriteLine("В version.txt $what номер прежней записи: «$nowText», а $where уже $wasText. $Rule Например, 0.25.1.0.")
         exit 1
     }
     $grown = $false
