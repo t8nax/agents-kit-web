@@ -327,6 +327,83 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    /// <summary>Вторая копия того же проекта: запись, запущенная в первой, в неё не запускается — B-89.</summary>
+    private string SecondCopy()
+    {
+        var second = TestGit.Repository(Path.Combine(_root, "app-second"));
+        TestLayout.Machine(_base, TestLayout.Operator, _copy, second);
+        return second;
+    }
+
+    [Fact]
+    public async Task Start_RejectsRecordStillStartingInAnotherCopy()
+    {
+        var second = SecondCopy();
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "B-7"))).StatusCode);
+        _agent.StartInfo = null;
+
+        // Запись ещё в бэклоге — агент до неё не добрался, — а номер набран кириллицей.
+        var again = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "в-7"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await again.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+
+        // Другая запись в ту же вторую копию запускается.
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-8"))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Start_RejectsTaskWhoseMemoryIsInAnotherCopy()
+    {
+        var second = SecondCopy();
+        // Запись осталась в бэклоге — дописана руками или вырезка не удалась, — а задача уже идёт в первой копии.
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
+            # B-7 Панель показывает задачу сразу
+            рабочая копия: {_copy}
+            ветка: dev
+            """);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "B-7"));
+
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Задача GitHub остаётся в трекере всё время работы: второй запуск отбивает память первой копии.</summary>
+    [Fact]
+    public async Task Start_RejectsTrackerIssueInWorkInAnotherCopy()
+    {
+        var second = SecondCopy();
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
+            # GitHub #37 Оплата падает
+            рабочая копия: {_copy}
+            ветка: dev
+            """);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, second, "github#37"));
+
+        Assert.Equal(new TaskStartProblem("task-running", "app"), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Theory]
+    [InlineData("B-7 Панель показывает задачу сразу", "B-7")]
+    [InlineData("в-7 Кириллицей", "B-7")]
+    [InlineData("GitHub #37 Оплата падает", "GitHub #37")]
+    [InlineData("github#037", "GitHub #37")]
+    [InlineData("GitHub #37x Не номер", null)]
+    [InlineData("UTF-8 в именах файлов", "UTF-8")]
+    [InlineData("Задача без номера", null)]
+    [InlineData(null, null)]
+    public void TaskNumberOf_TakesNumberTheTaskStartsWith(string? task, string? number) =>
+        Assert.Equal(number, TaskEndpoints.TaskNumberOf(task));
+
     [Fact]
     public async Task Start_RejectsNumberThatIsNotInBacklog()
     {

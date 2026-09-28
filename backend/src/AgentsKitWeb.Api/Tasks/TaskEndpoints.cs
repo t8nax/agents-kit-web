@@ -95,6 +95,12 @@ public static partial class TaskEndpoints
             }
             if (started.SessionIn(row.Path) is { } running)
                 return Results.BadRequest(new TaskStartProblem("copy-starting", running));
+            // Та же задача запускается или идёт в другой копии проекта — вторая сессия над ней не заводится (B-89).
+            // Запись бэклога агент вырезает не сразу, а задача GitHub остаётся в трекере всё время работы.
+            var elsewhere = rows.FirstOrDefault(r => r != row && r.Error is null
+                && TaskNumberOf(r.Status == WorkspaceStatus.Free ? started.TaskIn(r.Path) : r.Task) == number);
+            if (elsewhere is not null)
+                return Results.BadRequest(new TaskStartProblem("task-running", Path.GetFileName(elsewhere.Path)));
 
             // Слова уходят аргументом командной строки, а её длину Windows ограничивает: предел — с большим запасом.
             if (request.Words is { Length: > WordsLimit })
@@ -194,6 +200,22 @@ public static partial class TaskEndpoints
 
     [GeneratedRegex(@"^github\s*#(\d{1,9})$", RegexOptions.IgnoreCase)]
     private static partial Regex TrackerIssueName();
+
+    /// <summary>
+    /// Номер задачи, которым начат её заголовок в строке копии, в том виде, в каком запускается задача:
+    /// «B-7 Заголовок» — «B-7», «GitHub #37 Заголовок» — «GitHub #37». Заголовок без номера — null.
+    /// </summary>
+    public static string? TaskNumberOf(string? task)
+    {
+        if (string.IsNullOrWhiteSpace(task))
+            return null;
+        if (TrackerIssueTitle().Match(task) is { Success: true } issue)
+            return $"GitHub #{int.Parse(issue.Groups[1].Value)}";
+        return BacklogNumber.Normalize(task.TrimStart().Split(' ', 2)[0]);
+    }
+
+    [GeneratedRegex(@"^\s*github\s*#(\d{1,9})(?:\s|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex TrackerIssueTitle();
 
     /// <summary>
     /// Записи бэклога оператора с буквами проекта базы: номер — заголовок. Запись чужими буквами кит считает ошибкой

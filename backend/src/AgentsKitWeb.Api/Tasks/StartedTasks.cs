@@ -25,6 +25,13 @@ public sealed class StartedTasks(TimeProvider time)
             return _started.GetValueOrDefault(Key(copyPath))?.Session;
     }
 
+    /// <summary>Задача, которую панель запустила в копии, — «B-7 Заголовок записи»; не запускала — null.</summary>
+    public string? TaskIn(string copyPath)
+    {
+        lock (_started)
+            return _started.GetValueOrDefault(Key(copyPath))?.Task;
+    }
+
     public void Add(string copyPath, string session, string task)
     {
         lock (_started)
