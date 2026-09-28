@@ -189,6 +189,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Что происходит прямо сейчас и держит запуск: первая сверка после старта панели. */
+.rp-note {
+  margin: 14px 24px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 /* Отчёт не построен. */
 .rp-failed {
   margin: 20px 24px 28px;

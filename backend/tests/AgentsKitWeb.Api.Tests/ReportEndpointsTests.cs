@@ -188,11 +188,18 @@ public sealed class ReportEndpointsTests : IDisposable
     {
         var hold = new TaskCompletionSource();
         var checks = new FakeChecks { Hold = hold };
+        // Отчёт, построенный до перезапуска панели, лежит у неё.
+        var built = new DateTimeOffset(2026, 9, 26, 12, 30, 0, TimeSpan.Zero);
+        new ReportsStore(ReportsStore.FileBeside(TestBases.File(_root, _base))).SaveReport(_base, ReportsStore.FlowKind,
+            new FlowReport(built, built, "отпечаток", [], [], []));
         var client = await Client(checks);
 
-        var waiting = Assert.Single(await List(client)).Blocked!;
+        var listed = Assert.Single(await List(client));
+        var waiting = listed.Blocked!;
         Assert.Equal("check", waiting.Kind);
         Assert.Contains("Идёт сверка баз", waiting.Reason);
+        // Сверка держит только запуск: сохранённый отчёт виден (ревью B-270).
+        Assert.Equal(built, listed.Report!.Built);
         using var run = await client.PostAsJsonAsync("/api/reports/flow/run", new FlowReportRunRequest(_base));
         Assert.Equal(HttpStatusCode.Conflict, run.StatusCode);
         Assert.Null(_agent.StartInfo);

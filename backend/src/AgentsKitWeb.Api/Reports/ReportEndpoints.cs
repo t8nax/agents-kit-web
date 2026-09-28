@@ -31,12 +31,14 @@ public static class ReportEndpoints
                 {
                     var entry = store.Of(basePath, ReportsStore.FlowKind);
                     // Отказ прячет и прошлый отчёт: под сообщением его нет — ответ оператора на B-270, кадры отказов макета.
+                    // Первая сверка после старта держит только запуск: отчёт, который уже есть, остаётся виден (ревью B-270).
                     var blocked = reports.Blocked(basePath);
+                    var hides = blocked is not null && blocked.Kind != "check";
                     return new FlowReportItem(
                         basePath,
                         ProjectName.Of(basePath),
                         entry.Schedule,
-                        blocked is not null || entry.Report is not { } report ? null : View(report),
+                        hides || entry.Report is not { } report ? null : View(report),
                         blocked);
                 })
                 .ToList());

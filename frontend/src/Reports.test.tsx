@@ -362,16 +362,20 @@ test('оборвавшийся разбор раздел называет, а н
   expect(within(alert).getByText('Ответ оборвался: API закрыл поток без ответа агента')).toBeTruthy()
 })
 
-test('пока идёт первая сверка после старта панели, раздел говорит об этом и перечитывает отчёт сам', async () => {
-  let reports = [item({ report: null, blocked: { kind: 'check', reason: 'Идёт сверка баз после запуска панели.' } })]
+test('пока идёт первая сверка после старта панели, отчёт виден, а запуск ждёт её конца', async () => {
+  const checking: FlowReportItem['blocked'] = { kind: 'check', reason: 'Идёт сверка баз после запуска панели.' }
+  let reports = [item({ blocked: checking })]
   stub(() => reports)
   renderReports()
 
-  const alert = await screen.findByRole('alert')
-  expect(within(alert).getByText('Идёт сверка баз после запуска панели.')).toBeTruthy()
-  expect(within(alert).queryByRole('button')).toBeNull()
+  // Сохранённый отчёт на месте — не «Отчёт не построен»; держится только перезапуск.
+  expect(await screen.findByRole('button', { name: 'Проходимость: 55 из 100.' })).toBeTruthy()
+  expect(screen.getByText('Идёт сверка баз после запуска панели.')).toBeTruthy()
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.getByRole('button', { name: 'Проверить заново' })).toBeDisabled()
 
   reports = [item()]
 
-  expect(await screen.findByRole('button', { name: 'Проходимость: 55 из 100.' }, { timeout: 10000 })).toBeTruthy()
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проверить заново' })).not.toBeDisabled(), { timeout: 10000 })
+  expect(screen.queryByText('Идёт сверка баз после запуска панели.')).toBeNull()
 })

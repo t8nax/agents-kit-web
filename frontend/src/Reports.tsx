@@ -269,6 +269,9 @@ export default function Reports({
 
   const report = item?.report ?? null
   const blocked = item?.blocked ?? null
+  // Первая сверка после старта держит только запуск: сохранённый отчёт виден, пока она идёт (ревью B-270).
+  const waitCheck = blocked?.kind === 'check'
+  const stop = waitCheck ? null : blocked
   const elapsed = request.startedAt === null ? 0 : Math.max(0, Math.floor((now - request.startedAt) / 1000))
 
   return (
@@ -311,11 +314,16 @@ export default function Reports({
         <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
           <ScheduleLine
             schedule={item.schedule}
-            report={blocked?.kind === 'health' ? null : report}
+            report={report}
             onChange={(next) => void saveSchedule(next)}
           />
           {scheduleFailure && <p className="message warning-text">{scheduleFailure}</p>}
           {runFailure && <p className="message warning-text">{runFailure}</p>}
+          {waitCheck && (
+            <p className="rp-note" role="status">
+              {blocked.reason}
+            </p>
+          )}
 
           {running && (
             <div className="rp-waiting" role="status">
@@ -348,14 +356,14 @@ export default function Reports({
             </div>
           )}
 
-          {blocked ? (
+          {stop ? (
             <div className="rp-failed" role="alert">
               <strong>
                 <WarningIcon />
                 Отчёт не построен
               </strong>
-              <p>{blocked.reason}</p>
-              {blocked.kind === 'health' && (
+              <p>{stop.reason}</p>
+              {stop.kind === 'health' && (
                 <div className="rp-acts">
                   <button type="button" className="bases-btn" onClick={onProblems}>
                     <WarningIcon />
@@ -381,7 +389,7 @@ export default function Reports({
                 </span>
                 <h3>Отчёта ещё нет</h3>
                 <p>Отчёт о флоу проекта {item.project} ещё не строился.</p>
-                <button type="button" className="bases-btn" onClick={() => void run()}>
+                <button type="button" className="bases-btn" disabled={waitCheck} onClick={() => void run()}>
                   <PlayIcon />
                   Построить отчёт
                 </button>
