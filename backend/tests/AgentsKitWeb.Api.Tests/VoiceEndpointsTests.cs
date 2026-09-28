@@ -140,6 +140,21 @@ public sealed class VoiceEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_RemovesPartLeftByStoppedPanel()
+    {
+        // Прошлую панель погасили посреди скачивания: недокачанное осталось рядом с каталогом панели.
+        Directory.CreateDirectory(VoiceDir);
+        var part = Path.Combine(VoiceDir, VoiceModel.FileName + ".part");
+        File.WriteAllText(part, "полмодели");
+        var client = Factory().CreateClient();
+
+        var state = await client.GetFromJsonAsync<VoiceState>("/api/voice");
+
+        Assert.Equal(VoiceState.Absent, state?.State);
+        Assert.False(File.Exists(part));
+    }
+
+    [Fact]
     public async Task Remove_WhileDownloading_IsRefused()
     {
         var portions = _server.Hold(total: 10);

@@ -20,8 +20,24 @@ public sealed record VoiceState(string State, long Downloaded, long? Total, stri
 /// Качается во временный файл и переименовывается в модель только целой: срыв и отмена не оставляют
 /// полумодели, которую распознавание приняло бы за стоящую.
 /// </summary>
-public sealed class VoiceModel(string directory, Uri source, IHttpClientFactory clients)
+public sealed class VoiceModel
 {
+    private readonly string _directory;
+    private readonly Uri _source;
+    private readonly IHttpClientFactory _clients;
+
+    /// <summary>
+    /// Недокачанное прошлой панелью — её погасили посреди скачивания, обновили или перезагрузили машину — сотни
+    /// мегабайт, которых «Удалить» не видно: новая панель убирает их сразу (ревью B-291). Скачивания в ней ещё нет.
+    /// </summary>
+    public VoiceModel(string directory, Uri source, IHttpClientFactory clients)
+    {
+        _directory = directory;
+        _source = source;
+        _clients = clients;
+        DeletePart();
+    }
+
     public const string Client = "voice-model";
     public const string FileName = "ggml-large-v3-turbo-q5_0.bin";
 
@@ -44,7 +60,7 @@ public sealed class VoiceModel(string directory, Uri source, IHttpClientFactory 
     public static string DefaultDirectory =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "agents-kit-web", "voice");
 
-    public string File => Path.Combine(directory, FileName);
+    public string File => Path.Combine(_directory, FileName);
 
     private string PartFile => File + ".part";
 
@@ -114,9 +130,9 @@ public sealed class VoiceModel(string directory, Uri source, IHttpClientFactory 
     {
         try
         {
-            Directory.CreateDirectory(directory);
-            using var client = clients.CreateClient(Client);
-            using var response = await client.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, download.Token);
+            Directory.CreateDirectory(_directory);
+            using var client = _clients.CreateClient(Client);
+            using var response = await client.GetAsync(_source, HttpCompletionOption.ResponseHeadersRead, download.Token);
             response.EnsureSuccessStatusCode();
             lock (_lock)
                 _total = response.Content.Headers.ContentLength;
