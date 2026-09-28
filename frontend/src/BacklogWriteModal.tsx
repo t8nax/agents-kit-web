@@ -7,6 +7,8 @@ import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { useAgentConversation } from './agentConversation'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import './Modal.css'
 import './ReplyModal.css'
 import './AskModal.css'
@@ -85,6 +87,7 @@ export default function BacklogWriteModal({
   const [chosen, setChosen] = useState<string | null>(subject?.base ?? initialBase ?? bases[0]?.base ?? null)
   // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть.
   const [text, setText] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
   // Переспрос на месте поля ввода: несохранённое предложение не уходит молча — решение оператора на B-228.
@@ -502,9 +505,16 @@ export default function BacklogWriteModal({
             />
             {/* строка отказа — под полем, по критерию B-260 */}
             <AttachError text={attach.error} />
+            <AttachError text={voiceError} />
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
-                а «Отменить» встаёт ровно туда, где была «Отправить». «Приложить файл» — слева (макет B-260). */}
+                а «Отменить» встаёт ровно туда, где была «Отправить». Микрофон и «Приложить файл» — слева
+                (макеты B-260 и B-291). */}
             <div className="talk-buttons">
+              <VoiceButton
+                disabled={running || waiting || saving !== null}
+                onText={(spoken) => setText(appendSpoken(value, spoken))}
+                onError={setVoiceError}
+              />
               <AttachButton
                 label="Приложить файл"
                 disabled={running || waiting || saving !== null}

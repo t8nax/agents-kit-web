@@ -3,6 +3,13 @@ import { afterEach, expect, test, vi } from 'vitest'
 import BacklogWriteModal, { type Proposal, type WriteBase, type WriteEvent, type WrittenEntry } from './BacklogWriteModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('с приоритетом.')} />
+  ),
+}))
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -116,6 +123,27 @@ test('просьба из шапки уходит в выбранный прое
   expect(screen.getByText('B-60', { selector: 'strong' })).toBeInTheDocument()
   await waitFor(() => expect(onEntries).toHaveBeenCalledWith(bases[1].base, ['B-60']))
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+})
+
+test('микрофон стоит первым в ряду кнопок, перед «Приложить файл»; сказанное дописывается к просьбе', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal({ initialBase: bases[1].base })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+  const field = screen.getByLabelText('Просьба к Чудо-Юдо')
+  fireEvent.change(field, { target: { value: 'Запиши ожидание' } })
+
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  const row = mic.parentElement as HTMLElement
+  expect(row).toHaveClass('talk-buttons')
+  expect(row.firstElementChild).toBe(mic)
+  expect(within(row).getAllByRole('button').map((button) => button.textContent || button.getAttribute('aria-label')))
+    .toEqual(['Голосовой ввод', 'Приложить файл', 'Новая переписка', 'Отправить'])
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Запиши ожидание с приоритетом.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled())
 })
 
 test('окно от записи показывает её первой, называет её в просьбе и не даёт выбрать проект', async () => {
