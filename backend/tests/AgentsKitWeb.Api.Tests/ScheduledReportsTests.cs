@@ -181,9 +181,7 @@ public sealed class ScheduledReportsTests : IDisposable
         Assert.Equal(0, _agent.Runs);
 
         hold.SetResult();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while ((await client.GetFromJsonAsync<JsonElement>("/api/health", deadline.Token)).GetProperty("pending").GetBoolean())
-            await Task.Delay(50, deadline.Token);
+        await CheckedAfterStart(client);
         await Tick();
         await Outcome(client);
         Assert.Equal(1, _agent.Runs);
@@ -260,7 +258,17 @@ public sealed class ScheduledReportsTests : IDisposable
         var client = _factory.CreateClient();
         if (!kitAtStart)
             (await client.PutAsJsonAsync("/api/kit", new SetKitRequest(_kit))).EnsureSuccessStatusCode();
+        // Круг расписания ждёт первой сверки после старта: без этого ожидания тест проверял бы, успела ли она.
+        if (checks?.Hold is null)
+            await CheckedAfterStart(client);
         return client;
+    }
+
+    private static async Task CheckedAfterStart(HttpClient client)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while ((await client.GetFromJsonAsync<JsonElement>("/api/health", deadline.Token)).GetProperty("pending").GetBoolean())
+            await Task.Delay(50, deadline.Token);
     }
 
     private sealed class NoFindings : IKitChecks
