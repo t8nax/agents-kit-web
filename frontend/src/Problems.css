@@ -51,6 +51,28 @@
   color: var(--text-secondary);
 }
 
+/* База нового формата — янтарной полосой над находками сверки (B-281) */
+.problems-format {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid var(--accent-waiting-border);
+  background: var(--accent-waiting-bg);
+  color: var(--accent-waiting-text);
+}
+
+.problems-format svg {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+
+.problems-format + .problems-group .problems-group-title {
+  border-top-color: var(--accent-waiting-border);
+}
+
 .problems-error {
   color: var(--accent-error-text);
 }

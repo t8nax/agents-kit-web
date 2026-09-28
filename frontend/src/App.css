@@ -312,6 +312,33 @@ tbody tr.group-row:hover {
   background: var(--bg-surface-hover);
 }
 
+/* Предупреждение о базе нового формата — строкой во всю ширину под шапкой группы (B-281) */
+tbody tr.format-row:hover {
+  background: none;
+}
+
+tr.format-row td {
+  padding: 0;
+  white-space: normal;
+  border-bottom: 1px solid var(--accent-waiting-border);
+}
+
+.format-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px 7px 40px;
+  font-size: 13px;
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+}
+
+.format-line svg {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+
 .group-toggle:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;

@@ -237,6 +237,23 @@ public sealed class BacklogTrackerTests : IDisposable
         Assert.Single(_github.Creates);
     }
 
+    /// <summary>У базы нового формата правка бэклога закрыта (B-281) — и перенос в трекер тоже, до GitHub.</summary>
+    [Fact]
+    public async Task Move_BaseOfNewerFormat_DoesNotGoToGitHub()
+    {
+        var client = Client();
+        var draft = await GetDraft(client, "B-2");
+        var file = File.ReadAllText(BacklogPath);
+        TestLayout.NewerFormat(_base);
+
+        var moved = await Move(client, draft);
+
+        Assert.Empty(_github.Creates);
+        Assert.Null(moved.Issue);
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, moved.Error);
+        Assert.Equal(file, File.ReadAllText(BacklogPath));
+    }
+
     [Fact]
     public async Task Move_UncommittedBacklogEdit_DoesNotGoToGitHub()
     {

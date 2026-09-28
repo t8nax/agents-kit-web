@@ -26,6 +26,11 @@ internal static class TestLayout
         return path;
     }
 
+    /// <summary>Переводит базу на формат новее панели, как это делает кит, — раскладка остаётся прежней.</summary>
+    public static void NewerFormat(string basePath) =>
+        File.WriteAllText(Path.Combine(basePath, BaseLayout.MarkerFile),
+            JsonSerializer.Serialize(new { kit = "agents-kit", prefix = "B", version = BaseLayout.Format + 1 }));
+
     /// <summary>Переписывает local\me.json базы: оператор этой машины и её копии.</summary>
     public static void Machine(string basePath, string? name, params string[] copies)
     {

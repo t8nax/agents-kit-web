@@ -18,6 +18,8 @@ export type BaseHealth = {
   error: string | null
   problems: HealthProblem[]
   copies: { path: string; problems: HealthProblem[] }[]
+  /** База нового формата кита: её проверяет кит, как любую, а предупреждение идёт над находками — B-281. */
+  formatWarning?: string | null
 }
 
 /** Каталог кита и номер его версии; null — номер не прочитан. */
@@ -266,6 +268,12 @@ function BaseCard({ base }: { base: BaseHealth }) {
         <span className="mono text-ter">{base.base}</span>
         <Summary base={base} problems={all} />
       </div>
+      {base.formatWarning && (
+        <p className="problems-format" role="status">
+          <WarningIcon />
+          {base.formatWarning}
+        </p>
+      )}
       {base.status === 'failed' && (
         <p className="problems-reason">
           Скрипт кита завершился с ошибкой — число проблем этой базы неизвестно.

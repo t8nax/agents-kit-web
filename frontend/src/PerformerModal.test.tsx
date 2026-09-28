@@ -729,6 +729,18 @@ test('имя, занятое файлом самого проекта, назв�
   expect(alert).toHaveTextContent('Выберите другое имя')
 })
 
+test('кит перевёл базу, пока окно было открыто: отказ назван форматом', async () => {
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  stubSave(() => Response.json({ problem: 'newer-format', detail: refusal }, { status: 409 }))
+  open(reviewer)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent(refusal)
+  expect(alert).not.toHaveTextContent('не поняла')
+})
+
 test('отказ базы принять коммит показан её словами', async () => {
   stubSave(() => Response.json({ problem: 'not-committed', detail: 'сверка: база не приняла' }, { status: 409 }))
   const onSaved = open(reviewer)

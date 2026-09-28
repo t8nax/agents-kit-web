@@ -58,6 +58,19 @@ public sealed class RemoveWorkspaceTests : IDisposable
     }
 
     [Fact]
+    // Копию в базе нового формата убирает кит, который формат знает: панель её не закрывает — B-281.
+    public async Task Remove_InBaseOfNewerFormat_RunsKit()
+    {
+        TestLayout.NewerFormat(_base);
+        var kit = await SetKit(Succeeds);
+
+        var response = await Client.PostAsJsonAsync("/api/workspace/remove", new RemoveWorkspaceRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(_copy, File.ReadAllText(Path.Combine(kit, "scripts", "called.txt")).Trim().Split('|')[0]);
+    }
+
+    [Fact]
     public async Task Remove_KitRefuses_ReturnsKitWordsInReadableCyrillic()
     {
         await SetKit("""

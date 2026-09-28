@@ -128,14 +128,18 @@ public static partial class BacklogTracker
     /// Кнопка «В трекер»: сначала проверка, что запись можно вырезать, потом задача в GitHub, потом вырез и коммит.
     /// Задача, заведённая под запись, которую не вырезать, осталась бы дублем, поэтому проверка идёт до GitHub.
     /// </summary>
-    public static async Task<TrackerMoved> MoveAsync(IGitHubIssues github, string personal, string repo, TrackerDraft draft, BacklogEntry entry)
+    public static async Task<TrackerMoved> MoveAsync(IGitHubIssues github, string basePath, string repo, TrackerDraft draft, BacklogEntry entry)
     {
         var proposal = new BacklogProposal(
             Guid.NewGuid().ToString("N"),
             [new BacklogChange(BacklogChange.Track, draft.Number, entry) { Original = draft.Original }]);
+        var personal = BaseLayout.PersonalOf(basePath);
         await Writing.WaitAsync();
         try
         {
+            // База нового формата кита: правка бэклога закрыта, и задача под запись, которую не вырезать, не заводится (B-281)
+            if (BaseLayout.Read(basePath)?.NewerFormat == true)
+                return new TrackerMoved(null, Error: BaseLayout.NewerFormatRefusal);
             if (await BacklogConversations.UnwritableAsync(personal, proposal, WhoseMove) is { } refusal)
                 return new TrackerMoved(null, refusal.Changed ? TrackerMoved.EntryChanged : null, Error: refusal.Text);
 
@@ -181,11 +185,11 @@ public static partial class BacklogTracker
             // Окно подтверждало запись, какой её видело: изменилась — переносится не то, что видел оператор.
             if (draft.Original != request.Original.ReplaceLineEndings("\n"))
                 return Results.Ok(new TrackerMoved(null, TrackerMoved.EntryChanged, Error: $"Запись {draft.Number} изменилась после {WhoseMove} — ничего не записано"));
-            return Results.Ok(await MoveAsync(github, found!.Value.Personal, found.Value.Repo, draft, found.Value.Entry));
+            return Results.Ok(await MoveAsync(github, found!.Value.Base, found.Value.Repo, draft, found.Value.Entry));
         });
     }
 
-    private static (TrackerDraft? Draft, (string Personal, string Repo, BacklogEntry Entry)? Found, int Status) Find(
+    private static (TrackerDraft? Draft, (string Base, string Repo, BacklogEntry Entry)? Found, int Status) Find(
         BasesStore bases, string @base, string number)
     {
         var basePath = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, @base));
@@ -208,7 +212,7 @@ public static partial class BacklogTracker
         var entry = normalized is null ? null : Backlog.Parse(text).FirstOrDefault(e => e.Number == normalized);
         if (block is null || entry is null)
             return (null, null, StatusCodes.Status404NotFound);
-        return (Draft(normalized!, block.Text, Backlog.Declared(text)), (layout.Personal, repo, entry), StatusCodes.Status200OK);
+        return (Draft(normalized!, block.Text, Backlog.Declared(text)), (basePath, repo, entry), StatusCodes.Status200OK);
     }
 
     private static string Trim(List<string> lines)

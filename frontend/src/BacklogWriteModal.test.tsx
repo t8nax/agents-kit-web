@@ -731,6 +731,31 @@ test('«Новая переписка» убирает разговор, а ок
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
 })
 
+test('кит перевёл базу посреди разговора: плашка сразу под шапкой, просьба закрыта, а «Новая переписка» выводит из окна', async () => {
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  const modal = (list: WriteBase[]) => (
+    <BacklogWriteModal bases={list} initialBase={bases[1].base} onClose={vi.fn()} onEntries={vi.fn()} />
+  )
+  const { rerender } = render(modal(bases))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+  await say('Мысль')
+  stream.send({ type: 'reply', text: 'Мысль' })
+  stream.send(answer({ text: 'Записал.' }))
+  await screen.findByText('Записал.')
+
+  rerender(modal([bases[0], { ...bases[1], closed: refusal }]))
+
+  const notice = screen.getByText(refusal).closest('.format-notice')!
+  // Плашка — сразу за шапкой окна, вне ленты
+  expect(notice.previousElementSibling).toHaveClass('reply-head')
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
+})
+
 test('при ждущем предложении «Новая переписка» переспрашивает: «Отмена» оставляет разговор, «Начать новую» его убирает', async () => {
   const stream = controlledStream<WriteEvent>()
   const { deletes } = stubFetch(stream)

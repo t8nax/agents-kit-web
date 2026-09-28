@@ -784,6 +784,21 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal(58, note.Issues!["B-2"].Number);
     }
 
+    /// <summary>Кит перевёл базу на новый формат посреди разговора — перенос не заводит задачу (B-281).</summary>
+    [Fact]
+    public async Task Save_TrackInBaseTurnedToNewerFormat_CreatesNoIssue()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        TestLayout.NewerFormat(_base);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, (await Save(client, answer.Proposal!.Id)).Error);
+        Assert.Empty(_github.Creates);
+    }
+
     [Fact]
     public async Task Answer_TrackWithoutGitHubTracker_IsError()
     {
@@ -1143,6 +1158,38 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
         Assert.Equal("В backlog.md личного репозитория есть незакоммиченная правка — просьба не отправлена", events[1].Text);
         Assert.Empty(_agent.Input);
+    }
+
+    [Fact]
+    // Бэклог базы нового формата панель не правит, пока не узнает формат (B-281).
+    public async Task Write_DoesNotSendToBaseOfNewerFormat()
+    {
+        TestLayout.NewerFormat(_base);
+        var client = Client(_base);
+
+        await Start(client, "Мысль");
+        var events = await Read(client, 2);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, events[1].Text);
+        Assert.Empty(_agent.Input);
+    }
+
+    [Fact]
+    // Кит перевёл базу посреди разговора: предложение агента «Сохранить» уже не пишет (B-281).
+    public async Task Save_BaseTurnedToNewerFormatMeanwhile_WritesNothing()
+    {
+        _agent.Answers =
+        [
+            [Result("~~~backlog\nизменить B-1\n## B-1 Новая суть\n\nТекст.\n\n### Агенту\n- где: App.tsx\n~~~")],
+        ];
+        var client = Client(_base);
+        await Start(client, "перепиши B-1");
+        var answer = (await Read(client, 2))[1];
+        var before = File.ReadAllText(BacklogPath);
+        TestLayout.NewerFormat(_base);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, (await Save(client, answer.Proposal!.Id)).Error);
+        Assert.Equal(before, File.ReadAllText(BacklogPath));
     }
 
     [Fact]
