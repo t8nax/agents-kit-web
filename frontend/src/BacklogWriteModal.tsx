@@ -524,7 +524,8 @@ export default function BacklogWriteModal({
               <button
                 type="button"
                 className="btn composer-send"
-                disabled={!talking || running || waiting || saving !== null || closed !== null}
+                // Новая переписка — не просьба к агенту: ею уходят и с базы, которую кит перевёл посреди разговора (ревью B-281)
+                disabled={!talking || running || waiting || saving !== null}
                 onClick={newTalk}
               >
                 Новая переписка
