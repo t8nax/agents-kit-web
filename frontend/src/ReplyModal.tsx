@@ -6,6 +6,8 @@ import { payload, pastedFileName, pastedFiles, readAttachments, revokePreview, u
 import { copyName } from './copies'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { TerminalIcon } from './TerminalIcon'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import { VsCodeIcon } from './VsCodeIcon'
 import './Modal.css'
 import './ReplyModal.css'
@@ -102,6 +104,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   // Черновик файлов поднимается в окно один раз: в StrictMode разработки чтение вопросов идёт дважды.
   const draftTaken = useRef(false)
   const [attachError, setAttachError] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   useRevokeOnClose(() => files.flat())
   const [current, setCurrent] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -675,16 +678,11 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             {phase === 'open' && <AttachmentTiles items={files[current] ?? []} onRemove={detach} />}
             {phase === 'open' ? (
               <div className="composer-row">
-                <button
-                  type="button"
-                  className="btn btn-icon"
-                  aria-label="Предыдущий вопрос"
-                  title="Предыдущий вопрос"
-                  disabled={current === 0}
-                  onClick={() => go(current - 1)}
-                >
-                  <ChevronIcon direction="left" />
-                </button>
+                {/* Микрофон — на левом краю ряда; стрелок перелистывания нет: по вопросам ходят лентой и Enter (B-291) */}
+                <VoiceButton
+                  onText={(spoken) => setAnswer(appendSpoken(answers[current] ?? '', spoken))}
+                  onError={setVoiceError}
+                />
                 <input
                   ref={field}
                   id="reply-answer"
@@ -702,16 +700,6 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
                     void attach(pasted, pastedFileName)
                   }}
                 />
-                <button
-                  type="button"
-                  className="btn btn-icon"
-                  aria-label="Следующий вопрос"
-                  title="Следующий вопрос"
-                  disabled={current === questions.length - 1}
-                  onClick={() => go(current + 1)}
-                >
-                  <ChevronIcon direction="right" />
-                </button>
                 <AttachButton label="Приложить" onFiles={(chosen) => void attach(chosen)} />
                 <button type="button" className="btn btn-primary composer-send" onClick={send}>
                   <SendIcon />
@@ -733,6 +721,7 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             )}
             {/* отказ приложенному файлу — под полем, по критерию B-260 */}
             {phase === 'open' && <AttachError text={attachError} />}
+            {phase === 'open' && <AttachError text={voiceError} />}
             {error && (
               <span className="field-error error-text" role="alert">
                 <WarningIcon />
@@ -761,14 +750,6 @@ function CloseIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <line x1="18" y1="6" x2="6" y2="18" />
       <line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
-  )
-}
-
-function ChevronIcon({ direction }: { direction: 'left' | 'right' }) {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <polyline points={direction === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6'} />
     </svg>
   )
 }
