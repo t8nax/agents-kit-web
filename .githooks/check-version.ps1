@@ -28,6 +28,9 @@ $ErrorActionPreference = 'Stop'
 
 $Channels = 'dev', 'master'
 
+# Какое число за что — в каждом отказе: сессия, привыкшая к номеру из трёх чисел, иначе поднимет не то.
+$Rule = 'Номер — 0.X.Y.Z: сломано привычное — поднимается второе число, добавлено новое — третье, починено — четвёртое; числа правее поднятого — нули.'
+
 # Содержимое version.txt указанного состояния (коммит или «:» — индекс); файла нет — $null.
 function Get-Text($revision) {
     $text = git show "${revision}version.txt" 2>$null
@@ -65,12 +68,12 @@ function Assert-Grown($where, $wasText, $what, $nowText, $advice, [switch]$OneSt
     $now = ConvertTo-Parts $nowText
     if (-not $was) { return }
     if (-not $now) {
-        [Console]::Error.WriteLine("В version.txt $what не номер версии: «$nowText». Номер пишется как 0.25.1.0.")
+        [Console]::Error.WriteLine("В version.txt $what не номер версии: «$nowText». Номер пишется как 0.25.1.0. $Rule")
         exit 1
     }
     # Номер из четырёх чисел сменил номер из трёх — назад запись не возвращается.
     if ($wasText.Split('.').Count -eq 4 -and $nowText.Split('.').Count -lt 4) {
-        [Console]::Error.WriteLine("В version.txt $what номер прежней записи: «$nowText», а $where уже $wasText. Номер пишется четырьмя числами, как 0.25.1.0.")
+        [Console]::Error.WriteLine("В version.txt $what номер прежней записи: «$nowText», а $where уже $wasText. Номер пишется четырьмя числами, как 0.25.1.0. $Rule")
         exit 1
     }
     $grown = $false
@@ -78,12 +81,12 @@ function Assert-Grown($where, $wasText, $what, $nowText, $advice, [switch]$OneSt
         if ($now[$i] -ne $was[$i]) { $grown = $now[$i] -gt $was[$i]; break }
     }
     if (-not $grown) {
-        [Console]::Error.WriteLine("Номер версии панели не вырос: $where $wasText, $what $nowText.`n$advice")
+        [Console]::Error.WriteLine("Номер версии панели не вырос: $where $wasText, $what $nowText. $Rule`n$advice")
         exit 1
     }
     if ($OneStep -and -not (Test-OneStep $was $now)) {
         [Console]::Error.WriteLine("Номер версии панели поднят не на один шаг: $where $wasText, $what $nowText. " +
-            "Поднимается одно число на единицу, а числа правее него — нули: ломающее — второе, новое — третье, починка — четвёртое.`n$advice")
+            "Поднимается одно число на единицу. $Rule`n$advice")
         exit 1
     }
 }

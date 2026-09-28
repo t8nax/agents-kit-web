@@ -11,6 +11,9 @@ public sealed class VersionHooksTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("akw-hooks-").FullName;
 
+    // Каждый отказ называет, какое число за что: сессия, привыкшая к номеру из трёх чисел, иначе поднимет не то.
+    private const string Rule = "сломано привычное — поднимается второе число, добавлено новое — третье, починено — четвёртое";
+
     [Fact]
     public void MergeIntoDev_WithoutNewVersion_IsRefused()
     {
@@ -22,6 +25,7 @@ public sealed class VersionHooksTests : IDisposable
         Assert.NotEqual(0, exitCode);
         Assert.Contains("в dev 0.10.0, после слияния 0.10.0", errors);
         Assert.Contains("version.txt", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
@@ -80,6 +84,7 @@ public sealed class VersionHooksTests : IDisposable
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains($"поднят не на один шаг: в dev {dev}, после слияния {task}", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
@@ -94,6 +99,7 @@ public sealed class VersionHooksTests : IDisposable
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("номер прежней записи: «0.11.0»", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
@@ -107,6 +113,7 @@ public sealed class VersionHooksTests : IDisposable
         Assert.NotEqual(0, exitCode);
         Assert.Contains("не номер версии: «0.1o.1»", errors);
         Assert.Contains("0.25.1.0", errors);
+        Assert.Contains(Rule, errors);
     }
 
     [Fact]
