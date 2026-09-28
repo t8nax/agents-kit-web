@@ -20,14 +20,13 @@ public sealed class AgentRequestsTests : IDisposable
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-agent-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly TestChat _agent = new();
 
     public AgentRequestsTests()
     {
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(_base);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт");
     }
 
@@ -206,7 +205,7 @@ public sealed class AgentRequestsTests : IDisposable
     }
 
     private HttpClient Client() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -219,10 +218,11 @@ public sealed class AgentRequestsTests : IDisposable
                 services.RemoveAll<IAgentChat>();
                 services.AddSingleton<IAgentChat>(_agent);
             });
-        }).CreateClient();
+        })).CreateClient();
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             Directory.Delete(_root, recursive: true);

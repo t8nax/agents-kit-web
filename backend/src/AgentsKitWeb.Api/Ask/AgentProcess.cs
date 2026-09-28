@@ -57,6 +57,27 @@ public sealed class AgentProcess : IAgentProcess
         }
     }
 
+    /// <summary>
+    /// Режим «авто» панель задаёт агенту сама, а не оставляет настройке машины: работающему без оператора агенту
+    /// годится только он — остальные ждут человека, которого рядом нет, или отказывают во всём, что не разрешено
+    /// заранее, — задача B-153.
+    /// </summary>
+    public static void AddAutoMode(ProcessStartInfo startInfo, string settings = AutoSettings)
+    {
+        foreach (var arg in new[] { "--permission-mode", "auto", "--settings", settings })
+            startInfo.ArgumentList.Add(arg);
+    }
+
+    /// <summary>
+    /// Ключ настроек запуска, гасящий указание режима «авто» читать и править файлы командами оболочки: прав оно
+    /// не меняет, а разговор пухнет от команд и их вывода — задача B-153. CLAUDE_CODE_THRIFTY_SONIC — внутренняя
+    /// переменная Claude Code, «0» её гасит; пропадёт с обновлением — ключ убирают, а не чинят.
+    /// </summary>
+    public const string NoBashFirstEnv = "\"env\":{\"CLAUDE_CODE_THRIFTY_SONIC\":\"0\"}";
+
+    /// <summary>Настройки запуска по умолчанию: только выключатель указания работать через оболочку.</summary>
+    public const string AutoSettings = "{" + NoBashFirstEnv + "}";
+
     /// <summary>Кодировки потоков и окно — общие для любого процесса агента.</summary>
     public static ProcessStartInfo StartInfo(string fileName, string workingDirectory) => new(fileName)
     {

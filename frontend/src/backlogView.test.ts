@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import type { BacklogEntry } from './Backlog'
-import { arrange, defaultOrder, emptySelection, isFiltering, readOrder, writeOrder } from './backlogView'
+import { arrange, defaultOrder, emptySelection, isFiltering, matchesIssue, readOrder, writeOrder } from './backlogView'
 
 const entry = (number: string | null, title: string, type?: string | null, priority?: string | null): BacklogEntry => ({
   number,
@@ -105,4 +105,16 @@ test('недоступное хранилище — порядок по умол
   })
   expect(readOrder()).toEqual(defaultOrder)
   expect(() => writeOrder({ field: 'type', direction: 'asc' })).not.toThrow()
+})
+
+test('задача трекера проходит поиск по имени и заголовку, а чип типа или приоритета её скрывает', () => {
+  const issue = { name: 'GitHub #37', number: 37, title: 'Оплата падает', url: 'https://github.com/acme/orders/issues/37' }
+
+  expect(matchesIssue(issue, emptySelection)).toBe(true)
+  expect(matchesIssue(issue, { ...emptySelection, query: '#37' })).toBe(true)
+  expect(matchesIssue(issue, { ...emptySelection, query: 'github #37' })).toBe(true)
+  expect(matchesIssue(issue, { ...emptySelection, query: 'оплата' })).toBe(true)
+  expect(matchesIssue(issue, { ...emptySelection, query: '#38' })).toBe(false)
+  expect(matchesIssue(issue, { ...emptySelection, types: ['баг'] })).toBe(false)
+  expect(matchesIssue(issue, { ...emptySelection, priorities: ['высокий'] })).toBe(false)
 })

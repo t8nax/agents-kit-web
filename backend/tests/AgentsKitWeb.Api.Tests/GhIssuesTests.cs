@@ -1,0 +1,75 @@
+using AgentsKitWeb.Api.Workspaces;
+
+namespace AgentsKitWeb.Api.Tests;
+
+public class GhIssuesTests
+{
+    /// <summary>«Назначенные на оператора» и «открытые» критерия B-277 держат ключи gh — без них видны чужие и закрытые.</summary>
+    [Fact]
+    public void StartInfo_AsksOpenIssuesAssignedToOperatorWithoutWindow()
+    {
+        var startInfo = GhIssues.StartInfo("acme/orders");
+
+        Assert.Equal("gh", startInfo.FileName);
+        Assert.Equal(
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url"],
+            startInfo.ArgumentList);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.False(startInfo.UseShellExecute);
+        Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    [Fact]
+    public void Parse_NamesIssuesAsKitDoes()
+    {
+        var issues = GhIssues.Parse("""[{"number":37,"title":"Оплата падает","url":"https://github.com/acme/orders/issues/37"}]""");
+
+        Assert.Null(issues.Problem);
+        Assert.Equal(new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37"), Assert.Single(issues.Issues));
+    }
+
+    [Fact]
+    public void Parse_EmptyList_HasNoIssuesAndNoProblem()
+    {
+        var issues = GhIssues.Parse("[]\n");
+
+        Assert.Empty(issues.Issues);
+        Assert.Null(issues.Problem);
+    }
+
+    [Fact]
+    public void Parse_NotJson_IsGitHubError()
+    {
+        Assert.Equal(TrackerIssues.GitHubError, GhIssues.Parse("oops").Problem);
+    }
+
+    // Строки — как их пишет gh 2.101: без входа, с негодным ключом.
+    [Theory]
+    [InlineData(4, "To get started with GitHub CLI, please run:  gh auth login\nAlternatively, populate the GH_TOKEN environment variable.")]
+    [InlineData(1, "failed resolving `@me` to your user handle: non-200 OK status code: 401 Unauthorized body: \"{\\\"message\\\": \\\"Bad credentials\\\"}\"")]
+    public void Failed_WithoutLogin_IsGhLogin(int exitCode, string error)
+    {
+        Assert.Equal(new TrackerIssues([], TrackerIssues.GhLogin), GhIssues.Failed(exitCode, error));
+    }
+
+    [Theory]
+    [InlineData("acme/gone")]
+    // «401» в имени репозитория — не отказ входа
+    [InlineData("acme/orders-401")]
+    public void Failed_UnknownRepository_IsRepoUnreachable(string repo)
+    {
+        var issues = GhIssues.Failed(1, $"GraphQL: Could not resolve to a Repository with the name '{repo}'. (repository)\n");
+
+        Assert.Equal(TrackerIssues.RepoUnreachable, issues.Problem);
+        Assert.Equal($"GraphQL: Could not resolve to a Repository with the name '{repo}'. (repository)", issues.Detail);
+    }
+
+    [Fact]
+    public void Failed_Otherwise_CarriesFirstLineOfGitHub()
+    {
+        var issues = GhIssues.Failed(1, "\nHTTP 502: Bad Gateway (https://api.github.com/graphql)\nretry later\n");
+
+        Assert.Equal(TrackerIssues.GitHubError, issues.Problem);
+        Assert.Equal("HTTP 502: Bad Gateway (https://api.github.com/graphql)", issues.Detail);
+    }
+}

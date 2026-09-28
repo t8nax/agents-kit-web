@@ -231,7 +231,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           text:
             body?.problem === 'invalid-description'
               ? 'Описание не годится: в файле исполнителя оно одна строка.'
-              : 'Имя не годится: строчная латиница, цифры и дефис — так исполнителя зовёт стадия флоу.',
+              : 'Имя не годится: строчная латиница, цифры и дефис — так исполнителя зовёт этап флоу.',
           git: false,
         })
       } else if (response.status === 409) {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -25,7 +26,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
         var missingCopy = Path.Combine(_root, "gone");
         var basePath = CreateBase("app-knowledge", main, missingCopy);
         File.WriteAllText(Path.Combine(basePath, "product.md"), "# Order Service — продукт\n");
-        File.WriteAllText(Path.Combine(basePath, "work", "app.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(basePath), "app.md"), $"""
             # Таблица рабочих копий
             рабочая копия: {main}
             ветка: dev
@@ -39,7 +40,7 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             - [ ] 3. Реализация
@@ -77,14 +78,15 @@ public sealed class WorkspacesEndpointTests : IDisposable
     }
 
     [Fact]
-    public async Task Workspaces_MemoryWithoutAnswerPendingIsInWork()
+    // Ответ записан, а сессии в копии нет — прочесть его некому (B-106).
+    public async Task Workspaces_MemoryWithAnswerAndNoSessionIsUnread()
     {
         var copy = Path.Combine(_root, "solo");
         Directory.CreateDirectory(copy);
         Git(copy, "init", "-b", "dev");
 
         var basePath = CreateBase("solo-knowledge", copy);
-        File.WriteAllText(Path.Combine(basePath, "work", "solo.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(basePath), "solo.md"), $"""
             # Задача
             рабочая копия: {copy.Replace('\\', '/')}
 
@@ -97,13 +99,13 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [ ] 1. Критерий
             """);
 
         var row = Assert.Single(await GetRows(basePath));
         Assert.Equal("solo-knowledge", row.Project);
-        Assert.Equal(WorkspaceStatus.InWork, row.Status);
+        Assert.Equal(WorkspaceStatus.Unread, row.Status);
         Assert.Equal("Критерий", row.FlowStep);
         Assert.Equal(0, row.Progress);
     }
@@ -130,13 +132,13 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         var copy = Path.Combine(main, "packages", "foo");
         var basePath = CreateBase("mono-knowledge", copy);
-        File.WriteAllText(Path.Combine(basePath, "work", "mono-packages-foo.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(basePath), "mono-packages-foo.md"), $"""
             # Разбор накладной
             рабочая копия: {copy}
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             """);
@@ -156,6 +158,61 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         Assert.DoesNotContain(rows, r => r.Path.StartsWith(withoutDirectory, StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(rows, r => r.Path == main || r.Path == withDirectory);
+    }
+
+    [Fact]
+    // Память другой машины оператора приезжает с личным репозиторием, но копия в ней — чужого диска.
+    public async Task Workspaces_MemoryOfOtherMachineIsNotARow()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", copy);
+        var other = Path.Combine(TestLayout.Personal(basePath), "work", "other-machine");
+        Directory.CreateDirectory(other);
+        File.WriteAllText(Path.Combine(other, "d-app.md"), $"# Чужая задача\nрабочая копия: {Path.Combine(_root, "elsewhere")}\n");
+        File.WriteAllText(Path.Combine(other, "same-path.md"), $"# Та же копия на другой машине\nрабочая копия: {copy}\n");
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal(copy, row.Path);
+        Assert.Equal(WorkspaceStatus.Free, row.Status);
+    }
+
+    [Fact]
+    // Путь копии кит приводит к полному и в списке, и в памяти: «a\..\app» — та же копия, что «app».
+    public async Task Workspaces_MemoryNamingCopyThroughDotsIsThatCopy()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", Path.Combine(_root, "x", "..", "app"));
+        File.WriteAllText(Path.Combine(TestLayout.Work(basePath), "app.md"),
+            $"# Задача\nрабочая копия: {Path.Combine(_root, "y", "..", "app")}\n\n## Агенту\n\n### Сценарий\n- [ ] 1. Ветка\n");
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal(copy, row.Path);
+        Assert.Equal("Задача", row.Task);
+    }
+
+    [Theory]
+    [InlineData(BaseLayout.Format - 1, "База прежнего формата — переведите её китом")]
+    [InlineData(BaseLayout.Format + 1, "База нового формата, которого панель не знает, — обновите панель")]
+    public async Task Workspaces_BaseOfOtherFormat_IsOneRowWithReason(int format, string reason)
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", copy);
+        File.WriteAllText(Path.Combine(basePath, "agents-kit.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = format }));
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal(basePath, row.Path);
+        Assert.Equal(reason, row.Error);
+    }
+
+    [Fact]
+    public async Task Workspaces_OperatorNotNamedOnThisMachine_IsOneRowWithReason()
+    {
+        var basePath = CreateBase("app-knowledge", TestGit.Repository(Path.Combine(_root, "app")));
+        TestLayout.Machine(basePath, null, Path.Combine(_root, "app"));
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal("На этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard", row.Error);
     }
 
     [Fact]
@@ -256,18 +313,14 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
     private string CreateBase(string name, params string[] copies)
     {
-        var basePath = Path.Combine(_root, name);
-        Directory.CreateDirectory(Path.Combine(basePath, "work"));
-        var json = System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = copies });
-        File.WriteAllText(Path.Combine(basePath, "agents-kit.json"), json);
-        return basePath;
+        return TestLayout.Base(Path.Combine(_root, name), copies);
     }
 
     private Task<List<WorkspaceRow>> GetRows(params string[] bases) => GetRows(sessionsDir: null, bases);
 
     private async Task<List<WorkspaceRow>> GetRows(string? sessionsDir, string[] bases)
     {
-        await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
@@ -275,12 +328,17 @@ public sealed class WorkspacesEndpointTests : IDisposable
                     ? [new("BasesFile", TestBases.File(_root, bases))]
                     : [new("BasesFile", TestBases.File(_root, bases)), new("SessionsDir", sessionsDir)]);
             }));
-        var client = factory.CreateClient();
+        try
+        {
+            var response = await factory.CreateClient().GetAsync("/api/workspaces");
 
-        var response = await client.GetAsync("/api/workspaces");
-
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        return await response.Content.ReadFromJsonAsync<List<WorkspaceRow>>() ?? [];
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            return await response.Content.ReadFromJsonAsync<List<WorkspaceRow>>() ?? [];
+        }
+        finally
+        {
+            TestHost.Stop(factory);
+        }
     }
 
     private static void Git(string workingDirectory, params string[] args) =>

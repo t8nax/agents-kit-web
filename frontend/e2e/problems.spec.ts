@@ -119,3 +119,21 @@ test('без пути к киту таблица и раздел проблем 
   await page.getByRole('button', { name: 'Открыть настройки' }).click()
   await expect(page.getByRole('heading', { name: 'Настройки' })).toBeVisible()
 })
+
+test('о новой версии кита раздел проблем говорит и ведёт в «Настройки», где на неё переходят', async ({ page }) => {
+  const newKit = 'C:\\Users\\me\\.claude\\plugins\\cache\\agents-kit\\agents-kit\\1.15.0'
+  await mockApi(page, [{ ...row, path: 'D:\\Projects\\agents-kit-web', baseProblems: 1, problems: 0, problemsState: 'checked' }], {
+    ...health,
+    kitUpdate: { path: newKit, version: '1.15.0' },
+    currentKitVersion: '1.14.2',
+  })
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Проблемы баз' }).click()
+  const notice = page.locator('.kit-notice')
+  await expect(notice).toHaveText(/Установлена новая версия кита 1\.15\.0, панель работает версией 1\.14\.2\./)
+  // Переходят на новую версию только в «Настройках»
+  await expect(notice.getByRole('button')).toHaveText(['Открыть настройки'])
+  await notice.getByRole('button', { name: 'Открыть настройки' }).click()
+  await expect(page.getByRole('heading', { name: 'Настройки' })).toBeVisible()
+})

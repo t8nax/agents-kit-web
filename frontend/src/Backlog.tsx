@@ -2,23 +2,28 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
-import { arrange, emptySelection, isFiltering, PRIORITIES, readOrder, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
+import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
+import EntryArtifacts, { type Artifact } from './EntryArtifacts'
 import { BugIcon, EntryFields, FeatureIcon } from './EntryFields'
 import { freeCopies } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
-import { forgetGoneStartWords } from './startWords'
+import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { numberLetters } from './taskTitle'
+import TrackerGroup from './TrackerGroup'
+import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
   title: string
   text: string | null
-  /** Поля кита: запись несёт их, когда шапка backlog.md базы объявила их строкой «поля:», иначе они пусты. */
+  /** Поля кита: запись несёт их, когда шапка backlog.md личного репозитория объявила их строкой «поля:», иначе они пусты. */
   priority?: string | null
   type?: string | null
+  /** Подраздел «Артефакты» записи — файлы в artifacts/ личного репозитория и ссылки; нет артефактов — пусто. */
+  artifacts?: Artifact[] | null
 }
 
 export type BaseBacklog = {
@@ -28,6 +33,8 @@ export type BaseBacklog = {
   error: string | null
   /** Буквы номеров проекта: запись с другими буквами кит перенумерует, и задачей она не запускается. */
   letters?: string | null
+  /** Трекер проекта из tracker.md базы; нет — у проекта нет трекера, и группы задач трекера нет. */
+  tracker?: TrackerInfo | null
 }
 
 /** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
@@ -52,16 +59,25 @@ export default function Backlog({
   onStarted?: (copy: string) => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
-  const [filter, setFilter] = useState<string | null>(writeFor)
-  // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, отбор каждое открытие раздела пуст
-  const [selection, setSelection] = useState<Selection>(emptySelection)
+  // Проект просьбы главнее запомненного и дальше запоминается сам — решение оператора на B-267
+  const [filter, setFilter] = useState<string | null>(() => writeFor ?? readRemembered().project)
+  // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, чипы — страница,
+  // а поиск каждое открытие раздела пуст
+  const [selection, setSelection] = useState<Selection>(() => {
+    const { types, priorities } = readRemembered()
+    return { ...emptySelection, types, priorities }
+  })
   const [order, setOrder] = useState<Order>(readOrder)
+
+  useEffect(() => {
+    remember({ project: filter, types: selection.types, priorities: selection.priorities })
+  }, [filter, selection.types, selection.priorities])
 
   const changeOrder = useCallback((next: Order) => {
     setOrder(next)
     writeOrder(next)
   }, [])
-  const [opened, setOpened] = useState<BacklogEntry | null>(null)
+  const [opened, setOpened] = useState<{ base: string; entry: BacklogEntry } | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
   // Запись, от которой окно Чудо-Юдо открыто кнопкой «Изменить»; null — окно из шапки раздела.
   const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry } | null>(null)
@@ -81,7 +97,44 @@ export default function Backlog({
     focusOpener()
   }, [focusOpener])
 
-  const loadBacklogs = useCallback(() => {
+  // Задачи трекера по базам. Их читает gh из GitHub — дольше файла, поэтому своим запросом на базу: записи
+  // бэклога их не ждут. Ответ прошлого чтения, пришедший после нового, отбрасывается.
+  const [trackers, setTrackers] = useState<Record<string, TrackerLoad>>({})
+  const trackerRound = useRef(0)
+
+  // Вид трекера каждой базы, как его знало последнее чтение: бэклог, перечитанный после записи или запуска, узнаёт по
+  // нему базу, чей трекер появился или сменился, пока раздел открыт, — её трекер читается сразу, а не висит заготовкой
+  const trackerKinds = useRef<Record<string, string>>({})
+
+  // all — читать трекеры всех баз (открытие раздела и «Обновить»); иначе только появившихся и сменивших вид
+  const loadTrackers = useCallback((backlogs: BaseBacklog[], all: boolean) => {
+    const round = all ? ++trackerRound.current : trackerRound.current
+    const read = new Set(
+      backlogs.filter((b) => b.tracker && (all || trackerKinds.current[b.base] !== b.tracker.kind)).map((b) => b.base),
+    )
+    trackerKinds.current = Object.fromEntries(backlogs.flatMap((b) => (b.tracker ? [[b.base, b.tracker.kind]] : [])))
+    setTrackers((prev) => {
+      const next: Record<string, TrackerLoad> = {}
+      for (const backlog of backlogs) {
+        if (!backlog.tracker) continue
+        next[backlog.base] = read.has(backlog.base) || !prev[backlog.base] ? initialTrackerLoad(backlog.tracker) : prev[backlog.base]
+      }
+      return next
+    })
+    for (const backlog of backlogs) {
+      if (backlog.tracker?.kind !== 'github' || !read.has(backlog.base)) continue
+      void loadTrackerIssues(backlog.base).then((result) => {
+        if (round !== trackerRound.current) return
+        setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
+        if (result.kind === 'loaded' && result.problem === null)
+          forgetGoneIssueWords(backlog.base, result.issues.map((issue) => issue.name))
+      })
+    }
+  }, [])
+
+  // Задачи трекера перечитываются только при открытии раздела и по «Обновить» — критерий B-277: запись Чудо-Юдо
+  // и запуск задачи перечитывают бэклог, но gh заново зовут только для трекера, которого раздел ещё не читал
+  const loadBacklogs = useCallback((readTrackers = false) => {
     fetch('/api/backlog')
       .then((response) => {
         if (!response.ok) throw new Error(`Бэклог не загрузился: HTTP ${response.status}`)
@@ -90,6 +143,7 @@ export default function Backlog({
       .then(
         (backlogs) => {
           setLoad({ kind: 'loaded', backlogs })
+          loadTrackers(backlogs, readTrackers)
           forgetGoneStartWords(backlogs)
           // База могла уйти из списка, пока раздел был открыт: показываем тогда все проекты.
           setFilter((current) => (backlogs.some((b) => b.base === current) ? current : null))
@@ -100,7 +154,7 @@ export default function Backlog({
             message: e instanceof TypeError ? 'Нет связи с API' : String((e as Error).message),
           }),
       )
-  }, [])
+  }, [loadTrackers])
 
   // Занятость копий нужна одной кнопке записи, поэтому сбой чтения раздел не показывает: кнопки просто гаснут.
   const loadCopies = useCallback(() => {
@@ -113,13 +167,16 @@ export default function Backlog({
   }, [])
 
   // Бэклог и копии читаются при открытии раздела и кнопкой «Обновить», без опроса по таймеру.
-  useEffect(loadBacklogs, [loadBacklogs])
+  useEffect(() => loadBacklogs(true), [loadBacklogs])
   useEffect(loadCopies, [loadCopies])
 
   const refresh = useCallback(() => {
     setLoad({ kind: 'loading' })
+    // Ответ трекера прошлого чтения, пришедший после «Обновить», не встаёт на место заготовки
+    trackerRound.current++
+    setTrackers({})
     setFresh(new Set())
-    loadBacklogs()
+    loadBacklogs(true)
     loadCopies()
   }, [loadBacklogs, loadCopies])
 
@@ -144,9 +201,19 @@ export default function Backlog({
   // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
   // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
   const filtering = isFiltering(selection)
+  // Задачи трекера отбираются тем же поиском и чипами; ничего не подошло — группа трекера скрыта целиком, со строкой
+  // причины тоже: так записан критерий B-277
   const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
-    .map((backlog) => ({ backlog, entries: arrange(backlog.entries, selection, order) }))
-    .filter(({ backlog, entries }) => entries.length > 0 || !filtering || backlog.error)
+    .map((backlog) => {
+      const issues = trackerIssues(trackers[backlog.base]).filter((issue) => matchesIssue(issue, selection))
+      return {
+        backlog,
+        entries: arrange(backlog.entries, selection, order),
+        issues,
+        trackerShown: !!backlog.tracker && (!filtering || issues.length > 0),
+      }
+    })
+    .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
 
   return (
     <>
@@ -221,12 +288,12 @@ export default function Backlog({
             <OrderBox order={order} onChange={changeOrder} />
           </div>
 
-          {filtering && shown.every(({ entries }) => entries.length === 0) && (
+          {filtering && shown.every(({ entries, issues }) => entries.length === 0 && issues.length === 0) && (
             <p className="empty-message">Под фильтр записей нет</p>
           )}
 
           <div className="backlog-list">
-            {shown.map(({ backlog, entries }) => (
+            {shown.map(({ backlog, entries, issues, trackerShown }) => (
               <section
                 key={backlog.base}
                 aria-label={backlog.project}
@@ -237,13 +304,18 @@ export default function Backlog({
                 <div className="base-head">
                   <h3>{backlog.project}</h3>
                 </div>
+                {/* У проекта с трекером в проекте две группы, и обе подписаны — ответ оператора на макет B-277 */}
+                {backlog.tracker && (entries.length > 0 || !filtering || backlog.error) && (
+                  <div className="backlog-group-head">Записи бэклога</div>
+                )}
                 {backlog.error && (
                   <p className="backlog-note warning-text">
                     <WarningIcon />
                     {backlog.error}
                   </p>
                 )}
-                {!backlog.error && backlog.entries.length === 0 && (
+                {/* При отборе строки о пустом бэклоге нет, как и подписи записей: проект виден ради задач трекера */}
+                {!backlog.error && backlog.entries.length === 0 && !filtering && (
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
                 {entries.map((entry, index) => {
@@ -255,7 +327,7 @@ export default function Backlog({
                         className="entry"
                         onClick={(e) => {
                           opener.current = e.currentTarget
-                          setOpened(entry)
+                          setOpened({ base: backlog.base, entry })
                         }}
                       >
                         {/* Пробел не виден во flex-строке, но разделяет номер и заголовок в имени кнопки */}
@@ -308,13 +380,36 @@ export default function Backlog({
                     </div>
                   )
                 })}
+                {backlog.tracker && trackerShown && (
+                  <TrackerGroup
+                    tracker={backlog.tracker}
+                    load={trackers[backlog.base] ?? initialTrackerLoad(backlog.tracker)}
+                    issues={issues}
+                  >
+                    {(issue) => (
+                      <button
+                        type="button"
+                        className="entry-start"
+                        // Как у записи: копий ещё не прочитали или свободных не осталось — запускать некуда
+                        disabled={copies === null || freeCopies(copies, backlog.base).length === 0}
+                        onClick={(e) => {
+                          opener.current = e.currentTarget
+                          setStarting({ base: backlog.base, entry: { number: issue.name, title: issue.title, text: null } })
+                        }}
+                      >
+                        <PlayIcon />
+                        Взять задачу
+                      </button>
+                    )}
+                  </TrackerGroup>
+                )}
               </section>
             ))}
           </div>
         </div>
       )}
 
-      {opened && <EntryModal entry={opened} onClose={closeEntry} />}
+      {opened && <EntryModal base={opened.base} entry={opened.entry} onClose={closeEntry} />}
       {starting && (
         <StartTaskModal
           base={starting.base}
@@ -352,7 +447,7 @@ export default function Backlog({
 }
 
 // Окно записи: текст оператору читают здесь, а список держит одни заголовки.
-function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => void }) {
+function EntryModal({ base, entry, onClose }: { base: string; entry: BacklogEntry; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
@@ -394,6 +489,9 @@ function EntryModal({ entry, onClose }: { entry: BacklogEntry; onClose: () => vo
             <Markdown className="entry-text" text={entry.text} />
           ) : (
             <p className="entry-no-text">Описания нет</p>
+          )}
+          {entry.artifacts && entry.artifacts.length > 0 && (
+            <EntryArtifacts base={base} number={entry.number} artifacts={entry.artifacts} />
           )}
         </div>
       </div>
@@ -455,6 +553,10 @@ function BacklogSkeleton({ shown }: { shown: boolean }) {
       </div>
     </Skeleton>
   )
+}
+
+function trackerIssues(load: TrackerLoad | undefined) {
+  return load?.kind === 'loaded' ? load.issues : []
 }
 
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */

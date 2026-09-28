@@ -45,15 +45,25 @@ public sealed record BaseHealth(
     IReadOnlyList<HealthProblem> Problems,
     IReadOnlyList<CopyHealth> Copies);
 
-/// <summary>Снимок проблем баз. Pending — первая проверка ещё идёт, данных нет.</summary>
-public sealed record HealthSnapshot(bool Pending, string Kit, IReadOnlyList<BaseHealth> Bases, DateTimeOffset? CheckedAt);
+/// <summary>
+/// Снимок проблем баз. Pending — первая проверка ещё идёт, данных нет. KitUpdate — установленная новая версия
+/// плагина кита, на которую панель ещё не перешла; CurrentKitVersion — номер версии кита по сохранённому пути.
+/// </summary>
+public sealed record HealthSnapshot(
+    bool Pending,
+    string Kit,
+    IReadOnlyList<BaseHealth> Bases,
+    DateTimeOffset? CheckedAt,
+    KitVersion? KitUpdate = null,
+    string? CurrentKitVersion = null);
 
 /// <summary>
 /// Проверяет базы в фоне и держит последний снимок. Сверка кита идёт секундами на базу, а таблица
 /// опрашивается раз в несколько секунд — поэтому /api/health отдаёт готовый снимок и pwsh не ждёт.
 /// Смена списка баз или пути к киту запускает проверку сразу, не дожидаясь интервала.
 /// </summary>
-public sealed class HealthMonitor(BasesStore store, IKitChecks checks, IConfiguration configuration, ILogger<HealthMonitor> logger)
+public sealed class HealthMonitor(
+    BasesStore store, IKitChecks checks, KitLocator locator, IConfiguration configuration, ILogger<HealthMonitor> logger)
     : BackgroundService
 {
     private volatile HealthSnapshot _snapshot = new(true, KitStatus.NotSet, [], null);
@@ -102,6 +112,8 @@ public sealed class HealthMonitor(BasesStore store, IKitChecks checks, IConfigur
     {
         var kit = store.Kit();
         var kitStatus = kit is null ? KitStatus.NotSet : BasesStore.IsKit(kit) ? KitStatus.Ok : KitStatus.NotFound;
+        var kitUpdate = kit is null ? null : locator.PluginState(kit).Update;
+        var kitVersion = kitStatus == KitStatus.Ok ? KitLocator.Version(kit!) : null;
 
         var result = new List<BaseHealth>();
         foreach (var basePath in store.List())
@@ -109,15 +121,19 @@ public sealed class HealthMonitor(BasesStore store, IKitChecks checks, IConfigur
             var rows = await WorkspaceCollector.CollectAsync([basePath], cancellationToken);
             result.Add(await CheckBaseAsync(kitStatus == KitStatus.Ok ? kit : null, basePath, rows, cancellationToken));
         }
-        return new HealthSnapshot(false, kitStatus, result, DateTimeOffset.Now);
+        return new HealthSnapshot(false, kitStatus, result, DateTimeOffset.Now, kitUpdate, kitVersion);
     }
 
     private async Task<BaseHealth> CheckBaseAsync(
         string? kit, string basePath, IReadOnlyList<WorkspaceRow> rows, CancellationToken cancellationToken)
     {
         var project = ProjectName.Of(basePath);
-        if (!Directory.Exists(basePath) || !File.Exists(Path.Combine(basePath, "agents-kit.json")))
+        if (!Directory.Exists(basePath) || !BaseLayout.IsBase(basePath))
             return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, "База не читается", [], []);
+        // Базу прежнего формата, без оператора этой машины или без личного репозитория панель не читает — причину
+        // называет раскладка; сверка кита такой базе ничего не добавит, кроме того же «перевести» или «завести».
+        if (BaseLayout.Read(basePath, out var unreadable) is null)
+            return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, unreadable, [], []);
         if (kit is null)
             return new BaseHealth(basePath, project, BaseHealthStatus.Unchecked, null, [], []);
 
@@ -188,6 +204,12 @@ public sealed class HealthMonitor(BasesStore store, IKitChecks checks, IConfigur
             "Unlisted" when link.Base is not null && !BasesStore.SamePath(link.Base, basePath) =>
                 $"копия указывает на другую базу «{link.Base}», и та её своей не числит",
             "Unlisted" => "база не числит эту копию своей",
+            // Звенья цепочки кита, пришедшие с форматом баз 4 (B-275).
+            "Unmerged" => $"сведение «{link.Unmerged ?? link.Base}» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут",
+            "Outdated" => "база прежнего формата — переведите её китом",
+            "Newer" => "базу перевёл кит новее установленного — обновите кит",
+            "Unnamed" => "на этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard",
+            "NoPersonal" => "на этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard",
             var other => $"неизвестное состояние связи «{other}»",
         };
         return message is null ? [] : [new HealthProblem("error", null, message)];

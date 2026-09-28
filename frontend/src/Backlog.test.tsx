@@ -2,11 +2,13 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
 import Backlog, { type BaseBacklog } from './Backlog'
+import { forgetRemembered } from './backlogView'
 
 afterEach(() => {
   vi.unstubAllGlobals()
-  // Порядок записей раздел помнит в браузере: каждый тест начинает с порядка по умолчанию
+  // Порядок записей раздел помнит в браузере, отбор — страница: каждый тест начинает с раздела по умолчанию
   localStorage.clear()
+  forgetRemembered()
 })
 
 const backlogs: BaseBacklog[] = [
@@ -59,7 +61,22 @@ function stubFetch(...responses: BaseBacklog[][]) {
   const posts: unknown[] = []
   let rows = copies
   let taskReply: Response | null = null
+  let artifactReply: () => Response = () => new Response(null, { status: 204 })
+  // Задачи трекера по базам: ответ или обещание ответа — им тест держит чтение трекера незаконченным
+  const trackerReplies = new Map<string, () => Promise<Response>>()
+  // Задержка ответов бэклога: пока она стоит, чтение бэклога не кончается
+  let backlogGate: Promise<void> | null = null
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url.startsWith('/api/backlog/tracker?')) {
+      const base = new URLSearchParams(url.slice(url.indexOf('?'))).get('base')!
+      const reply = trackerReplies.get(base)
+      expect(reply, `задачи трекера ${base} не ожидались`).toBeDefined()
+      return reply!()
+    }
+    if (url === '/api/backlog/artifact/open') {
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(artifactReply())
+    }
     if (url === '/api/tasks') {
       posts.push(JSON.parse(String(init?.body)))
       return Promise.resolve(taskReply ?? Response.json({ session: '7339dced' }))
@@ -78,7 +95,8 @@ function stubFetch(...responses: BaseBacklog[][]) {
         ),
       )
     expect(url).toBe('/api/backlog')
-    return Promise.resolve(Response.json(queue.length > 1 ? queue.shift()! : queue[0]))
+    const reply = Response.json(queue.length > 1 ? queue.shift()! : queue[0])
+    return backlogGate ? backlogGate.then(() => reply) : Promise.resolve(reply)
   })
   vi.stubGlobal('fetch', fetchMock)
   return Object.assign(fetchMock, {
@@ -87,6 +105,22 @@ function stubFetch(...responses: BaseBacklog[][]) {
     backlogReads: () => fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length,
     setCopies: (next: WorkspaceRow[]) => {
       rows = next
+    },
+    setArtifactReply: (next: () => Response) => {
+      artifactReply = next
+    },
+    setTracker: (base: string, reply: () => Promise<Response>) => {
+      trackerReplies.set(base, reply)
+    },
+    trackerReads: () => fetchMock.mock.calls.filter(([url]) => url.startsWith('/api/backlog/tracker?')).length,
+    /** Держит следующие ответы бэклога, пока не позвали возвращённую функцию. */
+    holdBacklog: () => {
+      let release: () => void = () => {}
+      backlogGate = new Promise<void>((resolve) => (release = resolve))
+      return () => {
+        backlogGate = null
+        release()
+      }
     },
   })
 }
@@ -214,6 +248,61 @@ test('адрес в тексте записи — ссылка в новую в�
   expect(link).toHaveAttribute('target', '_blank')
 })
 
+const withArtifacts: BaseBacklog = {
+  ...backlogs[0],
+  entries: [
+    {
+      number: 'B-9',
+      title: 'Со снимком',
+      text: 'Снимок падения приложен.',
+      artifacts: [
+        { label: 'макет', address: 'https://claude.ai/artifact/AbC' },
+        { label: 'снимок падения', address: 'artifacts/B-9-снимок.png' },
+      ],
+    },
+  ],
+}
+
+test('артефакты записи стоят блоком под описанием: ссылка — вкладкой, файл открывается в VS Code', async () => {
+  const fetchMock = stubFetch([withArtifacts])
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-9 Со снимком/ }))
+
+  const block = within(within(screen.getByRole('dialog')).getByRole('region', { name: 'Артефакты' }))
+  expect(block.getByText('снимок падения')).toBeInTheDocument()
+  expect(block.getByRole('link', { name: 'https://claude.ai/artifact/AbC' })).toHaveAttribute('target', '_blank')
+  fireEvent.click(block.getByRole('button', { name: 'artifacts/B-9-снимок.png' }))
+
+  await waitFor(() =>
+    expect(fetchMock.posts).toEqual([
+      { base: withArtifacts.base, number: 'B-9', index: 1, address: 'artifacts/B-9-снимок.png' },
+    ]),
+  )
+})
+
+test('файла артефакта нет в базе — строка ошибки под блоком', async () => {
+  const fetchMock = stubFetch([withArtifacts])
+  fetchMock.setArtifactReply(() => Response.json({ problem: 'missing' }, { status: 404 }))
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-9 Со снимком/ }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'artifacts/B-9-снимок.png' }))
+
+  expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent(
+    'Файла нет в базе: artifacts/B-9-снимок.png',
+  )
+})
+
+test('у записи без артефактов блока нет', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  fireEvent.click(await screen.findByRole('button', { name: /B-13 У панели есть светлая тема/ }))
+
+  expect(within(screen.getByRole('dialog')).queryByRole('region', { name: 'Артефакты' })).not.toBeInTheDocument()
+})
+
 test('запись без текста открывается окном «Описания нет»', async () => {
   stubFetch([{ ...backlogs[0], entries: [{ number: 'B-5', title: 'Дописана руками', text: null }] }])
 
@@ -300,13 +389,13 @@ test('фильтр сбрасывается, когда его базы боль
 test('пустой бэклог и непрочитанный названы словами', async () => {
   stubFetch([
     { base: 'D:\\Projects\\app-knowledge', project: 'Agents Kit Web', entries: [], error: null },
-    { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: 'В базе нет backlog.md' },
+    { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: 'В личном репозитории нет backlog.md' },
   ])
 
   render(<Backlog />)
 
   expect(await screen.findByText('В бэклоге этого проекта записей нет.')).toBeInTheDocument()
-  expect(screen.getByText('В базе нет backlog.md')).toBeInTheDocument()
+  expect(screen.getByText('В личном репозитории нет backlog.md')).toBeInTheDocument()
 })
 
 test('без отслеживаемых баз зовёт в окно «Базы знаний»', async () => {
@@ -598,7 +687,7 @@ test('порядок выбирается полем и кнопкой напр�
   expect(shownNumbers()).toEqual(['B-3', 'B-1', 'B-2', 'B-4'])
 })
 
-test('порядок помнится между открытиями раздела, а фильтры и поиск — нет', async () => {
+test('порядок, чипы типа и приоритета помнятся между открытиями раздела, а поиск — нет', async () => {
   stubFetch(fielded)
 
   const { unmount } = render(<Backlog />)
@@ -606,6 +695,8 @@ test('порядок помнится между открытиями разде
   fireEvent.change(screen.getByRole('combobox', { name: 'Порядок' }), { target: { value: 'priority' } })
   fireEvent.click(screen.getByRole('button', { name: 'По возрастанию' }))
   fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  fireEvent.click(screen.getByRole('button', { name: 'высокий' }))
+  fireEvent.click(screen.getByRole('button', { name: 'блокер' }))
   fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'импорт' } })
   unmount()
 
@@ -613,9 +704,66 @@ test('порядок помнится между открытиями разде
   await screen.findByRole('heading', { name: 'Agents Kit Web' })
   expect(screen.getByRole('combobox', { name: 'Порядок' })).toHaveValue('priority')
   expect(screen.getByRole('button', { name: 'По убыванию' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('button', { name: 'баг' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'фича' })).toHaveAttribute('aria-pressed', 'false')
+  expect(screen.getByRole('button', { name: 'высокий' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'блокер' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'низкий' })).toHaveAttribute('aria-pressed', 'false')
   expect(screen.getByRole('textbox', { name: 'Поиск' })).toHaveValue('')
-  expect(shownNumbers()).toEqual(['B-2', 'B-3', 'B-1', 'B-4'])
+  expect(shownNumbers()).toEqual(['B-3'])
+
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(shownNumbers()).toEqual(['B-2', 'B-3'])
+})
+
+test('выбранный проект помнится между открытиями раздела', async () => {
+  stubFetch(backlogs)
+
+  const { unmount } = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  const projects = () => within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  fireEvent.click(projects().getByRole('button', { name: 'Nota' }))
+  unmount()
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  expect(projects().getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
+})
+
+test('запомненного проекта нет в списке баз — раздел показывает все проекты', async () => {
+  stubFetch(backlogs)
+
+  const { unmount } = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  fireEvent.click(within(screen.getByRole('group', { name: 'Фильтр по проектам' })).getByRole('button', { name: 'Nota' }))
+  unmount()
+
+  stubFetch([backlogs[0], { ...backlogs[1], base: 'D:\\Projects\\other-knowledge', project: 'Other' }])
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Other' })
+  const projects = within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  expect(projects.getByRole('button', { name: 'Все проекты' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('region', { name: 'Agents Kit Web' })).toBeInTheDocument()
+})
+
+test('проект просьбы, с которым открыт раздел, дальше запоминается как выбранный', async () => {
+  stubFetch(backlogs)
+
+  const first = render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  fireEvent.click(within(screen.getByRole('group', { name: 'Фильтр по проектам' })).getByRole('button', { name: 'Agents Kit Web' }))
+  first.unmount()
+
+  const second = render(<Backlog writeFor={backlogs[1].base} />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  second.unmount()
+
+  render(<Backlog />)
+  await screen.findByRole('heading', { name: 'Nota' })
+  const projects = within(screen.getByRole('group', { name: 'Фильтр по проектам' }))
+  expect(projects.getByRole('button', { name: 'Nota' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
 })
 
 test('проект, где под отбор ничего не подошло, скрыт; не подошло нигде — строка на месте списка', async () => {
@@ -671,17 +819,280 @@ test('недоступное хранилище не мешает выбират
 })
 
 test('проект, чей бэклог не читается, при отборе остаётся со строкой ошибки', async () => {
-  stubFetch([...fielded, { ...backlogs[1], entries: [], error: 'В базе нет backlog.md' }])
+  stubFetch([...fielded, { ...backlogs[1], entries: [], error: 'В личном репозитории нет backlog.md' }])
 
   render(<Backlog />)
   await screen.findByRole('heading', { name: 'Nota' })
 
   fireEvent.click(screen.getByRole('button', { name: 'баг' }))
-  expect(within(screen.getByRole('region', { name: 'Nota' })).getByText('В базе нет backlog.md')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Nota' })).getByText('В личном репозитории нет backlog.md')).toBeInTheDocument()
   expect(screen.queryByText('Под фильтр записей нет')).not.toBeInTheDocument()
 
   fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'нет такого' } })
   expect(screen.queryByRole('region', { name: 'Agents Kit Web' })).not.toBeInTheDocument()
   expect(screen.getByRole('region', { name: 'Nota' })).toBeInTheDocument()
   expect(screen.getByText('Под фильтр записей нет')).toBeInTheDocument()
+})
+
+// ——— Задачи трекера, назначенные на оператора (B-277) ———
+
+const withTracker = (tracker: BaseBacklog['tracker']): BaseBacklog[] => [{ ...backlogs[0], tracker }, backlogs[1]]
+
+const github = { kind: 'github' as const, repo: 'acme/orders' }
+
+const issues = [
+  { name: 'GitHub #52', number: 52, title: 'Панель не стартует с пробелом в пути', url: 'https://github.com/acme/orders/issues/52' },
+  { name: 'GitHub #7', number: 7, title: 'Показывать версию кита', url: 'https://github.com/acme/orders/issues/7' },
+]
+
+const answer = (body: unknown) => () => Promise.resolve(Response.json(body))
+
+test('у проекта с трекером GitHub под записями бэклога — задачи трекера ссылками на GitHub', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const link = await project.findByRole('link', { name: /#52 Панель не стартует с пробелом в пути/ })
+  expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/52')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('title', 'Открыть GitHub #52 во вкладке браузера')
+  expect(project.getByRole('link', { name: /#7 Показывать версию кита/ })).toBeInTheDocument()
+  // Обе группы подписаны, записи бэклога — первыми
+  const heads = project.getAllByText(/^(Записи бэклога|Задачи трекера, назначенные на вас)$/).map((el) => el.textContent)
+  expect(heads).toEqual(['Записи бэклога', 'Задачи трекера, назначенные на вас'])
+  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+  // У проекта без трекера ни подписей, ни группы
+  const nota = within(screen.getByRole('region', { name: 'Nota' }))
+  expect(nota.queryByText('Записи бэклога')).not.toBeInTheDocument()
+  expect(nota.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+test('записи бэклога не ждут трекера: пока он читается, под подписью группы — заготовка', async () => {
+  let reply: (response: Response) => void = () => {}
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (reply = resolve)))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+  expect(project.getByText('Задачи трекера, назначенные на вас')).toBeInTheDocument()
+  expect(await project.findByRole('status', { name: 'Загрузка задач трекера' })).toBeInTheDocument()
+
+  reply(Response.json({ issues, problem: null }))
+  expect(await project.findByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
+})
+
+test('«Обновить» перечитывает задачи трекера', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#52/ })
+
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [issues[1]], problem: null }))
+  fireEvent.click(screen.getByRole('button', { name: 'Обновить' }))
+
+  await waitFor(() => expect(screen.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument())
+  expect(await screen.findByRole('link', { name: /#7/ })).toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(2)
+})
+
+test('проект с пустым бэклогом при отборе показывает только подошедшие задачи трекера', async () => {
+  const fetchMock = stubFetch([{ ...backlogs[0], entries: [], tracker: github }, backlogs[1]])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(project.getByText('В бэклоге этого проекта записей нет.')).toBeInTheDocument()
+  await project.findByRole('link', { name: /#52/ })
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: '#52' } })
+  expect(project.getByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(project.queryByText('В бэклоге этого проекта записей нет.')).not.toBeInTheDocument()
+  expect(project.queryByText('Записи бэклога')).not.toBeInTheDocument()
+})
+
+test('трекер, появившийся, пока раздел открыт, читается при перечитывании бэклога, а не висит заготовкой', async () => {
+  const fetchMock = stubFetch(backlogs, withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog onStarted={vi.fn()} />)
+  const row = (await screen.findByRole('button', { name: /B-2 Экспорт заметок/ })).closest('.entry-row')!
+  expect(screen.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+
+  // Запуск задачи перечитывает бэклог — в нём у проекта уже есть трекер
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' }))
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /nota-copy/ }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+test('ответ трекера прошлого чтения, пришедший после «Обновить», не встаёт на место заготовки', async () => {
+  let late: (response: Response) => void = () => {}
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (late = resolve)))
+
+  render(<Backlog />)
+  await screen.findByRole('region', { name: 'Agents Kit Web' })
+  const first = late
+
+  // Второе чтение трекера не кончается; первое приходит, пока бэклог ещё перечитывается
+  const release = fetchMock.holdBacklog()
+  fireEvent.click(screen.getByRole('button', { name: 'Обновить' }))
+  first(Response.json({ issues, problem: null }))
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  release()
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(await project.findByRole('status', { name: 'Загрузка задач трекера' })).toBeInTheDocument()
+  expect(project.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument()
+})
+
+test.each([
+  [{ kind: 'not-github' as const }, 'Трекер проекта — не GitHub. Панель пока читает только GitHub.', false],
+  [{ kind: 'no-address' as const }, 'В описании трекера нет адреса репозитория GitHub. Укажите его в описании трекера проекта.', true],
+])('трекер без адреса GitHub (%o) — строка на месте задач, gh не зовётся', async (tracker, text, warning) => {
+  const fetchMock = stubFetch(withTracker(tracker))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const line = project.getByText(text).closest('p')!
+  expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
+  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(0)
+})
+
+test.each([
+  [{ issues: [], problem: null }, /На вас в GitHub нет открытых задач этого репозитория/, false],
+  [{ issues: [], problem: 'no-tracker' }, /Описания трекера у проекта больше нет — нажмите «Обновить»/, false],
+  [{ issues: [], problem: 'gh-missing' }, /Программа gh не установлена\. Установите GitHub CLI и войдите в аккаунт командой gh auth login/, true],
+  [{ issues: [], problem: 'gh-login' }, /Программа gh не вошла в аккаунт GitHub\. Войдите командой gh auth login/, true],
+  [
+    { issues: [], problem: 'repo-unreachable', detail: "GraphQL: Could not resolve to a Repository with the name 'acme/orders'." },
+    /GitHub не нашёл репозиторий acme\/orders или у вашего аккаунта нет к нему доступа: GraphQL: Could not resolve to a Repository/,
+    true,
+  ],
+  [{ issues: [], problem: 'github-error', detail: 'HTTP 502: Bad Gateway' }, /GitHub ответил ошибкой: HTTP 502: Bad Gateway/, true],
+])('ответ трекера %o — своей строкой на месте задач', async (reply, text, warning) => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer(reply))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  // Текст строки разбит кодом команды: ищется по всему тексту строки
+  const line = (await project.findByText((_, el) => el?.matches('p.tracker-state > span') === true && text.test(el.textContent))).closest('p')!
+  expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
+  // Записи бэклога при этом видны как обычно
+  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+})
+
+test('задачи трекера не загрузились — красная строка с причиной', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, () => Promise.resolve(new Response(null, { status: 500 })))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect((await project.findByText('Задачи трекера не загрузились: HTTP 500.')).closest('p')).toHaveClass('warning-text')
+})
+
+test('поиск находит задачи трекера по номеру и заголовку, чип типа или приоритета скрывает группу', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#52/ })
+  const search = screen.getByRole('textbox', { name: 'Поиск' })
+
+  fireEvent.change(search, { target: { value: '#7' } })
+  const project = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
+  expect(project.getByRole('link', { name: /#7 Показывать версию кита/ })).toBeInTheDocument()
+  expect(project.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument()
+  // Записей бэклога под поиск не подошло — их подписи нет, а подпись задач трекера на месте
+  expect(project.queryByText('Записи бэклога')).not.toBeInTheDocument()
+  expect(project.getByText('Задачи трекера, назначенные на вас')).toBeInTheDocument()
+  expect(screen.queryByText('Под фильтр записей нет')).not.toBeInTheDocument()
+
+  fireEvent.change(search, { target: { value: 'пробелом' } })
+  expect(screen.getByRole('link', { name: /#52/ })).toBeInTheDocument()
+
+  // Ничего в группе не подошло — группа скрыта целиком, с подписью
+  fireEvent.change(search, { target: { value: 'светлая' } })
+  expect(screen.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /B-13 У панели есть светлая тема/ })).toBeInTheDocument()
+
+  // Полей типа и приоритета у задач трекера нет: чип их скрывает
+  fireEvent.click(screen.getByRole('button', { name: 'Очистить' }))
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(screen.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument()
+})
+
+test('при отборе без подошедших задач группа трекера скрыта целиком, и со строкой поломки тоже', async () => {
+  const fetchMock = stubFetch([{ ...backlogs[0], tracker: github }, { ...backlogs[1], tracker: github }])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: 'gh-login' }))
+  fetchMock.setTracker(backlogs[1].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+  await screen.findByText(/На вас в GitHub нет открытых задач/)
+  expect(screen.getByText(/Программа gh не вошла в аккаунт/)).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'баг' }))
+  expect(screen.queryByText('Задачи трекера, назначенные на вас')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Программа gh не вошла в аккаунт/)).not.toBeInTheDocument()
+  expect(screen.getByText('Под фильтр записей нет')).toBeInTheDocument()
+})
+
+test('«Взять задачу» у задачи трекера запускает её по имени «GitHub #N» тем же окном', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+  const onStarted = vi.fn()
+
+  render(<Backlog onStarted={onStarted} />)
+  const row = (await screen.findByRole('link', { name: /#52/ })).closest('.entry-row')!
+  const start = within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })
+  fireEvent.click(start)
+
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  expect(within(dialog).getByText('Задача трекера')).toBeInTheDocument()
+  expect(dialog).toHaveTextContent('GitHub #52')
+  expect(dialog).toHaveTextContent('Панель не стартует с пробелом в пути')
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /noble-keen-walrus/ }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() => expect(onStarted).toHaveBeenCalledWith('noble-keen-walrus'))
+  expect(fetchMock.posts).toEqual([
+    { base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\noble-keen-walrus', number: 'GitHub #52', flow: 'полный' },
+  ])
+  expect(start).toHaveFocus()
+  // Бэклог после запуска перечитывается, а трекер — только при открытии раздела и по «Обновить»
+  await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+test('у задачи трекера «Взять задачу» погашена, когда свободной копии нет', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'in-work'),
+    copy('D:\\Projects\\nota-knowledge', 'D:\\Projects\\nota-copy', 'free'),
+  ])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('link', { name: /#52/ })).closest('.entry-row')!
+  // Кнопка погашена и до прочтения копий: сперва дождаться, что они прочитаны, — у Nota свободная копия есть
+  const nota = (await screen.findByRole('button', { name: /B-2 Экспорт заметок/ })).closest('.entry-row')!
+  await waitFor(() => expect(within(nota as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+
+  expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
 })

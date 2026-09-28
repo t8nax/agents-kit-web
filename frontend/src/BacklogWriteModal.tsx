@@ -1,6 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { EntryFields } from './EntryFields'
+import { AttachButton, AttachError, AttachmentTiles, SentFiles } from './Attachments'
+import { payload, useAttachments, type Attachment, type SentFile } from './attachFiles'
+import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { useAgentConversation } from './agentConversation'
@@ -28,7 +31,7 @@ export type Proposal = { id: string; changes: ProposalChange[] }
 
 /** События разговора о бэклоге — те, что пишет панель (BacklogWriteEvent в API). */
 export type WriteEvent =
-  | { type: 'reply'; text: string; number?: string | null }
+  | { type: 'reply'; text: string; number?: string | null; files?: string[] | null }
   | { type: 'step'; text: string }
   | { type: 'note'; text: string }
   | { type: 'stopped'; text: string }
@@ -64,7 +67,7 @@ type Props = {
   /** Запись бэклога по номеру: окно, открытое заново, показывает запись, о которой шёл разговор. */
   findEntry?: (base: string, number: string) => WrittenEntry | undefined
   onClose: () => void
-  // Записи появились в backlog.md базы — список бэклога перечитывается и отмечает их новыми.
+  // Записи появились в backlog.md личного репозитория — список бэклога перечитывается и отмечает их новыми.
   onEntries: (base: string, numbers: string[]) => void
   /** Панель записала изменения по «Сохранить»: список бэклога перечитывается. */
   onSaved?: (base: string) => void
@@ -95,6 +98,28 @@ export default function BacklogWriteModal({
   const conversation = useAgentConversation<WriteEvent>('backlog')
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
   const feed = useRef<HTMLDivElement>(null)
+  // Файлы к следующей реплике. Отправленные остаются в поле, пока в ленте не встанет их реплика: из неё окно узнаёт,
+  // легли ли они в базу и под какими адресами. Реплика — та, что встала за отправкой по счёту, а не первая с файлами:
+  // отказанная реплика приходит без файлов, и её приложенное остаётся в поле.
+  const attach = useAttachments()
+  const inFlight = useRef<{ after: number; items: Attachment[] } | null>(null)
+  const [sent, setSent] = useState<Map<string, SentFile>>(() => new Map())
+  const replies = events.filter((e): e is Extract<WriteEvent, { type: 'reply' }> => e.type === 'reply')
+  const clearAttached = attach.clear
+
+  useEffect(() => {
+    const flight = inFlight.current
+    if (!flight || replies.length <= flight.after) return
+    inFlight.current = null
+    const files = replies[flight.after].files ?? []
+    if (files.length !== flight.items.length) return
+    setSent((prev) => {
+      const next = new Map(prev)
+      files.forEach((address, i) => next.set(address, { preview: flight.items[i].preview, size: flight.items[i].size }))
+      return next
+    })
+    clearAttached()
+  }, [replies, clearAttached])
 
   const talking = events.length > 0
   // Пока окно от записи не решило, какой разговор показывать, и пока заменяемый разговор не убран, чужую
@@ -158,15 +183,23 @@ export default function BacklogWriteModal({
     const said = value.trim()
     if (!said || !base || running) return
     setFailure(null)
+    const files = payload(attach.items)
+    // Счёт ставится до запроса: реплика может встать в ленту раньше, чем запрос вернётся.
+    inFlight.current = files ? { after: replies.length, items: attach.items } : null
     const sent = talking
-      ? await send(said)
-      : await start({ base, text: said, number: own?.entry.number ?? undefined })
+      ? await send(said, files ? { files } : {})
+      : await start({ base, text: said, number: own?.entry.number ?? undefined, files })
     if (sent.ok) {
       setText(null)
       return
     }
+    inFlight.current = null
     setFailure(
-      sent.status === 404
+      sent.status === 413
+        ? 'Панель не приняла приложенное: файлы вместе слишком большие для одной реплики'
+        : sent.status === 400 && files
+        ? 'Панель не приняла приложенный файл: крупнее 5 МБ или не прочитан'
+        : sent.status === 404
         ? talking
           ? 'Разговор кончился: панель его больше не помнит'
           : 'Базы нет в списке панели или на диске'
@@ -196,6 +229,8 @@ export default function BacklogWriteModal({
     setChosen(to?.base ?? conversation.base ?? chosen)
     setText(null)
     setSaveError(null)
+    attach.clear()
+    inFlight.current = null
     await forget()
   }
 
@@ -345,7 +380,7 @@ export default function BacklogWriteModal({
                 {aboutGone ? (
                   <EntryCard entry={about} badge="удалена" tone="added" removed />
                 ) : (
-                  <EntryCard entry={about} />
+                  <EntryCard entry={about} base={base} />
                 )}
               </ul>
             </div>
@@ -355,7 +390,10 @@ export default function BacklogWriteModal({
               case 'reply':
                 return (
                   <div className="op-row" key={i}>
-                    <div className={`op-bubble talk-said ${i === lastReply ? 'is-current' : ''}`}>{event.text}</div>
+                    <div className={`op-bubble talk-said ${i === lastReply ? 'is-current' : ''}`}>
+                      {event.text}
+                      <SentFiles files={event.files ?? []} sent={sent} />
+                    </div>
                   </div>
                 )
               case 'note':
@@ -443,6 +481,7 @@ export default function BacklogWriteModal({
           </div>
         ) : (
           <div className="composer talk-composer">
+            <AttachmentTiles items={attach.items} onRemove={attach.remove} />
             <textarea
               className="composer-field talk-field"
               aria-label={`Просьба к ${AGENT_NAME}`}
@@ -453,6 +492,7 @@ export default function BacklogWriteModal({
               // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
               disabled={running || waiting || saving !== null}
               onChange={(e) => setText(e.target.value)}
+              onPaste={attach.onPaste}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault()
@@ -460,9 +500,16 @@ export default function BacklogWriteModal({
                 }
               }}
             />
+            {/* строка отказа — под полем, по критерию B-260 */}
+            <AttachError text={attach.error} />
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
-                а «Отменить» встаёт ровно туда, где была «Отправить». */}
+                а «Отменить» встаёт ровно туда, где была «Отправить». «Приложить файл» — слева (макет B-260). */}
             <div className="talk-buttons">
+              <AttachButton
+                label="Приложить файл"
+                disabled={running || waiting || saving !== null}
+                onFiles={(files) => void attach.add(files)}
+              />
               <button
                 type="button"
                 className="btn composer-send"
@@ -593,19 +640,24 @@ function ChangeCard({ change, state }: { change: ProposalChange; state: Proposal
   )
 }
 
-/** Запись карточкой: номер, заголовок и отметка; удаляемая — только номером и зачёркнутым заголовком. */
+/**
+ * Запись карточкой: номер, заголовок и отметка; удаляемая — только номером и зачёркнутым заголовком. С базой — ещё
+ * и артефакты записи блоком под описанием: так стоит запись, про которую открыт разговор (B-260).
+ */
 function EntryCard({
   entry,
   badge,
   tone,
   removed = false,
   struck = false,
+  base,
 }: {
   entry: WrittenEntry
   badge?: string
   tone?: 'added' | 'removed'
   removed?: boolean
   struck?: boolean
+  base?: string | null
 }) {
   return (
     <li className={`write-entry ${removed ? 'is-removed' : ''} ${struck ? 'is-struck' : ''}`}>
@@ -625,6 +677,9 @@ function EntryCard({
         ) : (
           <p className="write-entry-text entry-no-text">Описания нет</p>
         ))}
+      {!removed && base && entry.artifacts && entry.artifacts.length > 0 && (
+        <EntryArtifacts base={base} number={entry.number} artifacts={entry.artifacts} compact />
+      )}
     </li>
   )
 }

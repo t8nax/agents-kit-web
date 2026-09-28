@@ -66,9 +66,11 @@ public static class PerformersEndpoints
             HealthMonitor health,
             CancellationToken cancellationToken) =>
         {
-            // Пишется только в базу из списка панели: путь к файлу панель собирает сама.
-            if (Configured(bases, request.Base) is not { } basePath)
+            // Пишется только в личный репозиторий базы из списка панели: путь к файлу панель собирает сама.
+            if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
+            // Git зовётся из личного репозитория: исполнитель коммитится в его git, и путь agents/… git берёт от него.
+            var root = layout.Personal;
 
             var name = request.Name?.Trim();
             if (!PerformerFile.ValidName(name))
@@ -82,12 +84,12 @@ public static class PerformersEndpoints
 
             var editing = request.Editing?.Trim();
             var editingSame = string.Equals(editing, name, StringComparison.Ordinal);
-            var directory = PerformerList.Directory(basePath);
+            var directory = PerformerList.Directory(layout);
             var file = System.IO.Path.Combine(directory, PerformerFile.FileName(name!));
 
             // Имена считаются по списку базы — так же, как их зовёт шаг флоу: у заведённого руками
             // файла имя может быть записано внутри, и тогда имя файла с ним расходится.
-            var known = PerformerList.OfProject(basePath);
+            var known = PerformerList.OfProject(layout);
             var was = editing is { Length: > 0 }
                 ? known.FirstOrDefault(p => string.Equals(p.Name, editing, StringComparison.Ordinal))?.Path
                 : null;
@@ -139,12 +141,12 @@ public static class PerformersEndpoints
             var paths = new List<string> { Relative(file) };
             // Прежний файл идёт в коммит, только если git его знал: снятое из рабочего дерева
             // неотслеживаемое коммитить нечем, а `git commit -- путь` на таком отказывается вовсе.
-            if (prior is not null && await BaseGit.TrackedAsync(basePath, Relative(prior), cancellationToken))
+            if (prior is not null && await BaseGit.TrackedAsync(root, Relative(prior), cancellationToken))
                 paths.Add(Relative(prior));
 
-            var added = await BaseGit.AddFileAsync(basePath, paths[0], cancellationToken);
+            var added = await BaseGit.AddFileAsync(root, paths[0], cancellationToken);
             var commit = added.Done
-                ? await BaseGit.CommitFilesAsync(basePath, paths, Message(name!, prior is not null), cancellationToken)
+                ? await BaseGit.CommitFilesAsync(root, paths, Message(name!, prior is not null), cancellationToken)
                 : added;
 
             if (!commit.Done)
@@ -153,7 +155,7 @@ public static class PerformersEndpoints
                 // коммит соседней сессии: вернуть всё как было и показать, что сказал git.
                 Remove(file);
                 await RestoreAsync(prior ?? file, kept, cancellationToken);
-                await BaseGit.ResetFilesAsync(basePath, paths, cancellationToken);
+                await BaseGit.ResetFilesAsync(root, paths, cancellationToken);
                 return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
             }
 
@@ -167,12 +169,13 @@ public static class PerformersEndpoints
     private static BasePerformers Read(string basePath)
     {
         var project = ProjectName.Of(basePath);
-        var directory = PerformerList.Directory(basePath);
-
         if (!System.IO.Directory.Exists(basePath))
-            return new BasePerformers(basePath, project, directory, [], "База не найдена на диске");
+            return new BasePerformers(basePath, project, "", [], "База не найдена на диске");
+        // Личного репозитория у нечитаемой базы не опознать: каталог исполнителей не называется вовсе.
+        if (BaseLayout.Read(basePath, out var problem) is not { } layout)
+            return new BasePerformers(basePath, project, "", [], problem);
 
-        return new BasePerformers(basePath, project, directory, PerformerList.OfProject(basePath), null);
+        return new BasePerformers(basePath, project, PerformerList.Directory(layout), PerformerList.OfProject(layout), null);
     }
 
     /// <summary>Возвращает прежнее содержимое на место; не вышло — файла нет, и об этом скажет сверка базы.</summary>
@@ -209,13 +212,13 @@ public static class PerformersEndpoints
     /// </summary>
     private static string Newline(string text) => text.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
 
-    /// <summary>Путь файла от корня базы — таким его берут git add и git commit.</summary>
-    private static string Relative(string file) => "agents/" + System.IO.Path.GetFileName(file);
+    /// <summary>Путь файла от личного репозитория — таким его берут git add и git commit, запущенные из него.</summary>
+    private static string Relative(string file) => PerformerList.Folder + "/" + System.IO.Path.GetFileName(file);
 
     private static string Message(string name, bool renamed) =>
         renamed ? $"Исполнитель {name} переименован из панели" : $"Исполнитель {name} записан из панели";
 
-    /// <summary>Копии проекта, что есть на диске; первая копия из agents-kit.json помечена основной.</summary>
+    /// <summary>Копии проекта, что есть на диске; первая копия из списка копий этой машины помечена основной.</summary>
     internal static async Task<IReadOnlyList<PerformerCopy>> CopiesAsync(string basePath, CancellationToken cancellationToken)
     {
         var main = WorkspaceCollector.ReadCopies(basePath) is { } configured

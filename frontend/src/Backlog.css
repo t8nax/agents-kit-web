@@ -22,6 +22,68 @@
   padding: 4px 0;
 }
 
+/* Подписи групп проекта с трекером — «Записи бэклога» и «Задачи трекера, назначенные на вас»: мельче имени
+   проекта, группа входит в проект, а не стоит рядом с ним. У проекта без трекера подписей нет (макет B-277). */
+.backlog-group-head {
+  padding: 14px 0 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.base-head + .backlog-group-head {
+  padding-top: 2px;
+}
+
+/* Строка задачи трекера — ссылка наружу, а выглядит строкой записи. */
+a.entry {
+  text-decoration: none;
+}
+
+/* Номер задачи трекера — не номер кита: без синей заливки номера записи. */
+.tracker-num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  background: var(--accent-free-bg);
+  border-radius: 4px;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+
+/* На месте шеврона окна — значок «открыть во вкладке». */
+.tracker-out {
+  width: 16px;
+  height: 16px;
+  color: var(--text-tertiary);
+  margin-inline: 1px;
+}
+
+.entry:hover .tracker-out {
+  color: var(--text-secondary);
+}
+
+/* Строка на месте задач: нет задач или их не прочитать. */
+.tracker-state {
+  margin: 0;
+  padding: 4px 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.tracker-state svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.tracker-state code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
 /* Строка записи держит две кнопки: чтение записи и её запуск — кнопка в кнопку не вкладывается. */
 .entry-row {
   display: flex;

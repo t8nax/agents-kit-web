@@ -41,7 +41,19 @@ async function recordAnimations(page: Page) {
   }
 }
 
+/**
+ * Все разделы и карточки на странице дочитали данные и доиграли проявление: иначе проявление соседней
+ * карточки, которая под нагрузкой дочитала позже, попадает в запись после её сброса.
+ */
+async function settled(page: Page) {
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0)
+  await expect(page.locator('.loaded')).toHaveCount(0)
+}
+
 const skeleton = (page: Page) => page.getByRole('status', { name: 'Загрузка рабочих копий' })
+// Рамка заготовки встаёт первой же отрисовкой страницы, и ждать её — ждать саму страницу: весь срок
+// теста, а не пять секунд expect. Нагруженная машина GitHub не успевала отрисовать страницу за пять (B-280).
+const skeletonDrawn = (page: Page) => skeleton(page).waitFor()
 const firstBar = (page: Page, property: 'animationName' | 'backgroundColor') =>
   page.locator('.sk').first().evaluate((bar, name) => getComputedStyle(bar)[name], property)
 const nextFrames = (page: Page) =>
@@ -51,15 +63,21 @@ test('заготовка мерцает, содержимое проявляет
   const animations = await recordAnimations(page)
   const release = await holdWorkspaces(page)
   await page.route('**/api/backlog', (route) => route.fulfill({ json: [] }))
+  // Часы страницы стоят, пока тест смотрит на первые доли секунды: под нагрузкой срок заготовки
+  // успевал выйти раньше, чем проверка до неё добиралась.
+  await page.clock.install()
+  await page.clock.pauseAt(Date.now() + 1000)
   await page.goto('/')
 
   // Первые доли секунды полосы держат место невидимыми, а шапка колонок уже видна
   await skeleton(page).waitFor({ state: 'attached' })
+  await page.clock.runFor(250)
   const early = await skeleton(page).evaluate((status) => ({
     head: getComputedStyle(status.querySelector('th')!).visibility,
     bar: getComputedStyle(status.querySelector('.sk')!).visibility,
   }))
   expect(early).toEqual({ head: 'visible', bar: 'hidden' })
+  await page.clock.resume()
 
   // Затянулась загрузка — полосы видны
   await expect(page.locator('.sk').first()).toBeVisible()
@@ -75,6 +93,7 @@ test('заготовка мерцает, содержимое проявляет
   const sections = page.getByRole('navigation', { name: 'Разделы панели' })
   await sections.getByRole('button', { name: 'Бэклог' }).click()
   await expect(page.getByRole('heading', { name: 'Бэклог' })).toBeVisible()
+  await settled(page)
   await animations.clear()
   await sections.getByRole('button', { name: /^Рабочие копии/ }).click()
   await expect(page.getByRole('button', { name: 'Свернуть agents-kit-web' })).toBeVisible()
@@ -84,20 +103,28 @@ test('заготовка мерцает, содержимое проявляет
 
 test('быстрая загрузка не мигает: ни полос, ни проявления — таблица встаёт сразу', async ({ page }) => {
   const animations = await recordAnimations(page)
-  // Каждый кадр отмечается, была ли видна хоть одна полоса: мигание длится доли секунды
+  // Каждая правка страницы отмечает, была ли видна хоть одна полоса: мигание длится доли секунды.
+  // Наблюдатель правок, а не кадры: под остановленными часами кадры страницы стоят. Правку он видит,
+  // потому что полосы показывает снятие класса заготовки (sk-wait), а не задержка в CSS.
   await page.addInitScript(() => {
     Object.assign(window, { barsSeen: false })
-    const tick = () => {
-      const bar = document.querySelector('.sk')
-      if (bar && getComputedStyle(bar).visibility === 'visible') Object.assign(window, { barsSeen: true })
-      requestAnimationFrame(tick)
-    }
-    requestAnimationFrame(tick)
+    new MutationObserver(() => {
+      const bars = document.querySelectorAll('.sk')
+      if ([...bars].some((bar) => getComputedStyle(bar).visibility === 'visible')) Object.assign(window, { barsSeen: true })
+    }).observe(document, { subtree: true, childList: true, attributes: true })
   })
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row] }))
+  // Часы страницы стоят, пока строки идут: «быстро» — раньше срока заготовки по часам страницы, а не
+  // по настоящим, иначе нагруженная машина перерастала срок доставкой ответа и видела полосы (B-266).
+  await page.clock.install()
+  await page.clock.pauseAt(Date.now() + 1000)
   await page.goto('/')
 
   await expect(page.getByRole('button', { name: 'Свернуть agents-kit-web' })).toBeVisible()
+  // Срок заготовки выходит уже над прочитанной таблицей: ни полос, ни проявления. Проявление, взведённое
+  // запоздавшим сроком, начнётся только в настоящем кадре — часы идут дальше, и кадры дожидаются.
+  await page.clock.runFor(1000)
+  await page.clock.resume()
   await nextFrames(page)
   expect(await page.evaluate(() => (window as unknown as { barsSeen: boolean }).barsSeen)).toBe(false)
   expect(await animations.names()).not.toContain('loaded-in')
@@ -123,6 +150,7 @@ test('после выбора папки в «Настройках» списо�
 
   await bases.getByRole('button', { name: 'Обзор…' }).click()
   await expect(bases.getByRole('list', { name: 'Папки' })).toBeVisible()
+  await settled(page)
   await animations.clear()
   await bases.getByRole('button', { name: 'К списку баз' }).click()
   await expect(bases.getByRole('list', { name: 'Базы знаний' })).toBeVisible()
@@ -136,7 +164,7 @@ test('при «уменьшить движение» полосы стоят б�
   const release = await holdWorkspaces(page)
   await page.goto('/')
 
-  await expect(skeleton(page)).toBeVisible()
+  await skeletonDrawn(page)
   await expect(page.locator('.sk').first()).toBeVisible()
   expect(await firstBar(page, 'animationName')).toBe('none')
 
@@ -152,7 +180,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await holdWorkspaces(page)
     await page.goto('/')
 
-    await expect(skeleton(page)).toBeVisible()
+    await skeletonDrawn(page)
     await expect(page.locator('.sk').first()).toBeVisible()
     const bar = await firstBar(page, 'backgroundColor')
     const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)

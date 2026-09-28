@@ -4,12 +4,15 @@ using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace AgentsKitWeb.Api.Tests;
 
 public sealed class BacklogEndpointTests : IDisposable
 {
     private readonly string _root = Directory.CreateTempSubdirectory("akw-tests-").FullName;
+    private readonly TestHosts _hosts = new();
 
     [Fact]
     public async Task Backlog_ReturnsEntriesPerBaseWithProjectName()
@@ -64,11 +67,11 @@ public sealed class BacklogEndpointTests : IDisposable
     public async Task Backlog_RereadsFileOnEachRequest()
     {
         var basePath = CreateBase("app-knowledge", "## B-1 Первая\n\nТекст.\n");
-        await using var factory = Factory(basePath);
+        var factory = Factory(basePath);
         var client = factory.CreateClient();
 
         var before = await Get(client);
-        File.WriteAllText(Path.Combine(basePath, "backlog.md"), "## B-1 Первая\n\nТекст.\n\n## B-2 Вторая\n\nДописана соседней сессией.\n");
+        File.WriteAllText(TestLayout.Backlog(basePath), "## B-1 Первая\n\nТекст.\n\n## B-2 Вторая\n\nДописана соседней сессией.\n");
         var after = await Get(client);
 
         Assert.Equal(["B-1"], Assert.Single(before).Entries.Select(e => e.Number));
@@ -89,14 +92,112 @@ public sealed class BacklogEndpointTests : IDisposable
     [Fact]
     public async Task Backlog_MissingFileAndMissingBaseAreReportedSeparately()
     {
-        var withoutFile = Path.Combine(_root, "no-file-knowledge");
-        Directory.CreateDirectory(withoutFile);
+        var withoutFile = TestLayout.Base(Path.Combine(_root, "no-file-knowledge"));
+        // Бэклог на прежнем месте кита — в корне базы — не бэклог оператора.
+        File.WriteAllText(Path.Combine(withoutFile, "backlog.md"), "## B-1 Прежнее место\n");
         var missingBase = Path.Combine(_root, "gone-knowledge");
 
         var backlogs = await GetBacklogs(withoutFile, missingBase);
 
-        Assert.Equal("В базе нет backlog.md", Assert.Single(backlogs, b => b.Base == withoutFile).Error);
+        Assert.Equal("В личном репозитории нет backlog.md", Assert.Single(backlogs, b => b.Base == withoutFile).Error);
         Assert.Equal("База не найдена на диске", Assert.Single(backlogs, b => b.Base == missingBase).Error);
+    }
+
+    [Fact]
+    public async Task Backlog_CarriesTrackerOfBase()
+    {
+        var withTracker = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(withTracker, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders, через gh\n");
+        var withoutTracker = CreateBase("nota-knowledge", "## B-1 Первая\n");
+        var withoutBacklog = TestLayout.Base(Path.Combine(_root, "empty-knowledge"));
+        File.WriteAllText(Path.Combine(withoutBacklog, "tracker.md"), "# Трекер\n\n## Где задачи\nJira PAY\n");
+
+        var backlogs = await GetBacklogs(withTracker, withoutTracker, withoutBacklog);
+
+        Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, "acme/orders"), Assert.Single(backlogs, b => b.Base == withTracker).Tracker);
+        Assert.Null(Assert.Single(backlogs, b => b.Base == withoutTracker).Tracker);
+        Assert.Equal(new TrackerInfo(TrackerInfo.NotGitHub), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
+    }
+
+    [Fact]
+    public async Task TrackerIssues_GitHubTracker_AsksGhForItsRepository()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(basePath, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(["acme/orders"], _github.Asked);
+        Assert.Null(issues.Problem);
+        Assert.Equal("GitHub #37", Assert.Single(issues.Issues).Name);
+    }
+
+    [Theory]
+    [InlineData(null, TrackerIssues.NoTracker)]
+    [InlineData("## Где задачи\nJira PAY\n", TrackerInfo.NotGitHub)]
+    [InlineData("## Где задачи\nGitHub Issues через gh\n", TrackerInfo.NoAddress)]
+    public async Task TrackerIssues_WithoutGitHubAddress_DoesNotRunGh(string? tracker, string problem)
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        if (tracker is not null)
+            File.WriteAllText(Path.Combine(basePath, "tracker.md"), tracker);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Empty(_github.Asked);
+        Assert.Equal(problem, issues.Problem);
+        Assert.Empty(issues.Issues);
+    }
+
+    [Fact]
+    public async Task TrackerIssues_BaseNotInList_IsNotFound()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        var other = CreateBase("other-knowledge", "## B-1 Первая\n");
+
+        var response = await TrackerClient(basePath).GetAsync($"/api/backlog/tracker?base={Uri.EscapeDataString(other)}");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_github.Asked);
+    }
+
+    private readonly FakeGitHubIssues _github = new();
+
+    private HttpClient TrackerClient(string basePath) =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.Sources.Clear();
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, basePath))]);
+            });
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IGitHubIssues>();
+                services.AddSingleton<IGitHubIssues>(_github);
+            });
+        })).CreateClient();
+
+    private async Task<TrackerIssues> GetTrackerIssues(string listed, string asked)
+    {
+        var response = await TrackerClient(listed).GetAsync($"/api/backlog/tracker?base={Uri.EscapeDataString(asked)}");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<TrackerIssues>())!;
+    }
+
+    private sealed class FakeGitHubIssues : IGitHubIssues
+    {
+        public TrackerIssues Answer { get; set; } = new([]);
+
+        public List<string> Asked { get; } = [];
+
+        public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
+        {
+            Asked.Add(repo);
+            return Task.FromResult(Answer);
+        }
     }
 
     [Fact]
@@ -148,25 +249,136 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Null(entry.Type);
     }
 
+    private const string WithArtifacts = """
+        ## B-5 Окно записи показывает снимок
+
+        Снимок приложен.
+
+        ### Артефакты
+        - макет: https://claude.ai/artifact/AbC123
+        - снимок: artifacts/B-5-снимок.png
+        - отчёт: artifacts/R&D.md
+        - побег: artifacts/../product.md
+        - спека: docs/spec.md
+        """;
+
+    [Fact]
+    public async Task Backlog_CarriesEntryArtifacts()
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var entry = Assert.Single(Assert.Single(await GetBacklogs(basePath)).Entries);
+
+        Assert.Equal("Снимок приложен.", entry.Text);
+        Assert.Equal(["макет", "снимок", "отчёт", "побег", "спека"], entry.Artifacts!.Select(a => a.Label));
+    }
+
+    [Fact]
+    public async Task OpenArtifact_OpensBaseFileInBaseWindow()
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+        var shot = Path.Combine(TestLayout.Personal(basePath), "artifacts", "B-5-снимок.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(shot)!);
+        File.WriteAllBytes(shot, [1, 2, 3]);
+
+        var response = await PostOpenArtifact(basePath, "b-5", 1, "artifacts/B-5-снимок.png");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal([(basePath, shot)], _windows.OpenedFiles);
+    }
+
+    [Fact]
+    public async Task OpenArtifact_FileNotOnDisk_IsMissing()
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var response = await PostOpenArtifact(basePath, "B-5", 1, "artifacts/B-5-снимок.png");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("missing", (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Theory]
+    [InlineData(0, "https://claude.ai/artifact/AbC123", "not-a-file")]
+    [InlineData(2, "artifacts/R&D.md", "unsafe-path")]
+    [InlineData(3, "artifacts/../product.md", "unsafe-path")]
+    [InlineData(4, "docs/spec.md", "unsafe-path")]
+    public async Task OpenArtifact_NotAFileOfBaseArtifacts_IsNotOpened(int index, string address, string problem)
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var response = await PostOpenArtifact(basePath, "B-5", index, address);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(problem, (await response.Content.ReadFromJsonAsync<OpenArtifactFailedResponse>())!.Problem);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    [Theory]
+    [InlineData("B-5", 5, "docs/spec.md")]
+    [InlineData("B-5", 1, "artifacts/other.png")]
+    [InlineData("B-6", 1, "artifacts/B-5-снимок.png")]
+    public async Task OpenArtifact_UnknownEntryIndexOrChangedAddress_IsNotFound(string number, int index, string address)
+    {
+        var basePath = CreateBase("app-knowledge", WithArtifacts);
+
+        var response = await PostOpenArtifact(basePath, number, index, address);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_windows.OpenedFiles);
+    }
+
+    private readonly FakeEditorWindows _windows = new();
+
+    private Task<HttpResponseMessage> PostOpenArtifact(string basePath, string number, int index, string address) =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.Sources.Clear();
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, basePath))]);
+            });
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IEditorWindows>();
+                services.AddSingleton<IEditorWindows>(_windows);
+            });
+        })).CreateClient().PostAsJsonAsync("/api/backlog/artifact/open", new OpenBacklogArtifactRequest(basePath, number, index, address));
+
+    private sealed class FakeEditorWindows : IEditorWindows
+    {
+        public List<(string Folder, string File)> OpenedFiles { get; } = [];
+
+        public Task<bool> RaiseAsync(string copyPath, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<bool> OpenFileAsync(string folder, string file, CancellationToken cancellationToken)
+        {
+            OpenedFiles.Add((folder, file));
+            return Task.FromResult(true);
+        }
+    }
+
     private string CreateBase(string name, string backlog)
     {
-        var basePath = Path.Combine(_root, name);
-        Directory.CreateDirectory(basePath);
-        File.WriteAllText(Path.Combine(basePath, "backlog.md"), backlog.ReplaceLineEndings("\n"));
+        var basePath = TestLayout.Base(Path.Combine(_root, name));
+        File.WriteAllText(TestLayout.Backlog(basePath), backlog.ReplaceLineEndings("\n"));
         return basePath;
     }
 
     private WebApplicationFactory<Program> Factory(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
                 config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases))]);
-            }));
+            })));
 
     private async Task<List<BaseBacklog>> GetBacklogs(params string[] bases)
     {
-        await using var factory = Factory(bases);
+        var factory = Factory(bases);
         return await Get(factory.CreateClient());
     }
 
@@ -180,6 +392,7 @@ public sealed class BacklogEndpointTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             Directory.Delete(_root, recursive: true);

@@ -33,6 +33,7 @@ public sealed class TaskEndpointsTests : IDisposable
         """;
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-tasks-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly string _sessionsDir;
@@ -42,12 +43,10 @@ public sealed class TaskEndpointsTests : IDisposable
     public TaskEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         _sessionsDir = Path.Combine(_root, "sessions");
         Directory.CreateDirectory(_sessionsDir);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), JsonSerializer.Serialize(new { workspaces = new[] { _copy } }));
-        File.WriteAllText(Path.Combine(_base, "backlog.md"), Backlog.ReplaceLineEndings("\n") + "\n");
+        File.WriteAllText(TestLayout.Backlog(_base), Backlog.ReplaceLineEndings("\n") + "\n");
     }
 
     [Fact]
@@ -66,10 +65,11 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.True(startInfo.CreateNoWindow);
         // Просьба уходит после «--»: текст, начатый с «-», claude принял бы за флаг.
         // Настройками сессия оставлена в самой копии: без них claude уходит работать в отдельное дерево.
-        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal(["--permission-mode", "auto", "--settings", """{"worktree":{"bgIsolation":"none"},"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", "--bg", "--", "/agents-kit:drive B-7"], startInfo.ArgumentList);
         // Панель не правит бэклог и не заводит память: и то и другое делает навык кита в этой сессии.
-        Assert.Contains("B-7", File.ReadAllText(Path.Combine(_base, "backlog.md")));
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
+        Assert.Contains("B-7", File.ReadAllText(TestLayout.Backlog(_base)));
+        Assert.Empty(Directory.EnumerateFiles(TestLayout.Work(_base)));
     }
 
     /// <summary>Переход в сессию копии ведёт по этой отметке: иначе «ту самую» сессию не узнать.</summary>
@@ -161,9 +161,12 @@ public sealed class TaskEndpointsTests : IDisposable
 
     private void WriteFlows()
     {
+        // Флоу — в папке оператора; тот же файл в корне базы, на прежнем месте кита, запуск не видит.
         Directory.CreateDirectory(Path.Combine(_base, "flow"));
-        File.WriteAllText(Path.Combine(_base, "flow", "flow.md"), """
-            # App — флоу
+        File.WriteAllText(Path.Combine(_base, "flow", "scenarios.md"), "# Прежнее место\n\n## срочный\nкогда: всегда\n1. [Ветка](stages/branch.md)\n");
+        Directory.CreateDirectory(TestLayout.Flow(_base));
+        File.WriteAllText(Path.Combine(TestLayout.Flow(_base), "scenarios.md"), """
+            # App — сценарии
 
             ## полный
             когда: новая возможность
@@ -200,6 +203,86 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    private readonly FakeGitHubIssues _github = new();
+
+    private sealed class FakeGitHubIssues : IGitHubIssues
+    {
+        public TrackerIssues Answer { get; set; } = new([]);
+
+        public List<string> Asked { get; } = [];
+
+        public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
+        {
+            Asked.Add(repo);
+            return Task.FromResult(Answer);
+        }
+    }
+
+    private void WriteGitHubTracker() =>
+        File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+
+    /// <summary>Задачу трекера берёт навык кита по её имени, как кит её называет, — B-277.</summary>
+    [Theory]
+    [InlineData("GitHub #37")]
+    [InlineData("github#37")]
+    public async Task Start_TakesTrackerIssueByItsName(string name)
+    {
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
+        _agent.Lines = ["backgrounded · abc123"];
+        var client = Client();
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, name));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["acme/orders"], _github.Asked);
+        Assert.Equal("/agents-kit:drive GitHub #37", _agent.StartInfo!.ArgumentList[^1]);
+        var rows = await client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
+        Assert.Equal("GitHub #37 Оплата падает", Assert.Single(rows!, r => r.Path == _copy).Task);
+    }
+
+    /// <summary>Закрытую или назначенную не на оператора задачу панель не запускает — критерий B-277.</summary>
+    [Fact]
+    public async Task Start_RejectsTrackerIssueNotAssignedAndOpen()
+    {
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #36", 36, "Другая", "https://github.com/acme/orders/issues/36")]);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("issue-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Окну — код причины, его оно называет словами; строку GitHub — только у причины без кода.</summary>
+    [Theory]
+    [InlineData(TrackerIssues.GhLogin, null, TrackerIssues.GhLogin)]
+    [InlineData(TrackerIssues.RepoUnreachable, "GraphQL: Could not resolve to a Repository", TrackerIssues.RepoUnreachable)]
+    [InlineData(TrackerIssues.GitHubError, "HTTP 502: Bad Gateway", "HTTP 502: Bad Gateway")]
+    public async Task Start_TrackerUnreadable_SaysWhy(string problem, string? detail, string message)
+    {
+        WriteGitHubTracker();
+        _github.Answer = new TrackerIssues([], problem, detail);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new TaskStartProblem("tracker-unavailable", message), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task Start_TrackerIssueWithoutGitHubTracker_IsNotStarted()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new TaskStartProblem("tracker-unavailable", TrackerIssues.NoTracker), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Empty(_github.Asked);
+        Assert.Null(_agent.StartInfo);
+    }
+
     [Fact]
     public async Task CopyRow_CarriesTheProjectsLetters()
     {
@@ -211,7 +294,7 @@ public sealed class TaskEndpointsTests : IDisposable
     [Fact]
     public async Task Start_RejectsCopyThatAlreadyHasTaskMemory()
     {
-        File.WriteAllText(Path.Combine(_base, "work", "app.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
             # B-5 Прошлая задача
             рабочая копия: {_copy}
             ветка: dev
@@ -313,7 +396,7 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal("B-7 Панель показывает задачу сразу", row.Task);
         Assert.Null(row.FlowStep);
         Assert.Null(row.Progress);
-        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_base, "work")));
+        Assert.Empty(Directory.EnumerateFiles(TestLayout.Work(_base)));
     }
 
     /// <summary>Появилась память — строка живёт по ней, и отметка панели о запуске больше ничего не значит.</summary>
@@ -405,8 +488,138 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, again.StatusCode);
     }
 
+    /// <summary>Сессия задачи умерла, память цела: новая сессия продолжает задачу и становится сессией задачи.</summary>
+    [Fact]
+    public async Task ContinueSession_CopyWithTaskAndNoSession_StartsDriveWithoutNumberAndRemembersIt()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("7339dced", (await response.Content.ReadFromJsonAsync<TaskStartResponse>())!.Session);
+        Assert.Equal(["--permission-mode", "auto", "--settings", """{"worktree":{"bgIsolation":"none"},"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", "--bg", "--", "/agents-kit:drive"], _agent.StartInfo!.ArgumentList);
+        Assert.Equal(_copy, _agent.StartInfo.WorkingDirectory);
+        var remembered = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+        Assert.Equal("7339dced", remembered.SessionIn(_copy));
+    }
+
+    [Fact]
+    public async Task ContinueSession_StartedSessionIsTheRowsTaskSession()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        WriteSession("7339dced", live: true);
+
+        Assert.True((await Row(client)).BackgroundSession);
+    }
+
+    [Fact]
+    public async Task ContinueSession_FreeCopy_IsRefusedWithoutStartingAnything()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("no-task", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Fact]
+    public async Task ContinueSession_TaskSessionAlive_IsRefused()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        WriteSession("7339dced", live: true);
+        _agent.StartInfo = null;
+
+        var response = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("session-alive", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Сессия VS Code копии тоже читает ответ и ведёт задачу — вторая рядом с ней не нужна.</summary>
+    [Fact]
+    public async Task ContinueSession_VsCodeSessionAlive_IsRefused()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        File.WriteAllText(
+            Path.Combine(_sessionsDir, $"{Environment.ProcessId}.json"),
+            JsonSerializer.Serialize(new
+            {
+                pid = Environment.ProcessId,
+                cwd = _copy,
+                entrypoint = "claude-vscode",
+                procStart = Process.GetCurrentProcess().StartTime.ToFileTimeUtc().ToString(),
+            }));
+
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("session-alive", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Заведённая сессия ещё не в реестре — повторный запрос не заводит вторую рядом с ней.</summary>
+    [Fact]
+    public async Task ContinueSession_RepeatedBeforeSessionReachedRegistry_IsRefusedUntilTheGraceEnds()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["backgrounded · 7339dced"];
+        var client = Client();
+        await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        _agent.StartInfo = null;
+
+        var again = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
+        Assert.Equal("session-starting", (await again.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+
+        _time.Advance(ResumedSessions.Grace);
+        var later = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        Assert.Equal(HttpStatusCode.OK, later.StatusCode);
+    }
+
+    [Fact]
+    public async Task ContinueSession_AgentFailed_SaysSoAndCanBeRepeatedAtOnce()
+    {
+        WriteMemory("B-7 Панель показывает задачу сразу");
+        _agent.Lines = ["Error: not logged in"];
+        _agent.Exit = new(1, "");
+        var client = Client();
+
+        var response = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("agent", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        var remembered = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+        Assert.Null(remembered.SessionIn(_copy));
+
+        _agent.Lines = ["backgrounded · 7339dced"];
+        _agent.Exit = new(0, "");
+        var again = await client.PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(_base, _copy));
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task ContinueSession_UnknownBase_IsNotFound()
+    {
+        var response = await Client().PostAsJsonAsync("/api/tasks/session", new TaskSessionRequest(Path.Combine(_root, "other"), _copy));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
@@ -424,11 +637,11 @@ public sealed class TaskEndpointsTests : IDisposable
         return Assert.Single(rows!, row => row.Path == _copy);
     }
 
-    private void WriteBacklog(string text) => File.WriteAllText(Path.Combine(_base, "backlog.md"), text);
+    private void WriteBacklog(string text) => File.WriteAllText(TestLayout.Backlog(_base), text);
 
     /// <summary>Память задачи, какой её завёл агент: копия занята, и строка идёт уже из неё.</summary>
     private void WriteMemory(string task) =>
-        File.WriteAllText(Path.Combine(_base, "work", "app.md"), string.Join('\n', [
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), string.Join('\n', [
             "# " + task,
             "рабочая копия: " + _copy,
             "ветка: feat/row",
@@ -456,7 +669,7 @@ public sealed class TaskEndpointsTests : IDisposable
     }
 
     private HttpClient Client() =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -471,10 +684,12 @@ public sealed class TaskEndpointsTests : IDisposable
             {
                 services.RemoveAll<IAgentProcess>();
                 services.AddSingleton<IAgentProcess>(_agent);
+                services.RemoveAll<IGitHubIssues>();
+                services.AddSingleton<IGitHubIssues>(_github);
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(_time);
             });
-        }).CreateClient();
+        })).CreateClient();
 
     /// <summary>Часы прогона: льгота отметки о запуске отмеряется ими, а не настоящим временем.</summary>
     private sealed class FakeTime(DateTimeOffset now) : TimeProvider

@@ -190,6 +190,37 @@ test('оператор находит кит кнопкой и сам сохра
   await expect(kit.getByLabel('Путь к каталогу кита')).toHaveValue(kitPath)
 })
 
+test('после обновления плагина кита оператор переходит на новую версию кнопкой в карточке кита', async ({ page }) => {
+  const oldKit = 'C:\\Users\\me\\.claude\\plugins\\cache\\agents-kit\\agents-kit\\1.14.2'
+  const newKit = 'C:\\Users\\me\\.claude\\plugins\\cache\\agents-kit\\agents-kit\\1.15.0'
+  let kitState: object = { path: oldKit, found: true, version: '1.14.2', plugin: true, update: { path: newKit, version: '1.15.0' } }
+  const puts: unknown[] = []
+  await mockApi(page)
+  // Маршрут, заведённый позже, перекрывает заглушку кита из mockApi
+  await page.route('**/api/kit', (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: kitState })
+    puts.push(route.request().postDataJSON())
+    kitState = { path: newKit, found: true, version: '1.15.0', plugin: true, update: null }
+    return route.fulfill({ json: kitState })
+  })
+
+  await page.goto('/')
+  await openSettings(page)
+  const kit = page.getByRole('region', { name: /^Кит/ })
+  const notice = kit.locator('.kit-notice')
+
+  await expect(notice).toHaveText(/Установлена новая версия кита 1\.15\.0, панель работает версией 1\.14\.2\./)
+  // Предупреждение стоит внутри карточки, без отступов раздела «Проблемы баз»
+  expect(await notice.evaluate((el) => getComputedStyle(el).marginLeft)).toBe('0px')
+  expect(puts).toEqual([])
+
+  await notice.getByRole('button', { name: 'Перейти на версию 1.15.0' }).click()
+  await expect(kit.getByText('Панель работает китом версии 1.15.0. Кит установлен плагином Claude Code.')).toBeVisible()
+  await expect(notice).toHaveCount(0)
+  expect(puts).toEqual([{ path: newKit }])
+  await expect(kit.getByLabel('Путь к каталогу кита')).toHaveValue(newKit)
+})
+
 test('оператор выключает и включает уведомления переключателем в «Настройках», а не в шапке', async ({ page }) => {
   await stubPermission(page, 'granted')
   await mockApi(page)

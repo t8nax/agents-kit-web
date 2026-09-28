@@ -2,13 +2,13 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type SyntheticEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import './Modal.css'
@@ -18,20 +18,20 @@ import './PerformerModal.css'
 import './ReplyModal.css'
 import './Flow.css'
 import { AGENT_NAME } from './BacklogWriteModal'
+import { ChoiceMark } from './ChoiceMark'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
-import type { RewrittenStage } from './flowChanges'
+import type { FlowProposal } from './flowChanges'
 import './Tabs.css'
 import { Markdown } from './Markdown'
 import type { BasePerformers } from './Performers'
 import PickMenu, { ChevronDownIcon, ChevronUpIcon } from './PickMenu'
-import { plural } from './plural'
 import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
 import { VsCodeIcon } from './VsCodeIcon'
 
 /**
- * Стадия флоу — файл flow/stages/ базы, один на все флоу, где она стоит. slug — имя файла; у стадии,
+ * Стадия флоу — файл flow/stages/ личного репозитория оператора, один на все флоу, где она стоит. slug — имя файла; у стадии,
  * заведённой в панели и ещё не записанной, его нет.
  */
 export type FlowStage = {
@@ -39,39 +39,48 @@ export type FlowStage = {
   executor: string
   output: string
   skip: string | null
-  /** Описание стадии как в файле: правится текстом в окне описания. */
+  /** Описание этапа как в файле: правится текстом в окне описания. */
   description: string | null
   /** Помощники: исполнители, которых оркестратор зовёт внутри своей стадии. */
   helpers?: string[]
   slug?: string | null
 }
 
-/** Возврат стадии во флоу: при condition работа идёт заново к стадии stage, стоящей в этом флоу раньше. */
-export type StageReturn = { condition: string; stage: string }
+/**
+ * Возврат стадии во флоу: при condition работа идёт заново к стадии stage, стоящей в этом флоу раньше.
+ * rounds — предел кругов: stage прошла столько кругов — вместо возврата вопрос оператору; нет — предела нет.
+ */
+export type StageReturn = { condition: string; stage: string; rounds?: number | null }
 
 /** Пункт флоу: стадия по названию и её возвраты — у той же стадии в другом флоу они свои. */
 export type FlowEntry = { stage: string; returns?: StageReturn[] }
 
 export type NamedFlow = { name: string; when: string | null; entries: FlowEntry[] }
 
+/**
+ * Задача в работе: task — её номер из бэклога, а без номера — заголовок; flow — сценарий, по которому она идёт.
+ * flow null — сценарий не назван или его в проекте нет: такая задача может идти по любому (B-226). named — как
+ * сценарий назван в памяти задачи: по нему видно, назван ли он вовсе.
+ */
+export type FlowTask = { task: string; flow: string | null; named?: string | null }
+
 export type BaseFlow = {
   base: string
   project: string
   stages: FlowStage[]
   flows: NamedFlow[]
-  activeTasks: number
   version: string | null
   error: string | null
   /** Значки стадий, выбранные оператором: название стадии — значок. Их помнит панель, а не база. */
   icons: Record<string, string>
   /**
-   * Строки файлов флоу, которые панель не сохранит: «flow/flow.md, строка 7: «…»». Пока они есть, флоу не
+   * Строки файлов флоу, которые панель не сохранит: «flow/scenarios.md, строка 7: «…»». Пока они есть, флоу не
    * пишется — запись стёрла бы их из базы; правят их руками.
    */
   unread?: string[]
+  /** Задачи в работе: сценарий, по которому идёт задача, и его стадии не правятся (B-226). */
+  tasks?: FlowTask[]
 }
-
-export type StagePreset = FlowStage & { id: string }
 
 type Load =
   | { kind: 'loading' }
@@ -94,7 +103,8 @@ type DraftStage = {
 
 // Пункты и возвраты ссылаются на стадию её key: переименование стадии не рвёт их. stage === null —
 // пункт ведёт на стадию, которой в базе нет, и title хранит, как он назван в файле.
-type DraftReturn = { condition: string; target: number | null }
+// rounds — предел кругов, как набран в поле; null — предела нет.
+type DraftReturn = { condition: string; target: number | null; rounds: string | null }
 type DraftEntry = { key: number; stage: number | null; title: string; returns: DraftReturn[] }
 type DraftFlow = { key: number; name: string; when: string; entries: DraftEntry[] }
 type Draft = { stages: DraftStage[]; flows: DraftFlow[] }
@@ -103,16 +113,15 @@ type Tab = 'stages' | 'flow'
 // Что открыто на вкладке «Сценарии»: окно возвратов стадии — по key пункта, а не месту, место меняется
 // перетаскиванием, — или сайдбар сценария.
 type Opened = { kind: 'returns'; key: number } | { kind: 'flow' } | null
-// Куда вернуть фокус на схеме: блок пункта по key, а null — «Добавить стадию», когда блока уже нет.
-type Focus = { key: number | null } | null
-
-type Notice = { kind: 'done' | 'error'; text: string } | null
+// Куда вернуть фокус на схеме: блок пункта по key, а null — «Добавить этап», когда блока уже нет.
+// start — узел старта: на него встаёт фокус, когда закрыли сайдбар сценария.
+type Focus = { key: number | null; start?: boolean } | null
 
 const kinds: DraftStage['kind'][] = ['оркестратор', 'оператор', 'субагент']
 
 let nextKey = 1
 
-/** Название стадии и имя флоу как адрес — как у сверки кита: подряд идущие пробелы — один, регистр не важен. */
+/** Название этапа и имя флоу как адрес — как у сверки кита: подряд идущие пробелы — один, регистр не важен. */
 const norm = (name: string) => name.replace(/\s+/g, ' ').trim().toLowerCase()
 
 function stageDraft(stage: FlowStage, icon = ''): DraftStage {
@@ -132,24 +141,53 @@ function stageDraft(stage: FlowStage, icon = ''): DraftStage {
   }
 }
 
-function toDraft(flow: BaseFlow): Draft {
-  const stages = flow.stages.map((stage) => stageDraft(stage, flow.icons?.[stage.title] ?? ''))
+/**
+ * Флоу базы в форме. previous — форма, какой её видел оператор до перечитывания: стадия, сценарий и пункт,
+ * которые в ней были, сохраняют свой key. Каждая запись перечитывает флоу, и без этого выбор, открытый
+ * сайдбар и фокус на блоке терялись бы после каждого перетаскивания.
+ */
+function toDraft(flow: BaseFlow, previous: Draft | null = null): Draft {
+  const stages = flow.stages.map((stage) => {
+    const was =
+      previous?.stages.find((one) => stage.slug && one.slug === stage.slug) ??
+      previous?.stages.find((one) => norm(one.title) === norm(stage.title))
+    return { ...stageDraft(stage, flow.icons?.[stage.title] ?? ''), ...(was ? { key: was.key } : {}) }
+  })
   const keyOf = (title: string) => stages.find((stage) => norm(stage.title) === norm(title))?.key ?? null
   return {
     stages,
-    flows: flow.flows.map((f) => ({
-      key: nextKey++,
-      name: f.name,
-      when: f.when ?? '',
-      entries: f.entries.map((entry) => ({
-        key: nextKey++,
-        stage: keyOf(entry.stage),
-        title: entry.stage,
-        returns: (entry.returns ?? []).map((back) => ({ condition: back.condition, target: keyOf(back.stage) })),
-      })),
-    })),
+    flows: flow.flows.map((f) => {
+      const was = previous?.flows.find((one) => norm(one.name) === norm(f.name))
+      const taken = new Set<number>()
+      return {
+        key: was?.key ?? nextKey++,
+        name: f.name,
+        when: f.when ?? '',
+        entries: f.entries.map((entry) => {
+          const stage = keyOf(entry.stage)
+          const same = was?.entries.find((one) => !taken.has(one.key) && stage !== null && one.stage === stage)
+          if (same) taken.add(same.key)
+          return {
+            key: same?.key ?? nextKey++,
+            stage,
+            title: entry.stage,
+            returns: (entry.returns ?? []).map((back) => fromApiReturn(back, keyOf(back.stage))),
+          }
+        }),
+      }
+    }),
   }
 }
+
+function fromApiReturn(back: StageReturn, target: number | null): DraftReturn {
+  return { condition: back.condition, target, rounds: back.rounds == null ? null : String(back.rounds) }
+}
+
+// Предел кругов кит принимает только целым от 1; больше int его не удержит API — та же граница, что при чтении базы.
+const validRounds = (rounds: string) => /^[1-9]\d*$/.test(rounds.trim()) && Number(rounds.trim()) <= 2147483647
+
+// Неверный предел в запись не уходит — его держит ошибка окна; 0 лишь отличает его от «предела нет».
+const roundsOf = (rounds: string) => (validRounds(rounds) ? Number(rounds.trim()) : 0)
 
 function toStage(draft: DraftStage): FlowStage {
   return {
@@ -174,7 +212,11 @@ function toApi(draft: Draft): { stages: FlowStage[]; flows: NamedFlow[] } {
       when: f.when.trim() || null,
       entries: f.entries.map((entry) => ({
         stage: entry.stage === null ? entry.title : titleOf(entry.stage),
-        returns: entry.returns.map((back) => ({ condition: back.condition.trim(), stage: titleOf(back.target) })),
+        returns: entry.returns.map((back) => ({
+          condition: back.condition.trim(),
+          stage: titleOf(back.target),
+          ...(back.rounds === null ? {} : { rounds: roundsOf(back.rounds) }),
+        })),
       })),
     })),
   }
@@ -207,7 +249,7 @@ function stageErrors(stage: DraftStage, stages: DraftStage[], known: string[] | 
   // Название стоит текстом ссылки во флоу и в кавычках возврата: скобки и кавычки его разорвут.
   else if (/[[\]«»]/.test(stage.title)) errors.push('в названии скобки [ ] или кавычки « »')
   else if (stages.some((other) => other.key !== stage.key && norm(other.title) === norm(stage.title)))
-    errors.push('стадия с таким названием уже есть')
+    errors.push('этап с таким названием уже есть')
   if (stage.kind === 'субагент' && !stage.agent.trim()) errors.push('не указано имя субагента')
   // Исполнителя, которого нет в базе, агент не позовёт: с таким именем флоу не сохраняется.
   if (missingPerformer(stage, known)) errors.push('исполнителя нет в базе')
@@ -224,16 +266,18 @@ function stageErrors(stage: DraftStage, stages: DraftStage[], known: string[] | 
 function entryErrors(flow: DraftFlow, index: number) {
   const entry = flow.entries[index]
   const errors: string[] = []
-  if (entry.stage === null) errors.push('стадии нет в базе')
+  if (entry.stage === null) errors.push('этапа нет в базе')
   else if (flow.entries.slice(0, index).some((other) => other.stage === entry.stage))
-    errors.push('стадия уже стоит в этом флоу')
+    errors.push('этап уже стоит в этом флоу')
   for (const back of entry.returns) {
     if (!back.condition.trim()) errors.push('в возврате не указано условие')
     const target = flow.entries.findIndex((other) => back.target !== null && other.stage === back.target)
-    if (target < 0) errors.push('возврат ведёт на стадию, которой во флоу нет')
-    else if (target >= index) errors.push('возврат ведёт на стадию, которая стоит не раньше')
+    if (target < 0) errors.push('возврат ведёт на этап, которого во флоу нет')
+    else if (target >= index) errors.push('возврат ведёт на этап, который стоит не раньше')
+    if (back.rounds !== null && !validRounds(back.rounds)) errors.push('предел кругов — целое число от 1')
   }
-  return errors
+  // Два возврата с одной бедой — одна причина в строке окна, а не две одинаковые.
+  return [...new Set(errors)]
 }
 
 function flowErrors(flow: DraftFlow, flows: DraftFlow[]) {
@@ -244,18 +288,27 @@ function flowErrors(flow: DraftFlow, flows: DraftFlow[]) {
   // «Когда брать» кит требует, как только флоу больше одного: иначе не из чего выбрать.
   if (flows.length > 1 && !flow.when.trim()) errors.push('не указано «когда»')
   else if (breaks(flow.when.trim())) errors.push('«когда» — одна строка')
-  if (flow.entries.length === 0) errors.push('во флоу нет стадий')
+  if (flow.entries.length === 0) errors.push('во флоу нет этапов')
   return errors
 }
 
 const stageName = (stage: DraftStage) => stage.title.trim() || 'без названия'
 const flowName = (flow: DraftFlow) => flow.name.trim() || 'без названия'
 
-/** Первое, из-за чего правки не записать, — словами для полосы сохранения; null — всё годится. */
-function firstProblem(draft: Draft, known: string[] | null): string | null {
+/** Первое, из-за чего флоу не записать, — словами для строки над разделом; null — всё годится. */
+function firstProblem(
+  draft: Draft,
+  known: string[] | null,
+  held: { stage: (key: number) => boolean; flow: (key: number) => boolean } = { stage: () => false, flow: () => false },
+): string | null {
+  // Занятые стадию и сценарий запись не меняет и починить их сейчас нельзя: ошибка, которую видит только панель, —
+  // незаведённый исполнитель или помощник, — остальное не запирает (ревью B-226). Ошибку формы кита проверит и API:
+  // её запись не обойдёт, и о ней лучше знать заранее.
   for (const stage of draft.stages) {
-    const errors = stageErrors(stage, draft.stages, known)
-    if (errors.length > 0) return `стадия «${stageName(stage)}» — ${errors.join(', ')}`
+    const errors = stageErrors(stage, draft.stages, known).filter(
+      (error) => !held.stage(stage.key) || !panelOnly.includes(error),
+    )
+    if (errors.length > 0) return `этап «${stageName(stage)}» — ${errors.join(', ')}`
   }
   for (const flow of draft.flows) {
     const errors = flowErrors(flow, draft.flows)
@@ -263,11 +316,70 @@ function firstProblem(draft: Draft, known: string[] | null): string | null {
     for (let index = 0; index < flow.entries.length; index++) {
       const entryProblems = entryErrors(flow, index)
       if (entryProblems.length > 0)
-        return `флоу «${flowName(flow)}», стадия «${entryTitle(draft, flow.entries[index])}» — ${entryProblems.join(', ')}`
+        return `флоу «${flowName(flow)}», этап «${entryTitle(draft, flow.entries[index])}» — ${entryProblems.join(', ')}`
     }
   }
   return null
 }
+
+/** Почему правка закрыта: tasks — номера задач, которые держат, before и after — фраза вокруг них. */
+type Lock = { before: string; tasks: string[]; after?: string }
+
+/** Причина одной строкой: так её читает программа чтения экрана с карточки стадии. */
+const lockText = (lock: Lock) => [lock.before, lock.tasks.join(', '), lock.after].filter(Boolean).join(' ')
+
+const going = (count: number) => (count === 1 ? 'идёт задача' : 'идут задачи')
+
+/** Задачи, чей сценарий не узнан: они могут идти по любому и закрывают правку всего проекта. */
+function unknownLock(tasks: FlowTask[]): Lock | null {
+  const unknown = tasks.filter((one) => one.flow === null)
+  if (unknown.length === 0) return null
+  // Одну задачу могут назвать две памяти одной базы: номер в строке — один раз.
+  const labels = [...new Set(unknown.map((task) => task.task))]
+  const one = labels.length === 1
+  // Как на макете: задача называет сценарий, которого в проекте нет, — или не называет никакого.
+  const after = unknown.every((task) => task.named)
+    ? one
+      ? 'идёт по сценарию, которого в проекте нет'
+      : 'идут по сценариям, которых в проекте нет'
+    : unknown.every((task) => !task.named)
+      ? one
+        ? 'не называет своего сценария'
+        : 'не называют своих сценариев'
+      : one
+        ? 'идёт по сценарию, которого в проекте нет или который не назван'
+        : 'идут по сценариям, которых в проекте нет или которые не названы'
+  return { before: one ? 'задача' : 'задачи', tasks: labels, after }
+}
+
+/** Сценарий базы занят: по нему идёт задача. Сценарий, которого в базе ещё нет, не занят никем. */
+function flowLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
+  const flow = saved.flows.find((one) => one.key === key)
+  if (!flow) return null
+  const unknown = unknownLock(tasks)
+  if (unknown) return unknown
+  // Одну задачу могут назвать две памяти одной базы: номер в строке — один раз.
+  const held = [...new Set(tasks.filter((one) => one.flow !== null && norm(one.flow) === norm(flow.name)).map((one) => one.task))]
+  return held.length > 0 ? { before: `по нему ${going(held.length)}`, tasks: held } : null
+}
+
+/**
+ * Этап базы занят, если занят хоть один сценарий, где он стоит: он один на все. Новый этап не занят
+ * никем. Фраза называет занятые сценарии.
+ */
+function stageLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
+  if (!saved.stages.some((one) => one.key === key)) return null
+  const unknown = unknownLock(tasks)
+  if (unknown) return unknown
+  const flows = saved.flows.filter((f) => f.entries.some((entry) => entry.stage === key) && flowLock(tasks, saved, f.key))
+  if (flows.length === 0) return null
+  const held = [...new Set(flows.flatMap((f) => flowLock(tasks, saved, f.key)!.tasks))]
+  const names = flows.map((f) => `«${flowName(f)}»`).join(', ')
+  return { before: `по ${flows.length === 1 ? 'сценарию' : 'сценариям'} ${names} ${going(held.length)}`, tasks: held }
+}
+
+/** Ошибки стадии, которых не проверяет API: исполнитель и помощник, которых нет в базе проекта. */
+const panelOnly = ['исполнителя нет в базе', 'помощника нет в базе']
 
 const entryTitle = (draft: Draft, entry: DraftEntry) => {
   const stage = draft.stages.find((s) => s.key === entry.stage)
@@ -286,48 +398,26 @@ function stagesInOrder(draft: Draft): DraftStage[] {
   return [...placed, ...draft.stages.filter((stage) => !keys.includes(stage.key))]
 }
 
-const sameIcons = (a: Record<string, string>, b: Record<string, string>) => {
-  const keys = Object.keys(a)
-  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
-}
-
-/** Стадия без помощников и слага: пресет общий для всех проектов, а помощники — исполнители своего. */
-const presetStage = (stage: FlowStage): FlowStage => ({ ...stage, helpers: [], slug: null })
-
-const samePreset = (a: FlowStage, b: FlowStage) =>
-  a.title === b.title &&
-  a.executor === b.executor &&
-  a.output === b.output &&
-  (a.skip ?? null) === (b.skip ?? null) &&
-  (a.description ?? null) === (b.description ?? null)
-
-/** Имя, которого нет среди флоу: «новый флоу», «новый флоу 2»… */
-function freeName(flows: DraftFlow[]) {
-  for (let n = 1; ; n++) {
-    const name = n === 1 ? 'новый сценарий' : `новый сценарий ${n}`
-    if (!flows.some((flow) => norm(flow.name) === norm(name))) return name
-  }
-}
-
 const emptyStage: FlowStage = { title: '', executor: 'оркестратор', output: '', skip: null, description: null }
 
 const invalidLabels: Record<string, string> = {
-  'stage-empty-title': 'у стадии нет названия',
-  'stage-duplicate-title': 'две стадии с одним названием',
-  'stage-bad-title': 'в названии стадии скобки [ ] или кавычки « »',
-  'stage-empty-executor': 'у стадии не указан исполнитель',
-  'stage-empty-output': 'у стадии не указан выход',
+  'stage-empty-title': 'у этапа нет названия',
+  'stage-duplicate-title': 'два этапа с одним названием',
+  'stage-bad-title': 'в названии этапа скобки [ ] или кавычки « »',
+  'stage-empty-executor': 'у этапа не указан исполнитель',
+  'stage-empty-output': 'у этапа не указан выход',
   'helpers-not-orchestrator': 'помощники не у оркестратора',
   'line-break': 'перевод строки в поле',
   'flow-empty-name': 'у флоу нет названия',
   'flow-duplicate-name': 'два флоу с одним названием',
   'flow-without-when': 'у флоу не указано «когда»',
-  'flow-without-stages': 'во флоу нет стадий',
-  'stage-unknown': 'стадии нет в базе',
-  'stage-twice': 'стадия дважды в одном флоу',
+  'flow-without-stages': 'во флоу нет этапов',
+  'stage-unknown': 'этапа нет в базе',
+  'stage-twice': 'этап дважды в одном флоу',
   'return-without-condition': 'в возврате не указано условие',
-  'return-unknown-stage': 'возврат ведёт на стадию, которой во флоу нет',
-  'return-stage-not-earlier': 'возврат ведёт на стадию, которая стоит не раньше',
+  'return-unknown-stage': 'возврат ведёт на этап, которого во флоу нет',
+  'return-stage-not-earlier': 'возврат ведёт на этап, который стоит не раньше',
+  'return-rounds-invalid': 'предел кругов — целое число от 1',
 }
 
 /**
@@ -342,21 +432,23 @@ export default function Flow({
   baseFor?: string | null
   /**
    * Когда оператор щёлкнул отметку просьбы в шапке: поверх раздела — окно переписывания стадий. Раздел,
-   * уже открытый, не пересоздаётся, а только открывает окно: несохранённые правки остаются на месте.
+   * уже открытый, не пересоздаётся, а только открывает окно: правка в открытом окне остаётся на месте.
    */
   rewriteAt?: number | null
   onPerformers?: () => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [selected, setSelected] = useState<string | null>(baseFor)
-  const [presets, setPresets] = useState<StagePreset[]>([])
   // Заведённые в базах исполнители: из них стадии и выбирают субагента. null — ещё не прочитаны.
   const [performers, setPerformers] = useState<BasePerformers[] | null>(null)
   // Список не прочитан: стадии не метятся и запись не запирается, но сказать об этом оператору надо.
   const [performersFailed, setPerformersFailed] = useState(false)
-  // Правки поверх прочитанного флоу: ключ — база и её отпечаток, поэтому правки чужого
-  // или перечитанного флоу не всплывают.
+  // Правка поверх прочитанного флоу: поля открытого окна или запись, которая ещё идёт. Ключ — база и её
+  // отпечаток: перечитанный после записи флоу правку сменяет сам.
   const [edits, setEdits] = useState<{ key: string; draft: Draft } | null>(null)
+  // Форма, какой она была, когда окно открылось или записало своё, — снимком и отпечатком флоу, при котором снята:
+  // несохранённое в окне — то, чем форма от неё отличается. Флоу перечитан после записи — отсчёт от него.
+  const [baseline, setBaseline] = useState<{ key: string; snap: string } | null>(null)
   const [tab, setTab] = useState<Tab>('flow')
   // Выбранные стадия вкладки «Стадии» и флоу вкладки «Сценарии» — по key, как в форме.
   const [stageKey, setStageKey] = useState<number | null>(null)
@@ -367,46 +459,57 @@ export default function Flow({
   // Пункт сценария, из меню которого открыли правку стадии или описания: на закрытии фокус встаёт на его блок.
   const [origin, setOrigin] = useState<number | null>(null)
   const [focus, setFocus] = useState<Focus>(null)
-  // Выбор до записи — по именам: перечитанный флоу собирается в форму заново, с новыми key.
-  const [keep, setKeep] = useState<{ flow: string | null } | null>(null)
-  // Какое окно открыто поверх раздела: описание стадии, выбор стадии во флоу или переписывание с Чудо-Юдо.
-  const [modal, setModal] = useState<'description' | 'add' | 'rewrite' | null>(rewriteAt !== null ? 'rewrite' : null)
+  // Какое окно открыто поверх раздела: описание стадии, выбор стадии во флоу, новый сценарий или переписывание с Чудо-Юдо.
+  const [modal, setModal] = useState<'description' | 'add' | 'new-flow' | 'rewrite' | null>(
+    rewriteAt !== null ? 'rewrite' : null,
+  )
   const [rewriteSeen, setRewriteSeen] = useState(rewriteAt)
-  const [confirming, setConfirming] = useState(false)
+  // Вопрос поверх окна: удалить стадию или сценарий, закрыть окно без сохранения.
+  const [asking, setAsking] = useState<Asking | null>(null)
+  // Фокус запоминается, пока вопрос ещё не встал: под ним окно запирается, и браузер снимает фокус с поля раньше,
+  // чем вопрос успел бы его увидеть. «Вернуться» отдаёт фокус туда, где набирали.
+  const ask = (question: Omit<Asking, 'back'>) =>
+    setAsking({ ...question, back: document.activeElement as HTMLElement | null })
   const [saving, setSaving] = useState(false)
-  const [notice, setNotice] = useState<Notice>(null)
+  // Почему не прошла запись действия на схеме или переписанных стадий; у окна отказ — в самом окне.
+  const [notice, setNotice] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  // Окно получило отказ, потому что база изменилась или сценарий заняли: флоу перечитается, когда окно закроют, —
+  // раньше перечитанный флоу сбросил бы набранное в нём.
+  const [stale, setStale] = useState(false)
+  // Флоу базы в форме — по отпечатку, с которым прочитан. Перечитанный берёт key стадий, сценариев и пунктов
+  // из формы, какой её видел оператор: так выбор, открытый сайдбар и фокус переживают каждую запись.
+  const [formed, setFormed] = useState<{ key: string; draft: Draft } | null>(null)
 
-  const loadFlows = useCallback(() => {
-    fetch('/api/flow')
-      .then((response) => {
-        if (!response.ok) throw new Error(`Флоу не загрузился: HTTP ${response.status}`)
-        return response.json() as Promise<BaseFlow[]>
-      })
-      .then(
-        (flows) => {
-          setLoad({ kind: 'loaded', flows })
-          // Выбранная база могла уйти из списка — тогда показывается первая.
-          setSelected((current) => (flows.some((f) => f.base === current) ? current : (flows[0]?.base ?? null)))
-        },
-        (e: unknown) =>
-          setLoad({
-            kind: 'failed',
-            message: e instanceof TypeError ? 'Нет связи с API' : String((e as Error).message),
-          }),
-      )
-  }, [])
+  const loadFlows = useCallback(
+    () =>
+      fetch('/api/flow')
+        .then((response) => {
+          if (!response.ok) throw new Error(`Флоу не загрузился: HTTP ${response.status}`)
+          return response.json() as Promise<BaseFlow[]>
+        })
+        .then(
+          (flows) => {
+            setLoad({ kind: 'loaded', flows })
+            // Выбранная база могла уйти из списка — тогда показывается первая.
+            setSelected((current) => (flows.some((f) => f.base === current) ? current : (flows[0]?.base ?? null)))
+          },
+          (e: unknown) =>
+            setLoad({
+              kind: 'failed',
+              message: e instanceof TypeError ? 'Нет связи с API' : String((e as Error).message),
+            }),
+        ),
+    [],
+  )
 
-  // Флоу читается при открытии раздела и пунктом «Обновить», как бэклог.
-  useEffect(loadFlows, [loadFlows])
-
+  // Флоу читается при открытии раздела, после каждой записи и пунктом «Обновить», как бэклог.
   useEffect(() => {
-    fetch('/api/presets')
-      .then((response) => (response.ok ? (response.json() as Promise<StagePreset[]>) : []))
-      .then(setPresets, () => setPresets([]))
-  }, [])
+    void loadFlows()
+  }, [loadFlows])
 
   // Не прочитали список — оставляем null: пустой список пометил бы незаведёнными все стадии разом
-  // и запер бы сохранение флоу из-за временного отказа API.
+  // и запер бы сохранение из-за временного отказа API.
   useEffect(() => {
     fetch('/api/performers')
       .then((response) => (response.ok ? (response.json() as Promise<BasePerformers[]>) : null))
@@ -423,21 +526,25 @@ export default function Flow({
   const project = flow && performers ? (performers.find((p) => p.base === flow.base) ?? null) : null
   const known = performers === null ? null : (project?.performers.map((p) => p.name) ?? [])
 
-  // Флоу базы кладётся в форму: править его можно сразу, отдельного режима правки нет.
+  // Флоу базы кладётся в форму; правят его окна и действия на схеме, и каждая правка пишется сразу.
   const baseKey = flow ? `${flow.base}@${flow.version ?? ''}` : ''
-  const saved = useMemo(
-    () => (flow ? toDraft(flow) : { stages: [], flows: [] }),
-    [baseKey], // eslint-disable-line react-hooks/exhaustive-deps
-  )
+  let saved = formed?.draft ?? noDraft
+  if (formed?.key !== baseKey) {
+    const same = (key: string | undefined) => flow !== null && key?.startsWith(`${flow.base}@`) === true
+    saved = flow ? toDraft(flow, (same(edits?.key) && edits?.draft) || (same(formed?.key) && formed?.draft) || null) : noDraft
+    setFormed({ key: baseKey, draft: saved })
+  }
   const draft = edits?.key === baseKey ? edits.draft : saved
   const setDraft = (next: Draft) => setEdits({ key: baseKey, draft: next })
 
-  const savedApi = useMemo(() => JSON.stringify(toApi(saved)), [saved])
-  const dirty =
-    flow !== null && (JSON.stringify(toApi(draft)) !== savedApi || !sameIcons(toIcons(draft), flow.icons ?? {}))
+  const savedSnapshot = snapshot(saved)
+  // Правка ещё не записана: проект не переключается, а флоу не перечитывается — иначе она пропала бы молча.
+  const dirty = flow !== null && snapshot(draft) !== savedSnapshot
+  // В открытом окне изменили поля: закрыть его молча нельзя.
+  const changed =
+    baseline !== null && snapshot(draft) !== (baseline.key === baseKey ? baseline.snap : savedSnapshot)
   // Отметка в шапке щёлкнута при открытом разделе: окно встаёт поверх, а проект переключается на проект
-  // просьбы, только если переключать нечего терять — как в выборе проекта. С несохранёнными правками окно
-  // остаётся на своём проекте и говорит, что просьба про другой.
+  // просьбы, только если переключать нечего терять — как в выборе проекта.
   if (rewriteAt !== rewriteSeen) {
     setRewriteSeen(rewriteAt)
     if (rewriteAt !== null) {
@@ -448,36 +555,76 @@ export default function Flow({
         setStageKey(null)
         setStageOpen(false)
         setFlowKey(null)
-        setKeep(null)
       }
     }
   }
   const unread = flow?.unread ?? []
-  const problem =
+  // Пока по сценарию идёт задача, ни он, ни его стадии не правятся: окна открываются только для чтения (B-226).
+  const tasks = flow?.tasks ?? []
+  const lockOfFlow = (key: number) => flowLock(tasks, saved, key)
+  const lockOfStage = (key: number) => stageLock(tasks, saved, key)
+  const held = { stage: (key: number) => lockOfStage(key) !== null, flow: (key: number) => lockOfFlow(key) !== null }
+  // Строку, которую панель не воспроизведёт, стёрла бы любая запись. Ошибка формы запирает только ту запись,
+  // после которой она останется во флоу: правка, которая её чинит, — окном или уборкой со схемы — проходит.
+  const cannot = (next: Draft) =>
     unread.length > 0
       ? `в файлах флоу есть строка, которую панель не сохранит, — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
-      : firstProblem(draft, known)
+      : firstProblem(next, known, held)
+  const problem = cannot(draft)
+  const blocked = problem !== null
 
-  // Записанный флоу перечитан с новыми key: выбор находится по имени, а не падает на первый флоу.
-  const currentFlow =
-    draft.flows.find((f) => f.key === flowKey) ??
-    draft.flows.find((f) => keep?.flow != null && norm(f.name) === norm(keep.flow)) ??
-    draft.flows[0] ??
-    null
+  const currentFlow = draft.flows.find((f) => f.key === flowKey) ?? draft.flows[0] ?? null
   // Стадия выбрана, только пока её правят окном: оно открывается вместе с выбором карточки (B-192).
   const currentStage = draft.stages.find((s) => s.key === stageKey) ?? null
+  const currentLock = currentFlow ? lockOfFlow(currentFlow.key) : null
+  const projectLock = unknownLock(tasks)
 
-  const refresh = useCallback(() => {
+  const refresh = () => {
     setNotice(null)
     setLoad({ kind: 'loading' })
-    loadFlows()
-  }, [loadFlows])
+    void loadFlows()
+  }
 
-  const forget = () => {
+  /** Открывается окно правки: то, что в форме сейчас, — точка отсчёта его несохранённого. */
+  const begin = (from: Draft = draft) => {
+    setFailure(null)
+    setBaseline({ key: baseKey, snap: snapshot(from) })
+  }
+
+  /** Окно закрыто: правка, которую оно не записало, выбрасывается. */
+  const end = () => {
+    setBaseline(null)
+    setFailure(null)
     setEdits(null)
-    setOpened(null)
-    setModal(null)
-    setStageOpen(false)
+  }
+
+  /**
+   * Окно без своей точки отсчёта — новый сценарий или описание со схемы — закрыто: уходит только его правка.
+   * Точка отсчёта принадлежит сайдбару, который может стоять открытым рядом, и её закрытие не трогает.
+   */
+  const drop = () => {
+    setFailure(null)
+    setEdits(null)
+  }
+
+  /** Закрыть окно, спросив, если в нём есть несохранённое: what — чьи изменения пропадут. */
+  const leave = (what: string, close: () => void, asked = true) => {
+    // «Отмена» выбрасывает правку без вопроса; крестик и Escape нажимают случайно — они спрашивают (приёмка B-226).
+    if (!changed || !asked) {
+      end()
+      close()
+      return
+    }
+    ask({
+      title: 'Закрыть без сохранения?',
+      text: `Изменения ${what} не будут сохранены.`,
+      cancel: 'Вернуться',
+      confirm: 'Не сохранять',
+      onConfirm: () => {
+        end()
+        close()
+      },
+    })
   }
 
   async function openInVsCode(base: string) {
@@ -488,68 +635,89 @@ export default function Flow({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ base }),
       })
-      if (!response.ok) setNotice({ kind: 'error', text: 'Не удалось открыть флоу в VS Code' })
+      if (!response.ok) setNotice('Не удалось открыть флоу в VS Code')
     } catch {
-      setNotice({ kind: 'error', text: 'Не удалось открыть флоу в VS Code: нет связи с API' })
+      setNotice('Не удалось открыть флоу в VS Code: нет связи с API')
     }
   }
 
-  async function save(target: BaseFlow, next: Draft) {
-    setConfirming(false)
+  /**
+   * Пишет форму в базу и перечитывает флоу; возвращает, почему не записалось, или null. Флоу уходит целиком,
+   * но отличается от базы только сделанной правкой — её API и перепишет. Пока запись идёт, форма уже
+   * показывает правку сделанной.
+   */
+  async function commit(next: Draft, from: Source): Promise<string | null> {
+    if (!flow) return 'Флоу не сохранён'
+    const reason = cannot(next)
+    // Ошибка, которая уже названа над разделом, второй раз не повторяется: действие на схеме просто не записано.
+    // Окну строка над разделом не видна — её закрывает подложка, — и оно называет причину целиком.
+    if (reason)
+      return from === 'action' && reason === problem
+        ? 'Действие не записано: флоу остался бы с ошибкой, названной выше.'
+        : `Не сохранить: ${reason}`
+    setDraft(next)
     setSaving(true)
     setNotice(null)
     try {
       const response = await fetch('/api/flow', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: target.base, version: target.version, ...toApi(next), icons: toIcons(next) }),
+        body: JSON.stringify({ base: flow.base, version: flow.version, ...toApi(next), icons: toIcons(next) }),
       })
       if (response.ok) {
-        setNotice({ kind: 'done', text: 'Флоу сохранён и закоммичен в базу' })
-        setKeep({ flow: currentFlow?.name ?? null })
-        setOpened(null)
-        loadFlows()
-        return
+        // Записанное — новая точка отсчёта открытого окна: сайдбар остаётся открытым и дальше считает свои правки.
+        setBaseline((was) => was && { key: baseKey, snap: snapshot(next) })
+        await loadFlows()
+        return null
       }
       const body = (await response.json().catch(() => null)) as RejectedBody | null
-      setNotice({ kind: 'error', text: saveError(response.status, body) })
+      // Занятое и изменённое в базе видно только в перечитанном флоу: замок встанет сам. У окна флоу
+      // перечитывается, когда его закроют, — иначе пропало бы набранное в нём.
+      if (response.status === 409) {
+        if (from === 'window') setStale(true)
+        else await loadFlows()
+      }
+      return saveError(response.status, body, from)
     } catch {
-      setNotice({ kind: 'error', text: 'Флоу не сохранён: нет связи с API' })
+      return 'Флоу не сохранён: нет связи с API'
     } finally {
       setSaving(false)
     }
   }
 
-  async function saveAsPreset(stage: FlowStage) {
-    try {
-      const response = await fetch('/api/presets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(stage),
-      })
-      if (!response.ok) throw new Error()
-      const preset = (await response.json()) as StagePreset
-      setPresets((current) => (current.some((p) => p.id === preset.id) ? current : [...current, preset]))
-    } catch {
-      setNotice({ kind: 'error', text: 'Пресет не сохранён' })
+  /** Действие без окна пишется сразу; не записалось — схема возвращается к базе, а отказ назван над ней. */
+  async function act(next: Draft) {
+    if (saving) return
+    const failed = await commit(next, 'action')
+    if (failed) {
+      setEdits(null)
+      setNotice(failed)
     }
   }
 
-  async function removePreset(preset: StagePreset) {
-    try {
-      const response = await fetch(`/api/presets/${encodeURIComponent(preset.id)}`, { method: 'DELETE' })
-      if (!response.ok && response.status !== 404) throw new Error()
-      setPresets((current) => current.filter((p) => p.id !== preset.id))
-    } catch {
-      setNotice({ kind: 'error', text: 'Пресет не удалён' })
+  /**
+   * «Сохранить» окна: записалось — окно закрывается, а форма показывает записанное, пока флоу не перечитан;
+   * не записалось — окно остаётся с правкой и называет отказ у себя.
+   */
+  async function keep(next: Draft, close: () => void) {
+    if (saving) return false
+    setFailure(null)
+    const failed = await commit(next, 'window')
+    if (failed) {
+      setFailure(failed)
+      return false
     }
+    close()
+    return true
   }
 
   const updateStage = (key: number, patch: Partial<DraftStage>) =>
     setDraft({ ...draft, stages: draft.stages.map((stage) => (stage.key === key ? { ...stage, ...patch } : stage)) })
 
-  const updateFlow = (key: number, change: (flow: DraftFlow) => DraftFlow) =>
-    setDraft({ ...draft, flows: draft.flows.map((f) => (f.key === key ? change(f) : f)) })
+  const withFlow = (from: Draft, key: number, change: (flow: DraftFlow) => DraftFlow) => ({
+    ...from,
+    flows: from.flows.map((f) => (f.key === key ? change(f) : f)),
+  })
 
   const addStage = (stage: FlowStage) => {
     const added = stageDraft(stage)
@@ -557,25 +725,59 @@ export default function Flow({
   }
 
   /**
-   * Правки Чудо-Юдо ложатся на стадии черновика: переписанная сохраняет key, и пункты сценариев и возвраты,
-   * которые ссылаются на неё key, идут за новым названием сами — как при ручном переименовании. Новая стадия
-   * встаёт в конец вкладки «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
+   * Правки Чудо-Юдо ложатся на флоу базы и пишутся сразу одной записью (B-242). Переписанный этап сохраняет key,
+   * и пункты сценариев и возвраты, которые ссылаются на него key, идут за новым названием сами — как при ручном
+   * переименовании; удалённый уходит. Сценарий агента ссылается на этапы названиями: они становятся key этапов
+   * с правками. Не записалось — форма возвращается к базе, а причину называет окно, где остаётся переписка.
    */
-  const applyRewritten = (rewritten: RewrittenStage[]) => {
-    let stages = draft.stages
-    for (const { of, stage } of rewritten) {
-      const fields = stageDraft(stage)
+  const applyProposal = async (proposal: FlowProposal) => {
+    // Запись пишет флоу базы и сбросила бы набранное в открытом окне или сайдбаре молча: сначала его судьба (ревью B-226).
+    if (changed)
+      return `Правки не записаны: ${
+        opened?.kind === 'flow' ? 'в боковой панели сценария' : 'в открытом окне'
+      } несохранённая правка. Закройте это окно, сохраните или отмените правку и примите правки снова.`
+    if (saving) return 'Флоу ещё записывается: примите правки, когда запись закончится.'
+
+    let stages = saved.stages
+    // Прежнее название переписанного этапа — его key: пункт сценария агента мог назвать этап и так.
+    const renamed = new Map<string, number>()
+    for (const { of, stage } of proposal.stages) {
       const was = of == null ? undefined : stages.find((one) => norm(one.title) === norm(of))
-      stages = was
-        ? stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
-        : [...stages, { ...fields, slug: null }]
+      if (!stage) {
+        if (was) stages = stages.filter((one) => one !== was)
+        continue
+      }
+      const fields = stageDraft(stage)
+      if (was) {
+        renamed.set(norm(was.title), was.key)
+        stages = stages.map((one) => (one === was ? { ...fields, key: was.key, slug: was.slug, icon: was.icon } : one))
+      } else stages = [...stages, { ...fields, slug: null }]
     }
-    setDraft({ ...draft, stages })
-    setModal(null)
-    if (rewritten.some((one) => one.of == null)) {
-      setTab('stages')
-      setOpened(null)
+
+    const keyOf = (title: string) =>
+      stages.find((stage) => norm(stage.title) === norm(title))?.key ?? renamed.get(norm(title)) ?? null
+    const toDraftFlow = (named: NamedFlow, key: number): DraftFlow => ({
+      key,
+      name: named.name,
+      when: named.when ?? '',
+      entries: named.entries.map((entry) => ({
+        key: nextKey++,
+        stage: keyOf(entry.stage),
+        title: entry.stage,
+        returns: (entry.returns ?? []).map((back) => fromApiReturn(back, keyOf(back.stage))),
+      })),
+    })
+    let flows = saved.flows
+    for (const { of, flow } of proposal.scenarios) {
+      const was = of == null ? undefined : flows.find((one) => norm(one.name) === norm(of))
+      if (!flow) flows = flows.filter((one) => one !== was)
+      else if (was) flows = flows.map((one) => (one === was ? toDraftFlow(flow, was.key) : one))
+      else flows = [...flows, toDraftFlow(flow, nextKey++)]
     }
+
+    const failed = await commit({ stages, flows }, 'rewrite')
+    if (failed) setEdits(null)
+    return failed
   }
 
   // Значок стадии в окне переписывания — тот же, что на её карточке.
@@ -589,65 +791,135 @@ export default function Flow({
     )
   }
 
-  // Новая стадия на вкладке «Стадии»: во флоу её ставят уже со вкладки «Сценарии».
+  const openStage = (key: number) => {
+    begin()
+    setStageKey(key)
+    setStageOpen(true)
+  }
+
+  // Окно нового сценария открывается без чужого отказа: прошлый мог остаться от сайдбара.
+  const newFlow = () => {
+    setFailure(null)
+    setModal('new-flow')
+  }
+
+  // Новый этап на вкладке «Этапы» — пустым окном; в базу он уходит его «Сохранить».
   const newStage = () => {
     const { added, stages } = addStage(emptyStage)
-    setDraft({ ...draft, stages })
+    const next = { ...draft, stages }
+    setDraft(next)
+    begin(next)
     setStageKey(added.key)
     setStageOpen(true)
   }
 
-  const newFlow = () => {
-    const created: DraftFlow = { key: nextKey++, name: freeName(draft.flows), when: '', entries: [] }
-    setDraft({ ...draft, flows: [...draft.flows, created] })
-    setFlowKey(created.key)
-    setTab('flow')
-    setOpened({ kind: 'flow' })
-  }
-
-  /** Стадия встаёт в конец флоу: своя стадия базы, новая пустая или из пресета — две последних заводятся в базе. */
-  const placeStage = (target: DraftFlow, choice: { stage: number } | { preset: FlowStage } | 'new') => {
+  /** Стадия встаёт в конец флоу: стадия базы — сразу записью, новая — окном, которое запишет её вместе с местом. */
+  const placeStage = (target: DraftFlow, choice: { stage: number } | 'new') => {
     const entry = (stage: number): DraftEntry => ({ key: nextKey++, stage, title: '', returns: [] })
-    const withEntry = (flowsOf: DraftFlow[], stage: number) =>
-      flowsOf.map((f) => (f.key === target.key ? { ...f, entries: [...f.entries, entry(stage)] } : f))
-
-    if (typeof choice === 'object' && 'stage' in choice) {
-      const placed = entry(choice.stage)
-      setDraft({ ...draft, flows: draft.flows.map((f) => (f.key === target.key ? { ...f, entries: [...f.entries, placed] } : f)) })
-      setFocus({ key: placed.key })
-    } else {
-      const { added, stages } = addStage(choice === 'new' ? emptyStage : choice.preset)
-      const next = { stages, flows: withEntry(draft.flows, added.key) }
-      setDraft(next)
-      if (choice === 'new') {
-        // Новую стадию ещё заполнять: её правка — на вкладке «Стадии».
-        setStageKey(added.key)
-        setStageOpen(true)
-        setTab('stages')
-      } else {
-        const placed = next.flows.find((f) => f.key === target.key)!.entries.at(-1)!
-        setFocus({ key: placed.key })
-      }
-    }
     setModal(null)
+    if (choice !== 'new') {
+      const placed = entry(choice.stage)
+      setFocus({ key: placed.key })
+      void act(withFlow(draft, target.key, (f) => ({ ...f, entries: [...f.entries, placed] })))
+      return
+    }
+    const { added, stages } = addStage(emptyStage)
+    const next = withFlow({ ...draft, stages }, target.key, (f) => ({ ...f, entries: [...f.entries, entry(added.key)] }))
+    setDraft(next)
+    begin(next)
+    // Новую стадию ещё заполнять: её правка — на вкладке «Стадии».
+    setStageKey(added.key)
+    setStageOpen(true)
+    setTab('stages')
   }
+
+  const closeStage = () => {
+    setBaseline(null)
+    setStageOpen(false)
+    setStageKey(null)
+  }
+
+  const deleteStage = (stage: DraftStage) =>
+    ask({
+      title: `Удалить этап «${stageName(stage)}»?`,
+      cancel: 'Отмена',
+      confirm: 'Удалить',
+      onConfirm: () => void keep({ ...saved, stages: saved.stages.filter((one) => one.key !== stage.key) }, closeStage),
+    })
+
+  const deleteFlow = (target: DraftFlow) =>
+    ask({
+      title: `Удалить сценарий «${flowName(target)}»?`,
+      cancel: 'Отмена',
+      confirm: 'Удалить',
+      onConfirm: () =>
+        void keep({ ...saved, flows: saved.flows.filter((f) => f.key !== target.key) }, () => {
+          setBaseline(null)
+          setFlowKey(null)
+          setOpened(null)
+        }),
+    })
+
+  // Окно с отказом закрыто — флоу перечитывается, и открытое заново окно покажет то, что сейчас в базе.
+  const windowOpen = stageOpen || modal === 'description' || modal === 'new-flow' || opened !== null
+  useEffect(() => {
+    if (!stale || windowOpen) return
+    void loadFlows().then(() => setStale(false))
+  }, [stale, windowOpen, loadFlows])
 
   const editable = flow !== null && !flow.error
   // Нет сценариев или стадий — пустое состояние только на своей вкладке: переключатель и другая вкладка остаются (B-222).
   const noFlows = editable && draft.flows.length === 0
   const noStages = editable && draft.stages.length === 0
-  // Открыто окно поверх раздела: верх, схема и полоса под подложкой недоступны — Tab не уходит из окна.
+  // Открыто окно поверх раздела: верх и схема под подложкой недоступны — Tab не уходит из окна.
   // Окно переписывания у непрочитанного флоу не встаёт — и верх раздела не запирает: проект можно сменить или обновить.
-  const covered =
-    stageOpen || modal === 'description' || (modal === 'rewrite' && editable) || opened?.kind === 'returns'
+  const overlaid =
+    stageOpen ||
+    modal === 'description' ||
+    modal === 'new-flow' ||
+    (modal === 'rewrite' && editable) ||
+    opened?.kind === 'returns' ||
+    asking !== null
+  // Сайдбар с правкой: схема, выбор сценария и шапка доступны, но первое действие на них закрывает сайдбар, спросив
+  // о несохранённом, — действие на схеме пишется сразу и унесло бы и его правку. Сам сайдбар при этом рабочий
+  // (решение оператора на приёмке B-226).
+  // Сайдбар закрыт своей кнопкой или клавишей — фокус на узле старта, с которого его открыли: поле сайдбара, где он
+  // был, уже ушло. Закрытый щелчком по шапке или схеме, он фокус не трогает: тот остаётся на том, что нажали.
+  const closeDrawer = () => {
+    setOpened(null)
+    setFocus({ key: null, start: true })
+  }
+  // Пока правка сайдбара пишется, спрашивать о ней нечего: она уже уходит в базу, а шапка и схема ждут записи.
+  const guard =
+    opened?.kind === 'flow' && changed && currentFlow && !saving
+      ? () => leave(`сценария «${flowName(currentFlow)}»`, () => setOpened(null))
+      : null
   // Со схемы правка стадии задевает все сценарии, где она стоит: окна говорят об этом, если сценарий не один.
   const scope = tab === 'flow' && currentStage ? scopeWarning(draft, currentStage.key) : null
   const backToBlock = () => origin !== null && setFocus({ key: origin })
+  const stageWindow = currentStage && {
+    stage: currentStage,
+    draft,
+    known,
+    covered: modal === 'description' || asking !== null,
+    lock: lockOfStage(currentStage.key),
+    saving,
+    blocked,
+    changed,
+    failure,
+    onPerformers,
+    onClose: () => leave(`этапа «${stageName(currentStage)}»`, closeStage),
+    onCancel: () => leave(`этапа «${stageName(currentStage)}»`, closeStage, false),
+    onSave: () => void keep(draft, closeStage),
+    onChange: (patch: Partial<DraftStage>) => updateStage(currentStage.key, patch),
+    onEditDescription: () => setModal('description'),
+    onDelete: () => deleteStage(currentStage),
+  }
 
   return (
     <>
-      {/* Пока открыто окно, верх раздела и полоса под подложкой недоступны: окно запирает Tab. */}
-      <div className="vc-head" inert={covered}>
+      {/* Пока открыто окно, верх раздела под подложкой недоступен: окно запирает Tab. */}
+      <div className="vc-head" inert={overlaid} {...intercept(guard)}>
         <h2>Флоу</h2>
         <div className="head-end flow-actions">
           {editable && (
@@ -665,7 +937,7 @@ export default function Flow({
                       setOpened(null)
                     }}
                   >
-                    {one === 'stages' ? 'Стадии' : 'Сценарии'}
+                    {one === 'stages' ? 'Этапы' : 'Сценарии'}
                   </button>
                 ))}
               </div>
@@ -685,8 +957,9 @@ export default function Flow({
               value={flow?.project ?? ''}
               options={flows.map((f) => ({ id: f.base, label: f.project }))}
               selected={selected}
-              // Правка идёт по флоу одной базы: пока она не записана, проект не переключается.
-              disabled={dirty}
+              // Правка идёт по флоу одной базы: пока она не записана, проект не переключается. Правка сайдбара
+              // выбор не гасит: первый щелчок по нему закрывает сайдбар с вопросом, как и по схеме.
+              disabled={dirty && (!guard || saving)}
               onPick={(base) => {
                 setSelected(base)
                 // Выбор проекта доступен поверх окна переписывания, только если оно не встало: забыть и его.
@@ -695,15 +968,13 @@ export default function Flow({
                 setStageKey(null)
                 setStageOpen(false)
                 setFlowKey(null)
-                setKeep(null)
               }}
             />
           )}
           <RowMenu label="Ещё действия" title="Ещё действия" buttonClassName="bases-btn head-more">
             {(close) => (
               <>
-                {/* Правки агента ложатся в черновик поверх несохранённых: стадии он получает такими, как на экране.
-                    Вкладка «Стадии» видна и без сценариев, поэтому пункт есть и у проекта без них (B-222). */}
+                {/* Вкладка «Стадии» видна и без сценариев, поэтому пункт есть и у проекта без них (B-222). */}
                 {editable && (
                   <button
                     type="button"
@@ -722,7 +993,7 @@ export default function Flow({
                   type="button"
                   role="menuitem"
                   className="row-menu-item"
-                  // Обновление перечитает базу: незаписанные правки оно бы стёрло молча.
+                  // Обновление перечитает базу: незаписанную правку оно бы стёрло молча.
                   disabled={load.kind === 'loading' || dirty}
                   onClick={() => {
                     close()
@@ -760,14 +1031,29 @@ export default function Flow({
         </p>
       )}
       {notice && (
-        <p className={`message ${notice.kind === 'done' ? 'flow-done' : 'warning-text'}`} role="status">
-          {notice.text}
+        <p className="message warning-text" role="status">
+          {notice}
+        </p>
+      )}
+      {/* Строка о занятом: на вкладке «Сценарии» — у занятого сценария, а задача с неузнанным сценарием закрывает
+          весь проект — о ней строка и на вкладке «Этапы» (макет B-226). */}
+      {editable && (tab === 'flow' ? currentLock : projectLock) && (
+        <LockLine
+          lock={(tab === 'flow' ? currentLock : projectLock)!}
+          what={projectLock ? 'Правка этапов и сценариев закрыта' : 'Правка сценария закрыта'}
+        />
+      )}
+      {/* Флоу, который уже нельзя записать, называет причину: строку, которую панель не воспроизведёт, — запись
+          стёрла бы её, — или ошибку формы кита. Пока её не поправили, записи не пройдут. */}
+      {editable && problem && (
+        <p className="message warning-text" role="status">
+          Не сохранить: {problem}
         </p>
       )}
       {/* Без списка исполнителей стадии не помечаются и запись не запирается — сказать, отчего так. */}
       {performersFailed && (
         <p className="message warning-text" role="status">
-          Список исполнителей не прочитан: имена стадий панель не проверяет, пока раздел не откроют заново.
+          Список исполнителей не прочитан: имена этапов панель не проверяет, пока раздел не откроют заново.
         </p>
       )}
 
@@ -784,14 +1070,15 @@ export default function Flow({
       )}
 
       {load.kind === 'loaded' && (
-        <div className={withReveal('flow-body', reveal)} onAnimationEnd={reveal.onAnimationEnd}>
+        // Пока запись идёт, раздел занят: действие на схеме, начатое поверх неё, шло бы от флоу, который вот-вот сменится.
+        <div className={withReveal('flow-body', reveal)} aria-busy={saving} onAnimationEnd={reveal.onAnimationEnd}>
           {noFlows && tab === 'flow' && (
             <div className="flow-empty">
               <span className="flow-empty-mark" aria-hidden="true">
                 <FlowIcon />
               </span>
               <h3>В этом проекте нет сценариев</h3>
-              <p>Сценарий — цепочка стадий, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
+              <p>Сценарий — цепочка этапов, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
               <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
                 <PlusIcon />
                 Создать первый сценарий
@@ -804,11 +1091,11 @@ export default function Flow({
               <span className="flow-empty-mark" aria-hidden="true">
                 <FlowIcon />
               </span>
-              <h3>В этом проекте нет стадий</h3>
-              <p>Стадия — шаг работы над задачей: кто его делает и что должно получиться. Сценарии собираются из стадий.</p>
+              <h3>В этом проекте нет этапов</h3>
+              <p>Этап — шаг работы над задачей: кто его делает и что должно получиться. Сценарии собираются из этапов.</p>
               <button type="button" className="bases-btn bases-btn-primary" onClick={newStage}>
                 <PlusIcon />
-                Создать первую стадию
+                Создать первый этап
               </button>
             </div>
           )}
@@ -818,25 +1105,11 @@ export default function Flow({
               draft={draft}
               current={currentStage}
               known={known}
-              presets={presets}
               open={stageOpen}
-              covered={modal === 'description'}
-              onPerformers={onPerformers}
-              onSelect={(key) => {
-                setStageKey(key)
-                setStageOpen(true)
-              }}
-              onClose={() => setStageOpen(false)}
+              lockOf={lockOfStage}
+              window={stageWindow}
+              onSelect={openStage}
               onNew={newStage}
-              onChange={(patch) => currentStage && updateStage(currentStage.key, patch)}
-              onEditDescription={() => setModal('description')}
-              onSaveAsPreset={() => currentStage && void saveAsPreset(presetStage(toStage(currentStage)))}
-              onDelete={() => {
-                if (!currentStage) return
-                setDraft({ ...draft, stages: draft.stages.filter((stage) => stage.key !== currentStage.key) })
-                setStageKey(null)
-                setStageOpen(false)
-              }}
             />
           )}
 
@@ -846,21 +1119,55 @@ export default function Flow({
               flow={currentFlow}
               opened={opened}
               known={known}
-              covered={covered}
+              overlaid={overlaid}
+              guard={guard}
+              busy={saving || unread.length > 0 || currentLock !== null}
+              locked={currentLock !== null}
               focus={focus}
+              drawer={{
+                lock: currentLock,
+                saving,
+                blocked,
+                changed,
+                failure,
+                onChange: (patch) => setDraft(withFlow(draft, currentFlow.key, (f) => ({ ...f, ...patch }))),
+                onSave: () => void keep(draft, () => undefined),
+                onCancel: () => leave(`сценария «${flowName(currentFlow)}»`, closeDrawer, false),
+                onClose: () => leave(`сценария «${flowName(currentFlow)}»`, closeDrawer),
+                onDelete: () => deleteFlow(currentFlow),
+              }}
               onFocus={setFocus}
               onPick={(key) => {
                 setFlowKey(key)
                 setOpened(null)
               }}
               onNew={newFlow}
-              onOpen={setOpened}
-              onChange={(change) => updateFlow(currentFlow.key, change)}
+              onOpen={(next) => {
+                if (next) begin()
+                else setBaseline(null)
+                setOpened(next)
+              }}
+              onChange={(change) => void act(withFlow(draft, currentFlow.key, change))}
+              returns={{
+                lock: currentLock,
+                saving,
+                blocked,
+                changed,
+                failure,
+                onChange: (key, patch) =>
+                  setDraft(
+                    withFlow(draft, currentFlow.key, (f) => ({
+                      ...f,
+                      entries: f.entries.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)),
+                    })),
+                  ),
+                onSave: (close) => void keep(draft, close),
+                onCancel: (title, close, asked) => leave(`возвратов этапа «${title}»`, close, asked),
+              }}
               // Правка стадии и её описания со схемы — окнами поверх сценария, вкладка не меняется (B-202).
               onEditStage={(entry, key) => {
                 setOrigin(entry)
-                setStageKey(key)
-                setStageOpen(true)
+                openStage(key)
               }}
               onEditDescription={(entry, key) => {
                 setOrigin(entry)
@@ -868,33 +1175,13 @@ export default function Flow({
                 setModal('description')
               }}
               onAdd={() => setModal('add')}
-              onDelete={() => {
-                setDraft({ ...draft, flows: draft.flows.filter((f) => f.key !== currentFlow.key) })
-                setFlowKey(null)
-                setOpened(null)
-              }}
             />
           )}
         </div>
       )}
 
-      {editable && tab === 'flow' && stageOpen && currentStage && (
-        <StageModal
-          stage={currentStage}
-          draft={draft}
-          known={known}
-          presets={presets}
-          covered={modal === 'description'}
-          warning={scope}
-          onPerformers={onPerformers}
-          onClose={() => setStageOpen(false)}
-          onReturnFocus={backToBlock}
-          onChange={(patch) => updateStage(currentStage.key, patch)}
-          onEditDescription={() => setModal('description')}
-          onSaveAsPreset={() => void saveAsPreset(presetStage(toStage(currentStage)))}
-          // Стадия на схеме стоит во флоу, и «Удалить стадию» в окне погашена: удалять здесь нечего.
-          onDelete={() => undefined}
-        />
+      {editable && tab === 'flow' && stageOpen && stageWindow && (
+        <StageModal {...stageWindow} warning={scope} onReturnFocus={backToBlock} />
       )}
 
       {modal === 'description' && currentStage && (
@@ -902,12 +1189,35 @@ export default function Flow({
           title={currentStage.title}
           description={currentStage.description}
           warning={scope}
+          lock={lockOfStage(currentStage.key)}
+          saving={saving}
+          blocked={blocked}
+          covered={asking !== null}
           onClose={() => {
             setModal(null)
+            // Открытое из меню на схеме описание — само себе окно: его незаписанная правка уходит вместе с ним, иначе
+            // её записало бы следующее действие на схеме. Открытое из окна стадии оставляет правку тому окну.
+            if (!stageOpen) drop()
             // Описание, открытое из окна правки, возвращает фокус окну; открытое из меню — блоку на схеме.
             if (tab === 'flow' && !stageOpen) backToBlock()
           }}
-          onDone={(description) => updateStage(currentStage.key, { description })}
+          onAsk={(close) =>
+            ask({
+              title: 'Закрыть без сохранения?',
+              text: `Изменения описания этапа «${stageName(currentStage)}» не будут сохранены.`,
+              cancel: 'Вернуться',
+              confirm: 'Не сохранять',
+              onConfirm: close,
+            })
+          }
+          // Описание пишется вместе со стадией: открытое из окна правки, оно уносит и её несохранённые поля.
+          onSave={async (description) => {
+            const next = { ...draft, stages: draft.stages.map((s) => (s.key === currentStage.key ? { ...s, description } : s)) }
+            const failed = await commit(next, 'window')
+            // Набранное живёт в поле окна описания: не записанное, оно не остаётся в форме раздела.
+            if (failed) setDraft(draft)
+            return failed
+          }}
         />
       )}
 
@@ -915,13 +1225,18 @@ export default function Flow({
         <FlowRewriteModal
           base={flow.base}
           project={flow.project}
-          stages={draft.stages.map(toStage)}
+          stages={toApi(saved).stages}
+          flows={toApi(saved).flows}
           mark={stageMark}
-          scope={(title) => {
-            const stage = draft.stages.find((one) => norm(one.title) === norm(title))
-            return stage ? scopeWarning(draft, stage.key) : null
+          lockedStage={(title) => {
+            const stage = saved.stages.find((one) => norm(one.title) === norm(title))
+            return (stage && lockOfStage(stage.key)?.tasks) || null
           }}
-          onApply={applyRewritten}
+          lockedFlow={(name) => {
+            const named = saved.flows.find((one) => norm(one.name) === norm(name))
+            return (named && lockOfFlow(named.key)?.tasks) || null
+          }}
+          onApply={applyProposal}
           onClose={() => setModal(null)}
         />
       )}
@@ -930,62 +1245,126 @@ export default function Flow({
         <AddStage
           flow={currentFlow}
           stages={draft.stages.filter((stage) => !currentFlow.entries.some((entry) => entry.stage === stage.key))}
-          presets={presets}
           onCancel={() => setModal(null)}
           onPick={(choice) => placeStage(currentFlow, choice)}
-          onRemovePreset={(preset) => void removePreset(preset)}
         />
       )}
 
-      {/* Полоса сохранения стоит внизу раздела и видна при правках — вариант оператора, — а ещё когда флоу
-          в базе уже сломан: иначе не видно, почему его не сохранить. */}
-      {editable && (dirty || problem) && (
-        <div className="save-bar" inert={covered}>
-          <div className="save-bar-state">
-            {dirty && <span className="flow-dirty">есть несохранённые правки</span>}
-            {problem && <span className="flow-blocked">Не сохранить: {problem}</span>}
-          </div>
-          {dirty && (
-            <button
-              type="button"
-              className="bases-btn"
-              disabled={saving}
-              onClick={() => {
-                setNotice(null)
-                forget()
-              }}
-            >
-              Отменить правки
-            </button>
-          )}
-          <button
-            type="button"
-            className="bases-btn bases-btn-primary"
-            disabled={saving || !dirty || problem !== null}
-            onClick={() => (flow.activeTasks > 0 ? setConfirming(true) : void save(flow, draft))}
-          >
-            {saving ? 'Сохранение…' : 'Сохранить'}
-          </button>
-        </div>
+      {modal === 'new-flow' && flow && (
+        <NewFlowModal
+          project={flow.project}
+          draft={saved}
+          saving={saving}
+          blocked={unread.length > 0}
+          failure={failure}
+          covered={asking !== null}
+          onAsk={(close) =>
+            ask({
+              title: 'Закрыть без сохранения?',
+              text: 'Новый сценарий не будет сохранён.',
+              cancel: 'Вернуться',
+              confirm: 'Не сохранять',
+              onConfirm: close,
+            })
+          }
+          onClose={() => {
+            // Сценарий, который не записался, уходит вместе с окном: иначе его записало бы следующее действие.
+            drop()
+            setModal(null)
+          }}
+          onSave={(created, earlier) =>
+            void keep(
+              {
+                ...saved,
+                flows: [
+                  ...saved.flows.map((f) => (earlier && f.key === earlier.key ? { ...f, when: earlier.when } : f)),
+                  created,
+                ],
+              },
+              () => {
+                setModal(null)
+                setFlowKey(created.key)
+                setTab('flow')
+                setOpened(null)
+              },
+            )
+          }
+        />
       )}
 
-      {confirming && flow && (
-        <ConfirmSave flow={flow} onCancel={() => setConfirming(false)} onConfirm={() => void save(flow, draft)} />
-      )}
+      {asking && <ConfirmDialog asking={asking} onClose={() => setAsking(null)} />}
     </>
   )
 }
 
+const noDraft: Draft = { stages: [], flows: [] }
+
+/**
+ * Перехват действий в части раздела: пока guard задан, щелчок по кнопке, вкладке или пункту списка, меню,
+ * перетаскивание и нажатие Enter, пробела или клавиши меню на них не доходят до цели, а зовут guard. Щелчок в пустое
+ * место и Tab проходят как обычно.
+ */
+function intercept(guard: (() => void) | null) {
+  if (!guard) return {}
+  const acts = (event: SyntheticEvent) =>
+    (event.target as Element).closest?.('button, [role="option"], [role="tab"], [role="menuitem"], [draggable="true"]') != null
+  const stop = (event: SyntheticEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    guard()
+  }
+  return {
+    onClickCapture: (event: SyntheticEvent) => acts(event) && stop(event),
+    onContextMenuCapture: (event: SyntheticEvent) => acts(event) && stop(event),
+    onDragStartCapture: stop,
+    onKeyDownCapture: (event: KeyboardEvent) => {
+      const key = event.key === 'Enter' || event.key === ' ' || event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)
+      if (key && acts(event)) stop(event)
+    },
+  }
+}
+
+/** Форма, как её запишет API, вместе со значками: по этому снимку видно, изменилось ли что-то. */
+const snapshot = (draft: Draft) => JSON.stringify([toApi(draft), toIcons(draft)])
+
+/** Вопрос поверх окна: title — сам вопрос, confirm — кнопка, которая делает, cancel — которая оставляет как было. */
+type Asking = {
+  title: string
+  text?: string
+  cancel: string
+  confirm: string
+  onConfirm: () => void
+  /** Куда вернуть фокус, когда вопрос закроют. */
+  back?: HTMLElement | null
+}
+
 type RejectedBody = { problem?: string; flow?: string | null; stage?: string | null; detail?: string | null }
 
-function saveError(status: number, body: RejectedBody | null) {
+/** Откуда запись: окно со своими полями, действие на схеме или принятые правки Чудо-Юдо. */
+type Source = 'window' | 'action' | 'rewrite'
+
+function saveError(status: number, body: RejectedBody | null, from: Source) {
+  // Задача пошла по сценарию, пока его правили: запись отклонена, а флоу перечитан, и замок уже стоит.
+  // Окно своё перечитает, когда его закроют; действие и правки агента перечитали флоу сразу.
+  const reread = from === 'window' ? ' Закройте окно — раздел перечитает флоу, когда все окна будут закрыты.' : ''
+  if (status === 409 && body?.problem === 'busy') {
+    const count = (body.detail ?? '').split(',').filter((one) => one.trim()).length
+    const one = count === 1
+    return body.flow
+      ? `Флоу не сохранён: по сценарию «${body.flow}» ${going(count)} ${body.detail ?? ''}. Пока ${one ? 'она' : 'они'} в работе, сценарий и его этапы не правятся.${reread}`
+      : `Флоу не сохранён: ${one ? 'задача' : 'задачи'} ${body.detail ?? ''} ${one ? 'идёт' : 'идут'} по сценарию, которого панель не узнала. Пока ${one ? 'она' : 'они'} в работе, этапы и сценарии проекта не правятся.${reread}`
+  }
   if (status === 409)
-    return 'Флоу не сохранён: флоу изменился в базе, пока вы его правили. Отмените правки и обновите флоу.'
+    return from === 'window'
+      ? 'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения — раздел перечитает флоу, когда все окна будут закрыты, и правку можно будет сделать заново.'
+      : from === 'rewrite'
+        ? `Флоу не сохранён: его изменили в базе, пока ${AGENT_NAME} работал. Раздел перечитал флоу — примите правки ещё раз.`
+        : 'Флоу не сохранён: его изменили в базе. Раздел перечитал флоу — повторите действие.'
   // Страховка: при том же отпечатке такие строки уже пришли с флоу, и «Сохранить» заперта раньше, чем дойдёт до API.
   if (status === 400 && body?.problem === 'unread')
     return `Флоу не сохранён: в файлах флоу есть строка, которую панель не сохранит, — ${body.detail ?? ''}`.trim()
   if (status === 400 && body?.problem) {
-    const where = [body.flow ? `флоу «${body.flow}»` : '', body.stage ? `стадия «${body.stage}»` : '']
+    const where = [body.flow ? `флоу «${body.flow}»` : '', body.stage ? `этап «${body.stage}»` : '']
       .filter(Boolean)
       .join(', ')
     return `Флоу не сохранён: ${where ? `${where} — ` : ''}${invalidLabels[body.problem] ?? 'не в форме кита'}`
@@ -993,7 +1372,7 @@ function saveError(status: number, body: RejectedBody | null) {
   if (status === 502 && body?.problem === 'not-written')
     return `Флоу не сохранён: файл флоу не записался, файлы возвращены как были.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 502 && body?.problem === 'not-restored')
-    return `Флоу не сохранён, и не все файлы удалось вернуть — проверьте flow/ базы.${body.detail ? ` ${body.detail}` : ''}`
+    return `Флоу не сохранён, и не все файлы удалось вернуть — проверьте flow/ в своей папке базы.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 502 && body?.problem === 'not-committed')
     return `Флоу не сохранён: коммит в базу не прошёл, файлы оставлены как были.${body.detail ? ` ${body.detail}` : ''}`
   if (status === 404) return 'Флоу не сохранён: база не найдена'
@@ -1046,32 +1425,22 @@ function StagesTab({
   draft,
   current,
   known,
-  presets,
   open,
-  covered,
-  onPerformers,
+  lockOf,
+  window,
   onSelect,
-  onClose,
   onNew,
-  onChange,
-  onEditDescription,
-  onSaveAsPreset,
-  onDelete,
 }: {
   draft: Draft
   current: DraftStage | null
   known: string[] | null
-  presets: StagePreset[]
   open: boolean
-  covered: boolean
-  onPerformers?: () => void
+  /** Почему стадию сейчас не править; null — свободна. */
+  lockOf: (key: number) => Lock | null
+  /** Окно правки выбранной стадии — всё, кроме того, куда вернуть фокус: это знает сетка. */
+  window: Omit<StageWindow, 'onReturnFocus'> | null
   onSelect: (key: number) => void
-  onClose: () => void
   onNew: () => void
-  onChange: (patch: Partial<DraftStage>) => void
-  onEditDescription: () => void
-  onSaveAsPreset: () => void
-  onDelete: () => void
 }) {
   const grid = useRef<HTMLUListElement>(null)
   const add = useRef<HTMLButtonElement>(null)
@@ -1080,7 +1449,7 @@ function StagesTab({
     <div className="flow-stages">
       {/* Стадии сеткой карточек, как исполнители; новая — пунктирной карточкой последней (B-192). */}
       {/* Пока открыто окно правки, карточки под ним недоступны: Tab не уходит под подложку. */}
-      <ul className="flow-stage-grid" aria-label="Стадии базы" ref={grid} inert={open}>
+      <ul className="flow-stage-grid" aria-label="Этапы базы" ref={grid} inert={open}>
         {stagesInOrder(draft).map((stage) => (
           <li key={stage.key}>
             <button
@@ -1108,6 +1477,13 @@ function StagesTab({
                     executorOf(stage) || 'субагент'
                   )}
                 </span>
+                {/* Занятая стадия: замок и задачи, которые её держат, — макет B-226. */}
+                {lockOf(stage.key) && (
+                  <span className="flow-card-lock" aria-label={`Правка закрыта: ${lockText(lockOf(stage.key)!)}`}>
+                    <LockIcon />
+                    {lockOf(stage.key)!.tasks.join(', ')}
+                  </span>
+                )}
               </span>
             </button>
           </li>
@@ -1115,79 +1491,90 @@ function StagesTab({
         <li>
           <button type="button" className="flow-stage-card flow-stage-card-add" ref={add} onClick={onNew}>
             <PlusIcon />
-            Новая стадия
+            Новый этап
           </button>
         </li>
       </ul>
 
-      {current && open && (
+      {current && open && window && (
         <StageModal
-          stage={current}
-          draft={draft}
-          known={known}
-          presets={presets}
-          covered={covered}
-          onPerformers={onPerformers}
-          onClose={onClose}
+          {...window}
           onReturnFocus={(key) =>
             // Удалённой стадии карточки нет — фокус встаёт на «Новую стадию».
             (grid.current?.querySelector<HTMLElement>(`[data-stage="${key}"]`) ?? add.current)?.focus()
           }
-          onChange={onChange}
-          onEditDescription={onEditDescription}
-          onSaveAsPreset={onSaveAsPreset}
-          onDelete={onDelete}
         />
       )}
     </div>
   )
 }
 
+type StageWindow = {
+  stage: DraftStage
+  draft: Draft
+  known: string[] | null
+  covered: boolean
+  /** Стадию держат задачи в работе: окно только для чтения (B-226). */
+  lock: Lock | null
+  saving: boolean
+  /** Флоу базы сейчас не записать — причина названа над разделом. */
+  blocked: boolean
+  /** В окне изменили поля: есть что сохранить, и закрыть его молча нельзя. */
+  changed: boolean
+  /** Почему прошлое «Сохранить» или удаление не записалось. */
+  failure: string | null
+  warning?: string | null
+  onPerformers?: () => void
+  /** Крестик, Escape и подложка: с правкой — через вопрос. */
+  onClose: () => void
+  /** «Отмена»: выбрасывает правку сразу. */
+  onCancel: () => void
+  onSave: () => void
+  onReturnFocus: (key: number) => void
+  onChange: (patch: Partial<DraftStage>) => void
+  onEditDescription: () => void
+  onDelete: () => void
+}
+
 /**
- * Окно правки стадии — рамкой окна исполнителя: подписи слева, поля справа, внизу «Готово» (B-192).
- * Правки окно не пишет: они копятся, и записывает их полоса сохранения внизу раздела.
+ * Окно правки стадии — рамкой окна исполнителя: подписи слева, поля справа (B-192). Пишет стадию в базу само:
+ * «Сохранить» — сразу, «Отмена» и крестик закрывают его, спросив о несохранённом (B-226).
  */
 function StageModal({
   stage,
   draft,
   known,
-  presets,
   covered,
+  lock,
+  saving,
+  blocked,
+  changed,
+  failure,
   warning = null,
   onPerformers,
   onClose,
+  onCancel,
+  onSave,
   onReturnFocus,
   onChange,
   onEditDescription,
-  onSaveAsPreset,
   onDelete,
-}: {
-  stage: DraftStage
-  draft: Draft
-  known: string[] | null
-  presets: StagePreset[]
-  covered: boolean
-  warning?: string | null
-  onPerformers?: () => void
-  onClose: () => void
-  onReturnFocus: (key: number) => void
-  onChange: (patch: Partial<DraftStage>) => void
-  onEditDescription: () => void
-  onSaveAsPreset: () => void
-  onDelete: () => void
-}) {
+}: StageWindow) {
   // Стадию, которая стоит хоть в одном флоу, не удалить: сначала её убирают из флоу — ответ оператора.
-  const used = draft.flows.some((f) => f.entries.some((entry) => entry.stage === stage.key))
+  // Кнопка при этом нажимается и объясняет почему, называя сценарии, — выбор оператора на макете B-226.
+  const usedIn = draft.flows.filter((f) => f.entries.some((entry) => entry.stage === stage.key))
+  const [why, setWhy] = useState(false)
   const errors = stageErrors(stage, draft.stages, known)
-  const isPreset = presets.some((preset) => samePreset(preset, presetStage(toStage(stage))))
   const title = useRef<HTMLInputElement>(null)
   const describe = useRef<HTMLButtonElement>(null)
+  const close = useRef<HTMLButtonElement>(null)
   // Фокус возвращается туда, откуда правили стадию: к её карточке или, если окно открыли из меню на схеме,
-  // к её блоку; окна добавления на закрытии уже нет (B-192, B-202).
+  // к её блоку; окна добавления на закрытии уже нет (B-192, B-202). В окне только для чтения поля погашены,
+  // и фокус встаёт на «Закрыть».
   // Ключ стадии за время жизни окна не меняется, а возврат ищет карточку по ссылкам на сетку — хватает
   // того, что было на открытии.
   useEffect(() => {
-    title.current?.focus()
+    ;(lock ? close.current : title.current)?.focus()
     return () => onReturnFocus(stage.key)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1204,7 +1591,7 @@ function StageModal({
         className="modal-wizard flow-stage-modal"
         role="dialog"
         aria-modal={!covered}
-        aria-label={`Стадия «${stageName(stage)}»`}
+        aria-label={`Этап «${stageName(stage)}»`}
         // Фокус держится в окне и при щелчке мимо полей: иначе он уходит со страницы, и Escape некому поймать.
         tabIndex={-1}
         // Escape закрывает окно, если его не забрал кто-то внутри, — список значков закрывает сначала себя.
@@ -1226,11 +1613,12 @@ function StageModal({
               <CloseIcon />
             </button>
           </div>
-          {warning && <p className="flow-scope-warning">{warning}</p>}
+          {lock ? <LockNote lock={lock} /> : warning && <p className="flow-scope-warning">{warning}</p>}
         </div>
 
         <div className="ask-body">
-          <div className="flow-stage-rows">
+          {/* Занятую стадию видно целиком, но поля погашены: правка закрыта, пока задачи идут по её сценарию. */}
+          <fieldset className="flow-stage-rows flow-stage-set" disabled={lock !== null || saving}>
             <div className="flow-field">
               <span>Значок</span>
               <IconPicker stage={stage} onPick={(icon) => onChange({ icon })} />
@@ -1241,8 +1629,8 @@ function StageModal({
               <input
                 ref={title}
                 className="flow-input flow-stage-name"
-                aria-label="Название стадии"
-                placeholder="Название стадии"
+                aria-label="Название этапа"
+                placeholder="Название этапа"
                 aria-invalid={!stage.title.trim()}
                 value={stage.title}
                 onChange={(event) => onChange({ title: event.target.value })}
@@ -1253,7 +1641,7 @@ function StageModal({
               <span>Исполнитель</span>
               <select
                 className="flow-input"
-                aria-label="Исполнитель стадии"
+                aria-label="Исполнитель этапа"
                 value={stage.kind}
                 onChange={(event) => {
                   const kind = event.target.value as DraftStage['kind']
@@ -1275,7 +1663,7 @@ function StageModal({
 
             {/* Помощников зовёт только оркестратор: у прочих стадий поля нет — форма кита. */}
             {stage.kind === 'оркестратор' && <HelpersField stage={stage} known={known} onChange={onChange} />}
-          </div>
+          </fieldset>
 
           <div className="flow-stage-sep">Работа</div>
 
@@ -1284,9 +1672,10 @@ function StageModal({
               <span>Выход</span>
               <textarea
                 className="flow-input"
-                aria-label="Выход стадии"
+                aria-label="Выход этапа"
                 placeholder="что предъявить: коммит, строка в памяти, вывод прогона"
                 aria-invalid={!stage.output.trim()}
+                disabled={lock !== null || saving}
                 rows={3}
                 value={stage.output}
                 onChange={(event) => onChange({ output: event.target.value })}
@@ -1297,8 +1686,9 @@ function StageModal({
               <span>Пропуск</span>
               <input
                 className="flow-input"
-                aria-label="Пропуск стадии"
-                placeholder="нет — стадия проходится всегда"
+                aria-label="Пропуск этапа"
+                placeholder="нет — этап проходится всегда"
+                disabled={lock !== null || saving}
                 value={stage.skip}
                 onChange={(event) => onChange({ skip: event.target.value })}
               />
@@ -1320,31 +1710,106 @@ function StageModal({
             </div>
           </div>
 
-          {errors.length > 0 && <p className="flow-step-error">Стадию не сохранить: {errors.join(', ')}.</p>}
+          {!lock && errors.length > 0 && <p className="flow-step-error">Этап не сохранить: {errors.join(', ')}.</p>}
+          {failure && (
+            <p className="flow-step-error" role="alert">
+              {failure}
+            </p>
+          )}
         </div>
 
-        <div className="modal-footer flow-stage-foot">
-          <button
-            type="button"
-            className="btn"
-            disabled={errors.length > 0 || isPreset}
-            aria-pressed={isPreset}
-            onClick={onSaveAsPreset}
-          >
-            <BookmarkIcon />
-            {isPreset ? 'Стадия в пресетах' : 'В пресеты'}
-          </button>
-          <button type="button" className="btn btn-danger" disabled={used} onClick={onDelete}>
-            <TrashIcon />
-            Удалить стадию
-          </button>
-          <button type="button" className="btn btn-primary flow-stage-done" onClick={onClose}>
-            Готово
-          </button>
-        </div>
+        {why && usedIn.length > 0 && (
+          <div className="flow-delete-note" role="status">
+            <InfoIcon />
+            <div className="flow-delete-note-text">
+              <p>
+                <strong>Этап «{stageName(stage)}» нельзя удалить.</strong> Он используется в сценариях:
+              </p>
+              <ul className="flow-delete-note-list">
+                {usedIn.map((f) => (
+                  <li key={f.key}>
+                    <FlowIcon />
+                    {flowName(f)}
+                  </li>
+                ))}
+              </ul>
+              <p>Сначала уберите его из этих сценариев на вкладке «Сценарии».</p>
+            </div>
+            <button type="button" className="btn btn-icon" aria-label="Скрыть пояснение" onClick={() => setWhy(false)}>
+              <CloseIcon />
+            </button>
+          </div>
+        )}
+
+        {lock ? (
+          <div className="modal-footer flow-stage-foot">
+            <button type="button" ref={close} className="btn flow-stage-pair flow-stage-push" onClick={onClose}>
+              Закрыть
+            </button>
+          </div>
+        ) : (
+          <div className="modal-footer flow-stage-foot">
+            {/* Стадии, которой ещё нет в базе, удалять нечего: её не оставляет «Отмена». */}
+            {stage.slug !== null && (
+              <button
+                type="button"
+                className={`btn btn-danger ${why && usedIn.length > 0 ? 'is-pressed' : ''}`}
+                aria-expanded={usedIn.length > 0 ? why : undefined}
+                disabled={saving}
+                onClick={() => (usedIn.length > 0 ? setWhy(!why) : onDelete())}
+              >
+                <TrashIcon />
+                Удалить этап
+              </button>
+            )}
+            <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onCancel}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary flow-stage-pair"
+              disabled={saving || blocked || !changed || errors.length > 0}
+              onClick={onSave}
+            >
+              {saving ? 'Сохранение…' : 'Сохранить'}
+            </button>
+          </div>
+        )}
       </section>
     </div>
   )
+}
+
+type DrawerActions = {
+  /** Сценарий держат задачи в работе: сайдбар только для чтения. */
+  lock: Lock | null
+  saving: boolean
+  blocked: boolean
+  /** В сайдбаре изменили поля: закрыть его молча нельзя, а схема под ним заперта. */
+  changed: boolean
+  failure: string | null
+  onChange: (patch: Partial<DraftFlow>) => void
+  onSave: () => void
+  /** «Отмена»: выбрасывает правку сразу. */
+  onCancel: () => void
+  /** Крестик и Escape: с правкой — через вопрос. */
+  onClose: () => void
+  onDelete: () => void
+}
+
+type ReturnsActions = {
+  lock: Lock | null
+  saving: boolean
+  blocked: boolean
+  changed: boolean
+  failure: string | null
+  onChange: (key: number, patch: Partial<DraftEntry>) => void
+  onSave: (close: () => void) => void
+  /**
+   * title — стадия, чьи возвраты правят: вопрос о несохранённом называет её. asked — спросить о несохранённом:
+   * крестик, Escape и подложка; «Отмена» не спрашивает.
+   */
+  onCancel: (title: string, close: () => void, asked: boolean) => void
 }
 
 /** Вкладка «Сценарии»: выбранный флоу схемой — узел старта, стадии блоками и возвраты дугами. */
@@ -1353,8 +1818,13 @@ function FlowTab({
   flow,
   opened,
   known,
-  covered,
+  overlaid,
+  guard,
+  busy,
+  locked,
   focus,
+  drawer,
+  returns,
   onFocus,
   onPick,
   onNew,
@@ -1363,23 +1833,33 @@ function FlowTab({
   onEditStage,
   onEditDescription,
   onAdd,
-  onDelete,
 }: {
   draft: Draft
   flow: DraftFlow
   opened: Opened
   known: string[] | null
-  covered: boolean
+  /** Поверх раздела окно: вся вкладка со схемой и сайдбаром недоступна для мыши и Tab. */
+  overlaid: boolean
+  /** Сайдбар с несохранённой правкой: первое действие на схеме закрывает его с вопросом, а само не выполняется. */
+  guard: (() => void) | null
+  /** Идёт запись: перестановка, добавление и уборка стадии недоступны, пока флоу не перечитан. */
+  busy: boolean
+  /** По сценарию идёт задача: схема только для чтения, у блоков нет ручки перетаскивания. */
+  locked: boolean
   focus: Focus
+  /** Сайдбар сценария: его поля, запись и удаление сценария. */
+  drawer: DrawerActions
+  /** Окно возвратов: поля пункта и их запись. */
+  returns: ReturnsActions
   onFocus: (focus: Focus) => void
   onPick: (key: number) => void
   onNew: () => void
   onOpen: (opened: Opened) => void
+  /** Действие на схеме — перестановка или уборка стадии: пишется в базу сразу. */
   onChange: (change: (flow: DraftFlow) => DraftFlow) => void
   onEditStage: (entry: number, stage: number) => void
   onEditDescription: (entry: number, stage: number) => void
   onAdd: () => void
-  onDelete: () => void
 }) {
   // Меню блока по правому щелчку: key пункта и точка, у которой оно встаёт (B-202).
   const [menu, setMenu] = useState<{ key: number; at: Point } | null>(null)
@@ -1394,12 +1874,22 @@ function FlowTab({
   const lit = flow.entries.flatMap((entry, index) =>
     index === openedIndex || index === menuIndex || entry.key === hovered || entry.key === focused ? [index] : [],
   )
+  // Окно возвратов закрыто — фокус на блок, из меню которого его открыли.
+  const close = () => {
+    const key = flow.entries[openedIndex]?.key
+    onOpen(null)
+    if (key !== undefined) onFocus({ key })
+  }
 
   // Фокус встаёт на блок, когда закрылось окно, открытое из его меню: схема к этому времени уже не под подложкой.
   // Поставленный фокус забывается: иначе вкладка, открытая заново, снова дёрнула бы его и прокрутку к старому блоку.
   useEffect(() => {
     if (!focus) return
-    const block = focus.key === null ? null : chain.current?.querySelector<HTMLElement>(`[data-entry="${focus.key}"]`)
+    const block = focus.start
+      ? chain.current?.querySelector<HTMLElement>('.flow-start')
+      : focus.key === null
+        ? null
+        : chain.current?.querySelector<HTMLElement>(`[data-entry="${focus.key}"]`)
     ;(block ?? chain.current?.querySelector<HTMLElement>('.flow-node-add'))?.focus()
     onFocus(null)
   }, [focus, onFocus])
@@ -1414,10 +1904,7 @@ function FlowTab({
     })
   }
 
-  const setEntry = (key: number, patch: Partial<DraftEntry>) =>
-    onChange((f) => ({ ...f, entries: f.entries.map((entry) => (entry.key === key ? { ...entry, ...patch } : entry)) }))
-
-  // Блока убранной стадии нет: фокус переходит на соседний, а у последней — на «Добавить стадию».
+  // Блока убранной стадии нет: фокус переходит на соседний, а у последней — на «Добавить этап».
   const remove = (index: number) => {
     const key = flow.entries[index].key
     const next = flow.entries[index + 1] ?? flow.entries[index - 1] ?? null
@@ -1427,8 +1914,8 @@ function FlowTab({
 
   return (
     <>
-      <section className="flow-canvas" aria-label={`Сценарий «${flowName(flow)}»`} inert={covered}>
-        <div className="flow-canvas-pick">
+      <section className={`flow-canvas ${locked ? 'is-locked' : ''}`} aria-label={`Сценарий «${flowName(flow)}»`} inert={overlaid}>
+        <div className="flow-canvas-pick" {...intercept(guard)}>
           <PickMenu
             label="Сценарий"
             value={flowName(flow)}
@@ -1442,7 +1929,7 @@ function FlowTab({
           </button>
         </div>
 
-        <div className="flow-scroll">
+        <div className="flow-scroll" {...intercept(guard)}>
           <div className="flow-chain" ref={chain}>
             <ReturnArcs flow={flow} lit={lit} />
             <button
@@ -1482,6 +1969,7 @@ function FlowTab({
                     onOpen(null)
                     setMenu({ key: entry.key, at })
                   }}
+                  busy={busy}
                   onMove={move}
                   onHover={(on) => setHovered((key) => (on ? entry.key : key === entry.key ? null : key))}
                   onFocused={(on) => setFocused((key) => (on ? entry.key : key === entry.key ? null : key))}
@@ -1489,21 +1977,15 @@ function FlowTab({
               )
             })}
             {flow.entries.length > 0 && <FlowArrow />}
-            <button type="button" className="flow-node flow-node-add" onClick={onAdd}>
+            <button type="button" className="flow-node flow-node-add" disabled={busy} onClick={onAdd}>
               <PlusIcon />
-              <span className="flow-node-title">Добавить стадию</span>
+              <span className="flow-node-title">Добавить этап</span>
             </button>
           </div>
         </div>
 
         {opened?.kind === 'flow' && (
-          <FlowDrawer
-            flow={flow}
-            errors={flowErrors(flow, draft.flows)}
-            onChange={(patch) => onChange((f) => ({ ...f, ...patch }))}
-            onClose={() => onOpen(null)}
-            onDelete={onDelete}
-          />
+          <FlowDrawer flow={flow} errors={flowErrors(flow, draft.flows)} {...drawer} />
         )}
       </section>
 
@@ -1513,6 +1995,7 @@ function FlowTab({
           flow={flow}
           index={menuIndex}
           at={menu.at}
+          busy={busy}
           onClose={(back) => {
             setMenu(null)
             if (back) onFocus({ key: menu.key })
@@ -1541,11 +2024,14 @@ function FlowTab({
           draft={draft}
           flow={flow}
           index={openedIndex}
-          onChange={(patch) => setEntry(flow.entries[openedIndex].key, patch)}
-          onClose={() => {
-            onOpen(null)
-            onFocus({ key: flow.entries[openedIndex].key })
-          }}
+          lock={returns.lock}
+          saving={returns.saving}
+          blocked={returns.blocked}
+          changed={returns.changed}
+          failure={returns.failure}
+          onChange={(patch) => returns.onChange(flow.entries[openedIndex].key, patch)}
+          onSave={() => returns.onSave(close)}
+          onCancel={(asked) => returns.onCancel(entryTitle(draft, flow.entries[openedIndex]), close, asked)}
         />
       )}
     </>
@@ -1564,7 +2050,8 @@ const ARC_WIDTH = 150
 const ARC_ROUND = 12
 const CHAIN_PAD = 16
 
-type ReturnArc = { from: number; to: number; condition: string; lane: number }
+// rounds — предел кругов возврата, если он задан верно: неверный назван ошибкой окна возвратов.
+type ReturnArc = { from: number; to: number; condition: string; rounds: number | null; lane: number }
 
 /**
  * Возвраты флоу дугами: у каждой своя дорожка, чтобы соседние круги не сливались в одну линию.
@@ -1578,11 +2065,15 @@ function returnArcs(flow: DraftFlow): ReturnArc[] {
       if (to < 0 || to >= from) continue
       let lane = 0
       while (arcs.some((arc) => arc.lane === lane && arc.to <= from && to <= arc.from)) lane++
-      arcs.push({ from, to, condition: back.condition, lane })
+      const rounds = back.rounds !== null && validRounds(back.rounds) ? Number(back.rounds.trim()) : null
+      arcs.push({ from, to, condition: back.condition, rounds, lane })
     }
   })
   return arcs
 }
+
+// Ширина кружка предела кругов: 20px на одну-две цифры, дальше — по 7px на цифру.
+const limitWidth = (rounds: number) => Math.max(20, String(rounds).length * 7 + 6)
 
 const arcCenter = (index: number) => index * (NODE_HEIGHT + NODE_GAP) + NODE_HEIGHT / 2
 
@@ -1614,8 +2105,24 @@ function ReturnArcs({ flow, lit }: { flow: DraftFlow; lit: number[] }) {
                 } Q ${lane} ${y2} ${lane + ARC_ROUND} ${y2} H ${ARC_WIDTH - 10}`}
               />
               <path d={`M ${ARC_WIDTH - 16} ${y2 - 5} L ${ARC_WIDTH - 6} ${y2} L ${ARC_WIDTH - 16} ${y2 + 5}`} />
+              {/* Предел кругов стоит кружком на своей дуге всегда — вариант «А» макета B-271. */}
+              {arc.rounds !== null && (
+                <g className="flow-arc-limit" data-rounds={arc.rounds}>
+                  {/* Кружок, а для длинного числа — пилюля: цифры не вылезают на дугу. */}
+                  <rect
+                    x={lane - limitWidth(arc.rounds) / 2}
+                    y={(y1 + y2) / 2 - 10}
+                    width={limitWidth(arc.rounds)}
+                    height={20}
+                    rx={10}
+                  />
+                  <text x={lane} y={(y1 + y2) / 2 + 0.5} textAnchor="middle">
+                    {arc.rounds}
+                  </text>
+                </g>
+              )}
               {lighted && arc.condition.trim() && (
-                <text className="flow-arc-label" x={lane - 8} y={(y1 + y2) / 2} textAnchor="end">
+                <text className="flow-arc-label" x={lane - (arc.rounds !== null ? limitWidth(arc.rounds) / 2 + 8 : 8)} y={(y1 + y2) / 2} textAnchor="end">
                   {arc.condition.trim()}
                 </text>
               )}
@@ -1643,6 +2150,7 @@ function StageNode({
   index,
   last,
   menu,
+  busy,
   onMenu,
   onMove,
   onHover,
@@ -1658,6 +2166,7 @@ function StageNode({
   index: number
   last: boolean
   menu: boolean
+  busy: boolean
   onMenu: (at: Point) => void
   onMove: (from: number, to: number) => void
   onHover: (on: boolean) => void
@@ -1684,13 +2193,13 @@ function StageNode({
             invalid ? 'invalid' : ''
           }`}
           // Возврат нарисован дугой, а не текстом: программе чтения экрана он называется здесь.
-          aria-label={`Стадия ${number}: ${title}${returns
+          aria-label={`Этап ${number}: ${title}${returns
             .filter(Boolean)
-            .map((target) => `, возврат к стадии ${target}`)
+            .map((target) => `, возврат к этапу ${target}`)
             .join('')}`}
           aria-haspopup="menu"
           aria-expanded={menu}
-          draggable
+          draggable={!busy}
           onMouseEnter={() => onHover(true)}
           onMouseLeave={() => onHover(false)}
           onFocus={() => onFocused(true)}
@@ -1745,14 +2254,14 @@ function StageNode({
             {stage ? <StageIcon icon={stage.icon} kind={kind} /> : <MissingIcon />}
           </span>
           <span className="flow-node-title">{title}</span>
-          <span className="flow-node-executor">{stage ? executorOf(stage) || 'субагент' : 'стадии нет в базе'}</span>
+          <span className="flow-node-executor">{stage ? executorOf(stage) || 'субагент' : 'этапа нет в базе'}</span>
         </button>
         {/* Клавиатурой стадия двигается кнопками: перетаскивание ей недоступно. */}
         <span className="flow-node-keys">
-          <IconButton label={`Стадия ${number} выше`} disabled={number === 1} onClick={() => onMove(index, index - 1)}>
+          <IconButton label={`Этап ${number} выше`} disabled={busy || number === 1} onClick={() => onMove(index, index - 1)}>
             <ChevronUpIcon />
           </IconButton>
-          <IconButton label={`Стадия ${number} ниже`} disabled={last} onClick={() => onMove(index, index + 1)}>
+          <IconButton label={`Этап ${number} ниже`} disabled={busy || last} onClick={() => onMove(index, index + 1)}>
             <ChevronDownIcon />
           </IconButton>
         </span>
@@ -1779,6 +2288,7 @@ function EntryMenu({
   flow,
   index,
   at,
+  busy,
   onClose,
   onReturns,
   onEditStage,
@@ -1789,6 +2299,7 @@ function EntryMenu({
   flow: DraftFlow
   index: number
   at: Point
+  busy: boolean
   onClose: (back: boolean) => void
   onReturns: () => void
   onEditStage: (stage: number) => void
@@ -1802,7 +2313,7 @@ function EntryMenu({
   const returnable = earlierStages(draft, flow, index).length > 0 || entry.returns.length > 0
 
   return (
-    <ContextMenu label={`Стадия «${title}»`} at={at} onClose={onClose}>
+    <ContextMenu label={`Этап «${title}»`} at={at} onClose={onClose}>
       <button type="button" role="menuitem" className="row-menu-item" disabled={!returnable} onClick={onReturns}>
         <ReturnIcon />
         Возвраты
@@ -1815,7 +2326,7 @@ function EntryMenu({
         onClick={() => stage && onEditStage(stage.key)}
       >
         <PencilIcon />
-        Править стадию «{title}»
+        Править этап «{title}»
       </button>
       <button
         type="button"
@@ -1828,7 +2339,7 @@ function EntryMenu({
         Редактировать описание
       </button>
       <div className="row-menu-sep" role="separator" />
-      <button type="button" role="menuitem" className="row-menu-item" onClick={onRemove}>
+      <button type="button" role="menuitem" className="row-menu-item" disabled={busy} onClick={onRemove}>
         <MinusIcon />
         Убрать из сценария
       </button>
@@ -1925,20 +2436,34 @@ function ContextMenu({
 
 /**
  * Окно возвратов стадии в этом сценарии — то, что у неё своё в нём; прежде жило в сайдбаре стадии (B-202).
- * Правки окно не пишет: они копятся в полосу сохранения, как у окна правки стадии.
+ * Пишет возвраты само, как окно правки стадии: «Сохранить» — сразу, «Отмена» выбрасывает правку, а крестик,
+ * Escape и подложка спрашивают о несохранённом (B-226).
  */
 function ReturnsModal({
   draft,
   flow,
   index,
+  lock,
+  saving,
+  blocked,
+  changed,
+  failure,
   onChange,
-  onClose,
+  onSave,
+  onCancel,
 }: {
   draft: Draft
   flow: DraftFlow
   index: number
+  lock: Lock | null
+  saving: boolean
+  blocked: boolean
+  changed: boolean
+  failure: string | null
   onChange: (patch: Partial<DraftEntry>) => void
-  onClose: () => void
+  onSave: () => void
+  /** asked — спросить о несохранённом: крестик, Escape и подложка; «Отмена» — нет. */
+  onCancel: (asked: boolean) => void
 }) {
   const entry = flow.entries[index]
   const stage = draft.stages.find((s) => s.key === entry.stage) ?? null
@@ -1946,23 +2471,23 @@ function ReturnsModal({
   const kind = stage ? executorKind(stage) : 'agent'
   const errors = entryErrors(flow, index)
   const box = useRef<HTMLElement>(null)
-  const done = useRef<HTMLButtonElement>(null)
+  const cancel = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    ;(box.current?.querySelector<HTMLElement>('.flow-input, .flow-add-dashed') ?? done.current)?.focus()
+    ;(box.current?.querySelector<HTMLElement>('.flow-input, .flow-add-dashed') ?? cancel.current)?.focus()
   }, [])
 
   return (
-    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel(true)}>
       <section
         ref={box}
         className="modal-wizard flow-stage-modal flow-returns-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Возвраты стадии «${title}»`}
+        aria-label={`Возвраты этапа «${title}»`}
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && !event.defaultPrevented) onClose()
+          if (event.key === 'Escape' && !event.defaultPrevented) onCancel(true)
         }}
       >
         <div className="ask-head">
@@ -1970,27 +2495,45 @@ function ReturnsModal({
             <span className={`flow-card-mark flow-mark-${kind}`} aria-hidden="true">
               {stage ? <StageIcon icon={stage.icon} kind={kind} /> : <MissingIcon />}
             </span>
-            <h2 className="flow-stage-modal-title">Возвраты стадии «{title}»</h2>
+            <h2 className="flow-stage-modal-title">Возвраты этапа «{title}»</h2>
             <span className="pf-project">сценарий «{flowName(flow)}»</span>
-            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onClose}>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={() => onCancel(true)}>
               <CloseIcon />
             </button>
           </div>
+          {lock && <LockNote lock={lock} />}
         </div>
 
         <div className="ask-body">
-          <ReturnsField
-            returns={entry.returns}
-            earlier={earlierStages(draft, flow, index)}
-            onChange={(returns) => onChange({ returns })}
-          />
-          {errors.length > 0 && <p className="flow-step-error">Флоу не сохранить: {errors.join(', ')}.</p>}
+          <fieldset className="flow-stage-set" disabled={lock !== null || saving}>
+            <ReturnsField
+              returns={entry.returns}
+              earlier={earlierStages(draft, flow, index)}
+              onChange={(returns) => onChange({ returns })}
+            />
+          </fieldset>
+          {!lock && errors.length > 0 && <p className="flow-step-error">Возвраты не сохранить: {errors.join(', ')}.</p>}
+          {failure && (
+            <p className="flow-step-error" role="alert">
+              {failure}
+            </p>
+          )}
         </div>
 
         <div className="modal-footer flow-stage-foot">
-          <button type="button" ref={done} className="btn btn-primary flow-stage-done" onClick={onClose}>
-            Готово
+          <button type="button" ref={cancel} className="btn flow-stage-pair flow-stage-push" onClick={() => onCancel(false)}>
+            {lock ? 'Закрыть' : 'Отмена'}
           </button>
+          {!lock && (
+            <button
+              type="button"
+              className="btn btn-primary flow-stage-pair"
+              disabled={saving || blocked || !changed || errors.length > 0}
+              onClick={onSave}
+            >
+              {saving ? 'Сохранение…' : 'Сохранить'}
+            </button>
+          )}
         </div>
       </section>
     </div>
@@ -2016,23 +2559,31 @@ function scopeWarning(draft: Draft, stage: number): string | null {
   const names = draft.flows.filter((f) => f.entries.some((entry) => entry.stage === stage)).map((f) => `«${flowName(f)}»`)
   if (names.length < 2) return null
   const all = names.length === 2 ? 'в обоих' : `во всех ${countWords[names.length] ?? names.length}`
-  return `Стадия стоит в сценариях ${names.slice(0, -1).join(', ')} и ${names.at(-1)} — правка изменит её ${all}.`
+  return `Этап стоит в сценариях ${names.slice(0, -1).join(', ')} и ${names.at(-1)} — правка изменит его ${all}.`
 }
 
-/** Сайдбар сценария (флоу) — по щелчку на узле старта: название, «когда» и удаление. На вкладке флоу зовётся сценарием (B-192). */
+/**
+ * Сайдбар сценария (флоу) — по щелчку на узле старта: название, «когда» и удаление. На вкладке флоу зовётся
+ * сценарием (B-192). Пишет сценарий сам: «Сохранить» — сразу, «Отмена» выбрасывает правку, крестик и Escape
+ * спрашивают о несохранённом (B-226).
+ */
 function FlowDrawer({
   flow,
   errors,
+  lock,
+  saving,
+  blocked,
+  changed,
+  failure,
   onChange,
+  onSave,
+  onCancel,
   onClose,
   onDelete,
 }: {
   flow: DraftFlow
   errors: string[]
-  onChange: (patch: Partial<DraftFlow>) => void
-  onClose: () => void
-  onDelete: () => void
-}) {
+} & DrawerActions) {
   return (
     <aside
       className="flow-drawer"
@@ -2053,37 +2604,250 @@ function FlowDrawer({
       </div>
 
       <div className="flow-drawer-body">
-        <label className="flow-field">
-          <span>Название сценария</span>
-          <input
-            className="flow-input"
-            aria-label="Название сценария"
-            aria-invalid={!flow.name.trim()}
-            value={flow.name}
-            onChange={(event) => onChange({ name: event.target.value })}
-          />
-        </label>
-        <label className="flow-field">
-          <span>Когда</span>
-          <textarea
-            className="flow-input"
-            aria-label="Когда брать сценарий"
-            placeholder="какие задачи вести этим сценарием"
-            rows={4}
-            value={flow.when}
-            onChange={(event) => onChange({ when: event.target.value })}
-          />
-        </label>
-        {errors.length > 0 && <p className="flow-step-error">Флоу не сохранить: {errors.join(', ')}.</p>}
+        {/* Задачи, что держат сценарий, называет строка над разделом — своей строки у сайдбара нет (приёмка B-226). */}
+        <fieldset className="flow-stage-set" disabled={lock !== null || saving}>
+          <label className="flow-field">
+            <span>Название сценария</span>
+            <input
+              className="flow-input"
+              aria-label="Название сценария"
+              aria-invalid={!flow.name.trim()}
+              value={flow.name}
+              onChange={(event) => onChange({ name: event.target.value })}
+            />
+          </label>
+          <label className="flow-field">
+            <span>Когда</span>
+            <textarea
+              className="flow-input"
+              aria-label="Когда брать сценарий"
+              placeholder="какие задачи вести этим сценарием"
+              rows={4}
+              value={flow.when}
+              onChange={(event) => onChange({ when: event.target.value })}
+            />
+          </label>
+        </fieldset>
+        {!lock && errors.length > 0 && <p className="flow-step-error">Сценарий не сохранить: {errors.join(', ')}.</p>}
+        {failure && (
+          <p className="flow-step-error" role="alert">
+            {failure}
+          </p>
+        )}
       </div>
 
       <div className="flow-drawer-foot">
-        <button type="button" className="btn btn-danger flow-drawer-delete" onClick={onDelete}>
-          <TrashIcon />
-          Удалить сценарий
-        </button>
+        {lock ? (
+          <button type="button" className="btn flow-drawer-push" onClick={onClose}>
+            Закрыть
+          </button>
+        ) : (
+          <>
+            <button type="button" className="btn btn-danger" disabled={saving || blocked} onClick={onDelete}>
+              <TrashIcon />
+              Удалить сценарий
+            </button>
+            <button type="button" className="btn flow-drawer-push" onClick={onCancel}>
+              Отмена
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={saving || blocked || !changed || errors.length > 0}
+              onClick={onSave}
+            >
+              {saving ? 'Сохранение…' : 'Сохранить'}
+            </button>
+          </>
+        )}
       </div>
     </aside>
+  )
+}
+
+/**
+ * Новый сценарий — окном: название, «когда» и первая стадия. Пустой сценарий кит не принимает, поэтому
+ * на схему он встаёт уже записанным, со своей первой стадией (B-226). Стадии выбираются строками выбора,
+ * как копия в окне новой сессии; совсем новую стадию заводят на вкладке «Стадии».
+ */
+function NewFlowModal({
+  project,
+  draft,
+  saving,
+  blocked,
+  failure,
+  covered,
+  onAsk,
+  onClose,
+  onSave,
+}: {
+  project: string
+  /** Флоу базы, к которому добавится сценарий: из него стадии на выбор и имена, которые уже заняты. */
+  draft: Draft
+  saving: boolean
+  blocked: boolean
+  failure: string | null
+  covered: boolean
+  onAsk: (discard: () => void) => void
+  onClose: () => void
+  /** earlier — «когда» прежнего сценария без него: пишется тем же разом, что и новый. */
+  onSave: (created: DraftFlow, earlier: { key: number; when: string } | null) => void
+}) {
+  const [name, setName] = useState('')
+  const [when, setWhen] = useState('')
+  // Сценарий без «когда» бывает, только пока он один: вторым кит его без «когда» не примет. Его «когда» вписывается
+  // здесь же — и когда по нему идёт задача: эту одну правку занятого оператор разрешил (ревью B-226).
+  const bare = draft.flows.find((f) => !f.when.trim()) ?? null
+  const [earlierWhen, setEarlierWhen] = useState('')
+  const [stage, setStage] = useState<number | null>(null)
+  // Сценарий и его первый пункт получают key сразу: после записи форма находит сценарий по нему.
+  const [keys] = useState(() => ({ flow: nextKey++, entry: nextKey++ }))
+  const field = useRef<HTMLInputElement>(null)
+  useEffect(() => field.current?.focus(), [])
+
+  const created: DraftFlow = {
+    key: keys.flow,
+    name,
+    when,
+    entries: stage === null ? [] : [{ key: keys.entry, stage, title: '', returns: [] }],
+  }
+  const errors = flowErrors(created, [...draft.flows, created]).map((error) =>
+    error === 'во флоу нет этапов' ? 'не выбран первый этап' : error,
+  )
+  if (bare && !earlierWhen.trim()) errors.push(`у сценария «${flowName(bare)}» не указано «когда»`)
+  else if (bare && breaks(earlierWhen.trim())) errors.push(`«когда» сценария «${flowName(bare)}» — одна строка`)
+  const changed = name.trim() !== '' || when.trim() !== '' || stage !== null || earlierWhen.trim() !== ''
+  const leave = () => (changed ? onAsk(onClose) : onClose())
+
+  return (
+    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && leave()}>
+      <section
+        className="modal-wizard flow-stage-modal flow-new-flow"
+        role="dialog"
+        aria-modal={!covered}
+        aria-label="Новый сценарий"
+        tabIndex={-1}
+        inert={covered}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && !event.defaultPrevented) leave()
+        }}
+      >
+        <div className="ask-head">
+          <div className="ask-title">
+            <span className="flow-card-mark flow-mark-flow" aria-hidden="true">
+              <FlowIcon />
+            </span>
+            <h2 className="flow-stage-modal-title">Новый сценарий</h2>
+            <span className="pf-project">{project}</span>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={leave}>
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+
+        <div className="ask-body">
+          <div className="flow-stage-rows">
+            <label className="flow-field">
+              <span>Название</span>
+              <input
+                ref={field}
+                className="flow-input flow-stage-name"
+                aria-label="Название сценария"
+                placeholder="Название сценария"
+                value={name}
+                disabled={saving}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </label>
+            <label className="flow-field">
+              <span>Когда</span>
+              <textarea
+                className="flow-input"
+                aria-label="Когда брать сценарий"
+                placeholder="какие задачи вести этим сценарием"
+                rows={2}
+                value={when}
+                disabled={saving}
+                onChange={(event) => setWhen(event.target.value)}
+              />
+            </label>
+            {bare && (
+              <label className="flow-field">
+                <span>Когда для «{flowName(bare)}»</span>
+                <textarea
+                  className="flow-input"
+                  aria-label={`Когда брать сценарий «${flowName(bare)}»`}
+                  placeholder="какие задачи вести этим сценарием"
+                  rows={2}
+                  value={earlierWhen}
+                  disabled={saving}
+                  onChange={(event) => setEarlierWhen(event.target.value)}
+                />
+              </label>
+            )}
+            <div className="flow-field">
+              <span>Первый этап</span>
+              {draft.stages.length === 0 ? (
+                <p className="text-sec flow-new-flow-empty">
+                  В проекте нет этапов. Заведите первый на вкладке «Этапы», затем соберите из него сценарий.
+                </p>
+              ) : (
+                <ul className="flow-choice-list" role="radiogroup" aria-label="Первый этап">
+                  {stagesInOrder(draft).map((one) => (
+                    <li key={one.key}>
+                      <label className={`flow-choice choice ${one.key === stage ? 'is-on' : ''}`}>
+                        <input
+                          type="radio"
+                          name="flow-first-stage"
+                          className="visually-hidden"
+                          checked={one.key === stage}
+                          disabled={saving}
+                          onChange={() => setStage(one.key)}
+                        />
+                        <ChoiceMark />
+                        <span className={`flow-card-mark flow-mark-${executorKind(one)}`} aria-hidden="true">
+                          <StageIcon icon={one.icon} kind={executorKind(one)} />
+                        </span>
+                        <span className="choice-name flow-choice-name">{stageName(one)}</span>
+                        <span className="flow-stage-badge">
+                          {one.kind === 'субагент' && one.agent.trim() ? (
+                            <>
+                              субагент <span className="mono">{one.agent.trim()}</span>
+                            </>
+                          ) : (
+                            executorOf(one) || 'субагент'
+                          )}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+          {changed && errors.length > 0 && <p className="flow-step-error">Сценарий не сохранить: {errors.join(', ')}.</p>}
+          {failure && (
+            <p className="flow-step-error" role="alert">
+              {failure}
+            </p>
+          )}
+        </div>
+
+        <div className="modal-footer flow-stage-foot">
+          <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onClose}>
+            Отмена
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary flow-stage-pair"
+            disabled={saving || blocked || errors.length > 0}
+            onClick={() => onSave(created, bare && { key: bare.key, when: earlierWhen })}
+          >
+            {saving ? 'Сохранение…' : 'Сохранить'}
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -2246,6 +3010,16 @@ function ReturnsField({
 }) {
   const set = (index: number, patch: Partial<DraftReturn>) =>
     onChange(returns.map((back, i) => (i === index ? { ...back, ...patch } : back)))
+  // Возврат, у которого предел только что открыли кнопкой, — фокус в его поле, а только что убрали крестиком —
+  // на вернувшуюся кнопку: крестик пропадает, и фокус не должен уйти из окна.
+  const [opened, setOpened] = useState<number | null>(null)
+  const [closed, setClosed] = useState<number | null>(null)
+  // Строки возвратов идут по месту: добавленный или убранный возврат сдвигает места, и прежняя метка фокуса
+  // досталась бы чужой строке.
+  const forget = () => {
+    setOpened(null)
+    setClosed(null)
+  }
 
   // Вернуться не к чему — раньше в сценарии нет стадий базы: пустого блока «Возвраты» нет — замечание оператора на приёмке B-192.
   // Возврат из файла всё же покажется: его надо видеть, чтобы убрать.
@@ -2272,7 +3046,10 @@ function ReturnsField({
                 className="btn btn-icon"
                 aria-label={`Убрать возврат ${index + 1}`}
                 title={`Убрать возврат ${index + 1}`}
-                onClick={() => onChange(returns.filter((_, i) => i !== index))}
+                onClick={() => {
+                  forget()
+                  onChange(returns.filter((_, i) => i !== index))
+                }}
               >
                 <CloseIcon />
               </button>
@@ -2283,12 +3060,12 @@ function ReturnsField({
               </span>
               <select
                 className="flow-input"
-                aria-label={`Стадия возврата ${index + 1}`}
+                aria-label={`Этап возврата ${index + 1}`}
                 aria-invalid={!valid}
                 value={valid ? String(back.target) : ''}
                 onChange={(event) => set(index, { target: event.target.value ? Number(event.target.value) : null })}
               >
-                <option value="">стадия…</option>
+                <option value="">этап…</option>
                 {earlier.map((stage) => (
                   <option key={stage.key} value={stage.key}>
                     {stageName(stage)}
@@ -2296,6 +3073,54 @@ function ReturnsField({
                 ))}
               </select>
             </div>
+            {/* Предел кругов добавляется кнопкой и убирается крестиком — вариант «Б» макета B-271. */}
+            {back.rounds === null ? (
+              <div className="flow-return-row">
+                <button
+                  type="button"
+                  className="flow-limit-add"
+                  aria-label={`Предел кругов возврата ${index + 1}`}
+                  autoFocus={closed === index}
+                  onClick={() => {
+                    setClosed(null)
+                    setOpened(index)
+                    set(index, { rounds: '' })
+                  }}
+                >
+                  <PlusIcon />
+                  Предел кругов
+                </button>
+              </div>
+            ) : (
+              <div className="flow-return-row">
+                <span className="flow-return-mark" aria-hidden="true">
+                  <RoundsIcon />
+                </span>
+                <span className="flow-return-limit-label">Предел кругов</span>
+                <input
+                  className="flow-input flow-limit-input"
+                  inputMode="numeric"
+                  aria-label={`Предел кругов возврата ${index + 1}`}
+                  aria-invalid={!validRounds(back.rounds)}
+                  autoFocus={opened === index}
+                  value={back.rounds}
+                  onChange={(event) => set(index, { rounds: event.target.value })}
+                />
+                <button
+                  type="button"
+                  className="btn btn-icon"
+                  aria-label={`Убрать предел кругов возврата ${index + 1}`}
+                  title="Убрать предел кругов"
+                  onClick={() => {
+                    setOpened(null)
+                    setClosed(index)
+                    set(index, { rounds: null })
+                  }}
+                >
+                  <CloseIcon />
+                </button>
+              </div>
+            )}
           </div>
         )
       })}
@@ -2303,7 +3128,10 @@ function ReturnsField({
         <button
           type="button"
           className="flow-add-dashed"
-          onClick={() => onChange([...returns, { condition: '', target: null }])}
+          onClick={() => {
+            forget()
+            onChange([...returns, { condition: '', target: null, rounds: null }])
+          }}
         >
           <PlusIcon />
           Добавить возврат
@@ -2314,50 +3142,72 @@ function ReturnsField({
 }
 
 /**
- * Описание стадии правится текстом в окне, а не полем — решение оператора, — по образцу задания исполнителя
- * (B-202): разметка показана оформленной, «Редактировать» открывает поле с исходным текстом. «Готово» кладёт
- * правку в черновик и возвращает к просмотру, «Отменить» — без правки; в базу описание ложится полосой
- * сохранения. Пустое описание открывается сразу в правке.
+ * Описание этапа правится текстом в окне, а не полем — решение оператора, — по образцу задания исполнителя
+ * (B-202): разметка показана оформленной, «Редактировать» открывает поле с исходным текстом. «Сохранить» сразу
+ * пишет описание в базу вместе со стадией и возвращает к просмотру. «Отмена» бросает правку и закрывает окно сразу,
+ * крестик и Escape при набранном спрашивают (B-226). Пустое описание открывается сразу в правке. readOnly — описание
+ * из правок Чудо-Юдо в окне переписки: тот же вид и размер, но только чтение (приёмка B-242).
  */
-function DescriptionEditor({
+export function DescriptionEditor({
   title,
   description,
   warning,
+  lock,
+  saving,
+  blocked,
+  covered,
+  readOnly = false,
   onClose,
-  onDone,
+  onAsk,
+  onSave,
 }: {
   title: string
   description: string | null
   warning: string | null
+  /** Стадию держат задачи в работе: описание только читается. */
+  lock: Lock | null
+  saving: boolean
+  blocked: boolean
+  /** Поверх открыт вопрос: окно под ним недоступно. */
+  covered: boolean
+  /** Только чтение: ни «Редактировать», ни правки пустого описания. */
+  readOnly?: boolean
   onClose: () => void
-  onDone: (description: string | null) => void
+  /** Спросить, бросить ли набранное; discard — что сделать, если оператор согласился. */
+  onAsk: (discard: () => void) => void
+  /** Записать описание в базу вместе со стадией; вернуть, почему не записалось, или null. */
+  onSave: (description: string | null) => Promise<string | null>
 }) {
   const empty = !description?.trim()
-  const [editing, setEditing] = useState(empty)
+  const [editing, setEditing] = useState(empty && !lock && !readOnly)
   const [text, setText] = useState(description ?? '')
+  const [failure, setFailure] = useState<string | null>(null)
   // Открытое окно забирает фокус: иначе он остался бы на кнопке под подложкой.
   const close = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
   useEffect(() => (editing ? field.current?.focus() : close.current?.focus()), [editing])
+  const changed = editing && text.replace(/\r\n/g, '\n') !== (description ?? '')
 
   function edit() {
     setText(description ?? '')
+    setFailure(null)
     setEditing(true)
   }
 
-  function cancel() {
-    // Пустое описание открывали, чтобы написать: без правки смотреть в нём нечего.
-    if (empty) onClose()
-    else {
-      setText(description ?? '')
-      setEditing(false)
-    }
+  // «Отмена» бросает правку и закрывает окно сразу, без вопроса (решение оператора на приёмке B-226).
+  const cancel = () => {
+    setFailure(null)
+    onClose()
   }
+  // Крестик и Escape закрывают окно целиком, но набранное молча не бросают (B-226).
+  const leave = () => (changed ? onAsk(onClose) : onClose())
 
-  function done() {
+  async function save() {
     const next = text.replace(/\r\n/g, '\n')
-    onDone(next.trim() ? next : null)
-    if (next.trim()) setEditing(false)
+    setFailure(null)
+    const failed = await onSave(next.trim() ? next : null)
+    if (failed) setFailure(failed)
+    else if (next.trim()) setEditing(false)
     else onClose()
   }
 
@@ -2370,34 +3220,42 @@ function DescriptionEditor({
       <div
         className="modal-wizard pf-task flow-description"
         role="dialog"
-        aria-modal="true"
+        aria-modal={!covered}
         aria-labelledby="flow-description-title"
         tabIndex={-1}
-        // Escape закрывает верхнее окно и в правке — без правки, как до B-202: так решено для всех окон раздела.
-        onKeyDown={(event) => event.key === 'Escape' && onClose()}
+        inert={covered}
+        // Escape закрывает верхнее окно и в правке, как до B-202, — но набранное бросает только после вопроса.
+        onKeyDown={(event) => event.key === 'Escape' && leave()}
       >
         <div className="ask-head">
           <div className="ask-title">
             <FileTextIcon />
-            <h2 id="flow-description-title">Описание стадии «{title.trim() || 'без названия'}»</h2>
-            <button type="button" className="btn btn-icon" aria-label="Закрыть описание" onClick={onClose}>
+            <h2 id="flow-description-title">Описание этапа «{title.trim() || 'без названия'}»</h2>
+            <button type="button" className="btn btn-icon" aria-label="Закрыть описание" onClick={leave}>
               <CloseIcon />
             </button>
           </div>
-          {warning && <p className="flow-scope-warning">{warning}</p>}
+          {lock ? <LockNote lock={lock} /> : warning && <p className="flow-scope-warning">{warning}</p>}
         </div>
         <div className="ask-body">
           {editing ? (
             <textarea
               ref={field}
               className="custom-textarea pf-task-edit"
-              aria-label="Описание стадии"
+              aria-label="Описание этапа"
               spellCheck={false}
+              // Пока описание пишется, набранное поверх него пропало бы: поле погашено.
+              disabled={saving}
               value={text}
               onChange={(event) => setText(event.target.value)}
             />
           ) : (
             <Markdown className="pf-task-view" text={description ?? ''} />
+          )}
+          {failure && (
+            <p className="flow-step-error" role="alert">
+              {failure}
+            </p>
           )}
         </div>
         <div className="modal-footer ask-footer">
@@ -2405,18 +3263,20 @@ function DescriptionEditor({
             {editing ? (
               <>
                 <button type="button" className="btn" onClick={cancel}>
-                  Отменить
+                  Отмена
                 </button>
-                <button type="button" className="btn btn-primary" onClick={done}>
-                  Готово
+                <button type="button" className="btn btn-primary" disabled={saving || blocked || !changed} onClick={() => void save()}>
+                  {saving ? 'Сохранение…' : 'Сохранить'}
                 </button>
               </>
             ) : (
               <>
-                <button type="button" className="btn" onClick={edit}>
-                  <PencilIcon />
-                  Редактировать
-                </button>
+                {!lock && !readOnly && (
+                  <button type="button" className="btn" onClick={edit}>
+                    <PencilIcon />
+                    Редактировать
+                  </button>
+                )}
                 <button type="button" ref={close} className="btn" onClick={onClose}>
                   Закрыть
                 </button>
@@ -2477,7 +3337,7 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
       <button
         type="button"
         className="flow-icon-toggle"
-        aria-label="Значок стадии"
+        aria-label="Значок этапа"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
       >
@@ -2487,7 +3347,7 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
         <ChevronDownIcon />
       </button>
       {open && (
-        <div className="flow-icon-menu" role="group" aria-label="Значки стадии">
+        <div className="flow-icon-menu" role="group" aria-label="Значки этапа">
           <button
             type="button"
             className="flow-icon-btn"
@@ -2518,25 +3378,20 @@ function IconPicker({ stage, onPick }: { stage: DraftStage; onPick: (icon: strin
 }
 
 /**
- * Стадия во флоу выбирается своим окном: новая, своя стадия базы, которой во флоу ещё нет, или пресет.
+ * Стадия во флоу выбирается своим окном: новая или своя стадия базы, которой во флоу ещё нет.
  * Рамка — окна правки стадии и возвратов, стадии — списком строк в виде карточек вкладки «Стадии» (B-209).
  */
 function AddStage({
   flow,
   stages,
-  presets,
   onPick,
   onCancel,
-  onRemovePreset,
 }: {
   flow: DraftFlow
   stages: DraftStage[]
-  presets: StagePreset[]
-  onPick: (choice: { stage: number } | { preset: FlowStage } | 'new') => void
+  onPick: (choice: { stage: number } | 'new') => void
   onCancel: () => void
-  onRemovePreset: (preset: StagePreset) => void
 }) {
-  const box = useRef<HTMLElement>(null)
   const first = useRef<HTMLButtonElement>(null)
   // Фокус — в окне, иначе Escape его не закрывает: он ловится на самом окне.
   useEffect(() => first.current?.focus(), [])
@@ -2544,11 +3399,10 @@ function AddStage({
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
       <section
-        ref={box}
         className="modal-wizard flow-stage-modal flow-add-modal"
         role="dialog"
         aria-modal="true"
-        aria-label={`Добавить стадию в сценарий «${flowName(flow)}»`}
+        aria-label={`Добавить этап в сценарий «${flowName(flow)}»`}
         tabIndex={-1}
         onKeyDown={(event) => event.key === 'Escape' && onCancel()}
       >
@@ -2557,7 +3411,7 @@ function AddStage({
             <span className="flow-card-mark flow-mark-flow" aria-hidden="true">
               <PlusIcon />
             </span>
-            <h2 className="flow-stage-modal-title">Добавить стадию</h2>
+            <h2 className="flow-stage-modal-title">Добавить этап</h2>
             <span className="pf-project">сценарий «{flowName(flow)}»</span>
             <button type="button" className="btn btn-icon" aria-label="Закрыть" onClick={onCancel}>
               <CloseIcon />
@@ -2575,13 +3429,13 @@ function AddStage({
                 onClick={() => onPick('new')}
               >
                 <PlusIcon />
-                Новая стадия
+                Новый этап
               </button>
             </li>
           </ul>
           {stages.length > 0 && (
-            <div role="group" aria-label="Стадии базы" className="flow-presets-group">
-              <div className="flow-presets-label">Стадии базы</div>
+            <div role="group" aria-label="Этапы базы" className="flow-add-group">
+              <div className="flow-add-label">Этапы базы</div>
               <ul className="flow-add-list">
                 {stages.map((stage) => (
                   <li key={stage.key}>
@@ -2596,49 +3450,10 @@ function AddStage({
               </ul>
             </div>
           )}
-          <div role="group" aria-label="Пресеты стадий" className="flow-presets-group">
-            <div className="flow-presets-label">Пресеты</div>
-            {presets.length === 0 ? (
-              <p className="flow-presets-empty text-ter">Пресетов пока нет.</p>
-            ) : (
-              <ul className="flow-add-list">
-                {presets.map((preset, index) => (
-                  <li key={preset.id}>
-                    {/* У пресета своего значка нет: значок — по исполнителю. */}
-                    <AddStageRow
-                      title={preset.title}
-                      icon=""
-                      executor={preset.executor}
-                      removable
-                      onClick={() => onPick({ preset })}
-                    />
-                    <span className="flow-preset-remove" data-preset={preset.id}>
-                      <IconButton
-                        label={`Удалить пресет ${preset.title}`}
-                        danger
-                        onClick={() => {
-                          // Кнопка уйдёт вместе с пресетом: фокус — на крестик соседнего пресета, чтобы с клавиатуры
-                          // удалять подряд, а без соседей — на окно, чтобы Escape его закрывал.
-                          const next = (presets[index + 1] ?? presets[index - 1])?.id
-                          const neighbour = next
-                            ? box.current?.querySelector<HTMLElement>(`[data-preset="${CSS.escape(next)}"] button`)
-                            : null
-                          ;(neighbour ?? box.current)?.focus()
-                          onRemovePreset(preset)
-                        }}
-                      >
-                        <CloseIcon />
-                      </IconButton>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
 
         <div className="modal-footer flow-stage-foot">
-          <button type="button" className="btn flow-stage-done" onClick={onCancel}>
+          <button type="button" className="btn flow-stage-pair flow-stage-push" onClick={onCancel}>
             Отмена
           </button>
         </div>
@@ -2652,18 +3467,16 @@ function AddStageRow({
   title,
   icon,
   executor,
-  removable = false,
   onClick,
 }: {
   title: string
   icon: string
   executor: string
-  removable?: boolean
   onClick: () => void
 }) {
   const kind = executor === 'оркестратор' ? 'orchestrator' : executor === 'оператор' ? 'operator' : 'agent'
   return (
-    <button type="button" className={`flow-stage-card ${removable ? 'has-remove' : ''}`} onClick={onClick}>
+    <button type="button" className="flow-stage-card" onClick={onClick}>
       <span className={`flow-card-mark flow-mark-${kind}`} aria-hidden="true">
         <StageIcon icon={icon} kind={kind} />
       </span>
@@ -2683,34 +3496,52 @@ function AddStageRow({
   )
 }
 
-function ConfirmSave({ flow, onCancel, onConfirm }: { flow: BaseFlow; onCancel: () => void; onConfirm: () => void }) {
+/**
+ * Вопрос поверх окна — удалить или закрыть без сохранения. Фокус встаёт на кнопку, которая делает, а на закрытии
+ * возвращается туда, где был: к окну, из которого спросили. Escape — «оставить как было», дальше окна он не идёт.
+ */
+function ConfirmDialog({ asking, onClose }: { asking: Asking; onClose: () => void }) {
   const confirm = useRef<HTMLButtonElement>(null)
-  useEffect(() => confirm.current?.focus(), [])
+  // Куда вернуть фокус, известно на открытии: вопрос за время жизни его не меняет.
+  const [back] = useState(() => asking.back ?? (document.activeElement as HTMLElement | null))
+  useEffect(() => {
+    confirm.current?.focus()
+    return () => back?.focus()
+  }, [back])
 
   return (
-    <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+    <div
+      className="modal-overlay flow-confirm-overlay"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
       <div
         className="flow-confirm"
-        role="dialog"
+        role="alertdialog"
         aria-modal="true"
         aria-labelledby="flow-confirm-title"
-        onKeyDown={(event) => event.key === 'Escape' && onCancel()}
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape') return
+          event.preventDefault()
+          event.stopPropagation()
+          onClose()
+        }}
       >
-        <h3 id="flow-confirm-title">Сохранить флоу {flow.project}?</h3>
-        <p className="text-sec">
-          Флоу и стадии в базе будут переписаны и закоммичены одним коммитом. Следующая задача на проекте пойдёт уже
-          по новому флоу.
-        </p>
-        <p className="flow-confirm-warning">
-          На проекте {plural(flow.activeTasks, 'задача', 'задачи', 'задач')} в работе. Они дойдут по старым стадиям —
-          новый флоу их не меняет.
-        </p>
+        <h3 id="flow-confirm-title">{asking.title}</h3>
+        {asking.text && <p className="text-sec">{asking.text}</p>}
         <div className="flow-confirm-actions">
-          <button type="button" className="bases-btn" onClick={onCancel}>
-            Отмена
+          <button type="button" className="bases-btn" onClick={onClose}>
+            {asking.cancel}
           </button>
-          <button type="button" className="bases-btn bases-btn-primary" ref={confirm} onClick={onConfirm}>
-            Сохранить
+          <button
+            type="button"
+            className="bases-btn bases-btn-danger"
+            ref={confirm}
+            onClick={() => {
+              onClose()
+              asking.onConfirm()
+            }}
+          >
+            {asking.confirm}
           </button>
         </div>
       </div>
@@ -2722,21 +3553,19 @@ function IconButton({
   label,
   disabled = false,
   pressed,
-  danger = false,
   onClick,
   children,
 }: {
   label: string
   disabled?: boolean
   pressed?: boolean
-  danger?: boolean
   onClick: () => void
   children: ReactNode
 }) {
   return (
     <button
       type="button"
-      className={`flow-icon-btn ${danger ? 'danger' : ''}`}
+      className="flow-icon-btn"
       aria-label={label}
       title={label}
       aria-pressed={pressed}
@@ -2770,10 +3599,58 @@ function GripIcon() {
   )
 }
 
-function BookmarkIcon() {
+/** Номера задач, которые держат правку, — плашками, как в строке над разделом на макете B-226. */
+function TaskTags({ tasks }: { tasks: string[] }) {
+  return (
+    <>
+      {tasks.map((task, i) => (
+        <span key={task}>
+          {/* Плашки стоят рядом, а текстом строки читаются через запятую. */}
+          {i > 0 && <span className="visually-hidden">, </span>}
+          <span className="flow-task-tag">{task}</span>
+        </span>
+      ))}
+    </>
+  )
+}
+
+/** Строка над разделом: правка сценария или всего проекта закрыта, пока по ним идут задачи. */
+function LockLine({ lock, what }: { lock: Lock; what: string }) {
+  return (
+    <p className="flow-lock" role="status">
+      <LockIcon />
+      {what} — {lock.before} <TaskTags tasks={lock.tasks} />
+      {lock.after && ` ${lock.after}`}
+    </p>
+  )
+}
+
+/** Та же причина в шапке окна только для чтения — на месте строки о сценариях, которые заденет правка. */
+function LockNote({ lock }: { lock: Lock }) {
+  return (
+    <p className="flow-scope-warning flow-scope-lock" role="status">
+      <LockIcon />
+      Правка закрыта: {lock.before} <TaskTags tasks={lock.tasks} />
+      {lock.after && ` ${lock.after}`}
+    </p>
+  )
+}
+
+function LockIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  )
+}
+
+function InfoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
     </svg>
   )
 }
@@ -2813,6 +3690,18 @@ function ReturnIcon() {
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 9h11a4 4 0 0 1 0 8H9" />
       <polyline points="8 5 4 9 8 13" />
+    </svg>
+  )
+}
+
+/** Значок предела кругов — две круговые стрелки. */
+function RoundsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <polyline points="17 1 21 5 17 9" />
+      <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+      <polyline points="7 23 3 19 7 15" />
+      <path d="M21 13v2a4 4 0 0 1-4 4H3" />
     </svg>
   )
 }

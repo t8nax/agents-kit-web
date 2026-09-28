@@ -1,5 +1,5 @@
-# Общие для песочницы и демонстрации кирпичи: запись файлов, git-репозитории, пустышки сессий,
-# заглушки кита и агента. Подключается точкой из scripts/sandbox.ps1 и scripts/demo.ps1.
+# Кирпичи песочницы: запись файлов, git-репозитории, пустышки сессий, заглушки кита и агента.
+# Подключается точкой из scripts/sandbox.ps1; ими же пишется свой кусок задачи.
 
 function Write-Utf8([string]$Path, [string]$Text, [switch]$Crlf) {
     $dir = Split-Path $Path -Parent
@@ -14,11 +14,11 @@ function Write-Json([string]$Path, $Value) {
 
 # Репозиторий выдуманного проекта — настоящий git: список копий панель берёт из «git worktree list»,
 # а флоу и бэклог она коммитит. Имя автора задаётся локально: своих настроек у каталога нет.
-function New-Repo([string]$Path, [string]$Author = 'Песочница', [string]$Email = 'sandbox@example.invalid') {
+function New-Repo([string]$Path) {
     New-Item -ItemType Directory -Path $Path -Force | Out-Null
     git -C $Path init -b main --quiet
-    git -C $Path config user.name $Author
-    git -C $Path config user.email $Email
+    git -C $Path config user.name 'Песочница'
+    git -C $Path config user.email 'sandbox@example.invalid'
     # Фикстура памяти с CRLF должна доехать до панели как записана.
     git -C $Path config core.autocrlf false
     git -C $Path config commit.gpgsign false
@@ -47,13 +47,10 @@ function Write-Session([string]$Dir, [int]$Process, [string]$Cwd, [hashtable]$Ex
 
 # Кит подменён: настоящий полез бы в живую сверку и завёл бы настоящую копию. Состояние связи
 # и находки сверки заглушка не вычисляет, а берёт из таблиц, которые пишет этот скрипт.
-# $LinkNewCopies — заведённая из панели копия сразу связана с базой, как у настоящего кита; песочнице
-# это не нужно: на её копии без связи видно, как панель показывает проблему связи.
-# $Rules — справка кита о флоу и стадиях (reference/flow-stages.md установленного кита): из неё панель подаёт
-# агенту правила формы стадии. Не нашлась — заглушка кладёт короткую свою, чтобы переписывание не отвечало отказом.
-function New-Kit([string]$Path, [switch]$LinkNewCopies, [string]$Rules) {
+# $Rules — справка кита о флоу (reference/flow-stages.md установленного кита): из неё панель подаёт
+# агенту правила формы этапа. Не нашлась — заглушка кладёт короткую свою, чтобы переписывание не отвечало отказом.
+function New-Kit([string]$Path, [string]$Rules) {
     $scripts = Join-Path $Path 'scripts'
-    if ($LinkNewCopies) { Write-Utf8 (Join-Path $scripts 'link-new.txt') "заведённые копии связывать с базой`n" }
 
     Write-Utf8 (Join-Path $scripts 'link-state.ps1') @'
 # Заглушка кита. Состояние связи копии — строка таблицы links.json рядом со скриптами;
@@ -141,8 +138,8 @@ Write-Host 'Довезено: 0, обновлено: 0, убрано: 0'
 
     Write-Utf8 (Join-Path $scripts 'worktree-add.ps1') @'
 # Заглушка кита: копию заводит настоящим git worktree рядом с исходной — проверяется, как панель
-# зовёт кит и показывает его вывод. Со связью с базой — только при link-new.txt рядом (демонстрация);
-# без него, как в песочнице, копия под китом не числится.
+# зовёт кит и показывает его вывод. С базой заведённую копию заглушка не связывает: под китом
+# она не числится, и на ней видно, как панель показывает проблему связи.
 param([Parameter(Mandatory)][string]$Path, [string]$Name)
 
 $ErrorActionPreference = 'Stop'
@@ -152,17 +149,6 @@ if (-not (Test-Path -LiteralPath (Join-Path $Path '.git'))) {
 $branch = if ($Name) { $Name } else { 'sandbox-' + [guid]::NewGuid().ToString('N').Substring(0, 6) }
 $target = Join-Path (Split-Path $Path -Parent) $branch
 git -C $Path worktree add -b $branch $target --quiet 2>&1 | Out-Null
-if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'link-new.txt')) {
-    $table = Join-Path $PSScriptRoot 'links.json'
-    $rows = [Collections.Generic.List[object]]::new()
-    foreach ($row in @(Get-Content -LiteralPath $table -Raw | ConvertFrom-Json)) { $rows.Add($row) }
-    $from = ($Path -replace '/', '\').TrimEnd('\')
-    $base = @($rows | Where-Object { $_.path -ieq $from })[0].base
-    if ($base) {
-        $rows.Add([pscustomobject]@{ path = ($target -replace '/', '\').TrimEnd('\'); status = 'Linked'; base = $base })
-        [IO.File]::WriteAllText($table, (ConvertTo-Json @($rows.ToArray()) -Depth 4), [Text.UTF8Encoding]::new($false))
-    }
-}
 "Копия заведена: $target, ветка $branch"
 '@
 
@@ -202,13 +188,13 @@ if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $bra
         Copy-Item -LiteralPath $Rules -Destination $reference -Force
     } else {
         Write-Utf8 $reference @'
-# Флоу и стадии
+# Флоу: сценарии и этапы
 
-Заглушка кита: настоящей справки рядом не нашлось, и здесь только то, без чего переписывание стадии не начнётся.
+Заглушка кита: настоящей справки рядом не нашлось, и здесь только то, без чего переписывание этапа не начнётся.
 
-## Стадия
+## Этап
 
-Стадия — файл `flow/stages/<слаг>.md`. Заголовок файла — название стадии, под ним подряд пары `ключ: значение`,
+Этап — файл `flow/stages/<слаг>.md`. Заголовок файла — название этапа, под ним подряд пары `ключ: значение`,
 после пустой строки — описание.
 
 Ключи — закрытый перечень: `исполнитель` (обязателен), `помощники`, `выход` (обязателен), `пропуск`.
@@ -227,8 +213,7 @@ if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $bra
 # настоящего агента. Исполняемую обёртку собирает Windows PowerShell: в pwsh компиляции в exe
 # нет. Обёртка ничего не делает сама — зовёт claude-stub.ps1, отдав ему свои аргументы
 # переменной окружения, а потоки ввода и вывода достаются заглушке по наследству.
-# $Name и $Of — чей это агент в его ответах и в имени сессии: «песочница» и «песочницы».
-function New-ClaudeStub([string]$Path, [string]$Name = 'песочница', [string]$Of = 'песочницы') {
+function New-ClaudeStub([string]$Path) {
     Write-Utf8 (Join-Path $Path 'claude-shim.cs') @'
 using System;
 using System.Diagnostics;
@@ -261,7 +246,7 @@ public static class ClaudeShim
 
     $stub = @'
 # Подставной агент Claude Code. Режим читается на каждый вызов из claude-mode.txt корня
-# @@OF@@:
+# песочницы:
 #   ok         как при удачной работе
 #   garbage    вместо потока событий — не JSON
 #   truncated  поток обрывается на середине, итога нет
@@ -316,7 +301,7 @@ function Write-Result([string]$Text) {
 }
 
 if ($mode -eq 'fail') {
-    [Console]::Error.WriteLine('подставной агент отказался работать: так задан режим @@OF@@')
+    [Console]::Error.WriteLine('подставной агент отказался работать: так задан режим песочницы')
     exit 1
 }
 
@@ -357,7 +342,7 @@ if ($arguments -contains '--bg') {
         kind       = 'bg'
         jobId      = $id
         status     = 'busy'
-        name       = "@@NAME@@ drive $id"
+        name       = "песочница drive $id"
         startedAt  = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     }
     $file = Join-Path (Join-Path $root 'sessions') "$($dummy.Id).json"
@@ -372,22 +357,86 @@ if ($mode -eq 'garbage') {
     exit 0
 }
 
-# Переписывание стадий: панель зовёт агента с правилами формы стадии в системном промпте и ждёт стадии
-# блоками «=== стадия «…»» и «=== новая стадия». Подставной дописывает к выходу первой добавленной стадии
-# слова просьбы, а без добавленных пишет новую стадию.
+# Переписка о флоу: панель зовёт агента с правилами формы сценария и этапа в системном промпте, первой репликой
+# отдаёт флоу целиком, а ждёт слова и блоки правок «=== этап «…»», «=== новый этап», «=== сценарий «…»» и удаления.
+# Подставной на первую реплику переспрашивает, на вторую предлагает правки: дописывает к выходу первого этапа слова
+# просьбы, заводит этап заметок и ставит его в конец первого сценария; по слову «удали» убирает этап заметок.
 $system = Get-Argument '--append-system-prompt'
-if ($system -and $system -match 'стадии флоу проекта') {
-    Write-Step 'Read' @{ file_path = 'flow/flow.md' }
-    Write-Step 'Glob' @{ pattern = 'flow/stages/*.md' }
-    if ($mode -eq 'truncated') { exit 0 }
-    $input_ = $stdin -replace "`r`n", "`n"
-    $wish = if ($input_ -match 'Просьба оператора:\n([^\n]*)') { $Matches[1].Trim() } else { '' }
-    if ($input_ -match '(?s)Добавленная стадия «([^»]*)»:\n(.*?)(?=\n\nДобавленная стадия|\n\nОстальные стадии|\n\nИсполнители проекта|$)') {
-        $title = $Matches[1]
-        $file = $Matches[2] -replace '(?m)^выход:\s*(.*)$', "выход: `$1 — по просьбе «$wish»"
-        Write-Result "=== стадия «$title»`n$file"
-    } else {
-        Write-Result "=== новая стадия`n# Заметки подставного агента`n`nисполнитель: оператор`nвыход: заметка по просьбе «$wish»`n`n1. Написано подставным агентом @@OF@@: настоящей стадии здесь нет.`n"
+if ($system -and $system -match 'правишь (его )?флоу проекта') {
+    $notes = 'Заметки подставного агента'
+    $stageTitle = $null; $stageFile = $null; $scenarioName = $null; $scenario = $null
+    $wish = ''
+    $turn = 0
+    $reworks = 0
+    while ($null -ne ($line = $stdinReader.ReadLine())) {
+        if (-not $line.Trim()) { continue }
+        $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text) -replace "`r`n", "`n" } catch { $line }
+        # Просьба панели дописать ответ — не реплика оператора: счёт реплик она не двигает.
+        if ($said -notmatch '^Панель не приняла твой ответ') { $turn++ }
+        Write-Step 'Read' @{ file_path = 'flow/scenarios.md' }
+        Write-Step 'Glob' @{ pattern = 'flow/stages/*.md' }
+        if ($mode -eq 'truncated') { exit 0 }
+
+        # Первая реплика несёт флоу целиком: из неё берутся первый этап и первый сценарий.
+        if ($said -match '(?s)^Просьба оператора:\n(.*?)\n\nСценарии \(flow/scenarios\.md\):\n(.*?)\n\nЭтапы \(flow/stages/\):(.*?)\n\nЗадачи в работе:') {
+            $wish = $Matches[1].Trim()
+            $scenarios = $Matches[2]
+            $stages = $Matches[3]
+            $stageMatch = [regex]::Match($stages, '(?ms)^=== [^\n]*\n(# ([^\n]*)\n.*?)(?=\n\n=== |\z)')
+            if ($stageMatch.Success) { $stageFile = $stageMatch.Groups[1].Value.TrimEnd(); $stageTitle = $stageMatch.Groups[2].Value.Trim() }
+            $scenarioMatch = [regex]::Match($scenarios, '(?ms)^## ([^\n]*)\n.*?(?=^## |\z)')
+            if ($scenarioMatch.Success) { $scenario = $scenarioMatch.Value.TrimEnd(); $scenarioName = $scenarioMatch.Groups[1].Value.Trim() }
+            $said = $wish
+        }
+
+        # Неполный этап: по слову «неполный» агент заводит этап черновика без выхода, и панель возвращает ответ
+        # на доработку; дописывает он его сразу, а со словом «дважды» — снова без выхода, и панель показывает ошибку.
+        $draft = 'Черновик подставного агента'
+        $incomplete = "Завёл этап черновика, а выход забыл.`n=== новый этап`n# $draft`n`nисполнитель: оператор`n`n1. Написано подставным агентом песочницы."
+        if ($said -match '^Панель не приняла твой ответ') {
+            if ($reworks -gt 0) {
+                $reworks--
+                Write-Result $incomplete
+            } else {
+                Write-Result "Дописал выход.`n=== новый этап`n# $draft`n`nисполнитель: оператор`nвыход: черновик по просьбе оператора`n`n1. Написано подставным агентом песочницы."
+            }
+            continue
+        }
+        if ($said -match 'неполн') {
+            $reworks = if ($said -match 'дважды') { 1 } else { 0 }
+            Write-Result $incomplete
+            continue
+        }
+
+        if ($turn -eq 1) {
+            $about = if ($stageTitle) { "в этапе «$stageTitle»" } else { 'во флоу' }
+            Write-Result "Подставной агент песочницы переспрашивает: что именно поправить $about по просьбе «$said»? Ответьте что угодно — следующей репликой он предложит правки."
+            continue
+        }
+
+        if ($said -match 'удали') {
+            $blocks = @("Убрал этап заметок.", "=== удалить этап «$notes»")
+            if ($scenario) { $blocks += "=== сценарий «$scenarioName»`n$scenario" }
+            Write-Result ($blocks -join "`n")
+            continue
+        }
+
+        if ($turn -eq 2) {
+            $blocks = @("Предлагаю правки по просьбе «$wish» и уточнению «$($said.Trim())».")
+            if ($stageFile) {
+                $rewritten = $stageFile -replace '(?m)^выход:\s*(.*)$', "выход: `$1 — по просьбе «$wish»"
+                $blocks += "=== этап «$stageTitle»`n$rewritten"
+            }
+            $blocks += "=== новый этап`n# $notes`n`nисполнитель: оператор`nвыход: заметка по просьбе «$wish»`n`n1. Написано подставным агентом песочницы: настоящего этапа здесь нет."
+            if ($scenario) {
+                $next = ([regex]::Matches($scenario, '(?m)^\s*\d+\.')).Count + 1
+                $blocks += "=== сценарий «$scenarioName»`n$scenario`n$next. [$notes](stages/notes.md)"
+            }
+            Write-Result ($blocks -join "`n")
+            continue
+        }
+
+        Write-Result "Реплика $turn — «$($said.Trim())». Правки прежние: они на вкладке «Изменения». Скажите «удали», и подставной агент уберёт этап заметок."
     }
     exit 0
 }
@@ -397,8 +446,10 @@ $baseDir = Get-Argument '--add-dir'
 # Разговор о бэклоге: реплики приходят строками stream-json. Новую запись агент дописывает и коммитит,
 # изменение, удаление и объединение только предлагает блоками ~~~backlog — пишет их панель по «Сохранить».
 # Запись, названная без номера, уточняется вопросом; «да» в ответ делает прежнюю просьбу с этой записью.
+# Бэклог — в личном репозитории оператора local\me базы, коммит — в его git.
 if ($baseDir) {
-    $backlog = Join-Path $baseDir 'backlog.md'
+    $personal = Join-Path $baseDir 'local\me'
+    $backlog = Join-Path $personal 'backlog.md'
     $asked = $null
     function Get-Block([string]$Text, [string]$Number) {
         $found = [regex]::Match($Text, "(?ms)^## $([regex]::Escape($Number))\s.*?(?=^## |\z)")
@@ -464,14 +515,22 @@ if ($baseDir) {
             continue
         }
 
+        # Приложенные файлы панель уже положила в artifacts/ и назвала абзацем в конце реплики: навык вписывает их
+        # в «Артефакты» записи и коммитит вместе с ней.
+        $attached = @([regex]::Matches($said, 'artifacts/[^\s,]+') | ForEach-Object { $_.Value.TrimEnd('.') })
+        $said = ($said -split "`n`nОператор приложил файлы")[0]
         # Буквы номеров у каждой базы свои: их держит счётчик, как у кита. Заголовок записи — сам текст.
         $title = ($said -split "`n")[0]
         if ($title.Length -gt 70) { $title = $title.Substring(0, 70) }
+        $artifacts = if ($attached.Count -gt 0) {
+            "`n`n### Артефакты`n" + (($attached | ForEach-Object { "- приложено из панели: $_" }) -join "`n")
+        } else { '' }
         $text = $text -replace "(?m)^следующий номер:\s*[A-Z][A-Z0-9]*-\d+\s*$", "следующий номер: $letters-$($number + 1)"
-        $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said`n`n### Агенту`n- записано подставным агентом @@OF@@`n"
+        $text = $text.TrimEnd() + "`n`n## $letters-$number $title`n`n$said$artifacts`n`n### Агенту`n- записано подставным агентом песочницы`n"
         [IO.File]::WriteAllText($backlog, $text, [Text.UTF8Encoding]::new($false))
         Write-Step 'Edit' @{ file_path = $backlog }
-        git -C $baseDir commit -q -m 'Записано из панели' -- backlog.md
+        if ($attached.Count -gt 0) { git -C $personal commit -q -m 'Записано из панели' -- backlog.md artifacts }
+        else { git -C $personal commit -q -m 'Записано из панели' -- backlog.md }
         Write-Result "Записал $letters-$number."
     }
     exit 0
@@ -482,9 +541,9 @@ if ($baseDir) {
 $product = Join-Path (Get-Location).Path 'product.md'
 if (-not $chat) {
     Write-Step 'Read' @{ file_path = $product }
-    Write-Step 'Grep' @{ pattern = '@@NAME@@' }
+    Write-Step 'Grep' @{ pattern = 'песочница' }
     if ($mode -eq 'truncated') { exit 0 }
-    Write-Result "Подставной агент @@OF@@ отвечает на «$($stdin.Trim())»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+    Write-Result "Подставной агент песочницы отвечает на «$($stdin.Trim())»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
     exit 0
 }
 
@@ -494,10 +553,10 @@ while ($null -ne ($line = $stdinReader.ReadLine())) {
     $text = try { ([string]($line | ConvertFrom-Json).message.content[0].text).Trim() } catch { $line.Trim() }
     $said += $text
     Write-Step 'Read' @{ file_path = $product }
-    Write-Step 'Grep' @{ pattern = '@@NAME@@' }
+    Write-Step 'Grep' @{ pattern = 'песочница' }
     if ($mode -eq 'truncated') { exit 0 }
     $answer = if ($said.Count -eq 1) {
-        "Подставной агент @@OF@@ отвечает на «$text»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
+        "Подставной агент песочницы отвечает на «$text»: настоящего ответа здесь нет и быть не может, зато видно, как панель показывает ход работы и итог."
     } else {
         "Реплика $($said.Count) — «$text». Прошлые реплики я помню: $($said[0..($said.Count - 2)] -join ' · ')."
     }
@@ -505,5 +564,83 @@ while ($null -ne ($line = $stdinReader.ReadLine())) {
 }
 exit 0
 '@
-    Write-Utf8 (Join-Path $Path 'claude-stub.ps1') $stub.Replace('@@NAME@@', $Name).Replace('@@OF@@', $Of)
+    Write-Utf8 (Join-Path $Path 'claude-stub.ps1') $stub
+}
+
+# --- подставной gh -----------------------------------------------------------------------
+
+# Задачи трекера GitHub панель читает программой gh голым именем через PATH, и в песочнице её
+# перехватывает свой gh.exe впереди PATH — всегда, и с -RealAgent тоже: настоящая gh пошла бы
+# в GitHub под аккаунтом оператора. Обёртка — exe по той же причине, что у агента, и так же
+# ничего не делает сама: зовёт gh-stub.ps1, отдав ему аргументы переменной окружения.
+function New-GhStub([string]$Path) {
+    Write-Utf8 (Join-Path $Path 'gh-shim.cs') @'
+using System;
+using System.Diagnostics;
+using System.IO;
+
+public static class GhShim
+{
+    public static int Main(string[] args)
+    {
+        string dir = Path.GetDirectoryName(typeof(GhShim).Assembly.Location);
+        var start = new ProcessStartInfo("pwsh");
+        start.Arguments = "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(dir, "gh-stub.ps1") + "\"";
+        start.UseShellExecute = false;
+        start.EnvironmentVariables["AKW_GH_ARGS"] = string.Join(((char)1).ToString(), args);
+        using (var process = Process.Start(start))
+        {
+            process.WaitForExit();
+            return process.ExitCode;
+        }
+    }
+}
+'@
+
+    $exe = Join-Path $Path 'gh.exe'
+    $source = Join-Path $Path 'gh-shim.cs'
+    & powershell.exe -NoProfile -NonInteractive -Command         "Add-Type -TypeDefinition (Get-Content -Raw '$source') -OutputAssembly '$exe' -OutputType ConsoleApplication" | Out-Null
+    if (-not (Test-Path -LiteralPath $exe)) { throw "не собралась подмена gh: $exe" }
+
+    $stub = @'
+# Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» задачами из gh-issues.json
+# корня песочницы — объект «репозиторий: [задачи]»; репозитория там нет — как GitHub о чужом.
+# Режим читается на каждый вызов из gh-mode.txt корня песочницы:
+#   ok      задачи из gh-issues.json
+#   login   gh не вошла в аккаунт GitHub
+#   error   GitHub отвечает ошибкой сервера
+#   slow    те же задачи через несколько секунд
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+
+$root = Split-Path $PSScriptRoot -Parent
+$modeFile = Join-Path $root 'gh-mode.txt'
+$mode = if (Test-Path -LiteralPath $modeFile) { (Get-Content -LiteralPath $modeFile -Raw).Trim().ToLowerInvariant() } else { 'ok' }
+if (-not $mode) { $mode = 'ok' }
+
+$arguments = if ($env:AKW_GH_ARGS) { @($env:AKW_GH_ARGS -split [char]1) } else { @($args) }
+$repo = $null
+for ($i = 0; $i -lt $arguments.Count - 1; $i++) { if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] } }
+
+switch ($mode) {
+    'login' {
+        [Console]::Error.WriteLine('To get started with GitHub CLI, please run:  gh auth login')
+        exit 4
+    }
+    'error' {
+        [Console]::Error.WriteLine('HTTP 502: Bad Gateway (https://api.github.com/graphql)')
+        exit 1
+    }
+    'slow' { Start-Sleep -Seconds 6 }
+}
+
+$issues = Get-Content -LiteralPath (Join-Path $root 'gh-issues.json') -Raw -Encoding utf8 | ConvertFrom-Json
+if (-not $repo -or -not ($issues.PSObject.Properties.Name -contains $repo)) {
+    [Console]::Error.WriteLine("GraphQL: Could not resolve to a Repository with the name '$repo'. (repository)")
+    exit 1
+}
+[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($issues.$repo) -Depth 4 -Compress))
+exit 0
+'@
+    Write-Utf8 (Join-Path $Path 'gh-stub.ps1') $stub
 }

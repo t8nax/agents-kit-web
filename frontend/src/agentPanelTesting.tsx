@@ -70,8 +70,6 @@ export function stubPanel(
               : kind === 'backlog'
                 ? ((body.number as string | undefined) ?? null)
                 : ((body.current as { name?: string } | null | undefined)?.name ?? null),
-          // Как в API: просьба переписать стадии помнит, какие стадии ушли агенту.
-          ...(kind === 'flow' ? { stages: (body.stages as AgentRequestSummary['stages']) ?? [] } : {}),
         }
         return Promise.resolve(Response.json(request))
       }

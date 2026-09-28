@@ -46,12 +46,16 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
             (asking, cancellationToken) => RunAsync(basePath, replies.Reader, turn, asking, cancellationToken),
             continues: true,
             // Копию разговора окно, открытое заново, берёт отсюда: выбрать другую посреди разговора нельзя.
-            subject: copyPath);
+            subject: copyPath,
+            reply: new AskEvent("reply", question));
 
         turn.Request = request;
         lock (_gate)
+        {
             _turn = turn;
-        Say(request, turn, question);
+            if (!turn.Ended)
+                Send(turn, question);
+        }
         return request.Summary;
     }
 
@@ -63,13 +67,16 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         if (!request.Finished)
             return AskReplied.Answering;
 
-        Turn? turn;
+        // Агент выбирается и реплика уходит в его очередь под той же блокировкой, которой его работа отмечает свой
+        // конец: кончившемуся агенту она не достаётся, а поднимает нового (B-262, как B-259 у бэклога).
         lock (_gate)
-            turn = _turn?.Request == request && request.Working ? _turn : null;
-
-        // Новый агент читает ту же копию, что прежний: копия, как и база, одна на разговор, и помнит её просьба.
-        turn ??= Restart(request, request.Subject);
-        Say(request, turn, text);
+        {
+            var turn = _turn?.Request == request && request.Working && !_turn.Ended ? _turn : null;
+            // Новый агент читает ту же копию, что прежний: копия, как и база, одна на разговор, и помнит её просьба.
+            turn ??= Restart(request, request.Subject);
+            request.Reply(new AskEvent("reply", text));
+            Send(turn, text);
+        }
         return AskReplied.Sent;
     }
 
@@ -82,14 +89,13 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         if (requests.Of(AgentRequests.Ask) is not { Continues: true } request || request.Finished)
             return false;
 
-        Turn? turn;
         lock (_gate)
-            turn = _turn?.Request == request ? _turn : null;
-        if (turn is null)
-            return false;
-
-        turn.Stopped = true;
-        turn.Timeout.Cancel();
+        {
+            if (_turn?.Request != request)
+                return false;
+            _turn.Stopped = true;
+            _turn.Timeout.Cancel();
+        }
         return true;
     }
 
@@ -112,12 +118,25 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         return turn;
     }
 
-    /// <summary>Реплика встаёт в переписку событием и уходит агенту строкой stdin; пошёл отсчёт ответа.</summary>
-    private static void Say(AgentRequest request, Turn turn, string text)
+    /// <summary>Реплика уходит агенту строкой stdin; пошёл отсчёт ответа. Зовётся под блокировкой разговора.</summary>
+    private static void Send(Turn turn, string text)
     {
-        request.Reply(new AskEvent("reply", text));
+        turn.Said = text;
         turn.Timeout.CancelAfter(Answer);
         turn.Replies.TryWrite(Message(text));
+    }
+
+    /// <summary>
+    /// Агент кончился: его очередь реплик больше не принимает. Возвращает реплику, которая в ней осталась, — её
+    /// агент так и не прочёл.
+    /// </summary>
+    private string? End(Turn turn, ChannelReader<string> replies)
+    {
+        lock (_gate)
+        {
+            turn.Ended = true;
+            return replies.TryRead(out _) ? turn.Said : null;
+        }
     }
 
     private async Task RunAsync(
@@ -141,12 +160,29 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                     if (stream.Finished)
                     {
                         // Реплика отвечена: следующей ждём сколько угодно, а прочитанные файлы считаются заново.
+                        // Реплику, ради которой агент поднят, он прочёл: следующую, не прочтённую им, получит новый.
+                        turn.Raised = false;
                         turn.Timeout.CancelAfter(Timeout.InfiniteTimeSpan);
                         stream = new ClaudeStream(basePath, turn.Copy);
                     }
                     return Task.CompletedTask;
                 },
                 linked.Token);
+            if (End(turn, replies) is { } left && !turn.Raised)
+            {
+                // Реплика легла в очередь, когда агент уже кончался, и он её не прочёл: её получает новый, если
+                // оператор не остановил ответ. Дошедшую до stdin выходящего процесса не вернуть — она кончится
+                // сбоем ниже, как и та, которую не прочёл уже поднятый ради неё агент.
+                lock (_gate)
+                {
+                    if (turn.Stopped)
+                        asking.Write(new AskEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
+                    // Разговор, сменённый новым, агента себе не поднимает: новый разговор держит своего.
+                    else if (_turn == turn)
+                        Send(Restart(asking, turn.Copy), left);
+                }
+                return;
+            }
             // Процесс кончился на неотвеченной реплике — это сбой; кончился между репликами — о нём скажет
             // следующая реплика, подняв нового агента.
             if (!asking.Finished)
@@ -154,6 +190,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            End(turn, replies);
             asking.Write(turn.Stopped
                 ? new AskEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет")
                 : new AskEvent("error", $"{AgentRequests.AgentName} не ответил за пять минут и остановлен"));
@@ -186,9 +223,10 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                      "--tools", "Read,Grep,Glob",
                      "--no-session-persistence",
                      "--strict-mcp-config",
-                     "--append-system-prompt", AskEndpoints.Prompt(copyPath),
+                     "--append-system-prompt", AskEndpoints.Prompt(BaseLayout.Read(basePath)?.Operator, copyPath),
                  })
             startInfo.ArgumentList.Add(arg);
+        AgentProcess.AddAutoMode(startInfo);
         if (copyPath is not null)
         {
             startInfo.ArgumentList.Add("--add-dir");
@@ -223,6 +261,18 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
 
         /// <summary>Ответ оборвал оператор, а не пятиминутное ожидание: в переписке это не сбой.</summary>
         public bool Stopped { get; set; }
+
+        /// <summary>Процесс кончился: реплика в его очередь уже не идёт. Меняется только под блокировкой разговора.</summary>
+        public bool Ended { get; set; }
+
+        /// <summary>Нынешняя реплика: не прочтённую агентом получает новый.</summary>
+        public string? Said { get; set; }
+
+        /// <summary>
+        /// Процесс поднят ради нынешней реплики и ещё на неё не ответил: не прочтёт он её — нового ради неё уже не
+        /// будет, и сбой встаёт в переписку. Так незапустившийся агент не поднимается без конца.
+        /// </summary>
+        public bool Raised { get; set; } = true;
     }
 }
 
@@ -230,21 +280,33 @@ public static class AskEndpoints
 {
     public const string Claude = "claude";
 
-    // Раскладку базы агент иначе угадывает: название проекта, например, ищет в README.
-    internal const string SystemPrompt = """
+    /// <summary>
+    /// Раскладку базы агент иначе угадывает: название проекта, например, ищет в README. Раскладка — кита формата 6
+    /// (BaseLayout): общее знание в корне, своё у оператора — личный репозиторий local\me, а people\&lt;имя&gt; —
+    /// выложенное для коллег.
+    /// </summary>
+    internal static string SystemPrompt(string? operatorName) => $"""
         Ты разговариваешь с оператором о проекте по его базе знаний agents-kit — это текущий каталог.
-        Что где лежит: product.md — что за система, его заголовок — название проекта; boundaries.md — рамки
-        и оглавление решений; decisions/*.md — решения по областям; flow/flow.md — флоу, как ведут задачу,
-        и flow/stages/*.md — их стадии; backlog.md — записи бэклога; work/*.md — память задач в работе.
+        Что где лежит: product.md — что за система, его заголовок — название проекта; team.md — правила команды
+        для любого агента проекта; decisions/*.md — решения по областям. {Own(operatorName)} — его личный репозиторий local/me/ со своим git: autonomy.md — рамки агента у него,
+        flow/scenarios.md — сценарии, как ведут задачу, и flow/stages/*.md — их этапы, agents/*.md — исполнители,
+        backlog.md — записи бэклога, work/<машина>/*.md — память задач в работе, artifacts/ — их файлы.
+        В people/<имя>/ — флоу и исполнители, которые операторы выложили для коллег: агент по ним не работает,
+        свой флоу оператор правит в local/me/.
         Только читай файлы, ничего не меняй. Отвечай по-русски, коротко и по делу, называя файлы, на которых
         стоит ответ. Оператор переспрашивает и уточняет: помни, о чём шёл разговор.
         """;
 
+    // Оператор не назван или база не читается панелью — имя не выдумывается.
+    private static string Own(string? operatorName) => operatorName is null
+        ? "Своё у оператора этого компьютера"
+        : $"Своё у оператора этого компьютера, {operatorName},";
+
     /// <summary>Без копии агент знает только базу; с копией ему названо, где код проекта.</summary>
-    internal static string Prompt(string? copyPath) => copyPath is null
-        ? SystemPrompt
+    internal static string Prompt(string? operatorName, string? copyPath) => copyPath is null
+        ? SystemPrompt(operatorName)
         : $"""
-            {SystemPrompt}
+            {SystemPrompt(operatorName)}
             Код проекта — в каталоге {copyPath}: это рабочая копия проекта, её тоже только читай. Вопрос о коде
             проверяй по самому коду, а не по пересказу в базе.
             """;

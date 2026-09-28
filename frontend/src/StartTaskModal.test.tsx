@@ -148,6 +148,21 @@ test('запись успели взять: окно говорит, что её
   expect(await screen.findByRole('alert')).toHaveTextContent('Этой записи больше нет в бэклоге')
 })
 
+test.each([
+  [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub'],
+  [{ problem: 'tracker-unavailable', message: 'gh-login' }, 'панель не перепроверила её по GitHub — программа gh не вошла в аккаунт GitHub'],
+  [{ problem: 'tracker-unavailable', message: 'HTTP 502: Bad Gateway' }, 'панель не перепроверила её по GitHub — HTTP 502: Bad Gateway'],
+])('задачу трекера панель не запустила (%o): окно говорит почему', async (reply, text) => {
+  stub(Response.json(reply, { status: 400 }))
+  render(<StartTaskModal base={base} entry={{ number: 'GitHub #37', title: 'Оплата падает', text: null }} onClose={vi.fn()} onStarted={vi.fn()} />)
+
+  expect(screen.getByText('Задача трекера')).toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(text)
+})
+
 test('свободных копий не осталось: окно говорит почему и запускать нечего', async () => {
   stub(Response.json({ session: 'x' }), [rows[2]])
   renderModal()

@@ -50,17 +50,50 @@ public sealed class VersionHooksTests : IDisposable
         Assert.Contains("в dev 0.10, после слияния 0.10.0", errors);
     }
 
-    [Fact]
-    public void MergeIntoDev_WithFourPartVersion_IsRefusedWithExplanation()
+    [Theory]
+    [InlineData("0.10.0", "0.10.1.0")] // номер из трёх чисел сменяется номером из четырёх
+    [InlineData("0.10.1.0", "0.11.0.0")] // ломающее
+    [InlineData("0.10.1.0", "0.10.2.0")] // новое
+    [InlineData("0.10.1.0", "0.10.1.1")] // починка
+    public void MergeIntoDev_WithVersionRaisedByOneStep_Passes(string dev, string task)
     {
-        // Номер — три числа: четвёртое молча отброшенным не остаётся.
         var repository = Repository();
-        Task(repository, "feat/four", "0.10.0.1");
+        Commit(repository, "version.txt", dev);
+        Task(repository, "feat/raised", task);
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/four", "-m", "Merge feat/four");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/raised", "-m", "Merge feat/raised");
+
+        Assert.True(exitCode == 0, errors);
+    }
+
+    [Theory]
+    [InlineData("0.10.1.3", "0.10.2.3")] // число правее поднятого не сброшено
+    [InlineData("0.10.1.0", "0.10.3.0")] // поднято не на единицу
+    [InlineData("0.10.1.0", "0.11.1.0")]
+    public void MergeIntoDev_WithVersionRaisedWrong_IsRefusedWithExplanation(string dev, string task)
+    {
+        var repository = Repository();
+        Commit(repository, "version.txt", dev);
+        Task(repository, "feat/wrong", task);
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/wrong", "-m", "Merge feat/wrong");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("не номер версии: «0.10.0.1»", errors);
+        Assert.Contains($"поднят не на один шаг: в dev {dev}, после слияния {task}", errors);
+    }
+
+    [Fact]
+    public void MergeIntoDev_WithThreePartVersionAfterFourPart_IsRefused()
+    {
+        // 0.11.0 больше 0.10.1.0, но запись номера назад не возвращается.
+        var repository = Repository();
+        Commit(repository, "version.txt", "0.10.1.0");
+        Task(repository, "feat/three", "0.11.0");
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/three", "-m", "Merge feat/three");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("номер из трёх чисел: «0.11.0»", errors);
     }
 
     [Fact]
@@ -73,6 +106,7 @@ public sealed class VersionHooksTests : IDisposable
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("не номер версии: «0.1o.1»", errors);
+        Assert.Contains("0.25.1.0", errors);
     }
 
     [Fact]
@@ -191,6 +225,32 @@ public sealed class VersionHooksTests : IDisposable
     }
 
     [Fact]
+    public void PushOfChannel_WithSeveralMerges_Passes()
+    {
+        // Отправка несёт сразу несколько слияний: номер в ней только растёт, а не на один шаг.
+        var repository = Pushed("master");
+        Commit(repository, "version.txt", "0.10.2.1");
+
+        var (exitCode, errors) = Git(repository, "push", "origin", "master");
+
+        Assert.True(exitCode == 0, errors);
+    }
+
+    [Fact]
+    public void PushOfChannel_WithThreePartVersionAfterFourPart_IsRefused()
+    {
+        var repository = Pushed("master");
+        Commit(repository, "version.txt", "0.10.1.0");
+        Git(repository, "push", "origin", "master");
+        Commit(repository, "version.txt", "0.11.0");
+
+        var (exitCode, errors) = Git(repository, "push", "origin", "master");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("номер из трёх чисел: «0.11.0»", errors);
+    }
+
+    [Fact]
     public void PushOfTaskBranch_IsNotChecked()
     {
         var repository = Pushed("dev");
@@ -277,7 +337,7 @@ public sealed class VersionHooksTests : IDisposable
         };
         foreach (var argument in (string[])["-c", "user.name=t", "-c", "user.email=t@t", .. args])
             startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEndAsync();
         var errors = process.StandardError.ReadToEnd();
         process.WaitForExit();

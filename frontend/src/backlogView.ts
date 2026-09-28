@@ -1,5 +1,6 @@
 import type { BacklogEntry } from './Backlog'
 import { twins } from './taskTitle'
+import type { TrackerIssue } from './tracker'
 
 // Отбор и порядок записей бэклога — только показ: порядок записей в самом файле панель не меняет.
 // Значения полей задаёт кит; запись без поля или со своим значением под фильтр по этому полю не попадает.
@@ -27,6 +28,16 @@ export function matches(entry: BacklogEntry, selection: Selection): boolean {
   if (selection.priorities.length > 0 && !selection.priorities.includes(entry.priority ?? '')) return false
   const query = searchable(selection.query.trim())
   return query === '' || searchable(`${entry.number ?? ''} ${entry.title}`).includes(query)
+}
+
+/**
+ * Задача трекера полей типа и приоритета не несёт: включённый чип типа или приоритета её скрывает, как запись без
+ * поля. Поиск — по имени задачи («GitHub #37») и заголовку.
+ */
+export function matchesIssue(issue: TrackerIssue, selection: Selection): boolean {
+  if (selection.types.length > 0 || selection.priorities.length > 0) return false
+  const query = searchable(selection.query.trim())
+  return query === '' || searchable(`${issue.name} ${issue.title}`).includes(query)
 }
 
 // Поиск сравнивает то, что видно: без регистра, без знаков разметки заголовка, а номер, набранный
@@ -70,6 +81,28 @@ export function arrange(entries: BacklogEntry[], selection: Selection, order: Or
       return b.index - a.index
     })
     .map(({ entry }) => entry)
+}
+
+/** Отбор, который раздел помнит между открытиями: проект (null — все) и чипы типа и приоритета. */
+export type Remembered = { project: string | null; types: string[]; priorities: string[] }
+
+const nothingRemembered: Remembered = { project: null, types: [], priorities: [] }
+
+// Отбор живёт в памяти страницы, а не в браузере: уход в другой раздел его не сбрасывает,
+// перезагрузка страницы — сбрасывает. Поиск не помнится — решения оператора на B-267.
+let remembered = nothingRemembered
+
+export function readRemembered(): Remembered {
+  return remembered
+}
+
+export function remember(next: Remembered) {
+  remembered = next
+}
+
+/** Для тестов: каждый начинает с раздела без отбора, как после перезагрузки страницы. */
+export function forgetRemembered() {
+  remembered = nothingRemembered
 }
 
 const orderKey = 'agents-kit-web.backlog-order'

@@ -52,7 +52,7 @@ test('оператор описывает исполнителя словами,
   const { panel, saved } = await mockApi(page)
   panel.reply(
     ndjson(
-      { type: 'step', text: 'читает flow.md' },
+      { type: 'step', text: 'читает scenarios.md' },
       { type: 'drafted', text: '---', fields: drafted, durationMs: 72000 },
     ),
   )

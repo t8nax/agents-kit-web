@@ -1,0 +1,172 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using AgentsKitWeb.Api.Workspaces;
+
+namespace AgentsKitWeb.Api.Bases;
+
+/// <summary>
+/// Где что лежит в базе кита на этом компьютере — раскладка кита формата 6 (base-layout.md кита,
+/// адреса — как в его scripts/link-state.ps1). Общее знание — в корне базы; список копий этой машины
+/// и имя её оператора — local\me.json вне git; личный репозиторий оператора local\me со своим git —
+/// его рамки, флоу, исполнители, бэклог, память задач и их артефакты. Папка оператора people\&lt;имя&gt;
+/// держит только выложенное для коллег, и панель её не читает: агент оператора по ней не работает.
+/// Базу другого формата панель не читает: кит сначала переводит её сам — решение оператора на B-275.
+/// </summary>
+public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyList<string> Workspaces)
+{
+    /// <summary>Формат базы, который понимает панель, — поле version в agents-kit.json.</summary>
+    public const int Format = 6;
+
+    public const string MarkerFile = "agents-kit.json";
+
+    /// <summary>
+    /// Личный репозиторий оператора, свой git: рамки, флоу (flow/), исполнители (agents/), бэклог, память задач
+    /// и их артефакты.
+    /// </summary>
+    public string Personal => PersonalOf(Base);
+
+    public static string PersonalOf(string basePath) => Path.Combine(basePath, "local", "me");
+
+    /// <summary>Память задач всех машин оператора: work\&lt;машина&gt;\&lt;слаг копии&gt;.md.</summary>
+    public string WorkDir => Path.Combine(Personal, "work");
+
+    public const string BacklogName = "backlog.md";
+
+    /// <summary>Бэклог оператора — в его личном репозитории.</summary>
+    public string BacklogFile => Path.Combine(Personal, BacklogName);
+
+    public const string TrackerName = "tracker.md";
+
+    /// <summary>Описание трекера проекта — общее знание, в корне базы; файла нет — трекера у проекта нет.</summary>
+    public string TrackerFile => Path.Combine(Base, TrackerName);
+
+    /// <summary>Память задач копий этой машины.</summary>
+    public string MemoryDir => Path.Combine(WorkDir, Machine());
+
+    /// <summary>Базой кита считается каталог с agents-kit.json — какого бы формата она ни была.</summary>
+    public static bool IsBase(string path) => File.Exists(Path.Combine(path, MarkerFile));
+
+    /// <summary>Раскладка базы этой машины; null — читать нечего, почему — problem.</summary>
+    public static BaseLayout? Read(string basePath) => Read(basePath, out _);
+
+    public static BaseLayout? Read(string basePath, out string problem)
+    {
+        switch (ReadFormat(basePath))
+        {
+            // Посреди конфликта сведения с сервером метки стоят в любом файле базы, и в agents-kit.json тоже: тогда
+            // причина — конфликт. Метка без поломки разметки базу не гасит — она бывает и у бесконфликтного rebase
+            // сведения, а о конфликте копии скажет сверка кита (Unmerged в «Проблемах баз»). local\me.json вне git.
+            case null when Unmerged(basePath):
+                problem = "Сведение базы с сервером встало на конфликте — сессии агентов не пишут в неё, пока его не разберут";
+                return null;
+            case null:
+                problem = "Не прочитан agents-kit.json базы";
+                return null;
+            case < Format:
+                problem = "База прежнего формата — переведите её китом";
+                return null;
+            case > Format:
+                problem = "База нового формата, которого панель не знает, — обновите панель";
+                return null;
+        }
+
+        var machine = ReadMachineFile(basePath);
+        if (machine is null)
+        {
+            problem = @"Не прочитан local\me.json базы";
+            return null;
+        }
+        if (machine.Operator is not { } name || !OperatorName().IsMatch(name))
+        {
+            problem = "На этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard";
+            return null;
+        }
+
+        var layout = new BaseLayout(basePath, name, machine.Workspaces);
+        // Как Test-KitPersonalRepo: .git бывает и файлом — у worktree и отдельного каталога git.
+        var git = Path.Combine(layout.Personal, ".git");
+        if (!Directory.Exists(git) && !File.Exists(git))
+        {
+            problem = "На этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard";
+            return null;
+        }
+
+        problem = "";
+        return layout;
+    }
+
+    /// <summary>Сведение репозитория с сервером не закончено — метки в его .git, как их смотрит кит (Test-KitUnmerged).</summary>
+    private static bool Unmerged(string repo)
+    {
+        var git = Path.Combine(repo, ".git");
+        return Directory.Exists(Path.Combine(git, "rebase-merge"))
+            || Directory.Exists(Path.Combine(git, "rebase-apply"))
+            || File.Exists(Path.Combine(git, "MERGE_HEAD"));
+    }
+
+    /// <summary>
+    /// Имя этой машины, как его пишет кит в адрес памяти (Get-KitMachine): COMPUTERNAME первым —
+    /// его наследует дочерний процесс, и стенд им подменяет машину.
+    /// </summary>
+    public static string Machine() =>
+        Slug(Environment.GetEnvironmentVariable("COMPUTERNAME") is { Length: > 0 } name ? name : Environment.MachineName);
+
+    /// <summary>Слаг кита (ConvertTo-KitSlug): нижний регистр, всё, кроме букв и цифр, — дефис, без дефисов по краям.</summary>
+    public static string Slug(string text) => NotLetterOrDigit().Replace(text.ToLowerInvariant(), "-").Trim('-');
+
+    /// <summary>Формат базы — целое version от 1 в agents-kit.json кита; null — файл не читается или не кита.</summary>
+    private static int? ReadFormat(string basePath)
+    {
+        try
+        {
+            using var stream = File.OpenRead(Path.Combine(basePath, MarkerFile));
+            using var json = JsonDocument.Parse(stream);
+            var root = json.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("kit", out var kit) || kit.ValueKind != JsonValueKind.String || kit.GetString() != "agents-kit"
+                || !root.TryGetProperty("version", out var version) || !version.TryGetInt32(out var format) || format < 1)
+                return null;
+            return format;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record MachineFile(string? Operator, IReadOnlyList<string> Workspaces);
+
+    /// <summary>local\me.json: файла нет — пусто, как у кита; не разбирается — null.</summary>
+    private static MachineFile? ReadMachineFile(string basePath)
+    {
+        var path = Path.Combine(basePath, "local", "me.json");
+        if (!File.Exists(path))
+            return new MachineFile(null, []);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            using var json = JsonDocument.Parse(stream);
+            var root = json.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                return null;
+            var name = root.TryGetProperty("operator", out var op) && op.ValueKind == JsonValueKind.String ? op.GetString() : null;
+            var copies = root.TryGetProperty("workspaces", out var list) && list.ValueKind == JsonValueKind.Array
+                ? list.EnumerateArray()
+                    .Where(e => e.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(e.GetString()))
+                    .Select(e => WorkspaceCollector.FullPath(e.GetString()!))
+                    .ToList()
+                : [];
+            return new MachineFile(name, copies);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    [GeneratedRegex(@"[^\p{L}\p{Nd}]+")]
+    private static partial Regex NotLetterOrDigit();
+
+    [GeneratedRegex("^[a-z0-9]+(-[a-z0-9]+)*$")]
+    private static partial Regex OperatorName();
+}

@@ -58,3 +58,11 @@ test('копия с ошибкой чтения, новая или пропав�
     ),
   ).toEqual([])
 })
+
+test('копия осталась с непрочитанным ответом', () => {
+  const next = [row('D:\\a', 'unread'), row('D:\\b', 'unread')]
+  expect(statusChanges([row('D:\\a', 'waiting'), row('D:\\b', 'in-work')], next)).toEqual([
+    { kind: 'unread', row: next[0] },
+    { kind: 'unread', row: next[1] },
+  ])
+})

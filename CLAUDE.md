@@ -82,40 +82,49 @@ iex ((irm https://raw.githubusercontent.com/t8nax/agents-kit-web/master/scripts/
 ## Песочница
 
 Чтобы ломать панель, не задевая живые базы, есть одноразовая песочница: выдуманные базы и копии, заглушки
-кита и агента, отдельный порт.
+кита и агента, свой каталог и порт у каждой рабочей копии. Собирается под задачу: в неё кладутся только
+названные куски — здоровый проект, каждая нарочно сломанная база отдельно — и свой кусок задачи, если
+нужного случая в готовых нет. Без кусков сборка отказывает и перечисляет их.
 
 ```powershell
-pwsh -NoProfile -File scripts/sandbox.ps1
+pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house,quirks
+pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house -TaskPiece <путь к своему куску .ps1 вне репозитория>
 ```
 
-Как она устроена, что в ней сломано заранее и как переключать её режимы — `scripts/sandbox.md`.
+Куски: `house` — здоровый проект, `orders` — свои буквы номеров, `tracker` — проекты с трекером, `no-product`, `broken-json`, `old-format`, `stages-only`,
+`no-flow`, `quirks` — сломанные базы, `broken-kit` — кит без скриптов, `load` — полсотни копий.
 
-## Демонстрация
-
-Чтобы показать панель со стороны или работать над её видом на одинаковых данных, есть демонстрация:
-выдуманные проекты без поломок, свой порт 5070, живёт между запусками.
-
-```powershell
-pwsh -NoProfile -File scripts/demo.ps1            # собрать, если нет, и поднять
-pwsh -NoProfile -File scripts/demo.ps1 -Rebuild   # собрать заново
-```
-
-Что в ней лежит — `scripts/demo.md`.
+Какие куски бывают, как дописать свой, что в них сломано заранее и как переключать режимы заглушек —
+`scripts/sandbox.md`.
 
 ## Проверки
 
+Полный прогон идёт на GitHub, а не на машине: его запускает отправка любой ветки, кроме dev и master
+(`.github/workflows/checks.yml`), — тесты бэкенда, линт, тесты и сборка фронта, e2e, тремя машинами разом.
+Ветку задачи сливают в dev, когда прогон её последнего коммита зелёный. Покраснела только проверка, записанная
+в бэклоге как мигающая, — прогон перезапускают один раз (`gh run rerun <номер>`); снова красный — это поломка.
+
 ```sh
-# бэкенд
+gh run watch <номер> --exit-status        # дождаться; номер — gh run list --branch <ветка>
+gh run view <номер> --log-failed          # упавшее
+gh run download <номер> -n e2e-failures   # след и снимок страницы упавших e2e
+```
+
+У себя, пока правят код, гоняют только сборку, линт и тесты тронутой части; e2e — только чтобы
+воспроизвести упавшее на GitHub.
+
+```sh
+# бэкенд: тесты тронутых классов
 cd backend
-dotnet test
+dotnet test --filter "FullyQualifiedName~<Класс>Tests"
 
 # фронтенд
 cd frontend
 npm run lint
-npm test
+npx vitest related --run <тронутые файлы>
 npm run build
 
 # e2e: каждый прогон поднимает свои API и dev-сервер на свободных портах, запущенные не берёт
 npx playwright install chromium   # один раз
-npm run test:e2e
+npx playwright test <файл>
 ```

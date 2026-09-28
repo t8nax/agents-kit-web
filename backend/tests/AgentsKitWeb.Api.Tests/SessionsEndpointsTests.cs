@@ -18,6 +18,7 @@ public sealed class SessionsEndpointsTests : IDisposable
     private const long ProcessStarted = 134341890912115758;
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-sessions-api-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly string _sessionsDir;
@@ -27,11 +28,7 @@ public sealed class SessionsEndpointsTests : IDisposable
     public SessionsEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(Path.Combine(_base, "work"));
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { workspaces = new[] { _copy } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# App — продукт\n");
         _sessionsDir = Path.Combine(_root, "sessions");
         Directory.CreateDirectory(_sessionsDir);
@@ -243,7 +240,8 @@ public sealed class SessionsEndpointsTests : IDisposable
         Assert.True(startInfo.CreateNoWindow);
         // Просьба уходит после «--»: текст, начатый с «-», claude принял бы за флаг.
         // Настройками сессия оставлена в самой копии: без них claude уходит работать в отдельное дерево.
-        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg", "--", "посмотри, почему падает e2e"], startInfo.ArgumentList);
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal(["--permission-mode", "auto", "--settings", """{"worktree":{"bgIsolation":"none"},"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", "--bg", "--", "посмотри, почему падает e2e"], startInfo.ArgumentList);
     }
 
     [Fact]
@@ -255,7 +253,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("abc123", (await response.Content.ReadFromJsonAsync<SessionStartResponse>())!.Session);
-        Assert.Equal(["--settings", """{"worktree":{"bgIsolation":"none"}}""", "--bg"], _agent.StartInfo!.ArgumentList);
+        Assert.Equal(["--permission-mode", "auto", "--settings", """{"worktree":{"bgIsolation":"none"},"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", "--bg"], _agent.StartInfo!.ArgumentList);
     }
 
     [Fact]
@@ -329,6 +327,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
@@ -362,7 +361,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
     /// <summary>Память копии с одним вопросом оператору: пустой ответ — копия его ждёт.</summary>
     private void WriteMemory(string answer) =>
-        File.WriteAllText(Path.Combine(_base, "work", "app.md"), $"""
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), $"""
             # Задача копии
             рабочая копия: {_copy}
             ветка: dev
@@ -376,7 +375,7 @@ public sealed class SessionsEndpointsTests : IDisposable
 
             ## Агенту
 
-            ### Флоу
+            ### Сценарий
             - [x] 1. Критерий — выход: да
             - [ ] 2. Ветка
             """);
@@ -394,7 +393,7 @@ public sealed class SessionsEndpointsTests : IDisposable
     // Настоящий claude в прогоне не запускается и окно терминала не открывается: проверяется,
     // как панель их зовёт и что делает с ответом. Живость сессии задаётся временем старта процесса.
     private HttpClient Client(bool live = true) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -410,7 +409,7 @@ public sealed class SessionsEndpointsTests : IDisposable
                 services.RemoveAll<AgentSessions>();
                 services.AddSingleton(new AgentSessions(_sessionsDir, _ => live ? ProcessStarted : null));
             });
-        }).CreateClient();
+        })).CreateClient();
 
     private sealed class FakeAgent : IAgentProcess
     {

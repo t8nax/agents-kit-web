@@ -20,7 +20,7 @@ public class PriorityTests
     public void ProcessStartedByTests_IsBelowNormal()
     {
         var startInfo = new ProcessStartInfo("ping", "-n 30 127.0.0.1") { RedirectStandardOutput = true };
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         try
         {
             Assert.Equal(ProcessPriorityClass.BelowNormal, process.PriorityClass);

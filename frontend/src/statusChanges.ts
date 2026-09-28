@@ -1,6 +1,6 @@
 import type { WorkspaceRow } from './App'
 
-export type StatusChange = { kind: 'waiting' | 'freed'; row: WorkspaceRow }
+export type StatusChange = { kind: 'waiting' | 'unread' | 'freed'; row: WorkspaceRow }
 
 // По базе, а не по названию проекта: переименованный в базе проект — та же копия
 export function rowKey(row: WorkspaceRow) {
@@ -17,6 +17,7 @@ export function statusChanges(previous: WorkspaceRow[] | null, next: WorkspaceRo
     const was = before.get(rowKey(row))
     if (!was || !row.status || was === row.status) continue
     if (row.status === 'waiting') changes.push({ kind: 'waiting', row })
+    else if (row.status === 'unread') changes.push({ kind: 'unread', row })
     else if (row.status === 'free') changes.push({ kind: 'freed', row })
   }
   return changes

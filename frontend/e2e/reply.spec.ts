@@ -67,6 +67,7 @@ test('оператор отвечает лентой, ответы уходят 
     await route.fulfill({ status: 204 })
   })
 
+  await page.clock.install()
   await page.goto('/')
   const tableRow = page.getByRole('row', { name: /Окно ответа/ })
   await expect(tableRow.getByText('Ждёт оператора')).toBeVisible()
@@ -84,6 +85,9 @@ test('оператор отвечает лентой, ответы уходят 
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
   await dialog.getByRole('button', { name: /Заменять пробелами/ }).click()
   await expect(answer).toHaveValue('Заменять пробелами')
+  // Часы страницы стоят, пока тест смотрит знак отправки и «Отменить»: на занятой машине GitHub полторы
+  // секунды выходили раньше, и окно отправляло ответы и закрывалось само (B-264, как B-248 ниже).
+  await page.clock.pauseAt(Date.now() + 1000)
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
   // ленты не видно: знак отправки по центру, «Отменить» внизу
@@ -93,6 +97,7 @@ test('оператор отвечает лентой, ответы уходят 
   expect([Math.round(check.width), Math.round(check.height)]).toEqual([34, 34])
   await expect(dialog.getByRole('button', { name: 'Отменить' })).toBeVisible()
   expect(posted).toBeNull()
+  await page.clock.resume()
 
   // записанные ответы уводят окно угасанием: оно длится доли секунды, поэтому ловим его каждый кадр —
   // на это время оверлей гаснет и не ловит щелчки
@@ -128,12 +133,17 @@ test('«Отменить» ничего не записывает, а лента
     await route.fulfill({ status: 204 })
   })
 
+  await page.clock.install()
   await page.goto('/')
   const dialog = await openReply(page)
   const answer = dialog.getByLabel('Ответ')
   await answer.fill('принимаю')
+  // Часы страницы стоят, пока тест жмёт «Отменить»: на занятой машине GitHub полторы секунды
+  // выходили раньше, чем кнопка давалась нажать, и окно отправляло ответ само (B-248).
+  await page.clock.pauseAt(Date.now() + 1000)
   await answer.press('Enter')
   await dialog.getByRole('button', { name: 'Отменить' }).click()
+  await page.clock.resume()
 
   await expect(page.locator('.modal-overlay.is-leaving')).toHaveCount(0)
   await expect(dialog.locator('.reply-feed')).toBeVisible()
@@ -239,6 +249,72 @@ test('свёрнутые вопросы одинаковы, у варианто�
   await dialog.getByRole('button', { name: 'Отправить' }).click()
   await expect(dialog.locator('.field-error')).toBeVisible()
   expect(await size('.field-error svg')).toEqual([14, 14])
+})
+
+test('снимок, приложенный к ответу, переживает закрытие окна и перезагрузку страницы', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')])
+
+  await page.goto('/')
+  let dialog = await openReply(page)
+  await dialog.getByLabel('Приложить').setInputFiles({ name: 'снимок.png', mimeType: 'image/png', buffer: Buffer.from('89504e47', 'hex') })
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('снимок.png')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await page.reload()
+  dialog = await openReply(page)
+
+  const tiles = dialog.getByRole('list', { name: 'Приложенные файлы' })
+  await expect(tiles.getByText('снимок.png')).toBeVisible()
+  await expect(tiles.getByText('4 Б')).toBeVisible()
+})
+
+test('снимки к двум вопросам подряд оба остаются в черновике', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?'), plain('Как быть с переносами?')])
+
+  await page.goto('/')
+  let dialog = await openReply(page)
+  const png = (name: string) => ({ name, mimeType: 'image/png', buffer: Buffer.from('89504e47', 'hex') })
+  // второй снимок уходит сразу за первым, не дожидаясь его записи в черновик
+  await dialog.getByLabel('Приложить').setInputFiles(png('первый.png'))
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  await dialog.getByLabel('Приложить').setInputFiles(png('второй.png'))
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await page.reload()
+  dialog = await openReply(page)
+
+  await expect(dialog.getByLabel('Приложено').getByText('первый.png')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
+})
+
+test('артефакт из artifacts/ базы — путь файла: щелчок просит панель открыть его тем же адресом', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')], {
+    artifacts: [{ label: 'снимок окна', address: 'artifacts/B-7-снимок.png' }],
+  })
+  let opened: unknown = null
+  await page.route('**/api/artifact/open', async (route) => {
+    opened = route.request().postDataJSON()
+    await route.fulfill({ status: 204 })
+  })
+
+  await page.goto('/')
+  const dialog = await openReply(page)
+  await dialog.getByRole('tab', { name: 'Артефакты' }).click()
+  await dialog.getByRole('button', { name: 'artifacts/B-7-снимок.png' }).click()
+
+  await expect.poll(() => opened).toEqual({
+    base: row().base,
+    copy: row().path,
+    index: 0,
+    address: 'artifacts/B-7-снимок.png',
+  })
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
 })
 
 test('контекст и артефакты — вкладками в шапке: растянуты на всё окно, без строки ответа, окон поверх нет', async ({ page }) => {

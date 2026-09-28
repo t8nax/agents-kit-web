@@ -14,11 +14,6 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddSingleton(services =>
 {
     var config = services.GetRequiredService<IConfiguration>();
-    return new PresetsStore(config["PresetsFile"] ?? PresetsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
-});
-builder.Services.AddSingleton(services =>
-{
-    var config = services.GetRequiredService<IConfiguration>();
     return new FlowIconsStore(config["FlowIconsFile"] ?? FlowIconsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
 builder.Services.AddSingleton(services =>
@@ -66,11 +61,15 @@ builder.Services.AddSingleton(services =>
     new KitLocator(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
 builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
+builder.Services.AddSingleton<IGitHubIssues, GhIssues>();
 builder.Services.AddSingleton<IAgentChat, AgentChat>();
 builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<AskConversations>();
+builder.Services.AddSingleton<IBacklogCheckGate, OpenBacklogCheckGate>();
 builder.Services.AddSingleton<BacklogConversations>();
+builder.Services.AddSingleton<FlowConversations>();
 builder.Services.AddSingleton<StartedTasks>();
+builder.Services.AddSingleton<ResumedSessions>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
 // Отработавшую сессию задачи панель гасит сама — решение оператора на B-68.

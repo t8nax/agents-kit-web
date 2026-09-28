@@ -15,7 +15,7 @@ internal static class TestGit
         };
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var stderr = process.StandardError.ReadToEnd();
         process.StandardOutput.ReadToEnd();
         process.WaitForExit();

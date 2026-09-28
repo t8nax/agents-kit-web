@@ -3,7 +3,6 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Unicode;
-using AgentsKitWeb.Api.Flow;
 
 namespace AgentsKitWeb.Api.Ask;
 
@@ -24,12 +23,10 @@ public sealed record AgentFault(string Text) : IAgentEvent
 /// имя переписываемого исполнителя, чтобы его просьбу подхватывало окно его правки, а не окно нового (B-80);
 /// у разговора по базе — путь копии проекта, чей код читает агент: окно, открытое заново, её и показывает (B-130).
 /// У разговора о бэклоге — номер записи, от которой он открыт кнопкой «Изменить» (B-228).
-/// Stages — стадии флоу, ушедшие агенту вместе с просьбой: открытое заново окно переписывания показывает их
-/// и сличает с ними ответ.
 /// </summary>
 public sealed record AgentRequestSummary(
     string Kind, string Id, string Base, string Project, string Text, long ElapsedMs, string State,
-    string? Subject = null, IReadOnlyList<FlowStage>? Stages = null);
+    string? Subject = null);
 
 /// <summary>
 /// Одна просьба к агенту, живущая в панели. Ход работы копится строками NDJSON: окно читает их с начала,
@@ -56,18 +53,17 @@ public sealed class AgentRequest
     private string _state = Running;
     private bool _removed;
     private bool _working = true;
+    private int _runs;
 
     public const string Running = "running";
     public const string Done = "done";
     public const string Failed = "failed";
 
     public AgentRequest(
-        string kind, string basePath, string project, string text, bool continues = false, string? subject = null,
-        IReadOnlyList<FlowStage>? stages = null)
+        string kind, string basePath, string project, string text, bool continues = false, string? subject = null)
     {
         Kind = kind;
         Subject = subject;
-        Stages = stages;
         Base = basePath;
         Project = project;
         Text = text;
@@ -95,9 +91,6 @@ public sealed class AgentRequest
     /// путь копии проекта, чей код читает агент; null — разговор идёт по одной базе.
     /// </summary>
     public string? Subject { get; }
-
-    /// <summary>Стадии флоу, ушедшие агенту с просьбой переписать их; у других просьб — null.</summary>
-    public IReadOnlyList<FlowStage>? Stages { get; }
 
     public CancellationToken Token => _cancel.Token;
 
@@ -133,14 +126,14 @@ public sealed class AgentRequest
                     Text.Length > TextLimit ? Text[..TextLimit] + "…" : Text,
                     (long)_elapsed.Elapsed.TotalMilliseconds,
                     _state,
-                    Subject,
-                    Stages);
+                    Subject);
         }
     }
 
     /// <summary>
-    /// Пишет событие в просьбу. Событие не «step» закрывает её: агенту больше нечего сказать. У переписки оно
-    /// закрывает только реплику — следующая открывает её снова.
+    /// Пишет событие в просьбу. Событие не «step», «note» или «rework» (ответ, возвращённый агенту на доработку)
+    /// закрывает её: агенту больше нечего сказать. У переписки оно закрывает только реплику — следующая открывает
+    /// её снова.
     /// </summary>
     public void Write(IAgentEvent e)
     {
@@ -150,7 +143,7 @@ public sealed class AgentRequest
             if (_removed || (!Continues && _state != Running))
                 return;
             _lines.Add(line);
-            if (e.Type is not ("step" or "note"))
+            if (e.Type is not ("step" or "note" or "rework"))
             {
                 _state = e.Type == "error" ? Failed : Done;
                 _elapsed.Stop();
@@ -175,11 +168,28 @@ public sealed class AgentRequest
         }
     }
 
-    /// <summary>Работа кончилась. Итога так и не было — окну нечего ждать, и просьба закрывается неудачей.</summary>
+    /// <summary>Пошла работа просьбы. У переписки новая может пойти раньше, чем размоталась прежняя.</summary>
+    public void Begin()
+    {
+        lock (_gate)
+        {
+            _runs++;
+            _working = true;
+        }
+    }
+
+    /// <summary>
+    /// Работа кончилась. Итога так и не было — окну нечего ждать, и просьба закрывается неудачей. Кончилась прежняя
+    /// работа, а новая уже идёт — просьба жива: реплику, опоздавшую к прежнему агенту, отвечает новый (B-259).
+    /// </summary>
     public void Finish()
     {
         lock (_gate)
         {
+            if (_runs > 0)
+                _runs--;
+            if (_runs > 0)
+                return;
             _working = false;
             if (_state == Running)
             {
@@ -193,7 +203,10 @@ public sealed class AgentRequest
     public void Cancel()
     {
         lock (_gate)
+        {
             _removed = true;
+            _runs = 0;
+        }
         _cancel.Cancel();
         Finish();
     }
@@ -249,9 +262,12 @@ public sealed class AgentRequests
         Func<AgentRequest, CancellationToken, Task> work,
         bool continues = false,
         string? subject = null,
-        IReadOnlyList<FlowStage>? stages = null)
+        IAgentEvent? reply = null)
     {
-        var request = new AgentRequest(kind, basePath, project, text, continues, subject, stages);
+        var request = new AgentRequest(kind, basePath, project, text, continues, subject);
+        // Реплика переписки встаёт первой до того, как пошла работа: сбой запуска агента иначе встал бы над ней (B-263).
+        if (reply is not null)
+            request.Reply(reply);
         lock (_gate)
         {
             if (_requests.Remove(kind, out var previous))
@@ -269,6 +285,7 @@ public sealed class AgentRequests
     /// </summary>
     public void Run(AgentRequest request, Func<AgentRequest, CancellationToken, Task> work)
     {
+        request.Begin();
         _ = Task.Run(async () =>
         {
             try

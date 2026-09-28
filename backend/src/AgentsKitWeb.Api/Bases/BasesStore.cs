@@ -70,7 +70,7 @@ public sealed class BasesStore(string file)
             if (settings.Bases.Any(b => SamePath(b, full)))
                 return AddBaseProblem.Duplicate;
             // База кита — каталог с agents-kit.json: иначе панель писала бы ответы куда угодно.
-            if (!File.Exists(Path.Combine(full, "agents-kit.json")))
+            if (!BaseLayout.IsBase(full))
                 return AddBaseProblem.NotABase;
 
             Write(settings with { Bases = [.. settings.Bases, full] });

@@ -18,14 +18,13 @@ public sealed class AskEndpointsTests : IDisposable
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-ask-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly TestChat _agent = new();
 
     public AskEndpointsTests()
     {
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(_base);
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), "{}");
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"));
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
     }
 
@@ -88,17 +87,43 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
         Assert.Equal("stream-json", args[args.IndexOf("--input-format") + 1]);
         Assert.Contains("--no-session-persistence", args);
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
+        Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
         // Копия не выбрана — разговор идёт по одной базе.
         Assert.DoesNotContain("--add-dir", args);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
-        // Флоу базы лежит в форме кита — список флоу и стадии по файлу: так агенту и сказано, где его читать.
+        // Флоу базы лежит в форме кита — сценарии и этапы по файлу: так агенту и сказано, где его читать.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
-        Assert.Contains("flow/flow.md", prompt);
+        Assert.Contains("flow/scenarios.md", prompt);
         Assert.Contains("flow/stages/*.md", prompt);
+        // Раскладка кита формата 6: своё у оператора — личный репозиторий, в people/ — выложенное для коллег.
+        Assert.Contains("team.md", prompt);
+        Assert.Contains($"Своё у оператора этого компьютера, {TestLayout.Operator}, — его личный репозиторий local/me/ со своим git: autonomy.md", prompt);
+        Assert.Contains("agents/*.md — исполнители,\nbacklog.md — записи бэклога".ReplaceLineEndings(), prompt.ReplaceLineEndings());
+        Assert.Contains("В people/<имя>/ — флоу и исполнители, которые операторы выложили для коллег: агент по ним не работает", prompt);
+        Assert.DoesNotContain("boundaries.md", prompt);
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);
         Assert.Equal("user", JsonDocument.Parse(sent).RootElement.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    // Оператор этой машины не назван — имя агенту не выдумывается (B-275, ревью).
+    public async Task Ask_OperatorNotNamed_NameIsNotMadeUp()
+    {
+        TestLayout.Machine(_base, null);
+        _agent.Answers = [[Result("ok")]];
+
+        var client = Client(_base);
+        await Ask(client, _base, "где флоу?");
+        await Read(client, 2);
+
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains("Своё у оператора этого компьютера — его личный репозиторий local/me/", prompt);
+        Assert.DoesNotContain("не назван", prompt);
     }
 
     [Fact]
@@ -258,14 +283,124 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Reply_WhileAgentEndsRaisesNewAgent()
+    {
+        var exit = HoldFirstExit(out var ended);
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        // Агент ответил и реплик больше не читает, но панель ещё не знает, что он кончился.
+        await ended.Task.WaitAsync(Wait);
+        using (var response = await Reply(client, "Второй вопрос"))
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(
+            [
+                ("reply", "Второй вопрос"),
+                ("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"),
+                ("answer", "Второй ответ"),
+            ],
+            events[2..].Select(e => (e.Type, e.Text)));
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Contains("Второй вопрос", _agent.Input[1]);
+    }
+
+    [Fact]
+    public async Task Reply_WhileAgentEndsIsNotRetriedTwice()
+    {
+        var exit = HoldFirstExit(out var ended);
+        // Новый агент, поднятый ради реплики, кончается, не прочтя и её: третьего панель не поднимает.
+        _agent.StopAfterRun[1] = 0;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        await ended.Task.WaitAsync(Wait);
+        await Reply(client, "Второй вопрос");
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(["reply", "answer", "reply", "note", "error"], events.Select(e => e.Type));
+        Assert.Equal("Чудо-Юдо завершился без ответа", events[4].Text);
+        Assert.Equal(2, _agent.Starts.Count);
+    }
+
+    [Fact]
+    public async Task Reply_AfterAgentEndedRaisesOnlyOneNewAgent()
+    {
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        _agent.StopAfter = 1;
+        _agent.StopAfterRun[1] = 0;
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        await Reply(client, "Второй вопрос");
+        var events = await Read(client, 5);
+
+        // Реплика, успевшая к прежнему агенту до того, как панель узнала о его конце, встаёт раньше пометки.
+        Assert.Equal(["reply", "answer"], events[..2].Select(e => e.Type));
+        Assert.Equal(["note", "reply"], events[2..4].Select(e => e.Type).Order());
+        Assert.Equal("error", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+    }
+
+    [Fact]
+    public async Task Stop_WhileAgentEndsStopsReplyWithoutNewAgent()
+    {
+        HoldFirstExit(out var ended);
+        var client = Client(_base);
+
+        await Ask(client, _base, "Первый вопрос");
+        await Read(client, 2);
+        await ended.Task.WaitAsync(Wait);
+        await Reply(client, "Второй вопрос");
+        using (var stopped = await client.PostAsync("/api/ask/stop", null))
+            Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        var events = await Read(client, 4);
+
+        Assert.Equal("stopped", events[3].Type);
+        Assert.Single(_agent.Starts);
+    }
+
+    /// <summary>Первый агент отвечает на первую реплику и больше их не читает, пока тест не отпустит его выход.</summary>
+    private TaskCompletionSource HoldFirstExit(out TaskCompletionSource ended)
+    {
+        _agent.Answers = [[Result("Первый ответ")], [Result("Второй ответ")]];
+        _agent.StopAfter = 1;
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agent.BeforeExit = () =>
+        {
+            if (first.Task.IsCompleted)
+                return Task.CompletedTask;
+            first.TrySetResult();
+            return exit.Task;
+        };
+        ended = first;
+        return exit;
+    }
+
+    [Fact]
     public async Task Stop_EndsCurrentAnswerAndKeepsConversation()
     {
         var release = new TaskCompletionSource();
+        var answering = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _agent.Answers = [[Result("Ответ")], [Result("Второй ответ")]];
-        _agent.BeforeLine = _ => release.Task;
+        _agent.BeforeLine = _ =>
+        {
+            answering.TrySetResult();
+            return release.Task;
+        };
         var client = Client(_base);
 
         await Ask(client, _base, "Долгий вопрос");
+        // Обрывается ответ, который уже идёт: остановленный раньше, чем агент взял вопрос, вопроса и не увидит,
+        // и заглушка ответила бы на следующую реплику первым ответом.
+        await answering.Task.WaitAsync(Wait);
         Assert.Equal(HttpStatusCode.NoContent, (await client.PostAsync("/api/ask/stop", null)).StatusCode);
         var stopped = await Read(client, 2);
 
@@ -345,8 +480,12 @@ public sealed class AskEndpointsTests : IDisposable
         await Ask(client, _base, "Вопрос");
         var events = await Read(client, 2);
 
+        // Вопрос встаёт первым, даже когда агент кончился раньше, чем панель отправила его.
+        Assert.Equal(("reply", "Вопрос"), (events[0].Type, events[0].Text));
         Assert.Equal("Claude Code не запустился", events[1].Text);
         Assert.Equal("Не удаётся найти указанный файл", events[1].Output);
+        // Незапустившегося агента ради первого вопроса заново не поднимают.
+        Assert.Single(_agent.Starts);
     }
 
     [Fact]
@@ -385,6 +524,22 @@ public sealed class AskEndpointsTests : IDisposable
         // Обе реплики прочитал один процесс: между ними он не перезапускался.
         Assert.Equal(first.Split('+')[0], second.Split('+')[0]);
         Assert.Equal(0, exit.ExitCode);
+    }
+
+    [Fact]
+    public async Task AgentChat_ReturnsWhenProcessExitsWithoutWaitingForReply()
+    {
+        var startInfo = AgentProcess.StartInfo("pwsh", _root);
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add("Write-Output готов; exit 1");
+        var replies = Channel.CreateUnbounded<string>();
+
+        // Реплик процесс не ждёт и выходит сам, а канал реплик открыт: разговор не должен висеть до следующей.
+        var exit = await new AgentChat().RunAsync(
+            startInfo, replies.Reader, _ => Task.CompletedTask, CancellationToken.None).WaitAsync(Wait);
+
+        Assert.Equal(1, exit.ExitCode);
     }
 
     [Fact]
@@ -461,6 +616,7 @@ public sealed class AskEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
@@ -473,13 +629,11 @@ public sealed class AskEndpointsTests : IDisposable
         }
     }
 
-    /// <summary>Копии проекта на диске; первая в agents-kit.json — основная.</summary>
+    /// <summary>Копии проекта на диске; первая в списке копий машины — основная.</summary>
     private string[] WithCopies(params string[] names)
     {
         var copies = names.Select(name => TestGit.Repository(Path.Combine(_root, name))).ToArray();
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = copies }));
+        TestLayout.Machine(_base, TestLayout.Operator, copies);
         return copies;
     }
 
@@ -535,7 +689,7 @@ public sealed class AskEndpointsTests : IDisposable
     }
 
     private HttpClient Client(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -548,5 +702,5 @@ public sealed class AskEndpointsTests : IDisposable
                 services.RemoveAll<IAgentChat>();
                 services.AddSingleton<IAgentChat>(_agent);
             });
-        }).CreateClient();
+        })).CreateClient();
 }

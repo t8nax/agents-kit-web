@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import AgentBar from './AgentBar'
 import type { AgentRequestSummary } from './agentRequest'
@@ -34,10 +34,18 @@ function stubRequests(requests: AgentRequestSummary[]) {
 }
 
 test('пока просьб нет, шапка молчит', async () => {
-  const fetchMock = stubRequests([])
+  const response = Response.json([])
+  const read = vi.spyOn(response, 'json')
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve(response)))
   render(<AgentBar onOpen={() => {}} />)
 
-  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/agent/requests'))
+  // Список шапка ставит не по вызову fetch, а следом за разбором ответа: тест ждёт разбор и ход после него,
+  // иначе смотрел бы на шапку, которая ответа ещё не видела, и молчала бы она при любом ответе.
+  await vi.waitFor(() => expect(read).toHaveBeenCalled())
+  await act(async () => {
+    await read.mock.results[0].value
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
 })
 
@@ -58,7 +66,7 @@ test('дождавшийся итог показан своими словами
   stubRequests([rewriting])
   render(<AgentBar onOpen={() => {}} />)
 
-  expect(await screen.findByRole('button', { name: /Чудо-Юдо переписал стадии Nota/ })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /Чудо-Юдо ответил по флоу Nota/ })).toBeInTheDocument()
 })
 
 test('несколько просьб разворачиваются списком, строка открывает свою', async () => {
@@ -73,7 +81,7 @@ test('несколько просьб разворачиваются списк�
   expect(within(list).getByText('Добавь ревью перед мержем')).toBeInTheDocument()
   expect(within(list).getByText('готов')).toBeInTheDocument()
 
-  fireEvent.click(within(list).getByText('Чудо-Юдо переписал стадии Nota'))
+  fireEvent.click(within(list).getByText('Чудо-Юдо ответил по флоу Nota'))
 
   expect(opened).toEqual([rewriting])
   expect(screen.queryByRole('list', { name: 'Просьбы' })).not.toBeInTheDocument()

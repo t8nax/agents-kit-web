@@ -19,7 +19,7 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class PerformerDraftEndpointsTests : IDisposable
 {
     private const string Flow = """
-        # App — флоу
+        # App — сценарии
 
         ## полный
         1. [Ревью](stages/review.md)
@@ -48,6 +48,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-draft-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
     private readonly string _copy;
     private readonly FakeAgent _agent = new();
@@ -55,15 +56,11 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     public PerformerDraftEndpointsTests()
     {
         _copy = TestGit.Repository(Path.Combine(_root, "app"));
-        _base = Path.Combine(_root, "app-knowledge");
-        Directory.CreateDirectory(_base);
-        File.WriteAllText(
-            Path.Combine(_base, "agents-kit.json"),
-            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { _copy } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
-        Directory.CreateDirectory(Path.Combine(_base, "flow", "stages"));
-        File.WriteAllText(Path.Combine(_base, "flow", "flow.md"), Flow.ReplaceLineEndings("\n"));
-        File.WriteAllText(Path.Combine(_base, "flow", "stages", "review.md"), Review.ReplaceLineEndings("\n"));
+        Directory.CreateDirectory(Path.Combine(TestLayout.Personal(_base), "flow", "stages"));
+        File.WriteAllText(Path.Combine(TestLayout.Personal(_base), "flow", "scenarios.md"), Flow.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(TestLayout.Personal(_base), "flow", "stages", "review.md"), Review.ReplaceLineEndings("\n"));
     }
 
     [Fact]
@@ -103,13 +100,20 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         Assert.True(startInfo.CreateNoWindow);
         var args = startInfo.ArgumentList.ToList();
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
-        Assert.DoesNotContain(args, a => a.Contains("--permission-mode"));
+        // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
+        Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
+        Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         // И базу: её путь стоит в системном промпте, а флоу приходит текстом в stdin.
-        Assert.Contains(_base, args[args.IndexOf("--append-system-prompt") + 1]);
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains(_base, prompt);
+        // Исполнители и флоу — в личном репозитории оператора этой машины (формат 6 кита).
+        Assert.Contains($"в каталоге {TestLayout.Agents(_base)},", prompt);
+        Assert.Contains($"репозитории оператора {TestLayout.Personal(_base)} — его флоу", prompt);
+        Assert.Contains("Флоу оператора, файлы flow/ его личного репозитория:", _agent.Input);
         Assert.Contains("--help, ревьюер ветки", _agent.Input);
-        // Флоу уходит агенту файлами новой формы: список флоу и каждая стадия.
-        Assert.Contains("flow/flow.md:\n# App — флоу", _agent.Input);
+        // Флоу уходит агенту файлами нынешнего вида кита: список сценариев и каждый этап.
+        Assert.Contains("flow/scenarios.md:\n# App — сценарии", _agent.Input);
         Assert.Contains("flow/stages/review.md:\n# Ревью", _agent.Input);
         Assert.DoesNotContain("Нынешний исполнитель", _agent.Input);
     }
@@ -157,13 +161,13 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
 
         Assert.Equal("drafted", events[^1].Type);
         Assert.False(Directory.Exists(Path.Combine(_copy, ".claude", "agents")));
-        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(_base, "flow", "flow.md")));
+        Assert.Equal(Flow.ReplaceLineEndings("\n"), await File.ReadAllTextAsync(Path.Combine(TestLayout.Personal(_base), "flow", "scenarios.md")));
     }
 
     [Fact]
     public async Task Draft_GoesOnWhenBaseHasNoFlow()
     {
-        Directory.Delete(Path.Combine(_base, "flow"), recursive: true);
+        Directory.Delete(Path.Combine(TestLayout.Personal(_base), "flow"), recursive: true);
         _agent.Lines = [Result(Drafted)];
 
         var events = await Draft(await Client(), "Ревьюер ветки");
@@ -233,6 +237,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             // Объекты git лежат read-only: без снятия атрибутов каталог прогона не удаляется.
@@ -280,7 +285,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
     }
 
     private Task<HttpClient> Client() => Task.FromResult(
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -292,7 +297,7 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
                 services.RemoveAll<IAgentProcess>();
                 services.AddSingleton<IAgentProcess>(_agent);
             });
-        }).CreateClient());
+        })).CreateClient());
 
     private sealed class FakeAgent : IAgentProcess
     {

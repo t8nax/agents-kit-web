@@ -17,7 +17,31 @@ type Props = {
   onStarted: (copy: string) => void
 }
 
-type Problem = 'copy-busy' | 'copy-starting' | 'record-unknown' | 'flow-unknown' | 'words-too-long' | 'agent'
+type Problem =
+  | 'copy-busy'
+  | 'copy-starting'
+  | 'record-unknown'
+  | 'issue-unknown'
+  | 'tracker-unavailable'
+  | 'flow-unknown'
+  | 'words-too-long'
+  | 'agent'
+
+/** Задача трекера называется именем трекера и номером в нём, как у кита: «GitHub #37». */
+function isTrackerIssue(number: string): boolean {
+  return number.startsWith('GitHub #')
+}
+
+// Почему панель не перепроверила задачу трекера по GitHub — словами строк раздела «Бэклог».
+const TRACKER_PROBLEMS: Record<string, string> = {
+  'no-tracker': 'у проекта больше нет описания трекера',
+  'not-github': 'трекер проекта — не GitHub',
+  'no-address': 'в описании трекера нет адреса репозитория GitHub',
+  unreadable: 'описание трекера не прочитано',
+  'gh-missing': 'программа gh не установлена',
+  'gh-login': 'программа gh не вошла в аккаунт GitHub',
+  'repo-unreachable': 'GitHub не нашёл репозиторий или к нему нет доступа',
+}
 
 /** Слова уходят сессии аргументом командной строки, а её длину Windows ограничивает — предел с большим запасом. */
 export const WORDS_LIMIT = 8000
@@ -37,6 +61,10 @@ function failureOf(problem: Problem, message: string | null): string {
       return 'В этой копии панель уже запустила задачу — агент ещё не завёл её память.'
     case 'record-unknown':
       return 'Этой записи больше нет в бэклоге: её взяли или удалили. Закройте окно и откройте заново.'
+    case 'issue-unknown':
+      return 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub. Закройте окно и обновите бэклог.'
+    case 'tracker-unavailable':
+      return `Задача не запущена: панель не перепроверила её по GitHub — ${(message && TRACKER_PROBLEMS[message]) ?? message ?? 'трекер не прочитан'}.`
     case 'words-too-long':
       return `Начальные слова длиннее ${WORDS_LIMIT} знаков — сократите их.`
     case 'flow-unknown':
@@ -186,7 +214,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
           )}
 
           <div className="st-field">
-            <span className="st-label">Запись бэклога</span>
+            <span className="st-label">{isTrackerIssue(entry.number) ? 'Задача трекера' : 'Запись бэклога'}</span>
             <span className="st-entry">
               <span className="num-chip">{entry.number}</span>
               <span className="st-entry-title">{entry.title}</span>

@@ -22,9 +22,7 @@ public sealed class HealthTests : IDisposable
         _worktree = Path.Combine(_root, "app-wt");
         TestGit.Run(_main, "worktree", "add", "-b", "feat/wt", _worktree);
 
-        _base = Directory.CreateDirectory(Path.Combine(_root, "app-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { workspaces = new[] { _main } }));
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _main);
         File.WriteAllText(Path.Combine(_base, "product.md"), "# Order Service — продукт\n");
 
         var file = TestBases.File(_root, _base);
@@ -32,7 +30,9 @@ public sealed class HealthTests : IDisposable
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", file), new("HealthIntervalSeconds", "3600")]);
+                config.AddInMemoryCollection([
+                    new("BasesFile", file), new("HealthIntervalSeconds", "3600"), new("ClaudeDir", Path.Combine(_root, "profile", ".claude")),
+                ]);
             }));
     }
 
@@ -53,6 +53,21 @@ public sealed class HealthTests : IDisposable
             Assert.Null(row.Problems);
             Assert.Null(row.BaseProblems);
         });
+    }
+
+    [Fact]
+    // Базу прежнего формата панель не читает: сверка кита её не проверяет, причина — словами раскладки.
+    public async Task Health_BaseOfOldFormat_IsUnavailableWithReason()
+    {
+        File.WriteAllText(Path.Combine(_base, "agents-kit.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = BaseLayout.Format - 1 }));
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(TestKit.Create(Path.Combine(_root, "agents-kit"))));
+
+        var snapshot = await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status != BaseHealthStatus.Unchecked));
+
+        var baseHealth = Assert.Single(snapshot.Bases);
+        Assert.Equal(BaseHealthStatus.Unavailable, baseHealth.Status);
+        Assert.Equal("База прежнего формата — переведите её китом", baseHealth.Error);
     }
 
     [Fact]
@@ -153,12 +168,39 @@ public sealed class HealthTests : IDisposable
         Directory.Delete(kit, recursive: true);
         // Смену на диске монитор видит на следующем круге; здесь его будит повторное сохранение списка.
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(_base));
-        var extra = Directory.CreateDirectory(Path.Combine(_root, "other-knowledge")).FullName;
-        File.WriteAllText(Path.Combine(extra, "agents-kit.json"), """{ "workspaces": [] }""");
+        var extra = TestLayout.Base(Path.Combine(_root, "other-knowledge"));
         await Client.PostAsJsonAsync("/api/bases", new AddBaseRequest(extra));
 
         var snapshot = await WaitFor(s => s.Kit == KitStatus.NotFound);
         Assert.All(snapshot.Bases, b => Assert.Equal(BaseHealthStatus.Unchecked, b.Status));
+    }
+
+    [Fact]
+    public async Task Health_KitPluginUpdated_SnapshotOffersNewVersion()
+    {
+        var plugin = Path.Combine(_root, "profile", ".claude", "plugins");
+        var old = TestKit.Create(Path.Combine(plugin, "cache", "kits", "agents-kit", "0.2.0"));
+        Directory.CreateDirectory(Path.Combine(old, ".claude-plugin"));
+        File.WriteAllText(Path.Combine(old, ".claude-plugin", "plugin.json"), """{ "version": "0.2.0" }""");
+        var fresh = TestKit.Create(Path.Combine(plugin, "cache", "kits", "agents-kit", "0.3.0"));
+        Directory.CreateDirectory(Path.Combine(fresh, ".claude-plugin"));
+        File.WriteAllText(Path.Combine(fresh, ".claude-plugin", "plugin.json"), """{ "version": "0.3.0" }""");
+        await WaitFor(s => !s.Pending);
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(old));
+        var before = await WaitFor(s => s.Kit == KitStatus.Ok);
+        Assert.Null(before.KitUpdate);
+
+        File.WriteAllText(Path.Combine(plugin, "installed_plugins.json"), System.Text.Json.JsonSerializer.Serialize(new
+        {
+            version = 2,
+            plugins = new Dictionary<string, object[]> { ["agents-kit@kits"] = [new { installPath = fresh }] },
+        }));
+        await Client.PostAsync("/api/health/check", null);
+
+        var snapshot = await WaitFor(s => s.KitUpdate is not null);
+        Assert.Equal(KitStatus.Ok, snapshot.Kit);
+        Assert.Equal(new KitVersion(fresh, "0.3.0"), snapshot.KitUpdate);
+        Assert.Equal("0.2.0", snapshot.CurrentKitVersion);
     }
 
     [Fact]
@@ -199,6 +241,11 @@ public sealed class HealthTests : IDisposable
     [InlineData("BaseMissing", "D:\\gone", "копия указывает на базу «D:\\gone», а её нет на диске")]
     [InlineData("NotBase", "D:\\plain", "копия указывает на «D:\\plain», а это не база кита")]
     [InlineData("Unlisted", "SAME", "база не числит эту копию своей")]
+    [InlineData("Outdated", "SAME", "база прежнего формата — переведите её китом")]
+    [InlineData("Newer", "SAME", "базу перевёл кит новее установленного — обновите кит")]
+    [InlineData("Unnamed", "SAME", "на этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard")]
+    [InlineData("NoPersonal", "SAME", "на этом компьютере нет личного репозитория оператора — возьмите проект под кит скиллом /onboard")]
+    [InlineData("Unmerged", "SAME", "сведение «D:\\app-knowledge\\» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут")]
     public void LinkProblems_NamesBrokenLink(string status, string? linkBase, string? message)
     {
         const string basePath = "D:\\app-knowledge";
@@ -209,6 +256,18 @@ public sealed class HealthTests : IDisposable
             Assert.Empty(problems);
         else
             Assert.Equal([new HealthProblem("error", null, message)], problems);
+    }
+
+    [Fact]
+    // Кит называет, где встало сведение: в базе или в личном репозитории оператора.
+    public void LinkProblems_UnmergedNamesRepositoryKitPointedAt()
+    {
+        var problems = HealthMonitor.LinkProblems("D:\\app-knowledge",
+            new KitLinkState("D:\\app", "Unmerged", "D:\\app-knowledge", "D:\\app-knowledge\\local\\me"));
+
+        Assert.Equal(
+            [new HealthProblem("error", null, "сведение «D:\\app-knowledge\\local\\me» с сервером встало на конфликте: сессии агентов не пишут в базу и бэклог, пока его не разберут")],
+            problems);
     }
 
     [Fact]
@@ -234,8 +293,17 @@ public sealed class HealthTests : IDisposable
         var deadline = DateTime.UtcNow.AddSeconds(60);
         while (DateTime.UtcNow < deadline)
         {
-            if (File.Exists(file) && int.TryParse(File.ReadAllText(file).Trim(), out var pid))
-                return pid;
+            // Скрипт может ещё писать файл: пока он его держит, чтение отказывает, а прочитанный до конца
+            // строки номер может быть оборван.
+            try
+            {
+                if (File.Exists(file) && File.ReadAllText(file) is var text && text.EndsWith('\n')
+                    && int.TryParse(text.Trim(), out var pid))
+                    return pid;
+            }
+            catch (IOException)
+            {
+            }
             await Task.Delay(50);
         }
         throw new TimeoutException($"Проверка не дошла до скрипта кита: {file} так и не появился");

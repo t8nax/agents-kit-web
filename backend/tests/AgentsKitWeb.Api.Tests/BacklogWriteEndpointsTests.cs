@@ -14,7 +14,8 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class BacklogWriteEndpointsTests : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+    // С запасом: до события идёт цепочка git, и на перегруженной машине десяти секунд не хватало (B-142).
+    private static readonly TimeSpan Wait = TimeSpan.FromSeconds(30);
 
     private const string Backlog = """
         # Order Service — бэклог
@@ -37,27 +38,31 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         """;
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-backlog-write-").FullName;
+    private readonly TestHosts _hosts = new();
     private readonly string _base;
+    private readonly string _personal;
     private readonly string _copy;
     private readonly TestChat _agent = new();
+    private readonly TestCheckGate _checkGate = new();
 
     /// <summary>Команда коммита, которую панель диктует агенту и кладёт в правило разрешения.</summary>
-    private string Commit => $"git -C \"{_base}\" commit -m \"{BacklogWriteEndpoints.CommitMessage}\" -- backlog.md";
+    private string Commit => $"git -C \"{_personal}\" commit -m \"{BacklogWriteEndpoints.CommitMessage}\" -- backlog.md";
 
-    private string BacklogPath => Path.Combine(_base, "backlog.md");
+    private string BacklogPath => Path.Combine(_personal, "backlog.md");
 
     public BacklogWriteEndpointsTests()
     {
         _copy = Path.Combine(_root, "app");
         Directory.CreateDirectory(Path.Combine(_copy, "frontend", "src"));
-        _base = TestGit.Repository(Path.Combine(_root, "app-knowledge"));
-        TestGit.Run(_base, "config", "user.name", "t");
-        TestGit.Run(_base, "config", "user.email", "t@t");
-        TestGit.Run(_base, "config", "core.autocrlf", "false");
-        File.WriteAllText(Path.Combine(_base, "agents-kit.json"), JsonSerializer.Serialize(new { workspaces = new[] { _copy } }));
+        // Бэклог и его артефакты — в личном репозитории оператора со своим git.
+        _base = TestLayout.Base(Path.Combine(_root, "app-knowledge"), _copy);
+        _personal = TestLayout.Personal(_base);
+        TestGit.Run(_personal, "config", "user.name", "t");
+        TestGit.Run(_personal, "config", "user.email", "t@t");
+        TestGit.Run(_personal, "config", "core.autocrlf", "false");
         File.WriteAllText(BacklogPath, Backlog.ReplaceLineEndings("\n") + "\n");
-        TestGit.Run(_base, "add", "agents-kit.json", "backlog.md");
-        TestGit.Run(_base, "commit", "-m", "base");
+        TestGit.Run(_personal, "add", "backlog.md");
+        TestGit.Run(_personal, "commit", "-m", "base");
     }
 
     [Fact]
@@ -78,7 +83,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
             if (index == 4)
             {
                 AppendEntries(next: "B-5", "## B-3 Таблица показывает ожидание\n\nСколько копия ждёт.\n\n### Агенту\n- где: App.tsx", "## B-4 Сортировка по номеру");
-                TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+                TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
             }
             return Task.CompletedTask;
         };
@@ -89,7 +94,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
         Assert.Equal(new BacklogWriteEvent("reply", "Хочу видеть ожидание и сортировку"), events[0]);
         Assert.Equal(
-            ["читает backlog-record.md", "ищет «Waiting» в frontend/src", "правит backlog.md", "коммитит бэклог"],
+            ["читает backlog-record.md", "ищет «Waiting» в frontend/src", "правит local/me/backlog.md", "коммитит бэклог"],
             events.Skip(1).Take(4).Select(e => e.Text));
         var answer = events[5];
         Assert.Equal("answer", answer.Type);
@@ -124,7 +129,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal("dontAsk", args[args.IndexOf("--permission-mode") + 1]);
         Assert.Equal(_base, args[args.IndexOf("--add-dir") + 1]);
         var allowed = args.Skip(args.IndexOf("--allowedTools") + 1).TakeWhile(a => !a.StartsWith("--")).ToList();
-        Assert.Equal(["Read", "Grep", "Glob", "Skill", $"Edit({BacklogPath})", $"PowerShell({Commit})"], allowed);
+        Assert.Equal(["Read", "Grep", "Glob", "Skill", $"Edit({BacklogPath})", $"PowerShell({Commit})", $"PowerShell({Commit} artifacts)"], allowed);
         // Правило пускает команду, только когда она записана целиком, поэтому промпт диктует её слово в слово.
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains(Commit, prompt);
@@ -132,6 +137,245 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(args, a => a.Contains("bypassPermissions", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Write_AttachedFileGoesToBaseArtifactsAndAgentCommitsItWithEntry()
+    {
+        // Навык вписывает приложенный файл в «Артефакты» записи и коммитит второй разрешённой командой.
+        _agent.Answers = [[Result("Приложил к B-1.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(
+                "### Агенту\n- где: App.tsx\n", "### Артефакты\n- снимок: artifacts/B-1-Снимок-экрана.png\n\n### Агенту\n- где: App.tsx\n"));
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md", "artifacts");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок", "B-1", [Shot("Снимок экрана.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var events = await Read(client, 2);
+
+        Assert.Equal(["artifacts/B-1-Снимок-экрана.png"], events[0].Files);
+        Assert.Contains("artifacts/B-1-Снимок-экрана.png", Said(_agent.Input[0]));
+        Assert.Equal(new BacklogWriteEvent("answer", "Приложил к B-1.", DurationMs: 1000), events[1]);
+        Assert.Equal([0, 1, 2], File.ReadAllBytes(Path.Combine(_personal, "artifacts", "B-1-Снимок-экрана.png")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
+    public async Task Write_AttachedFileLeftByAgentIsCommittedByPanel()
+    {
+        // Агент закоммитил только backlog.md: ссылка уже в истории, и файл докоммичивает панель.
+        _agent.Answers = [[Result("Записал B-3.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.AppendAllText(BacklogPath, "\n## B-3 Новая\n\nТекст.\n\n### Артефакты\n- лог: artifacts/лог.txt\n");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "запиши", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("answer", answer.Type);
+        Assert.Equal("", Git("status", "--porcelain"));
+        Assert.Contains("artifacts/лог.txt", Git("-c", "core.quotepath=false", "log", "-1", "--name-only", "--format="));
+    }
+
+    [Fact]
+    public async Task Write_AttachedFileNotYetUsedLeavesIndexCleanAndNewTalkRemovesIt()
+    {
+        // Агент переспросил, файл ещё не вписан: между ходами он лежит на диске, но не в индексе базы.
+        _agent.Answers = [[Result("Это к B-1 «Старая запись»?")]];
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок к старой записи", files: [Shot("снимок.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        await Read(client, 2);
+
+        Assert.True(File.Exists(Path.Combine(_personal, "artifacts", "снимок.png")));
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+
+        _agent.Answers = [[Result("ok")]];
+        await Start(client, "другая просьба");
+
+        Assert.False(File.Exists(Path.Combine(_personal, "artifacts", "снимок.png")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
+    public async Task Reply_DeclinedFileDoesNotRideWithNextFileCommit()
+    {
+        // Первый файл оператор отозвал словами, ко второй реплике приложил другой: коммит агента с artifacts
+        // берёт только файл этой реплики.
+        _agent.Answers = [[Result("Это к B-1?")], [Result("Записал B-3.")]];
+        _agent.BeforeLine = _ =>
+        {
+            if (_agent.Input.Count != 2)
+                return Task.CompletedTask;
+            File.AppendAllText(BacklogPath, "\n## B-3 Новая\n\nТекст.\n\n### Артефакты\n- лог: artifacts/лог.txt\n");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md", "artifacts");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок", files: [Shot("снимок.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        await Read(client, 2);
+        using var replied = await client.PostAsJsonAsync(
+            "/api/backlog/write/reply", new BacklogReplyRequest("снимок не нужен, запиши новую с логом", [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.NoContent, replied.StatusCode);
+        Assert.Equal("answer", (await Read(client, 4))[3].Type);
+
+        Assert.Equal("A\tartifacts/лог.txt\nM\tbacklog.md", Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+        Assert.True(File.Exists(Path.Combine(_personal, "artifacts", "снимок.png")));
+    }
+
+    [Fact]
+    public async Task Write_ForeignIndexInArtifactsDoesNotStopReplyWithoutFiles()
+    {
+        // В индексе чужой файл artifacts/ — соседняя сессия или ход, оборванный остановкой панели. Панель его не трогает,
+        // а реплика без файлов коммитится только backlog.md и уходит.
+        Directory.CreateDirectory(Path.Combine(_personal, "artifacts"));
+        File.WriteAllText(Path.Combine(_personal, "artifacts", "чужой.txt"), "1");
+        TestGit.Run(_personal, "add", "artifacts");
+        _agent.Answers = [[Result("ok")]];
+        var client = Client(_base);
+
+        await Start(client, "запиши");
+        var events = await Read(client, 2);
+
+        Assert.Equal("answer", events[1].Type);
+        Assert.Equal("artifacts/чужой.txt", Git("-c", "core.quotepath=false", "diff", "--cached", "--name-only"));
+    }
+
+    [Fact]
+    public async Task Write_IndexRefusalTakesAttachedCopiesAway()
+    {
+        // git не принял файл в индекс (его держит соседний git): копия не остаётся в базе, реплика — без файла.
+        _agent.Answers = [[Result("ok")]];
+        var client = Client(_base);
+        var lockFile = Path.Combine(_personal, ".git", "index.lock");
+        File.WriteAllText(lockFile, "");
+
+        using var started = await client.SendAsync(Post(_base, "приложи", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var events = await Read(client, 2);
+        File.Delete(lockFile);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "приложи"), events[0]);
+        Assert.Equal("error", events[1].Type);
+        Assert.StartsWith("git не принял приложенный файл", events[1].Text);
+        Assert.False(File.Exists(Path.Combine(_personal, "artifacts", "лог.txt")));
+        Assert.Empty(_agent.Input);
+    }
+
+    [Fact]
+    public async Task Answer_TurnedIntoErrorAtEndOfTurnLeavesNoProposalToSave()
+    {
+        // Агент закоммитил только backlog.md со ссылкой и предложил правку, а докоммит файла панелью не прошёл: ответ
+        // становится ошибкой, и сохранять из него оператору нечего.
+        _agent.Answers = [[Result("Записал B-3.\n\n~~~backlog\nудалить B-2\n~~~")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.AppendAllText(BacklogPath, "\n## B-3 Новая\n\nТекст.\n\n### Артефакты\n- лог: artifacts/лог.txt\n");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            File.WriteAllText(Path.Combine(_personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "запиши", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("error", answer.Type);
+        Assert.Null(answer.Proposal);
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+    }
+
+    [Fact]
+    public async Task Save_CommitsAttachedFileTheProposalReferences()
+    {
+        // Файл приложен к просьбе про существующую запись: строка о нём приходит предложением и уходит по «Сохранить».
+        _agent.Answers =
+        [
+            [Result("~~~backlog\nизменить B-1\n## B-1 Старая запись\nтип: фича\nприоритет: средний\n\nТекст старой записи.\n\n### Артефакты\n- снимок: artifacts/B-1-снимок.png\n\n### Агенту\n- где: App.tsx\n~~~")],
+        ];
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи снимок", "B-1", [Shot("снимок.png", 3)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var answer = (await Read(client, 2))[1];
+        Assert.Equal("", Git("diff", "--cached", "--name-only"));
+
+        Assert.Null((await Save(client, answer.Proposal!.Id)).Error);
+        Assert.Equal("", Git("status", "--porcelain"));
+        Assert.Equal(
+            "A\tartifacts/B-1-снимок.png\nM\tbacklog.md",
+            Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
+    }
+
+    [Fact]
+    public async Task Save_MergeRemovesArtifactsOfGoneEntryButKeepsOnesAnotherEntryHolds()
+    {
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath)
+            .Replace("### Агенту\n- где: App.tsx\n", "### Артефакты\n- общий: artifacts/общий.txt\n\n### Агенту\n- где: App.tsx\n")
+            .Replace("Текст второй записи.\n", "Текст второй записи.\n\n### Артефакты\n- общий: artifacts/общий.txt\n- свой: artifacts/свой.txt\n"));
+        Directory.CreateDirectory(Path.Combine(_personal, "artifacts"));
+        File.WriteAllText(Path.Combine(_personal, "artifacts", "общий.txt"), "1");
+        File.WriteAllText(Path.Combine(_personal, "artifacts", "свой.txt"), "2");
+        TestGit.Run(_personal, "add", ".");
+        TestGit.Run(_personal, "commit", "-m", "артефакты");
+        _agent.Answers =
+        [
+            [Result("~~~backlog\nизменить B-1\n## B-1 Старая и вторая\n\nОба текста.\n\n### Артефакты\n- общий: artifacts/общий.txt\n\n### Агенту\n- где: App.tsx\n~~~\n~~~backlog\nудалить B-2 в B-1\n~~~")],
+        ];
+        var client = Client(_base);
+        await Start(client, "объедини B-1 и B-2");
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Null((await Save(client, answer.Proposal!.Id)).Error);
+
+        Assert.True(File.Exists(Path.Combine(_personal, "artifacts", "общий.txt")));
+        Assert.False(File.Exists(Path.Combine(_personal, "artifacts", "свой.txt")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
+    public async Task Write_TooLargeFileIsRefusedAndNothingLands()
+    {
+        var client = Client(_base);
+
+        using var response = await client.SendAsync(Post(_base, "приложи", files: [Shot("видео.mp4", 5 * 1024 * 1024 + 1)]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new AttachRejected("видео.mp4", "too-large"), await response.Content.ReadFromJsonAsync<AttachRejected>(Json));
+        Assert.False(Directory.Exists(Path.Combine(_personal, "artifacts")));
+        Assert.Empty(_agent.Starts);
+    }
+
+    [Fact]
+    public async Task Write_IsNotSentOverForeignUncommittedArtifact()
+    {
+        Directory.CreateDirectory(Path.Combine(_personal, "artifacts"));
+        File.WriteAllText(Path.Combine(_personal, "artifacts", "чужой.txt"), "соседняя сессия");
+        TestGit.Run(_personal, "add", "artifacts/чужой.txt");
+        var client = Client(_base);
+
+        using var started = await client.SendAsync(Post(_base, "приложи", files: [Shot("лог.txt", 2)]));
+        Assert.Equal(HttpStatusCode.OK, started.StatusCode);
+        var events = await Read(client, 2);
+
+        Assert.Equal(
+            new BacklogWriteEvent("error", "В artifacts/ личного репозитория есть незакоммиченная правка artifacts/чужой.txt — приложить файл нельзя, пока её не закоммитят"),
+            events[1]);
+        Assert.False(File.Exists(Path.Combine(_personal, "artifacts", "лог.txt")));
     }
 
     [Fact]
@@ -179,8 +423,158 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Reply(client, "ещё одна");
         var events = await Read(client, 5);
 
-        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[2]);
-        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[3]);
+        // Реплика, успевшая к агенту до того, как панель узнала о его конце, встаёт в переписку раньше пометки.
+        Assert.Equivalent(
+            new[]
+            {
+                new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"),
+                new BacklogWriteEvent("reply", "ещё одна"),
+            },
+            events[2..4]);
+        Assert.Equal("answer", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
+    }
+
+    [Fact]
+    public async Task Reply_WhenAgentEndsDuringCheckBeforeSendingRaisesNewAgentWithoutError()
+    {
+        var (exit, checking, check) = HoldSecondCheck();
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        var sending = Reply(client, "ещё одна");
+        // Реплика встала в переписку, и панель проверяет базу перед отправкой: агент кончается в это время.
+        await checking.Task.WaitAsync(Wait);
+        exit.SetResult();
+        var events = await Read(client, 4);
+        check.SetResult();
+        using (var response = await sending)
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        events = await Read(client, 5);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[2]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[3]);
+        Assert.Equal("answer", events[4].Type);
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
+    }
+
+    [Fact]
+    public async Task Stop_DuringCheckBeforeSendingStopsReplyWithoutNewAgent()
+    {
+        var (_, checking, check) = HoldSecondCheck();
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        var sending = Reply(client, "ещё одна");
+        await checking.Task.WaitAsync(Wait);
+        using (var stopped = await client.PostAsync("/api/backlog/write/stop", null))
+            Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
+        var events = await Read(client, 4);
+        check.SetResult();
+        using (var response = await sending)
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+
+        Assert.Equal("stopped", events[3].Type);
+        // Реплика, остановленная по дороге, агента не поднимает: ответа на неё не будет, как и сказано.
+        Assert.Single(_agent.Starts);
+        Assert.Single(_agent.Input);
+    }
+
+    /// <summary>
+    /// Агент отвечает на первую реплику и больше их не читает, пока тест не отпустит его выход; проверка базы
+    /// перед второй репликой стоит, пока тест её не отпустит.
+    /// </summary>
+    private (TaskCompletionSource Exit, TaskCompletionSource Checking, TaskCompletionSource Check) HoldSecondCheck()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = true;
+        _agent.BeforeExit = () =>
+        {
+            if (!first)
+                return Task.CompletedTask;
+            first = false;
+            return exit.Task;
+        };
+        var checking = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var check = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _checkGate.Before = n =>
+        {
+            if (n != 2)
+                return Task.CompletedTask;
+            checking.TrySetResult();
+            return check.Task;
+        };
+        return (exit, checking, check);
+    }
+
+    [Fact]
+    public async Task Reply_WhileSecondAgentEndsRaisesNewAgentAgain()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")], [Result("Готово.")]];
+        _agent.StopAfter = 1;
+        var ended = new SemaphoreSlim(0);
+        TaskCompletionSource[] exits = [new(), new(), new()];
+        var agents = 0;
+        _agent.BeforeExit = () =>
+        {
+            var exit = exits[agents++].Task;
+            ended.Release();
+            return exit;
+        };
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        // Оба раза реплика уходит, когда агент уже ответил и реплик не читает, но панель ещё не знает о его конце.
+        Assert.True(await ended.WaitAsync(Wait));
+        await Reply(client, "ещё одна");
+        exits[0].SetResult();
+        await Read(client, 5);
+        Assert.True(await ended.WaitAsync(Wait));
+        await Reply(client, "и ещё");
+        exits[1].SetResult();
+        var events = await Read(client, 8);
+        exits[2].SetResult();
+
+        Assert.Equal(new BacklogWriteEvent("reply", "и ещё"), events[5]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[6]);
+        Assert.Equal("answer", events[7].Type);
+        Assert.Equal(3, _agent.Starts.Count);
+        Assert.Equal("/agents-kit:backlog и ещё", Said(_agent.Input[2]));
+    }
+
+    [Fact]
+    public async Task Reply_WhileAgentEndsRaisesNewAgent()
+    {
+        _agent.Answers = [[Result("Записал.")], [Result("Понял.")]];
+        _agent.StopAfter = 1;
+        var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agent.BeforeExit = () =>
+        {
+            ended.TrySetResult();
+            return exit.Task;
+        };
+        var client = Client(_base);
+
+        await Start(client, "мысль");
+        await Read(client, 2);
+        // Агент ответил и реплик больше не читает, но панель ещё не знает, что он кончился.
+        await ended.Task.WaitAsync(Wait);
+        using (var response = await Reply(client, "ещё одна"))
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        exit.SetResult();
+        var events = await Read(client, 5);
+
+        Assert.Equal(new BacklogWriteEvent("reply", "ещё одна"), events[2]);
+        Assert.Equal(new BacklogWriteEvent("note", "Чудо-Юдо отвечает заново: сказанного раньше он уже не помнит"), events[3]);
+        Assert.Equal("answer", events[4].Type);
         Assert.Equal(2, _agent.Starts.Count);
         Assert.Equal("/agents-kit:backlog ещё одна", Said(_agent.Input[1]));
     }
@@ -240,6 +634,56 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_DeletingEntryRemovesItsArtifactsNobodyElseReferences()
+    {
+        // B-2 несёт два файла: снимок только у неё, лог ещё и у памяти задачи — он остаётся.
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(
+            "Текст второй записи.\n",
+            "Текст второй записи.\n\n### Артефакты\n- снимок: artifacts/B-2-снимок.png\n- лог: artifacts/B-2-лог.txt\n- макет: https://claude.ai/artifact/AbC\n"));
+        Directory.CreateDirectory(Path.Combine(_personal, "artifacts"));
+        Directory.CreateDirectory(TestLayout.Work(_base));
+        File.WriteAllBytes(Path.Combine(_personal, "artifacts", "B-2-снимок.png"), [1, 2, 3]);
+        File.WriteAllText(Path.Combine(_personal, "artifacts", "B-2-лог.txt"), "лог");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "app.md"), "# B-9\n\n## Артефакты\n- лог: artifacts/B-2-лог.txt\n");
+        TestGit.Run(_personal, "add", ".");
+        TestGit.Run(_personal, "commit", "-m", "артефакты");
+        _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "удали B-2");
+        var answer = (await Read(client, 2))[1];
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Null(saved.Error);
+        Assert.False(File.Exists(Path.Combine(_personal, "artifacts", "B-2-снимок.png")));
+        Assert.True(File.Exists(Path.Combine(_personal, "artifacts", "B-2-лог.txt")));
+        Assert.Equal("", Git("status", "--porcelain"));
+        Assert.Equal("D\tartifacts/B-2-снимок.png\nM\tbacklog.md", Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
+    }
+
+    [Fact]
+    public async Task Save_RefusedCommitReturnsDeletedArtifacts()
+    {
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(
+            "Текст второй записи.\n", "Текст второй записи.\n\n### Артефакты\n- снимок: artifacts/B-2-снимок.png\n"));
+        Directory.CreateDirectory(Path.Combine(_personal, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_personal, "artifacts", "B-2-снимок.png"), [1, 2, 3]);
+        TestGit.Run(_personal, "add", ".");
+        TestGit.Run(_personal, "commit", "-m", "артефакты");
+        _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "удали B-2");
+        var answer = (await Read(client, 2))[1];
+        File.WriteAllText(Path.Combine(_personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal("Коммит не прошёл — backlog.md оставлен как был", saved.Error);
+        Assert.Equal([1, 2, 3], File.ReadAllBytes(Path.Combine(_personal, "artifacts", "B-2-снимок.png")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    [Fact]
     public async Task Save_RefusesEntryChangedAfterAnswer()
     {
         _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
@@ -247,7 +691,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Start(client, "удали B-2");
         var answer = (await Read(client, 2))[1];
         File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace("Текст второй записи.", "Поправлено соседней сессией."));
-        TestGit.Run(_base, "commit", "-m", "сосед", "--", "backlog.md");
+        TestGit.Run(_personal, "commit", "-m", "сосед", "--", "backlog.md");
         var file = File.ReadAllText(BacklogPath);
 
         var saved = await Save(client, answer.Proposal!.Id);
@@ -268,7 +712,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
         var saved = await Save(client, answer.Proposal!.Id);
 
-        Assert.Equal("В backlog.md базы есть незакоммиченная правка — ничего не записано", saved.Error);
+        Assert.Equal("В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано", saved.Error);
         Assert.EndsWith("чужая правка\n", File.ReadAllText(BacklogPath));
         Assert.Equal("base", Git("log", "-1", "--format=%s"));
     }
@@ -281,7 +725,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Start(client, "удали B-2");
         var answer = (await Read(client, 2))[1];
         var file = File.ReadAllText(BacklogPath);
-        File.WriteAllText(Path.Combine(_base, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+        File.WriteAllText(Path.Combine(_personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho сверка не прошла\nexit 1\n");
 
         var saved = await Save(client, answer.Proposal!.Id);
 
@@ -330,7 +774,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         _agent.BeforeLine = _ =>
         {
             File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace("## B-2 Вторая запись\n\nТекст второй записи.\n", ""));
-            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
             return Task.CompletedTask;
         };
         var client = Client(_base);
@@ -339,7 +783,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         var error = (await Read(client, 2))[1];
 
         Assert.Equal("error", error.Type);
-        Assert.Equal($"Чудо-Юдо сам изменил записи B-2 вместо предложения: правка уже в истории базы, коммит {Git("log", "-1", "--format=%h")}", error.Text);
+        Assert.Equal($"Чудо-Юдо сам изменил записи B-2 вместо предложения: правка уже в истории личного репозитория, коммит {Git("log", "-1", "--format=%h")}", error.Text);
         Assert.Equal("Удалил B-2.", error.Output);
     }
 
@@ -380,7 +824,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         _agent.BeforeLine = _ =>
         {
             File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace("- где: App.tsx\n", "- где: App.tsx\n- ещё случай из панели\n"));
-            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
             return Task.CompletedTask;
         };
         var client = Client(_base);
@@ -392,6 +836,26 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Answer_AcceptsSkillAddingArtifactToFoundEntry()
+    {
+        // Приложенный файл к найденной записи навык кладёт строкой в её «Артефакты», заводя подраздел, — это не правка.
+        _agent.Answers = [[Result("Приложил к B-1.")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath)
+                .Replace("### Агенту\n- где: App.tsx\n", "### Артефакты\n- снимок: artifacts/B-1-снимок.png\n\n### Агенту\n- где: App.tsx\n"));
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "приложи снимок к B-1");
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal(new BacklogWriteEvent("answer", "Приложил к B-1.", DurationMs: 1000), answer);
+    }
+
+    [Fact]
     public async Task Reply_IsRefusedWhileProposalIsBeingSaved()
     {
         _agent.Answers = [[Result("~~~backlog\nудалить B-2\n~~~")]];
@@ -399,7 +863,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Start(client, "удали B-2");
         var answer = (await Read(client, 2))[1];
         // Сверка базы долгая: коммит «Сохранить» идёт секунды, и реплика приходит посреди него.
-        File.WriteAllText(Path.Combine(_base, ".git", "hooks", "pre-commit"), "#!/bin/sh\nsleep 3\n");
+        File.WriteAllText(Path.Combine(_personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\nsleep 3\n");
 
         var saving = client.PostAsJsonAsync("/api/backlog/write/save", new BacklogProposalRequest(answer.Proposal!.Id));
         await Task.Delay(1000);
@@ -435,7 +899,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         _agent.BeforeLine = _ =>
         {
             File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace("Текст второй записи.\n", "Текст второй записи.\n\nНовая фраза.\n"));
-            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
             return Task.CompletedTask;
         };
         var client = Client(_base);
@@ -452,7 +916,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         _agent.Answers = [[Result("Ничего не менял.")]];
         _agent.BeforeLine = _ =>
         {
-            Directory.Move(Path.Combine(_base, ".git"), Path.Combine(_base, ".git-off"));
+            Directory.Move(Path.Combine(_personal, ".git"), Path.Combine(_personal, ".git-off"));
             return Task.CompletedTask;
         };
         var client = Client(_base);
@@ -460,21 +924,21 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Start(client, "покажи");
         var error = (await Read(client, 2))[1];
 
-        Assert.Equal("git не прочитал базу — итог ответа не проверен", error.Text);
+        Assert.Equal("git не прочитал личный репозиторий — итог ответа не проверен", error.Text);
     }
 
     [Fact]
     public async Task Answer_DoesNotShowRenumberedForeignEntryAsNew()
     {
         File.AppendAllText(BacklogPath, "\n## ORD-5 Запись чужими буквами\n\nТекст чужой.\n");
-        TestGit.Run(_base, "commit", "-m", "чужая", "--", "backlog.md");
+        TestGit.Run(_personal, "commit", "-m", "чужая", "--", "backlog.md");
         _agent.Answers = [[Result("Перенумеровал ORD-5 в B-3.")]];
         _agent.BeforeLine = _ =>
         {
             File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath)
                 .Replace("следующий номер: B-3", "следующий номер: B-4")
                 .Replace("## ORD-5 Запись чужими буквами", "## B-3 Запись чужими буквами"));
-            TestGit.Run(_base, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
             return Task.CompletedTask;
         };
         var client = Client(_base);
@@ -541,7 +1005,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         await Start(client, "Мысль");
         var events = await Read(client, 2);
 
-        Assert.Equal("В backlog.md базы есть незакоммиченная правка — просьба не отправлена", events[1].Text);
+        Assert.Equal("В backlog.md личного репозитория есть незакоммиченная правка — просьба не отправлена", events[1].Text);
         Assert.Empty(_agent.Input);
     }
 
@@ -573,6 +1037,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
     public void Dispose()
     {
+        _hosts.Dispose();
         try
         {
             foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
@@ -594,13 +1059,13 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     {
         var startInfo = new ProcessStartInfo("git")
         {
-            WorkingDirectory = _base,
+            WorkingDirectory = _personal,
             RedirectStandardOutput = true,
             StandardOutputEncoding = System.Text.Encoding.UTF8,
         };
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
-        using var process = Process.Start(startInfo)!;
+        using var process = TestProcess.Start(startInfo);
         var output = process.StandardOutput.ReadToEnd().Trim();
         process.WaitForExit();
         return output;
@@ -625,8 +1090,12 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         result = text,
     });
 
-    private static HttpRequestMessage Post(string basePath, string text, string? number = null) =>
-        new(HttpMethod.Post, "/api/backlog/write") { Content = JsonContent.Create(new BacklogWriteRequest(basePath, text, number)) };
+    private static HttpRequestMessage Post(string basePath, string text, string? number = null, IReadOnlyList<AttachedFile>? files = null) =>
+        new(HttpMethod.Post, "/api/backlog/write") { Content = JsonContent.Create(new BacklogWriteRequest(basePath, text, number, files)) };
+
+    // Файл из окна: байты 0, 1, 2… нужной длины.
+    private static AttachedFile Shot(string name, int length) =>
+        new(name, Convert.ToBase64String(Enumerable.Range(0, length).Select(i => (byte)i).ToArray()));
 
     private async Task Start(HttpClient client, string text, string? number = null)
     {
@@ -661,7 +1130,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     private HttpClient Client(params string[] bases) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -673,6 +1142,18 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
             {
                 services.RemoveAll<IAgentChat>();
                 services.AddSingleton<IAgentChat>(_agent);
+                services.RemoveAll<IBacklogCheckGate>();
+                services.AddSingleton<IBacklogCheckGate>(_checkGate);
             });
-        }).CreateClient();
+        })).CreateClient();
+
+    /// <summary>Ход перед проверкой базы: n — какая по счёту реплика разговора проверяется.</summary>
+    private sealed class TestCheckGate : IBacklogCheckGate
+    {
+        private int _calls;
+
+        public Func<int, Task> Before { get; set; } = _ => Task.CompletedTask;
+
+        public Task BeforeCheckAsync() => Before(Interlocked.Increment(ref _calls));
+    }
 }

@@ -258,6 +258,101 @@ test('сохранённый путь к киту стоит в поле, а п�
   ).toBeInTheDocument()
 })
 
+const oldPlugin = 'C:\\Users\\me\\.claude\\plugins\\cache\\agents-kit\\agents-kit\\1.14.2'
+const newPlugin = 'C:\\Users\\me\\.claude\\plugins\\cache\\agents-kit\\agents-kit\\1.15.0'
+
+test('у найденного кита видно, какой версией работает панель и плагин ли он', async () => {
+  stubApi(api({ 'GET /api/kit': () => json({ path: oldPlugin, found: true, version: '1.14.2', plugin: true }) }))
+
+  const { kit } = await openSettings()
+
+  expect(
+    await within(kit()).findByText((_, el) => el?.textContent === 'Панель работает китом версии 1.14.2. Кит установлен плагином Claude Code.'),
+  ).toBeInTheDocument()
+  expect(within(kit()).queryByRole('status')).not.toBeInTheDocument()
+})
+
+test('у кита каталогом без номера версии сказано, что версия не известна', async () => {
+  stubApi(api({ 'GET /api/kit': () => json({ path: kitPath, found: true, version: null, plugin: false }) }))
+
+  const { kit } = await openSettings()
+
+  expect(
+    await within(kit()).findByText('Версия кита не известна. Кит указан каталогом, а не плагином Claude Code.'),
+  ).toBeInTheDocument()
+})
+
+test('новая версия плагина предлагается кнопкой, и до нажатия путь не меняется', async () => {
+  const puts: unknown[] = []
+  stubApi(
+    api({
+      'GET /api/kit': () =>
+        json({ path: oldPlugin, found: true, version: '1.14.2', plugin: true, update: { path: newPlugin, version: '1.15.0' } }),
+      'PUT /api/kit': (init) => {
+        puts.push(JSON.parse(String(init?.body)))
+        return json({ path: newPlugin, found: true, version: '1.15.0', plugin: true, update: null })
+      },
+    }),
+  )
+
+  const { kit } = await openSettings()
+  const notice = await within(kit()).findByRole('status')
+
+  expect(notice).toHaveTextContent('Установлена новая версия кита 1.15.0, панель работает версией 1.14.2.')
+  expect(within(kit()).getByLabelText('Путь к каталогу кита')).toHaveValue(oldPlugin)
+  // Номер прежней версии не стоит на экране дважды: строку версии заменяет предупреждение
+  expect(within(kit()).queryByText(/Панель работает китом версии/)).not.toBeInTheDocument()
+  expect(puts).toEqual([])
+
+  fireEvent.click(within(notice).getByRole('button', { name: 'Перейти на версию 1.15.0' }))
+
+  expect(
+    await within(kit()).findByText((_, el) => el?.textContent === 'Панель работает китом версии 1.15.0. Кит установлен плагином Claude Code.'),
+  ).toBeInTheDocument()
+  expect(puts).toEqual([{ path: newPlugin }])
+  expect(within(kit()).getByLabelText('Путь к каталогу кита')).toHaveValue(newPlugin)
+  expect(within(kit()).queryByRole('status')).not.toBeInTheDocument()
+})
+
+test('обновление плагина видно на открытых «Настройках», и набранный путь не затирается', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  try {
+    let state: KitEntry = { path: oldPlugin, found: true, version: '1.14.2', plugin: true, update: null }
+    stubApi(api({ 'GET /api/kit': () => json(state) }))
+
+    const { kit } = await openSettings()
+    await within(kit()).findByText(/Панель работает китом версии/)
+    fireEvent.change(within(kit()).getByLabelText('Путь к каталогу кита'), { target: { value: 'D:\\typed' } })
+
+    state = { ...state, update: { path: newPlugin, version: '1.15.0' } }
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+
+    expect(await within(kit()).findByRole('button', { name: 'Перейти на версию 1.15.0' })).toBeInTheDocument()
+    expect(within(kit()).getByLabelText('Путь к каталогу кита')).toHaveValue('D:\\typed')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('пропавшая прежняя версия тоже ведёт к переходу на новую', async () => {
+  stubApi(
+    api({
+      'GET /api/kit': () =>
+        json({ path: oldPlugin, found: false, version: null, plugin: true, update: { path: newPlugin, version: '1.15.0' } }),
+    }),
+  )
+
+  const { kit } = await openSettings()
+
+  expect(await within(kit()).findByRole('status')).toHaveTextContent(
+    'Прежней версии кита по сохранённому пути больше нет, проблемы баз не проверяются. Установлена новая версия 1.15.0.',
+  )
+  expect(within(kit()).getByRole('button', { name: 'Перейти на версию 1.15.0' })).toBeInTheDocument()
+  expect(within(kit()).queryByText(/По сохранённому пути кита больше нет/)).not.toBeInTheDocument()
+})
+
 test('путь к киту сохраняется, а каталог без кита отклоняется с причиной', async () => {
   const puts: unknown[] = []
   stubApi(

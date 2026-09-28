@@ -1,7 +1,7 @@
 namespace AgentsKitWeb.Api.Bases;
 
 /// <summary>
-/// Папка в обзоре. IsBase — в ней есть agents-kit.json; Copies — число копий из него, null — не прочитан;
+/// Папка в обзоре. IsBase — в ней есть agents-kit.json; Copies — число копий этой машины, null — база не читается;
 /// IsKit — в ней скрипты кита, которыми панель проверяет базы.
 /// </summary>
 public sealed record FolderEntry(string Name, string Path, bool IsBase, int? Copies, bool IsKit = false);
@@ -63,7 +63,7 @@ public static class FoldersEndpoints
         bool isBase, isKit;
         try
         {
-            isBase = File.Exists(System.IO.Path.Combine(path, "agents-kit.json"));
+            isBase = BaseLayout.IsBase(path);
             isKit = BasesStore.IsKit(path);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

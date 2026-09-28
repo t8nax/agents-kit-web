@@ -30,14 +30,18 @@ async function mockApi(page: Page) {
     refusals: [] as string[],
     stops: 0,
     deletes: 0,
-    reads: 0,
+    // Бэклог меняется только записью агента: раздел читает его сколько угодно раз и видит одно и то же.
+    written: false,
     lines: [] as string[],
     request: null as Record<string, unknown> | null,
     state: 'running',
-    waiting: null as { route: Route; from: number } | null,
+    // Потоков может ждать несколько: оборванное окном чтение доходит до подмены позже нового, и ответ,
+    // отданный одному последнему, пропал бы в оборванном.
+    waiting: [] as { route: Route; from: number }[],
 
     /** Агент сказал своё: ход работы, ответ или сбой. */
     answer(...events: Said[]) {
+      if (events.some((event) => Array.isArray(event.entries))) panel.written = true
       panel.say(...events)
       if (events.some((event) => event.type !== 'step')) panel.state = 'done'
     },
@@ -48,20 +52,20 @@ async function mockApi(page: Page) {
     },
 
     flush() {
-      const waiting = panel.waiting
-      if (!waiting || panel.lines.length <= waiting.from) return
-      panel.waiting = null
-      void waiting.route.fulfill({
-        contentType: 'application/x-ndjson',
-        body: panel.lines.slice(waiting.from).join('\n') + '\n',
-      })
+      const ready = panel.waiting.filter((waiting) => panel.lines.length > waiting.from)
+      panel.waiting = panel.waiting.filter((waiting) => !ready.includes(waiting))
+      for (const waiting of ready) {
+        // Оборванное окном чтение ответа уже не примет: отказ подмены тут не ошибка.
+        waiting.route
+          .fulfill({ contentType: 'application/x-ndjson', body: panel.lines.slice(waiting.from).join('\n') + '\n' })
+          .catch(() => {})
+      }
     },
   }
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/backlog', (route) => {
-    panel.reads++
-    const entries = panel.saves.length > 0 ? [{ ...changed }, added] : panel.reads === 1 ? [B1, B2] : [B1, B2, added]
+    const entries = panel.saves.length > 0 ? [{ ...changed }, added] : panel.written ? [B1, B2, added] : [B1, B2]
     route.fulfill({
       json: [
         { base: akwBase, project: 'Agents Kit Web', entries, error: null, letters: 'B' },
@@ -128,7 +132,7 @@ async function mockApi(page: Page) {
     }
     const from = Number(new URL(route.request().url()).searchParams.get('from') ?? 0)
     // Нового нет — поток висит: так выглядит разговор, в котором ждут ответа или следующей реплики.
-    panel.waiting = { route, from }
+    panel.waiting.push({ route, from })
     panel.flush()
   })
 
@@ -140,7 +144,7 @@ async function mockApi(page: Page) {
     panel.deletes++
     panel.request = null
     panel.lines = []
-    panel.waiting = null
+    panel.waiting = []
     await route.fulfill({ status: 204, body: '' })
   })
 
@@ -166,9 +170,11 @@ async function openFromEntry(page: Page, number: string) {
   return page.getByRole('dialog', { name: 'Чудо-Юдо' })
 }
 
+/** Реплика ушла, и окно ждёт ответа: только тогда тест отвечает за агента, иначе ответ обгонит реплику. */
 async function say(dialog: ReturnType<Page['getByRole']>, text: string) {
   await dialog.getByLabel('Просьба к Чудо-Юдо').fill(text)
   await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByLabel('Прошло времени')).toBeVisible()
 }
 
 test('новая запись сохраняется сразу, отмечена в окне «добавлена» и в бэклоге «новая»', async ({ page }) => {
@@ -236,7 +242,7 @@ test('«Отказаться» ничего не пишет, а новая пр�
   await expect(dialog.getByText('Ждёт сохранения: удалить 1')).toBeVisible()
   await say(dialog, 'Нет, оставь всё')
   await expect(dialog.getByText('заменено')).toBeVisible()
-  expect(panel.replies).toEqual(['Тогда только B-2', 'Нет, оставь всё'])
+  await expect.poll(() => panel.replies).toEqual(['Тогда только B-2', 'Нет, оставь всё'])
 })
 
 test('запись, названная словами, уточняется в том же окне, а «Отменить» обрывает ответ', async ({ page }) => {

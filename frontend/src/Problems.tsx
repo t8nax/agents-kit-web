@@ -20,11 +20,20 @@ export type BaseHealth = {
   copies: { path: string; problems: HealthProblem[] }[]
 }
 
+/** Каталог кита и номер его версии; null — номер не прочитан. */
+export type KitVersion = {
+  path: string
+  version: string | null
+}
+
 export type HealthSnapshot = {
   pending: boolean
   kit: 'ok' | 'not-set' | 'not-found'
   bases: BaseHealth[]
   checkedAt: string | null
+  /** Установленная новая версия плагина кита, на которую панель ещё не перешла. */
+  kitUpdate?: KitVersion | null
+  currentKitVersion?: string | null
 }
 
 const refreshIntervalMs = 5000
@@ -116,7 +125,17 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
       {snapshot?.pending && <p className="empty-message">Идёт первая проверка баз…</p>}
       {snapshot && !snapshot.pending && (
         <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
-          {snapshot.kit !== 'ok' && <KitNotice kit={snapshot.kit} onSettings={onSettings} />}
+          {snapshot.kitUpdate && snapshot.kit !== 'not-set' ? (
+            <KitUpdateNotice
+              found={snapshot.kit === 'ok'}
+              current={snapshot.currentKitVersion ?? null}
+              update={snapshot.kitUpdate}
+              action="Открыть настройки"
+              onAction={onSettings}
+            />
+          ) : (
+            snapshot.kit !== 'ok' && <KitNotice kit={snapshot.kit} onSettings={onSettings} />
+          )}
           {snapshot.bases.length === 0 && (
             <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>
           )}
@@ -196,6 +215,41 @@ export function KitNotice({ kit, onSettings }: { kit: 'not-set' | 'not-found'; o
       </span>
       <button type="button" className="kit-notice-btn" onClick={onSettings}>
         Открыть настройки
+      </button>
+    </div>
+  )
+}
+
+/** Текст о новой версии кита: found — прежняя версия по сохранённому пути на месте. */
+function kitUpdateText(found: boolean, current: string | null, update: KitVersion): string {
+  const number = update.version ? ` ${update.version}` : ''
+  if (!found)
+    return `Прежней версии кита по сохранённому пути больше нет, проблемы баз не проверяются. Установлена новая версия${number}.`
+  return `Установлена новая версия кита${number}` + (current ? `, панель работает версией ${current}.` : '.')
+}
+
+/** Переход на новую версию кита: кнопкой в «Настройках», ссылкой туда — из «Проблем баз». */
+export function KitUpdateNotice({
+  found,
+  current,
+  update,
+  action,
+  busy = false,
+  onAction,
+}: {
+  found: boolean
+  current: string | null
+  update: KitVersion
+  action: string
+  busy?: boolean
+  onAction: () => void
+}) {
+  return (
+    <div className="kit-notice" role="status">
+      <WarningIcon />
+      <span className="kit-notice-text">{kitUpdateText(found, current, update)}</span>
+      <button type="button" className="kit-notice-btn" disabled={busy} onClick={onAction}>
+        {action}
       </button>
     </div>
   )
