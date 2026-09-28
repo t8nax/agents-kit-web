@@ -424,7 +424,9 @@ export default function Backlog({
           onTaken={loadCopies}
           onStarted={(copy) => {
             setStarting(null)
-            focusOpener()
+            // Запущенная задача гасит свою кнопку (B-89), а погасшая кнопка роняет фокус — клавиатура остаётся
+            // в строке, на её заголовке.
+            ;(opener.current?.closest('.entry-row')?.querySelector<HTMLElement>('button, a') ?? opener.current)?.focus()
             onStarted?.(copy)
             // Копия становится занятой сразу, а запись из бэклога убирает агент, когда до неё дойдёт:
             // в этом чтении её обычно ещё видно.

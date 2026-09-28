@@ -517,8 +517,8 @@ test('«Взять задачу» запускает свою запись в в
     { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota-copy', number: 'B-2', flow: 'полный' },
   ])
   expect(screen.queryByRole('dialog', { name: 'Взять задачу в работу' })).not.toBeInTheDocument()
-  // Фокус возвращается кнопке запуска — клавиатура остаётся на месте в списке
-  expect(start).toHaveFocus()
+  // Кнопка запуска гаснет — задача взята (B-89), — и фокус встаёт на заголовок строки: клавиатура остаётся на месте
+  expect(screen.getByRole('button', { name: /B-2 Экспорт заметок/ })).toHaveFocus()
   // Копия занята, а запись убирает агент, когда до неё дойдёт: раздел перечитывает и то и другое
   await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
 })
@@ -1122,7 +1122,8 @@ test('«Взять задачу» у задачи трекера запуска�
   expect(fetchMock.posts).toEqual([
     { base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\noble-keen-walrus', number: 'GitHub #52', flow: 'полный' },
   ])
-  expect(start).toHaveFocus()
+  // Фокус — на строке задачи: её кнопка погаснет, когда раздел узнает, что задача взята (B-89)
+  expect(within(row as HTMLElement).getByRole('link', { name: /#52/ })).toHaveFocus()
   // Бэклог после запуска перечитывается, а трекер — только при открытии раздела и по «Обновить»
   await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
   expect(fetchMock.trackerReads()).toBe(1)
