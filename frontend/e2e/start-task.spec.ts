@@ -50,7 +50,7 @@ const notaBacklog = {
   letters: 'B',
 }
 
-async function routeApi(page: Page, reply: { status: number; json: unknown }, rows = [busyRow, freeRow]) {
+async function routeApi(page: Page, reply: { status: number; json: unknown }, rows: object[] = [busyRow, freeRow]) {
   const posts: unknown[] = []
   await page.route('**/api/workspaces', async (route) => route.fulfill({ json: rows }))
   await page.route('**/api/backlog', async (route) => route.fulfill({ json: backlog }))
