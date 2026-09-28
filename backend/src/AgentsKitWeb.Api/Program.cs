@@ -66,7 +66,9 @@ builder.Services.AddSingleton<IGitHubIssues, GhIssues>();
 builder.Services.AddSingleton(services =>
 {
     var config = services.GetRequiredService<IConfiguration>();
-    return new TrackerServersStore(config["TrackersFile"] ?? TrackerServersStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
+    // Свой список баз (песочница, тесты) — свои и серверы трекеров, рядом с ним; у панели оператора — локальный профиль
+    return new TrackerServersStore(config["TrackersFile"]
+        ?? (config["BasesFile"] is { } basesFile ? TrackerServersStore.FileBeside(basesFile) : TrackerServersStore.DefaultFile));
 });
 // Сроки запросам к YouTrack ставит сам клиент — у чтения и заведения они разные.
 builder.Services.AddHttpClient(YouTrackApi.Client, client =>

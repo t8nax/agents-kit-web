@@ -86,6 +86,16 @@ public sealed class TrackerServersStoreTests : IDisposable
         Assert.False(store.Remove("https://yt.acme.local"));
     }
 
+    /// <summary>Ключи панели оператора — в локальном профиле: перемещаемый уехал бы на другие компьютеры (ревью B-288).</summary>
+    [Fact]
+    public void DefaultFile_IsInLocalProfile()
+    {
+        Assert.Equal(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "agents-kit-web", "trackers.json"),
+            TrackerServersStore.DefaultFile);
+        Assert.DoesNotContain(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), TrackerServersStore.DefaultFile);
+    }
+
     [Fact]
     public void List_NoFile_IsEmpty()
     {
