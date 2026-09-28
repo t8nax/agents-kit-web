@@ -1,4 +1,5 @@
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Trackers;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -28,13 +29,13 @@ public static class BacklogEndpoints
         // Файл читается на каждый запрос: соседние сессии правят backlog.md прямо сейчас.
         app.MapGet("/api/backlog", (BasesStore bases) => bases.List().Select(Read).ToList());
 
-        // Задачи трекера — своим запросом на базу: их читает gh из GitHub, и записи бэклога их не ждут.
-        app.MapGet("/api/backlog/tracker", async (string @base, BasesStore bases, IGitHubIssues github, CancellationToken cancellationToken) =>
+        // Задачи трекера — своим запросом на базу: их читают из GitHub или YouTrack, и записи бэклога их не ждут.
+        app.MapGet("/api/backlog/tracker", async (string @base, BasesStore bases, ProjectTracker tracker, CancellationToken cancellationToken) =>
         {
             var basePath = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, @base));
             if (basePath is null || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
-            return Results.Ok(await TrackerIssuesOf(layout, github, cancellationToken));
+            return Results.Ok(await tracker.AssignedAsync(layout, cancellationToken));
         });
 
         // Файл-артефакт записи открывается в VS Code окном на каталоге базы: копии у записи нет, а файл лежит
@@ -71,15 +72,6 @@ public static class BacklogEndpoints
                 : Results.Json(new OpenArtifactFailedResponse("not-opened"), statusCode: StatusCodes.Status502BadGateway);
         });
     }
-
-    /// <summary>Открытые задачи трекера базы, назначенные на оператора; трекер не GitHub с адресом — Problem.</summary>
-    public static async Task<TrackerIssues> TrackerIssuesOf(BaseLayout layout, IGitHubIssues github, CancellationToken cancellationToken) =>
-        Tracker.Read(layout) switch
-        {
-            null => new TrackerIssues([], TrackerIssues.NoTracker),
-            { GitHubRepo: { } repo } => await github.AssignedAsync(repo, cancellationToken),
-            var other => new TrackerIssues([], other.Kind),
-        };
 
     private static BaseBacklog Read(string basePath)
     {

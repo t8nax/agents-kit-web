@@ -75,6 +75,7 @@ builder.Services.AddHttpClient(YouTrackApi.Client, client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
 });
 builder.Services.AddSingleton<IYouTrack, YouTrackApi>();
+builder.Services.AddSingleton<ProjectTracker>();
 builder.Services.AddSingleton<IAgentChat, AgentChat>();
 builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<AskConversations>();

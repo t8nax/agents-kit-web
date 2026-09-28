@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Tasks;
@@ -36,7 +37,7 @@ public static partial class TaskEndpoints
             StartedTasks started,
             TaskSessions taskSessions,
             IAgentProcess agent,
-            IGitHubIssues github,
+            ProjectTracker tracker,
             CancellationToken cancellationToken) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
@@ -70,7 +71,7 @@ public static partial class TaskEndpoints
             {
                 if (BaseLayout.Read(basePath) is not { } layout)
                     return Results.NotFound();
-                var issues = await BacklogEndpoints.TrackerIssuesOf(layout, github, cancellationToken);
+                var issues = await tracker.AssignedAsync(layout, cancellationToken);
                 if (issues.Problem is not null)
                     // Окну — код причины, его оно называет словами; строку GitHub — только когда кода у причины нет
                     return Results.BadRequest(new TaskStartProblem("tracker-unavailable",

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -178,7 +179,40 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Empty(_github.Asked);
     }
 
+    [Fact]
+    public async Task TrackerIssues_YouTrackTracker_AsksYouTrackWithKeyOfItsServer()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.Tracker(basePath, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        TrackerKey("https://acme.youtrack.cloud/", "perm:ключ");
+        _youTrack.Answer = new TrackerIssues([new TrackerIssue("YouTrack ABC-12", 12, "Оплата падает", "https://acme.youtrack.cloud/issue/ABC-12")]);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC")], _youTrack.Read);
+        Assert.Equal("YouTrack ABC-12", Assert.Single(issues.Issues).Name);
+        Assert.Empty(_github.Asked);
+    }
+
+    [Fact]
+    public async Task TrackerIssues_YouTrackWithoutKey_IsNoKey()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.Tracker(basePath, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        TrackerKey("https://other.youtrack.cloud", "perm:ключ");
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(TrackerIssues.NoKey, issues.Problem);
+        Assert.Empty(_youTrack.Read);
+    }
+
     private readonly FakeGitHubIssues _github = new();
+    private readonly FakeYouTrack _youTrack = new();
+
+    /// <summary>Ключ сервера — в trackers.json рядом с bases.json панели теста.</summary>
+    private void TrackerKey(string server, string key) =>
+        new TrackerServersStore(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"))).Save(server, "boris.k", key);
 
     private HttpClient TrackerClient(string basePath) =>
         _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -192,6 +226,8 @@ public sealed class BacklogEndpointTests : IDisposable
             {
                 services.RemoveAll<IGitHubIssues>();
                 services.AddSingleton<IGitHubIssues>(_github);
+                services.RemoveAll<IYouTrack>();
+                services.AddSingleton<IYouTrack>(_youTrack);
             });
         })).CreateClient();
 

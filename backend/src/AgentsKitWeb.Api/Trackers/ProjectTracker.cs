@@ -1,0 +1,70 @@
+using System.Text.RegularExpressions;
+using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Workspaces;
+
+namespace AgentsKitWeb.Api.Trackers;
+
+/// <summary>
+/// Трекер проекта, как его называет описание трекера базы: GitHub панель читает программой gh оператора (B-277),
+/// YouTrack — своим клиентом с ключом из «Настроек» (B-288). Другие трекеры панель не читает.
+/// </summary>
+public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTrack, TrackerServersStore servers)
+{
+    /// <summary>Незакрытые задачи трекера базы, назначенные на оператора; не прочитали — Problem.</summary>
+    public async Task<TrackerIssues> AssignedAsync(BaseLayout layout, CancellationToken cancellationToken) =>
+        Tracker.Read(layout) switch
+        {
+            null => new TrackerIssues([], TrackerIssues.NoTracker),
+            { GitHubRepo: { } repo } => await github.AssignedAsync(repo, cancellationToken),
+            { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
+                servers.KeyOf(server) is { } key
+                    ? await youTrack.AssignedAsync(server, key, project, cancellationToken)
+                    : new TrackerIssues([], TrackerIssues.NoKey),
+            var other => new TrackerIssues([], other.Kind),
+        };
+
+    /// <summary>Трекер, в который запись бэклога переносится: GitHub или YouTrack; иначе null.</summary>
+    public static TrackerInfo? Movable(BaseLayout layout) =>
+        Tracker.Read(layout) is { Kind: TrackerInfo.GitHub or TrackerInfo.YouTrack } tracker ? tracker : null;
+
+    /// <summary>Новая задача трекера на оператора — перенос записи бэклога (B-286, B-288).</summary>
+    public async Task<CreatedIssue> CreateAsync(TrackerInfo tracker, string title, string body) =>
+        tracker switch
+        {
+            { GitHubRepo: { } repo } => await github.CreateAsync(repo, title, body),
+            { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
+                servers.KeyOf(server) is { } key
+                    ? await youTrack.CreateAsync(server, key, project, title, body)
+                    : new CreatedIssue(null, TrackerIssues.NoKey),
+            _ => new CreatedIssue(null, tracker.Kind),
+        };
+
+    /// <summary>
+    /// Имя задачи трекера, как его пишет кит: «GitHub #37», «YouTrack ABC-12». Регистр и пробел перед «#» ничего
+    /// не значат, у YouTrack буквы номера — прописными (backlog-record.md кита, «Номер»). Не имя задачи — null.
+    /// </summary>
+    public static string? IssueName(string text)
+    {
+        var match = IssueNamePattern().Match(text.Trim());
+        return match.Success ? Canonical(match) : null;
+    }
+
+    /// <summary>Имя задачи трекера, которым начат заголовок задачи в строке копии: «YouTrack ABC-12 Заголовок».</summary>
+    public static string? IssueNameAtStart(string task)
+    {
+        var match = IssueTitlePattern().Match(task);
+        return match.Success ? Canonical(match) : null;
+    }
+
+    private static string? Canonical(Match match) =>
+        match.Groups["github"].Success && int.TryParse(match.Groups["github"].Value, out var number) && number > 0
+            ? $"GitHub #{number}"
+            : match.Groups["youtrack"].Success ? $"YouTrack {match.Groups["youtrack"].Value.ToUpperInvariant()}"
+            : null;
+
+    [GeneratedRegex(@"^(?:github\s*#(?<github>\d{1,9})|youtrack\s+(?<youtrack>[A-Za-z][A-Za-z0-9_]*-\d{1,9}))$", RegexOptions.IgnoreCase)]
+    private static partial Regex IssueNamePattern();
+
+    [GeneratedRegex(@"^\s*(?:github\s*#(?<github>\d{1,9})|youtrack\s+(?<youtrack>[A-Za-z][A-Za-z0-9_]*-\d{1,9}))(?:\s|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex IssueTitlePattern();
+}
