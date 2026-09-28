@@ -9,8 +9,8 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Reports;
 
 /// <summary>
-/// Почему отчёт о флоу не строится. Kind: kit — кит не найден или в его справке нет требований; health — во флоу ошибки
-/// сверки, раздел ведёт в «Проблемы баз»; flow — у проекта нет сценариев.
+/// Почему отчёт о флоу не строится. Kind: kit — кит не найден или в его справке нет требований; check — первая сверка баз
+/// после старта панели ещё идёт; health — во флоу ошибки сверки, раздел ведёт в «Проблемы баз»; flow — у проекта нет сценариев.
 /// </summary>
 public sealed record ReportBlock(string Kind, string Reason);
 
@@ -36,10 +36,16 @@ public sealed class FlowReports(
         requirements = FlowRequirements.Read(bases.Kit(), out var error);
         if (requirements is null)
             return new ReportBlock("kit", error);
-        return FlowErrors(health.Snapshot, basePath) > 0
-            ? new ReportBlock("health", "Во флоу проекта есть ошибки сверки. Отчёт строится, когда они исправлены.")
-            : null;
+        // Пока первая сверка не прошла, ошибок во флоу не видно: разбор её ждёт, а не строится вслепую (ревью B-270).
+        if (health.Snapshot.Pending)
+            return CheckingBlock;
+        if (FlowErrors(health.Snapshot, basePath) is var errors and > 0)
+            return new ReportBlock("health", $"Во флоу проекта есть ошибки сверки: {errors}. Отчёт строится, когда они исправлены.");
+        return FlowMaterial.HasFlow(basePath) ? null : NoFlow;
     }
+
+    /// <summary>Первая сверка баз после старта панели ещё идёт.</summary>
+    public bool Checking => health.Snapshot.Pending;
 
     /// <summary>
     /// Ошибки сверки кита во флоу базы: находки уровня error в файлах flow/ личного репозитория. Ошибки вне флоу разбору не
@@ -73,6 +79,9 @@ public sealed class FlowReports(
 
     public static readonly ReportBlock NoFlow =
         new("flow", "У проекта нет сценариев. Отчёт строится по флоу, а флоу пишут в разделе «Флоу».");
+
+    private static readonly ReportBlock CheckingBlock =
+        new("check", "Идёт сверка баз после запуска панели. Отчёт можно построить, когда она закончится.");
 
     private async Task<FlowReportEvent> RunAsync(
         string basePath,

@@ -30,13 +30,13 @@ public static class ReportEndpoints
                 .Select(basePath =>
                 {
                     var entry = store.Of(basePath, ReportsStore.FlowKind);
-                    // Ошибки сверки во флоу прячут и прошлый отчёт: он не показывается под сообщением — ответ оператора на B-270.
+                    // Отказ прячет и прошлый отчёт: под сообщением его нет — ответ оператора на B-270, кадры отказов макета.
                     var blocked = reports.Blocked(basePath);
                     return new FlowReportItem(
                         basePath,
                         ProjectName.Of(basePath),
                         entry.Schedule,
-                        blocked?.Kind == "health" || entry.Report is not { } report ? null : View(report),
+                        blocked is not null || entry.Report is not { } report ? null : View(report),
                         blocked);
                 })
                 .ToList());

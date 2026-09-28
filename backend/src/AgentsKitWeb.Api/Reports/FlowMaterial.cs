@@ -12,6 +12,10 @@ namespace AgentsKitWeb.Api.Reports;
 /// </summary>
 public sealed record FlowMaterial(string Personal, string Flow, string Agents, string Fingerprint)
 {
+    /// <summary>У проекта есть сценарии — есть что разбирать.</summary>
+    public static bool HasFlow(string basePath) =>
+        File.Exists(Path.Combine(BaseLayout.Read(basePath)?.Personal ?? BaseLayout.PersonalOf(basePath), FlowFolder.ListFile));
+
     /// <summary>Флоу и субагенты базы; null — у проекта нет сценариев, разбирать нечего.</summary>
     public static async Task<FlowMaterial?> ReadAsync(string basePath, CancellationToken cancellationToken)
     {

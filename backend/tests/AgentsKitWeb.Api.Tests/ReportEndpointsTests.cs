@@ -169,6 +169,39 @@ public sealed class ReportEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task AnyBlock_HidesPreviousReport()
+    {
+        _agent.Lines = [Result(Answer)];
+        var client = await Client();
+        await Run(client);
+
+        // Кит сменился на тот, где требований нет: прошлый отчёт под сообщением не показывается, как на макете.
+        WriteRules("# Флоу\n\n## Этап\n\nКлючи.\n");
+        var item = Assert.Single(await List(client));
+
+        Assert.Equal("kit", item.Blocked!.Kind);
+        Assert.Null(item.Report);
+    }
+
+    [Fact]
+    public async Task FirstCheckAfterStart_HoldsReportUntilItEnds()
+    {
+        var hold = new TaskCompletionSource();
+        var checks = new FakeChecks { Hold = hold };
+        var client = await Client(checks);
+
+        var waiting = Assert.Single(await List(client)).Blocked!;
+        Assert.Equal("check", waiting.Kind);
+        Assert.Contains("Идёт сверка баз", waiting.Reason);
+        using var run = await client.PostAsJsonAsync("/api/reports/flow/run", new FlowReportRunRequest(_base));
+        Assert.Equal(HttpStatusCode.Conflict, run.StatusCode);
+        Assert.Null(_agent.StartInfo);
+
+        hold.SetResult();
+        await Checked(client, item => item.Blocked is null);
+    }
+
+    [Fact]
     public async Task FlowErrorsOfCheck_BlockReportAndHideIt_ErrorsElsewhereDoNot()
     {
         _agent.Lines = [Result(Answer)];
@@ -185,6 +218,7 @@ public sealed class ReportEndpointsTests : IDisposable
         checks.Findings = [new KitFinding("FAIL", "local/me/flow/scenarios.md", "пункт сценария — не ссылка")];
         var blocked = await Checked(client, item => item.Blocked?.Kind == "health");
         Assert.Null(blocked.Report);
+        Assert.Contains("ошибки сверки: 1", blocked.Blocked!.Reason);
         using var run = await client.PostAsJsonAsync("/api/reports/flow/run", new FlowReportRunRequest(_base));
         Assert.Equal(HttpStatusCode.Conflict, run.StatusCode);
         Assert.Equal("health", (await run.Content.ReadFromJsonAsync<ReportBlock>(Json))!.Kind);
@@ -201,6 +235,8 @@ public sealed class ReportEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, run.StatusCode);
         Assert.Equal("flow", (await run.Content.ReadFromJsonAsync<ReportBlock>(Json))!.Kind);
         Assert.Null(_agent.StartInfo);
+        // Раздел видит этот отказ сразу, а не только после нажатия.
+        Assert.Equal("flow", Assert.Single(await List(client)).Blocked!.Kind);
     }
 
     [Fact]
@@ -288,28 +324,38 @@ public sealed class ReportEndpointsTests : IDisposable
         }
     }
 
-    private async Task<HttpClient> Client(IKitChecks? checks = null)
+    /// <summary>
+    /// Панель со сверкой-подделкой: разбор ждёт первой сверки после старта, и клиент отдаётся, когда она прошла, — кроме
+    /// сверки, которую тест держит сам.
+    /// </summary>
+    private async Task<HttpClient> Client(FakeChecks? checks = null)
     {
+        checks ??= new FakeChecks();
+        // Путь к киту лежит в настройках с самого старта, как у поставленной панели: первая сверка идёт уже с китом.
+        var settings = TestBases.File(_root, _base);
+        File.WriteAllText(settings, JsonSerializer.Serialize(new { bases = new[] { _base }, kit = _kit }));
         var client = _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, _base))]);
+                config.AddInMemoryCollection([new("BasesFile", settings)]);
             });
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IAgentProcess>();
                 services.AddSingleton<IAgentProcess>(_agent);
-                if (checks is not null)
-                {
-                    services.RemoveAll<IKitChecks>();
-                    services.AddSingleton(checks);
-                }
+                services.RemoveAll<IKitChecks>();
+                services.AddSingleton<IKitChecks>(checks);
             });
         })).CreateClient();
 
-        (await client.PutAsJsonAsync("/api/kit", new SetKitRequest(_kit))).EnsureSuccessStatusCode();
+        if (checks.Hold is null)
+        {
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            while ((await client.GetFromJsonAsync<JsonElement>("/api/health", deadline.Token)).GetProperty("pending").GetBoolean())
+                await Task.Delay(50, deadline.Token);
+        }
         return client;
     }
 
@@ -321,11 +367,16 @@ public sealed class ReportEndpointsTests : IDisposable
 
         public int Calls => Volatile.Read(ref _calls);
 
-        public Task<(KitCheckResult? Result, string? Error)> RunAsync(
+        /// <summary>Задана — сверка не кончается, пока тест её не отпустит.</summary>
+        public TaskCompletionSource? Hold { get; init; }
+
+        public async Task<(KitCheckResult? Result, string? Error)> RunAsync(
             string kit, string basePath, IReadOnlyList<string> copies, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _calls);
-            return Task.FromResult<(KitCheckResult?, string?)>((new KitCheckResult(Findings, []), null));
+            if (Hold is not null)
+                await Hold.Task.WaitAsync(cancellationToken);
+            return (new KitCheckResult(Findings, []), null);
         }
     }
 

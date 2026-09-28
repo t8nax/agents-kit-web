@@ -23,6 +23,9 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
 {
     public const string Heading = "## Требования к флоу";
 
+    /// <summary>Путь справки в словах оператору — через «/», как его пишет кит.</summary>
+    private const string Shown = "reference/flow-stages.md";
+
     // Строка пункта: «- **П1** · высокий · **Каждый исход куда-то ведёт** — формулировка». В названии кит не держит ни тире, ни «·».
     [GeneratedRegex(@"^- \*\*(?<code>[^*]+)\*\* · (?<priority>высокий|средний|низкий) · \*\*(?<title>[^*]+)\*\* — (?<text>.+)$")]
     private static partial Regex ItemLine();
@@ -46,13 +49,13 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            error = $"Панель не прочитала справку кита {FlowRules.RulesFile}. Путь к киту задаётся в разделе «Настройки».";
+            error = $"Панель не прочитала справку кита {Shown}. Путь к киту задаётся в разделе «Настройки».";
             return null;
         }
 
         if (FlowRules.Section(lines, Heading) is not { } section)
         {
-            error = $"В справке кита {FlowRules.RulesFile} нет раздела «Требования к флоу». Отчёт строится по киту, в котором этот раздел есть.";
+            error = $"В справке кита {Shown} нет раздела «Требования к флоу». Отчёт строится по киту, в котором этот раздел есть.";
             return null;
         }
 

@@ -60,6 +60,8 @@ public sealed class FlowRequirementsTests : IDisposable
 
         Assert.Null(FlowRequirements.Read(_kit, out var error));
         Assert.Contains("нет раздела «Требования к флоу»", error);
+        // Путь в словах оператору — через «/», как его пишет кит.
+        Assert.Contains("reference/flow-stages.md", error);
     }
 
     [Fact]
