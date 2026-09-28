@@ -1,0 +1,115 @@
+/* Карточка «Серверы трекеров» (B-288, макет круга 4): строки как у «Баз знаний», поля адреса и ключа рядом */
+
+.trk-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trk-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.trk-field label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.trk-field input {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.trk-field input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.trk-field input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.trk-field input[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+/* Адрес сервера стоит в одну строку и один сжимается: не влез — обрезается многоточием, полный — подсказкой.
+   Без min-width: 0 строка растягивалась по адресу и выталкивала кнопки за край карточки (снимок оператора, круг 3). */
+.trk-url {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.trk-key-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  white-space: nowrap;
+}
+
+.trk-key-meta svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trk-key-meta .mono {
+  color: var(--text-secondary);
+}
+
+.bases-list li .bases-btn {
+  flex: none;
+}
+
+/* Замена ключа раскрывается под строкой сервера; адрес и логин остаются первой строкой */
+.bases-list li.trk-editing {
+  flex-wrap: wrap;
+  background: var(--bg-surface-hover);
+}
+
+.trk-rekey {
+  flex: 1 1 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 2px 0 4px;
+}
+
+.trk-rekey .settings-note {
+  margin: 0;
+}
+
+.trk-nowrap {
+  white-space: nowrap;
+}
+
+/* Адрес в тексте окна удаления — тоже одной строкой: длинный обрезается по ширине окна, полный — подсказкой */
+.dw-url {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
