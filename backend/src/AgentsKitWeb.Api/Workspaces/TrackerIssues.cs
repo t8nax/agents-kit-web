@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -52,7 +53,7 @@ public interface IGitHubIssues
 /// оператора на B-277. Заводит панель только задачу из записи бэклога (B-286); назначает взятую задачу и меняет
 /// её состояние сессия, которая её берёт.
 /// </summary>
-public sealed class GhIssues : IGitHubIssues
+public sealed partial class GhIssues : IGitHubIssues
 {
     public const string Gh = "gh";
 
@@ -197,15 +198,15 @@ public sealed class GhIssues : IGitHubIssues
     public static CreatedIssue ParseCreated(string output, string title)
     {
         var url = output.ReplaceLineEndings("\n").Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
-        var match = url is null ? null : IssueUrl.Match(url);
+        var match = url is null ? null : IssueUrl().Match(url);
         if (match is null || !match.Success)
             return new CreatedIssue(null, CreatedIssue.CreatedUnknown);
         var number = int.Parse(match.Groups[1].Value);
         return new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, url!));
     }
 
-    private static readonly System.Text.RegularExpressions.Regex IssueUrl =
-        new(@"^https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)$");
+    [GeneratedRegex(@"^https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)$")]
+    private static partial Regex IssueUrl();
 
     /// <summary>
     /// Отказ gh: без входа она выходит с кодом 4 и зовёт «gh auth login», с негодным ключом — 401 Bad credentials;

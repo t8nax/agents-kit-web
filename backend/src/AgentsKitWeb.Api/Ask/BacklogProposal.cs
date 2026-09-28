@@ -42,7 +42,7 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
 
     /// <summary>В предложении есть перенос записи в трекер: «Сохранить» заводит задачу до записи файла.</summary>
     [JsonIgnore]
-    public bool Tracks =>Changes.Any(c => c.Kind == BacklogChange.Track);
+    public bool Tracks => Changes.Any(c => c.Kind == BacklogChange.Track);
 
     /// <summary>Ответ агента без блоков предложения и сами блоки по порядку.</summary>
     public static (string Text, IReadOnlyList<string> Blocks) Split(string answer)
