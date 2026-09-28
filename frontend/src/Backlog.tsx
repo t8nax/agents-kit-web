@@ -13,6 +13,7 @@ import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
+import TrackerMoveModal, { SendIcon } from './TrackerMoveModal'
 import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
@@ -83,6 +84,8 @@ export default function Backlog({
   const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry } | null>(null)
   // Запись, которую берут в работу
   const [starting, setStarting] = useState<Started | null>(null)
+  // Запись, которую переносят в трекер проекта
+  const [moving, setMoving] = useState<Started | null>(null)
   // Копии всех баз: по ним видно, есть ли у проекта записи куда запускать. null — ещё не прочитаны.
   const [copies, setCopies] = useState<WorkspaceRow[] | null>(null)
   // Записи, добавленные из панели, ключом «база|номер»: отмечены новыми до следующего «Обновить».
@@ -356,6 +359,20 @@ export default function Backlog({
                           Изменить
                         </button>
                       )}
+                      {/* Переносят только в трекер GitHub с адресом репозитория — B-286, между «Изменить» и «Взять задачу» */}
+                      {entry.number && backlog.tracker?.kind === 'github' && (
+                        <button
+                          type="button"
+                          className="entry-start"
+                          onClick={(e) => {
+                            opener.current = e.currentTarget
+                            setMoving({ base: backlog.base, entry: { ...entry, number: entry.number! } })
+                          }}
+                        >
+                          <SendIcon />
+                          В трекер
+                        </button>
+                      )}
                       {entry.number && (
                         <button
                           type="button"
@@ -427,6 +444,18 @@ export default function Backlog({
             loadBacklogs()
             loadCopies()
           }}
+        />
+      )}
+      {moving && (
+        <TrackerMoveModal
+          base={moving.base}
+          entry={moving.entry}
+          onClose={() => {
+            setMoving(null)
+            focusOpener()
+          }}
+          // Задача заведена — бэклог перечитывается: запись из него ушла или, если вырезать не вышло, осталась
+          onMoved={() => loadBacklogs()}
         />
       )}
       {writing && (

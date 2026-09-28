@@ -73,6 +73,15 @@ function stubFetch(...responses: BaseBacklog[][]) {
       expect(reply, `задачи трекера ${base} не ожидались`).toBeDefined()
       return reply!()
     }
+    // Перенос записи в трекер: окно собирает задачу у API и заводит её — B-286
+    if (url.startsWith('/api/backlog/tracker/draft?')) {
+      const number = new URLSearchParams(url.slice(url.indexOf('?'))).get('number')!
+      return Promise.resolve(Response.json({ number, title: 'Заголовок', body: 'Описание', files: [], original: `## ${number} Заголовок` }))
+    }
+    if (url === '/api/backlog/tracker/move') {
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(Response.json({ issue: { name: 'GitHub #58', number: 58, title: 'Заголовок', url: 'https://github.com/acme/orders/issues/58' } }))
+    }
     if (url === '/api/backlog/artifact/open') {
       posts.push(JSON.parse(String(init?.body)))
       return Promise.resolve(artifactReply())
@@ -1077,6 +1086,60 @@ test('«Взять задачу» у задачи трекера запуска�
   expect(start).toHaveFocus()
   // Бэклог после запуска перечитывается, а трекер — только при открытии раздела и по «Обновить»
   await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+// ——— Перенос записи в трекер (B-286) ———
+
+test('«В трекер» — у записей с номером в проекте с трекером GitHub, между «Изменить» и «Взять задачу»', async () => {
+  const fetchMock = stubFetch([
+    { ...backlogs[0], entries: [...backlogs[0].entries, { number: null, title: 'Дописано руками', text: null }], tracker: github },
+    { ...backlogs[1], tracker: { kind: 'no-address' } },
+  ])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  expect(within(row as HTMLElement).getAllByRole('button').map((b) => b.textContent)).toEqual([
+    expect.stringContaining('B-1'),
+    'Изменить',
+    'В трекер',
+    'Взять задачу',
+  ])
+  // У записи без номера кнопки нет: перенос адресует запись номером
+  const bare = screen.getByRole('button', { name: /Дописано руками/ }).closest('.entry-row')!
+  expect(within(bare as HTMLElement).queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+  // Трекер без адреса репозитория — переносить некуда
+  const nota = within(screen.getByRole('region', { name: 'Nota' }))
+  expect(nota.queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+})
+
+test('у проекта без трекера кнопки «В трекер» нет', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })
+
+  expect(screen.queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+})
+
+test('перенос из строки записи заводит задачу и перечитывает бэклог', async () => {
+  const fetchMock = stubFetch(withTracker(github), [{ ...backlogs[0], entries: [backlogs[0].entries[1]], tracker: github }, backlogs[1]])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
+
+  const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
+  fireEvent.click(await dialog.findByRole('button', { name: 'Завести задачу' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
+  expect(fetchMock.posts).toContainEqual({ base: backlogs[0].base, number: 'B-1', original: '## B-1 Заголовок' })
+  await waitFor(() => expect(screen.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument())
+  expect(fetchMock.backlogReads()).toBe(2)
+  // Задачи трекера перечитываются только открытием раздела и «Обновить» — как после записи Чудо-Юдо (B-277)
   expect(fetchMock.trackerReads()).toBe(1)
 })
 
