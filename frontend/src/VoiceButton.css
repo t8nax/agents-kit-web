@@ -123,3 +123,13 @@
 .voice-field > .mic:not(.is-click):not(.is-hold) {
   background: var(--bg-surface);
 }
+
+/* У поля, которое тянут за угол (просьба новой сессии), кнопка отступает от ручки растягивания браузера,
+   а текст — от кнопки: иначе поле тянулось бы только за узкую полоску у самого края (ревью B-291). */
+.voice-field > .ns-prompt {
+  padding-right: 72px;
+}
+
+.voice-field > .ns-prompt ~ .mic {
+  right: 20px;
+}
