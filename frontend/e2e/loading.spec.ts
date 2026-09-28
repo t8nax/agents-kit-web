@@ -51,6 +51,9 @@ async function settled(page: Page) {
 }
 
 const skeleton = (page: Page) => page.getByRole('status', { name: 'Загрузка рабочих копий' })
+// Рамка заготовки встаёт первой же отрисовкой страницы, и ждать её — ждать саму страницу: весь срок
+// теста, а не пять секунд expect. Нагруженная машина GitHub не успевала отрисовать страницу за пять (B-280).
+const skeletonDrawn = (page: Page) => skeleton(page).waitFor()
 const firstBar = (page: Page, property: 'animationName' | 'backgroundColor') =>
   page.locator('.sk').first().evaluate((bar, name) => getComputedStyle(bar)[name], property)
 const nextFrames = (page: Page) =>
@@ -161,7 +164,7 @@ test('при «уменьшить движение» полосы стоят б�
   const release = await holdWorkspaces(page)
   await page.goto('/')
 
-  await expect(skeleton(page)).toBeVisible()
+  await skeletonDrawn(page)
   await expect(page.locator('.sk').first()).toBeVisible()
   expect(await firstBar(page, 'animationName')).toBe('none')
 
@@ -177,7 +180,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await holdWorkspaces(page)
     await page.goto('/')
 
-    await expect(skeleton(page)).toBeVisible()
+    await skeletonDrawn(page)
     await expect(page.locator('.sk').first()).toBeVisible()
     const bar = await firstBar(page, 'backgroundColor')
     const background = await page.evaluate(() => getComputedStyle(document.body).backgroundColor)

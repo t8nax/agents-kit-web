@@ -49,6 +49,20 @@ public sealed class ReleaseNotesTests : IDisposable
     }
 
     [Fact]
+    public void Notes_CountFromThePreviousReleaseOfEitherNumberForm()
+    {
+        // Номер из четырёх чисел сменил номер из трёх: прошлый выпуск — наибольший из обеих записей.
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        Task(repository, "feat/bridge", "мост");
+        TestGit.Run(repository, "tag", "v0.25.0-dev");
+        Task(repository, "feat/four", "номер из четырёх чисел");
+        TestGit.Run(repository, "tag", "v0.25.1.0-dev");
+        Task(repository, "feat/next", "следующая задача");
+
+        Assert.Equal(["- следующая задача"], Notes(repository, "dev"));
+    }
+
+    [Fact]
     public void Notes_NameTheTasksInsideABatchMerge()
     {
         // В master работа приезжает пачкой «Merge dev into master», а задачи лежат внутри пачки.
