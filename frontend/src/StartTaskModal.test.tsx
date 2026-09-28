@@ -1,7 +1,16 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
-import StartTaskModal from './StartTaskModal'
+import { readStartWords } from './startWords'
+import StartTaskModal, { WORDS_LIMIT } from './StartTaskModal'
+
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+const spoken = vi.hoisted(() => ({ text: 'и проверь тесты.' }))
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText(spoken.text)} />
+  ),
+}))
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -110,6 +119,32 @@ test('выбранная копия уходит в API с базой и ном�
 
   await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('noble-keen-walrus'))
   expect(posts).toEqual([{ base, copy: 'D:\\Projects\\noble-keen-walrus', number: 'B-8', flow: 'полный' }])
+})
+
+test('микрофон стоит в углу поля начальных слов: сказанное дописывается и помнится черновиком', async () => {
+  stub(Response.json({ session: '7339dced' }))
+  renderModal()
+  const field = screen.getByLabelText('Начальные слова')
+  fireEvent.change(field, { target: { value: 'Начни с разведки' } })
+
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('voice-field')
+  expect(mic.previousElementSibling).toBe(field)
+  fireEvent.click(mic)
+
+  expect(field).toHaveValue('Начни с разведки и проверь тесты.')
+  expect(readStartWords(base, entry.number)).toBe('Начни с разведки и проверь тесты.')
+})
+
+test('надиктованное не переходит предел начальных слов', async () => {
+  stub(Response.json({ session: '7339dced' }))
+  renderModal()
+  const field = screen.getByLabelText('Начальные слова')
+  fireEvent.change(field, { target: { value: 'а'.repeat(WORDS_LIMIT - 5) } })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Голосовой ввод' }))
+
+  expect((field as HTMLTextAreaElement).value).toHaveLength(WORDS_LIMIT)
 })
 
 test('копию успели занять: окно называет идущую в ней задачу и не закрывается', async () => {

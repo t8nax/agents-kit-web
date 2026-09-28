@@ -4,7 +4,10 @@ import type { BacklogEntry } from './Backlog'
 import { copyName, freeCopies } from './copies'
 import { ChoiceMark } from './ChoiceMark'
 import type { BaseFlow, NamedFlow } from './Flow'
+import { AttachError } from './Attachments'
 import { readStartWords, saveStartWords } from './startWords'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import './Modal.css'
 import './ReplyModal.css'
 import './StartTaskModal.css'
@@ -86,6 +89,13 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
   const [flow, setFlow] = useState<string | null>(null)
   const [words, setWords] = useState(() => readStartWords(base, entry.number))
   const [busy, setBusy] = useState(false)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+
+  // Набранное и надиктованное помнятся одинаково: черновик переживает закрытие окна (B-197).
+  const changeWords = (next: string) => {
+    setWords(next)
+    saveStartWords(base, entry.number, next)
+  }
   const [failure, setFailure] = useState<string | null>(null)
 
   useEffect(() => {
@@ -302,24 +312,31 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
             <label className="st-label" htmlFor="st-words">
               Начальные слова
             </label>
-            <textarea
-              id="st-words"
-              className="custom-textarea st-words"
-              value={words}
-              disabled={busy}
-              maxLength={WORDS_LIMIT}
-              placeholder="На что обратить внимание, с чего начать, что уже решено"
-              onChange={(e) => {
-                setWords(e.target.value)
-                saveStartWords(base, entry.number, e.target.value)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault()
-                  e.currentTarget.form?.requestSubmit()
-                }
-              }}
-            />
+            {/* Микрофон — в правом нижнем углу поля (макет B-291) */}
+            <div className="voice-field">
+              <textarea
+                id="st-words"
+                className="custom-textarea st-words"
+                value={words}
+                disabled={busy}
+                maxLength={WORDS_LIMIT}
+                placeholder="На что обратить внимание, с чего начать, что уже решено"
+                onChange={(e) => changeWords(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault()
+                    e.currentTarget.form?.requestSubmit()
+                  }
+                }}
+              />
+              <VoiceButton
+                disabled={busy}
+                // Надиктованное держит тот же предел, что набранное: длиннее API слова не примет.
+                onText={(spoken) => changeWords(appendSpoken(words, spoken).slice(0, WORDS_LIMIT))}
+                onError={setVoiceError}
+              />
+            </div>
+            <AttachError text={voiceError} />
           </div>
         </div>
 

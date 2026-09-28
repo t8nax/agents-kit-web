@@ -4,6 +4,13 @@ import PerformerModal, { type DraftEvent, type DraftFields } from './PerformerMo
 import { controlledStream, runningRequest, stubPanel, type PanelStub } from './agentPanelTesting'
 import type { BasePerformers, Performer } from './Performers'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('и пишет отчёт.')} />
+  ),
+}))
+
 afterEach(() => vi.unstubAllGlobals())
 
 const reviewer: Performer = {
@@ -83,6 +90,22 @@ test('у нового имя, описание и задание видны ср
   expect(screen.queryByText('Например')).not.toBeInTheDocument()
   // Имя без задания — ещё не исполнитель.
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('микрофон стоит в углу поля просьбы: сказанное дописывается, пока Чудо-Юдо пишет — погашен', async () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open()
+  const field = screen.getByLabelText(/Просьба к Чудо-Юдо/)
+  fireEvent.change(field, { target: { value: 'Гоняет e2e' } })
+
+  const mic = within(field.parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })
+  expect(field.parentElement).toHaveClass('voice-field')
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Гоняет e2e и пишет отчёт.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
+  await screen.findByRole('status')
+  expect(within(screen.getByLabelText(/Просьба к Чудо-Юдо/).parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled()
 })
 
 test('нового можно завести целиком руками, без просьбы к Чудо-Юдо', async () => {
