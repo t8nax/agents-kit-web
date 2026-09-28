@@ -92,7 +92,7 @@ pwsh -NoProfile -File scripts/sandbox.ps1 -Pieces house -TaskPiece <путь к 
 ```
 
 Куски: `house` — здоровый проект, `orders` — свои буквы номеров, `tracker` — проекты с трекером, `no-product`, `broken-json`, `old-format`, `stages-only`,
-`no-flow`, `quirks` — сломанные базы, `broken-kit` — кит без скриптов, `load` — полсотни копий.
+`no-flow`, `quirks` — сломанные базы, `new-format` — база нового формата кита, `broken-kit` — кит без скриптов, `load` — полсотни копий.
 
 Какие куски бывают, как дописать свой, что в них сломано заранее и как переключать режимы заглушек —
 `scripts/sandbox.md`.

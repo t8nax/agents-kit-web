@@ -564,6 +564,7 @@ $pieceList = [ordered]@{
     'no-product'  = 'база без описания проекта: название берётся из имени папки'
     'broken-json' = 'база с битым agents-kit.json: базу не прочитать'
     'old-format'  = 'база прежнего формата кита: панель её не читает и называет причину'
+    'new-format'  = 'база нового формата кита: панель её показывает с предупреждением, а флоу, исполнителей и бэклог не правит'
     'stages-only' = 'база с этапами без сценариев: пустое состояние вкладки «Сценарии»'
     'no-flow'     = 'база без этапов и сценариев: пустые состояния раздела «Флоу»'
     'quirks'      = 'кривые копии и памяти: кириллица, не git, «..», пропавшая копия, CRLF, две памяти, файл мёртвой сессии'
@@ -778,6 +779,28 @@ if (Test-Piece 'old-format') {
     $links.Add([pscustomobject]@{ path = $oldCopy; status = 'Outdated'; base = $oldBase })
     $bases.Add($oldBase)
     $findings.Add([pscustomobject]@{ base = $oldBase; findings = @() })
+}
+
+# База нового формата кита — 7, раскладка та же, что у 6, как бывает, когда перевод не трогает читаемое панелью (B-281):
+# таблица, «Флоу», «Исполнители», «Бэклог» и «Проблемы баз» показывают её с предупреждением, правка флоу, исполнителей
+# и бэклога закрыта, а ответить агенту и взять задачу в свободную копию можно.
+if (Test-Piece 'new-format') {
+    $newCopy = Join-Path $copiesDir 'new-format'
+    New-Repo $newCopy
+    Write-Utf8 (Join-Path $newCopy 'README.md') "# Проект на базе нового формата`n"
+    Add-Commit $newCopy 'Первый коммит'
+    $newTask = Join-Path $copiesDir 'new-format-task'
+    git -C $newCopy worktree add -b feat/new-format $newTask --quiet
+    $newBase = Join-Path $basesDir 'new-format'
+    New-Base $newBase 'Новый формат' @($newCopy) -Format 7
+    New-Memory (Join-Path (Get-MemoryDir $newBase) 'new-format-task.md') $newTask 'feat/new-format'
+    Add-Commit (Get-Personal $newBase) 'Память задачи'
+    $bases.Add($newBase)
+    foreach ($copy in @($newCopy, $newTask)) {
+        $links.Add([pscustomobject]@{ path = $copy; status = 'Linked'; base = $newBase })
+    }
+    $findings.Add([pscustomobject]@{ base = $newBase; findings = @(
+        [pscustomobject]@{ severity = 'WARN'; file = 'product.md'; message = 'находка сверки кита — видна рядом с предупреждением' }) })
 }
 
 # База с этапами без сценариев и база без этапов и сценариев: на них видны пустые состояния
