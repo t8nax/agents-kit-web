@@ -6,6 +6,7 @@ using AgentsKitWeb.Api.Panel;
 using AgentsKitWeb.Api.Performers;
 using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Usage;
+using AgentsKitWeb.Api.Voice;
 using AgentsKitWeb.Api.Workspaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -55,6 +56,20 @@ builder.Services.AddHttpClient(GitHubReleases.Client, client =>
     client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 });
 builder.Services.AddSingleton<IPanelReleases, GitHubReleases>();
+// Сотни мегабайт идут минутами: срок клиента стережёт только заголовки, порции — свой срок в VoiceModel.
+builder.Services.AddHttpClient(VoiceModel.Client, client =>
+{
+    client.Timeout = Timeout.InfiniteTimeSpan;
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
+});
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new VoiceModel(
+        config["VoiceDir"] ?? VoiceModel.DefaultDirectory,
+        config["VoiceModelUrl"] is { } url ? new Uri(url) : VoiceModel.DefaultSource,
+        services.GetRequiredService<IHttpClientFactory>());
+});
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
@@ -118,6 +133,7 @@ app.MapRemoveWorkspaceEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 app.MapUsageEndpoints();
+app.MapVoiceEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.
 app.MapFallback("/api/{**path}", () => Results.NotFound());
