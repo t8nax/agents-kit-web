@@ -182,6 +182,21 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Исполнителей базы нового формата панель не пишет (B-281).
+    public async Task Performers_RefusesBaseOfNewerFormat()
+    {
+        var basePath = CreateBase("app-knowledge");
+        TestLayout.NewerFormat(basePath);
+
+        var response = await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Первое", null, null, "Тело", null));
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var rejected = (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!;
+        Assert.Equal(("newer-format", AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal), (rejected.Problem, rejected.Detail));
+        Assert.False(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+    }
+
+    [Fact]
     public async Task Performers_RefusesNameTakenByATrackedFileOfTheProject()
     {
         var copy = TestGit.Repository(Path.Combine(_root, "app"));

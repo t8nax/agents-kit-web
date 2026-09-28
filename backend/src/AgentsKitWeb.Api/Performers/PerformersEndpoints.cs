@@ -46,7 +46,7 @@ public sealed record SavePerformerRequest(
 
 public sealed record PerformerSavedResponse(string Path);
 
-/// <summary>Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed.</summary>
+/// <summary>Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed · newer-format.</summary>
 public sealed record PerformerRejectedResponse(string Problem, string? Detail = null);
 
 public static class PerformersEndpoints
@@ -71,6 +71,9 @@ public static class PerformersEndpoints
             // Пишется только в личный репозиторий базы из списка панели: путь к файлу панель собирает сама.
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
+            // Исполнителей базы нового формата панель не пишет: её правила файла могли смениться (B-281).
+            if (layout.NewerFormat)
+                return Results.Conflict(new PerformerRejectedResponse("newer-format", BaseLayout.NewerFormatRefusal));
             // Git зовётся из личного репозитория: исполнитель коммитится в его git, и путь agents/… git берёт от него.
             var root = layout.Personal;
 

@@ -185,7 +185,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         List<string> attached;
         lock (_gate)
             attached = [.. _attached];
-        var saved = await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
+        // Кит мог перевести базу на новый формат посреди разговора: писать по прежним правилам панель не станет (B-281).
+        var saved = BaseLayout.Read(pending.Request.Base)?.NewerFormat == true
+            ? new BacklogSaved(null, BaseLayout.NewerFormatRefusal)
+            : await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
         lock (_gate)
         {
             pending.Saving = false;
@@ -453,6 +456,9 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
     {
         if (BaseLayout.Read(basePath, out var unreadable) is not { } layout)
             return new BacklogWriteEvent("error", unreadable);
+        // Бэклог базы нового формата панель не правит: агент бы писал его по правилам, которые панель ему подаёт (B-281).
+        if (layout.NewerFormat)
+            return new BacklogWriteEvent("error", BaseLayout.NewerFormatRefusal);
         if (WorkspaceCollector.NewCopySource(layout.Workspaces) is null)
             return new BacklogWriteEvent("error", "Нет основной копии проекта на диске: агенту негде запустить навык записи");
         var personal = layout.Personal;

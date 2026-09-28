@@ -45,7 +45,7 @@ public sealed record SaveFlowRequest(
 public sealed record FlowSavedResponse(string Version);
 
 /// <summary>
-/// Problem: changed · not-written · not-committed · not-restored · unread · busy · проблема из FlowFolder.Validate; Flow и Stage —
+/// Problem: changed · not-written · not-committed · not-restored · unread · busy · newer-format · проблема из FlowFolder.Validate; Flow и Stage —
 /// где она, Detail — что сказали запись или git, первая строка, которую панель не сохранит, или задачи, которые держат
 /// тронутый флоу.
 /// </summary>
@@ -72,6 +72,9 @@ public static class FlowEndpoints
             // Пишется только flow/ оператора этой машины в базе из списка панели: пути к файлам панель собирает сама.
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
+            // Флоу базы нового формата панель не пишет: её правила разметки флоу могли смениться (B-281).
+            if (layout.NewerFormat)
+                return Results.Conflict(new FlowRejectedResponse("newer-format", Detail: BaseLayout.NewerFormatRefusal));
 
             var root = layout.Personal;
             var files = Files(root);

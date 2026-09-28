@@ -1010,6 +1010,38 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Бэклог базы нового формата панель не правит, пока не узнает формат (B-281).
+    public async Task Write_DoesNotSendToBaseOfNewerFormat()
+    {
+        TestLayout.NewerFormat(_base);
+        var client = Client(_base);
+
+        await Start(client, "Мысль");
+        var events = await Read(client, 2);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, events[1].Text);
+        Assert.Empty(_agent.Input);
+    }
+
+    [Fact]
+    // Кит перевёл базу посреди разговора: предложение агента «Сохранить» уже не пишет (B-281).
+    public async Task Save_BaseTurnedToNewerFormatMeanwhile_WritesNothing()
+    {
+        _agent.Answers =
+        [
+            [Result("~~~backlog\nизменить B-1\n## B-1 Новая суть\n\nТекст.\n\n### Агенту\n- где: App.tsx\n~~~")],
+        ];
+        var client = Client(_base);
+        await Start(client, "перепиши B-1");
+        var answer = (await Read(client, 2))[1];
+        var before = File.ReadAllText(BacklogPath);
+        TestLayout.NewerFormat(_base);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, (await Save(client, answer.Proposal!.Id)).Error);
+        Assert.Equal(before, File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
     public async Task Write_DoesNotStartWithoutProjectCopyOnDisk()
     {
         Directory.Delete(_copy, recursive: true);
