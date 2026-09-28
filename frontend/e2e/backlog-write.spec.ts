@@ -351,7 +351,7 @@ test('база нового формата в окне Чудо-Юдо: плаш
     route.fulfill({
       json: [
         { base: akwBase, project: 'Agents Kit Web', entries: [B1, B2], error: null, letters: 'B', formatWarning: warning },
-        { base: 'D:\Projects\nota-knowledge', project: 'Nota', entries: [], error: null, letters: 'B' },
+        { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: null, letters: 'B' },
       ],
     }),
   )
