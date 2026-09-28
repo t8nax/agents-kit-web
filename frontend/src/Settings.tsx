@@ -5,6 +5,7 @@ import PanelCard from './PanelCard'
 import { KitUpdateNotice, type KitVersion } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
+import VoiceCard from './VoiceCard'
 import './Settings.css'
 
 export type BaseEntry = {
@@ -78,6 +79,7 @@ export default function Settings() {
       <KitSettings />
       <PanelCard />
       <NotificationsCard />
+      <VoiceCard />
     </div>
   )
 }
