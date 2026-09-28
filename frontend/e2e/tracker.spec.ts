@@ -105,6 +105,54 @@ test('пока задачи трекера читаются, записи бэк
   await expect(skeleton).toHaveCount(0)
 })
 
+// ——— YouTrack (B-288) ———
+
+const youTrackIssues = [
+  { name: 'YouTrack ABC-7', number: 7, title: 'Письмо о сбросе пароля уходит без ссылки', url: 'https://acme.youtrack.cloud/issue/ABC-7' },
+  {
+    name: 'YouTrack ABC-104',
+    number: 104,
+    title: 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой',
+    url: 'https://acme.youtrack.cloud/issue/ABC-104',
+  },
+  { name: 'YouTrack ABC-1287', number: 1287, title: 'Перевести отчёты на новую схему налогов', url: 'https://acme.youtrack.cloud/issue/ABC-1287' },
+]
+
+for (const [width, colorScheme] of [
+  [1400, 'light'],
+  [900, 'dark'],
+] as const) {
+  test(`задачи YouTrack: номера ABC-N в одной колонке, строки не шире раздела (${width}px, ${colorScheme})`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await page.emulateMedia({ colorScheme })
+    await routeApi(page)
+    await page.route('**/api/backlog', (route) =>
+      route.fulfill({
+        json: [{ ...backlog[0], tracker: { kind: 'youtrack', name: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'ABC' } }],
+      }),
+    )
+    await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues: youTrackIssues, problem: null } }))
+    await page.goto('/')
+    await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+
+    const project = page.getByRole('region', { name: 'Agents Kit Web' })
+    const numbers = project.locator('.tracker-issues .tracker-num')
+    await expect(numbers).toHaveText(['ABC-7', 'ABC-104', 'ABC-1287'])
+    // Заголовки начинаются с одной вертикали: колонка номера — по самому длинному номеру
+    await expect(async () => {
+      const lefts = await project.locator('.tracker-issues .entry-title').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().left)))
+      expect(new Set(lefts).size).toBe(1)
+    }).toPass()
+    // Длинный заголовок не выталкивает «Взять задачу» за край раздела
+    const row = project.locator('.entry-row').filter({ hasText: 'ABC-104' })
+    await expect(async () => {
+      const [button, list] = await Promise.all([row.getByRole('button', { name: 'Взять задачу' }).boundingBox(), project.boundingBox()])
+      expect(button!.x + button!.width).toBeLessThanOrEqual(list!.x + list!.width + 0.5)
+    }).toPass()
+    await expect(row.getByRole('link')).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-104')
+  })
+}
+
 test('«Взять задачу» у задачи трекера запускает её по имени «GitHub #N»', async ({ page }) => {
   const posts = await routeApi(page)
   await page.goto('/')

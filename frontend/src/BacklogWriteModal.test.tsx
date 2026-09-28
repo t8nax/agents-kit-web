@@ -370,6 +370,34 @@ test('брошенное предложение с заведёнными зад
   expect(within(note).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
 })
 
+const issueYouTrack = { name: 'YouTrack ABC-58', number: 58, title: B281.title, url: 'https://acme.youtrack.cloud/issue/ABC-58' }
+
+test('задача YouTrack — номером ABC-58 без решётки и у отметки «перенесена», и в ленте (B-288)', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send(answer({ proposal: { id: 'p8', changes: [withTrack.changes[0]] } }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+  stream.send({ type: 'saved', text: '', commit: 'c0ffee2', proposalId: 'p8', issues: { 'B-281': issueYouTrack } })
+
+  const changes = within(screen.getByRole('list', { name: 'Изменения' }))
+  const moved = (await changes.findByText('перенесена')).closest('li')!
+  const link = within(moved).getByRole('link', { name: 'ABC-58' })
+  expect(link).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-58')
+  expect(link).toHaveAttribute('title', 'Открыть YouTrack ABC-58 во вкладке браузера')
+
+  stream.send({
+    type: 'note',
+    text: 'Задачи в трекере уже заведены, а записи остались в бэклоге: B-281 — ABC-58. Уберите эти записи из бэклога.',
+    issues: { 'B-281': issueYouTrack },
+  })
+  const note = (await screen.findByText(/Задачи в трекере уже заведены/)).closest('p')!
+  expect(within(note).getByRole('link', { name: 'ABC-58' })).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-58')
+})
+
 test('перенос, от которого отказались, зачёркнут и задачи не показывает', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream)
