@@ -85,14 +85,14 @@ test('«Отмена» закрывает окно и ничего не заво
   expect(fetchMock.posts).toEqual([])
 })
 
-test('«Завести задачу» переносит запись, какой её видело окно, и показывает ссылку на задачу', async () => {
+test('«Перевести задачу» переносит запись, какой её видело окно, и показывает ссылку на задачу', async () => {
   const fetchMock = stubFetch(
     { ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] },
     { issue, removed: ['artifacts/B-281-снимок.png'] },
   )
   const { onMoved } = renderModal()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
 
   expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
   expect(fetchMock.posts).toEqual([{ base, number: 'B-281', original: draft.original }])
@@ -104,7 +104,7 @@ test('«Завести задачу» переносит запись, како�
   expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   // Закрыть можно крестиком и кнопкой внизу; завести ещё раз — нельзя
   expect(screen.getAllByRole('button', { name: 'Закрыть' })).toHaveLength(2)
-  expect(screen.queryByRole('button', { name: 'Завести задачу' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Перевести задачу' })).not.toBeInTheDocument()
   expect(onMoved).toHaveBeenCalledTimes(1)
 })
 
@@ -120,9 +120,9 @@ test('пока задача заводится, кнопки погашены', 
   )
   renderModal()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
 
-  expect(await screen.findByRole('button', { name: 'Заводится…' })).toBeDisabled()
+  expect(await screen.findByRole('button', { name: 'Переводится…' })).toBeDisabled()
   expect(screen.getByRole('button', { name: 'Отмена' })).toBeDisabled()
   reply(Response.json({ issue }))
   expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
@@ -132,7 +132,7 @@ test('задача заведена, а запись осталась — ссы
   stubFetch(draft, { issue, error: 'Коммит не прошёл — backlog.md оставлен как был', output: 'сверка не прошла' })
   const { onMoved } = renderModal()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
 
   const alert = await screen.findByRole('alert')
   expect(alert).toHaveTextContent('Запись осталась в бэклоге')
@@ -142,7 +142,7 @@ test('задача заведена, а запись осталась — ссы
   expect(screen.getByRole('link', { name: /#58/ })).toBeInTheDocument()
   expect(screen.queryByText(/убрана из бэклога/)).not.toBeInTheDocument()
   // Повторить нечего: второй раз завелась бы вторая задача
-  expect(screen.queryByRole('button', { name: 'Завести задачу' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Перевести задачу' })).not.toBeInTheDocument()
   expect(onMoved).toHaveBeenCalled()
 })
 
@@ -150,11 +150,11 @@ test('GitHub отказал — окно называет причину, а п�
   stubFetch(draft, { issue: null, problem: 'gh-login', error: 'Задача не заведена: программа gh не вошла в аккаунт GitHub — войдите командой gh auth login' })
   const { onMoved } = renderModal()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Задача не заведена: программа gh не вошла в аккаунт GitHub')
   expect(screen.getByRole('dialog', { name: 'Перенести в трекер' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Завести задачу' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Перевести задачу' })).toBeEnabled()
   expect(onMoved).not.toHaveBeenCalled()
 })
 
@@ -162,7 +162,7 @@ test('чужая правка бэклога — задача не заведе�
   stubFetch(draft, { issue: null, error: 'В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано' })
   renderModal()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано',
@@ -173,7 +173,7 @@ test('файл, который не удалён, остался — итог т
   stubFetch({ ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] }, { issue, removed: [] })
   renderModal()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
 
   expect(
     await screen.findByText('Запись B-281 убрана из бэклога. Приложенные к ней файлы остались в базе.'),
@@ -198,12 +198,12 @@ test('запись изменилась, пока окно было открыт
     }),
   )
   renderModal()
-  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
   shown = { ...draft, body: 'Поправлено соседней сессией.', original: '## B-281 новая' }
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Запись изменилась, пока окно было открыто')
   expect(await screen.findByText('Поправлено соседней сессией.')).toBeInTheDocument()
-  fireEvent.click(screen.getByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Перевести задачу' }))
 
   expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
   expect(posts[1]).toEqual({ base, number: 'B-281', original: '## B-281 новая' })
@@ -214,5 +214,5 @@ test('записи больше нет — задачу не собрать, и 
   renderModal()
 
   expect(await screen.findByText('Этой записи больше нет в бэклоге: её взяли или удалили.')).toBeInTheDocument()
-  await waitFor(() => expect(screen.getByRole('button', { name: 'Завести задачу' })).toBeDisabled())
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Перевести задачу' })).toBeDisabled())
 })

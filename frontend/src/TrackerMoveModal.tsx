@@ -202,7 +202,7 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
                   disabled={busy || !draft}
                   onClick={() => draft && void move(draft)}
                 >
-                  {busy ? 'Заводится…' : 'Завести задачу'}
+                  {busy ? 'Переводится…' : 'Перевести задачу'}
                 </button>
               </>
             )}

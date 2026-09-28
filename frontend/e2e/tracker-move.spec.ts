@@ -61,7 +61,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(dialog.getByText('Файлы в задачу не попадут и удалятся вместе с записью:')).toBeVisible()
     await expect(dialog.getByText('artifacts/B-281-reply-window.png')).toBeVisible()
     await expect(dialog).not.toContainText('Куда')
-    await dialog.getByRole('button', { name: 'Завести задачу' }).click()
+    await dialog.getByRole('button', { name: 'Перевести задачу' }).click()
 
     const done = page.getByRole('dialog', { name: 'Задача заведена' })
     const link = done.getByRole('link', { name: /#58 Экспорт истории задачи копии в markdown/ })

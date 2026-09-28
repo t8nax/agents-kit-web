@@ -1133,7 +1133,7 @@ test('перенос из строки записи заводит задачу 
   fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
 
   const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
-  fireEvent.click(await dialog.findByRole('button', { name: 'Завести задачу' }))
+  fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
 
   expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
   expect(fetchMock.posts).toContainEqual({ base: backlogs[0].base, number: 'B-1', original: '## B-1 Заголовок' })
