@@ -958,13 +958,34 @@ export default function Flow({
     </p>
   )
 
-  if (rewriteOnly)
+  // Поверх другого раздела окно встаёт, когда флоу прочитан: до того и при отказе — строка у края экрана, чтобы
+  // нажатие не выглядело оставшимся без ответа (ревью B-270).
+  if (rewriteOnly) {
+    const refusal =
+      load.kind === 'failed'
+        ? `Флоу проекта не прочитан: ${load.message}`
+        : modal === 'rewrite' && flow?.error
+          ? `Окно «Переписать с ${AGENT_NAME}» не открыть, пока флоу проекта не прочитан: ${flow.error}`
+          : null
     return (
       <>
         {rewriteWindow}
-        {rewriteRefused}
+        {load.kind === 'loading' && (
+          <div className="flow-rewrite-status" role="status">
+            Флоу проекта читается…
+          </div>
+        )}
+        {refusal && (
+          <div className="flow-rewrite-status" role="alert">
+            <span>{refusal}</span>
+            <button type="button" className="bases-btn bases-btn-small" onClick={closeRewrite}>
+              Закрыть
+            </button>
+          </div>
+        )}
       </>
     )
+  }
 
   return (
     <>

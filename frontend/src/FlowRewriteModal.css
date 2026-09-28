@@ -416,3 +416,21 @@
   line-height: 1.5;
   color: var(--accent-waiting-text);
 }
+
+/* Окно, открытое поверх другого раздела, ждёт флоу или не может встать: строка у края экрана (B-270). */
+.flow-rewrite-status {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 900;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 560px;
+  padding: 10px 14px;
+  font-size: 13px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 24px var(--shadow-color);
+}
