@@ -228,9 +228,9 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
   }
 
   // Ответ пишется сразу, как его набирают или выбирают: в ленту и в черновик браузера.
-  function setAnswer(value: string) {
-    setAnswers((prev) => prev.map((a, i) => (i === current ? value : a)))
-    saveDraft(base, copy, questions[current].title, value.trim())
+  function setAnswer(value: string, at = current) {
+    setAnswers((prev) => prev.map((a, i) => (i === at ? value : a)))
+    saveDraft(base, copy, questions[at].title, value.trim())
     if (error === EMPTY && value.trim()) setError(null)
   }
 
@@ -679,8 +679,11 @@ export default function ReplyModal({ base, copy, onClose, onAnswered }: Props) {
             {phase === 'open' ? (
               <div className="composer-row">
                 {/* Микрофон — на левом краю ряда; стрелок перелистывания нет: по вопросам ходят лентой и Enter (B-291) */}
+                {/* Сказанное ложится в ответ того вопроса, на котором его записали, даже если оператор
+                    успел перейти к другому, пока оно распознавалось. */}
                 <VoiceButton
-                  onText={(spoken) => setAnswer(appendSpoken(answers[current] ?? '', spoken))}
+                  target={current}
+                  onText={(spoken, at) => setAnswer(appendSpoken(answers[at] ?? '', spoken), at)}
                   onError={setVoiceError}
                 />
                 <input

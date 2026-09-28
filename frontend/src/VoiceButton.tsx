@@ -37,14 +37,20 @@ function StopIcon() {
  * (решение оператора на B-291). Сказанное приходит кусками по паузам, по порядку, через onText; поле само
  * дописывает его к набранному. Поле погасло (реплика ушла) или окно закрылось — запись кончается,
  * а недораспознанное отбрасывается: писать уже некуда.
+ *
+ * target — куда сказано, если поле одно на несколько мест (окно ответа — одна строка на все вопросы): кусок
+ * запоминает target, каким он был, когда кусок нарезан, и возвращает его с текстом. Распознавание идёт
+ * секунды, и за них оператор успевает перейти к другому вопросу — сказанное должно лечь туда, где сказано.
  */
-export default function VoiceButton({
+export default function VoiceButton<T = undefined>({
+  target,
   onText,
   onError,
   disabled = false,
   className,
 }: {
-  onText: (text: string) => void
+  target?: T
+  onText: (text: string, target: T) => void
   onError?: (error: string | null) => void
   disabled?: boolean
   className?: string
@@ -59,9 +65,9 @@ export default function VoiceButton({
   const abort = useRef<AbortController | null>(null)
   const pressedAt = useRef(0)
   const modeRef = useRef<Mode>('idle')
-  const callbacks = useRef({ onText, onError })
+  const callbacks = useRef({ onText, onError, target })
   useLayoutEffect(() => {
-    callbacks.current = { onText, onError }
+    callbacks.current = { onText, onError, target }
   })
 
   const { ensure } = voice
@@ -99,11 +105,12 @@ export default function VoiceButton({
   const send = (chunk: Float32Array) => {
     const controller = abort.current
     if (!controller) return
+    const said = callbacks.current.target as T
     setPending((count) => count + 1)
     queue.current = queue.current.then(async () => {
       try {
         const text = await recognize(chunk, controller.signal)
-        if (!controller.signal.aborted && text.trim()) callbacks.current.onText(text)
+        if (!controller.signal.aborted && text.trim()) callbacks.current.onText(text, said)
       } catch {
         if (!controller.signal.aborted) callbacks.current.onError?.(RECOGNIZE_FAILED)
       } finally {

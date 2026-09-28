@@ -215,6 +215,26 @@ test('удержание пишет, пока кнопку держат; отп�
   expect(button()).toHaveAttribute('title', VOICE_TITLES.ready)
 })
 
+test('кусок возвращает цель, какой она была, когда его нарезали, а не когда пришёл текст', async () => {
+  const { fetchMock, answerLater } = stubRecognize()
+  const heard: [string, number][] = []
+  const view = (target: number) => (
+    <VoiceContext value={{ state: 'installed', ensure: () => {}, refresh: () => {} }}>
+      <VoiceButton target={target} onText={(text, at) => heard.push([text, at])} />
+    </VoiceContext>
+  )
+  const { rerender } = render(view(1))
+  click()
+  await vi.waitFor(() => expect(mic.feed).not.toBeNull())
+  phrase()
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+  rerender(view(2))
+  answerLater({ text: 'Принимаю.' })
+
+  await vi.waitFor(() => expect(heard).toEqual([['Принимаю.', 1]]))
+})
+
 test('клавиатура включает и выключает запись щелчком', async () => {
   stubRecognize()
   render(<Field />)
