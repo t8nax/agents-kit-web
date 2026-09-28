@@ -152,6 +152,13 @@ test('от находки поверх отчёта открывается ок�
   await expect(page.getByRole('heading', { name: 'Отчёты', level: 2 })).toBeAttached()
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toHaveCount(0)
 
+  // Фокус ходит по окну и не уходит в отчёт под подложкой (ревью B-270) — inert проверяется только в браузере.
+  // Окно стоит в разметке за отчётом: назад, по Shift+Tab, путь в отчёт самый короткий.
+  for (let press = 0; press < 12; press++) {
+    await page.keyboard.press('Shift+Tab')
+    expect(await page.evaluate(() => document.activeElement?.closest('.rp') !== null && document.activeElement?.closest('[role="dialog"]') === null)).toBe(false)
+  }
+
   await dialog.getByRole('button', { name: 'Закрыть' }).click()
   await expect(dialog).toHaveCount(0)
   await expect(row.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeVisible()

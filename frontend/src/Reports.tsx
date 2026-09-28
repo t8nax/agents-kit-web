@@ -276,7 +276,8 @@ export default function Reports({
 
   return (
     <div className="rp">
-      <div className="rp-head">
+      {/* Пока открыто окно переписывания, шапка и отчёт под подложкой недоступны: Tab не уходит из окна, как во «Флоу». */}
+      <div className="rp-head" inert={rewrite !== null}>
         <h2>Отчёты</h2>
         <PickMenu label="Вид отчёта" value={kinds[0].label} options={kinds} selected="flow" onPick={() => {}} />
         <div className="rp-head-end">
@@ -311,7 +312,7 @@ export default function Reports({
       )}
 
       {item && (
-        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd} inert={rewrite !== null}>
           <ScheduleLine
             schedule={item.schedule}
             report={report}
