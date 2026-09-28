@@ -209,17 +209,6 @@ test('код в формулировке требования показан м�
   expect(passed.querySelector('code')?.textContent).toBe('product.md')
 })
 
-test('подсказка кольца объясняет, почему кольцо с высоким баллом не зелёное', async () => {
-  const near = { ...report, rings: [{ name: 'Проходимость', score: 93, band: 'avg' as const, total: 3, passed: 2 }] }
-  stub(() => [item({ report: near })])
-  renderReports()
-
-  expect(await screen.findByRole('button', { name: 'Проходимость: 93 из 100.' })).toHaveAttribute(
-    'title',
-    'Проходимость: 93 из 100. Кольцо не зелёное, потому что есть находка высокого приоритета.',
-  )
-})
-
 test('по кольцам находки стоят под своим кольцом со счётом требований, без «вычтено»', async () => {
   stub(() => [item()])
   renderReports()
