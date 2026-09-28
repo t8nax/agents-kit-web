@@ -8,7 +8,8 @@
 
 Сборка выпуска на GitHub не выпускает номер, уже вышедший в канале, — забытый номер валил выпуск уже после
 отправки. Здесь он ловится раньше:
-- Merge — слияние в dev на компьютере: номер в результате слияния должен быть больше, чем в dev до него.
+- Merge — слияние в dev на компьютере: номер в результате слияния должен быть больше, чем в dev до него,
+  ровно на один шаг — одно число на единицу, правее него нули.
 - Push — отправка dev или master: номер в отправляемом должен быть больше, чем уже лежит в этой ветке на сервере.
   Так ловится и то, что попало в dev мимо слияния. Ветки задач отправляются без проверки.
 
@@ -27,6 +28,9 @@ $ErrorActionPreference = 'Stop'
 
 $Channels = 'dev', 'master'
 
+# Какое число за что — в каждом отказе: сессия, привыкшая к номеру из трёх чисел, иначе поднимет не то.
+$Rule = 'Номер — 0.X.Y.Z: сломано привычное — поднимается второе число, добавлено новое — третье, починено — четвёртое; числа правее поднятого — нули.'
+
 # Содержимое version.txt указанного состояния (коммит или «:» — индекс); файла нет — $null.
 function Get-Text($revision) {
     $text = git show "${revision}version.txt" 2>$null
@@ -34,27 +38,57 @@ function Get-Text($revision) {
     ($text | Out-String).Trim()
 }
 
-# Номер числами; недостающие цифры — нули: иначе «0.11» вышло бы меньше «0.11.0». Не номер — $null,
-# и четыре числа тоже: номер панели — три числа, а четвёртое сравнение отбросило бы молча.
-function ConvertTo-Version($text) {
+# Номер — четыре числа 0.X.Y.Z; до 0.25.0 он был из трёх. Числа номера — четыре, недостающие — нули:
+# иначе «0.11» вышло бы меньше «0.11.0». Не номер — $null.
+function ConvertTo-Parts($text) {
     $version = $null
-    if (-not [version]::TryParse($text, [ref]$version) -or $version.Revision -ge 0) { return $null }
-    [version]::new($version.Major, $version.Minor, [Math]::Max($version.Build, 0))
+    if (-not [version]::TryParse($text, [ref]$version)) { return $null }
+    , @($version.Major, $version.Minor, [Math]::Max($version.Build, 0), [Math]::Max($version.Revision, 0))
 }
 
-# Отказ, если номер не вырос. Прежнего номера нет или он не номер — сравнивать не с чем.
-function Assert-Grown($where, $wasText, $what, $nowText, $advice) {
+# Номер поднят верно: одно число выросло на единицу, а правее него — нули. Слияние задачи поднимает номер
+# на один шаг; отправка канала несёт сразу несколько слияний, и там номер только растёт.
+function Test-OneStep($was, $now) {
+    for ($i = 0; $i -lt 4; $i++) {
+        if ($now[$i] -eq $was[$i]) { continue }
+        if ($now[$i] -ne $was[$i] + 1) { return $false }
+        for ($j = $i + 1; $j -lt 4; $j++) {
+            if ($now[$j] -ne 0) { return $false }
+        }
+        return $true
+    }
+    $false
+}
+
+# Отказ, если номер не вырос или, с -OneStep, поднят не на один шаг. Прежнего номера нет или он не номер —
+# сравнивать не с чем.
+function Assert-Grown($where, $wasText, $what, $nowText, $advice, [switch]$OneStep) {
     if (-not $wasText -or -not $nowText) { return }
-    $was = ConvertTo-Version $wasText
-    $now = ConvertTo-Version $nowText
+    $was = ConvertTo-Parts $wasText
+    $now = ConvertTo-Parts $nowText
     if (-not $was) { return }
     if (-not $now) {
-        [Console]::Error.WriteLine("В version.txt $what не номер версии: «$nowText». Номер пишется как 0.10.1.")
+        [Console]::Error.WriteLine("В version.txt $what не номер версии: «$nowText». $Rule Например, 0.25.1.0.")
         exit 1
     }
-    if ($now -gt $was) { return }
-    [Console]::Error.WriteLine("Номер версии панели не вырос: $where $wasText, $what $nowText.`n$advice")
-    exit 1
+    # Номер из четырёх чисел сменил номер из трёх — назад запись не возвращается.
+    if ($wasText.Split('.').Count -eq 4 -and $nowText.Split('.').Count -lt 4) {
+        [Console]::Error.WriteLine("В version.txt $what номер прежней записи: «$nowText», а $where уже $wasText. $Rule Например, 0.25.1.0.")
+        exit 1
+    }
+    $grown = $false
+    for ($i = 0; $i -lt 4; $i++) {
+        if ($now[$i] -ne $was[$i]) { $grown = $now[$i] -gt $was[$i]; break }
+    }
+    if (-not $grown) {
+        [Console]::Error.WriteLine("Номер версии панели не вырос: $where $wasText, $what $nowText. $Rule`n$advice")
+        exit 1
+    }
+    if ($OneStep -and -not (Test-OneStep $was $now)) {
+        [Console]::Error.WriteLine("Номер версии панели поднят не на один шаг: $where $wasText, $what $nowText. " +
+            "Поднимается одно число на единицу. $Rule`n$advice")
+        exit 1
+    }
 }
 
 if ($Mode -eq 'Merge') {
@@ -63,7 +97,7 @@ if ($Mode -eq 'Merge') {
     if ($branch -ne 'dev') { exit 0 }
 
     Assert-Grown 'в dev' (Get-Text 'HEAD:') 'после слияния' (Get-Text ':') `
-        'Подними номер в version.txt своим коммитом в ветке задачи — как, сказано в CLAUDE.md.'
+        'Подними номер в version.txt своим коммитом в ветке задачи — как, сказано в CLAUDE.md.' -OneStep
     exit 0
 }
 

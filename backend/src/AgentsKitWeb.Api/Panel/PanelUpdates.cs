@@ -33,8 +33,11 @@ public static class PanelUpdates
             releases.Where(release => standing is null || Number(release.Version) > standing).ToList());
     }
 
+    /// <summary>Недостающие числа — нули: иначе 0.25.0.0 вышел бы новее 0.25.0.</summary>
     public static Version? Number(string version) =>
-        Version.TryParse(version.Split('-', '+')[0], out var number) ? number : null;
+        Version.TryParse(version.Split('-', '+')[0], out var number)
+            ? new Version(number.Major, number.Minor, Math.Max(number.Build, 0), Math.Max(number.Revision, 0))
+            : null;
 }
 
 /// <summary>
@@ -131,9 +134,10 @@ public sealed partial class GitHubReleases(IHttpClientFactory clients, TimeProvi
             .Select(line => line[2..].Trim())
             .ToList();
 
-    [GeneratedRegex(@"^v(\d+\.\d+\.\d+)$")]
+    // Номер — три числа до 0.25.1 и четыре с 0.25.2.0: выпуски обеих записей лежат в канале рядом.
+    [GeneratedRegex(@"^v(\d+\.\d+\.\d+(?:\.\d+)?)$")]
     private static partial Regex MasterTag();
 
-    [GeneratedRegex(@"^v(\d+\.\d+\.\d+)-dev$")]
+    [GeneratedRegex(@"^v(\d+\.\d+\.\d+(?:\.\d+)?)-dev$")]
     private static partial Regex DevTag();
 }
