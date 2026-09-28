@@ -781,7 +781,8 @@ if (Test-Piece 'old-format') {
     $findings.Add([pscustomobject]@{ base = $oldBase; findings = @() })
 }
 
-# База нового формата кита — 7, раскладка та же, что у 6, как бывает, когда перевод не трогает читаемое панелью (B-281):
+# База нового формата кита — на единицу новее формата панели, раскладка та же, как бывает, когда перевод не трогает
+# читаемое панелью (B-281); номер берётся из BaseLayout.cs, чтобы кусок не стал обычной базой, когда панель его догонит:
 # таблица, «Флоу», «Исполнители», «Бэклог» и «Проблемы баз» показывают её с предупреждением, правка флоу, исполнителей
 # и бэклога закрыта, а ответить агенту и взять задачу в свободную копию можно.
 if (Test-Piece 'new-format') {
@@ -792,7 +793,9 @@ if (Test-Piece 'new-format') {
     $newTask = Join-Path $copiesDir 'new-format-task'
     git -C $newCopy worktree add -b feat/new-format $newTask --quiet
     $newBase = Join-Path $basesDir 'new-format'
-    New-Base $newBase 'Новый формат' @($newCopy) -Format 7
+    $layoutSource = Get-Content -LiteralPath (Join-Path $repo 'backend\src\AgentsKitWeb.Api\Bases\BaseLayout.cs') -Raw
+    if ($layoutSource -notmatch 'public const int Format = (\d+);') { throw 'в BaseLayout.cs не найден формат панели — кусок new-format не собрать' }
+    New-Base $newBase 'Новый формат' @($newCopy) -Format ([int]$Matches[1] + 1)
     New-Memory (Join-Path (Get-MemoryDir $newBase) 'new-format-task.md') $newTask 'feat/new-format'
     Add-Commit (Get-Personal $newBase) 'Память задачи'
     $bases.Add($newBase)
