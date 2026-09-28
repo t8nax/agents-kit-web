@@ -86,8 +86,8 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
         setResult({ issue: moved.issue, error: moved.error ?? null, output: moved.output ?? null, removed: moved.removed ?? [] })
         onMoved()
       } else if (moved.problem === 'entry-changed') {
-        // Подтверждали не то, что лежит в бэклоге: окно показывает запись заново, и завести задачу можно снова
-        setFailure('Запись изменилась, пока окно было открыто, — окно показывает её заново. Проверьте и заведите задачу ещё раз.')
+        // Подтверждали не то, что лежит в бэклоге: окно показывает запись заново, и перевести задачу можно снова
+        setFailure('Запись изменилась, пока окно было открыто, — окно показывает её заново. Проверьте и переведите задачу ещё раз.')
         setLoad({ kind: 'loading' })
         setRound((n) => n + 1)
       } else {

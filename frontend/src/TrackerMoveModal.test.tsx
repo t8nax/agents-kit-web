@@ -201,7 +201,7 @@ test('запись изменилась, пока окно было открыт
   fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
   shown = { ...draft, body: 'Поправлено соседней сессией.', original: '## B-281 новая' }
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Запись изменилась, пока окно было открыто')
+  expect(await screen.findByRole('alert')).toHaveTextContent('Запись изменилась, пока окно было открыто, — окно показывает её заново. Проверьте и переведите задачу ещё раз.')
   expect(await screen.findByText('Поправлено соседней сессией.')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Перевести задачу' }))
 
