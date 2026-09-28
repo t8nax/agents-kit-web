@@ -17,11 +17,30 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
             null => new TrackerIssues([], TrackerIssues.NoTracker),
             { GitHubRepo: { } repo } => await github.AssignedAsync(repo, cancellationToken),
             { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
-                servers.KeyOf(server) is { } key
+                KeyOf(server, out var problem) is { } key
                     ? await youTrack.AssignedAsync(server, key, project, cancellationToken)
-                    : new TrackerIssues([], TrackerIssues.NoKey),
+                    : new TrackerIssues([], problem),
             var other => new TrackerIssues([], other.Kind),
         };
+
+    /// <summary>
+    /// Ключ сервера YouTrack. Нет его — почему: сервера нет в «Настройках» (no-key) или ключ не прочитать —
+    /// не расшифровался на этом компьютере или файл серверов битый (key-unreadable, совет — «Заменить ключ»).
+    /// </summary>
+    private string? KeyOf(string server, out string? problem)
+    {
+        try
+        {
+            var (known, key) = servers.Find(server);
+            problem = key is not null ? null : known ? TrackerIssues.KeyUnreadable : TrackerIssues.NoKey;
+            return key;
+        }
+        catch (TrackersFileBroken)
+        {
+            problem = TrackerIssues.KeyUnreadable;
+            return null;
+        }
+    }
 
     /// <summary>Почему записи бэклога проекта переносить некуда — продолжением фразы.</summary>
     public const string NotMovable = "трекер проекта — не GitHub и не YouTrack со строками «трекер:», «сервер:», «проект:»";
@@ -36,9 +55,9 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         {
             { GitHubRepo: { } repo } => await github.CreateAsync(repo, title, body),
             { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
-                servers.KeyOf(server) is { } key
+                KeyOf(server, out var problem) is { } key
                     ? await youTrack.CreateAsync(server, key, project, title, body)
-                    : new CreatedIssue(null, TrackerIssues.NoKey),
+                    : new CreatedIssue(null, problem),
             _ => new CreatedIssue(null, tracker.Kind),
         };
 

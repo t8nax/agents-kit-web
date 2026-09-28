@@ -1254,6 +1254,11 @@ test.each([
     true,
   ],
   [
+    { issues: [], problem: 'key-unreadable' },
+    /^Ключ сервера https:\/\/acme\.youtrack\.cloud не прочитать на этом компьютере\. Замените ключ в «Настройках», в карточке «Серверы трекеров»\.$/,
+    true,
+  ],
+  [
     { issues: [], problem: 'key-forbidden' },
     /^Сервер https:\/\/acme\.youtrack\.cloud принял ключ, но у его владельца нет прав на проект ABC\. Проверьте права владельца ключа в YouTrack\.$/,
     true,

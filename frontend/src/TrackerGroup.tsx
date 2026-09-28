@@ -58,6 +58,15 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo): State | null {
           </>
         ),
       }
+    case 'key-unreadable':
+      return {
+        warning: true,
+        text: (
+          <>
+            Ключ сервера {server} не прочитать на этом компьютере. Замените ключ в {settingsCard}.
+          </>
+        ),
+      }
     case 'key-forbidden':
       return {
         warning: true,

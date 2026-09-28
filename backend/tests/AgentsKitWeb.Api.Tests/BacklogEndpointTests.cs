@@ -207,6 +207,27 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Empty(_youTrack.Read);
     }
 
+    /// <summary>
+    /// Ключ сервера в «Настройках» есть, но не прочитать — не расшифровался или файл серверов битый: причина своя,
+    /// с советом заменить ключ, а не «нет ключа» (ревью B-288).
+    /// </summary>
+    [Theory]
+    [InlineData("""{ "servers": [ { "server": "https://acme.youtrack.cloud", "login": "b", "key": "не-base64" } ] }""")]
+    [InlineData("не json")]
+    public async Task TrackerIssues_YouTrackKeyUnreadable_IsKeyUnreadable(string trackersFile)
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.Tracker(basePath, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        var file = TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, trackersFile);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(TrackerIssues.KeyUnreadable, issues.Problem);
+        Assert.Empty(_youTrack.Read);
+    }
+
     private readonly FakeGitHubIssues _github = new();
     private readonly FakeYouTrack _youTrack = new();
 
