@@ -895,7 +895,7 @@ export default function Flow({
     stageOpen ||
     modal === 'description' ||
     modal === 'new-flow' ||
-    (modal === 'rewrite' && editable) ||
+    (modal === 'rewrite' && editable && !newer) ||
     opened?.kind === 'returns' ||
     asking !== null
   // Сайдбар с правкой: схема, выбор сценария и шапка доступны, но первое действие на них закрывает сайдбар, спросив
@@ -1095,6 +1095,13 @@ export default function Flow({
           Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
         </p>
       )}
+      {/* Разговор начали до того, как кит перевёл базу: правки агента в неё не записать — окно не встаёт (B-281). */}
+      {modal === 'rewrite' && editable && newer && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть: {formatLock.before} Правки флоу в этой базе закрыты, пока панель
+          не обновится.
+        </p>
+      )}
 
       {load.kind === 'loaded' && (
         // Пока запись идёт, раздел занят: действие на схеме, начатое поверх неё, шло бы от флоу, который вот-вот сменится.
@@ -1262,7 +1269,7 @@ export default function Flow({
         />
       )}
 
-      {modal === 'rewrite' && flow && editable && (
+      {modal === 'rewrite' && flow && editable && !newer && (
         <FlowRewriteModal
           base={flow.base}
           project={flow.project}

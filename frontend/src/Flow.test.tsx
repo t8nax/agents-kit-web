@@ -1370,6 +1370,21 @@ test('с отметки в шапке у непрочитанного флоу �
   expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 
+test('с отметки в шапке у базы нового формата окна переписывания нет, и причина — формат, а не задачи', async () => {
+  stubApi(api([{ ...app, formatWarning: 'Кит перевёл базу на формат, которого эта версия панели не знает.' }], rewriteApi([])))
+  render(<Flow baseFor={app.base} rewriteAt={1} />)
+
+  expect(
+    await screen.findByText(
+      'Окно «Переписать с Чудо-Юдо» не открыть: кит перевёл базу на формат, которого эта версия панели не знает. Правки флоу в этой базе закрыты, пока панель не обновится.',
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/заняты задачами/)).not.toBeInTheDocument()
+  // Верх раздела не заперт
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeEnabled()
+})
+
 test('проект выбирается списком в шапке', async () => {
   stubApi(api([app, nota]))
   await renderFlow()
