@@ -1060,11 +1060,18 @@ function stubSections() {
     if (url === '/api/flow') return new Response(JSON.stringify(flows), { status: 200 })
     if (url === '/api/performers') return new Response(JSON.stringify(performers), { status: 200 })
     if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
+    if (url === '/api/reports/flow') return new Response(JSON.stringify(reportItems), { status: 200 })
     return new Response(JSON.stringify([]), { status: 200 })
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
+
+// Отчёты двух проектов — без отчёта: разделу хватает названий, чтобы показать выбранный проект
+const reportItems = [
+  { base: 'D:\\Projects\\app-knowledge', project: 'App', schedule: { enabled: false, days: [], hour: 9 }, report: null, blocked: null },
+  { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', schedule: { enabled: false, days: [], hour: 9 }, report: null, blocked: null },
+]
 
 // Оператор вернулся к просьбе отметкой в шапке: панель открывает её раздел с её окном
 function returnToRequest(kind: AgentKind, base: string) {
@@ -1128,6 +1135,18 @@ test('«Исполнители» из сайдбара открываются с
 
   expect(await screen.findByRole('heading', { name: 'Исполнители' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Новый исполнитель' })).not.toBeInTheDocument()
+})
+
+test('отметка разбора флоу открывает «Отчёты» на проекте разбора, и открытый раздел переключается на другой', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('report', 'D:\\Projects\\nota-knowledge')
+  expect(await screen.findByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
+
+  returnToRequest('report', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('button', { name: 'Проект: App' })).toBeInTheDocument()
 })
 
 test('возврат к просьбе из шапки открывает раздел с окном на её базе сколько угодно раз', async () => {
