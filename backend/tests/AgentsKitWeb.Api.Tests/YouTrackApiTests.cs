@@ -109,6 +109,22 @@ public sealed class YouTrackApiTests
         Assert.Contains("query=project: {ABC} for: me #Unresolved", query);
     }
 
+    /// <summary>Проектов с искомым в имени больше страницы — нужный ищется и на следующих (ревью B-288).</summary>
+    [Fact]
+    public async Task Assigned_ProjectOnSecondPage_IsFound()
+    {
+        var firstPage = new JsonArray([.. Enumerable.Range(0, 100).Select(i => (JsonNode)new JsonObject { ["id"] = $"0-{i}", ["shortName"] = $"ABC{i}" })]);
+        var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
+            ? request.RequestUri.Query.Contains("$skip=0") ? Json(firstPage.ToJsonString()) : Json("""[{"id":"0-500","shortName":"ABC"}]""")
+            : Json("""[{"idReadable":"ABC-1","summary":"Т"}]"""));
+
+        var issues = await api.AssignedAsync(Server, Key, "ABC", CancellationToken.None);
+
+        Assert.Null(issues.Problem);
+        Assert.Equal("YouTrack ABC-1", Assert.Single(issues.Issues).Name);
+        Assert.Contains("$skip=100", _asked[1].Url);
+    }
+
     [Fact]
     public async Task Assigned_ProjectNotVisible_IsProjectMissingWithoutReadingIssues()
     {

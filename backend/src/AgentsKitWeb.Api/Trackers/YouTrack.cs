@@ -114,20 +114,31 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
 
     private sealed record Project(string? Id, string? ShortName, string? Problem = null, string? Detail = null);
 
+    /// <summary>
+    /// Проект — по точному ID среди проектов, чьё имя или ID содержит искомое: на большом сервере таких бывает
+    /// больше страницы, и ответ листается дальше, а не решает по первой сотне (ревью B-288).
+    /// </summary>
     private async Task<Project> ProjectAsync(string server, string key, string project, CancellationToken cancellationToken)
     {
-        var reply = await SendAsync(
-            Get(server, key, $"api/admin/projects?fields=id,shortName&query={Uri.EscapeDataString(project)}&$top={Limit}"),
-            ReadTimeout, cancellationToken);
-        if (reply.Problem is not null)
-            return new Project(null, null, reply.Problem, reply.Detail);
-        if (reply.Json is not JsonArray projects)
-            return new Project(null, null, TrackerIssues.YouTrackError, NotYouTrack);
-        var match = projects.OfType<JsonObject>().FirstOrDefault(p =>
-            string.Equals(Text(p, "shortName"), project, StringComparison.OrdinalIgnoreCase));
-        return match is null || Text(match, "id") is not { } id
-            ? new Project(null, null, TrackerIssues.ProjectMissing)
-            : new Project(id, Text(match, "shortName"));
+        const int pages = 50;
+        for (var page = 0; page < pages; page++)
+        {
+            var reply = await SendAsync(
+                Get(server, key,
+                    $"api/admin/projects?fields=id,shortName&query={Uri.EscapeDataString(project)}&$skip={page * Limit}&$top={Limit}"),
+                ReadTimeout, cancellationToken);
+            if (reply.Problem is not null)
+                return new Project(null, null, reply.Problem, reply.Detail);
+            if (reply.Json is not JsonArray projects)
+                return new Project(null, null, TrackerIssues.YouTrackError, NotYouTrack);
+            var match = projects.OfType<JsonObject>().FirstOrDefault(p =>
+                string.Equals(Text(p, "shortName"), project, StringComparison.OrdinalIgnoreCase));
+            if (match is not null && Text(match, "id") is { } id)
+                return new Project(id, Text(match, "shortName"));
+            if (projects.Count < Limit)
+                break;
+        }
+        return new Project(null, null, TrackerIssues.ProjectMissing);
     }
 
     private const string NotYouTrack = "сервер ответил не как YouTrack";
