@@ -86,6 +86,16 @@ public static partial class BacklogTracker
         }
     }
 
+    /// <summary>Почему задача не заведена — словами для оператора, как их пишет окно переноса.</summary>
+    public static string ProblemText(string problem, string? detail) => problem switch
+    {
+        TrackerIssues.GhMissing => "программа gh не установлена",
+        TrackerIssues.GhLogin => "программа gh не вошла в аккаунт GitHub, войдите командой gh auth login",
+        TrackerIssues.RepoUnreachable => $"GitHub не нашёл репозиторий или у вашего аккаунта нет к нему доступа{(detail is null ? "" : $" ({detail})")}",
+        CreatedIssue.GitHubSilent => "GitHub не ответил за минуту, и задача могла завестись — проверьте трекер, прежде чем сохранять снова",
+        _ => $"GitHub ответил ошибкой: {detail ?? problem}",
+    };
+
     public static bool IsLink(string address) =>
         Uri.TryCreate(address, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
 

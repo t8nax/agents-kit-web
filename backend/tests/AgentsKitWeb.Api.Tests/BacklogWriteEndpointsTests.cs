@@ -44,6 +44,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     private readonly string _copy;
     private readonly TestChat _agent = new();
     private readonly TestCheckGate _checkGate = new();
+    private readonly FakeGitHubIssues _github = new();
 
     /// <summary>Команда коммита, которую панель диктует агенту и кладёт в правило разрешения.</summary>
     private string Commit => $"git -C \"{_personal}\" commit -m \"{BacklogWriteEndpoints.CommitMessage}\" -- backlog.md";
@@ -661,6 +662,120 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal("D\tartifacts/B-2-снимок.png\nM\tbacklog.md", Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
     }
 
+    // ——— Перенос записи в трекер (B-286) ———
+
+    private void GitHubTracker() =>
+        File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Трекер\n\n## Где задачи\nGitHub Issues https://github.com/acme/orders, программой gh.\n");
+
+    [Fact]
+    public void StartInfo_TellsAgentTrackBlockOnlyForGitHubTracker()
+    {
+        string Prompt()
+        {
+            var args = BacklogWriteEndpoints.StartInfo(_base, _copy).ArgumentList.ToList();
+            return args[args.IndexOf("--append-system-prompt") + 1];
+        }
+
+        Assert.DoesNotContain("в трекер B-14", Prompt());
+        Assert.Contains("Переноса записей в трекер у этого проекта нет", Prompt());
+
+        GitHubTracker();
+
+        Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
+        Assert.Contains("GitHub acme/orders", Prompt());
+    }
+
+    [Fact]
+    public async Task Save_TrackCreatesIssueThenCutsEntryTogetherWithChange()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("Так.\n\n~~~backlog\nв трекер B-2\n~~~\n~~~backlog\nизменить B-1\n## B-1 Старая запись\nтип: фича\nприоритет: средний\n\nНовый текст.\n\n### Агенту\n- где: App.tsx\n~~~\n")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер, а B-1 перепиши");
+        var answer = (await Read(client, 2))[1];
+        Assert.Equal([BacklogChange.Track, BacklogChange.Change], answer.Proposal!.Changes.Select(c => c.Kind));
+        Assert.Empty(_github.Creates);
+
+        var saved = await Save(client, answer.Proposal.Id);
+
+        Assert.Null(saved.Error);
+        Assert.Equal(("acme/orders", "Вторая запись", "Текст второй записи."), Assert.Single(_github.Creates));
+        Assert.Equal(58, saved.Issues!["B-2"].Number);
+        var file = File.ReadAllText(BacklogPath);
+        Assert.DoesNotContain("## B-2", file);
+        Assert.Contains("Новый текст.", file);
+        Assert.Equal("", Git("status", "--porcelain"));
+        var savedEvent = (await Read(client, 3))[2];
+        Assert.Equal("saved", savedEvent.Type);
+        Assert.Equal("https://github.com/acme/orders/issues/58", savedEvent.Issues!["B-2"].Url);
+    }
+
+    [Fact]
+    public async Task Save_TrackGitHubRefuses_WritesNothingAndProposalWaits()
+    {
+        GitHubTracker();
+        _github.Created = new CreatedIssue(null, TrackerIssues.GhLogin);
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        var file = File.ReadAllText(BacklogPath);
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal(
+            "Задача для B-2 не заведена: программа gh не вошла в аккаунт GitHub, войдите командой gh auth login — бэклог не записан",
+            saved.Error);
+        Assert.Null(saved.Issues);
+        Assert.Equal(file, File.ReadAllText(BacklogPath));
+
+        // Предложение ждёт: вошли в gh — «Сохранить» ещё раз
+        _github.Created = null;
+        Assert.Null((await Save(client, answer.Proposal.Id)).Error);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
+    public async Task Save_TrackAfterRefusedCommit_DoesNotCreateIssueTwice()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        var hook = Path.Combine(_personal, ".git", "hooks", "pre-commit");
+        File.WriteAllText(hook, "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+
+        var refused = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal(
+            "Коммит не прошёл — backlog.md оставлен как был. Уже заведены в трекере: B-2 — #58 — «Сохранить» ещё раз их не повторит",
+            refused.Error);
+        Assert.Equal(58, refused.Issues!["B-2"].Number);
+        Assert.Contains("## B-2", File.ReadAllText(BacklogPath));
+
+        File.Delete(hook);
+        var saved = await Save(client, answer.Proposal.Id);
+
+        Assert.Null(saved.Error);
+        Assert.Single(_github.Creates);
+        Assert.Equal(58, saved.Issues!["B-2"].Number);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
+    public async Task Answer_TrackWithoutGitHubTracker_IsError()
+    {
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("error", answer.Type);
+        Assert.Equal("Чудо-Юдо предложил перенос в трекер, а трекер проекта — не GitHub с адресом репозитория", answer.Text);
+    }
+
     [Fact]
     public async Task Save_RefusedCommitReturnsDeletedArtifacts()
     {
@@ -1144,6 +1259,8 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
                 services.AddSingleton<IAgentChat>(_agent);
                 services.RemoveAll<IBacklogCheckGate>();
                 services.AddSingleton<IBacklogCheckGate>(_checkGate);
+                services.RemoveAll<IGitHubIssues>();
+                services.AddSingleton<IGitHubIssues>(_github);
             });
         })).CreateClient();
 

@@ -37,6 +37,12 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
 
     private static readonly Regex ChangeCommand = new(@"^изменить\s+(?<number>\S+)$");
 
+    private static readonly Regex TrackCommand = new(@"^в\s+трекер\s+(?<number>\S+)$");
+
+    /// <summary>В предложении есть перенос записи в трекер: «Сохранить» заводит задачу до записи файла.</summary>
+    [JsonIgnore]
+    public bool Tracks =>Changes.Any(c => c.Kind == BacklogChange.Track);
+
     /// <summary>Ответ агента без блоков предложения и сами блоки по порядку.</summary>
     public static (string Text, IReadOnlyList<string> Blocks) Split(string answer)
     {
@@ -81,6 +87,15 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
                 continue;
             }
 
+            if (TrackCommand.Match(command) is { Success: true } track)
+            {
+                var number = BacklogNumber.Normalize(track.Groups["number"].Value);
+                if (Find(entries, number) is not { } original)
+                    return (null, $"Записи {track.Groups["number"].Value} в бэклоге нет");
+                changes.Add(new BacklogChange(BacklogChange.Track, number!, Entry(header, original.Text)) { Original = original.Text });
+                continue;
+            }
+
             if (ChangeCommand.Match(command) is { Success: true } change)
             {
                 var number = BacklogNumber.Normalize(change.Groups["number"].Value);
@@ -109,7 +124,8 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
 
         if (changes.GroupBy(c => c.Number).FirstOrDefault(g => g.Count() > 1) is { } twice)
             return (null, $"Запись {twice.Key} названа в предложении дважды");
-        var deleted = changes.Where(c => c.Kind == BacklogChange.Delete).Select(c => c.Number).ToHashSet();
+        // Уходит из бэклога и запись, перенесённая в трекер: влить в неё другую нельзя так же, как в удалённую.
+        var deleted = changes.Where(c => c.Kind != BacklogChange.Change).Select(c => c.Number).ToHashSet();
         if (changes.FirstOrDefault(c => c.Into is not null && deleted.Contains(c.Into)) is { } lost)
             return (null, $"Запись {lost.Number} уходит в {lost.Into}, а {lost.Into} удаляется в том же предложении");
         return (new BacklogProposal(Guid.NewGuid().ToString("N"), changes), null);
