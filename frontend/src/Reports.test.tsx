@@ -307,7 +307,7 @@ test('разбор по расписанию, начатый при открыт
     others: (url) => {
       if (url === '/api/reports/flow') return Response.json(reports)
       if (url === '/api/agent/requests')
-        return Response.json(started ? [runningRequest('report', 'Разбор флоу', 'D:\kb\app', 'Agents Kit Web')] : [])
+        return Response.json(started ? [runningRequest('report', 'Разбор флоу', 'D:\\kb\\app', 'Agents Kit Web')] : [])
       if (url.startsWith('/api/agent/report/stream'))
         return new Response(stream.body, { headers: { 'Content-Type': 'application/x-ndjson' } })
       return null
