@@ -547,6 +547,23 @@ test('у проекта без свободной копии кнопка зап
   await waitFor(() => expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled())
 })
 
+test('у записи, которую уже взяли в копию, кнопка погашена, а «Изменить» живая — B-89', async () => {
+  const fetchMock = stubFetch(backlogs)
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+    // Агент ещё не вырезал запись — она в списке, а её номер уже стоит в строке копии, набранный кириллицей
+    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'), task: 'В-1 Панель показывает проблемы баз знаний' },
+  ])
+
+  render(<Backlog />)
+  const taken = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  const other = screen.getByRole('button', { name: /B-13 У панели есть светлая тема/ }).closest('.entry-row')!
+
+  await waitFor(() => expect(within(other as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Изменить' })).toBeEnabled()
+})
+
 test('у записи без номера запуска нет: запуск адресует её номером', async () => {
   stubFetch([{ ...backlogs[0], entries: [{ number: null, title: 'Дописана руками', text: null }] }])
 
@@ -1095,4 +1112,20 @@ test('у задачи трекера «Взять задачу» погашен�
   await waitFor(() => expect(within(nota as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
 
   expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+})
+
+test('у задачи трекера, которая уже идёт в копии, «Взять задачу» погашена всё время работы — B-89', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'waiting'), task: 'GitHub #52 Панель не стартует с пробелом в пути' },
+  ])
+
+  render(<Backlog />)
+  const taken = (await screen.findByRole('link', { name: /#52/ })).closest('.entry-row')!
+  const other = screen.getByRole('link', { name: /#7/ }).closest('.entry-row')!
+
+  await waitFor(() => expect(within(other as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
 })

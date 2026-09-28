@@ -8,10 +8,10 @@ import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import EntryArtifacts, { type Artifact } from './EntryArtifacts'
 import { BugIcon, EntryFields, FeatureIcon } from './EntryFields'
-import { freeCopies } from './copies'
+import { freeCopies, runningTasks } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
-import { numberLetters } from './taskTitle'
+import { normalizeNumber, numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
 import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
 
@@ -211,6 +211,7 @@ export default function Backlog({
         entries: arrange(backlog.entries, selection, order),
         issues,
         trackerShown: !!backlog.tracker && (!filtering || issues.length > 0),
+        running: runningTasks(copies ?? [], backlog.base),
       }
     })
     .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
@@ -293,7 +294,7 @@ export default function Backlog({
           )}
 
           <div className="backlog-list">
-            {shown.map(({ backlog, entries, issues, trackerShown }) => (
+            {shown.map(({ backlog, entries, issues, trackerShown, running }) => (
               <section
                 key={backlog.base}
                 aria-label={backlog.project}
@@ -361,12 +362,14 @@ export default function Backlog({
                           type="button"
                           className="entry-start"
                           // Копий ещё не прочитали или свободных не осталось — запускать некуда; запись чужими
-                          // буквами кит перенумерует — запускать её рано. Почему, кнопка не пишет — как
-                          // приглушённые переходы строки копии.
+                          // буквами кит перенумерует — запускать её рано; запись уже взяли в копию — вторую
+                          // сессию над ней панель не заводит (B-89). Почему, кнопка не пишет — как приглушённые
+                          // переходы строки копии.
                           disabled={
                             copies === null ||
                             freeCopies(copies, backlog.base).length === 0 ||
-                            numberLetters(entry.number) !== backlog.letters
+                            numberLetters(entry.number) !== backlog.letters ||
+                            running.has(normalizeNumber(entry.number) ?? entry.number)
                           }
                           onClick={(e) => {
                             opener.current = e.currentTarget
@@ -390,8 +393,8 @@ export default function Backlog({
                       <button
                         type="button"
                         className="entry-start"
-                        // Как у записи: копий ещё не прочитали или свободных не осталось — запускать некуда
-                        disabled={copies === null || freeCopies(copies, backlog.base).length === 0}
+                        // Как у записи: копий ещё не прочитали, свободных не осталось или задача уже идёт в копии
+                        disabled={copies === null || freeCopies(copies, backlog.base).length === 0 || running.has(issue.name)}
                         onClick={(e) => {
                           opener.current = e.currentTarget
                           setStarting({ base: backlog.base, entry: { number: issue.name, title: issue.title, text: null } })
