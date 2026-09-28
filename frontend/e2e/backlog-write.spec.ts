@@ -342,3 +342,21 @@ for (const theme of ['dark', 'light'] as const) {
     await page.screenshot({ path: `test-results/backlog-talk-${theme}.png` })
   })
 }
+
+test('микрофон стоит первым в ряду кнопок под полем, одной строкой с «Приложить файл»', async ({ page }) => {
+  await mockApi(page)
+  await page.route('**/api/voice', (route) => route.fulfill({ json: { state: 'installed', downloaded: 1, total: 1, error: null } }))
+
+  const dialog = await openFromHead(page)
+  const mic = dialog.getByRole('button', { name: 'Голосовой ввод' })
+  const attach = dialog.getByRole('button', { name: 'Приложить файл' })
+
+  await expect(mic).toHaveAttribute('title', /^Надиктовать: щелчок/)
+  await expect(async () => {
+    const [micBox, attachBox] = [(await mic.boundingBox())!, (await attach.boundingBox())!]
+    expect(micBox).toMatchObject({ width: 40, height: 40 })
+    expect(await mic.locator('svg').boundingBox()).toMatchObject({ width: 18, height: 18 })
+    expect(micBox.x + micBox.width).toBeLessThanOrEqual(attachBox.x)
+    expect(Math.abs(micBox.y + micBox.height / 2 - (attachBox.y + attachBox.height / 2))).toBeLessThan(2)
+  }).toPass()
+})
