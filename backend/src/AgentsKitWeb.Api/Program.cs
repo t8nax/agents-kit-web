@@ -56,10 +56,11 @@ builder.Services.AddHttpClient(GitHubReleases.Client, client =>
     client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 });
 builder.Services.AddSingleton<IPanelReleases, GitHubReleases>();
-// Сотни мегабайт идут минутами: срок клиента стережёт только заголовки, порции — свой срок в VoiceModel.
+// Сотни мегабайт идут минутами: модель читается потоком (ResponseHeadersRead), и срок клиента стережёт
+// только заголовки — замолчавший до них сервер не держит «Скачивается» вечно; порции — свой срок в VoiceModel.
 builder.Services.AddHttpClient(VoiceModel.Client, client =>
 {
-    client.Timeout = Timeout.InfiniteTimeSpan;
+    client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
 });
 builder.Services.AddSingleton(services =>
