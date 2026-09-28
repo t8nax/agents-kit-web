@@ -156,7 +156,8 @@ function Install-AgentsKitPanel {
     if (-not $Tag) {
         # Выпуски master — обычные v<номер>, выпуски dev — предварительные v<номер>-dev. Выпуск dev выходит
         # на каждое слияние, и master бывает дальше первой сотни: страницы листаются, пока канал не найден.
-        $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+)-dev$' } else { '^v(\d+\.\d+\.\d+)$' }
+        # Номер — три числа до 0.25.0 и четыре после.
+        $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+(?:\.\d+)?)-dev$' } else { '^v(\d+\.\d+\.\d+(?:\.\d+)?)$' }
         $found = @()
         for ($page = 1; $page -le 5 -and -not $found; $page++) {
             try { $answer = Invoke-RestMethod "https://api.github.com/repos/$Releases/releases?per_page=100&page=$page" -Headers $headers }
