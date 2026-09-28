@@ -21,7 +21,7 @@ const backlog = [
     entries: [{ number: 'B-7', title: 'Панель показывает задачу сразу после её старта', text: null }],
     error: null,
     letters: 'B',
-    tracker: { kind: 'github', repo: 'acme/orders' },
+    tracker: { kind: 'github', name: 'GitHub', server: 'https://github.com', project: 'acme/orders' },
   },
   {
     base: 'D:\\Projects\\nota-knowledge',

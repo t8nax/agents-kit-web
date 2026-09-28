@@ -119,7 +119,7 @@ export default function TrackerServersCard() {
   }
 
   return (
-    <section className="settings-card" aria-labelledby="settings-trackers">
+    <section className="settings-card trk-card" aria-labelledby="settings-trackers">
       <div className="settings-card-head">
         <div>
           <h3 id="settings-trackers">Серверы трекеров</h3>
