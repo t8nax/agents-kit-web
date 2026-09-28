@@ -52,6 +52,16 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo): State | null {
           </>
         ),
       }
+    case 'key-forbidden':
+      return {
+        warning: true,
+        text: (
+          <>
+            Сервер {server} принял ключ, но у его владельца нет прав на проект <code>{tracker.project}</code>. Проверьте права
+            владельца ключа в YouTrack.
+          </>
+        ),
+      }
     case 'server-silent':
       return {
         warning: true,

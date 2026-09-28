@@ -1244,6 +1244,11 @@ test.each([
     true,
   ],
   [
+    { issues: [], problem: 'key-forbidden' },
+    /^Сервер https:\/\/acme\.youtrack\.cloud принял ключ, но у его владельца нет прав на проект ABC\. Проверьте права владельца ключа в YouTrack\.$/,
+    true,
+  ],
+  [
     { issues: [], problem: 'server-silent', detail: 'истекло время ожидания' },
     /^Сервер https:\/\/acme\.youtrack\.cloud не ответил: истекло время ожидания\. Проверьте адрес сервера в описании трекера проекта и подключение к сети\.$/,
     true,

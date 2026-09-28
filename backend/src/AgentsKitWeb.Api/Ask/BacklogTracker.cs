@@ -114,6 +114,9 @@ public static partial class BacklogTracker
             CreatedIssue.GitHubSilent => "GitHub не ответил за минуту",
             TrackerIssues.NoKey => $"для сервера {tracker.Server} нет ключа — добавьте его {settings}",
             TrackerIssues.KeyRejected => $"сервер {tracker.Server} отклонил ключ — замените его {settings}",
+            TrackerIssues.KeyForbidden =>
+                $"у владельца ключа нет прав заводить задачи в проекте {tracker.Project} — проверьте его права в YouTrack"
+                + (created.Detail is null ? "" : $" ({created.Detail})"),
             TrackerIssues.ServerSilent => $"сервер {tracker.Server} не ответил: {created.Detail ?? "нет связи"}",
             TrackerIssues.ProjectMissing => $"на сервере {tracker.Server} нет проекта {tracker.Project} или у вашего ключа нет к нему доступа",
             CreatedIssue.YouTrackSilent => $"YouTrack не ответил за минуту{(created.Detail is null ? "" : $" ({created.Detail})")}",

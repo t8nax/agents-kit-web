@@ -161,8 +161,11 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
         {
             using var response = await clients.CreateClient(Client).SendAsync(request, limit.Token);
             var text = await response.Content.ReadAsStringAsync(limit.Token);
-            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            if (response.StatusCode is HttpStatusCode.Unauthorized)
                 return new Reply(null, TrackerIssues.KeyRejected);
+            // Действующий ключ, у владельца которого нет прав на это действие: менять ключ незачем (ревью B-288)
+            if (response.StatusCode is HttpStatusCode.Forbidden)
+                return new Reply(null, TrackerIssues.KeyForbidden, Described(text));
             if (!response.IsSuccessStatusCode)
                 return new Reply(null, TrackerIssues.YouTrackError, Described(text) ?? $"HTTP {(int)response.StatusCode}");
             try

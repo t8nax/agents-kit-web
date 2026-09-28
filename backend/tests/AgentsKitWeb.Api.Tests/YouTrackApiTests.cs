@@ -36,14 +36,26 @@ public sealed class YouTrackApiTests
         Assert.Equal($"Bearer {Key}", auth);
     }
 
-    [Theory]
-    [InlineData(HttpStatusCode.Unauthorized)]
-    [InlineData(HttpStatusCode.Forbidden)]
-    public async Task Who_RefusedKey_IsKeyRejected(HttpStatusCode status)
+    [Fact]
+    public async Task Who_RefusedKey_IsKeyRejected()
     {
-        var who = await Api(_ => Json("""{"error":"Unauthorized"}""", status)).WhoAsync(Server, Key, CancellationToken.None);
+        var who = await Api(_ => Json("""{"error":"Unauthorized"}""", HttpStatusCode.Unauthorized)).WhoAsync(Server, Key, CancellationToken.None);
 
         Assert.Equal(new YouTrackUser(null, TrackerIssues.KeyRejected), who);
+    }
+
+    /// <summary>403 — ключ действует, но у владельца нет прав: «замените ключ» тут советовать незачем (ревью B-288).</summary>
+    [Fact]
+    public async Task Create_Forbidden_IsKeyForbiddenNotRejected()
+    {
+        var api = Api(request => request.Method == HttpMethod.Post
+            ? Json("""{"error":"Forbidden","error_description":"Нет прав на создание задач"}""", HttpStatusCode.Forbidden)
+            : request.RequestUri!.AbsolutePath.EndsWith("/users/me") ? Json("""{"login":"b"}""") : Json("""[{"id":"0-1","shortName":"ABC"}]"""));
+
+        var created = await api.CreateAsync(Server, Key, "ABC", "Т", "О");
+
+        Assert.Equal(new CreatedIssue(null, TrackerIssues.KeyForbidden, "Нет прав на создание задач"), created);
+        Assert.False(created.MaybeCreated);
     }
 
     [Fact]

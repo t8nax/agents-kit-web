@@ -34,6 +34,11 @@ function refusalOf(problem: string, detail: string | null | undefined): Refusal 
         text: 'Сервер отклонил ключ, ключ не сохранён. Проверьте, что ключ скопирован полностью и действует.',
         field: 'key',
       }
+    case 'key-forbidden':
+      return {
+        text: 'Сервер не дал владельцу ключа доступа, ключ не сохранён. Проверьте права владельца ключа в YouTrack.',
+        field: 'key',
+      }
     case 'file-broken':
       return { text: brokenText(detail), field: null }
     case 'server-silent':

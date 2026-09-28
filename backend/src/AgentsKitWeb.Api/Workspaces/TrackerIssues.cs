@@ -23,7 +23,8 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// «no-keys», «unreadable»), «no-tracker». У GitHub: «gh-missing» — нет программы gh, «gh-login» — gh не вошла
 /// в аккаунт GitHub, «repo-unreachable» — репозитория нет или к нему нет доступа (GitHub их не различает),
 /// «github-error» — GitHub отказал иначе, Detail — его строка. У YouTrack: «no-key» — ключа к серверу нет
-/// в «Настройках», «key-rejected» — сервер ключ отклонил, «server-silent» — сервер не ответил, «project-missing» —
+/// в «Настройках», «key-rejected» — сервер ключ отклонил, «key-forbidden» — ключ принят, но у его владельца нет прав
+/// на это действие, «server-silent» — сервер не ответил, «project-missing» —
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
 /// </summary>
 public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null)
@@ -35,6 +36,7 @@ public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? P
     public const string GitHubError = "github-error";
     public const string NoKey = "no-key";
     public const string KeyRejected = "key-rejected";
+    public const string KeyForbidden = "key-forbidden";
     public const string ServerSilent = "server-silent";
     public const string ProjectMissing = "project-missing";
     public const string YouTrackError = "youtrack-error";
