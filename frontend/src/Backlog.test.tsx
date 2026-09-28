@@ -505,17 +505,24 @@ test('бэклог базы нового формата виден и берёт
   const nota = screen.getByRole('button', { name: /B-2 / }).closest('.entry-row') as HTMLElement
   expect(within(nota).getByRole('button', { name: 'Изменить' })).toBeEnabled()
 
-  // Просить Чудо-Юдо можно, но базу нового формата в его окне не выбрать
+  // Просить Чудо-Юдо можно: окно встаёт на базе, которую панель знает, а базу нового формата выбрать можно —
+  // тогда под шапкой плашка, а просьбу не написать и не отправить (замечание оператора на макете)
   fireEvent.click(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' }))
   const dialog = within(screen.getByRole('dialog', { name: 'Чудо-Юдо' }))
   // Проект выбирается, когда окно узнало, что разговора в панели нет
   await waitFor(() => expect(dialog.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+  const field = dialog.getByLabelText('Просьба к Чудо-Юдо')
+  expect(field).toBeEnabled()
+  expect(dialog.queryByText(refusal)).not.toBeInTheDocument()
   fireEvent.click(dialog.getByRole('button', { name: 'Проект: Nota' }))
-  const closed = dialog.getByRole('option', { name: /Agents Kit Web/ })
-  expect(closed).toHaveAttribute('aria-disabled', 'true')
-  expect(closed).toHaveTextContent(refusal)
-  fireEvent.click(closed)
-  expect(dialog.getByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
+  const option = dialog.getByRole('option', { name: 'Agents Kit Web' })
+  expect(option).not.toHaveTextContent(refusal)
+  fireEvent.click(option)
+  expect(dialog.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeInTheDocument()
+  expect(dialog.getByText(refusal)).toBeInTheDocument()
+  expect(field).toBeDisabled()
+  expect(dialog.getByRole('button', { name: 'Отправить' })).toBeDisabled()
+  expect(dialog.getByRole('button', { name: 'Приложить файл' })).toBeDisabled()
   fireEvent.click(dialog.getAllByRole('button', { name: 'Закрыть' })[0])
 
   // Выбран проект этой базы: плашка на том же месте, под заголовком проекта, и погашенная просьба

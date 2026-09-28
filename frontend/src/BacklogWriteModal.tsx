@@ -6,6 +6,7 @@ import { payload, useAttachments, type Attachment, type SentFile } from './attac
 import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
+import { FormatNotice } from './NewerFormat'
 import { useAgentConversation } from './agentConversation'
 import './Modal.css'
 import './ReplyModal.css'
@@ -15,7 +16,10 @@ import './BacklogWriteModal.css'
 // Имя агента, который ведёт бэклог и отвечает по базе, — выбор оператора.
 export const AGENT_NAME = 'Чудо-Юдо'
 
-/** closed — почему в бэклог проекта писать нельзя (база нового формата, B-281); в списке он виден, но не выбирается. */
+/**
+ * closed — почему в бэклог проекта писать нельзя (база нового формата, B-281): проект выбирается, но окно ставит под
+ * шапкой плашку, а просьбу не отправить — замечание оператора на макете.
+ */
 export type WriteBase = { base: string; project: string; closed?: string | null }
 
 export type WrittenEntry = BacklogEntry
@@ -134,6 +138,7 @@ export default function BacklogWriteModal({
   const value = text ?? retry ?? ''
   const base = conversation.base ?? chosen
   const project = bases.find((b) => b.base === base)?.project ?? ''
+  const closed = bases.find((b) => b.base === base)?.closed ?? null
   const firstReply = events.find((e) => e.type === 'reply')
   const aboutNumber = own?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
   const savedCount = events.filter((e) => e.type === 'saved').length
@@ -326,7 +331,7 @@ export default function BacklogWriteModal({
                   <PickMenu
                     label="Проект"
                     value={project}
-                    options={bases.map((b) => ({ id: b.base, label: b.project, title: b.base, disabled: !!b.closed, reason: b.closed ?? undefined }))}
+                    options={bases.map((b) => ({ id: b.base, label: b.project, title: b.base }))}
                     selected={base}
                     disabled={talking || running || conversation.base !== null || own !== null || asking !== null || waiting}
                     onPick={setChosen}
@@ -374,6 +379,8 @@ export default function BacklogWriteModal({
             {saveError.output && <pre>{saveError.output}</pre>}
           </div>
         )}
+
+        {closed && <FormatNotice text={closed} />}
 
         <div className="reply-feed talk-feed" ref={feed}>
           {waiting && <p className="modal-message">Загрузка…</p>}
@@ -494,7 +501,7 @@ export default function BacklogWriteModal({
               value={value}
               placeholder={placeholder}
               // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
-              disabled={running || waiting || saving !== null}
+              disabled={running || waiting || saving !== null || closed !== null}
               onChange={(e) => setText(e.target.value)}
               onPaste={attach.onPaste}
               onKeyDown={(e) => {
@@ -511,13 +518,13 @@ export default function BacklogWriteModal({
             <div className="talk-buttons">
               <AttachButton
                 label="Приложить файл"
-                disabled={running || waiting || saving !== null}
+                disabled={running || waiting || saving !== null || closed !== null}
                 onFiles={(files) => void attach.add(files)}
               />
               <button
                 type="button"
                 className="btn composer-send"
-                disabled={!talking || running || waiting || saving !== null}
+                disabled={!talking || running || waiting || saving !== null || closed !== null}
                 onClick={newTalk}
               >
                 Новая переписка
@@ -530,7 +537,7 @@ export default function BacklogWriteModal({
                 <button
                   type="button"
                   className="btn btn-primary composer-send"
-                  disabled={!base || !value.trim() || waiting || saving !== null}
+                  disabled={!base || !value.trim() || waiting || saving !== null || closed !== null}
                   onClick={() => void submit()}
                 >
                   <SendIcon />
