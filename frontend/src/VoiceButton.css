@@ -1,0 +1,125 @@
+/* Кнопка микрофона — одна на все поля, где пишут агенту (макет B-291). */
+.mic {
+  font: inherit;
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  /* Удержание кнопки пальцем или мышью не выделяет текст и не открывает меню. */
+  user-select: none;
+  touch-action: none;
+}
+
+.modal-overlay .mic svg,
+.mic svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mic:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.mic:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+/* Слушает щелчком: закреплена, на ней «стоп» — второй щелчок заканчивает запись. */
+.mic.is-click {
+  background: var(--accent-active-bg);
+  border-color: var(--accent-active-border);
+  color: var(--accent-active-text);
+}
+
+.mic.is-click .mic-stop {
+  fill: currentColor;
+  stroke-width: 1.5;
+}
+
+/* Слушает удержанием: вдавлена и залита, пока кнопку держат. */
+.mic.is-hold,
+.mic.is-hold:hover:not(:disabled) {
+  background: var(--accent-active-text);
+  border-color: var(--accent-active-text);
+  color: var(--bg-surface);
+  transform: scale(0.95);
+}
+
+.mic.is-click,
+.mic.is-hold {
+  animation: mic-pulse 1.4s ease-out infinite;
+}
+
+@keyframes mic-pulse {
+  0% {
+    box-shadow: 0 0 0 0 var(--accent-active-border);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+/* Распознаёт: запись кончилась, последний кусок ещё не пришёл. */
+.mic-spin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent-active-text);
+  animation: mic-spin 0.9s linear infinite;
+}
+
+@keyframes mic-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Недоступна — погашена, но подсказку при наведении браузер показывает: disabled её глушит не везде. */
+.mic:disabled,
+.mic[aria-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mic.is-click,
+  .mic.is-hold {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--accent-active-border);
+  }
+
+  .mic-spin {
+    animation-duration: 3s;
+  }
+}
+
+/* Разовое поле: кнопка в правом нижнем углу поля, текст не заходит под неё. */
+.voice-field {
+  position: relative;
+}
+
+.voice-field > textarea {
+  padding-right: 60px;
+}
+
+.voice-field > .mic {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+}
+
+.voice-field > .mic:not(.is-click):not(.is-hold) {
+  background: var(--bg-surface);
+}
