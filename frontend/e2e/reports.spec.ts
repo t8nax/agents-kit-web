@@ -130,7 +130,7 @@ test('расписание пишется сразу при изменении',
   await expect.poll(() => puts).toEqual([{ base, enabled: true, days: [1, 3, 5, 2], hour: 9 }])
 })
 
-test('от находки открывается окно переписывания флоу с просьбой в поле', async ({ page }) => {
+test('от находки поверх отчёта открывается окно переписывания флоу с просьбой в поле', async ({ page }) => {
   await mockReports(page, { report })
   await page.route('**/api/performers', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/flow', (route) =>
@@ -148,6 +148,13 @@ test('от находки открывается окно переписыван
   const dialog = page.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel('Просьба')).toHaveValue(/по требованию «Каждый исход куда-то ведёт»\. Место во флоу: Мерж\./)
+  // Окно стоит поверх отчёта, как на макете: раздел под ним — «Отчёты», а не «Флоу».
+  await expect(page.getByRole('heading', { name: 'Отчёты', level: 2 })).toBeAttached()
+  await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toHaveCount(0)
+
+  await dialog.getByRole('button', { name: 'Закрыть' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(row.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeVisible()
 })
 
 test('первый отчёт строится кнопкой: идёт разбор с «Отменить», и готовый отчёт встаёт на место', async ({ page }) => {

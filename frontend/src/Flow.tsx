@@ -428,6 +428,8 @@ export default function Flow({
   baseFor = null,
   rewriteAt = null,
   rewriteWish = null,
+  rewriteOnly = false,
+  onRewriteClosed,
   onPerformers,
 }: {
   baseFor?: string | null
@@ -438,6 +440,12 @@ export default function Flow({
   rewriteAt?: number | null
   /** Просьба, которую окно переписывания получает в поле: её вписывает отчёт о флоу по находке (B-270). */
   rewriteWish?: string | null
+  /**
+   * Раздел не рисуется — только окно переписывания поверх другого раздела: отчёт о флоу открывает его у находки,
+   * а правки пишутся тем же путём, что из раздела (B-270). Закрытое окно зовёт onRewriteClosed.
+   */
+  rewriteOnly?: boolean
+  onRewriteClosed?: () => void
   onPerformers?: () => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
@@ -919,6 +927,45 @@ export default function Flow({
     onDelete: () => deleteStage(currentStage),
   }
 
+  const closeRewrite = () => {
+    setModal(null)
+    onRewriteClosed?.()
+  }
+  const rewriteWindow = modal === 'rewrite' && flow && editable && (
+    <FlowRewriteModal
+      base={flow.base}
+      project={flow.project}
+      stages={toApi(saved).stages}
+      flows={toApi(saved).flows}
+      mark={stageMark}
+      lockedStage={(title) => {
+        const stage = saved.stages.find((one) => norm(one.title) === norm(title))
+        return (stage && lockOfStage(stage.key)?.tasks) || null
+      }}
+      lockedFlow={(name) => {
+        const named = saved.flows.find((one) => norm(one.name) === norm(name))
+        return (named && lockOfFlow(named.key)?.tasks) || null
+      }}
+      wish={rewriteWish}
+      onApply={applyProposal}
+      onClose={closeRewrite}
+    />
+  )
+  // Правки агента ложатся только на прочитанный флоу: окно не встаёт — сказать почему.
+  const rewriteRefused = modal === 'rewrite' && flow?.error && (
+    <p className="message warning-text" role="status">
+      Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
+    </p>
+  )
+
+  if (rewriteOnly)
+    return (
+      <>
+        {rewriteWindow}
+        {rewriteRefused}
+      </>
+    )
+
   return (
     <>
       {/* Пока открыто окно, верх раздела под подложкой недоступен: окно запирает Tab. */}
@@ -1065,12 +1112,8 @@ export default function Flow({
       )}
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
-      {/* Правки агента ложатся только на прочитанный флоу: с отметки в шапке окно не встаёт — сказать почему. */}
-      {modal === 'rewrite' && flow?.error && (
-        <p className="message warning-text" role="status">
-          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
-        </p>
-      )}
+      {/* С отметки в шапке окно у непрочитанного флоу не встаёт — сказать почему. */}
+      {rewriteRefused}
 
       {load.kind === 'loaded' && (
         // Пока запись идёт, раздел занят: действие на схеме, начатое поверх неё, шло бы от флоу, который вот-вот сменится.
@@ -1224,26 +1267,7 @@ export default function Flow({
         />
       )}
 
-      {modal === 'rewrite' && flow && editable && (
-        <FlowRewriteModal
-          base={flow.base}
-          project={flow.project}
-          stages={toApi(saved).stages}
-          flows={toApi(saved).flows}
-          mark={stageMark}
-          lockedStage={(title) => {
-            const stage = saved.stages.find((one) => norm(one.title) === norm(title))
-            return (stage && lockOfStage(stage.key)?.tasks) || null
-          }}
-          lockedFlow={(name) => {
-            const named = saved.flows.find((one) => norm(one.name) === norm(name))
-            return (named && lockOfFlow(named.key)?.tasks) || null
-          }}
-          wish={rewriteWish}
-          onApply={applyProposal}
-          onClose={() => setModal(null)}
-        />
-      )}
+      {rewriteWindow}
 
       {modal === 'add' && currentFlow && (
         <AddStage

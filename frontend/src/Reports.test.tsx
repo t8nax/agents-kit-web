@@ -80,6 +80,12 @@ function stub(list: () => FlowReportItem[], options: { running?: boolean; run?: 
       return Response.json(off)
     }
     if (url === '/api/reports/flow/run' && options.run) return new Response(null, { status: options.run })
+    // Окно переписывания поверх отчёта читает флоу и исполнителей проекта, как раздел «Флоу».
+    if (url === '/api/flow')
+      return Response.json([
+        { base: 'D:\\kb\\app', project: 'Agents Kit Web', stages: [], flows: [], version: 'v1', error: null, icons: {}, tasks: [] },
+      ])
+    if (url === '/api/performers') return Response.json([])
     return null
   }
   const panel = stubPanel('report', stream, {
@@ -90,9 +96,9 @@ function stub(list: () => FlowReportItem[], options: { running?: boolean; run?: 
   return { stream, puts, panel }
 }
 
-function renderReports(onRewrite = vi.fn(), onProblems = vi.fn()) {
-  render(<Reports onRewrite={onRewrite} onProblems={onProblems} />)
-  return { onRewrite, onProblems }
+function renderReports(onProblems = vi.fn()) {
+  render(<Reports onProblems={onProblems} />)
+  return { onProblems }
 }
 
 test('раздел показывает вид отчёта, проект, кольца и находки по приоритету без номеров требований', async () => {
@@ -136,7 +142,7 @@ test('находка под двумя требованиями стоит дв�
 
 test('раскрытая находка говорит, что проверяет требование, где проблема, почему и что сделать', async () => {
   stub(() => [item()])
-  const { onRewrite } = renderReports()
+  renderReports()
 
   const row = (await screen.findByText('Каждый исход куда-то ведёт')).closest('details')!
   fireEvent.click(within(row).getByText('Каждый исход куда-то ведёт'))
@@ -148,13 +154,19 @@ test('раскрытая находка говорит, что проверяе�
   expect(within(row).getByText('Добавить этапу «Мерж» возврат на этап «Реализация».')).toBeTruthy()
   expect(within(row).getByText('Исправление вернёт кольцу «Проходимость» 15 баллов.')).toBeTruthy()
 
+  // Окно встаёт поверх отчёта, как на макете, с просьбой по находке в поле; отправляет оператор.
   fireEvent.click(within(row).getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
-  expect(onRewrite).toHaveBeenCalledWith(
-    'D:\\kb\\app',
+  const dialog = await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
+  expect(within(dialog).getByLabelText('Просьба')).toHaveValue(
     'Прошу исправить находку отчёта «Как устроен флоу» по требованию «Каждый исход куда-то ведёт». Место во флоу: Мерж.' +
       '\n\nПри ответе «не принято» у задачи нет продолжения.' +
       '\n\nПредлагаемое исправление: Добавить этапу «Мерж» возврат на этап «Реализация».',
   )
+  expect(screen.getByRole('heading', { name: 'Отчёты' })).toBeTruthy()
+
+  // Закрытое окно уходит вместе с просьбой: открытое снова от другой находки несёт уже её.
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Закрыть' }))
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeNull())
 })
 
 test('по кольцам находки стоят под своим кольцом со счётом требований, без «вычтено»', async () => {

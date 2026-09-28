@@ -155,8 +155,6 @@ function App() {
     kind: AgentKind
     base: string
     subject?: string | null
-    /** Просьба к Чудо-Юдо, которую отчёт вписывает в поле окна переписывания флоу. */
-    wish?: string
     at: number
   } | null>(null)
   const [creating, setCreating] = useState(false)
@@ -347,7 +345,6 @@ function App() {
             <Flow
               baseFor={openRequest?.kind === 'flow' ? openRequest.base : null}
               rewriteAt={openRequest?.kind === 'flow' ? openRequest.at : null}
-              rewriteWish={openRequest?.kind === 'flow' ? (openRequest.wish ?? null) : null}
               onPerformers={() => setSection('performers')}
             />
           ) : section === 'performers' ? (
@@ -362,14 +359,11 @@ function App() {
           ) : section === 'usage' ? (
             <Usage />
           ) : section === 'reports' ? (
+            // Возврат к просьбе открывает раздел заново: он встаёт на проекте просьбы.
             <Reports
+              key={openRequest?.kind === 'report' ? openRequest.at : 'reports'}
               reportFor={openRequest?.kind === 'report' ? openRequest.base : null}
               onProblems={() => setSection('problems')}
-              // Правки флоу пишет раздел «Флоу»: окно переписывания открывается там, с просьбой по находке в поле.
-              onRewrite={(base, wish) => {
-                setSection('flow')
-                setOpenRequest({ kind: 'flow', base, wish, at: Date.now() })
-              }}
             />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />

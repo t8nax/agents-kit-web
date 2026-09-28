@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
+import Flow from './Flow'
 import PickMenu from './PickMenu'
 import { WarningIcon } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
@@ -136,12 +137,10 @@ function rewriteWish(row: Row) {
 export default function Reports({
   reportFor = null,
   onProblems,
-  onRewrite,
 }: {
   /** База просьбы, к которой оператор вернулся из шапки: раздел открывается сразу на ней. */
   reportFor?: string | null
   onProblems: () => void
-  onRewrite: (base: string, wish: string) => void
 }) {
   const [items, setItems] = useState<FlowReportItem[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -150,6 +149,8 @@ export default function Reports({
   const [runFailure, setRunFailure] = useState<string | null>(null)
   const [scheduleFailure, setScheduleFailure] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
+  // Окно переписывания флоу поверх отчёта: просьба по находке живёт только в нём (ревью B-270, М.1 и м.1).
+  const [rewrite, setRewrite] = useState<{ base: string; wish: string; at: number } | null>(null)
   const reveal = useReveal(items === null && !failed)
   const request = useAgentRequest<ReportEvent>('report')
 
@@ -327,7 +328,7 @@ export default function Reports({
               report={report}
               order={order}
               onOrder={setOrder}
-              onRewrite={(row) => onRewrite(item.base, rewriteWish(row))}
+              onRewrite={(row) => setRewrite({ base: item.base, wish: rewriteWish(row), at: Date.now() })}
             />
           ) : running && mine ? (
             <ReportSkeleton />
@@ -347,6 +348,17 @@ export default function Reports({
             )
           )}
         </div>
+      )}
+
+      {/* Правки флоу пишет раздел «Флоу»: от него здесь только окно, тем же путём записи и с теми же замками задач. */}
+      {rewrite && (
+        <Flow
+          baseFor={rewrite.base}
+          rewriteAt={rewrite.at}
+          rewriteWish={rewrite.wish}
+          rewriteOnly
+          onRewriteClosed={() => setRewrite(null)}
+        />
       )}
     </div>
   )
