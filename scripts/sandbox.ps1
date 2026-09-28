@@ -171,7 +171,7 @@ function Stop-OldDummies {
 
 # --- содержимое баз ----------------------------------------------------------------------
 
-# Раскладка базы кита формата 6, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
+# Раскладка базы кита формата 7, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
 # личный репозиторий оператора local\me со своим git — флоу, исполнители, бэклог, память задач по машинам и их артефакты,
 # папка оператора people\<имя> — выложенное для коллег. Оператор песочницы — «sandbox».
 $sandboxOperator = 'sandbox'
@@ -476,11 +476,11 @@ $designBlock$artifactsBlock$question
     Write-Utf8 $Path $text -Crlf:$Crlf
 }
 
-# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 6, и панель читает её теми же правилами.
+# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 7, и панель читает её теми же правилами.
 # $StagesOnly — этапы без списка сценариев, $NoFlow — ни этапов, ни сценариев. $Format 5 — база до перевода китом
 # на формат 6: флоу и исполнители ещё в папке оператора общей базы.
 function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
-    [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow, [int]$Format = 6) {
+    [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow, [int]$Format = 7) {
     New-Repo $Path
     if (-not $NoProduct) {
         Write-Utf8 (Join-Path $Path 'product.md') @"
