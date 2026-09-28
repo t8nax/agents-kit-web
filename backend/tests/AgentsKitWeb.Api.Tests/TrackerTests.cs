@@ -37,6 +37,7 @@ public class TrackerTests
 
         Assert.Equal(TrackerInfo.GitHub, tracker.Kind);
         Assert.Equal("git.acme.local/acme/orders", tracker.GitHubRepo);
+        Assert.Equal("git.acme.local:8443/acme/orders", Tracker.Parse(Describe("трекер: GitHub\nсервер: https://git.acme.local:8443\nпроект: acme/orders")).GitHubRepo);
     }
 
     [Fact]

@@ -688,6 +688,8 @@ function New-YouTrackStub([string]$Root, [int]$Port) {
 #   rejected  отклоняет любой ключ
 #   error     отвечает ошибкой сервера
 #   slow      отвечает через двадцать секунд — панель считает, что сервер не ответил
+#   slow-create  читает как ok, а заведение задачи отвечает через семьдесят секунд — задача заводится, но панель
+#             не дожидается ответа и пишет, что задача, возможно, заведена
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $issuesFile = Join-Path $root 'youtrack-issues.json'
@@ -744,6 +746,7 @@ while ($listener.IsListening) {
             $created = Join-Path $root 'youtrack-created'
             New-Item -ItemType Directory -Force -Path $created | Out-Null
             [IO.File]::WriteAllText((Join-Path $created "$project-$number.md"), "# $($payload.summary)`n`n$($payload.description)", $utf8)
+            if ($mode -eq 'slow-create') { Start-Sleep -Seconds 70 }
             Send $context 200 @{ idReadable = "$project-$number"; summary = $payload.summary }
             continue
         }

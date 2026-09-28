@@ -1100,7 +1100,7 @@ else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
 Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, login, error, slow); задачи — gh-issues.json"
-Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow), задачи — youtrack-issues.json"
+Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
 $self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
 $where = ''

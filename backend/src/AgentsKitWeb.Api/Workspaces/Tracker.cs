@@ -20,13 +20,13 @@ public sealed record TrackerInfo(
     public const string Unreadable = "unreadable";
 
     /// <summary>
-    /// Репозиторий для gh: «владелец/репозиторий» на github.com, «хост/владелец/репозиторий» на GitHub Enterprise.
+    /// Репозиторий для gh: «владелец/репозиторий» на github.com, «хост[:порт]/владелец/репозиторий» на GitHub Enterprise.
     /// </summary>
     [JsonIgnore]
     public string? GitHubRepo =>
         Kind != GitHub || Server is null || Project is null ? null
-        : new Uri(Server).Host is var host && host.Equals("github.com", StringComparison.OrdinalIgnoreCase) ? Project
-        : $"{host}/{Project}";
+        : new Uri(Server) is var uri && uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) ? Project
+        : $"{uri.Authority}/{Project}";
 }
 
 /// <summary>

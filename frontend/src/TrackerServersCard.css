@@ -83,7 +83,7 @@
   color: var(--text-secondary);
 }
 
-.bases-list li .bases-btn {
+.trk-card .bases-list li .bases-btn {
   flex: none;
 }
 
