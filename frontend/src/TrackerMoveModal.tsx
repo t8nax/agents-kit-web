@@ -18,8 +18,8 @@ type Props = {
 
 type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 'loaded'; draft: TrackerDraft }
 
-/** Задача заведена; error — запись осталась в бэклоге. */
-type Result = { issue: TrackerIssue; error: string | null }
+/** Задача заведена; error — запись осталась в бэклоге (output — вывод git), removed — файлы, ушедшие с записью. */
+type Result = { issue: TrackerIssue; error: string | null; output: string | null; removed: string[] }
 
 /**
  * Окно переноса записи в трекер — по образцу окна запуска задачи, без поля «Куда» (макет B-286, вариант А). Что уйдёт
@@ -30,6 +30,8 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [result, setResult] = useState<Result | null>(null)
+  // Чтение записи по счёту: запись изменилась после открытия окна — окно читает её заново (ревью B-286)
+  const [round, setRound] = useState(0)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -57,7 +59,7 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
     return () => {
       alive = false
     }
-  }, [base, entry.number])
+  }, [base, entry.number, round])
 
   async function move(draft: TrackerDraft) {
     if (busy) return
@@ -81,8 +83,13 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
       }
       const moved = (await response.json()) as TrackerMoved
       if (moved.issue) {
-        setResult({ issue: moved.issue, error: moved.error ?? null })
+        setResult({ issue: moved.issue, error: moved.error ?? null, output: moved.output ?? null, removed: moved.removed ?? [] })
         onMoved()
+      } else if (moved.problem === 'entry-changed') {
+        // Подтверждали не то, что лежит в бэклоге: окно показывает запись заново, и завести задачу можно снова
+        setFailure('Запись изменилась, пока окно было открыто, — окно показывает её заново. Проверьте и заведите задачу ещё раз.')
+        setLoad({ kind: 'loading' })
+        setRound((n) => n + 1)
       } else {
         // Фразу пишет API — одна на окно и разговор с Чудо-Юдо; «возможно, заведена» она говорит сама
         setFailure(moved.error ?? 'Задача не заведена.')
@@ -116,9 +123,11 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
                 <div className="st-failure tt-failure" role="alert">
                   <strong>Запись осталась в бэклоге</strong>
                   <span>
-                    Панель не убрала {entry.number} из бэклога: {result.error}. Задача и запись теперь повторяют друг друга:
-                    уберите запись из бэклога.
+                    Панель не убрала {entry.number} из бэклога. {result.error}. Задача и запись теперь повторяют друг
+                    друга: уберите запись из бэклога.
                   </span>
+                  {/* Вывод git — как у несохранённого в окне Чудо-Юдо: по нему видно, что не пустило коммит */}
+                  {result.output && <pre className="tt-output">{result.output}</pre>}
                 </div>
               )}
               <div className="st-field">
@@ -126,10 +135,7 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
                 <IssueLink issue={result.issue} />
               </div>
               {!result.error && (
-                <p className="st-text text-sec">
-                  Запись {entry.number} убрана из бэклога
-                  {draft && draft.files.length > 0 ? ', приложенные к ней файлы удалены.' : '.'}
-                </p>
+                <p className="st-text text-sec">{movedText(entry.number, draft?.files.length ?? 0, result.removed.length)}</p>
               )}
             </>
           ) : (
@@ -205,6 +211,18 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
       </div>
     </div>
   )
+}
+
+/**
+ * Итог по тому, что удалено на самом деле: файл, на который ссылается другая запись или задача, панель не удаляет
+ * (ревью B-286).
+ */
+function movedText(number: string, files: number, removed: number): string {
+  if (files === 0) return `Запись ${number} убрана из бэклога.`
+  if (removed === files) return `Запись ${number} убрана из бэклога, приложенные к ней файлы удалены.`
+  if (removed === 0)
+    return `Запись ${number} убрана из бэклога. Приложенные к ней файлы остались: на них ссылается другая запись или задача.`
+  return `Запись ${number} убрана из бэклога. Удалены файлы, на которые больше ничего не ссылалось; остальные остались.`
 }
 
 /** Строка задачи — как в группе задач трекера: ссылка на GitHub во вкладку браузера, и адрес под ней. */

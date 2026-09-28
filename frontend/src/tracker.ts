@@ -43,6 +43,8 @@ export type TrackerMoved = {
   error?: string | null
   output?: string | null
   commit?: string | null
+  /** Файлы artifacts/, ушедшие вместе с записью: на них больше ничего не ссылалось. */
+  removed?: string[] | null
 }
 
 export function loadTrackerIssues(base: string): Promise<TrackerLoad> {

@@ -86,7 +86,10 @@ test('«Отмена» закрывает окно и ничего не заво
 })
 
 test('«Завести задачу» переносит запись, какой её видело окно, и показывает ссылку на задачу', async () => {
-  const fetchMock = stubFetch({ ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] })
+  const fetchMock = stubFetch(
+    { ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] },
+    { issue, removed: ['artifacts/B-281-снимок.png'] },
+  )
   const { onMoved } = renderModal()
 
   fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
@@ -126,14 +129,16 @@ test('пока задача заводится, кнопки погашены', 
 })
 
 test('задача заведена, а запись осталась — ссылка на задачу и красная строка', async () => {
-  stubFetch(draft, { issue, error: 'Коммит не прошёл — backlog.md оставлен как был' })
+  stubFetch(draft, { issue, error: 'Коммит не прошёл — backlog.md оставлен как был', output: 'сверка не прошла' })
   const { onMoved } = renderModal()
 
   fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
 
   const alert = await screen.findByRole('alert')
   expect(alert).toHaveTextContent('Запись осталась в бэклоге')
-  expect(alert).toHaveTextContent('Коммит не прошёл — backlog.md оставлен как был')
+  expect(alert).toHaveTextContent('Панель не убрала B-281 из бэклога. Коммит не прошёл — backlog.md оставлен как был.')
+  // Вывод git — как у несохранённого в окне Чудо-Юдо
+  expect(alert).toHaveTextContent('сверка не прошла')
   expect(screen.getByRole('link', { name: /#58/ })).toBeInTheDocument()
   expect(screen.queryByText(/убрана из бэклога/)).not.toBeInTheDocument()
   // Повторить нечего: второй раз завелась бы вторая задача
@@ -162,6 +167,46 @@ test('чужая правка бэклога — задача не заведе�
   expect(await screen.findByRole('alert')).toHaveTextContent(
     'В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано',
   )
+})
+
+test('файл, на который ссылается другая запись, остался — итог так и говорит', async () => {
+  stubFetch({ ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] }, { issue, removed: [] })
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+
+  expect(
+    await screen.findByText('Запись B-281 убрана из бэклога. Приложенные к ней файлы остались: на них ссылается другая запись или задача.'),
+  ).toBeInTheDocument()
+})
+
+test('запись изменилась, пока окно было открыто, — окно читает её заново, и завести можно снова', async () => {
+  let shown = draft
+  const posts: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/backlog/tracker/draft?')) return Promise.resolve(Response.json(shown))
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(
+        Response.json(
+          posts.length === 1
+            ? { issue: null, problem: 'entry-changed', error: 'Запись B-281 изменилась после открытия окна переноса — ничего не записано' }
+            : { issue },
+        ),
+      )
+    }),
+  )
+  renderModal()
+  fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
+  shown = { ...draft, body: 'Поправлено соседней сессией.', original: '## B-281 новая' }
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Запись изменилась, пока окно было открыто')
+  expect(await screen.findByText('Поправлено соседней сессией.')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Завести задачу' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
+  expect(posts[1]).toEqual({ base, number: 'B-281', original: '## B-281 новая' })
 })
 
 test('записи больше нет — задачу не собрать, и заводить нечего', async () => {

@@ -17,7 +17,8 @@ public sealed record TrackerMoveRequest(string? Base, string? Number, string? Or
 /// <summary>
 /// Чем кончился перенос записи в трекер. Problem — задача не заведена: как у TrackerIssues и CreatedIssue, Detail —
 /// строка GitHub. Error без Issue — перенос не начат (чужая правка бэклога, запись изменилась); Error с Issue —
-/// задача заведена, а запись осталась в бэклоге. Commit — коммит, которым запись ушла из бэклога.
+/// задача заведена, а запись осталась в бэклоге. Commit — коммит, которым запись ушла из бэклога, Removed — файлы
+/// artifacts/, ушедшие вместе с ней. Problem «entry-changed» — запись изменилась после открытия окна: окно читает её заново.
 /// </summary>
 public sealed record TrackerMoved(
     TrackerIssue? Issue,
@@ -25,7 +26,11 @@ public sealed record TrackerMoved(
     string? Detail = null,
     string? Error = null,
     string? Output = null,
-    string? Commit = null);
+    string? Commit = null,
+    IReadOnlyList<string>? Removed = null)
+{
+    public const string EntryChanged = "entry-changed";
+}
 
 /// <summary>
 /// Перенос записи бэклога в трекер проекта — B-286: задачу заводит gh оператора, запись вырезает панель тем же
@@ -141,7 +146,7 @@ public static partial class BacklogTracker
             var saved = await BacklogConversations.WriteAsync(personal, proposal, [], WhoseMove);
             return saved.Error is { } error
                 ? new TrackerMoved(issue, Error: error, Output: saved.Output)
-                : new TrackerMoved(issue, Commit: saved.Commit);
+                : new TrackerMoved(issue, Commit: saved.Commit, Removed: saved.Removed);
         }
         finally
         {
@@ -175,7 +180,7 @@ public static partial class BacklogTracker
                 return Results.StatusCode(status);
             // Окно подтверждало запись, какой её видело: изменилась — переносится не то, что видел оператор.
             if (draft.Original != request.Original.ReplaceLineEndings("\n"))
-                return Results.Ok(new TrackerMoved(null, Error: $"Запись {draft.Number} изменилась после {WhoseMove} — ничего не записано"));
+                return Results.Ok(new TrackerMoved(null, TrackerMoved.EntryChanged, Error: $"Запись {draft.Number} изменилась после {WhoseMove} — ничего не записано"));
             return Results.Ok(await MoveAsync(github, found!.Value.Personal, found.Value.Repo, draft, found.Value.Entry));
         });
     }

@@ -145,6 +145,7 @@ public sealed class BacklogTrackerTests : IDisposable
         Assert.Null(moved.Error);
         Assert.Null(moved.Problem);
         Assert.NotNull(moved.Commit);
+        Assert.Equal(["artifacts/B-1-снимок.png"], moved.Removed);
         Assert.Equal(
             "# Order Service — бэклог\n\nследующий номер: B-3\nполя: тип, приоритет\n\n## B-2 Вторая запись\n\nТекст второй записи.\n",
             File.ReadAllText(BacklogPath));
@@ -243,6 +244,7 @@ public sealed class BacklogTrackerTests : IDisposable
 
         Assert.Empty(_github.Creates);
         Assert.Equal("Запись B-2 изменилась после открытия окна переноса — ничего не записано", moved.Error);
+        Assert.Equal(TrackerMoved.EntryChanged, moved.Problem);
     }
 
     [Fact]

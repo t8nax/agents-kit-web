@@ -57,10 +57,15 @@ public sealed class OpenBacklogCheckGate : IBacklogCheckGate
 
 /// <summary>
 /// Чем кончилось «Сохранить»: Error — почему не записано, Commit — чем записано. Issues — задачи трекера, заведённые
-/// переносом записей (номер записи → задача); бывают и при Error: задача заведена, а бэклог не записан.
+/// переносом записей (номер записи → задача); бывают и при Error: задача заведена, а бэклог не записан. Removed — файлы
+/// artifacts/, удалённые тем же коммитом: на них больше ничего не ссылалось.
 /// </summary>
 public sealed record BacklogSaved(
-    string? Commit, string? Error, string? Output = null, IReadOnlyDictionary<string, TrackerIssue>? Issues = null);
+    string? Commit,
+    string? Error,
+    string? Output = null,
+    IReadOnlyDictionary<string, TrackerIssue>? Issues = null,
+    IReadOnlyList<string>? Removed = null);
 
 /// <summary>
 /// Разговор оператора с агентом о бэклоге одной базы — решение оператора на B-72: оператор просит добавить,
@@ -389,7 +394,10 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return new BacklogSaved(null, "Коммит не прошёл — backlog.md оставлен как был", refused);
         }
 
-        return new BacklogSaved(await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None), null);
+        return new BacklogSaved(
+            await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None),
+            null,
+            Removed: [.. orphans.Select(o => o.Path)]);
     }
 
     // backlog.md и удалённые файлы артефактов — как до записи; null — вернулось, иначе — что помешало.
