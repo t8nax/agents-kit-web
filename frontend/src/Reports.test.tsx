@@ -194,6 +194,32 @@ test('раскрытая находка говорит, что проверяе�
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeNull())
 })
 
+test('код в формулировке требования показан моноширинным, без обратных кавычек', async () => {
+  const withCode = {
+    ...report,
+    requirements: report.requirements.map((one) =>
+      one.code === 'Я4' ? { ...one, text: 'Во флоу нет устройства системы (`product.md`, `decisions/`).' } : one,
+    ),
+  }
+  stub(() => [item({ report: withCode })])
+  renderReports()
+
+  const passed = (await screen.findByText('Во флоу только порядок работы')).closest('.rp-passed-row')!
+  expect(passed.textContent).not.toContain('`')
+  expect(passed.querySelector('code')?.textContent).toBe('product.md')
+})
+
+test('подсказка кольца объясняет, почему кольцо с высоким баллом не зелёное', async () => {
+  const near = { ...report, rings: [{ name: 'Проходимость', score: 93, band: 'avg' as const, total: 3, passed: 2 }] }
+  stub(() => [item({ report: near })])
+  renderReports()
+
+  expect(await screen.findByRole('button', { name: 'Проходимость: 93 из 100.' })).toHaveAttribute(
+    'title',
+    'Проходимость: 93 из 100. Кольцо не зелёное, потому что есть находка высокого приоритета.',
+  )
+})
+
 test('по кольцам находки стоят под своим кольцом со счётом требований, без «вычтено»', async () => {
   stub(() => [item()])
   renderReports()

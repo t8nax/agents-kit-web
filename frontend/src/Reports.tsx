@@ -554,7 +554,7 @@ function ReportView({
             key={ring.name}
             type="button"
             className="rp-ring"
-            title={`${ring.name}: ${ring.score} из 100.`}
+            title={ringTitle(ring)}
             aria-label={`${ring.name}: ${ring.score} из 100.`}
             onClick={() => {
               goRing.current = ring.name
@@ -690,7 +690,11 @@ function FindingRow({
         <dl className="rp-fields">
           <div>
             <dt>Проверяет</dt>
-            <dd>{requirement.text}</dd>
+            <dd>
+              <span>
+                <Inline text={requirement.text} />
+              </span>
+            </dd>
           </div>
           {twins.map((twin) => (
             <div key={twin.code}>
@@ -713,7 +717,9 @@ function FindingRow({
                 {finding.quotes.map((quote, i) => (
                   <span key={i} className="rp-quote">
                     <span className="rp-quote-place">{quote.where}</span>
-                    <span>{quote.text}</span>
+                    <span>
+                      <Inline text={quote.text} />
+                    </span>
                   </span>
                 ))}
               </dd>
@@ -721,12 +727,18 @@ function FindingRow({
           )}
           <div>
             <dt>Почему это плохо</dt>
-            <dd>{finding.why}</dd>
+            <dd>
+              <span>
+                <Inline text={finding.why} />
+              </span>
+            </dd>
           </div>
           <div>
             <dt>Что сделать</dt>
             <dd>
-              <span className="rp-fix">{finding.fix}</span>
+              <span className="rp-fix">
+                <Inline text={finding.fix} />
+              </span>
             </dd>
           </div>
         </dl>
@@ -801,7 +813,9 @@ function Passed({ requirements, withRing }: { requirements: Requirement[]; withR
               {requirement.title}
               {withRing && <span className="rp-passed-ring">{requirement.ring}</span>}
             </span>
-            <span className="rp-passed-text">{requirement.text}</span>
+            <span className="rp-passed-text">
+              <Inline text={requirement.text} />
+            </span>
           </div>
         ))}
       </div>
@@ -843,6 +857,25 @@ function Gauge({ ring, size }: { ring: RingScore; size: number }) {
         {ring.score}
       </span>
     </span>
+  )
+}
+
+/** Подсказка кольца: баллы, а у кольца, которое по баллам было бы зелёным, — почему оно не зелёное. */
+function ringTitle(ring: RingScore) {
+  const title = `${ring.name}: ${ring.score} из 100.`
+  return ring.band !== 'pass' && ring.score >= 90
+    ? `${title} Кольцо не зелёное, потому что есть находка высокого приоритета.`
+    : title
+}
+
+/**
+ * Текст справки кита и ответа Чудо-Юдо: `код` в обратных кавычках — моноширинным, без самих кавычек (ревью B-270).
+ */
+function Inline({ text }: { text: string }) {
+  return (
+    <>
+      {text.split('`').map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : <Fragment key={i}>{part}</Fragment>))}
+    </>
   )
 }
 
