@@ -193,28 +193,47 @@ public sealed class BacklogTrackerTests : IDisposable
     [Fact]
     public async Task Move_SameEntryTwiceAtOnce_CreatesOneIssue()
     {
-        var inGitHub = new TaskCompletionSource();
-        var release = new TaskCompletionSource();
-        _github.BeforeCreate = async () =>
+        // Первый перенос держится «в GitHub», пока тест не отпустит; второй, дойди он до GitHub, отмечается и идёт дальше
+        var firstInGitHub = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondInGitHub = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        _github.BeforeCreate = () =>
         {
-            inGitHub.TrySetResult();
-            await release.Task;
+            if (Interlocked.Increment(ref calls) > 1)
+            {
+                secondInGitHub.TrySetResult();
+                return Task.CompletedTask;
+            }
+            firstInGitHub.TrySetResult();
+            return release.Task;
         };
         var client = Client();
         var draft = await GetDraft(client, "B-2");
 
         var first = Move(client, draft);
-        await inGitHub.Task.WaitAsync(TimeSpan.FromSeconds(30));
-        var second = Move(client, draft);
-        // Второй стоит за первым, а не идёт в GitHub сам
-        await Task.Delay(300);
-        Assert.Single(_github.Creates);
-        release.SetResult();
+        Task<TrackerMoved>? second = null;
+        try
+        {
+            await firstInGitHub.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            second = Move(client, draft);
+            // Пока первый держится, запись ещё в бэклоге: без блокировки второй прошёл бы проверку и дошёл до GitHub.
+            // Первый держится весь срок ожидания, поэтому опоздание второго не спрячет поломку — только удлинит тест.
+            var reached = await Task.WhenAny(secondInGitHub.Task, second, Task.Delay(TimeSpan.FromSeconds(10)));
+            Assert.NotSame(secondInGitHub.Task, reached);
+            Assert.False(second.IsCompleted);
+        }
+        finally
+        {
+            // Упавшая проверка не должна держать общую блокировку записи бэклога: на ней повисли бы остальные тесты прогона
+            release.TrySetResult();
+        }
 
         Assert.Equal(58, (await first).Issue?.Number);
         var late = await second;
         Assert.Null(late.Issue);
         Assert.Equal("Запись B-2 изменилась после открытия окна переноса — ничего не записано", late.Error);
+        Assert.Equal(TrackerMoved.EntryChanged, late.Problem);
         Assert.Single(_github.Creates);
     }
 

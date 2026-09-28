@@ -169,14 +169,14 @@ test('чужая правка бэклога — задача не заведе�
   )
 })
 
-test('файл, на который ссылается другая запись, остался — итог так и говорит', async () => {
+test('файл, который не удалён, остался — итог так и говорит, не выдумывая причины', async () => {
   stubFetch({ ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] }, { issue, removed: [] })
   renderModal()
 
   fireEvent.click(await screen.findByRole('button', { name: 'Завести задачу' }))
 
   expect(
-    await screen.findByText('Запись B-281 убрана из бэклога. Приложенные к ней файлы остались: на них ссылается другая запись или задача.'),
+    await screen.findByText('Запись B-281 убрана из бэклога. Приложенные к ней файлы остались в базе.'),
   ).toBeInTheDocument()
 })
 

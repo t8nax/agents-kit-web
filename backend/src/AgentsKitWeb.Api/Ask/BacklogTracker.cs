@@ -137,7 +137,7 @@ public static partial class BacklogTracker
         try
         {
             if (await BacklogConversations.UnwritableAsync(personal, proposal, WhoseMove) is { } refusal)
-                return new TrackerMoved(null, Error: refusal);
+                return new TrackerMoved(null, refusal.Changed ? TrackerMoved.EntryChanged : null, Error: refusal.Text);
 
             var created = await github.CreateAsync(repo, draft.Title, draft.Body);
             if (created.Issue is not { } issue)

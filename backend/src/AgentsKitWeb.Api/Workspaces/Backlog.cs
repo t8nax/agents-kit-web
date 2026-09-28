@@ -201,13 +201,13 @@ public static partial class Backlog
         }
     }
 
-    /// <summary>Поля, объявленные строкой «поля:» шапки файла — до первой записи. Строки нет — полей нет.</summary>
     /// <summary>Поля, объявленные строкой «поля:» шапки файла: только они и не идут в текст записи.</summary>
     public static IReadOnlyCollection<string> Declared(string text) => DeclaredFields(MemoryText.Lines(text).Select(l => l.Text));
 
     /// <summary>Строка записи — объявленное поле, а не текст, как её читает разбор файла.</summary>
     public static bool IsField(string line, IReadOnlyCollection<string> declared) => NamedField(line, declared) is not null;
 
+    /// <summary>Поля, объявленные строкой «поля:» шапки файла — до первой записи. Строки нет — полей нет.</summary>
     private static IReadOnlyCollection<string> DeclaredFields(IEnumerable<string> lines)
     {
         foreach (var line in lines)

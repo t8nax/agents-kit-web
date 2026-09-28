@@ -265,7 +265,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return null;
         var personal = BaseLayout.PersonalOf(pending.Request.Base);
         if (await UnwritableAsync(personal, pending.Proposal, $"ответа {AgentRequests.AgentName}") is { } refusal)
-            return new BacklogSaved(null, refusal);
+            return new BacklogSaved(null, refusal.Text);
         if (BaseLayout.Read(pending.Request.Base) is not { } layout || BacklogTracker.RepoOf(layout) is not { } repo)
             return new BacklogSaved(null, "Трекер проекта — не GitHub с адресом репозитория: переносить некуда — ничего не записано");
 
@@ -283,30 +283,33 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
 
     /// <summary>
     /// Можно ли записать предложение сейчас: в backlog.md нет чужой незакоммиченной правки, и записи в нём те,
-    /// что видел агент. null — можно; иначе — почему нельзя. Перенос в трекер спрашивает это до GitHub: задача,
-    /// заведённая под запись, которую потом не вырезать, осталась бы дублем.
+    /// что видел агент. null — можно; иначе — почему нельзя (Changed — запись изменилась: окно переноса читает её
+    /// заново). Перенос в трекер спрашивает это до GitHub: задача, заведённая под запись, которую потом не вырезать,
+    /// осталась бы дублем.
     /// </summary>
-    internal static async Task<string?> UnwritableAsync(string basePath, BacklogProposal proposal, string whose)
+    internal static async Task<Unwritable?> UnwritableAsync(string basePath, BacklogProposal proposal, string whose)
     {
         switch (await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None))
         {
             case null:
-                return "git не прочитал личный репозиторий — ничего не записано";
+                return new("git не прочитал личный репозиторий — ничего не записано");
             case true:
-                return "В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано";
+                return new("В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано");
         }
         try
         {
             var (decoded, _) = FlowFolder.Decode(await File.ReadAllBytesAsync(Path.Combine(basePath, BacklogWriteEndpoints.BacklogFile)));
             return proposal.Apply(decoded) is (null, var diverged)
-                ? $"Запись {diverged} изменилась после {whose} — ничего не записано"
+                ? new($"Запись {diverged} изменилась после {whose} — ничего не записано", Changed: true)
                 : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return $"backlog.md не прочитан: {e.Message}";
+            return new($"backlog.md не прочитан: {e.Message}");
         }
     }
+
+    internal sealed record Unwritable(string Text, bool Changed = false);
 
     /// <summary>Бэклог и его артефакты лежат в личном репозитории оператора: basePath здесь — его корень.</summary>
     internal static async Task<BacklogSaved> WriteAsync(
