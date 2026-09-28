@@ -225,7 +225,7 @@ public sealed class ReportEndpointsTests : IDisposable
         checks.Findings = [new KitFinding("FAIL", "local/me/flow/scenarios.md", "пункт сценария — не ссылка")];
         var blocked = await Checked(client, item => item.Blocked?.Kind == "health");
         Assert.Null(blocked.Report);
-        Assert.Contains("ошибки сверки: 1", blocked.Blocked!.Reason);
+        Assert.Equal("Во флоу проекта App обнаружены ошибки сверки: 1. Отчёт будет построен после их исправления.", blocked.Blocked!.Reason);
         using var run = await client.PostAsJsonAsync("/api/reports/flow/run", new FlowReportRunRequest(_base));
         Assert.Equal(HttpStatusCode.Conflict, run.StatusCode);
         Assert.Equal("health", (await run.Content.ReadFromJsonAsync<ReportBlock>(Json))!.Kind);

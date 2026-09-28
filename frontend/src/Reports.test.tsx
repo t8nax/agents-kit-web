@@ -196,6 +196,14 @@ test('раскрытая находка говорит, что проверяе�
   // Закрытое окно уходит вместе с просьбой: открытое снова от другой находки несёт уже её.
   fireEvent.click(within(dialog).getByRole('button', { name: 'Закрыть' }))
   await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeNull())
+  const other = screen.getAllByText('Нужное дальше — выходом')[0].closest('details')!
+  fireEvent.click(within(other).getByText('Нужное дальше — выходом'))
+  await waitFor(() => expect(other.open).toBe(true))
+  fireEvent.click(within(other).getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
+  const again = await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
+  expect((within(again).getByLabelText('Просьба') as HTMLTextAreaElement).value).toContain(
+    'по требованию «Нужное дальше — выходом». Место во флоу: Дизайн.',
+  )
 })
 
 test('код в формулировке требования показан моноширинным, без обратных кавычек', async () => {

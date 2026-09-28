@@ -40,7 +40,9 @@ public sealed class FlowReports(
         if (health.Snapshot.Pending)
             return CheckingBlock;
         if (FlowErrors(health.Snapshot, basePath) is var errors and > 0)
-            return new ReportBlock("health", $"Во флоу проекта есть ошибки сверки: {errors}. Отчёт строится, когда они исправлены.");
+            return new ReportBlock(
+                "health",
+                $"Во флоу проекта {ProjectName.Of(basePath)} обнаружены ошибки сверки: {errors}. Отчёт будет построен после их исправления.");
         return FlowMaterial.HasFlow(basePath) ? null : NoFlow;
     }
 

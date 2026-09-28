@@ -24,7 +24,7 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
     public const string Heading = "## Требования к флоу";
 
     /// <summary>Путь справки в словах оператору — через «/», как его пишет кит.</summary>
-    private const string Shown = "reference/flow-stages.md";
+    private static readonly string Shown = FlowRules.RulesFile.Replace('\\', '/');
 
     // Строка пункта: «- **П1** · высокий · **Каждый исход куда-то ведёт** — формулировка». В названии кит не держит ни тире, ни «·».
     [GeneratedRegex(@"^- \*\*(?<code>[^*]+)\*\* · (?<priority>высокий|средний|низкий) · \*\*(?<title>[^*]+)\*\* — (?<text>.+)$")]
