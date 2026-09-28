@@ -5,14 +5,15 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Ask;
 
 /// <summary>
-/// Одна правка предложения. Kind — change (запись станет Entry) или delete (запись Entry уходит; Into — в какую
-/// запись она влита при объединении). Text — новый текст записи в файле, Original — её текст, каким его видел
-/// агент: по нему «Сохранить» узнаёт, что запись успели поменять.
+/// Одна правка предложения. Kind — change (запись станет Entry), delete (запись Entry уходит; Into — в какую
+/// запись она влита при объединении) или track (запись уходит задачей в трекер проекта, B-286). Text — новый текст
+/// записи в файле, Original — её текст, каким его видел агент: по нему «Сохранить» узнаёт, что запись успели поменять.
 /// </summary>
 public sealed record BacklogChange(string Kind, string Number, BacklogEntry Entry, string? Into = null)
 {
     public const string Change = "change";
     public const string Delete = "delete";
+    public const string Track = "track";
 
     [JsonIgnore]
     public string? Text { get; init; }
@@ -115,8 +116,8 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
     }
 
     /// <summary>
-    /// Файл с правками предложения: запись меняется на месте, удалённая вырезается вместе с пустыми строками
-    /// после неё, остальное остаётся байт в байт. null и номер — запись в файле уже не та, что видел агент.
+    /// Файл с правками предложения: запись меняется на месте, удалённая и ушедшая в трекер вырезается вместе
+    /// с пустыми строками после неё, остальное остаётся байт в байт. null и номер — запись в файле уже не та, что видел агент.
     /// </summary>
     public (string? Text, string? Diverged) Apply(string file)
     {

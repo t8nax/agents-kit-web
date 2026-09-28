@@ -197,8 +197,36 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         return saved;
     }
 
+    /// <summary>
+    /// Можно ли записать предложение сейчас: в backlog.md нет чужой незакоммиченной правки, и записи в нём те,
+    /// что видел агент. null — можно; иначе — почему нельзя. Перенос в трекер спрашивает это до GitHub: задача,
+    /// заведённая под запись, которую потом не вырезать, осталась бы дублем.
+    /// </summary>
+    internal static async Task<string?> UnwritableAsync(string basePath, BacklogProposal proposal, string whose)
+    {
+        switch (await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None))
+        {
+            case null:
+                return "git не прочитал личный репозиторий — ничего не записано";
+            case true:
+                return "В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано";
+        }
+        try
+        {
+            var (decoded, _) = FlowFolder.Decode(await File.ReadAllBytesAsync(Path.Combine(basePath, BacklogWriteEndpoints.BacklogFile)));
+            return proposal.Apply(decoded) is (null, var diverged)
+                ? $"Запись {diverged} изменилась после {whose} — ничего не записано"
+                : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return $"backlog.md не прочитан: {e.Message}";
+        }
+    }
+
     /// <summary>Бэклог и его артефакты лежат в личном репозитории оператора: basePath здесь — его корень.</summary>
-    private static async Task<BacklogSaved> WriteAsync(string basePath, BacklogProposal proposal, IReadOnlyList<string> attached)
+    internal static async Task<BacklogSaved> WriteAsync(
+        string basePath, BacklogProposal proposal, IReadOnlyList<string> attached, string whose = $"ответа {AgentRequests.AgentName}")
     {
         var file = Path.Combine(basePath, BacklogWriteEndpoints.BacklogFile);
         switch (await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None))
@@ -222,7 +250,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var (decoded, hasBom) = FlowFolder.Decode(before);
         var (text, diverged) = proposal.Apply(decoded);
         if (text is null)
-            return new BacklogSaved(null, $"Запись {diverged} изменилась после ответа {AgentRequests.AgentName} — ничего не записано");
+            return new BacklogSaved(null, $"Запись {diverged} изменилась после {whose} — ничего не записано");
 
         // Файлы artifacts/ записей, которые правка удалила или переписала без них, уходят тем же коммитом,
         // если на них больше никто не ссылается (раскладка кита, «Артефакты»); неотслеживаемый файл git не удалит.
