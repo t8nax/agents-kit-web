@@ -27,7 +27,8 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// сервер ключ отклонил, «key-forbidden» — ключ принят, но у его владельца нет прав
 /// на это действие, «server-silent» — сервер не ответил, «project-missing» —
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
-/// «filter-rejected» — трекер не принял строку «фильтр:» описания (B-300), Detail — его строка.
+/// «filter-rejected» — YouTrack не принял строку «фильтр:» описания (B-300), Detail — его строка; поиск GitHub
+/// фильтр не отвергает.
 /// </summary>
 public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null)
 {
@@ -95,7 +96,7 @@ public sealed partial class GhIssues : IGitHubIssues
             return new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту");
         if (run.ExitCode == 0)
             return Parse(run.Output);
-        return Failed(run.ExitCode, run.Error, filter);
+        return Failed(run.ExitCode, run.Error);
     }
 
     /// <summary>
@@ -178,8 +179,10 @@ public sealed partial class GhIssues : IGitHubIssues
 
     /// <summary>
     /// Запуск gh: открытые задачи репозитория, назначенные на того, кем gh вошла, — «назначенные на оператора»
-    /// критерия B-277 держат именно эти ключи. Строка отбора описания трекера уходит в --search (B-300): gh
-    /// сочетает её с назначенным и состоянием.
+    /// критерия B-277 держат именно эти ключи. Строка «фильтр:» описания трекера уходит в --search (B-300): gh
+    /// сочетает её с назначенным и состоянием. Поиск GitHub фильтр не отвергает — непонятное в нём просто ничего
+    /// не находит (проверено настоящей gh на ревью B-300: «label:», неизвестный квалификатор, 280 знаков — пустой
+    /// список с кодом 0), поэтому отказа фильтра у GitHub нет, и ошибка gh с фильтром — та же, что без него.
     /// </summary>
     public static ProcessStartInfo StartInfo(string repo, string? filter = null) =>
         GhStartInfo(
@@ -243,10 +246,9 @@ public sealed partial class GhIssues : IGitHubIssues
 
     /// <summary>
     /// Отказ gh: без входа она выходит с кодом 4 и зовёт «gh auth login», с негодным ключом — 401 Bad credentials;
-    /// прочее — строка GitHub как есть. Чтение с фильтром, чей отказ называет поисковый запрос («Invalid search query …»), —
-    /// не принята строка отбора описания (B-300).
+    /// прочее — строка GitHub как есть.
     /// </summary>
-    public static TrackerIssues Failed(int exitCode, string error, string? filter = null)
+    public static TrackerIssues Failed(int exitCode, string error)
     {
         var line = error.ReplaceLineEndings("\n").Split('\n').FirstOrDefault(l => l.Trim().Length > 0)?.Trim();
         // Чужой закрытый репозиторий GitHub отвечает так же, как несуществующий; его строка — причиной рядом.
@@ -256,8 +258,6 @@ public sealed partial class GhIssues : IGitHubIssues
         if (exitCode == 4 || error.Contains("gh auth login", StringComparison.Ordinal)
             || error.Contains("401 Unauthorized", StringComparison.Ordinal) || error.Contains("Bad credentials", StringComparison.Ordinal))
             return new TrackerIssues([], TrackerIssues.GhLogin);
-        if (!string.IsNullOrWhiteSpace(filter) && error.Contains("query", StringComparison.OrdinalIgnoreCase))
-            return new TrackerIssues([], TrackerIssues.FilterRejected, line);
         return new TrackerIssues([], TrackerIssues.GitHubError, line ?? $"gh вышла с кодом {exitCode}");
     }
 

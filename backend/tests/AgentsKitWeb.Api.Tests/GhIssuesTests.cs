@@ -32,15 +32,6 @@ public class GhIssuesTests
     }
 
     [Fact]
-    public void Failed_SearchRefusedWithFilter_IsFilterRejected()
-    {
-        const string error = "GraphQL: Invalid search query \"label:\" (search)";
-
-        Assert.Equal(TrackerIssues.FilterRejected, GhIssues.Failed(1, error, "label:").Problem);
-        Assert.Equal(TrackerIssues.GitHubError, GhIssues.Failed(1, error).Problem);
-    }
-
-    [Fact]
     public void Parse_NamesIssuesAsKitDoes()
     {
         var issues = GhIssues.Parse("""[{"number":37,"title":"Оплата падает","url":"https://github.com/acme/orders/issues/37"}]""");

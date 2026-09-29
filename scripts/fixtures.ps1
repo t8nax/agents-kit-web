@@ -773,16 +773,10 @@ if ($creating) {
     [Console]::Out.WriteLine("`nCreating issue in $repo`n`n$url")
     exit 0
 }
-# Отбор описания трекера (B-300) приходит в --search: «label:метка» — по меткам задачи, «milestone:этап» — по этапу,
-# прочие слова — по заголовку;
-# другой квалификатор подставная gh отвергает, как GitHub — поиск с ошибкой.
+# Фильтр описания трекера (B-300) приходит в --search: «label:метка» — по меткам задачи, «milestone:этап» —
+# по этапу, прочие слова — по заголовку. Поиск GitHub фильтр не отвергает: непонятное просто ничего не находит.
 $list = @($issues.$repo)
 if ($search) {
-    $unknown = @([regex]::Matches($search, '([A-Za-z-]+):') | Where-Object { $_.Groups[1].Value -notin 'label', 'milestone' })
-    if ($unknown.Count -gt 0) {
-        [Console]::Error.WriteLine("GraphQL: Invalid search query `"$search`": unknown qualifier $($unknown[0].Groups[1].Value) (search)")
-        exit 1
-    }
     foreach ($token in ($search -split '\s+' | Where-Object { $_ })) {
         $list = if ($token -like 'label:*') { @($list | Where-Object { @($_.labels) -contains $token.Substring(6) }) }
                 elseif ($token -like 'milestone:*') { @($list | Where-Object { $_.milestone -eq $token.Substring(10) }) }
