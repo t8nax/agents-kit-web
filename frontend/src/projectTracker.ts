@@ -37,6 +37,8 @@ export type ProjectTrackerRow = {
   version: string
   busy: TrackerTask[]
   newerFormat: boolean
+  /** Что в описании сверка кита назовёт красным — по полям окна. */
+  faults?: Partial<Record<DescriptionField, string>> | null
 }
 
 /** Трекеры, которые панель заводит, — все четыре из таблицы кита, в порядке макета. */
@@ -118,6 +120,24 @@ export function copyName(path: string | null): string {
 
 function listed(items: string[]): string {
   return items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} и ${items[items.length - 1]}`
+}
+
+const faultLabels: Record<DescriptionField, string> = {
+  tracker: 'вид трекера',
+  server: 'адрес сервера',
+  project: 'проект',
+  where: 'раздел «Где задачи»',
+  backlog: 'раздел «Показ бэклога»',
+  take: 'раздел «Взятие задачи»',
+  closed: 'раздел «Задача закрыта»',
+  move: 'раздел «Вынос записи бэклога»',
+}
+
+/** Поломки описания, которые кит назовёт красными, — строкой под проектом в карточке (ревью B-293). */
+export function kitFaultsText(faults: Partial<Record<DescriptionField, string>> | null | undefined): string | null {
+  const named = Object.keys(faults ?? {}).map((field) => faultLabels[field as DescriptionField] ?? field)
+  if (named.length === 0) return null
+  return `Описание трекера записано не так, как требует кит: ${listed(named)}. Исправьте его кнопкой «Изменить».`
 }
 
 /** Почему описание не удалить: копии, где идут задачи из этого трекера (ответ оператора на B-293). */

@@ -116,6 +116,29 @@ test('сломанное описание — красная строка о с�
   expect(orders.getByRole('button', { name: 'Изменить трекер Orders' })).toBeEnabled()
 })
 
+// Строки на месте, а сверка кита назовёт описание красным — карточка говорит, что не так (ревью B-293).
+test('проект не по шаблону и пустой раздел — красная строка называет их', async () => {
+  stubApi({
+    'GET /api/trackers/projects': () =>
+      json([
+        {
+          ...described,
+          tracker: { kind: 'other', name: 'Jira' },
+          description: { ...github, tracker: 'Jira', project: 'pay', closed: '' },
+          faults: { project: 'Ключ проекта Jira — …', closed: 'Раздел не может быть пустым' },
+        },
+      ]),
+  })
+
+  render(<TrackerProjectsCard />)
+
+  expect(
+    (await row('Orders')).getByText(
+      'Описание трекера записано не так, как требует кит: проект и раздел «Задача закрыта». Исправьте его кнопкой «Изменить».',
+    ),
+  ).toBeInTheDocument()
+})
+
 test('база нового формата кита — правка закрыта, строка говорит почему', async () => {
   stubApi({ 'GET /api/trackers/projects': () => json([{ ...described, newerFormat: true }]) })
 

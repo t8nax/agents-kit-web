@@ -163,6 +163,25 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal([new TrackerTask("GitHub #37 Починить выгрузку", _main)], row.Busy);
     }
 
+    /// <summary>
+    /// Карточка называет поломки, которые сверка кита назовёт красными: проект Jira не по шаблону, пустой раздел;
+    /// трекер не из таблицы кит только предупреждает (ревью B-293).
+    /// </summary>
+    [Fact]
+    public async Task List_BrokenDescription_CarriesKitFaults()
+    {
+        Committed(TrackerDescriptions.Serialize(
+            GitHub with { Tracker = "Jira", Server = "https://acme.atlassian.net", Project = "pay", Closed = "" }, "X"));
+        var client = await Client(kit: false);
+
+        var jira = await Row(client);
+        Committed(TrackerDescriptions.Serialize(GitHub with { Tracker = "Redmine" }, "X"));
+        var redmine = await Row(client);
+
+        Assert.Equal(["project", "closed"], jira.Faults!.Keys.Order(StringComparer.Ordinal).Reverse());
+        Assert.Empty(redmine.Faults!);
+    }
+
     /// <summary>Задачу Jira кит называет «Jira PAY-7»: она держит описание так же, как задача GitHub.</summary>
     [Fact]
     public async Task List_JiraTask_IsBusy()

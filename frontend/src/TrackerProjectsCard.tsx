@@ -4,7 +4,7 @@ import { TrashIcon } from './DeleteWorkspaceModal'
 import { WarningIcon } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
 import TrackerRewriteModal from './TrackerRewriteModal'
-import { busyText, faultsText, knownTracker, type ProjectTrackerRow } from './projectTracker'
+import { busyText, faultsText, kitFaultsText, knownTracker, type ProjectTrackerRow } from './projectTracker'
 import { useReveal, withReveal } from './reveal'
 import './TrackerProjectsCard.css'
 
@@ -213,6 +213,13 @@ function ProjectRow({ row, onEdit, onDelete }: { row: ProjectTrackerRow; onEdit:
         <p className="prj-line err">
           <WarningIcon />
           <span>{faultsText(tracker.faults)}</span>
+        </p>
+      )}
+      {/* Строки на месте, а сверка кита всё равно назовёт описание красным: проект не по шаблону, пустой раздел */}
+      {!row.newerFormat && tracker !== null && tracker.kind !== 'no-keys' && !unreadable && kitFaultsText(row.faults) && (
+        <p className="prj-line err">
+          <WarningIcon />
+          <span>{kitFaultsText(row.faults)}</span>
         </p>
       )}
     </li>

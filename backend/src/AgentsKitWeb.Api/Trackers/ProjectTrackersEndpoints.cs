@@ -15,7 +15,8 @@ public sealed record TrackerTask(string Task, string? Copy);
 /// Строка карточки «Трекеры проектов» — одна база из списка панели (B-293). Problem — база не читается (слова раскладки);
 /// Tracker — трекер, как его читает «Бэклог» (null — описания нет); Description — описание полями окна; Version —
 /// отпечаток tracker.md, поверх которого пишется правка («» — файла нет); Busy — задачи этого трекера в работе:
-/// пока они есть, описание не удаляется; NewerFormat — база нового формата кита, правка закрыта (B-281).
+/// пока они есть, описание не удаляется; NewerFormat — база нового формата кита, правка закрыта (B-281); Faults — что
+/// в описании сверка кита назовёт красным, по полям окна (ревью B-293); трекер не из таблицы кит только предупреждает.
 /// </summary>
 public sealed record ProjectTrackerRow(
     string Base,
@@ -25,7 +26,8 @@ public sealed record ProjectTrackerRow(
     TrackerDescription? Description,
     string Version,
     IReadOnlyList<TrackerTask> Busy,
-    bool NewerFormat);
+    bool NewerFormat,
+    IReadOnlyDictionary<string, string>? Faults = null);
 
 public sealed record SaveProjectTrackerRequest(string? Base, string? Version, TrackerDescription? Description);
 
@@ -171,7 +173,8 @@ public static partial class ProjectTrackersEndpoints
             // Не прочитали — Tracker скажет «unreadable», и окно не откроется.
         }
         return new ProjectTrackerRow(
-            basePath, project, null, Workspaces.Tracker.Read(layout), description, Version(file), Busy(layout, started), layout.NewerFormat);
+            basePath, project, null, Workspaces.Tracker.Read(layout), description, Version(file), Busy(layout, started), layout.NewerFormat,
+            description is null ? null : KitFaults(description));
     }
 
     /// <summary>
@@ -201,6 +204,18 @@ public static partial class ProjectTrackersEndpoints
             .ToList();
 
         string taskNumber(string task) => pattern.Match(task) is { Success: true } m ? m.Groups[1].Value.ToUpperInvariant() : task;
+    }
+
+    /// <summary>
+    /// Поломки описания, которые сверка кита назовёт красными. Трекер не из таблицы кит только предупреждает: такой
+    /// строки нет, пока его имя названо.
+    /// </summary>
+    private static Dictionary<string, string> KitFaults(TrackerDescription description)
+    {
+        var faults = TrackerDescriptions.Faults(description);
+        if (description.Tracker.Trim().Length > 0)
+            faults.Remove("tracker");
+        return faults;
     }
 
     /// <summary>Имя трекера из описания, которое строки «Бэклога» не назвали (сломанный сервер или проект).</summary>
