@@ -624,6 +624,36 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Задача идёт по копии своего сценария рядом с памятью (кит формата 8): исполнитель, которого из флоу уже убрали,
+    // ей ещё нужен, и удалить его нельзя, пока его зовёт копия идущей задачи любой машины — решение оператора на B-299.
+    public async Task Performers_StageOfRunningTaskFlowCopyHoldsPerformer()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+        Performer(basePath, "scout", "---\nname: scout\n---\n\nТело.\n");
+        File.WriteAllText(TestLayout.Backlog(basePath), "следующий номер: B-9\n");
+        var here = Path.Combine(TestLayout.Work(basePath), "d-app");
+        Directory.CreateDirectory(Path.Combine(here, "flow", "stages"));
+        File.WriteAllText(here + ".md", "# B-7 Правка окна\nрабочая копия: D:\\app\nсценарий: мелкий\n");
+        File.WriteAllText(Path.Combine(here, "flow", "stages", "review.md"), "# Ревью\n\nисполнитель: reviewer\nвыход: вердикт\n");
+        // Другая машина оператора, память без номера из бэклога — задача названа заголовком.
+        var laptop = Path.Combine(TestLayout.Personal(basePath), "work", "laptop", "d-app");
+        Directory.CreateDirectory(Path.Combine(laptop, "flow", "stages"));
+        File.WriteAllText(laptop + ".md", "# Починить выгрузку\nрабочая копия: D:\\app\n");
+        File.WriteAllText(Path.Combine(laptop, "flow", "stages", "design.md"),
+            "# Дизайн\n\nисполнитель: оркестратор\nпомощники: reviewer\nвыход: макет\n");
+
+        var performers = (await Get(basePath)).Single().Performers;
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(["Дизайн (Починить выгрузку)", "Ревью (B-7)"], performers.Single(p => p.Name == "reviewer").CalledBy!.Order());
+        Assert.Empty(performers.Single(p => p.Name == "scout").CalledBy!);
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("called-by-flow", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.True(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+    }
+
+    [Fact]
     public async Task Performers_DeleteRefusesBaseOfNewerFormat()
     {
         var basePath = CreateBase("app-knowledge");
