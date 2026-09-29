@@ -87,6 +87,11 @@ type Props = {
   onEntries: (base: string, numbers: string[]) => void
   /** Панель записала изменения по «Сохранить»: список бэклога перечитывается. */
   onSaved?: (base: string) => void
+  /**
+   * Разговор завёл задачи трекера — сохранённым предложением или тем, чей бэклог записать не вышло: раздел
+   * перечитывает трекер базы. Задачи — именами трекера («GitHub #58»); окно, открытое заново, зовёт снова с теми же.
+   */
+  onTracked?: (base: string, issues: string[]) => void
 }
 
 export default function BacklogWriteModal({
@@ -97,6 +102,7 @@ export default function BacklogWriteModal({
   onClose,
   onEntries,
   onSaved,
+  onTracked,
 }: Props) {
   const writable = (base: string | null | undefined) => (base && !bases.find((b) => b.base === base)?.closed ? base : null)
   const [chosen, setChosen] = useState<string | null>(
@@ -198,6 +204,17 @@ export default function BacklogWriteModal({
   useEffect(() => {
     if (base && savedCount > 0 && !hidden) onSaved?.(base)
   }, [base, savedCount, hidden, onSaved])
+
+  // Заведённые задачи трекера: у сохранённого предложения, у несохранённого и у брошенного — в строке панели
+  const tracked = [
+    ...events.flatMap((e) => (e.type === 'saved' || e.type === 'note' ? Object.values(e.issues ?? {}) : [])),
+    ...Object.values(saveError?.issues ?? {}),
+  ]
+    .map((issue) => issue.name)
+    .join('\n')
+  useEffect(() => {
+    if (base && tracked && !hidden) onTracked?.(base, tracked.split('\n'))
+  }, [base, tracked, hidden, onTracked])
 
   const states = proposalStates(events)
   // Задачи трекера, заведённые сохранённым предложением: по ним карточка переноса показывает номер задачи ссылкой

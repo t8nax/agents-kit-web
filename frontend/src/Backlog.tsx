@@ -210,6 +210,19 @@ export default function Backlog({
   // Панель записала изменения по «Сохранить» — список показывает новый бэклог.
   const markSaved = useCallback(() => loadBacklogs(), [loadBacklogs])
 
+  // Задачи трекера, которые завёл разговор с Чудо-Юдо и под которые трекер уже перечитан: окно, открытое заново,
+  // называет их снова, а группа от этого не мигает заготовкой
+  const trackedSeen = useRef(new Set<string>())
+  const markTracked = useCallback(
+    (base: string, issues: string[]) => {
+      const fresh = issues.map((issue) => `${base}|${issue}`).filter((key) => !trackedSeen.current.has(key))
+      if (fresh.length === 0) return
+      fresh.forEach((key) => trackedSeen.current.add(key))
+      loadBacklogs(false, base)
+    },
+    [loadBacklogs],
+  )
+
   const backlogs = load.kind === 'loaded' ? load.backlogs : []
   const reveal = useReveal(load.kind === 'loading')
   // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
@@ -504,6 +517,7 @@ export default function Backlog({
           onClose={closeWrite}
           onEntries={markWritten}
           onSaved={markSaved}
+          onTracked={markTracked}
         />
       )}
     </>
