@@ -146,6 +146,7 @@ public sealed class AgentSessionsTests : IDisposable
 
     [Theory]
     [InlineData("busy", SessionState.Working)]
+    [InlineData("shell", SessionState.Working)]
     [InlineData("waiting", SessionState.Waiting)]
     [InlineData("idle", SessionState.Idle)]
     public void State_SessionOfTheTask_IsItsState(string status, string expected)
