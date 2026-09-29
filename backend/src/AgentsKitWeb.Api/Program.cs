@@ -8,6 +8,7 @@ using AgentsKitWeb.Api.Reports;
 using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Usage;
+using AgentsKitWeb.Api.Voice;
 using AgentsKitWeb.Api.Workspaces;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -62,6 +63,24 @@ builder.Services.AddHttpClient(GitHubReleases.Client, client =>
     client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 });
 builder.Services.AddSingleton<IPanelReleases, GitHubReleases>();
+// Сотни мегабайт идут минутами: модель читается потоком (ResponseHeadersRead), и срок клиента стережёт
+// только заголовки — замолчавший до них сервер не держит «Скачивается» вечно; порции — свой срок в VoiceModel.
+builder.Services.AddHttpClient(VoiceModel.Client, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
+});
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new VoiceModel(
+        config["VoiceDir"] ?? VoiceModel.DefaultDirectory,
+        config["VoiceModelUrl"] is { } url ? new Uri(url) : VoiceModel.DefaultSource,
+        config["VoiceRuntimeUrl"] is { } runtime ? new Uri(runtime) : VoiceModel.DefaultRuntimeSource,
+        config["VoiceRuntimeSha512"] ?? VoiceModel.DefaultRuntimeSha512,
+        services.GetRequiredService<IHttpClientFactory>());
+});
+builder.Services.AddSingleton<ISpeechRecognizer, WhisperRecognizer>();
 builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
@@ -146,6 +165,7 @@ app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 app.MapTrackerServersEndpoints();
 app.MapUsageEndpoints();
+app.MapVoiceEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.
 app.MapFallback("/api/{**path}", () => Results.NotFound());

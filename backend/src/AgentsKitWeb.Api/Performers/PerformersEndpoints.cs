@@ -1,3 +1,4 @@
+using System.Text;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
@@ -130,15 +131,29 @@ public static class PerformersEndpoints
             // Прежний файл правимого исполнителя, когда он лежит не там, куда пишут: имя сменили или
             // файл был назван иначе, чем поле имени внутри него. Такой уходит тем же коммитом.
             var prior = was is not null && !string.Equals(was, file, StringComparison.OrdinalIgnoreCase) ? was : null;
+            // Тот же файл пишется под именем, под которым лежит: запись через временный файл поставила бы имя
+            // из поля, и у заведённого руками Reviewer.md регистр на диске разошёлся бы с тем, что знает git.
+            if (was is not null && prior is null)
+                file = was;
             // Прежнее содержимое того, что переписывается: отказ коммита возвращает файлы как были,
             // иначе правка заведённого исполнителя стёрла бы его из базы вместе с отказом.
             var kept = await KeptAsync(prior ?? file, cancellationToken);
-            var newline = kept is null ? "\n" : Newline(kept);
+            var newline = kept is null ? "\n" : Newline(Encoding.UTF8.GetString(kept));
 
+            var paths = new List<string> { Relative(file) };
+            // Прежний файл идёт в коммит, только если git его знал: снятое из рабочего дерева
+            // неотслеживаемое коммитить нечем, а `git commit -- путь` на таком отказывается вовсе.
+            // Спрашивается до записи: дальше запрос уже ничего не рвёт.
+            if (prior is not null && await BaseGit.TrackedAsync(root, Relative(prior), cancellationToken))
+                paths.Add(Relative(prior));
+
+            // Начавшись, запись отменой запроса не рвётся: закрытая посреди записи вкладка оставила бы
+            // исполнителя незакоммиченным, а то и в индексе, для чужого коммита соседней сессии.
             try
             {
                 System.IO.Directory.CreateDirectory(directory);
-                await File.WriteAllTextAsync(file, PerformerFile.Serialize(fields, newline), cancellationToken);
+                // Через временный файл рядом: сорвавшаяся запись оставляет прежнего исполнителя целым.
+                await FlowEndpoints.WriteAsync(file, Encoding.UTF8.GetBytes(PerformerFile.Serialize(fields, newline)));
                 // Правка сменила имя — прежний файл уходит тем же коммитом, что приносит новый.
                 if (prior is not null)
                     Remove(prior);
@@ -148,15 +163,9 @@ public static class PerformersEndpoints
                 return Results.Problem("Файл исполнителя не записан", statusCode: StatusCodes.Status500InternalServerError);
             }
 
-            var paths = new List<string> { Relative(file) };
-            // Прежний файл идёт в коммит, только если git его знал: снятое из рабочего дерева
-            // неотслеживаемое коммитить нечем, а `git commit -- путь` на таком отказывается вовсе.
-            if (prior is not null && await BaseGit.TrackedAsync(root, Relative(prior), cancellationToken))
-                paths.Add(Relative(prior));
-
-            var added = await BaseGit.AddFileAsync(root, paths[0], cancellationToken);
+            var added = await BaseGit.AddFileAsync(root, paths[0], CancellationToken.None);
             var commit = added.Done
-                ? await BaseGit.CommitFilesAsync(root, paths, Message(name!, prior is not null), cancellationToken)
+                ? await BaseGit.CommitFilesAsync(root, paths, Message(name!, prior is not null), CancellationToken.None)
                 : added;
 
             if (!commit.Done)
@@ -164,8 +173,8 @@ public static class PerformersEndpoints
                 // Иначе база осталась бы с незакоммиченным исполнителем, а он уехал бы в чужой
                 // коммит соседней сессии: вернуть всё как было и показать, что сказал git.
                 Remove(file);
-                await RestoreAsync(prior ?? file, kept, cancellationToken);
-                await BaseGit.ResetFilesAsync(root, paths, cancellationToken);
+                await RestoreAsync(prior ?? file, kept);
+                await BaseGit.ResetFilesAsync(root, paths, CancellationToken.None);
                 return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
             }
 
@@ -282,13 +291,13 @@ public static class PerformersEndpoints
     }
 
     /// <summary>Возвращает прежнее содержимое на место; не вышло — файла нет, и об этом скажет сверка базы.</summary>
-    private static async Task RestoreAsync(string file, string? kept, CancellationToken cancellationToken)
+    private static async Task RestoreAsync(string file, byte[]? kept)
     {
         if (kept is null)
             return;
         try
         {
-            await File.WriteAllTextAsync(file, kept, cancellationToken);
+            await FlowEndpoints.WriteAsync(file, kept);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -297,11 +306,11 @@ public static class PerformersEndpoints
     }
 
     /// <summary>Прежнее содержимое файла базы; файла нет — null, и откат просто уберёт написанное.</summary>
-    private static async Task<string?> KeptAsync(string file, CancellationToken cancellationToken)
+    private static async Task<byte[]?> KeptAsync(string file, CancellationToken cancellationToken)
     {
         try
         {
-            return File.Exists(file) ? await File.ReadAllTextAsync(file, cancellationToken) : null;
+            return File.Exists(file) ? await File.ReadAllBytesAsync(file, cancellationToken) : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

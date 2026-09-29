@@ -8,6 +8,8 @@ import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { FormatNotice } from './NewerFormat'
 import { useAgentConversation } from './agentConversation'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import { issueLabel, type TrackerDraft, type TrackerIssue } from './tracker'
 import { OutIcon } from './TrackerGroup'
 import './Modal.css'
@@ -102,6 +104,7 @@ export default function BacklogWriteModal({
   )
   // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть.
   const [text, setText] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   // issues — задачи трекера, уже заведённые этим «Сохранить», хотя бэклог не записан
   const [saveError, setSaveError] = useState<{
@@ -538,9 +541,16 @@ export default function BacklogWriteModal({
             />
             {/* строка отказа — под полем, по критерию B-260 */}
             <AttachError text={attach.error} />
+            <AttachError text={voiceError} />
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
-                а «Отменить» встаёт ровно туда, где была «Отправить». «Приложить файл» — слева (макет B-260). */}
+                а «Отменить» встаёт ровно туда, где была «Отправить». Микрофон и «Приложить файл» — слева
+                (макеты B-260 и B-291). */}
             <div className="talk-buttons">
+              <VoiceButton
+                disabled={running || waiting || saving !== null}
+                onText={(spoken) => setText(appendSpoken(value, spoken))}
+                onError={setVoiceError}
+              />
               <AttachButton
                 label="Приложить файл"
                 disabled={running || waiting || saving !== null || closed !== null}

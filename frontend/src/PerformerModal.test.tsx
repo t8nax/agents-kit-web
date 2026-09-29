@@ -4,6 +4,13 @@ import PerformerModal, { type DraftEvent, type DraftFields } from './PerformerMo
 import { controlledStream, runningRequest, stubPanel, type PanelStub } from './agentPanelTesting'
 import type { BasePerformers, Performer } from './Performers'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('и пишет отчёт.')} />
+  ),
+}))
+
 afterEach(() => vi.unstubAllGlobals())
 
 const reviewer: Performer = {
@@ -90,6 +97,22 @@ test('у нового имя, описание и задание видны ср
   expect(screen.queryByText('Например')).not.toBeInTheDocument()
   // Имя без задания — ещё не исполнитель.
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+})
+
+test('микрофон стоит в углу поля просьбы: сказанное дописывается, пока Чудо-Юдо пишет — погашен', async () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open()
+  const field = screen.getByLabelText(/Просьба к Чудо-Юдо/)
+  fireEvent.change(field, { target: { value: 'Гоняет e2e' } })
+
+  const mic = within(field.parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })
+  expect(field.parentElement).toHaveClass('voice-field')
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Гоняет e2e и пишет отчёт.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
+  await screen.findByRole('status')
+  expect(within(screen.getByLabelText(/Просьба к Чудо-Юдо/).parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled()
 })
 
 test('нового можно завести целиком руками, без просьбы к Чудо-Юдо', async () => {
@@ -334,6 +357,21 @@ test('пустое задание открывается кнопкой «Нап
   fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
 
   expect(screen.getByRole('button', { name: 'Показать задание' })).toBeInTheDocument()
+})
+
+test('задание в правке можно надиктовать: микрофон слева в подвале окна задания', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open({ ...reviewer, prompt: '' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Написать задание' }))
+  const task = within(screen.getByRole('dialog', { name: /Задание/ }))
+  fireEvent.change(task.getByRole('textbox', { name: 'Задание' }), { target: { value: 'Ты гоняешь проверки' } })
+  const mic = task.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('ask-actions')
+  expect(mic.parentElement?.firstElementChild).toBe(mic)
+  fireEvent.click(mic)
+
+  expect(task.getByRole('textbox', { name: 'Задание' })).toHaveValue('Ты гоняешь проверки и пишет отчёт.')
 })
 
 test('у заведённого с пустым заданием модель и инструменты всё равно сохраняются', async () => {

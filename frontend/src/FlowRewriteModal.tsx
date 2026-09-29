@@ -3,6 +3,9 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { DescriptionEditor, type FlowStage, type NamedFlow } from './Flow'
 import { Markdown } from './Markdown'
 import { useAgentConversation } from './agentConversation'
+import { AttachError } from './Attachments'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import {
   changedText,
   fieldValue,
@@ -112,6 +115,7 @@ export default function FlowRewriteModal({
 }: Props) {
   // Поле не трогали, пока text — null: тогда в нём стоит реплика, на которой агент сорвался.
   const [text, setText] = useState<string | null>(wish)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('talk')
   // Сколько событий переписки было, когда оператор последний раз смотрел вкладку «Изменения»: точка на ней горит,
   // пока ответ, поменявший список, пришёл позже. Отметку помнит браузер по переписке: окно, открытое заново, не
@@ -423,9 +427,18 @@ export default function FlowRewriteModal({
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
                 }}
               />
+              <AttachError text={voiceError} />
             </>
           )}
           <div className="ask-actions">
+            {/* Микрофон — слева в подвале, напротив кнопок (макет B-291); у списка изменений поля нет */}
+            {!onChanges && (
+              <VoiceButton
+                disabled={running && !foreign}
+                onText={(spoken) => setText(appendSpoken(value, spoken))}
+                onError={setVoiceError}
+              />
+            )}
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
                 а «Отменить» встаёт ровно туда, где была «Отправить». */}
             <div className="footer-right">
