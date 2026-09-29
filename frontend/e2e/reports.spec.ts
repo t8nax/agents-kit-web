@@ -112,6 +112,10 @@ test('кольца и находки видны, а находка раскры�
 
   await expect(page.getByRole('button', { name: 'Проходимость: 70 из 100.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Ясность: 100 из 100.' })).toBeVisible()
+  // Переключатель порядка стоит у правого края списка находок, как на макете (замечание оператора на приёмке).
+  const order = (await page.getByRole('tablist', { name: 'Порядок находок' }).boundingBox())!
+  const list = (await page.locator('.rp-list').boundingBox())!
+  expect(Math.abs(order.x + order.width - (list.x + list.width - 24))).toBeLessThanOrEqual(1)
   const row = page.locator('details').filter({ hasText: 'Каждый исход куда-то ведёт' })
   await row.getByText('Каждый исход куда-то ведёт').click()
   await expect(row.getByText('При ответе «не принято» у задачи нет продолжения.')).toBeVisible()

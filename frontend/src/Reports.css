@@ -401,7 +401,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Переключатель порядка — у правого края над списком находок (замечание оператора на приёмке). */
 .rp-order {
+  display: flex;
+  justify-content: flex-end;
   padding: 14px 24px 12px;
 }
 
