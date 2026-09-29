@@ -24,14 +24,17 @@ public static class KitScriptRunner
 {
     /// <summary>
     /// Запускает <paramref name="command"/> в pwsh, передав скрипту <paramref name="environment"/>.
-    /// Рабочий каталог задаётся явно там, где скрипту не всё равно, откуда его позвали.
+    /// Рабочий каталог задаётся явно там, где скрипту не всё равно, откуда его позвали. <paramref name="killOnTimeout"/> —
+    /// false у скрипта, который пишет в git: по сроку панель перестаёт его ждать, а он доходит сам, — оборванный
+    /// посреди rebase, git оставил бы базу в незаконченном сведении (ревью B-293).
     /// </summary>
     public static async Task<KitRun> RunAsync(
         string command,
         IReadOnlyDictionary<string, string> environment,
         TimeSpan timeout,
         CancellationToken cancellationToken,
-        string? workingDirectory = null)
+        string? workingDirectory = null,
+        bool killOnTimeout = true)
     {
         var startInfo = new ProcessStartInfo("pwsh")
         {
@@ -82,7 +85,8 @@ public static class KitScriptRunner
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                process.Kill(entireProcessTree: true);
+                if (killOnTimeout)
+                    process.Kill(entireProcessTree: true);
                 return new KitRun(KitRunOutcome.TimedOut, "", "");
             }
         }

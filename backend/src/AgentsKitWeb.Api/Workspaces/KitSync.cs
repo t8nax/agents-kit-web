@@ -41,7 +41,8 @@ public static class KitSync
 
     /// <summary>
     /// Сводит базу рабочей копии <paramref name="copy"/> — скрипту кита нужна копия, связанная с базой. Начатое
-    /// сведение отменой запроса не рвётся: оборванный посреди rebase git оставил бы базу в незаконченном сведении.
+    /// сведение не рвётся ни отменой запроса, ни сроком: оборванный посреди rebase git оставил бы базу в незаконченном
+    /// сведении — по сроку панель только перестаёт его ждать.
     /// </summary>
     public static async Task<KitSyncResult> RunAsync(string script, string copy, string action)
     {
@@ -51,11 +52,11 @@ public static class KitSync
             ["AKW_COPY"] = copy,
             ["AKW_ACTION"] = action,
         };
-        var run = await KitScriptRunner.RunAsync(Command, environment, Timeout, CancellationToken.None);
+        var run = await KitScriptRunner.RunAsync(Command, environment, Timeout, CancellationToken.None, killOnTimeout: false);
         return run.Outcome switch
         {
             KitRunOutcome.NotStarted => new KitSyncResult(-1, "PowerShell (pwsh) не запустился — без него базу не свести с сервером"),
-            KitRunOutcome.TimedOut => new KitSyncResult(-1, "Скрипт кита не свёл базу с сервером за две минуты"),
+            KitRunOutcome.TimedOut => new KitSyncResult(-1, "Скрипт кита сводит базу с сервером дольше двух минут: панель перестала ждать, а сведение доходит само"),
             KitRunOutcome.Refused => new KitSyncResult(-1, run.Error),
             _ => Parse(run.Output),
         };

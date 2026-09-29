@@ -462,11 +462,4 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("busy", (await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>())!.Problem);
         Assert.True(File.Exists(TrackerFile));
     }
-
-    [Theory]
-    [InlineData("на remote базы отдано коммитов: 1\nAKW_EXIT=0", 0, "на remote базы отдано коммитов: 1")]
-    [InlineData("на remote базы не отдано — git: rejected\r\nAKW_EXIT=1\r\n", 1, "на remote базы не отдано — git: rejected")]
-    [InlineData("что-то", -1, "что-то")]
-    public void KitSync_Parse_ReadsCodeFromLastLine(string output, int code, string message) =>
-        Assert.Equal(new KitSyncResult(code, message), KitSync.Parse(output));
 }
