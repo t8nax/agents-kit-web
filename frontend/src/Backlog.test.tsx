@@ -1259,6 +1259,171 @@ test('при отборе без подошедших задач проект н
   expect(screen.getByRole('region', { name: 'Nota' })).toBeInTheDocument()
 })
 
+// ——— Фильтр «Метки» (B-305) ———
+
+const orders = { ...github, project: 'acme/orders' }
+const nota = { ...github, project: 'acme/nota' }
+
+const labeled = [
+  { ...issues[0], labels: ['bug', 'ui'] },
+  { ...issues[1], labels: ['docs'] },
+  { name: 'GitHub #9', number: 9, title: 'Без меток', url: 'https://github.com/acme/orders/issues/9', labels: [] },
+]
+
+const notaIssues = [{ name: 'GitHub #3', number: 3, title: 'Экспорт в PDF', url: 'https://github.com/acme/nota/issues/3', labels: ['bug'] }]
+
+function stubLabeled() {
+  const fetchMock = stubFetch([{ ...backlogs[0], tracker: orders }, { ...backlogs[1], tracker: nota }])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: labeled, problem: null, labels: ['bug', 'docs', 'enhancement', 'ui'] }))
+  fetchMock.setTracker(backlogs[1].base, answer({ issues: notaIssues, problem: null, labels: ['bug', 'export'] }))
+  return fetchMock
+}
+
+const links = () => screen.queryAllByRole('link').map((link) => link.querySelector('.tracker-num')?.textContent)
+
+const option = (project: string, name: string) =>
+  within(screen.getByRole('group', { name: project })).getByRole('option', { name })
+
+test('список «Метки» при всех проектах — все метки репозиториев по проектам с подписями', async () => {
+  onTrackerTab()
+  stubLabeled()
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  const button = screen.getByRole('button', { name: 'Метки' })
+  expect(button).toHaveAttribute('aria-expanded', 'false')
+
+  fireEvent.click(button)
+  const list = within(screen.getByRole('listbox', { name: 'Метки' }))
+  const groups = list.getAllByRole('group')
+  expect(groups.map((group) => group.getAttribute('aria-label'))).toEqual(['Agents Kit Web', 'Nota'])
+  // Метка, которой нет ни у одной задачи, в списке тоже есть: перечень — метки репозитория
+  expect(within(groups[0]).getAllByRole('option').map((o) => o.textContent)).toEqual(['bug', 'docs', 'enhancement', 'ui'])
+  expect(within(groups[1]).getAllByRole('option').map((o) => o.textContent)).toEqual(['bug', 'export'])
+  expect(list.getAllByRole('option').every((o) => o.getAttribute('aria-selected') === 'false')).toBe(true)
+})
+
+test('метки отбирают задачи с любой из выбранных; метка выбирается у своего проекта; снятая — снова все', async () => {
+  onTrackerTab()
+  stubLabeled()
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  fireEvent.click(screen.getByRole('button', { name: 'Метки' }))
+
+  fireEvent.click(option('Agents Kit Web', 'bug'))
+  expect(option('Agents Kit Web', 'bug')).toHaveAttribute('aria-selected', 'true')
+  expect(option('Nota', 'bug')).toHaveAttribute('aria-selected', 'false')
+  // bug выбрана у Agents Kit Web: bug проекта Nota не в счёт, и Nota, где ничего не подошло, скрыт
+  expect(links()).toEqual(['#52'])
+  expect(screen.queryByRole('region', { name: 'Nota' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Метки: bug' })).toHaveClass('has-picked')
+
+  fireEvent.click(option('Agents Kit Web', 'docs'))
+  expect(links()).toEqual(['#52', '#7'])
+  fireEvent.click(option('Nota', 'bug'))
+  expect(links()).toEqual(['#52', '#7', '#3'])
+  expect(screen.getByRole('button', { name: 'Метки: bug, docs, bug' })).toBeInTheDocument()
+
+  // Метка, которой нет ни у одной задачи, — под фильтр задач нет
+  for (const [project, name] of [['Agents Kit Web', 'bug'], ['Agents Kit Web', 'docs'], ['Nota', 'bug']]) fireEvent.click(option(project, name))
+  fireEvent.click(option('Agents Kit Web', 'enhancement'))
+  expect(links()).toEqual([])
+  expect(screen.getByText('Под фильтр задач нет')).toBeInTheDocument()
+
+  fireEvent.click(option('Agents Kit Web', 'enhancement'))
+  expect(links()).toEqual(['#52', '#7', '#9', '#3'])
+  expect(screen.getByRole('button', { name: 'Метки' })).not.toHaveClass('has-picked')
+})
+
+test('на кнопке — названия первых трёх выбранных меток, остальные плашкой «+N»', async () => {
+  onTrackerTab()
+  stubLabeled()
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  fireEvent.click(screen.getByRole('button', { name: 'Метки' }))
+  for (const name of ['bug', 'docs', 'enhancement', 'ui']) fireEvent.click(option('Agents Kit Web', name))
+
+  const button = screen.getByRole('button', { name: 'Метки: bug, docs, enhancement, ui' })
+  expect(button.querySelector('.lbl-names')).toHaveTextContent('bug, docs, enhancement')
+  expect(button.querySelector('.lbl-more')).toHaveTextContent('+1')
+})
+
+test('список закрывается Escape и кликом мимо, фокус возвращается кнопке', async () => {
+  onTrackerTab()
+  stubLabeled()
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  const button = screen.getByRole('button', { name: 'Метки' })
+
+  fireEvent.click(button)
+  fireEvent.keyDown(option('Agents Kit Web', 'bug'), { key: 'Escape' })
+  expect(screen.queryByRole('listbox', { name: 'Метки' })).not.toBeInTheDocument()
+  expect(button).toHaveFocus()
+
+  fireEvent.click(button)
+  fireEvent.mouseDown(document.body)
+  expect(screen.queryByRole('listbox', { name: 'Метки' })).not.toBeInTheDocument()
+})
+
+test('при выбранном проекте — его метки без подписи; метки другого проекта выбраны, но не отбирают', async () => {
+  onTrackerTab()
+  stubLabeled()
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  fireEvent.click(screen.getByRole('button', { name: 'Метки' }))
+  fireEvent.click(option('Agents Kit Web', 'docs'))
+  expect(links()).toEqual(['#7'])
+
+  fireEvent.mouseDown(document.body)
+  fireEvent.click(screen.getByRole('button', { name: 'Nota' }))
+  expect(links()).toEqual(['#3'])
+  const button = screen.getByRole('button', { name: 'Метки' })
+  fireEvent.click(button)
+  const list = within(screen.getByRole('listbox', { name: 'Метки' }))
+  expect(list.queryByText('Nota')).not.toBeInTheDocument()
+  expect(list.getAllByRole('option').map((o) => o.textContent)).toEqual(['bug', 'export'])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Все проекты' }))
+  expect(links()).toEqual(['#7'])
+  expect(screen.getByRole('button', { name: 'Метки: docs' })).toBeInTheDocument()
+})
+
+test('выбранные метки помнятся между открытиями раздела', async () => {
+  onTrackerTab()
+  stubLabeled()
+
+  const { unmount } = render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  fireEvent.click(screen.getByRole('button', { name: 'Метки' }))
+  fireEvent.click(option('Nota', 'export'))
+  unmount()
+
+  render(<Backlog />)
+  expect(await screen.findByRole('button', { name: 'Метки: export' })).toBeInTheDocument()
+})
+
+test('меток репозитория не прочли — в списке метки задач; у YouTrack кнопки «Метки» нет', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch([{ ...backlogs[0], tracker: orders }, { ...backlogs[1], tracker: youTrack }])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: labeled, problem: null, labels: null }))
+  fetchMock.setTracker(backlogs[1].base, answer({ issues: ytIssues, problem: null }))
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /ABC-7/ })
+  fireEvent.click(screen.getByRole('button', { name: 'Метки' }))
+  // Проект с метками один — список без подписей
+  expect(within(screen.getByRole('listbox', { name: 'Метки' })).getAllByRole('option').map((o) => o.textContent)).toEqual([
+    'bug', 'docs', 'ui',
+  ])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Nota' }))
+  expect(screen.queryByRole('button', { name: /^Метки/ })).not.toBeInTheDocument()
+})
+
 test('«Взять задачу» у задачи трекера запускает её по имени «GitHub #N» тем же окном', async () => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker(github))

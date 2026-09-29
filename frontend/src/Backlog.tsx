@@ -13,6 +13,7 @@ import {
   readOrder,
   readRemembered,
   remember,
+  samePicked,
   TYPES,
   writeOrder,
   type Order,
@@ -33,7 +34,8 @@ import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { normalizeNumber, numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
 import TrackerMoveModal, { SendIcon } from './TrackerMoveModal'
-import { initialTrackerLoad, loadTrackerIssues, readable, type TrackerInfo, type TrackerLoad } from './tracker'
+import LabelsPick from './LabelsPick'
+import { initialTrackerLoad, labelChoices, loadTrackerIssues, readable, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
@@ -246,6 +248,10 @@ export default function Backlog({
   const trackerFilter = trackerBacklogs.some((b) => b.base === filter) ? filter : null
   const trackerScope = trackerFilter === null ? trackerBacklogs : trackerBacklogs.filter((b) => b.base === trackerFilter)
   const labelsActive = activeLabels(selection.labels, trackerScope.map((b) => b.base))
+  // Перечень меток — у проектов с GitHub, пока их задачи прочитаны: все метки репозитория (B-305)
+  const labelGroups = trackerScope
+    .filter((b) => b.tracker?.kind === 'github' && trackers[b.base]?.kind === 'loaded' && !problemOf(trackers[b.base]))
+    .map((b) => ({ base: b.base, project: b.project, labels: labelChoices(trackers[b.base]) }))
   const filteringIssues = isFilteringIssues(selection, labelsActive)
   // Задачи отбираются поиском и метками; ничего не подошло — проект скрыт целиком, со строкой причины тоже: так
   // записан критерий B-277
@@ -486,6 +492,24 @@ export default function Backlog({
 
               <div className="filter-bar" role="group" aria-label="Отбор задач трекера">
                 <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
+                {/* Метки — только у GitHub; теги YouTrack — запись B-307 */}
+                {labelGroups.length > 0 && (
+                  <>
+                    <span className="tool-sep" />
+                    <LabelsPick
+                      groups={labelGroups}
+                      picked={labelsActive}
+                      onToggle={(label) =>
+                        setSelection((prev) => ({
+                          ...prev,
+                          labels: prev.labels.some((one) => samePicked(one, label))
+                            ? prev.labels.filter((one) => !samePicked(one, label))
+                            : [...prev.labels, label],
+                        }))
+                      }
+                    />
+                  </>
+                )}
               </div>
 
               {filteringIssues && trackerShown.length === 0 && <p className="empty-message">Под фильтр задач нет</p>}
@@ -693,6 +717,10 @@ function BacklogSkeleton({ shown }: { shown: boolean }) {
 
 function trackerIssues(load: TrackerLoad | undefined) {
   return load?.kind === 'loaded' ? load.issues : []
+}
+
+function problemOf(load: TrackerLoad | undefined) {
+  return load?.kind === 'loaded' ? load.problem : null
 }
 
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */
