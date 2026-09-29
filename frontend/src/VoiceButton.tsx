@@ -143,8 +143,10 @@ export default function VoiceButton<T = undefined>({
     } catch (error) {
       if (chunks.current === cut) chunks.current = null
       changeMode('idle')
-      // Закрытый крестиком запрос — не запрет: кнопка остаётся рабочей, следующий щелчок спросит снова.
-      if (isDenied(error)) setDenied(await microphoneDenied())
+      // Отказ без запрета браузера — закрытый крестиком запрос, микрофон, закрытый приложениям в Windows: кнопка
+      // остаётся рабочей, а отказ называется строкой под полем — молча щелчок не пропадает (ревью B-291).
+      const denied = isDenied(error) && (await microphoneDenied())
+      if (denied) setDenied(true)
       else callbacks.current.onError?.(MIC_FAILED)
     }
   }

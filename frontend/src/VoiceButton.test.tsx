@@ -5,6 +5,7 @@ import { SAMPLE_RATE } from './microphone'
 import {
   appendSpoken,
   HOLD_MS,
+  MIC_FAILED,
   RECOGNIZE_FAILED,
   useVoiceModuleSource,
   VOICE_POLL_MS,
@@ -206,15 +207,16 @@ test('запрет, узнанный при записи, гасит кнопк�
   expect(button()).toHaveAttribute('aria-pressed', 'false')
 })
 
-test('закрытый крестиком запрос разрешения — не запрет: кнопка остаётся рабочей', async () => {
+test('отказ без запрета браузера — не запрет: кнопка остаётся рабочей, а отказ назван строкой', async () => {
+  // Закрытый крестиком запрос или микрофон, закрытый приложениям в Windows: разрешение сайта не «запрещено».
   mic.failure = new DOMException('закрыли', 'NotAllowedError')
   mic.deniedAfterFailure = false
   render(<Field />)
 
   click()
 
-  await vi.waitFor(() => expect(button()).toHaveAttribute('aria-pressed', 'false'))
-  await act(async () => {})
+  expect(await screen.findByRole('alert')).toHaveTextContent(MIC_FAILED)
+  expect(button()).toHaveAttribute('aria-pressed', 'false')
   expect(button()).toHaveAttribute('title', VOICE_TITLES.ready)
   expect(button()).not.toHaveAttribute('aria-disabled')
 })
