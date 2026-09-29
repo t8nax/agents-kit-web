@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-export type AgentKind = 'ask' | 'backlog' | 'flow' | 'performer'
+export type AgentKind = 'ask' | 'backlog' | 'flow' | 'performer' | 'report'
 
 export type Panel = {
   /** Что панель получила POST-ом просьбы. */

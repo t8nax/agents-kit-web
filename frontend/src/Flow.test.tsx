@@ -1562,6 +1562,36 @@ test('раздел, открытый с отметки просьбы в шап�
   expect(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).toBeInTheDocument()
 })
 
+test('для отчёта о флоу у непрочитанного флоу вместо окна — строка с причиной и «Закрыть»', async () => {
+  stubApi(api([app, { ...nota, version: null, error: 'База не найдена на диске' }], rewriteApi([])))
+  const closed = vi.fn()
+  render(<Flow baseFor={nota.base} rewriteAt={1} rewriteWish="Прошу исправить." rewriteOnly onRewriteClosed={closed} />)
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('не открыть, пока флоу проекта не прочитан: База не найдена на диске')
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+
+  fireEvent.click(within(alert).getByRole('button', { name: 'Закрыть' }))
+  expect(closed).toHaveBeenCalled()
+})
+
+test('для отчёта о флоу раздел рисует только окно переписывания с просьбой в поле и говорит, когда его закрыли', async () => {
+  stubApi(api([app], rewriteApi([])))
+  const closed = vi.fn()
+  render(
+    <Flow baseFor={app.base} rewriteAt={1} rewriteWish="Прошу исправить находку отчёта." rewriteOnly onRewriteClosed={closed} />,
+  )
+
+  const dialog = await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
+  expect(within(dialog).getByLabelText('Просьба')).toHaveValue('Прошу исправить находку отчёта.')
+  // Самого раздела нет: ни заголовка, ни вкладок.
+  expect(screen.queryByRole('heading', { name: 'Флоу' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: 'Этапы' })).not.toBeInTheDocument()
+
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Закрыть' }))
+  expect(closed).toHaveBeenCalled()
+})
+
 test('отметка в шапке при открытом разделе открывает окно переписывания, не бросая правку в открытом окне', async () => {
   stubApi(api([app], rewriteApi([])))
   const view = render(<Flow />)

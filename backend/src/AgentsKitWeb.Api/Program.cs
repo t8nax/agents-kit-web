@@ -4,6 +4,7 @@ using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Panel;
 using AgentsKitWeb.Api.Performers;
+using AgentsKitWeb.Api.Reports;
 using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Usage;
@@ -16,6 +17,11 @@ builder.Services.AddSingleton(services =>
 {
     var config = services.GetRequiredService<IConfiguration>();
     return new FlowIconsStore(config["FlowIconsFile"] ?? FlowIconsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
+});
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new ReportsStore(config["ReportsFile"] ?? ReportsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
 builder.Services.AddSingleton(services =>
     new AgentSessions(services.GetRequiredService<IConfiguration>()["SessionsDir"] ?? AgentSessions.DefaultDirectory));
@@ -84,12 +90,15 @@ builder.Services.AddSingleton<AskConversations>();
 builder.Services.AddSingleton<IBacklogCheckGate, OpenBacklogCheckGate>();
 builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<FlowConversations>();
+builder.Services.AddSingleton<FlowReports>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<ResumedSessions>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
 // Отработавшую сессию задачи панель гасит сама — решение оператора на B-68.
 builder.Services.AddHostedService<FinishedTaskSessions>();
+builder.Services.AddSingleton<ScheduledReports>();
+builder.Services.AddHostedService(services => services.GetRequiredService<ScheduledReports>());
 var app = builder.Build();
 
 // Собранный фронт лежит в wwwroot поставленной панели; в разработке его отдаёт Vite, а wwwroot пуст.
@@ -132,6 +141,7 @@ app.MapPanelEndpoints();
 app.MapPerformerDraftEndpoints();
 app.MapPerformersEndpoints();
 app.MapRemoveWorkspaceEndpoints();
+app.MapReportEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 app.MapTrackerServersEndpoints();
