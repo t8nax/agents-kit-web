@@ -12,7 +12,7 @@ import './Reports.css'
 
 export type Priority = 'high' | 'medium' | 'low'
 
-/** Рекомендация к флоу из справки кита — таким, каким было при разборе. */
+/** Рекомендация к флоу из справки кита — такой, какой была при разборе. */
 export type Requirement = { code: string; ring: string; priority: Priority; title: string; text: string }
 
 export type RingScore = { name: string; score: number; band: 'pass' | 'avg' | 'fail'; total: number; passed: number }

@@ -163,6 +163,9 @@ test('находка под двумя рекомендациями стоит �
   const first = tags[0].closest('details')!
   fireEvent.click(within(first).getByText('Задача не теряет себя'))
   await waitFor(() => expect(first.open).toBe(true))
+  expect(first.textContent).toContain(
+    'Эта находка относится и к рекомендации «Флоу себе не противоречит» в кольце «Согласованность». Одна правка выполнит обе.',
+  )
   fireEvent.click(within(first).getByRole('button', { name: 'Показать строку' }))
 
   const twin = tags[1].closest('details')!
@@ -190,6 +193,11 @@ test('раскрытая находка говорит, какая рекоме�
   expect(within(row).getByText('При ответе «не принято» у задачи нет продолжения.')).toBeTruthy()
   expect(within(row).getByText('Добавить этапу «Мерж» возврат на этап «Реализация».')).toBeTruthy()
   expect(within(row).getByText('Если выполнить, кольцо «Проходимость» получит 15 баллов.')).toBeTruthy()
+  // Подсказки у плашки приоритета и у «+15» — тоже словами рекомендаций (макет B-298).
+  expect(row.querySelector('.rp-pr-high')!.getAttribute('title')).toBe(
+    'Высокий приоритет: −15 баллов кольцу, пока рекомендация не выполнена. С невыполненной рекомендацией высокого приоритета кольцо не бывает зелёным.',
+  )
+  expect(within(row).getByText('+15').getAttribute('title')).toBe('Если выполнить, кольцо получит 15 баллов')
 
   // Окно встаёт поверх отчёта, как на макете, с просьбой по находке в поле; отправляет оператор.
   fireEvent.click(within(row).getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
@@ -263,7 +271,7 @@ test('формулировка рекомендации начинается с 
   fireEvent.click(within(row).getByText('Каждый исход куда-то ведёт'))
   await waitFor(() => expect(row.open).toBe(true))
   expect(within(row).getByText('У каждого исхода есть продолжение.')).toBeTruthy()
-  // Выполнена одна рекомендация из пяти — «Во флоу только порядок работы», и его формулировка тоже с заглавной.
+  // Выполнена одна рекомендация из пяти — «Во флоу только порядок работы», и её формулировка тоже с заглавной.
   expect(screen.getByText('Выполненные рекомендации').textContent).toBe('Выполненные рекомендации1')
   const passed = screen.getByText('Во флоу только порядок работы').closest('.rp-passed-row')!
   expect(passed.querySelector('.rp-passed-text')!.textContent).toBe('Во флоу нет устройства системы.')
