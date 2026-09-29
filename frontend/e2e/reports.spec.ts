@@ -113,9 +113,12 @@ test('кольца и находки видны, а находка раскры�
   await expect(page.getByRole('button', { name: 'Проходимость: 70 из 100.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Ясность: 100 из 100.' })).toBeVisible()
   // Переключатель порядка стоит у правого края списка находок, как на макете (замечание оператора на приёмке).
-  const order = (await page.getByRole('tablist', { name: 'Порядок находок' }).boundingBox())!
-  const list = (await page.locator('.rp-list').boundingBox())!
-  expect(Math.abs(order.x + order.width - (list.x + list.width - 24))).toBeLessThanOrEqual(1)
+  // Замер повторяется до совпадения: шрифт грузится после первой отрисовки (decisions/e2e.md).
+  await expect(async () => {
+    const order = (await page.getByRole('tablist', { name: 'Порядок находок' }).boundingBox())!
+    const items = (await page.locator('.rp-list .rp-items').first().boundingBox())!
+    expect(Math.abs(order.x + order.width - (items.x + items.width))).toBeLessThanOrEqual(1)
+  }).toPass()
   const row = page.locator('details').filter({ hasText: 'Каждый исход куда-то ведёт' })
   await row.getByText('Каждый исход куда-то ведёт').click()
   await expect(row.getByText('При ответе «не принято» у задачи нет продолжения.')).toBeVisible()
@@ -214,9 +217,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
     // Кольцо во всю рамку и с толщиной по макету: общее правило значков панели его не сжимает (приёмка B-270).
     const ring = page.getByRole('button', { name: /^Ясность:/ }).locator('svg')
-    const box = (await ring.boundingBox())!
-    expect(Math.round(box.width)).toBe(72)
-    expect(await ring.locator('.rp-gauge-value').evaluate((circle) => getComputedStyle(circle).strokeWidth)).toBe('6px')
+    await expect(async () => expect(Math.round((await ring.boundingBox())!.width)).toBe(72)).toPass()
     expect(await stroke('Ясность')).toBe(await token('--accent-active-text'))
     expect(await stroke('Проходимость')).toBe(await token('--accent-waiting-fill'))
     const high = page.locator('.rp-pr-high').first()

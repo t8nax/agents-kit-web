@@ -838,7 +838,7 @@ function Passed({ requirements, withRing }: { requirements: Requirement[]; withR
       <summary>
         <ChevronIcon />
         <span className="rp-group-title">
-          Выполненные требования <span className="rp-count">{requirements.length}</span>
+          Выполненные требования<span className="rp-count">{requirements.length}</span>
         </span>
       </summary>
       <div className="rp-items">
@@ -881,7 +881,7 @@ function Gauge({ ring, size }: { ring: RingScore; size: number }) {
   return (
     <span className={`rp-gauge rp-${ring.band}`} style={{ width: size, height: size }}>
       <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
-        {/* Толщина — стилем: общее правило значков панели (svg в App.css) перебило бы атрибут. */}
+        {/* Размер рисунка задаёт Reports.css: общее правило значков панели (svg в App.css) сжимало кольцо до 16px. */}
         <circle className="rp-gauge-track" cx={size / 2} cy={size / 2} r={radius} style={{ strokeWidth: width }} />
         <circle
           className="rp-gauge-value"
@@ -922,7 +922,8 @@ function Inline({ text }: { text: string }) {
  * с заглавной, как на макете. Слова остаются дословными.
  */
 function sentence(text: string) {
-  return text.charAt(0).toUpperCase() + text.slice(1)
+  // Только русская буква: имя файла или ключа в начале текста осталось бы как в ките.
+  return /^\p{Script=Cyrillic}/u.test(text) ? text.charAt(0).toUpperCase() + text.slice(1) : text
 }
 
 function smooth(): ScrollBehavior {

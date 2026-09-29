@@ -255,8 +255,22 @@ test('формулировка требования начинается с за
   fireEvent.click(within(row).getByText('Каждый исход куда-то ведёт'))
   await waitFor(() => expect(row.open).toBe(true))
   expect(within(row).getByText('У каждого исхода есть продолжение.')).toBeTruthy()
-  // Выполнено одно требование из пяти — «Во флоу только порядок работы».
-  expect(screen.getByText('Выполненные требования').textContent).toBe('Выполненные требования 1')
+  // Выполнено одно требование из пяти — «Во флоу только порядок работы», и его формулировка тоже с заглавной.
+  expect(screen.getByText('Выполненные требования').textContent).toBe('Выполненные требования1')
+  const passed = screen.getByText('Во флоу только порядок работы').closest('.rp-passed-row')!
+  expect(passed.querySelector('.rp-passed-text')!.textContent).toBe('Во флоу нет устройства системы.')
+})
+
+test('формулировка, начатая не русской буквой, показана как в ките', async () => {
+  const code = {
+    ...report,
+    requirements: report.requirements.map((one) => (one.code === 'Я4' ? { ...one, text: 'flow/ держит только порядок работы.' } : one)),
+  }
+  stub(() => [item({ report: code })])
+  renderReports()
+
+  const passed = (await screen.findByText('Во флоу только порядок работы')).closest('.rp-passed-row')!
+  expect(passed.querySelector('.rp-passed-text')!.textContent).toBe('flow/ держит только порядок работы.')
 })
 
 test('по кольцам находки стоят под своим кольцом со счётом требований, без «вычтено»', async () => {
