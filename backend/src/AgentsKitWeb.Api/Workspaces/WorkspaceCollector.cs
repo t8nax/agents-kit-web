@@ -18,6 +18,18 @@ public static class WorkspaceStatus
     /// (AgentSessions.Annotate) — решение оператора на B-106.
     /// </summary>
     public const string Unread = "unread";
+
+    /// <summary>
+    /// Задача в работе, вопросов нет, а сессия задачи стоит без дела дольше выдержки: работа встала, и
+    /// продолжить её без оператора некому (AgentSessions.Annotate) — решение оператора на B-308.
+    /// </summary>
+    public const string Stopped = "stopped";
+
+    /// <summary>
+    /// Сессия задачи держит свой диалог Claude Code и ждёт нажатия в терминале; вопрос в памяти важнее —
+    /// с ним строка остаётся Waiting (AgentSessions.Annotate) — решение оператора на B-308.
+    /// </summary>
+    public const string Terminal = "terminal";
 }
 
 /// <summary>
@@ -25,7 +37,9 @@ public static class WorkspaceStatus
 /// общее для её копий, Problems — число проблем связи самой копии; оба из последней проверки кита,
 /// когда ProblemsState — checked; иначе state называет, почему чисел нет.
 /// CopiesDir стоит у копии из списка копий этой машины (local\me.json), от которой панель заводит новые: каталог, куда кит их кладёт.
-/// SessionState — что делает сессия агента в копии (значения — SessionState), null — живой сессии в ней нет.
+/// SessionState — что делает сессия задачи копии (значения — SessionState), null — живой сессии задачи в ней нет.
+/// Фронт его не показывает — точки у имени копии нет с B-308: что делает сессия, говорит статус Stopped или
+/// Terminal, который AgentSessions.Annotate ставит по нему; в ответе поле объясняет, отчего строка их получила.
 /// BackgroundSession — в копии идёт фоновая сессия агента, и в неё есть переход из терминала.
 /// Letters — буквы номеров проекта (Backlog.Letters): по ним фронт отделяет номер задачи от её заголовка.
 /// Tracker — имя трекера проекта (TrackerDescriptions.NameOf): по нему фронт отделяет номер задачи трекера — B-303.

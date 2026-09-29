@@ -20,12 +20,13 @@ test('оглавление делится на «Начало» и «Разде�
   expect(screen.getByText('Раздел панели')).toBeInTheDocument()
 })
 
-test('названия из панели рисуются, как в панели: статус плашкой, точка сессии точкой, кнопка плашкой', () => {
+test('названия из панели рисуются, как в панели: статус плашкой, кнопка плашкой', () => {
   render(<Guide />)
   openPage('Рабочие копии')
 
   expect(screen.getByText('Ждёт оператора', { selector: '.status-badge' })).toHaveClass('status-waiting')
-  expect(screen.getByText('Зелёная').querySelector('.session-dot')).toHaveClass('session-working')
+  expect(screen.getByText('Сессия стоит', { selector: '.status-badge' })).toHaveClass('status-stopped')
+  expect(screen.getByText('Ждёт в терминале', { selector: '.status-badge' })).toHaveClass('status-terminal')
   expect(screen.getAllByText('Новая копия', { selector: '.guide-ui' }).length).toBeGreaterThan(0)
   expect(screen.getAllByRole('img', { name: 'меню' }).length).toBeGreaterThan(0)
 })
@@ -35,7 +36,7 @@ test('частые случаи стоят карточками, а «Назад
   openPage('Рабочие копии')
 
   const cases = screen.getByRole('heading', { name: 'Частые случаи', level: 2 }).closest('section')!
-  expect(cases.querySelectorAll('.guide-card')).toHaveLength(4)
+  expect(cases.querySelectorAll('.guide-card')).toHaveLength(5)
 
   const pager = within(screen.getByRole('navigation', { name: 'Соседние страницы' }))
   expect(pager.getByRole('button', { name: /Назад/ })).toBeInTheDocument()

@@ -1,6 +1,6 @@
 import type { WorkspaceRow } from './App'
 
-export type StatusChange = { kind: 'waiting' | 'unread' | 'freed'; row: WorkspaceRow }
+export type StatusChange = { kind: 'waiting' | 'unread' | 'stopped' | 'terminal' | 'freed'; row: WorkspaceRow }
 
 // По базе, а не по названию проекта: переименованный в базе проект — та же копия
 export function rowKey(row: WorkspaceRow) {
@@ -18,6 +18,8 @@ export function statusChanges(previous: WorkspaceRow[] | null, next: WorkspaceRo
     if (!was || !row.status || was === row.status) continue
     if (row.status === 'waiting') changes.push({ kind: 'waiting', row })
     else if (row.status === 'unread') changes.push({ kind: 'unread', row })
+    else if (row.status === 'stopped') changes.push({ kind: 'stopped', row })
+    else if (row.status === 'terminal') changes.push({ kind: 'terminal', row })
     else if (row.status === 'free') changes.push({ kind: 'freed', row })
   }
   return changes

@@ -36,35 +36,17 @@ const statusClasses: Record<string, string> = {
   'В работе': 'status-in-work',
   'Ждёт оператора': 'status-waiting',
   'Ответ не прочитан': 'status-unread',
-}
-
-const dotClasses: Record<string, string> = {
-  зелёная: 'session-working',
-  жёлтая: 'session-waiting',
-  серая: 'session-idle',
-  пустая: 'session-none',
-}
-
-const dotNames: Record<string, string> = {
-  зелёная: 'Зелёная',
-  жёлтая: 'Жёлтая',
-  серая: 'Серая',
-  пустая: 'Пустой кружок',
+  'Сессия стоит': 'status-stopped',
+  'Ждёт в терминале': 'status-terminal',
 }
 
 // Код в тексте руководства — название того, что оператор видит в панели, и рисуется так же,
-// как в панели: кнопка — плашкой, статус — плашкой статуса, точка сессии — точкой.
+// как в панели: кнопка — плашкой, статус — плашкой статуса.
 function UiName({ text }: { text: string }): ReactNode {
   const [kind, value] = text.includes(': ') ? text.split(': ', 2) : [null, text]
   if (kind === 'статус' && statusClasses[value])
     return <span className={`status-badge ${statusClasses[value]}`}>{value}</span>
-  if (kind === 'точка' && dotClasses[value])
-    return (
-      <span className="guide-dot">
-        <span className={`session-dot ${dotClasses[value]}`} aria-hidden="true" />
-        {dotNames[value]}
-      </span>
-    )
+
   if (kind === 'метка') return <span className="main-tag">{value}</span>
   if (text === '⋯')
     return (

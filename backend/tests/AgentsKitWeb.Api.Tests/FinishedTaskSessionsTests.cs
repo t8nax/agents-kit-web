@@ -75,10 +75,12 @@ public sealed class FinishedTaskSessionsTests : IDisposable
         Assert.Null(_started.SessionIn(_copy));
     }
 
-    [Fact]
-    public async Task WorkingSession_IsNotStopped()
+    [Theory]
+    [InlineData("busy")]
+    [InlineData("shell")]
+    public async Task WorkingSession_IsNotStopped(string status)
     {
-        WriteBackground(_copy, 200, Session, status: "busy");
+        WriteBackground(_copy, 200, Session, status: status);
         _tasks.Remember(_copy, Session);
 
         await SweepTwice();
