@@ -16,6 +16,21 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
   switch (load.problem) {
     case null:
       if (load.issues.length > 0) return null
+      // Отбор ничего не нашёл — строка называет его: задач может просто не быть, а может быть опечатка (ответ оператора на B-300)
+      if (tracker.query)
+        return {
+          warning: false,
+          text:
+            tracker.kind === 'youtrack' ? (
+              <>
+                По запросу <code>{tracker.query}</code> на вас в YouTrack сейчас нет задач этого проекта.
+              </>
+            ) : (
+              <>
+                По запросу <code>{tracker.query}</code> на вас в GitHub сейчас нет открытых задач этого репозитория.
+              </>
+            ),
+        }
       return tracker.kind === 'youtrack'
         ? { warning: false, text: 'На вас в YouTrack нет незакрытых задач этого проекта.' }
         : { warning: false, text: 'На вас в GitHub нет открытых задач этого репозитория.' }
@@ -104,6 +119,20 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
       }
     case 'youtrack-error':
       return { warning: true, text: `YouTrack ответил ошибкой: ${load.detail ?? load.problem}.` }
+    case 'query-rejected':
+      return {
+        warning: true,
+        text: (
+          <>
+            {tracker.kind === 'youtrack' ? 'YouTrack' : 'GitHub'} не принял запрос <code>{tracker.query}</code>
+            {load.detail ? <>: {load.detail}</> : ''}. Исправьте его в «Настройках», в карточке{' '}
+            <button type="button" className="tracker-link" onClick={onTrackers}>
+              «Трекеры проектов»
+            </button>
+            .
+          </>
+        ),
+      }
     case 'unreadable':
       return { warning: true, text: 'Описание трекера проекта не прочитано.' }
     // Описание трекера убрали, пока раздел его читал
