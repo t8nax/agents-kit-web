@@ -410,8 +410,8 @@ public static class FlowEndpoints
         return configured is not null && Directory.Exists(configured) ? configured : null;
     }
 
-    /// <summary>Пишет файл через временный рядом; null — удаляет.</summary>
-    private static async Task WriteAsync(string file, byte[]? bytes, CancellationToken cancellationToken)
+    /// <summary>Пишет файл через временный рядом; null — удаляет. Сорвавшаяся запись оставляет прежний файл целым.</summary>
+    internal static async Task WriteAsync(string file, byte[]? bytes, CancellationToken cancellationToken)
     {
         if (bytes is null)
         {
