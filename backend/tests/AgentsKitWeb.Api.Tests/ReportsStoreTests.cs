@@ -85,6 +85,22 @@ public sealed class ReportsStoreTests : IDisposable
     }
 
     [Fact]
+    public void Schedule_IsWrittenWithoutCheckFlag_AndOldFileWithItIsRead()
+    {
+        var store = new ReportsStore(File);
+        store.SaveSchedule(@"D:\base", ReportsStore.FlowKind, new ReportSchedule(true, [DayOfWeek.Monday], 9));
+
+        Assert.DoesNotContain("isValid", System.IO.File.ReadAllText(File));
+
+        // Файл, записанный до B-270 ревью, нёс признак проверки: он читается, и отчёты не теряются.
+        System.IO.File.WriteAllText(File, System.IO.File.ReadAllText(File).Replace("\"hour\": 9", "\"hour\": 9,\n        \"isValid\": true"));
+        Assert.Contains("isValid", System.IO.File.ReadAllText(File));
+        var schedule = new ReportsStore(File).Of(@"D:\base", ReportsStore.FlowKind).Schedule;
+        Assert.True(schedule.Enabled);
+        Assert.Equal([DayOfWeek.Monday], schedule.Days);
+    }
+
+    [Fact]
     public void BrokenFile_ReadsAsEmpty()
     {
         System.IO.File.WriteAllText(File, "{ не json");

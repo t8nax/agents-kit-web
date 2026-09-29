@@ -6,7 +6,7 @@ import { WarningIcon } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
 import { useAgentRequest, type AgentRequestSummary } from './agentRequest'
 import { plural } from './plural'
-import { useReveal } from './reveal'
+import { useReveal, withReveal } from './reveal'
 import './Tabs.css'
 import './Reports.css'
 
@@ -325,7 +325,7 @@ export default function Reports({
       )}
 
       {item && (
-        <div className={`rp-body ${reveal.className}`} onAnimationEnd={reveal.onAnimationEnd} inert={rewrite !== null}>
+        <div className={withReveal('rp-body', reveal)} onAnimationEnd={reveal.onAnimationEnd} inert={rewrite !== null}>
           <ScheduleLine
             schedule={item.schedule}
             report={report}

@@ -237,7 +237,9 @@ test('когда отчёта нет, блок об этом стоит по ц�
     const block = (await empty.boundingBox())!
     const button = (await empty.getByRole('button', { name: 'Построить отчёт' }).boundingBox())!
     const mark = (await empty.locator('.rp-empty-mark').boundingBox())!
-    // Блок занимает всё место до низа области, а его содержимое — посередине блока.
+    // Блок занимает всё место от строки расписания до низа области, а его содержимое — посередине блока.
+    const schedule = (await page.locator('.rp-sched').boundingBox())!
+    expect(Math.abs(block.y - (schedule.y + schedule.height))).toBeLessThanOrEqual(1)
     expect(Math.abs(block.y + block.height - (area.y + area.height))).toBeLessThanOrEqual(1)
     const middle = (mark.y + button.y + button.height) / 2
     expect(Math.abs(middle - (block.y + block.height / 2))).toBeLessThanOrEqual(2)

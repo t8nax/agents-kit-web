@@ -38,7 +38,10 @@ public sealed record ReportSchedule(bool Enabled, IReadOnlyList<DayOfWeek> Days,
 {
     public static readonly ReportSchedule Off = new(false, [], 9);
 
-    /// <summary>Расписание, годное к записи: час в пределах суток, дни без повторов по порядку недели от понедельника.</summary>
+    /// <summary>
+    /// Расписание, годное к записи: час в пределах суток, дни — дни недели. Повторы и порядок дней не отвергаются,
+    /// их убирает <see cref="Normalized"/>. В ответ API и в файл отчётов признак не уходит.
+    /// </summary>
     [JsonIgnore]
     public bool IsValid => Hour is >= 0 and <= 23 && Days.All(Enum.IsDefined);
 
