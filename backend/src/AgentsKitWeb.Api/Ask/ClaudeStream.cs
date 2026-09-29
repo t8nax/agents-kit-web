@@ -110,6 +110,10 @@ public sealed class ClaudeStream(string basePath, string? copyPath = null)
             return path.Replace('\\', '/');
         // Агент называет путь и через «/»: сверка с каталогами идёт по разделителю системы.
         path = path.Replace('/', Path.DirectorySeparatorChar);
+        // Страница руководства панели лежит рядом с exe, а не в базе и не в копии: от них её путь был бы
+        // длинным и чужим, а без приставки её не отличить от файла копии (B-306).
+        if (Inside(AskEndpoints.GuideDir, path))
+            return "руководство/" + Path.GetRelativePath(AskEndpoints.GuideDir, path).Replace('\\', '/');
         if (copyPath is not null && !Inside(basePath, path))
             return Inside(copyPath, path) ? Path.GetRelativePath(copyPath, path).Replace('\\', '/') : Path.GetFileName(path);
         return Path.GetRelativePath(basePath, path).Replace('\\', '/');

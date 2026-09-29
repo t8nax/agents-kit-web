@@ -73,19 +73,40 @@ public sealed class AskEndpointsTests : IDisposable
     [Fact]
     public async Task Ask_GivesTheAgentThePanelGuide()
     {
-        Assert.True(File.Exists(Path.Combine(AskEndpoints.GuideDir, "workspaces.md")));
-        _agent.Answers = [[Result("ok")]];
+        var page = Path.Combine(AskEndpoints.GuideDir, "workspaces.md");
+        Assert.True(File.Exists(page));
+        _agent.Answers = [[Tool("Read", new { file_path = page }), Result("Через меню строки.")]];
 
         var client = Client(_base);
         await Ask(client, _base, "как удалить копию?");
-        await Read(client, 2);
+        var events = await Read(client, 3);
 
         var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
         Assert.Contains(AskEndpoints.GuideDir, args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains($"Руководство оператора по панели — в каталоге {AskEndpoints.GuideDir}", prompt);
-        Assert.Contains("workspaces.md", prompt);
+        // Прочитанная страница видна у ответа под своим именем, а не путём от базы.
+        Assert.Equal(new AskEvent("step", "читает руководство/workspaces.md"), events[1]);
+        Assert.Equal(["руководство/workspaces.md"], events[2].Files);
+    }
+
+    [Fact]
+    public async Task Ask_NamesTheGuidePageAlsoWhenACopyIsChosen()
+    {
+        var copy = WithCopies("app", "app-task")[1];
+        var page = Path.Combine(AskEndpoints.GuideDir, "settings.md").Replace('\\', '/');
+        _agent.Answers = [[Tool("Read", new { file_path = page }), Result("В «Настройках».")]];
+
+        var client = Client(_base);
+        await Ask(client, _base, "где путь к киту?", copy);
+        var events = await Read(client, 3);
+
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        Assert.Equal(
+            [copy, AskEndpoints.GuideDir],
+            args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
+        Assert.Equal(["руководство/settings.md"], events[2].Files);
     }
 
     [Fact]
