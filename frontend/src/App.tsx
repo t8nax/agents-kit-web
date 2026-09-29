@@ -157,6 +157,8 @@ function App() {
     subject?: string | null
     at: number
   } | null>(null)
+  // Переход из строки «Бэклога» о поломке описания трекера: «Настройки» показывают карточку «Трекеры проектов».
+  const [trackersAt, setTrackersAt] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
   const [started, setStarted] = useState<string | null>(null)
@@ -229,6 +231,7 @@ function App() {
   const chooseSection = useCallback((next: Section) => {
     setSection(next)
     setOpenRequest(null)
+    setTrackersAt(null)
   }, [])
 
   const closeReply = useCallback(() => setReplyTo(null), [])
@@ -267,7 +270,15 @@ function App() {
               setAsking(true)
               return
             }
-            setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
+            setSection(
+              request.kind === 'backlog'
+                ? 'backlog'
+                : request.kind === 'flow'
+                  ? 'flow'
+                  : request.kind === 'tracker'
+                    ? 'settings'
+                    : 'performers',
+            )
             setOpenRequest({ kind: request.kind, base: request.base, subject: request.subject, at: Date.now() })
           }}
         />
@@ -326,6 +337,11 @@ function App() {
             <Backlog
               key={openRequest?.kind === 'backlog' ? openRequest.at : 'backlog'}
               writeFor={openRequest?.kind === 'backlog' ? openRequest.base : null}
+              onTrackers={() => {
+                setSection('settings')
+                setOpenRequest(null)
+                setTrackersAt(Date.now())
+              }}
               onStarted={(copy) => {
                 setStarted(copy)
                 // Копия станет занятой, когда агент заведёт память задачи; опрос покажет это сам
@@ -353,7 +369,10 @@ function App() {
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
           ) : (
-            <Settings />
+            <Settings
+              trackerFor={openRequest?.kind === 'tracker' ? { base: openRequest.base, at: openRequest.at } : null}
+              trackersAt={trackersAt}
+            />
           )}
         </main>
       </div>

@@ -12,6 +12,7 @@ const running: Record<AgentKind, (project: string) => string> = {
   backlog: (project) => `${AGENT_NAME} разбирает бэклог ${project}`,
   flow: (project) => `${AGENT_NAME} разбирает флоу ${project}`,
   performer: (project) => `${AGENT_NAME} заводит исполнителя ${project}`,
+  tracker: (project) => `${AGENT_NAME} разбирает трекер ${project}`,
 }
 
 const done: Record<AgentKind, (project: string) => string> = {
@@ -19,6 +20,7 @@ const done: Record<AgentKind, (project: string) => string> = {
   backlog: (project) => `${AGENT_NAME} ответил по бэклогу ${project}`,
   flow: (project) => `${AGENT_NAME} ответил по флоу ${project}`,
   performer: (project) => `${AGENT_NAME} завёл исполнителя ${project}`,
+  tracker: (project) => `${AGENT_NAME} ответил по трекеру ${project}`,
 }
 
 const failed: Record<AgentKind, (project: string) => string> = {
@@ -26,6 +28,7 @@ const failed: Record<AgentKind, (project: string) => string> = {
   backlog: (project) => `${AGENT_NAME} не ответил по бэклогу ${project}`,
   flow: (project) => `${AGENT_NAME} не ответил по флоу ${project}`,
   performer: (project) => `${AGENT_NAME} не завёл исполнителя ${project}`,
+  tracker: (project) => `${AGENT_NAME} не ответил по трекеру ${project}`,
 }
 
 // Просьба о правке заведённого исполнителя называет его: по ней отметка ведёт в его правку, а не в нового (B-80).

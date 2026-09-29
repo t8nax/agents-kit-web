@@ -560,7 +560,7 @@ test('копия не открылась — панель говорит об э
 
 test('сайдбар переключает разделы, среди них «Проблемы баз» и «Настройки»', async () => {
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === '/api/backlog' || url === '/api/bases' || url === '/api/trackers')
+    if (url === '/api/backlog' || url === '/api/bases' || url === '/api/trackers' || url === '/api/trackers/projects')
       return new Response(JSON.stringify([]), { status: 200 })
     if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
     if (url === '/api/health')
@@ -664,7 +664,8 @@ test('без пути к киту таблица говорит об этом в
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      if (url === '/api/bases' || url === '/api/trackers') return new Response(JSON.stringify([]), { status: 200 })
+      if (url === '/api/bases' || url === '/api/trackers' || url === '/api/trackers/projects')
+        return new Response(JSON.stringify([]), { status: 200 })
       if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
       return new Response(JSON.stringify(tableRows), { status: 200 })
     }),
