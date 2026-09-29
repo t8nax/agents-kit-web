@@ -71,14 +71,14 @@ export default function Backlog({
   // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, чипы — страница,
   // а поиск каждое открытие раздела пуст
   const [selection, setSelection] = useState<Selection>(() => {
-    const { types, priorities } = readRemembered()
-    return { ...emptySelection, types, priorities }
+    const { types, priorities, labels } = readRemembered()
+    return { ...emptySelection, types, priorities, labels }
   })
   const [order, setOrder] = useState<Order>(readOrder)
 
   useEffect(() => {
-    remember({ project: filter, types: selection.types, priorities: selection.priorities })
-  }, [filter, selection.types, selection.priorities])
+    remember({ tab: 'entries', project: filter, types: selection.types, priorities: selection.priorities, labels: selection.labels })
+  }, [filter, selection.types, selection.priorities, selection.labels])
 
   const changeOrder = useCallback((next: Order) => {
     setOrder(next)
@@ -216,7 +216,7 @@ export default function Backlog({
   // причины тоже: так записан критерий B-277
   const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
     .map((backlog) => {
-      const issues = trackerIssues(trackers[backlog.base]).filter((issue) => matchesIssue(issue, selection))
+      const issues = trackerIssues(trackers[backlog.base]).filter((issue) => matchesIssue(issue, backlog.base, selection, []))
       return {
         backlog,
         entries: arrange(backlog.entries, selection, order),

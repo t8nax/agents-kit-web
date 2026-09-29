@@ -12,14 +12,30 @@ export type TrackerInfo = {
   faults?: string[] | null
 }
 
-/** Незакрытая задача трекера, назначенная на оператора. name — как её называет кит: «GitHub #37», «YouTrack ABC-12». */
-export type TrackerIssue = { name: string; number: number; title: string; url: string }
+/**
+ * Незакрытая задача трекера, назначенная на оператора. name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
+ * labels — метки задачи GitHub, у YouTrack их нет (B-305).
+ */
+export type TrackerIssue = { name: string; number: number; title: string; url: string; labels?: string[] | null }
 
-/** Задачи трекера базы: problem задан — задач панель не прочитала, detail — строка трекера. */
+/**
+ * Задачи трекера базы: problem задан — задач панель не прочитала, detail — строка трекера. labels — все метки
+ * репозитория GitHub для фильтра «Метки»; null — не GitHub или метки не прочитаны.
+ */
 export type TrackerLoad =
   | { kind: 'loading' }
-  | { kind: 'loaded'; issues: TrackerIssue[]; problem: string | null; detail: string | null }
+  | { kind: 'loaded'; issues: TrackerIssue[]; problem: string | null; detail: string | null; labels?: string[] | null }
   | { kind: 'failed'; message: string }
+
+/**
+ * Перечень фильтра «Метки» у проекта: метки репозитория, а не прочитали их — метки задач, по имени. Только GitHub:
+ * теги YouTrack — запись B-307.
+ */
+export function labelChoices(load: TrackerLoad | undefined): string[] {
+  if (load?.kind !== 'loaded') return []
+  if (load.labels) return load.labels
+  return [...new Set(load.issues.flatMap((issue) => issue.labels ?? []))].sort((a, b) => a.localeCompare(b))
+}
 
 /** Трекер, задачи которого панель читает и в который переносит записи бэклога. */
 export function readable(tracker: TrackerInfo | null | undefined): boolean {
@@ -88,10 +104,21 @@ export function loadTrackerIssues(base: string): Promise<TrackerLoad> {
   return fetch(`/api/backlog/tracker?base=${encodeURIComponent(base)}`)
     .then((response) => {
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      return response.json() as Promise<{ issues: TrackerIssue[]; problem: string | null; detail?: string | null }>
+      return response.json() as Promise<{
+        issues: TrackerIssue[]
+        problem: string | null
+        detail?: string | null
+        labels?: string[] | null
+      }>
     })
     .then(
-      (answer): TrackerLoad => ({ kind: 'loaded', issues: answer.issues, problem: answer.problem, detail: answer.detail ?? null }),
+      (answer): TrackerLoad => ({
+        kind: 'loaded',
+        issues: answer.issues,
+        problem: answer.problem,
+        detail: answer.detail ?? null,
+        labels: answer.labels ?? null,
+      }),
       (e: unknown): TrackerLoad => ({
         kind: 'failed',
         message: e instanceof TypeError ? 'нет связи с API' : String((e as Error).message),
