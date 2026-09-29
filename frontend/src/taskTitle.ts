@@ -33,7 +33,8 @@ export function splitTask(task: string, letters: string | null | undefined): { n
 
 // Задача трекера начинает заголовок памяти именем трекера и номером в нём, как её называет кит: «GitHub #37 …»,
 // «Jira PAY-7 …». Номером это считается, только если имя — трекер проекта (решение оператора на B-303): в проекте
-// без трекера «GitHub #37» — просто начало заголовка. Номер показывается с именем трекера, как его записал проект.
+// без трекера «GitHub #37» — просто начало заголовка. Номер показывается с именем трекера, как его отдал
+// сервер: трекер из таблицы кита — в написании кита, свой — как записан в проекте.
 export function splitTrackerTask(task: string, tracker: string | null | undefined): { number: string | null; title: string } {
   const name = tracker?.trim()
   const match = name
