@@ -33,15 +33,17 @@ const backlog = [
   },
 ]
 const issues = [
-  { name: 'GitHub #52', number: 52, title: 'Панель не стартует с пробелом в пути', url: 'https://github.com/acme/orders/issues/52' },
-  { name: 'GitHub #7', number: 7, title: 'Показывать версию кита', url: 'https://github.com/acme/orders/issues/7' },
+  { name: 'GitHub #52', number: 52, title: 'Панель не стартует с пробелом в пути', url: 'https://github.com/acme/orders/issues/52', labels: ['bug', 'windows'] },
+  { name: 'GitHub #7', number: 7, title: 'Показывать версию кита', url: 'https://github.com/acme/orders/issues/7', labels: [] },
 ]
+// Все метки репозитория — перечень фильтра «Метки» (B-305); documentation нет ни у одной задачи
+const labels = ['bug', 'documentation', 'windows']
 
 async function routeApi(page: Page) {
   const posts: unknown[] = []
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [freeRow] }))
   await page.route('**/api/backlog', (route) => route.fulfill({ json: backlog }))
-  await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues, problem: null } }))
+  await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues, problem: null, labels } }))
   await page.route('**/api/flow', (route) =>
     route.fulfill({ json: [{ base, project: 'Agents Kit Web', flows: [{ name: 'полный', when: null, entries: [{ stage: 'Ветка' }] }] }] }),
   )
@@ -54,47 +56,68 @@ async function routeApi(page: Page) {
   return posts
 }
 
+async function openTrackerTab(page: Page) {
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+  await page.getByRole('tablist', { name: 'Части бэклога' }).getByRole('tab', { name: 'Задачи трекера' }).click()
+}
+
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`у проекта с трекером под записями — задачи GitHub, назначенные на оператора (${colorScheme})`, async ({ page }) => {
+  test(`вкладка «Задачи трекера» — задачи GitHub с метками, фильтр «Метки» (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme })
     await routeApi(page)
     await page.goto('/')
     await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
 
+    // На вкладке записей задач трекера нет; вкладки — справа в шапке, как во «Флоу»
+    const tabs = page.getByRole('tablist', { name: 'Части бэклога' })
+    await expect(tabs.getByRole('tab', { name: 'Записи бэклога' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('button', { name: /B-7/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /#52/ })).toHaveCount(0)
+    const [tabsBox, askBox] = await Promise.all([tabs.boundingBox(), page.getByRole('button', { name: /Попросить/ }).boundingBox()])
+    expect(tabsBox!.x + tabsBox!.width).toBeLessThanOrEqual(askBox!.x)
+
+    await tabs.getByRole('tab', { name: 'Задачи трекера' }).click()
     const project = page.getByRole('region', { name: 'Agents Kit Web' })
-    await expect(project.getByText('Записи бэклога', { exact: true })).toBeVisible()
-    const group = project.getByText('Задачи трекера, назначенные на вас', { exact: true })
-    await expect(group).toBeVisible()
     const link = project.getByRole('link', { name: /#52 Панель не стартует с пробелом в пути/ })
     await expect(link).toBeVisible()
-    // Задачи трекера — под записями бэклога
-    const entryBox = await project.getByRole('button', { name: /B-7/ }).boundingBox()
-    const groupBox = await group.boundingBox()
-    expect(entryBox!.y + entryBox!.height).toBeLessThanOrEqual(groupBox!.y)
-    // У проекта без трекера подписей нет
-    await expect(page.getByRole('region', { name: 'Nota' }).getByText('Записи бэклога', { exact: true })).toHaveCount(0)
+    await expect(link.locator('.issue-label')).toHaveText(['bug', 'windows'])
+    // Проекта без трекера на вкладке нет
+    await expect(page.getByRole('region', { name: 'Nota' })).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Метки' }).click()
+    const list = page.getByRole('listbox', { name: 'Метки' })
+    await expect(list.getByRole('option')).toHaveText(['bug', 'documentation', 'windows'])
+    await list.getByRole('option', { name: 'documentation' }).click()
+    await expect(project).toHaveCount(0)
+    await expect(page.getByText('Под фильтр задач нет')).toBeVisible()
+    await list.getByRole('option', { name: 'bug' }).click()
+    await expect(page.getByRole('button', { name: 'Метки: documentation, bug' })).toBeVisible()
+    await expect(project.getByRole('link')).toHaveCount(1)
 
     // Строка задачи открывает её на GitHub во вкладке браузера
+    await page.keyboard.press('Escape')
     const [tab] = await Promise.all([page.context().waitForEvent('page'), link.click()])
     await expect.poll(() => tab.url()).toBe('https://github.com/acme/orders/issues/52')
     await tab.close()
   })
 }
 
-test('пока задачи трекера читаются, записи бэклога видны, а под подписью группы проступает заготовка', async ({ page }) => {
+test('пока задачи трекера читаются, записи бэклога видны, а на вкладке трекера проступает заготовка', async ({ page }) => {
   await routeApi(page)
   // Чтение трекера держится, пока тест не отпустит: gh ходит в GitHub дольше, чем читается файл
   let release: () => void = () => {}
   const held = new Promise<void>((resolve) => (release = resolve))
   await page.route('**/api/backlog/tracker?**', async (route) => {
     await held
-    await route.fulfill({ json: { issues, problem: null } })
+    await route.fulfill({ json: { issues, problem: null, labels } })
   })
   await page.goto('/')
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
 
+  await expect(page.getByRole('button', { name: /B-7/ })).toBeVisible()
+  await page.getByRole('tab', { name: 'Задачи трекера' }).click()
   const project = page.getByRole('region', { name: 'Agents Kit Web' })
-  await expect(project.getByRole('button', { name: /B-7/ })).toBeVisible()
   const skeleton = project.getByRole('status', { name: 'Загрузка задач трекера' })
   await expect(skeleton).toBeAttached()
   // Затянулось чтение — полосы видны
@@ -132,8 +155,7 @@ for (const [width, colorScheme] of [
       }),
     )
     await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues: youTrackIssues, problem: null } }))
-    await page.goto('/')
-    await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+    await openTrackerTab(page)
 
     const project = page.getByRole('region', { name: 'Agents Kit Web' })
     const numbers = project.locator('.tracker-issues .tracker-num')
@@ -155,8 +177,7 @@ for (const [width, colorScheme] of [
 
 test('«Взять задачу» у задачи трекера запускает её по имени «GitHub #N»', async ({ page }) => {
   const posts = await routeApi(page)
-  await page.goto('/')
-  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+  await openTrackerTab(page)
 
   const row = page.locator('.entry-row').filter({ hasText: '#7' })
   await row.getByRole('button', { name: 'Взять задачу' }).click()
