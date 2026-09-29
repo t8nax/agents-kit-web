@@ -149,6 +149,10 @@ test('оператор спрашивает базу из шапки и чита
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
   await expect(dialog.getByText('Почему таблица обновляется опросом?')).toBeVisible()
+  // Ответ уходит, когда окно уже ждёт агента, а не только показало реплику (decisions/e2e.md, B-268).
+  const waiting = dialog.getByRole('status')
+  await expect(waiting).toContainText('Чудо-Юдо читает базу и код Nota…')
+  await expect(waiting.getByLabel('Прошло времени')).toBeVisible()
   panel.answer(
     { type: 'step', text: 'читает decisions/ui.md' },
     {
