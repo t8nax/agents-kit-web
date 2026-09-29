@@ -365,6 +365,28 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Performers_EditingKeepsTheCaseOfTheFileName()
+    {
+        // Заведённый руками файл назван с заглавной: правка не должна сменить регистр имени на диске,
+        // иначе он разойдётся с тем, что знает git.
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        Directory.CreateDirectory(TestLayout.Agents(basePath));
+        File.WriteAllText(Path.Combine(TestLayout.Agents(basePath), "Reviewer.md"), "---\nname: reviewer\n---\n\nПервое тело.\n");
+        TestGit.Run(personal, "add", "--", "agents/Reviewer.md");
+        TestGit.Run(personal, "commit", "-m", "исполнитель");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["Reviewer.md"], Directory.EnumerateFiles(TestLayout.Agents(basePath)).Select(f => Path.GetFileName(f)).ToArray());
+        Assert.Equal("Другое тело", PerformerFile.Parse(File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "Reviewer.md"))).Prompt);
+        Assert.Equal("agents/Reviewer.md", Run(personal, "ls-files").Trim());
+        Assert.Empty(Status(personal));
+    }
+
+    [Fact]
     public async Task Performers_RequestAbortedDuringCommit_StillCommitsThePerformer()
     {
         // Вкладку закрыли, когда исполнитель уже записан и коммитится: оборванная запись оставила бы
