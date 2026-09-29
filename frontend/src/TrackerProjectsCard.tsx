@@ -51,8 +51,10 @@ export default function TrackerProjectsCard({ rewriteFor = null, focusAt = null 
     void reload()
   }, [reload])
 
+  // Переход из «Бэклога»: карточка встаёт на экран. Карточки выше дочитываются позже и растут, а на месте её держит
+  // привязка прокрутки браузера — это проверяет e2e project-trackers.spec.ts (ревью B-293).
   useEffect(() => {
-    if (focusAt !== null) card.current?.scrollIntoView({ block: 'start' })
+    if (focusAt !== null) card.current?.scrollIntoView?.({ block: 'start' })
   }, [focusAt])
 
   const rows = load.kind === 'loaded' ? load.rows : []

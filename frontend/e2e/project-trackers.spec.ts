@@ -121,3 +121,39 @@ for (const width of [1400, 700]) {
     await expect(dialog).toBeHidden()
   })
 }
+
+// Ревью B-293: переход из «Бэклога» показывает карточку, хотя карточки выше дочитываются позже и растут.
+test('строка поломки трекера в «Бэклоге» ведёт к карточке, и она остаётся на экране', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 })
+  await mockApi(page)
+  const bases = Array.from({ length: 14 }, (_, i) => ({ path: String.raw`D:\Projects\base-${i}-knowledge`, copies: 1 }))
+  await page.route('**/api/bases', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    await route.fulfill({ json: bases })
+  })
+  await page.route('**/api/backlog', (route) =>
+    route.fulfill({
+      json: [
+        {
+          base: rows[1].base,
+          project: 'CRM',
+          entries: [],
+          error: null,
+          tracker: { kind: 'no-keys', faults: ['проект'] },
+        },
+      ],
+    }),
+  )
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+  await page.getByRole('button', { name: '«Трекеры проектов»' }).click()
+
+  const card = page.getByRole('region', { name: 'Трекеры проектов' })
+  await expect(page.getByRole('list', { name: 'Базы знаний' }).getByRole('listitem')).toHaveCount(14)
+  await expect(async () => {
+    const box = await card.boundingBox()
+    expect(box!.y).toBeGreaterThanOrEqual(-1)
+    expect(box!.y).toBeLessThan(800 / 2)
+  }).toPass()
+})
