@@ -232,7 +232,9 @@ test('оператор выключает и включает уведомлен
 
   await openSettings(page)
   const card = page.getByRole('region', { name: 'Уведомления' })
-  await expect(page.locator('.settings-card').last()).toHaveAttribute('aria-labelledby', 'settings-notifications')
+  // Под «Уведомлениями» — только «Голосовой ввод» (B-291).
+  await expect(page.locator('.settings-card').last()).toHaveAttribute('aria-labelledby', 'settings-voice')
+  await expect(page.locator('.settings-card').nth(-2)).toHaveAttribute('aria-labelledby', 'settings-notifications')
   const toggle = card.getByRole('switch', { name: 'Показывать уведомления' })
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
 

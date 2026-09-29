@@ -7,6 +7,7 @@ import { Sk, Skeleton } from './Skeleton'
 import TrackerProjectsCard from './TrackerProjectsCard'
 import TrackerServersCard from './TrackerServersCard'
 import { useReveal, withReveal } from './reveal'
+import VoiceCard from './VoiceCard'
 import './Settings.css'
 
 export type BaseEntry = {
@@ -89,6 +90,7 @@ export default function Settings({ trackerFor = null, trackersAt = null }: Setti
       <TrackerProjectsCard key={trackerFor?.at ?? 'trackers'} rewriteFor={trackerFor} focusAt={trackersAt} />
       <PanelCard />
       <NotificationsCard />
+      <VoiceCard />
     </div>
   )
 }

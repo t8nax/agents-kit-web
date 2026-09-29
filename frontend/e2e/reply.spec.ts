@@ -162,7 +162,8 @@ test('вопросы агента — пузыри слева, ответы оп
   const dialog = await openReply(page)
   const answer = dialog.getByLabel('Ответ')
   await answer.fill('принимаю')
-  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  // Стрелок нет (B-291): к следующему вопросу ведёт Enter в строке ответа
+  await dialog.getByLabel('Ответ').press('Enter')
 
   for (const scheme of ['dark', 'light'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
@@ -217,7 +218,8 @@ test('свёрнутые вопросы одинаковы, у варианто�
 
   await page.goto('/')
   const dialog = await openReply(page)
-  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  // Стрелок нет (B-291): к следующему вопросу ведёт Enter в строке ответа
+  await dialog.getByLabel('Ответ').press('Enter')
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
 
   // вопрос, мимо которого прошли без ответа, — обычная свёрнутая строка без пометок и пунктира
@@ -279,7 +281,8 @@ test('снимки к двум вопросам подряд оба остают
   const png = (name: string) => ({ name, mimeType: 'image/png', buffer: Buffer.from('89504e47', 'hex') })
   // второй снимок уходит сразу за первым, не дожидаясь его записи в черновик
   await dialog.getByLabel('Приложить').setInputFiles(png('первый.png'))
-  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  // Стрелок нет (B-291): к следующему вопросу ведёт Enter в строке ответа
+  await dialog.getByLabel('Ответ').press('Enter')
   await dialog.getByLabel('Приложить').setInputFiles(png('второй.png'))
   await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
 
@@ -288,7 +291,8 @@ test('снимки к двум вопросам подряд оба остают
   dialog = await openReply(page)
 
   await expect(dialog.getByLabel('Приложено').getByText('первый.png')).toBeVisible()
-  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  // Стрелок нет (B-291): к следующему вопросу ведёт Enter в строке ответа
+  await dialog.getByLabel('Ответ').press('Enter')
   await expect(dialog.getByRole('list', { name: 'Приложенные файлы' }).getByText('второй.png')).toBeVisible()
 })
 
@@ -484,7 +488,8 @@ test('данные ответы возвращаются после закрыт
   await page.goto('/')
   let dialog = await openReply(page)
   await dialog.getByLabel('Ответ').fill('принимаю, но без e2e')
-  await dialog.getByRole('button', { name: 'Следующий вопрос' }).click()
+  // Стрелок нет (B-291): к следующему вопросу ведёт Enter в строке ответа
+  await dialog.getByLabel('Ответ').press('Enter')
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
@@ -540,7 +545,7 @@ test('ссылка из вопроса открывается в новой вк
   await expect(dialog.getByLabel('Ответ')).toHaveValue('в новую папку')
 })
 
-test('лента проходится одной клавиатурой: Enter ведёт дальше, стрелка возвращает, ответ правится', async ({ page }) => {
+test('лента проходится одной клавиатурой: Enter ведёт дальше, свёрнутый вопрос возвращает, ответ правится', async ({ page }) => {
   let posted: unknown = null
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
   await stubQuestions(page, [plain('Подтвердить критерий?'), plain('Как быть с переносами?')])
@@ -557,7 +562,8 @@ test('лента проходится одной клавиатурой: Enter �
   await answer.press('Enter')
   await expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeVisible()
 
-  await dialog.getByRole('button', { name: 'Предыдущий вопрос' }).click()
+  // Стрелок нет (B-291): к прежнему вопросу ведёт он сам в ленте — свёрнутый вопрос нажимается и с клавиатуры
+  await dialog.locator('.q-compact', { hasText: 'Подтвердить критерий?' }).press('Enter')
   await expect(answer).toHaveValue('принимаю')
   await answer.fill('принимаю с оговоркой')
   await answer.press('Enter')
@@ -601,4 +607,40 @@ test('отказ записи — красной строкой под поле�
   const field = (await answer.boundingBox())!
   const line = (await alert.boundingBox())!
   expect(line.y).toBeGreaterThanOrEqual(field.y + field.height - 1)
+})
+
+test('микрофон стоит первым в строке ответа, квадратом 40 px со значком 18 px, у поставленного модуля — готов', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?'), plain('Как быть с переносами?')])
+  await page.route('**/api/voice', (route) => route.fulfill({ json: { state: 'installed', downloaded: 1, total: 1, error: null } }))
+
+  await page.goto('/')
+  const dialog = await openReply(page)
+  const composer = dialog.locator('.composer-row')
+  const mic = composer.getByRole('button', { name: 'Голосовой ввод' })
+
+  await expect(mic).toHaveAttribute('title', /^Надиктовать: щелчок/)
+  await expect(composer.locator('> *').first()).toHaveAccessibleName('Голосовой ввод')
+  // Размер значка в окне меряет браузер: общее правило значков окна перебивает правило той же силы (B-80).
+  await expect(async () => {
+    expect(await mic.boundingBox()).toMatchObject({ width: 40, height: 40 })
+    expect(await mic.locator('svg').boundingBox()).toMatchObject({ width: 18, height: 18 })
+  }).toPass()
+  // Слева микрофон, справа от поля — «Приложить» и «Отправить»; стрелок нет.
+  const [micBox, fieldBox] = [await mic.boundingBox(), await dialog.getByLabel('Ответ').boundingBox()]
+  expect(micBox!.x + micBox!.width).toBeLessThanOrEqual(fieldBox!.x)
+  await expect(dialog.getByRole('button', { name: /вопрос$/ })).toHaveCount(0)
+})
+
+test('без поставленного модуля микрофон погашен и говорит, где его поставить', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [row()] }))
+  await stubQuestions(page, [plain('Подтвердить критерий?')])
+  await page.route('**/api/voice', (route) => route.fulfill({ json: { state: 'absent', downloaded: 0, total: null, error: null } }))
+
+  await page.goto('/')
+  const mic = (await openReply(page)).getByRole('button', { name: 'Голосовой ввод' })
+
+  await expect(mic).toHaveAttribute('aria-disabled', 'true')
+  await expect(mic).toHaveAttribute('title', 'Голосовой ввод не установлен. Установить его можно в разделе «Настройки».')
+  await expect(mic).toHaveCSS('opacity', '0.5')
 })

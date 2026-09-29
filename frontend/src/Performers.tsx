@@ -16,6 +16,8 @@ export type Performer = {
   tools: string | null
   prompt: string
   path: string
+  /** Названия этапов флоу, которые зовут его исполнителем или помощником: пока они есть, удалить его нельзя (B-83). */
+  calledBy?: string[] | null
 }
 
 /** Исполнители одного проекта: directory — каталог их файлов в базе. */
@@ -198,6 +200,12 @@ export default function Performers({
             setEditing(null)
             setFresh((prev) => new Set([...prev, name]))
             setSaved(name)
+            loadPerformers()
+          }}
+          onDeleted={(name) => {
+            setEditing(null)
+            // Строка «записан» про удалённого больше не верна.
+            setSaved((current) => (current === name ? null : current))
             loadPerformers()
           }}
         />

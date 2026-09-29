@@ -3,6 +3,9 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { useAgentConversation, type AskEvent } from './agentConversation'
+import { AttachError } from './Attachments'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import './Modal.css'
 import './AskModal.css'
 
@@ -42,6 +45,7 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
   const [copy, setCopy] = useState<string | null>(null)
   // Поле не трогали, пока text — null: тогда в нём стоит реплика, на которой агент сорвался.
   const [text, setText] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   // Разговор живёт в панели: закрытое окно его не трогает, а открытое заново видит переписку с начала.
   const conversation = useAgentConversation()
   const { events, running, startedAt, failure, restoring, retry, start, send, stop, forget, setFailure } = conversation
@@ -270,7 +274,14 @@ export default function AskModal({ onClose }: { onClose: () => void }) {
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
             }}
           />
+          <AttachError text={voiceError} />
           <div className="ask-actions">
+            {/* Микрофон — слева в подвале, напротив кнопок (макет B-291) */}
+            <VoiceButton
+              disabled={running}
+              onText={(spoken) => setText(appendSpoken(value, spoken))}
+              onError={setVoiceError}
+            />
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка»
                 приглушена, а «Отменить» встаёт ровно туда, где была «Отправить». */}
             <div className="footer-right">

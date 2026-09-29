@@ -17,6 +17,7 @@ import './Backlog.css'
 import './PerformerModal.css'
 import './ReplyModal.css'
 import './Flow.css'
+import { AttachError } from './Attachments'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { ChoiceMark } from './ChoiceMark'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
@@ -28,6 +29,8 @@ import PickMenu, { ChevronDownIcon, ChevronUpIcon } from './PickMenu'
 import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import { VsCodeIcon } from './VsCodeIcon'
 import { FormatIcon, NEWER_FORMAT_REASON, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 
@@ -440,6 +443,9 @@ const invalidLabels: Record<string, string> = {
 export default function Flow({
   baseFor = null,
   rewriteAt = null,
+  rewriteWish = null,
+  rewriteOnly = false,
+  onRewriteClosed,
   onPerformers,
 }: {
   baseFor?: string | null
@@ -448,6 +454,14 @@ export default function Flow({
    * уже открытый, не пересоздаётся, а только открывает окно: правка в открытом окне остаётся на месте.
    */
   rewriteAt?: number | null
+  /** Просьба, которую окно переписывания получает в поле: её вписывает отчёт о флоу по находке (B-270). */
+  rewriteWish?: string | null
+  /**
+   * Раздел не рисуется — только окно переписывания поверх другого раздела: отчёт о флоу открывает его у находки,
+   * а правки пишутся тем же путём, что из раздела (B-270). Закрытое окно зовёт onRewriteClosed.
+   */
+  rewriteOnly?: boolean
+  onRewriteClosed?: () => void
   onPerformers?: () => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
@@ -933,6 +947,79 @@ export default function Flow({
     onDelete: () => deleteStage(currentStage),
   }
 
+  const closeRewrite = () => {
+    setModal(null)
+    onRewriteClosed?.()
+  }
+  const rewriteWindow = modal === 'rewrite' && flow && editable && !newer && (
+    <FlowRewriteModal
+      base={flow.base}
+      project={flow.project}
+      stages={toApi(saved).stages}
+      flows={toApi(saved).flows}
+      mark={stageMark}
+      lockedStage={(title) => {
+        const stage = saved.stages.find((one) => norm(one.title) === norm(title))
+        return (stage && lockOfStage(stage.key)?.tasks) || null
+      }}
+      lockedFlow={(name) => {
+        const named = saved.flows.find((one) => norm(one.name) === norm(name))
+        return (named && lockOfFlow(named.key)?.tasks) || null
+      }}
+      wish={rewriteWish}
+      onApply={applyProposal}
+      onClose={closeRewrite}
+    />
+  )
+  // Правки агента ложатся только на прочитанный флоу: окно не встаёт — сказать почему.
+  const rewriteRefused = (
+    <>
+      {modal === 'rewrite' && flow?.error && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
+        </p>
+      )}
+      {/* Разговор начали до того, как кит перевёл базу: правки агента в неё не записать — окно не встаёт (B-281). */}
+      {modal === 'rewrite' && editable && newer && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть: {formatLock.before} Правки флоу в этой базе закрыты, пока панель
+          не обновится.
+        </p>
+      )}
+    </>
+  )
+
+  // Поверх другого раздела окно встаёт, когда флоу прочитан: до того и при отказе — строка у края экрана, чтобы
+  // нажатие не выглядело оставшимся без ответа (ревью B-270).
+  if (rewriteOnly) {
+    const refusal =
+      load.kind === 'failed'
+        ? `Флоу проекта не прочитан: ${load.message}`
+        : modal === 'rewrite' && flow?.error
+          ? `Окно «Переписать с ${AGENT_NAME}» не открыть, пока флоу проекта не прочитан: ${flow.error}`
+          : modal === 'rewrite' && editable && newer
+            ? `Окно «Переписать с ${AGENT_NAME}» не открыть: ${formatLock.before} Правки флоу в этой базе закрыты, пока панель не обновится.`
+            : null
+    return (
+      <>
+        {rewriteWindow}
+        {load.kind === 'loading' && (
+          <div className="flow-rewrite-status" role="status">
+            Флоу проекта читается…
+          </div>
+        )}
+        {refusal && (
+          <div className="flow-rewrite-status" role="alert">
+            <span>{refusal}</span>
+            <button type="button" className="bases-btn bases-btn-small" onClick={closeRewrite}>
+              Закрыть
+            </button>
+          </div>
+        )}
+      </>
+    )
+  }
+
   return (
     <>
       {/* Пока открыто окно, верх раздела под подложкой недоступен: окно запирает Tab. */}
@@ -1088,19 +1175,8 @@ export default function Flow({
       )}
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
-      {/* Правки агента ложатся только на прочитанный флоу: с отметки в шапке окно не встаёт — сказать почему. */}
-      {modal === 'rewrite' && flow?.error && (
-        <p className="message warning-text" role="status">
-          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
-        </p>
-      )}
-      {/* Разговор начали до того, как кит перевёл базу: правки агента в неё не записать — окно не встаёт (B-281). */}
-      {modal === 'rewrite' && editable && newer && (
-        <p className="message warning-text" role="status">
-          Окно «Переписать с {AGENT_NAME}» не открыть: {formatLock.before} Правки флоу в этой базе закрыты, пока панель
-          не обновится.
-        </p>
-      )}
+      {/* С отметки в шапке окно у непрочитанного флоу или у базы, переведённой китом новее, не встаёт — сказать почему. */}
+      {rewriteRefused}
 
       {load.kind === 'loaded' && (
         // Пока запись идёт, раздел занят: действие на схеме, начатое поверх неё, шло бы от флоу, который вот-вот сменится.
@@ -1268,25 +1344,7 @@ export default function Flow({
         />
       )}
 
-      {modal === 'rewrite' && flow && editable && !newer && (
-        <FlowRewriteModal
-          base={flow.base}
-          project={flow.project}
-          stages={toApi(saved).stages}
-          flows={toApi(saved).flows}
-          mark={stageMark}
-          lockedStage={(title) => {
-            const stage = saved.stages.find((one) => norm(one.title) === norm(title))
-            return (stage && lockOfStage(stage.key)?.tasks) || null
-          }}
-          lockedFlow={(name) => {
-            const named = saved.flows.find((one) => norm(one.name) === norm(name))
-            return (named && lockOfFlow(named.key)?.tasks) || null
-          }}
-          onApply={applyProposal}
-          onClose={() => setModal(null)}
-        />
-      )}
+      {rewriteWindow}
 
       {modal === 'add' && currentFlow && (
         <AddStage
@@ -3251,6 +3309,7 @@ export function DescriptionEditor({
   const [editing, setEditing] = useState(empty && !lock && !readOnly)
   const [text, setText] = useState(description ?? '')
   const [failure, setFailure] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   // Открытое окно забирает фокус: иначе он остался бы на кнопке под подложкой.
   const close = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -3326,31 +3385,47 @@ export function DescriptionEditor({
               {failure}
             </p>
           )}
+          {editing && <AttachError text={voiceError} />}
         </div>
         <div className="modal-footer ask-footer">
-          <div className="footer-right">
-            {editing ? (
-              <>
-                <button type="button" className="btn" onClick={cancel}>
-                  Отмена
-                </button>
-                <button type="button" className="btn btn-primary" disabled={saving || blocked || !changed} onClick={() => void save()}>
-                  {saving ? 'Сохранение…' : 'Сохранить'}
-                </button>
-              </>
-            ) : (
-              <>
-                {!lock && !readOnly && (
-                  <button type="button" className="btn" onClick={edit}>
-                    <PencilIcon />
-                    Редактировать
-                  </button>
-                )}
-                <button type="button" ref={close} className="btn" onClick={onClose}>
-                  Закрыть
-                </button>
-              </>
+          <div className="ask-actions">
+            {/* В правке описание можно надиктовать: микрофон слева в подвале, напротив кнопок (макет B-291) */}
+            {editing && (
+              <VoiceButton
+                disabled={saving}
+                onText={(spoken) => setText(appendSpoken(text, spoken))}
+                onError={setVoiceError}
+              />
             )}
+            <div className="footer-right">
+              {editing ? (
+                <>
+                  <button type="button" className="btn" onClick={cancel}>
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={saving || blocked || !changed}
+                    onClick={() => void save()}
+                  >
+                    {saving ? 'Сохранение…' : 'Сохранить'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {!lock && !readOnly && (
+                    <button type="button" className="btn" onClick={edit}>
+                      <PencilIcon />
+                      Редактировать
+                    </button>
+                  )}
+                  <button type="button" ref={close} className="btn" onClick={onClose}>
+                    Закрыть
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -217,3 +217,25 @@ test('про копию с идущей задачей окно предупре
   await expect(dialog.getByRole('alert')).toHaveText('Сессия не запущена: агент не стартовал. claude не запустился')
   await expect(dialog.getByLabel('С чего начать — необязательно')).toHaveValue('поработаем руками')
 })
+
+test('микрофон в поле просьбы стоит в углу, но не на ручке растягивания, и текст под него не заходит', async ({ page }) => {
+  await page.route('**/api/workspaces', (route) => route.fulfill({ json: [freeCopy] }))
+  await page.route('**/api/sessions', (route) => route.fulfill({ json: [] }))
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Сессии' }).click()
+  await page.getByRole('button', { name: 'Новая сессия' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Новая сессия' })
+  const field = dialog.getByLabel('С чего начать — необязательно')
+  const mic = dialog.getByRole('button', { name: 'Голосовой ввод' })
+
+  await expect(async () => {
+    const [box, micBox] = [(await field.boundingBox())!, (await mic.boundingBox())!]
+    // Ручка растягивания занимает угол поля; кнопка стоит левее и в нижней части поля.
+    expect(box.x + box.width - (micBox.x + micBox.width)).toBeGreaterThanOrEqual(16)
+    expect(micBox.y + micBox.height).toBeLessThanOrEqual(box.y + box.height)
+    expect(micBox.y).toBeGreaterThan(box.y + box.height / 2 - micBox.height)
+    const padding = await field.evaluate((el) => parseFloat(getComputedStyle(el).paddingRight))
+    expect(box.width - padding).toBeLessThanOrEqual(micBox.x - box.x)
+  }).toPass()
+})

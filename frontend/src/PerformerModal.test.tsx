@@ -4,6 +4,13 @@ import PerformerModal, { type DraftEvent, type DraftFields } from './PerformerMo
 import { controlledStream, runningRequest, stubPanel, type PanelStub } from './agentPanelTesting'
 import type { BasePerformers, Performer } from './Performers'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('и пишет отчёт.')} />
+  ),
+}))
+
 afterEach(() => vi.unstubAllGlobals())
 
 const reviewer: Performer = {
@@ -33,9 +40,16 @@ const runner: DraftFields = {
   prompt: 'Ты гоняешь e2e.',
 }
 
-function open(editing: Performer | null = null, onSaved = vi.fn(), panelBases = bases) {
+function open(editing: Performer | null = null, onSaved = vi.fn(), panelBases = bases, onDeleted = vi.fn()) {
   render(
-    <PerformerModal bases={panelBases} initial={panelBases[0].base} editing={editing} onClose={vi.fn()} onSaved={onSaved} />,
+    <PerformerModal
+      bases={panelBases}
+      initial={panelBases[0].base}
+      editing={editing}
+      onClose={vi.fn()}
+      onSaved={onSaved}
+      onDeleted={onDeleted}
+    />,
   )
   return onSaved
 }
@@ -85,6 +99,22 @@ test('у нового имя, описание и задание видны ср
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
+test('микрофон стоит в углу поля просьбы: сказанное дописывается, пока Чудо-Юдо пишет — погашен', async () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open()
+  const field = screen.getByLabelText(/Просьба к Чудо-Юдо/)
+  fireEvent.change(field, { target: { value: 'Гоняет e2e' } })
+
+  const mic = within(field.parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })
+  expect(field.parentElement).toHaveClass('voice-field')
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Гоняет e2e и пишет отчёт.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
+  await screen.findByRole('status')
+  expect(within(screen.getByLabelText(/Просьба к Чудо-Юдо/).parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled()
+})
+
 test('нового можно завести целиком руками, без просьбы к Чудо-Юдо', async () => {
   const { fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   const onSaved = open()
@@ -115,7 +145,9 @@ test('нового можно завести целиком руками, без
 test('окно закрывается крестиком, отдельной «Отмены» нет', () => {
   stubSave(() => Response.json({ path: 'x' }))
   const onClose = vi.fn()
-  render(<PerformerModal bases={bases} initial={bases[0].base} editing={null} onClose={onClose} onSaved={vi.fn()} />)
+  render(
+    <PerformerModal bases={bases} initial={bases[0].base} editing={null} onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />,
+  )
 
   expect(screen.queryByRole('button', { name: 'Отмена' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
@@ -325,6 +357,21 @@ test('пустое задание открывается кнопкой «Нап
   fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
 
   expect(screen.getByRole('button', { name: 'Показать задание' })).toBeInTheDocument()
+})
+
+test('задание в правке можно надиктовать: микрофон слева в подвале окна задания', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open({ ...reviewer, prompt: '' })
+
+  fireEvent.click(screen.getByRole('button', { name: 'Написать задание' }))
+  const task = within(screen.getByRole('dialog', { name: /Задание/ }))
+  fireEvent.change(task.getByRole('textbox', { name: 'Задание' }), { target: { value: 'Ты гоняешь проверки' } })
+  const mic = task.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('ask-actions')
+  expect(mic.parentElement?.firstElementChild).toBe(mic)
+  fireEvent.click(mic)
+
+  expect(task.getByRole('textbox', { name: 'Задание' })).toHaveValue('Ты гоняешь проверки и пишет отчёт.')
 })
 
 test('у заведённого с пустым заданием модель и инструменты всё равно сохраняются', async () => {
@@ -772,6 +819,141 @@ test('без связи с API окно говорит об этом и не з�
 
   expect(await screen.findByText(/нет связи с API/)).toBeInTheDocument()
   expect(onSaved).not.toHaveBeenCalled()
+})
+
+/** Удаление исполнителя отвечает заданным ответом; остальное — стенд панели с просьбой к агенту. */
+function stubDelete(response: () => Response) {
+  const stream = controlledStream<DraftEvent>()
+  const others: PanelStub['others'] = (url, init) =>
+    url.startsWith('/api/performers?') && init?.method === 'DELETE' ? response() : null
+  stubPanel('performer', stream, { project: 'Agents Kit Web', others })
+  return fetch as unknown as ReturnType<typeof vi.fn>
+}
+
+/** Открывает окно удаления из окна заведённого исполнителя. */
+function askToDelete() {
+  fireEvent.click(screen.getByRole('button', { name: 'Удалить исполнителя' }))
+  return screen.getByRole('dialog', { name: 'Удалить исполнителя' })
+}
+
+test('удалить можно только заведённого: у нового кнопки нет', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open()
+
+  expect(screen.queryByRole('button', { name: 'Удалить исполнителя' })).not.toBeInTheDocument()
+})
+
+test('удаление подтверждается своим окном и уходит запросом в базу', async () => {
+  const fetchMock = stubDelete(() => new Response(null, { status: 204 }))
+  const onDeleted = vi.fn()
+  open(reviewer, vi.fn(), bases, onDeleted)
+
+  const confirm = askToDelete()
+  // Окно называет исполнителя и проект и предупреждает, что вернуть его панель не сможет.
+  expect(confirm).toHaveTextContent('Исполнитель reviewer проекта Agents Kit Web уйдёт из базы. Вернуть его панель не сможет.')
+  expect(onDeleted).not.toHaveBeenCalled()
+
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('reviewer'))
+  const call = fetchMock.mock.calls.find(([url]) => String(url).startsWith('/api/performers?'))!
+  expect((call[1] as RequestInit).method).toBe('DELETE')
+  const query = new URLSearchParams(String(call[0]).split('?')[1])
+  expect([query.get('base'), query.get('name')]).toEqual(['D:\\Projects\\app-knowledge', 'reviewer'])
+})
+
+test('«Отмена» и Escape закрывают только окно удаления', () => {
+  stubDelete(() => new Response(null, { status: 204 }))
+  const onClose = vi.fn()
+  render(
+    <PerformerModal bases={bases} initial={bases[0].base} editing={reviewer} onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />,
+  )
+
+  fireEvent.click(within(askToDelete()).getByRole('button', { name: 'Отмена' }))
+  expect(screen.queryByRole('dialog', { name: 'Удалить исполнителя' })).not.toBeInTheDocument()
+
+  askToDelete()
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: 'Удалить исполнителя' })).not.toBeInTheDocument()
+  // Окно исполнителя под ним осталось: Escape его не закрывал.
+  expect(onClose).not.toHaveBeenCalled()
+})
+
+test('исполнителя уже нет в базе — окно удаления закрывается, как после удаления', async () => {
+  stubDelete(() => Response.json({ problem: 'no-performer' }, { status: 404 }))
+  const onDeleted = vi.fn()
+  open(reviewer, vi.fn(), bases, onDeleted)
+
+  fireEvent.click(within(askToDelete()).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('reviewer'))
+})
+
+test('базы нет в списке или она не читается — окно удаления говорит об этом, а не закрывается', async () => {
+  stubDelete(() => new Response(null, { status: 404 }))
+  const onDeleted = vi.fn()
+  open(reviewer, vi.fn(), bases, onDeleted)
+
+  const confirm = askToDelete()
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  // Исполнитель на месте: молча закрытое окно выдало бы его за удалённого.
+  expect(await within(confirm).findByRole('alert')).toHaveTextContent('Базы нет в списке панели, или она не читается.')
+  expect(onDeleted).not.toHaveBeenCalled()
+})
+
+test('git базы не ответил — окно удаления говорит, что исполнитель не тронут', async () => {
+  stubDelete(() => Response.json({ problem: 'git-silent' }, { status: 409 }))
+  open(reviewer)
+
+  const confirm = askToDelete()
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  expect(await within(confirm).findByRole('alert')).toHaveTextContent('Git базы не ответил, исполнитель не тронут.')
+})
+
+test('отказ базы остаётся в окне удаления словами git, и удаление можно повторить', async () => {
+  stubDelete(() => Response.json({ problem: 'not-committed', detail: 'сверка: база не приняла' }, { status: 409 }))
+  const onDeleted = vi.fn()
+  open(reviewer, vi.fn(), bases, onDeleted)
+
+  const confirm = askToDelete()
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  const alert = await within(confirm).findByRole('alert')
+  expect(alert).toHaveTextContent('База не приняла удаление')
+  expect(alert).toHaveTextContent('сверка: база не приняла')
+  expect(onDeleted).not.toHaveBeenCalled()
+  expect(within(confirm).getByRole('button', { name: 'Удалить исполнителя' })).toBeEnabled()
+})
+
+test('пока исполнителя зовут этапы флоу, удалить его нельзя, а подсказка называет этапы', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open({ ...reviewer, calledBy: ['Дизайн', 'Ревью'] })
+
+  const remove = screen.getByRole('button', { name: 'Удалить исполнителя' })
+  expect(remove).toBeDisabled()
+  expect(remove).toHaveAttribute('title', 'Его зовут этапы: Дизайн, Ревью')
+})
+
+test('флоу поправили, пока окно было открыто: отказ называет этапы', async () => {
+  stubDelete(() => Response.json({ problem: 'called-by-flow', detail: 'Дизайн' }, { status: 409 }))
+  open(reviewer)
+
+  const confirm = askToDelete()
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  expect(await within(confirm).findByRole('alert')).toHaveTextContent(
+    'Его зовут этапы: Дизайн. Пока они его зовут, удалить его нельзя.',
+  )
+})
+
+test('у базы нового формата удалить исполнителя нельзя', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  open(reviewer, vi.fn(), [{ ...bases[0], formatWarning: refusal }])
+
+  expect(screen.getByRole('button', { name: 'Удалить исполнителя' })).toBeDisabled()
 })
 
 test('«Отменить» убирает просьбу из панели', async () => {
