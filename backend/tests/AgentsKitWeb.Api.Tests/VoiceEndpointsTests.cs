@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Channels;
@@ -12,6 +13,8 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class VoiceEndpointsTests : IDisposable
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(30);
+    private static readonly Uri ModelUrl = new("https://models.test/" + VoiceModel.FileName);
+    private static readonly Uri RuntimeUrl = new("https://packages.test/whisper.net.runtime.vulkan.nupkg");
 
     private readonly string _root = Directory.CreateTempSubdirectory("akw-voice-").FullName;
     private readonly TestHosts _hosts = new();
@@ -19,6 +22,8 @@ public sealed class VoiceEndpointsTests : IDisposable
     private readonly Recognizer _recognizer = new();
 
     private string VoiceDir => Path.Combine(_root, "voice");
+
+    private string RuntimeDir => Path.Combine(VoiceDir, "runtimes", "vulkan", "win-x64");
 
     [Fact]
     public async Task Voice_WithoutModel_IsAbsent()
@@ -31,7 +36,7 @@ public sealed class VoiceEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Install_DownloadsModelBesideThePanel()
+    public async Task Install_DownloadsModelAndGpuRuntimeBesideThePanel()
     {
         _server.Answer(total: 6, "abc", "def");
         var client = Factory().CreateClient();
@@ -40,25 +45,59 @@ public sealed class VoiceEndpointsTests : IDisposable
         var state = await WaitAsync(client, VoiceState.Installed);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Equal(6, state.Downloaded);
         Assert.Equal("abcdef", File.ReadAllText(Path.Combine(VoiceDir, VoiceModel.FileName)));
+        // Из пакета рантайма встают только библиотеки Windows x64, рядом с моделью — ни пакета, ни недокачанного.
+        Assert.Equal(["ggml-vulkan-whisper.dll", "whisper.dll"], Directory.GetFiles(RuntimeDir).Select(Path.GetFileName).Order());
         Assert.Equal([VoiceModel.FileName], Directory.GetFiles(VoiceDir).Select(Path.GetFileName));
+        Assert.Equal(6 + RuntimeBytes, state.Downloaded);
     }
 
     [Fact]
-    public async Task Install_WhileDownloading_ShowsProgressInBytes()
+    public async Task Install_WhileDownloading_ShowsProgressOfTheWholeModule()
     {
         var portions = _server.Hold(total: 10);
         var client = Factory().CreateClient();
         await client.PostAsync("/api/voice/install", null);
 
         await portions.Writer.WriteAsync("abcd"u8.ToArray());
-        var state = await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == 4);
+        var state = await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == _server.RuntimeLength + 4);
 
-        Assert.Equal(10, state.Total);
+        // Счёт сразу от всего модуля: рантайм и модель.
+        Assert.Equal(_server.RuntimeLength + 10, state.Total);
         var again = await client.PostAsync("/api/voice/install", null);
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
         portions.Writer.Complete(new IOException("оборвалось"));
+    }
+
+    [Fact]
+    public async Task Install_WithModelAlready_DownloadsOnlyTheRuntime()
+    {
+        // Модель стоит с прошлой сборки, без рантайма: модуль не встал, а сотни мегабайт второй раз не качаются.
+        Directory.CreateDirectory(VoiceDir);
+        File.WriteAllText(Path.Combine(VoiceDir, VoiceModel.FileName), "модель");
+        var client = Factory().CreateClient();
+        Assert.Equal(VoiceState.Absent, (await client.GetFromJsonAsync<VoiceState>("/api/voice"))?.State);
+
+        await client.PostAsync("/api/voice/install", null);
+        await WaitAsync(client, VoiceState.Installed);
+
+        Assert.Equal(0, _server.ModelRequests);
+        Assert.True(File.Exists(Path.Combine(RuntimeDir, "whisper.dll")));
+    }
+
+    [Fact]
+    public async Task Install_RuntimeWithoutWindowsLibraries_Fails()
+    {
+        _server.Answer(total: 3, "abc");
+        _server.Runtime = Package(("build/linux-x64/libwhisper.so", "so"));
+        var client = Factory().CreateClient();
+
+        await client.PostAsync("/api/voice/install", null);
+        var state = await WaitAsync(client, VoiceState.Failed);
+
+        Assert.Equal("В пакете рантайма нет библиотек для Windows.", state.Error);
+        Assert.False(Directory.Exists(RuntimeDir));
+        Assert.Empty(Directory.GetFiles(VoiceDir));
     }
 
     [Fact]
@@ -68,7 +107,7 @@ public sealed class VoiceEndpointsTests : IDisposable
         var client = Factory().CreateClient();
         await client.PostAsync("/api/voice/install", null);
         await portions.Writer.WriteAsync("abcd"u8.ToArray());
-        await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == 4);
+        await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == _server.RuntimeLength + 4);
 
         await client.PostAsync("/api/voice/cancel", null);
         var state = await WaitAsync(client, VoiceState.Absent);
@@ -84,14 +123,14 @@ public sealed class VoiceEndpointsTests : IDisposable
         var client = Factory().CreateClient();
         await client.PostAsync("/api/voice/install", null);
         await portions.Writer.WriteAsync("abcd"u8.ToArray());
-        await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == 4);
+        await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == _server.RuntimeLength + 4);
 
         portions.Writer.Complete(new IOException("связь оборвалась"));
         var failed = await WaitAsync(client, VoiceState.Failed);
 
         // Карточка говорит, на чём прервалось, — словами, а не английским текстом исключения.
         Assert.Equal("Связь с сервером модели прервалась.", failed.Error);
-        Assert.Equal((4, 10), (failed.Downloaded, failed.Total));
+        Assert.Equal((_server.RuntimeLength + 4, _server.RuntimeLength + 10), (failed.Downloaded, failed.Total));
         Assert.Empty(Directory.GetFiles(VoiceDir));
         _server.Answer(total: 3, "abc");
         await client.PostAsync("/api/voice/install", null);
@@ -123,10 +162,9 @@ public sealed class VoiceEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Remove_Installed_LeavesNoModel()
+    public async Task Remove_Installed_LeavesNoModelAndNoRuntime()
     {
-        Directory.CreateDirectory(VoiceDir);
-        File.WriteAllText(Path.Combine(VoiceDir, VoiceModel.FileName), "модель");
+        InstallModel();
         var client = Factory().CreateClient();
         Assert.Equal(VoiceState.Installed, (await client.GetFromJsonAsync<VoiceState>("/api/voice"))?.State);
 
@@ -136,7 +174,7 @@ public sealed class VoiceEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, install.StatusCode);
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal(VoiceState.Absent, (await client.GetFromJsonAsync<VoiceState>("/api/voice"))?.State);
-        Assert.Empty(Directory.GetFiles(VoiceDir));
+        Assert.Empty(Directory.GetFileSystemEntries(VoiceDir));
     }
 
     [Fact]
@@ -155,18 +193,54 @@ public sealed class VoiceEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Start_RemovesRuntimeOfRemovedModule()
+    {
+        // Модуль убрали, а загруженный рантайм прошлая панель удалить не дала: он уходит при следующем старте.
+        Directory.CreateDirectory(RuntimeDir);
+        File.WriteAllText(Path.Combine(RuntimeDir, "whisper.dll"), "dll");
+        var client = Factory().CreateClient();
+
+        await client.GetFromJsonAsync<VoiceState>("/api/voice");
+
+        Assert.False(Directory.Exists(Path.Combine(VoiceDir, "runtimes")));
+    }
+
+    [Fact]
     public async Task Remove_WhileDownloading_IsRefused()
     {
         var portions = _server.Hold(total: 10);
         var client = Factory().CreateClient();
         await client.PostAsync("/api/voice/install", null);
         await portions.Writer.WriteAsync("ab"u8.ToArray());
-        await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == 2);
+        await WaitAsync(client, VoiceState.Downloading, s => s.Downloaded == _server.RuntimeLength + 2);
 
         var response = await client.DeleteAsync("/api/voice");
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         portions.Writer.Complete(new IOException("оборвалось"));
+    }
+
+    [Fact]
+    public async Task Warm_Installed_WarmsTheRecognizerInBackground()
+    {
+        InstallModel();
+        var client = Factory().CreateClient();
+
+        var response = await client.PostAsync("/api/voice/warm", null);
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        await _recognizer.Warmed.Task.WaitAsync(Patience);
+    }
+
+    [Fact]
+    public async Task Warm_WithoutModule_IsConflict()
+    {
+        var client = Factory().CreateClient();
+
+        var response = await client.PostAsync("/api/voice/warm", null);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.False(_recognizer.Warmed.Task.IsCompleted);
     }
 
     [Fact]
@@ -238,10 +312,30 @@ public sealed class VoiceEndpointsTests : IDisposable
         Assert.DoesNotContain("library", failure.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static readonly byte[] GoodRuntime = Package(
+        ("build/win-x64/whisper.dll", "whisper"),
+        ("build/win-x64/ggml-vulkan-whisper.dll", "vulkan"),
+        ("build/linux-x64/libwhisper.so", "linux"),
+        ("build/Whisper.net.Runtime.Vulkan.targets", "<Project />"));
+
+    /// <summary>Сколько байт занимают библиотеки рантайма, вставшие из пакета.</summary>
+    private static readonly long RuntimeBytes = "whisper".Length + "vulkan".Length;
+
+    private static byte[] Package(params (string Path, string Content)[] entries)
+    {
+        using var stream = new MemoryStream();
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
+            foreach (var (path, content) in entries)
+                using (var writer = new StreamWriter(zip.CreateEntry(path).Open()))
+                    writer.Write(content);
+        return stream.ToArray();
+    }
+
     private void InstallModel()
     {
-        Directory.CreateDirectory(VoiceDir);
+        Directory.CreateDirectory(RuntimeDir);
         File.WriteAllText(Path.Combine(VoiceDir, VoiceModel.FileName), "модель");
+        File.WriteAllText(Path.Combine(RuntimeDir, "whisper.dll"), "dll");
     }
 
     private static ByteArrayContent Samples(params float[] samples)
@@ -275,7 +369,8 @@ public sealed class VoiceEndpointsTests : IDisposable
                 [
                     new("BasesFile", TestBases.File(_root)),
                     new("VoiceDir", VoiceDir),
-                    new("VoiceModelUrl", "https://models.test/" + VoiceModel.FileName),
+                    new("VoiceModelUrl", ModelUrl.ToString()),
+                    new("VoiceRuntimeUrl", RuntimeUrl.ToString()),
                 ]);
             });
             builder.ConfigureServices(services =>
@@ -294,17 +389,25 @@ public sealed class VoiceEndpointsTests : IDisposable
     }
 
     /// <summary>
-    /// Сервер модели: отдаёт ответ целиком, отказывает или держит его и отдаёт порциями, которые пишет тест, —
-    /// так видны ход скачивания, отмена и обрыв посреди.
+    /// Серверы модуля: пакет рантайма отдаётся целиком, а модель — целиком, отказом или порциями, которые пишет тест,
+    /// — так видны ход скачивания, отмена и обрыв посреди.
     /// </summary>
     private sealed class ModelServer : HttpMessageHandler
     {
         private Func<HttpResponseMessage> _answer = () => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        private long? _modelLength;
         private Channel<byte[]>? _held;
+
+        public byte[] Runtime { get; set; } = GoodRuntime;
+
+        public long RuntimeLength => Runtime.Length;
+
+        public int ModelRequests { get; private set; }
 
         public void Answer(long total, params string[] portions)
         {
             var body = string.Concat(portions);
+            _modelLength = total;
             _answer = () =>
             {
                 var content = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(body));
@@ -313,11 +416,16 @@ public sealed class VoiceEndpointsTests : IDisposable
             };
         }
 
-        public void Refuse(HttpStatusCode status) => _answer = () => new HttpResponseMessage(status);
+        public void Refuse(HttpStatusCode status)
+        {
+            _modelLength = null;
+            _answer = () => new HttpResponseMessage(status);
+        }
 
         public Channel<byte[]> Hold(long total)
         {
             var portions = _held = Channel.CreateUnbounded<byte[]>();
+            _modelLength = total;
             _answer = () =>
             {
                 var content = new StreamContent(new PortionStream(portions.Reader));
@@ -329,8 +437,20 @@ public sealed class VoiceEndpointsTests : IDisposable
 
         public void Release() => _held?.Writer.TryComplete(new IOException("тест кончился"));
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(_answer());
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri == RuntimeUrl)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Runtime) });
+            if (request.Method == HttpMethod.Head)
+            {
+                var head = _answer();
+                if (head.IsSuccessStatusCode)
+                    head.Content = new ByteArrayContent([]) { Headers = { ContentLength = _modelLength } };
+                return Task.FromResult(head);
+            }
+            ModelRequests++;
+            return Task.FromResult(_answer());
+        }
     }
 
     /// <summary>Распознавание без модели: запоминает, что услышало, и отвечает заданным текстом.</summary>
@@ -338,11 +458,18 @@ public sealed class VoiceEndpointsTests : IDisposable
     {
         public string Answer { get; set; } = "";
         public float[]? Heard { get; private set; }
+        public TaskCompletionSource Warmed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<string> RecognizeAsync(float[] samples, CancellationToken cancellationToken)
         {
             Heard = samples;
             return Task.FromResult(Answer);
+        }
+
+        public Task WarmAsync(CancellationToken cancellationToken)
+        {
+            Warmed.TrySetResult();
+            return Task.CompletedTask;
         }
     }
 

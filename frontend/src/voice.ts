@@ -48,6 +48,11 @@ export function useVoiceModuleSource(): VoiceModule {
       clearTimeout(timer)
     }
   }, [asked, round])
+  // Модуль стоит, и кнопки на экране — видеокарта прогревается сейчас, а не на первой фразе оператора
+  // (секунд пятнадцать). Прогрев один на процесс панели: повторная просьба ничего не стоит.
+  useEffect(() => {
+    if (state === 'installed') void fetch('/api/voice/warm', { method: 'POST' }).catch(() => undefined)
+  }, [state])
   return useMemo(() => ({ state, ensure, refresh }), [state, ensure, refresh])
 }
 

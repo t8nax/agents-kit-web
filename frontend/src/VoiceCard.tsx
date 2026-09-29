@@ -141,7 +141,7 @@ export default function VoiceCard() {
             ) : (
               <>
                 <span className="voice-value">не установлена</span>
-                <span className="panel-hint">Whisper, около 550 МБ</span>
+                <span className="panel-hint">Whisper, около 600 МБ</span>
                 {voice.state === 'absent' && (
                   <span className="voice-end">
                     <button type="button" className="bases-btn" disabled={busy} onClick={install}>

@@ -53,7 +53,7 @@ test('без модели карточка предлагает его уста�
   renderCard()
 
   expect(await within(card()).findByText('не установлена')).toBeInTheDocument()
-  expect(within(card()).getByText('Whisper, около 550 МБ')).toBeInTheDocument()
+  expect(within(card()).getByText('Whisper, около 600 МБ')).toBeInTheDocument()
   expect(within(card()).getByText('Диктовка в поля, где пишут агенту. Речь распознаётся на этом компьютере.')).toBeInTheDocument()
   expect(within(card()).getByRole('button', { name: 'Установить' })).toBeInTheDocument()
 })

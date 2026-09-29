@@ -69,6 +69,7 @@ builder.Services.AddSingleton(services =>
     return new VoiceModel(
         config["VoiceDir"] ?? VoiceModel.DefaultDirectory,
         config["VoiceModelUrl"] is { } url ? new Uri(url) : VoiceModel.DefaultSource,
+        config["VoiceRuntimeUrl"] is { } runtime ? new Uri(runtime) : VoiceModel.DefaultRuntimeSource,
         services.GetRequiredService<IHttpClientFactory>());
 });
 builder.Services.AddSingleton<ISpeechRecognizer, WhisperRecognizer>();

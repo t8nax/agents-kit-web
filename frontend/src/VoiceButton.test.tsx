@@ -127,7 +127,9 @@ function Panel({ children }: { children: ReactNode }) {
 }
 
 test('панель спрашивает модуль, когда на экране появилась кнопка, а не раньше', async () => {
-  const fetchMock = vi.fn(async () => Response.json({ state: 'installed', downloaded: 1, total: 1 }))
+  const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+    Response.json({ state: 'installed', downloaded: 1, total: 1 }),
+  )
   vi.stubGlobal('fetch', fetchMock)
 
   // Эффекты панели отработали уже при отрисовке: спроси она модуль сразу, запрос был бы здесь.
@@ -141,13 +143,20 @@ test('панель спрашивает модуль, когда на экран
   )
 
   await vi.waitFor(() => expect(screen.getAllByRole('button', { name: 'Голосовой ввод' })[0]).toHaveAttribute('title', VOICE_TITLES.ready))
-  expect(fetchMock).toHaveBeenCalledTimes(1)
-  expect(fetchMock).toHaveBeenCalledWith('/api/voice')
+  // Модуль прочитан один раз на обе кнопки, а стоящий — сразу прогревается.
+  await vi.waitFor(() =>
+    expect(fetchMock.mock.calls.map(([url, init]) => `${init?.method ?? 'GET'} ${url}`)).toEqual([
+      'GET /api/voice',
+      'POST /api/voice/warm',
+    ]),
+  )
 })
 
 test('модель встала, пока «Настроек» нет на экране, — кнопка зажигается сама', async () => {
   const states = ['downloading', 'downloading', 'installed']
-  const fetchMock = vi.fn(async () => Response.json({ state: states.length > 1 ? states.shift() : states[0] }))
+  const fetchMock = vi.fn(async (_url: string) =>
+    Response.json({ state: states.length > 1 ? states.shift() : states[0] }),
+  )
   vi.stubGlobal('fetch', fetchMock)
 
   render(
@@ -158,7 +167,7 @@ test('модель встала, пока «Настроек» нет на эк�
 
   expect(button()).toHaveAttribute('title', VOICE_TITLES.notInstalled)
   await vi.waitFor(() => expect(button()).toHaveAttribute('title', VOICE_TITLES.ready), { timeout: 4 * VOICE_POLL_MS })
-  expect(fetchMock).toHaveBeenCalledTimes(3)
+  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/voice')).toHaveLength(3)
 })
 
 test('API не ответил — панель спрашивает модуль снова', async () => {

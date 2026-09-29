@@ -31,6 +31,25 @@ public static class VoiceEndpoints
         app.MapDelete("/api/voice", (VoiceModel model) =>
             model.Remove() ? Results.NoContent() : Results.Conflict());
 
+        // Прогрев идёт в фоне: окно с кнопкой микрофона не ждёт его, а первая фраза оператора — ждёт меньше.
+        app.MapPost("/api/voice/warm", (VoiceModel model, ISpeechRecognizer recognizer, ILogger<VoiceModel> log) =>
+        {
+            if (!model.Installed)
+                return Results.Conflict();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await recognizer.WarmAsync(CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    log.LogWarning(exception, "Прогрев распознавания не удался");
+                }
+            });
+            return Results.Accepted();
+        });
+
         // Тело — отсчёты float32 little-endian, моно 16 кГц: фронт пишет звук сразу в этом виде,
         // и панели не нужно разбирать форматы звука.
         app.MapPost("/api/voice/recognize", async (
