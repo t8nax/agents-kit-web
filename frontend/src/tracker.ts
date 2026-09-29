@@ -20,6 +20,33 @@ export function initialTrackerLoad(tracker: TrackerInfo): TrackerLoad {
     : { kind: 'loaded', issues: [], problem: tracker.kind, detail: null }
 }
 
+/**
+ * Задача трекера, какой её заведёт перенос записи: заголовок без номера, описание — текст записи, её «Агенту»
+ * и ссылки; files — файлы записи, которые в задачу не попадут. original — запись, как её видело окно.
+ */
+export type TrackerDraft = {
+  number: string
+  title: string
+  body: string
+  files: { label: string; address: string }[]
+  original: string
+}
+
+/**
+ * Чем кончился перенос. error — фраза для оператора, её пишет API: без issue — задача не заведена (problem — почему,
+ * detail — строка GitHub) или перенос не начат; с issue — задача заведена, а запись осталась в бэклоге.
+ */
+export type TrackerMoved = {
+  issue: TrackerIssue | null
+  problem?: string | null
+  detail?: string | null
+  error?: string | null
+  output?: string | null
+  commit?: string | null
+  /** Файлы artifacts/, ушедшие вместе с записью: на них больше ничего не ссылалось. */
+  removed?: string[] | null
+}
+
 export function loadTrackerIssues(base: string): Promise<TrackerLoad> {
   return fetch(`/api/backlog/tracker?base=${encodeURIComponent(base)}`)
     .then((response) => {

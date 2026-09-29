@@ -1,0 +1,218 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, expect, test, vi } from 'vitest'
+import TrackerMoveModal from './TrackerMoveModal'
+import type { TrackerDraft, TrackerMoved } from './tracker'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
+const base = 'D:\\Projects\\app-knowledge'
+const entry = { number: 'B-281', title: 'Экспорт истории задачи копии в markdown', text: 'Текст.' }
+
+const draft: TrackerDraft = {
+  number: 'B-281',
+  title: 'Экспорт истории задачи копии в markdown',
+  body: 'Нужна выгрузка истории.\n\n### Агенту\n- где: ReplyModal.tsx',
+  files: [],
+  original: '## B-281 Экспорт истории задачи копии в markdown\n\nНужна выгрузка истории.',
+}
+
+const issue = {
+  name: 'GitHub #58',
+  number: 58,
+  title: 'Экспорт истории задачи копии в markdown',
+  url: 'https://github.com/acme/orders/issues/58',
+}
+
+/** Отвечает сборкой задачи и переносом; тела переноса собирает — по ним видно, что ушло в API. */
+function stubFetch(shown: TrackerDraft | Response, moved: TrackerMoved | Response = { issue }) {
+  const posts: unknown[] = []
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    if (url.startsWith('/api/backlog/tracker/draft?'))
+      return Promise.resolve(shown instanceof Response ? shown : Response.json(shown))
+    expect(url).toBe('/api/backlog/tracker/move')
+    posts.push(JSON.parse(String(init?.body)))
+    return Promise.resolve(moved instanceof Response ? moved : Response.json(moved))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return Object.assign(fetchMock, { posts })
+}
+
+function renderModal() {
+  const onClose = vi.fn()
+  const onMoved = vi.fn()
+  render(<TrackerMoveModal base={base} entry={entry} onClose={onClose} onMoved={onMoved} />)
+  return { onClose, onMoved }
+}
+
+test('показывает запись, заголовок и описание будущей задачи', async () => {
+  const fetchMock = stubFetch(draft)
+
+  renderModal()
+
+  const dialog = screen.getByRole('dialog', { name: 'Перенести в трекер' })
+  expect(await screen.findByText('Нужна выгрузка истории.')).toBeInTheDocument()
+  expect(dialog).toHaveTextContent('Запись бэклога')
+  expect(dialog).toHaveTextContent('B-281')
+  expect(screen.getByText('Заголовок задачи').nextElementSibling).toHaveTextContent('Экспорт истории задачи копии в markdown')
+  expect(screen.getByRole('heading', { name: 'Агенту' })).toBeInTheDocument()
+  // Поля «Куда» нет — оператор убрал его на макете
+  expect(dialog).not.toHaveTextContent('Куда')
+  expect(screen.queryByText(/в задачу не попадут/)).not.toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith(`/api/backlog/tracker/draft?base=${encodeURIComponent(base)}&number=B-281`)
+})
+
+test('файлы записи названы, и сказано, что в задачу они не попадут', async () => {
+  stubFetch({ ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] })
+
+  renderModal()
+
+  expect(await screen.findByText('Файлы в задачу не попадут и удалятся вместе с записью:')).toBeInTheDocument()
+  expect(screen.getByText('снимок')).toBeInTheDocument()
+  expect(screen.getByText('artifacts/B-281-снимок.png')).toBeInTheDocument()
+})
+
+test('«Отмена» закрывает окно и ничего не заводит', async () => {
+  const fetchMock = stubFetch(draft)
+  const { onClose, onMoved } = renderModal()
+  await screen.findByText('Нужна выгрузка истории.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отмена' }))
+
+  expect(onClose).toHaveBeenCalled()
+  expect(onMoved).not.toHaveBeenCalled()
+  expect(fetchMock.posts).toEqual([])
+})
+
+test('«Перевести задачу» переносит запись, какой её видело окно, и показывает ссылку на задачу', async () => {
+  const fetchMock = stubFetch(
+    { ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] },
+    { issue, removed: ['artifacts/B-281-снимок.png'] },
+  )
+  const { onMoved } = renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
+  expect(fetchMock.posts).toEqual([{ base, number: 'B-281', original: draft.original }])
+  const link = screen.getByRole('link', { name: /#58 Экспорт истории задачи копии в markdown/ })
+  expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(screen.getByText('github.com/acme/orders/issues/58')).toBeInTheDocument()
+  expect(screen.getByText('Запись B-281 убрана из бэклога, приложенные к ней файлы удалены.')).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  // Закрыть можно крестиком и кнопкой внизу; завести ещё раз — нельзя
+  expect(screen.getAllByRole('button', { name: 'Закрыть' })).toHaveLength(2)
+  expect(screen.queryByRole('button', { name: 'Перевести задачу' })).not.toBeInTheDocument()
+  expect(onMoved).toHaveBeenCalledTimes(1)
+})
+
+test('пока задача заводится, кнопки погашены', async () => {
+  let reply: (response: Response) => void = () => {}
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string) =>
+      url.startsWith('/api/backlog/tracker/draft?')
+        ? Promise.resolve(Response.json(draft))
+        : new Promise<Response>((resolve) => (reply = resolve)),
+    ),
+  )
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+
+  expect(await screen.findByRole('button', { name: 'Переводится…' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Отмена' })).toBeDisabled()
+  reply(Response.json({ issue }))
+  expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
+})
+
+test('задача заведена, а запись осталась — ссылка на задачу и красная строка', async () => {
+  stubFetch(draft, { issue, error: 'Коммит не прошёл — backlog.md оставлен как был', output: 'сверка не прошла' })
+  const { onMoved } = renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Запись осталась в бэклоге')
+  expect(alert).toHaveTextContent('Панель не убрала B-281 из бэклога. Коммит не прошёл — backlog.md оставлен как был.')
+  // Вывод git — как у несохранённого в окне Чудо-Юдо
+  expect(alert).toHaveTextContent('сверка не прошла')
+  expect(screen.getByRole('link', { name: /#58/ })).toBeInTheDocument()
+  expect(screen.queryByText(/убрана из бэклога/)).not.toBeInTheDocument()
+  // Повторить нечего: второй раз завелась бы вторая задача
+  expect(screen.queryByRole('button', { name: 'Перевести задачу' })).not.toBeInTheDocument()
+  expect(onMoved).toHaveBeenCalled()
+})
+
+test('GitHub отказал — окно называет причину, а перенос можно повторить', async () => {
+  stubFetch(draft, { issue: null, problem: 'gh-login', error: 'Задача не заведена: программа gh не вошла в аккаунт GitHub — войдите командой gh auth login' })
+  const { onMoved } = renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Задача не заведена: программа gh не вошла в аккаунт GitHub')
+  expect(screen.getByRole('dialog', { name: 'Перенести в трекер' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Перевести задачу' })).toBeEnabled()
+  expect(onMoved).not.toHaveBeenCalled()
+})
+
+test('чужая правка бэклога — задача не заведена, окно говорит почему', async () => {
+  stubFetch(draft, { issue: null, error: 'В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано' })
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'В backlog.md личного репозитория есть незакоммиченная правка — ничего не записано',
+  )
+})
+
+test('файл, который не удалён, остался — итог так и говорит, не выдумывая причины', async () => {
+  stubFetch({ ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] }, { issue, removed: [] })
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+
+  expect(
+    await screen.findByText('Запись B-281 убрана из бэклога. Приложенные к ней файлы остались в базе.'),
+  ).toBeInTheDocument()
+})
+
+test('запись изменилась, пока окно было открыто, — окно читает её заново, и завести можно снова', async () => {
+  let shown = draft
+  const posts: unknown[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/backlog/tracker/draft?')) return Promise.resolve(Response.json(shown))
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(
+        Response.json(
+          posts.length === 1
+            ? { issue: null, problem: 'entry-changed', error: 'Запись B-281 изменилась после открытия окна переноса — ничего не записано' }
+            : { issue },
+        ),
+      )
+    }),
+  )
+  renderModal()
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+  shown = { ...draft, body: 'Поправлено соседней сессией.', original: '## B-281 новая' }
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Запись изменилась, пока окно было открыто, — окно показывает её заново. Проверьте и переведите задачу ещё раз.')
+  expect(await screen.findByText('Поправлено соседней сессией.')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Перевести задачу' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
+  expect(posts[1]).toEqual({ base, number: 'B-281', original: '## B-281 новая' })
+})
+
+test('записи больше нет — задачу не собрать, и заводить нечего', async () => {
+  stubFetch(new Response(null, { status: 404 }))
+  renderModal()
+
+  expect(await screen.findByText('Этой записи больше нет в бэклоге: её взяли или удалили.')).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Перевести задачу' })).toBeDisabled())
+})

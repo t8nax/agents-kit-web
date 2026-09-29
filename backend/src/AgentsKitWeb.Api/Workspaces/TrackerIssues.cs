@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -24,17 +25,35 @@ public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? P
     public const string GitHubError = "github-error";
 }
 
+/// <summary>
+/// Задача, заведённая в трекере. Problem задан — задача не заведена, значения те же, что у TrackerIssues;
+/// «github-silent» — GitHub не ответил в срок, «created-unknown» — gh кончила без адреса задачи: в обоих случаях
+/// задача могла завестись.
+/// </summary>
+public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, string? Detail = null)
+{
+    public const string GitHubSilent = "github-silent";
+    public const string CreatedUnknown = "created-unknown";
+
+    /// <summary>Задача могла завестись, хотя её адреса нет: повторять заведение вслепую — завести дубль.</summary>
+    public bool MaybeCreated => Problem is GitHubSilent or CreatedUnknown;
+}
+
 public interface IGitHubIssues
 {
     /// <summary>Открытые задачи репозитория «владелец/репозиторий», назначенные на того, кем gh вошла в GitHub.</summary>
     Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken);
+
+    /// <summary>Новая задача репозитория, назначенная на того, кем gh вошла в GitHub, без меток.</summary>
+    Task<CreatedIssue> CreateAsync(string repo, string title, string body);
 }
 
 /// <summary>
-/// Задачи GitHub читает программа gh оператора: вход в аккаунт — её, панель ключей не хранит — решение
-/// оператора на B-277. Панель только читает; назначает задачу и меняет её состояние сессия, которая её берёт.
+/// Задачи GitHub читает и заводит программа gh оператора: вход в аккаунт — её, панель ключей не хранит — решение
+/// оператора на B-277. Заводит панель только задачу из записи бэклога (B-286); назначает взятую задачу и меняет
+/// её состояние сессия, которая её берёт.
 /// </summary>
-public sealed class GhIssues : IGitHubIssues
+public sealed partial class GhIssues : IGitHubIssues
 {
     public const string Gh = "gh";
 
@@ -44,17 +63,49 @@ public sealed class GhIssues : IGitHubIssues
 
     public async Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
     {
+        var run = await RunAsync(StartInfo(repo), null, cancellationToken);
+        return run.Missing ? new TrackerIssues([], TrackerIssues.GhMissing)
+            : run.TimedOut ? new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту")
+            : run.ExitCode == 0 ? Parse(run.Output)
+            : Failed(run.ExitCode, run.Error);
+    }
+
+    /// <summary>
+    /// Отмены у заведения нет: оборванная посреди запроса, gh могла успеть завести задачу, и панель не знала бы
+    /// её адреса. Её гасит только срок, и тогда оператор узнаёт, что задачу стоит поискать в трекере.
+    /// </summary>
+    public async Task<CreatedIssue> CreateAsync(string repo, string title, string body)
+    {
+        var run = await RunAsync(CreateStartInfo(repo, title), body, CancellationToken.None);
+        if (run.Missing)
+            return new CreatedIssue(null, TrackerIssues.GhMissing);
+        if (run.TimedOut)
+            return new CreatedIssue(null, CreatedIssue.GitHubSilent, "GitHub не ответил за минуту");
+        if (run.ExitCode != 0)
+        {
+            var failed = Failed(run.ExitCode, run.Error);
+            return new CreatedIssue(null, failed.Problem, failed.Detail);
+        }
+        return ParseCreated(run.Output, title);
+    }
+
+    /// <summary>Чем кончился запуск gh: Missing — программы нет, TimedOut — не уложилась в срок.</summary>
+    public sealed record Run(bool Missing, bool TimedOut, int ExitCode, string Output, string Error);
+
+    /// <summary>Запуск gh с вводом input; открыт тестам — отказ, не дочитавший ввод, проверяется настоящим процессом.</summary>
+    public static async Task<Run> RunAsync(ProcessStartInfo startInfo, string? input, CancellationToken cancellationToken)
+    {
         Process? process;
         try
         {
-            process = Process.Start(StartInfo(repo));
+            process = Process.Start(startInfo);
         }
         catch (Win32Exception)
         {
-            return new TrackerIssues([], TrackerIssues.GhMissing);
+            return new Run(true, false, -1, "", "");
         }
         if (process is null)
-            return new TrackerIssues([], TrackerIssues.GhMissing);
+            return new Run(true, false, -1, "", "");
 
         using (process)
         {
@@ -62,19 +113,32 @@ public sealed class GhIssues : IGitHubIssues
             timeout.CancelAfter(Timeout);
             try
             {
+                if (input is not null)
+                {
+                    try
+                    {
+                        await process.StandardInput.WriteAsync(input.AsMemory(), timeout.Token);
+                        process.StandardInput.Close();
+                    }
+                    catch (IOException)
+                    {
+                        // gh отказала раньше, чем прочла ввод (без входа она выходит сразу): канал закрыт, а причину
+                        // скажут её код выхода и вывод ошибок.
+                    }
+                }
                 var errorTask = process.StandardError.ReadToEndAsync(timeout.Token);
                 var output = await process.StandardOutput.ReadToEndAsync(timeout.Token);
                 var error = (await errorTask).Trim();
                 await process.WaitForExitAsync(timeout.Token);
-                return process.ExitCode == 0 ? Parse(output) : Failed(process.ExitCode, error);
+                return new Run(false, false, process.ExitCode, output, error);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                return new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту");
+                return new Run(false, true, -1, "", "");
             }
             finally
             {
-                // gh только читает: брошенная на отмене или сбое, она работала бы впустую — гасится и дожидается выхода.
+                // Брошенная на отмене или сроке, gh работала бы впустую — гасится и дожидается выхода.
                 if (!process.HasExited)
                 {
                     process.Kill(entireProcessTree: true);
@@ -88,7 +152,26 @@ public sealed class GhIssues : IGitHubIssues
     /// Запуск gh: открытые задачи репозитория, назначенные на того, кем gh вошла, — «назначенные на оператора»
     /// критерия B-277 держат именно эти ключи.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string repo)
+    public static ProcessStartInfo StartInfo(string repo) =>
+        GhStartInfo(
+            "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
+            "--limit", Limit.ToString(), "--json", "number,title,url");
+
+    /// <summary>
+    /// Запуск gh на заведение задачи: назначена на того, кем gh вошла, без меток — критерий B-286. Описание
+    /// уходит во ввод (`--body-file -`), а не аргументом: длинный текст с кавычками и переводами строк
+    /// командная строка Windows не донесла бы как есть.
+    /// </summary>
+    public static ProcessStartInfo CreateStartInfo(string repo, string title)
+    {
+        var startInfo = GhStartInfo(
+            "issue", "create", "--repo", repo, "--title", title, "--body-file", "-", "--assignee", "@me");
+        startInfo.RedirectStandardInput = true;
+        startInfo.StandardInputEncoding = new UTF8Encoding(false);
+        return startInfo;
+    }
+
+    private static ProcessStartInfo GhStartInfo(params string[] args)
     {
         var startInfo = new ProcessStartInfo(Gh)
         {
@@ -100,17 +183,30 @@ public sealed class GhIssues : IGitHubIssues
             // Поставленная панель — WinExe без консоли: без этого Windows открывает окно на каждый запуск.
             CreateNoWindow = true,
         };
-        foreach (var arg in new[]
-                 {
-                     "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
-                     "--limit", Limit.ToString(), "--json", "number,title,url",
-                 })
+        foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
         // gh не должна спрашивать и открывать браузер: отвечать ей некому.
         startInfo.Environment["GH_PROMPT_DISABLED"] = "1";
         startInfo.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
         return startInfo;
     }
+
+    /// <summary>
+    /// gh issue create печатает адрес заведённой задачи последней строкой; номер — хвост адреса. Адреса нет —
+    /// задача, скорее всего, заведена, но панель её не знает, и оператору это говорится.
+    /// </summary>
+    public static CreatedIssue ParseCreated(string output, string title)
+    {
+        var url = output.ReplaceLineEndings("\n").Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
+        var match = url is null ? null : IssueUrl().Match(url);
+        if (match is null || !match.Success)
+            return new CreatedIssue(null, CreatedIssue.CreatedUnknown);
+        var number = int.Parse(match.Groups[1].Value);
+        return new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, url!));
+    }
+
+    [GeneratedRegex(@"^https://github\.com/[^/\s]+/[^/\s]+/issues/(\d+)$")]
+    private static partial Regex IssueUrl();
 
     /// <summary>
     /// Отказ gh: без входа она выходит с кодом 4 и зовёт «gh auth login», с негодным ключом — 401 Bad credentials;
