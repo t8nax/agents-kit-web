@@ -344,6 +344,7 @@ public sealed class FlowEndpointsTests : IDisposable
         Assert.Contains("выход: принято", File.ReadAllText(Stage("acceptance")));
         Assert.Equal("# App — сценарии\n\n## мелкий\n1. [Приёмка](stages/acceptance.md)\n", File.ReadAllText(copy));
     }
+
     [Fact]
     public async Task Save_AnyFlowFileChangedSinceRead_IsRejectedAndFilesUntouched()
     {

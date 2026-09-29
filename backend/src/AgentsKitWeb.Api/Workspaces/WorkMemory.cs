@@ -28,8 +28,7 @@ public sealed record WorkMemory(
     IReadOnlyList<ClosingCriterion> Criteria,
     string? OutOfScope,
     IReadOnlyList<TaskArtifact> Artifacts,
-    IReadOnlyList<OperatorQuestion> Questions,
-    string? Flow = null)
+    IReadOnlyList<OperatorQuestion> Questions)
 {
     private const string OutOfScopeTitle = "Не входит";
     // Прежнее место ссылки на макет: артефакты теперь в «## Артефакты», а подраздел памятей,
@@ -60,7 +59,7 @@ public sealed record WorkMemory(
     {
         var lines = MemoryText.Lines(text);
 
-        string? copy = null, branch = null, task = null, flow = null;
+        string? copy = null, branch = null, task = null;
         // Подразделы критериев в порядке файла: заголовок и строки текста под ним.
         var criteriaBlocks = new List<(string Title, List<string> Lines)>();
         var artifacts = new List<TaskArtifact>();
@@ -97,11 +96,6 @@ public sealed record WorkMemory(
                     copy = line["рабочая копия:".Length..].Trim();
                 else if (line.StartsWith("ветка:"))
                     branch = line["ветка:".Length..].Trim();
-                // Кит 0.10 зовёт строку «сценарий:», память прежнего вида — «флоу:».
-                else if (line.StartsWith("сценарий:"))
-                    flow = line["сценарий:".Length..].Trim();
-                else if (line.StartsWith("флоу:"))
-                    flow = line["флоу:".Length..].Trim();
                 continue;
             }
 
@@ -147,7 +141,7 @@ public sealed record WorkMemory(
             .Select(b => new ClosingCriterion(b.Title, MemoryText.Block(b.Lines)))
             .ToList();
         var outOfScope = Named(criteriaBlocks, OutOfScopeTitle);
-        return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, artifacts, questions, flow);
+        return new WorkMemory(copy, branch, task, flowStep, progress, criteria, outOfScope, artifacts, questions);
     }
 
     private static string? Named(List<(string Title, List<string> Lines)> blocks, string title) =>

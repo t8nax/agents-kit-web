@@ -300,7 +300,6 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         }
     }
 
-
     /// <summary>Реплика оператора в потоке stream-json: агент читает их построчно, по одной на ответ.</summary>
     private static string Message(string text) => JsonSerializer.Serialize(
         new
