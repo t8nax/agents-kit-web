@@ -28,6 +28,8 @@ async function mockApi(page: Page, list: { server: string; login: string }[]) {
     current = current.filter((s) => s.server !== server)
     return route.fulfill({ status: 204 })
   })
+  // Карточка «Трекеры проектов» стоит рядом и читает свой адрес: подмена серверов его не отдаёт (B-293).
+  await page.route('**/api/trackers/projects', (route) => route.fulfill({ json: [] }))
 }
 
 async function openSettings(page: Page) {
