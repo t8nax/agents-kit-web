@@ -50,7 +50,7 @@ public class GhIssuesTests
 
         Assert.Equal("gh", startInfo.FileName);
         Assert.Equal(
-            ["label", "list", "--repo", "acme/orders", "--limit", "200", "--sort", "name", "--json", "name"],
+            ["label", "list", "--repo", "acme/orders", "--limit", "1000", "--sort", "name", "--json", "name"],
             startInfo.ArgumentList);
         Assert.True(startInfo.CreateNoWindow);
         Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);

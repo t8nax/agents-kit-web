@@ -94,7 +94,7 @@ public sealed partial class GhIssues : IGitHubIssues
 
     private const int Limit = 100;
 
-    private const int LabelLimit = 200;
+    private const int LabelLimit = 1000;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(1);
 
