@@ -9,13 +9,22 @@ namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>
 /// Задача трекера, назначенная на оператора. Name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
-/// Number — число номера.
+/// Number — число номера. Labels — метки задачи GitHub (B-305); у YouTrack и у заведённой панелью задачи их нет.
 /// </summary>
-public sealed record TrackerIssue(string Name, int Number, string Title, string Url)
+public sealed record TrackerIssue(string Name, int Number, string Title, string Url, IReadOnlyList<string>? Labels = null)
 {
+    public IReadOnlyList<string>? Labels { get; init; } = Labels ?? [];
+
     /// <summary>Номер без имени трекера — как на плашке задачи: «#37», «ABC-12».</summary>
     [JsonIgnore]
     public string Label => Name[(Name.IndexOf(' ') + 1)..];
+
+    // Метки сравниваются по значению: задача, прочитанная дважды, — та же задача.
+    public bool Equals(TrackerIssue? other) =>
+        other is not null && Name == other.Name && Number == other.Number && Title == other.Title && Url == other.Url
+        && (Labels ?? []).SequenceEqual(other.Labels ?? []);
+
+    public override int GetHashCode() => HashCode.Combine(Name, Number, Title, Url);
 }
 
 /// <summary>
@@ -175,7 +184,7 @@ public sealed partial class GhIssues : IGitHubIssues
     public static ProcessStartInfo StartInfo(string repo) =>
         GhStartInfo(
             "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
-            "--limit", Limit.ToString(), "--json", "number,title,url");
+            "--limit", Limit.ToString(), "--json", "number,title,url,labels");
 
     /// <summary>
     /// Запуск gh на заведение задачи: назначена на того, кем gh вошла, без меток — критерий B-286. Описание
@@ -251,7 +260,8 @@ public sealed partial class GhIssues : IGitHubIssues
         try
         {
             var issues = JsonSerializer.Deserialize<List<GhIssue>>(output) ?? [];
-            return new TrackerIssues(issues.Select(i => new TrackerIssue($"GitHub #{i.Number}", i.Number, i.Title, i.Url)).ToList());
+            return new TrackerIssues(issues.Select(i => new TrackerIssue(
+                $"GitHub #{i.Number}", i.Number, i.Title, i.Url, (i.Labels ?? []).Select(l => l.Name).ToList())).ToList());
         }
         catch (JsonException)
         {
@@ -262,5 +272,8 @@ public sealed partial class GhIssues : IGitHubIssues
     private sealed record GhIssue(
         [property: JsonPropertyName("number")] int Number,
         [property: JsonPropertyName("title")] string Title,
-        [property: JsonPropertyName("url")] string Url);
+        [property: JsonPropertyName("url")] string Url,
+        [property: JsonPropertyName("labels")] List<GhLabel>? Labels = null);
+
+    private sealed record GhLabel([property: JsonPropertyName("name")] string Name);
 }

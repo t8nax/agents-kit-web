@@ -13,7 +13,7 @@ public class GhIssuesTests
 
         Assert.Equal("gh", startInfo.FileName);
         Assert.Equal(
-            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url"],
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"],
             startInfo.ArgumentList);
         Assert.True(startInfo.CreateNoWindow);
         Assert.False(startInfo.UseShellExecute);
@@ -27,6 +27,20 @@ public class GhIssuesTests
 
         Assert.Null(issues.Problem);
         Assert.Equal(new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37"), Assert.Single(issues.Issues));
+    }
+
+    /// <summary>Метки задачи — их имена в порядке gh; цвет и описание метки панели не нужны (B-305).</summary>
+    [Fact]
+    public void Parse_TakesLabelNames()
+    {
+        var issues = GhIssues.Parse("""
+            [{"number":37,"title":"Оплата падает","url":"https://github.com/acme/orders/issues/37",
+              "labels":[{"id":"LA_1","name":"bug","description":"","color":"d73a4a"},{"id":"LA_2","name":"ui","description":"","color":"a2eeef"}]}]
+            """);
+
+        Assert.Equal(
+            new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", ["bug", "ui"]),
+            Assert.Single(issues.Issues));
     }
 
     [Fact]
