@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { SAMPLE_RATE } from './microphone'
@@ -318,6 +318,65 @@ test('запись щелчком идёт, а сказанное раньше �
   expect(button()).not.toHaveAttribute('aria-busy')
   expect(button().querySelector('.mic-spin-corner')).toBeNull()
   expect(button()).toHaveAttribute('title', VOICE_TITLES.stop)
+})
+
+/** Два окна, у каждого своё поле и своя кнопка: Ctrl+D должен трогать только окно, где фокус. */
+function TwoWindows() {
+  return (
+    <VoiceContext value={{ state: 'installed', ensure: () => {}, refresh: () => {} }}>
+      {['Первое', 'Второе'].map((name) => (
+        <div role="dialog" aria-label={name} key={name}>
+          <textarea aria-label={`Поле ${name}`} />
+          <VoiceButton onText={() => {}} />
+        </div>
+      ))}
+      <input aria-label="Вне окон" />
+    </VoiceContext>
+  )
+}
+
+const ctrlD = (target: Element, init: KeyboardEventInit = {}) => {
+  const event = new KeyboardEvent('keydown', { key: 'в', code: 'KeyD', ctrlKey: true, bubbles: true, cancelable: true, ...init })
+  act(() => {
+    target.dispatchEvent(event)
+  })
+  return event
+}
+
+const micIn = (name: string) => within(screen.getByRole('dialog', { name })).getByRole('button', { name: 'Голосовой ввод' })
+
+test('Ctrl+D включает и выключает запись в окне, где фокус, при любой раскладке, и закладку не открывает', async () => {
+  stubRecognize()
+  render(<TwoWindows />)
+  const field = screen.getByLabelText('Поле Второе')
+  field.focus()
+
+  const on = ctrlD(field)
+  await vi.waitFor(() => expect(mic.feed).not.toBeNull())
+
+  expect(on.defaultPrevented).toBe(true)
+  expect(micIn('Второе')).toHaveAttribute('aria-pressed', 'true')
+  expect(micIn('Первое')).toHaveAttribute('aria-pressed', 'false')
+  // Зажатая клавиша повторяет нажатие — запись от этого не выключается.
+  ctrlD(field, { repeat: true })
+  expect(micIn('Второе')).toHaveAttribute('aria-pressed', 'true')
+
+  ctrlD(field)
+  expect(micIn('Второе')).toHaveAttribute('aria-pressed', 'false')
+  expect(mic.closed).toBe(1)
+})
+
+test('Ctrl+D вне окон с кнопкой ничего не трогает и браузеру не мешает', () => {
+  stubRecognize()
+  render(<TwoWindows />)
+  const outside = screen.getByLabelText('Вне окон')
+  outside.focus()
+
+  const event = ctrlD(outside)
+
+  expect(event.defaultPrevented).toBe(false)
+  expect(micIn('Первое')).toHaveAttribute('aria-pressed', 'false')
+  expect(micIn('Второе')).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('клавиатура включает и выключает запись щелчком', async () => {

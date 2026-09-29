@@ -211,11 +211,36 @@ export default function VoiceButton<T = undefined>({
   }, [mode])
 
   // Клавиатура нажимает кнопку щелчком без указателя: запись включается и выключается им.
-  const onClick = (event: { detail: number }) => {
-    if (event.detail !== 0 || disabled || unavailable) return
+  const toggle = () => {
+    if (disabled || unavailable) return
     if (modeRef.current === 'idle') void start('click')
     else stop()
   }
+  const onClick = (event: { detail: number }) => {
+    if (event.detail === 0) toggle()
+  }
+
+  // Ctrl+D — тот же щелчок, не беря мышь (приёмка B-291). Слушает кнопка того окна, где стоит фокус: у каждого окна
+  // своя кнопка, и нажатие в одном окне запись в другом не трогает. Клавиша — по месту на клавиатуре (KeyD), а не
+  // по букве: в русской раскладке это «В». Закладку браузера Ctrl+D в окне с кнопкой не открывает.
+  const self = useRef<HTMLButtonElement>(null)
+  const toggleRef = useRef(toggle)
+  useLayoutEffect(() => {
+    toggleRef.current = toggle
+  })
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'KeyD' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return
+      const dialog = self.current?.closest('[role="dialog"]')
+      const focused = document.activeElement
+      if (!dialog || !(focused instanceof Element) || focused.closest('[role="dialog"]') !== dialog) return
+      event.preventDefault()
+      // Зажатая клавиша повторяет нажатие: запись от этого не мигает.
+      if (!event.repeat) toggleRef.current()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   const listening = mode !== 'idle'
   const recognizing = !listening && pending > 0
@@ -236,6 +261,7 @@ export default function VoiceButton<T = undefined>({
 
   return (
     <button
+      ref={self}
       type="button"
       className={['mic', mode === 'click' && 'is-click', (mode === 'hold' || mode === 'pressed') && 'is-hold', className]
         .filter(Boolean)
