@@ -3,6 +3,9 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { DescriptionEditor, type FlowStage, type NamedFlow } from './Flow'
 import { Markdown } from './Markdown'
 import { useAgentConversation } from './agentConversation'
+import { AttachError } from './Attachments'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import {
   changedText,
   fieldValue,
@@ -45,6 +48,8 @@ type Props = {
   /** Задачи, которые держат этап или сценарий: его не записать, пока они в работе (B-226). */
   lockedStage: (title: string) => string[] | null
   lockedFlow: (name: string) => string[] | null
+  /** Просьба, вписанная в поле при открытии: её готовит отчёт о флоу по находке, а отправляет оператор (B-270). */
+  wish?: string | null
   /** Записать правки в базу; вернуть, почему не записались, или null. */
   onApply: (proposal: FlowProposal) => Promise<string | null>
   onClose: () => void
@@ -96,9 +101,21 @@ function stepsOfTurn(events: RewriteEvent[]) {
   return steps
 }
 
-export default function FlowRewriteModal({ base, project, stages, flows, mark, lockedStage, lockedFlow, onApply, onClose }: Props) {
+export default function FlowRewriteModal({
+  base,
+  project,
+  stages,
+  flows,
+  mark,
+  lockedStage,
+  lockedFlow,
+  wish = null,
+  onApply,
+  onClose,
+}: Props) {
   // Поле не трогали, пока text — null: тогда в нём стоит реплика, на которой агент сорвался.
-  const [text, setText] = useState<string | null>(null)
+  const [text, setText] = useState<string | null>(wish)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('talk')
   // Сколько событий переписки было, когда оператор последний раз смотрел вкладку «Изменения»: точка на ней горит,
   // пока ответ, поменявший список, пришёл позже. Отметку помнит браузер по переписке: окно, открытое заново, не
@@ -410,9 +427,18 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
                 }}
               />
+              <AttachError text={voiceError} />
             </>
           )}
           <div className="ask-actions">
+            {/* Микрофон — слева в подвале, напротив кнопок (макет B-291); у списка изменений поля нет */}
+            {!onChanges && (
+              <VoiceButton
+                disabled={running && !foreign}
+                onText={(spoken) => setText(appendSpoken(value, spoken))}
+                onError={setVoiceError}
+              />
+            )}
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
                 а «Отменить» встаёт ровно туда, где была «Отправить». */}
             <div className="footer-right">

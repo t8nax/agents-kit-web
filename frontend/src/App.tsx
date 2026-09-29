@@ -14,6 +14,7 @@ import { notificationsActive, notifyStatusChange } from './notifications'
 import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
+import Reports, { ReportIcon } from './Reports'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
@@ -26,6 +27,7 @@ import { TerminalIcon } from './TerminalIcon'
 import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
+import { useVoiceModuleSource, VoiceContext } from './voice'
 
 /**
  * starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал.
@@ -141,6 +143,7 @@ type Section =
   | 'performers'
   | 'sessions'
   | 'usage'
+  | 'reports'
   | 'problems'
   | 'settings'
 
@@ -170,6 +173,7 @@ function App() {
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
   const theme = useTheme()
+  const voice = useVoiceModuleSource()
 
   const loadRows = useCallback(function load() {
     const request = ++lastRequest.current
@@ -255,7 +259,7 @@ function App() {
   }, [removed])
 
   return (
-    <>
+    <VoiceContext value={voice}>
       <header className="app-header">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
@@ -267,7 +271,15 @@ function App() {
               setAsking(true)
               return
             }
-            setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
+            setSection(
+              request.kind === 'backlog'
+                ? 'backlog'
+                : request.kind === 'flow'
+                  ? 'flow'
+                  : request.kind === 'report'
+                    ? 'reports'
+                    : 'performers',
+            )
             setOpenRequest({ kind: request.kind, base: request.base, subject: request.subject, at: Date.now() })
           }}
         />
@@ -350,6 +362,13 @@ function App() {
             <Sessions />
           ) : section === 'usage' ? (
             <Usage />
+          ) : section === 'reports' ? (
+            // Возврат к просьбе открывает раздел заново: он встаёт на проекте просьбы.
+            <Reports
+              key={openRequest?.kind === 'report' ? openRequest.at : 'reports'}
+              reportFor={openRequest?.kind === 'report' ? openRequest.base : null}
+              onProblems={() => setSection('problems')}
+            />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
           ) : (
@@ -421,7 +440,7 @@ function App() {
           </span>
         </div>
       )}
-    </>
+    </VoiceContext>
   )
 }
 
@@ -493,6 +512,15 @@ function Sidebar({
         {/* Расход стоит за сессиями: это тоже про происходящее сейчас, только про его цену */}
         <SideItem label="Расход" expanded={expanded} active={section === 'usage'} onClick={() => onSection('usage')}>
           <UsageIcon />
+        </SideItem>
+        {/* Отчёты стоят за расходом: это оценка того, как устроена работа, а не сама работа */}
+        <SideItem
+          label="Отчёты"
+          expanded={expanded}
+          active={section === 'reports'}
+          onClick={() => onSection('reports')}
+        >
+          <ReportIcon />
         </SideItem>
         <SideItem
           label="Проблемы баз"

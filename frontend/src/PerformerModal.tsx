@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { AGENT_NAME } from './BacklogWriteModal'
 import { Markdown } from './Markdown'
 import { useAgentRequest } from './agentRequest'
+import { AttachError } from './Attachments'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import { PerformerIcon, type BasePerformers, type Performer } from './Performers'
 import { NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import './Modal.css'
@@ -100,6 +103,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
       editing ? request.subject === editing.name && request.base === initial : !request.subject,
   })
   const [wish, setWish] = useState('')
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   // Поля, какими они были до ответа агента: «Вернуть как было» ставит их обратно.
   const [before, setBefore] = useState<DraftFields | null>(null)
   const taken = useRef(false)
@@ -348,22 +352,31 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           <label htmlFor="pf-wish" className="visually-hidden">
             Просьба к {AGENT_NAME}
           </label>
-          <textarea
-            id="pf-wish"
-            ref={field}
-            className={`custom-textarea pf-wish ${blank ? '' : 'pf-wish-short'}`}
-            value={phase === 'running' ? asked : wish}
-            placeholder={
-              editing
-                ? 'Что переписать: например, пусть ещё сверяет работу с решениями базы'
-                : 'Расскажите своими словами, что исполнитель делает и что возвращает'
-            }
-            disabled={busy || phase === 'running' || closed !== null}
-            onChange={(event) => setWish(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void ask(wish)
-            }}
-          />
+          {/* Микрофон — в правом нижнем углу поля (макет B-291) */}
+          <div className="voice-field">
+            <textarea
+              id="pf-wish"
+              ref={field}
+              className={`custom-textarea pf-wish ${blank ? '' : 'pf-wish-short'}`}
+              value={phase === 'running' ? asked : wish}
+              placeholder={
+                editing
+                  ? 'Что переписать: например, пусть ещё сверяет работу с решениями базы'
+                  : 'Расскажите своими словами, что исполнитель делает и что возвращает'
+              }
+              disabled={busy || phase === 'running' || closed !== null}
+              onChange={(event) => setWish(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void ask(wish)
+              }}
+            />
+            <VoiceButton
+              disabled={busy || phase === 'running' || closed !== null}
+              onText={(spoken) => setWish(appendSpoken(wish, spoken))}
+              onError={setVoiceError}
+            />
+          </div>
+          <AttachError text={voiceError} />
 
           {phase === 'idle' && blank && !wish && (
             <div className="ask-examples">
@@ -637,6 +650,7 @@ function TaskView({
   const empty = !prompt.trim()
   const [editing, setEditing] = useState(empty && editable)
   const [text, setText] = useState(prompt)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   // Открытое окно задания забирает фокус: иначе он остался бы на кнопке под подложкой.
   const close = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -708,31 +722,38 @@ function TaskView({
           ) : (
             <Markdown className="pf-task-view" text={prompt} />
           )}
+          {editing && <AttachError text={voiceError} />}
         </div>
         <div className="modal-footer ask-footer">
-          <div className="footer-right">
-            {editing ? (
-              <>
-                <button type="button" className="btn" onClick={cancel}>
-                  Отменить
-                </button>
-                <button type="button" className="btn btn-primary" onClick={done}>
-                  Готово
-                </button>
-              </>
-            ) : (
-              <>
-                {editable && (
-                  <button type="button" className="btn" onClick={edit}>
-                    <PencilIcon />
-                    Редактировать
-                  </button>
-                )}
-                <button type="button" ref={close} className="btn" onClick={onClose}>
-                  Закрыть
-                </button>
-              </>
+          <div className="ask-actions">
+            {/* В правке задание можно надиктовать: микрофон слева в подвале, напротив кнопок (макет B-291) */}
+            {editing && (
+              <VoiceButton onText={(spoken) => setText(appendSpoken(text, spoken))} onError={setVoiceError} />
             )}
+            <div className="footer-right">
+              {editing ? (
+                <>
+                  <button type="button" className="btn" onClick={cancel}>
+                    Отменить
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={done}>
+                    Готово
+                  </button>
+                </>
+              ) : (
+                <>
+                  {editable && (
+                    <button type="button" className="btn" onClick={edit}>
+                      <PencilIcon />
+                      Редактировать
+                    </button>
+                  )}
+                  <button type="button" ref={close} className="btn" onClick={onClose}>
+                    Закрыть
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
