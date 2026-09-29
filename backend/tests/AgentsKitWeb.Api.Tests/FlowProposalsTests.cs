@@ -269,17 +269,9 @@ public sealed class FlowProposalsTests
     public void Input_BaseWithTwoStagesOfOneTitle_StillGivesFlow()
     {
         // Два этапа с одним названием бывают в базе, поправленной руками: начало переписки на них не падает.
-        var input = FlowRewriteEndpoints.Input("Поправь ревью", [Review, Review with { Slug = "review-2" }], [Small], [], []);
+        var input = FlowRewriteEndpoints.Input("Поправь ревью", [Review, Review with { Slug = "review-2" }], [Small], []);
 
         Assert.Contains("1. [Ревью](stages/review.md)", input);
-    }
-
-    [Fact]
-    public void Input_TaskOfUnknownScenario_LeavesNewOnesOpen()
-    {
-        var input = FlowRewriteEndpoints.Input("Заведи этап", Stages, Flows, [new FlowTask("B-7", null)], []);
-
-        Assert.Contains("- B-7: сценарий не узнан — панель не запишет ни одного из нынешних сценариев и этапов, а новые заводить можно", input);
     }
 
     private static FlowStage Parsed(string text) => FlowFolder.ParseStage(text, "") with { Slug = null };

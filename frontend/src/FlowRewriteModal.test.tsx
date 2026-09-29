@@ -73,7 +73,6 @@ function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: Retur
 function renderModal(
   options: {
     apply?: () => Promise<string | null>
-    lockedFlow?: (name: string) => string[] | null
     screen?: { stages: FlowStage[]; flows: NamedFlow[] }
     wish?: string
   } = {},
@@ -84,8 +83,6 @@ function renderModal(
     base,
     project: 'Agents Kit Web',
     mark: (title: string) => <span data-testid={`mark-${title}`} />,
-    lockedStage: () => null,
-    lockedFlow: options.lockedFlow ?? (() => null),
     wish: options.wish,
     onApply,
     onClose,
@@ -382,20 +379,6 @@ test('записанное уходит из списка: раздел держ
 
   await waitFor(() => expect(screen.getByRole('tab', { name: /^Изменения/ })).toBeDisabled())
   expect(screen.getByLabelText('Следующая реплика')).toBeInTheDocument()
-})
-
-test('занятое задачей помечено замком, строка над списком называет задачи, «Принять правки» погашена', async () => {
-  const stream = controlledStream<RewriteEvent>()
-  stubFetch(stream)
-  renderModal({ lockedFlow: (name) => (name === 'крупный' ? ['B-238'] : null) })
-  await say('Заведи документацию')
-  stream.send({ type: 'answer', text: 'Готово.', proposal, changed: { scenarios: 1, stages: 2 } })
-  fireEvent.click(await screen.findByRole('button', { name: '1 сценарий, 2 этапа' }))
-
-  const line = screen.getByRole('status')
-  expect(line).toHaveTextContent('Правки не записать: заняты задачами в работе — сценарий «крупный»B-238.')
-  expect(screen.getByTitle('Занят: B-238')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
 })
 
 test('«Отменить» обрывает ответ, «Новая переписка» убирает разговор', async () => {

@@ -103,6 +103,8 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Contains($"Своё у оператора этого компьютера, {TestLayout.Operator}, — его личный репозиторий local/me/ со своим git: autonomy.md", prompt);
         Assert.Contains("agents/*.md — исполнители,\nbacklog.md — записи бэклога".ReplaceLineEndings(), prompt.ReplaceLineEndings());
         Assert.Contains("В people/<имя>/ — флоу и исполнители, которые операторы выложили для коллег: агент по ним не работает", prompt);
+        // Кит формата 8: задача идёт по копии своего сценария рядом с памятью, а не по нынешнему flow/ (B-299).
+        Assert.Contains("work/<машина>/<имя памяти>/flow/ — копия сценария задачи", prompt);
         Assert.DoesNotContain("boundaries.md", prompt);
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);

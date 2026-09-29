@@ -45,9 +45,6 @@ type Props = {
   flows: NamedFlow[]
   /** Значок этапа — тот же, что на карточке вкладки «Этапы». */
   mark: (title: string) => ReactNode
-  /** Задачи, которые держат этап или сценарий: его не записать, пока они в работе (B-226). */
-  lockedStage: (title: string) => string[] | null
-  lockedFlow: (name: string) => string[] | null
   /** Просьба, вписанная в поле при открытии: её готовит отчёт о флоу по находке, а отправляет оператор (B-270). */
   wish?: string | null
   /** Записать правки в базу; вернуть, почему не записались, или null. */
@@ -107,8 +104,6 @@ export default function FlowRewriteModal({
   stages,
   flows,
   mark,
-  lockedStage,
-  lockedFlow,
   wish = null,
   onApply,
   onClose,
@@ -152,18 +147,6 @@ export default function FlowRewriteModal({
   )
   const dot = count > 0 && tab !== 'changes' && lastChange > seen
   const onChanges = tab === 'changes' && count > 0
-
-  // Занятое задачами не записать: строка над списком называет, что и кем занято.
-  const held = [
-    ...items.scenarios.flatMap((item) => {
-      const tasks = item.of === null ? null : lockedFlow(item.of)
-      return tasks ? [{ what: `сценарий «${item.of}»`, tasks }] : []
-    }),
-    ...items.stages.flatMap((item) => {
-      const tasks = item.of === null ? null : lockedStage(item.of)
-      return tasks ? [{ what: `этап «${item.of}»`, tasks }] : []
-    }),
-  ]
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -348,32 +331,12 @@ export default function FlowRewriteModal({
 
         {onChanges && (
           <div className="ask-body rewrite-changes" aria-label="Изменения флоу">
-            {held.length > 0 && (
-              <p className="rewrite-held-line" role="status">
-                <LockIcon />
-                <span>
-                  Правки не записать: заняты задачами в работе —{' '}
-                  {held.map((one, i) => (
-                    <span key={one.what}>
-                      {i > 0 && '; '}
-                      {one.what}
-                      {one.tasks.map((task) => (
-                        <span key={task} className="flow-task-tag">
-                          {task}
-                        </span>
-                      ))}
-                    </span>
-                  ))}
-                  .
-                </span>
-              </p>
-            )}
             {items.scenarios.length > 0 && (
               <div className="rewrite-group">
                 <p className="rewrite-group-title">Сценарии</p>
                 <div className="rewrite-items">
                   {items.scenarios.map((item) => (
-                    <ScenarioRow key={`${item.kind}-${item.of}-${item.name}`} item={item} held={item.of === null ? null : lockedFlow(item.of)} />
+                    <ScenarioRow key={`${item.kind}-${item.of}-${item.name}`} item={item} />
                   ))}
                 </div>
               </div>
@@ -387,7 +350,6 @@ export default function FlowRewriteModal({
                       key={`${item.kind}-${item.of}-${item.title}`}
                       item={item}
                       mark={mark}
-                      held={item.of === null ? null : lockedStage(item.of)}
                       onDescription={openDescription}
                     />
                   ))}
@@ -454,7 +416,7 @@ export default function FlowRewriteModal({
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={held.length > 0 || applying || running}
+                  disabled={applying || running}
                   onClick={() => void apply()}
                 >
                   {applying ? 'Запись…' : 'Принять правки'}
@@ -545,17 +507,7 @@ function Said({ event, onChanges }: { event: RewriteEvent; onChanges: () => void
   return <p className="ask-note">{event.text}</p>
 }
 
-function Held({ tasks }: { tasks: string[] | null }) {
-  if (!tasks) return null
-  return (
-    <span className="rewrite-held" title={`Занят: ${tasks.join(', ')}`}>
-      <LockIcon />
-      {tasks.join(', ')}
-    </span>
-  )
-}
-
-function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null }) {
+function ScenarioRow({ item }: { item: ScenarioItem }) {
   return (
     <details className="rewrite-item">
       <summary>
@@ -563,7 +515,6 @@ function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null
         <span className={`rewrite-mark rewrite-mark-${item.kind}`}>{kindLabels[item.kind]}</span>
         <span className="rewrite-item-name">{item.name}</span>
         <span className="rewrite-item-what" />
-        <Held tasks={held} />
       </summary>
       <div className="rewrite-item-body">
         {item.gone && (
@@ -610,12 +561,10 @@ function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null
 function StageRow({
   item,
   mark,
-  held,
   onDescription,
 }: {
   item: StageItem
   mark: (title: string) => ReactNode
-  held: string[] | null
   onDescription: (description: { title: string; text: string }) => void
 }) {
   const where =
@@ -644,7 +593,6 @@ function StageRow({
         {mark(item.of ?? item.title)}
         <span className="rewrite-item-name">{item.title}</span>
         <span className="rewrite-item-what">{where}</span>
-        <Held tasks={held} />
       </summary>
       <div className="rewrite-item-body">
         {item.gone && (
@@ -788,15 +736,6 @@ function FileTextIcon() {
       <polyline points="14 2 14 8 20 8" />
       <line x1="8" y1="13" x2="16" y2="13" />
       <line x1="8" y1="17" x2="14" y2="17" />
-    </svg>
-  )
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   )
 }

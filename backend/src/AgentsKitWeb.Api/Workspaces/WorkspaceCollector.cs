@@ -167,30 +167,34 @@ public static class WorkspaceCollector
 
     /// <summary>
     /// Памяти задач копий этой машины — work\&lt;машина&gt;\*.md личного репозитория — по нормализованному пути копии.
-    /// Память других машин оператора — о копиях чужого диска, и ответ в неё панель не пишет.
+    /// Память других машин оператора — о копиях чужого диска, и ответ в неё панель не пишет. Флоу задачи рядом
+    /// с памятью — каталог work\&lt;машина&gt;\&lt;слаг&gt;\flow\ (кит формата 8) — памятью не читается.
     /// </summary>
     internal static Dictionary<string, (string File, WorkMemory Memory)> MemoryFiles(BaseLayout layout)
     {
         var result = new Dictionary<string, (string, WorkMemory)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (file, memory) in ReadMemoryFiles(layout.MemoryDir, SearchOption.TopDirectoryOnly))
+        foreach (var (file, memory) in ReadMemoryFiles(layout.MemoryDir))
             // Копия памяти — полным путём, как её приводит кит: «a\..\b» в памяти — та же копия, что «b» в списке.
             result.TryAdd(FullPath(memory.Copy!), (file, memory));
         return result;
     }
 
     /// <summary>
-    /// Памяти задач всех машин оператора, какие приехали в его личный репозиторий: одинаковый путь копии
-    /// на двух машинах — две задачи, поэтому по копии они не схлопываются.
+    /// Памяти задач всех машин оператора, какие приехали в его личный репозиторий, — work\&lt;машина&gt;\*.md: одинаковый
+    /// путь копии на двух машинах — две задачи, поэтому по копии они не схлопываются. Флоу задачи рядом с памятью
+    /// (кит формата 8) памятью не читается.
     /// </summary>
     internal static IEnumerable<(string File, WorkMemory Memory)> AllMemories(BaseLayout layout) =>
-        ReadMemoryFiles(layout.WorkDir, SearchOption.AllDirectories);
+        Directory.Exists(layout.WorkDir)
+            ? Directory.EnumerateDirectories(layout.WorkDir).SelectMany(ReadMemoryFiles)
+            : [];
 
-    private static IEnumerable<(string File, WorkMemory Memory)> ReadMemoryFiles(string workDir, SearchOption search)
+    private static IEnumerable<(string File, WorkMemory Memory)> ReadMemoryFiles(string memoryDir)
     {
-        if (!Directory.Exists(workDir))
+        if (!Directory.Exists(memoryDir))
             yield break;
 
-        foreach (var file in Directory.EnumerateFiles(workDir, "*.md", search))
+        foreach (var file in Directory.EnumerateFiles(memoryDir, "*.md", SearchOption.TopDirectoryOnly))
         {
             WorkMemory memory;
             try

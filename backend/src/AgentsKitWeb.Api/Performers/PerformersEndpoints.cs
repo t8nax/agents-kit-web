@@ -10,7 +10,8 @@ namespace AgentsKitWeb.Api.Performers;
 /// Исполнитель — субагент проекта: файл в базе знаний, откуда кит развозит его по рабочим копиям.
 /// Name — имя, которым зовёт его шаг флоу, Path — файл базы, откуда взяты поля.
 /// Prompt — задание из файла: окно правки берёт его отсюда, а не отдельным запросом по пути к файлу.
-/// CalledBy — названия этапов флоу, которые зовут его исполнителем или помощником: пока они есть, удалить его нельзя.
+/// CalledBy — этапы, которые зовут его исполнителем или помощником: этапы флоу — названием, этапы копий сценария идущих
+/// задач — названием и номером задачи. Пока они есть, удалить его нельзя.
 /// </summary>
 public sealed record Performer(
     string Name,
@@ -214,7 +215,7 @@ public static class PerformersEndpoints
             List<string> calledBy;
             try
             {
-                calledBy = CalledBy(FlowEndpoints.Stages(layout), name);
+                calledBy = CalledBy(Callers(layout), name);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
@@ -276,15 +277,83 @@ public static class PerformersEndpoints
         });
     }
 
+    /// <summary>Этап, который может позвать исполнителя, и как его назвать в подсказке.</summary>
+    private sealed record Caller(string Label, FlowStage Stage);
+
     /// <summary>
-    /// Названия этапов, которые зовут исполнителя — исполнителем этапа или помощником оркестратора. У этапа без
-    /// заголовка названия нет — вместо него имя его файла: пустое место в подсказке этап не нашло бы.
+    /// Подписи этапов, которые зовут исполнителя — исполнителем этапа или помощником оркестратора.
     /// </summary>
-    private static List<string> CalledBy(IReadOnlyList<FlowStage> stages, string name) =>
-        stages
-            .Where(s => string.Equals(s.Executor.Trim(), name, StringComparison.Ordinal) || FlowFolder.Helpers(s).Contains(name))
-            .Select(s => string.IsNullOrWhiteSpace(s.Title) ? s.Slug ?? "" : s.Title)
+    private static List<string> CalledBy(IReadOnlyList<Caller> callers, string name) =>
+        callers
+            .Where(c => string.Equals(c.Stage.Executor.Trim(), name, StringComparison.Ordinal) || FlowFolder.Helpers(c.Stage).Contains(name))
+            .Select(c => c.Label)
+            .Distinct(StringComparer.Ordinal)
             .ToList();
+
+    /// <summary>
+    /// Этапы флоу оператора — подписью их названием — и этапы копий сценария идущих задач всех его машин,
+    /// work\&lt;машина&gt;\&lt;память&gt;\flow\stages\ (кит формата 8), — названием и номером задачи: «Реализация (B-7)».
+    /// Задача идёт по своей копии, и исполнитель, которого уже убрали из флоу, ей ещё нужен — решение оператора на B-299.
+    /// </summary>
+    private static List<Caller> Callers(BaseLayout layout)
+    {
+        var callers = FlowEndpoints.Stages(layout).Select(s => new Caller(Title(s), s)).ToList();
+        if (!System.IO.Directory.Exists(layout.WorkDir))
+            return callers;
+
+        var letters = Backlog.ReadLetters(layout);
+        foreach (var machine in System.IO.Directory.EnumerateDirectories(layout.WorkDir).Order(StringComparer.Ordinal))
+            foreach (var task in System.IO.Directory.EnumerateDirectories(machine).Order(StringComparer.Ordinal))
+            {
+                // Флоу задачи устроен, как flow/ личного репозитория: этапы — в том же flow/stages от своего корня.
+                var stages = System.IO.Path.Combine(task, FlowFolder.StagesFolder);
+                if (!System.IO.Directory.Exists(stages))
+                    continue;
+                // Задачу закрыли посреди обхода — её копии уже нет, и исполнителя она не держит; флоу оператора из-за
+                // неё непрочитанным не считается.
+                try
+                {
+                    var label = TaskLabel(task, letters);
+                    foreach (var file in System.IO.Directory.EnumerateFiles(stages, "*.md").Order(StringComparer.Ordinal))
+                    {
+                        var stage = FlowFolder.ParseStage(
+                            FlowFolder.Decode(File.ReadAllBytes(file)).Text, System.IO.Path.GetFileNameWithoutExtension(file));
+                        callers.Add(new Caller($"{Title(stage)} ({label})", stage));
+                    }
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+        return callers;
+    }
+
+    /// <summary>
+    /// У этапа без заголовка названия нет — вместо него имя его файла: пустое место в подсказке этап не нашло бы.
+    /// </summary>
+    private static string Title(FlowStage stage) => string.IsNullOrWhiteSpace(stage.Title) ? stage.Slug ?? "" : stage.Title;
+
+    /// <summary>
+    /// Задача копии флоу — по памяти рядом, каталог которой назван так же: номер бэклога буквами проекта
+    /// (decisions/backlog-numbers.md), без номера — заголовок, а без памяти, заголовка или когда память сейчас не
+    /// читается — её пишет сессия — имя каталога.
+    /// </summary>
+    private static string TaskLabel(string taskFlowDir, string? letters)
+    {
+        var memory = taskFlowDir + ".md";
+        string? title;
+        try
+        {
+            title = File.Exists(memory) ? WorkMemory.Parse(File.ReadAllText(memory)).Task : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            title = null;
+        }
+        if (string.IsNullOrWhiteSpace(title))
+            return System.IO.Path.GetFileName(taskFlowDir);
+        return BacklogNumber.OfTask(title, letters) ?? title;
+    }
 
     /// <summary>Возвращает удалённые файлы исполнителя на место — удаление не прошло.</summary>
     private static async Task RestoreAllAsync(IEnumerable<(string File, byte[]? Bytes)> kept)
@@ -304,17 +373,17 @@ public static class PerformersEndpoints
             return new BasePerformers(basePath, project, "", [], problem);
 
         // Флоу не прочитан — этапы никого не зовут: запрет удаления всё равно проверит запрос на удаление.
-        IReadOnlyList<FlowStage> stages;
+        IReadOnlyList<Caller> callers;
         try
         {
-            stages = FlowEndpoints.Stages(layout);
+            callers = Callers(layout);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            stages = [];
+            callers = [];
         }
         var performers = PerformerList.OfProject(layout)
-            .Select(p => p with { CalledBy = CalledBy(stages, p.Name) })
+            .Select(p => p with { CalledBy = CalledBy(callers, p.Name) })
             .ToList();
 
         return new BasePerformers(

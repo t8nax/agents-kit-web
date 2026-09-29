@@ -171,8 +171,9 @@ function Stop-OldDummies {
 
 # --- содержимое баз ----------------------------------------------------------------------
 
-# Раскладка базы кита формата 7, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
-# личный репозиторий оператора local\me со своим git — флоу, исполнители, бэклог, память задач по машинам и их артефакты,
+# Раскладка базы кита формата 8, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
+# личный репозиторий оператора local\me со своим git — флоу, исполнители, бэклог, память задач по машинам с флоу
+# каждой задачи рядом и их артефакты,
 # папка оператора people\<имя> — выложенное для коллег. Оператор песочницы — «sandbox».
 $sandboxOperator = 'sandbox'
 function Get-SandboxMachine {
@@ -474,13 +475,34 @@ $designBlock$artifactsBlock$question
 - [ ] Свести опрос к одному запросу
 "@
     Write-Utf8 $Path $text -Crlf:$Crlf
+
+    # Флоу задачи — копия её сценария, которую кит формата 8 снимает при взятии: каталог рядом с памятью под тем же
+    # именем, в нём flow\scenarios.md с одним сценарием задачи и файлы его этапов. Задача идёт по ней, и правка флоу
+    # базы её не трогает.
+    $taskFlow = Join-Path (Split-Path $Path) ([IO.Path]::GetFileNameWithoutExtension($Path))
+    New-Flow $taskFlow
+    Write-Utf8 (Join-Path $taskFlow 'flow\scenarios.md') @'
+# Песочница — сценарии
+
+Задачу из бэклога без слов оператора брать по наименьшему номеру.
+
+## мелкий
+когда: правка в одном месте, без новых решений
+1. [Ветка](stages/branch.md)
+2. [Реализация](stages/implementation.md)
+3. [Приёмка](stages/acceptance.md)
+4. [Мерж](stages/merge.md)
+'@
+    foreach ($slug in 'criterion', 'review', 'build') {
+        Remove-Item -LiteralPath (Join-Path $taskFlow "flow\stages\$slug.md")
+    }
 }
 
-# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 7, и панель читает её теми же правилами.
+# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 8, и панель читает её теми же правилами.
 # $StagesOnly — этапы без списка сценариев, $NoFlow — ни этапов, ни сценариев. $Format 5 — база до перевода китом
 # на формат 6: флоу и исполнители ещё в папке оператора общей базы.
 function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
-    [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow, [int]$Format = 7) {
+    [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow, [int]$Format = 8) {
     New-Repo $Path
     if (-not $NoProduct) {
         Write-Utf8 (Join-Path $Path 'product.md') @"
