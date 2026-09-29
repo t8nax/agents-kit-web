@@ -4,6 +4,8 @@ import { Markdown } from './Markdown'
 import { useAgentRequest } from './agentRequest'
 import { PerformerIcon, type BasePerformers, type Performer } from './Performers'
 import { NEWER_FORMAT_REFUSAL } from './NewerFormat'
+import DeletePerformerModal from './DeletePerformerModal'
+import { TrashIcon } from './DeleteWorkspaceModal'
 import './Modal.css'
 import './AskModal.css'
 import './PerformerModal.css'
@@ -53,6 +55,7 @@ type Props = {
   editing: Performer | null
   onClose: () => void
   onSaved: (name: string) => void
+  onDeleted: (name: string) => void
 }
 
 type Failure = { text: string; git: boolean }
@@ -62,7 +65,7 @@ type Failure = { text: string; git: boolean }
  * правятся руками, а Чудо-Юдо пишет их по просьбе; нового можно завести и вовсе без него — решения оператора
  * на B-198, прежнее «пишет только агент» (B-80) ими отменено. Имя заведённого не меняется.
  */
-export default function PerformerModal({ bases, initial, editing, onClose, onSaved }: Props) {
+export default function PerformerModal({ bases, initial, editing, onClose, onSaved, onDeleted }: Props) {
   const [base, setBase] = useState(initial)
   const [name, setName] = useState(editing?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
@@ -76,6 +79,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   const [failure, setFailure] = useState<Failure | null>(null)
   // Задание открыто для чтения своим окном поверх этого.
   const [reading, setReading] = useState(false)
+  // Удаление подтверждается своим окном поверх этого, как удаление рабочей копии (B-83).
+  const [deleting, setDeleting] = useState(false)
   const field = useRef<HTMLTextAreaElement>(null)
   // Закрытое окно задания возвращает фокус на кнопку, которой его открыли, — после перерисовки:
   // пока окно задания открыто, окно исполнителя inert, и фокус в него не встаёт.
@@ -108,7 +113,8 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || busy) return
+      // Окно удаления закрывает Escape само: окно исполнителя под ним остаётся.
+      if (event.key !== 'Escape' || busy || deleting) return
       // Escape закрывает верхнее окно: сначала задание, потом само окно исполнителя.
       if (reading) {
         if (!taskEditing.current) closeTask()
@@ -116,7 +122,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onClose, reading, closeTask])
+  }, [busy, deleting, onClose, reading, closeTask])
 
   // Итог просьбы становится основой исполнителя — один раз: ответ не перетирает поправленное оператором.
   const outcome = draft.outcome
@@ -277,19 +283,20 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   const frozen = locked || closed !== null
   const askLabel = editing ? `Переписать с помощью ${AGENT_NAME}` : `Завести с помощью ${AGENT_NAME}`
   const project = chosen?.project ?? ''
+  const calledBy = editing?.calledBy ?? []
 
   return (
     <div
       className="modal-overlay"
-      onMouseDown={(event) => event.target === event.currentTarget && !locked && !reading && onClose()}
+      onMouseDown={(event) => event.target === event.currentTarget && !locked && !reading && !deleting && onClose()}
     >
       <form
         className="modal-wizard pf-modal"
         role="dialog"
-        aria-modal={!reading}
+        aria-modal={!reading && !deleting}
         aria-labelledby="pf-title"
-        // Пока открыто задание, окно исполнителя под ним недоступно: Tab и программа чтения — только в задании.
-        inert={reading}
+        // Пока открыто задание или удаление, окно исполнителя под ним недоступно: Tab и программа чтения — только в верхнем.
+        inert={reading || deleting}
         onSubmit={save}
         noValidate
       >
@@ -575,30 +582,56 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
         </div>
 
         <div className="modal-footer ask-footer">
-          <div className="footer-right">
-            {/* Просьба уходит из подвала, рядом с «Сохранить»: она такое же действие окна — выбор оператора на B-69. */}
-            {phase !== 'running' && (
+          <div className="ask-actions">
+            {/* Удаляют заведённого — слева в подвале, как «Удалить этап» во «Флоу». Пока его зовут этапы флоу, кнопка
+                погашена, а подсказка называет их: этап без исполнителя агент не выполнит — решения оператора на B-83. */}
+            {editing && (
               <button
                 type="button"
-                className="btn"
-                disabled={busy || !wish.trim() || closed !== null}
-                title={closed ?? undefined}
-                onClick={() => void ask(wish)}
+                className="btn btn-danger"
+                disabled={frozen || calledBy.length > 0}
+                title={closed ?? (calledBy.length > 0 ? `Его зовут этапы: ${calledBy.join(', ')}` : undefined)}
+                onClick={() => setDeleting(true)}
               >
-                {phase === 'failed' ? 'Попросить снова' : askLabel}
+                <TrashIcon />
+                Удалить исполнителя
               </button>
             )}
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={frozen || !trimmed || occupied || !hasBasis}
-              title={closed ?? undefined}
-            >
-              {busy ? 'Сохраняется…' : 'Сохранить'}
-            </button>
+            <div className="footer-right">
+              {/* Просьба уходит из подвала, рядом с «Сохранить»: она такое же действие окна — выбор оператора на B-69. */}
+              {phase !== 'running' && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || !wish.trim() || closed !== null}
+                  title={closed ?? undefined}
+                  onClick={() => void ask(wish)}
+                >
+                  {phase === 'failed' ? 'Попросить снова' : askLabel}
+                </button>
+              )}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={frozen || !trimmed || occupied || !hasBasis}
+                title={closed ?? undefined}
+              >
+                {busy ? 'Сохраняется…' : 'Сохранить'}
+              </button>
+            </div>
           </div>
         </div>
       </form>
+
+      {deleting && editing && (
+        <DeletePerformerModal
+          base={base}
+          project={project}
+          name={editing.name}
+          onClose={() => setDeleting(false)}
+          onRemoved={() => onDeleted(editing.name)}
+        />
+      )}
 
       {reading && (
         <TaskView
