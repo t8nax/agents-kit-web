@@ -51,7 +51,7 @@ public sealed record PerformerSavedResponse(string Path);
 
 /// <summary>
 /// Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed · newer-format ·
-/// called-by-flow (удаление; Detail — этапы через запятую).
+/// called-by-flow (удаление; Detail — этапы через запятую) · git-silent (удаление: git не сказал, знает ли он файл).
 /// </summary>
 public sealed record PerformerRejectedResponse(string Problem, string? Detail = null);
 
@@ -197,10 +197,14 @@ public static class PerformersEndpoints
                 return Results.Conflict(new PerformerRejectedResponse("newer-format", BaseLayout.NewerFormatRefusal));
             var root = layout.Personal;
 
-            // Файл ищется по списку базы, как его зовёт шаг флоу: имя внутри файла может расходиться с именем файла.
+            // Файлы ищутся по списку базы, как их зовёт шаг флоу: имя внутри файла может расходиться с именем файла,
+            // и одно имя могут называть два файла — уходят оба, иначе исполнитель с этим именем остался бы в списке.
             name = name.Trim();
-            if (PerformerList.OfProject(layout).FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal))?.Path
-                is not { } file)
+            var files = PerformerList.OfProject(layout)
+                .Where(p => string.Equals(p.Name, name, StringComparison.Ordinal))
+                .Select(p => p.Path)
+                .ToList();
+            if (files.Count == 0)
                 return Results.NotFound();
 
             // Кнопку окна гасит тот же список, но окно могло открыться до правки флоу: запрет держит и сама панель.
@@ -217,35 +221,46 @@ public static class PerformersEndpoints
             if (calledBy.Count > 0)
                 return Results.Conflict(new PerformerRejectedResponse("called-by-flow", string.Join(", ", calledBy)));
 
+            // Всё, что спрашивается у диска и git, спрашивается до удаления: дальше запрос уже ничего не рвёт.
             // Байты, а не текст: отказ коммита возвращает файл ровно таким, каким он лежал в базе под git.
-            byte[] kept;
+            var kept = new List<(string File, byte[]? Bytes)>();
+            var paths = new List<string>();
+            foreach (var file in files)
+            {
+                kept.Add((file, await KeptAsync(file, cancellationToken)));
+                // Неотслеживаемый файл — заведённый руками и не закоммиченный — уходит с диска, коммитить нечего.
+                // Git не ответил — не узнать, какой он: удалить без коммита отслеживаемый панель не станет.
+                switch (await BaseGit.TrackingAsync(root, Relative(file), cancellationToken))
+                {
+                    case null:
+                        return Results.Conflict(new PerformerRejectedResponse("git-silent"));
+                    case true:
+                        paths.Add(Relative(file));
+                        break;
+                }
+            }
+
+            // Начавшись, удаление отменой запроса не рвётся: закрытая посреди него вкладка оставила бы удаление
+            // незакоммиченным, для чужого коммита соседней сессии.
             try
             {
-                kept = await File.ReadAllBytesAsync(file, cancellationToken);
-                File.Delete(file);
+                foreach (var file in files)
+                    File.Delete(file);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
+                await RestoreAllAsync(kept);
                 return Results.Problem("Файл исполнителя не удалён", statusCode: StatusCodes.Status500InternalServerError);
             }
 
-            // Неотслеживаемый файл — заведённый руками и не закоммиченный — уходит с диска, коммитить нечего.
-            var path = Relative(file);
-            if (await BaseGit.TrackedAsync(root, path, cancellationToken))
+            if (paths.Count > 0)
             {
-                var commit = await BaseGit.CommitFileAsync(root, path, $"Исполнитель {name} удалён из панели", cancellationToken);
+                var commit = await BaseGit.CommitFilesAsync(root, paths, $"Исполнитель {name} удалён из панели", CancellationToken.None);
                 if (!commit.Done)
                 {
-                    // Иначе удаление ушло бы в чужой коммит соседней сессии: вернуть файл и показать, что сказал git.
-                    try
-                    {
-                        await File.WriteAllBytesAsync(file, kept, CancellationToken.None);
-                    }
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-                    {
-                        // Файла нет — об этом скажет сверка базы; оператору всё равно нужен ответ git.
-                    }
-                    await BaseGit.ResetFilesAsync(root, [path], cancellationToken);
+                    // Иначе удаление ушло бы в чужой коммит соседней сессии: вернуть файлы и показать, что сказал git.
+                    await RestoreAllAsync(kept);
+                    await BaseGit.ResetFilesAsync(root, paths, CancellationToken.None);
                     return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
                 }
             }
@@ -256,12 +271,23 @@ public static class PerformersEndpoints
         });
     }
 
-    /// <summary>Названия этапов, которые зовут исполнителя — исполнителем этапа или помощником оркестратора.</summary>
+    /// <summary>
+    /// Названия этапов, которые зовут исполнителя — исполнителем этапа или помощником оркестратора. У этапа без
+    /// заголовка названия нет — вместо него имя его файла: пустое место в подсказке этап не нашло бы.
+    /// </summary>
     private static List<string> CalledBy(IReadOnlyList<FlowStage> stages, string name) =>
         stages
             .Where(s => string.Equals(s.Executor.Trim(), name, StringComparison.Ordinal) || FlowFolder.Helpers(s).Contains(name))
-            .Select(s => s.Title)
+            .Select(s => string.IsNullOrWhiteSpace(s.Title) ? s.Slug ?? "" : s.Title)
             .ToList();
+
+    /// <summary>Возвращает удалённые файлы исполнителя на место — удаление не прошло.</summary>
+    private static async Task RestoreAllAsync(IEnumerable<(string File, byte[]? Bytes)> kept)
+    {
+        foreach (var (file, bytes) in kept)
+            if (!File.Exists(file))
+                await RestoreAsync(file, bytes);
+    }
 
     private static BasePerformers Read(string basePath)
     {

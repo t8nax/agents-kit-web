@@ -44,10 +44,17 @@ public static class BaseGit
     }
 
     /// <summary>Git уже знает этот файл базы. Нет — коммитить его удаление нечего.</summary>
-    public static async Task<bool> TrackedAsync(string basePath, string file, CancellationToken cancellationToken)
+    public static async Task<bool> TrackedAsync(string basePath, string file, CancellationToken cancellationToken) =>
+        await TrackingAsync(basePath, file, cancellationToken) == true;
+
+    /// <summary>
+    /// То же, но молчание git отлично от «не знает»: null — git не ответил. Удалению это важно: отслеживаемый файл,
+    /// принятый за неотслеживаемый, ушёл бы с диска без коммита.
+    /// </summary>
+    public static async Task<bool?> TrackingAsync(string basePath, string file, CancellationToken cancellationToken)
     {
         var run = await GitRunner.RunAsync(basePath, Timeout, cancellationToken, "ls-files", "--", file);
-        return run.ExitCode == 0 && run.Output.Length > 0;
+        return run.ExitCode == 0 ? run.Output.Length > 0 : null;
     }
 
     /// <summary>
