@@ -185,10 +185,7 @@ public static partial class ProjectTrackersEndpoints
     /// </summary>
     public static List<TrackerTask> Busy(BaseLayout layout, StartedTasks? started = null)
     {
-        if (Workspaces.Tracker.Read(layout) is not { } tracker)
-            return [];
-        var name = tracker.Name ?? NameOf(layout);
-        if (name is null)
+        if (TrackerDescriptions.NameOf(layout) is not { } name)
             return [];
         var pattern = new Regex(
             $@"^\s*{Regex.Escape(name)}\s*(#\d+|[A-Za-z][A-Za-z0-9_]*-\d+)(\s|$)", RegexOptions.IgnoreCase);
@@ -233,20 +230,6 @@ public static partial class ProjectTrackersEndpoints
         catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
         {
             return copy;
-        }
-    }
-
-    /// <summary>Имя трекера из описания, которое строки «Бэклога» не назвали (сломанный сервер или проект).</summary>
-    private static string? NameOf(BaseLayout layout)
-    {
-        try
-        {
-            var name = TrackerDescriptions.Parse(File.ReadAllText(layout.TrackerFile)).Tracker.Trim();
-            return name.Length > 0 ? name : null;
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return null;
         }
     }
 
