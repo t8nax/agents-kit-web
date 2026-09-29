@@ -1,6 +1,17 @@
 import { afterEach, expect, test, vi } from 'vitest'
 import type { BacklogEntry } from './Backlog'
-import { arrange, defaultOrder, emptySelection, isFiltering, matchesIssue, readOrder, writeOrder } from './backlogView'
+import {
+  activeLabels,
+  arrange,
+  defaultOrder,
+  emptySelection,
+  isFiltering,
+  isFilteringIssues,
+  matchesIssue,
+  readOrder,
+  writeOrder,
+} from './backlogView'
+import { labelChoices } from './tracker'
 
 const entry = (number: string | null, title: string, type?: string | null, priority?: string | null): BacklogEntry => ({
   number,
@@ -107,14 +118,49 @@ test('недоступное хранилище — порядок по умол
   expect(() => writeOrder({ field: 'type', direction: 'asc' })).not.toThrow()
 })
 
-test('задача трекера проходит поиск по имени и заголовку, а чип типа или приоритета её скрывает', () => {
-  const issue = { name: 'GitHub #37', number: 37, title: 'Оплата падает', url: 'https://github.com/acme/orders/issues/37' }
+const issue = {
+  name: 'GitHub #37',
+  number: 37,
+  title: 'Оплата падает',
+  url: 'https://github.com/acme/orders/issues/37',
+  labels: ['bug', 'ui'],
+}
 
-  expect(matchesIssue(issue, emptySelection)).toBe(true)
-  expect(matchesIssue(issue, { ...emptySelection, query: '#37' })).toBe(true)
-  expect(matchesIssue(issue, { ...emptySelection, query: 'github #37' })).toBe(true)
-  expect(matchesIssue(issue, { ...emptySelection, query: 'оплата' })).toBe(true)
-  expect(matchesIssue(issue, { ...emptySelection, query: '#38' })).toBe(false)
-  expect(matchesIssue(issue, { ...emptySelection, types: ['баг'] })).toBe(false)
-  expect(matchesIssue(issue, { ...emptySelection, priorities: ['высокий'] })).toBe(false)
+test('задача трекера проходит поиск по имени и заголовку; тип и приоритет — фильтры вкладки записей', () => {
+  expect(matchesIssue(issue, 'orders', emptySelection, [])).toBe(true)
+  expect(matchesIssue(issue, 'orders', { ...emptySelection, query: '#37' }, [])).toBe(true)
+  expect(matchesIssue(issue, 'orders', { ...emptySelection, query: 'github #37' }, [])).toBe(true)
+  expect(matchesIssue(issue, 'orders', { ...emptySelection, query: 'оплата' }, [])).toBe(true)
+  expect(matchesIssue(issue, 'orders', { ...emptySelection, query: '#38' }, [])).toBe(false)
+  expect(matchesIssue(issue, 'orders', { ...emptySelection, types: ['баг'], priorities: ['высокий'] }, [])).toBe(true)
+})
+
+test('несколько меток — задача хотя бы с одной из них; метка своего проекта, одноимённая чужая не в счёт', () => {
+  const pick = (base: string, name: string) => ({ base, name })
+
+  expect(matchesIssue(issue, 'orders', emptySelection, [pick('orders', 'docs'), pick('orders', 'ui')])).toBe(true)
+  expect(matchesIssue(issue, 'orders', emptySelection, [pick('orders', 'docs')])).toBe(false)
+  expect(matchesIssue(issue, 'orders', emptySelection, [pick('nota', 'bug')])).toBe(false)
+  expect(matchesIssue({ ...issue, labels: null }, 'orders', emptySelection, [pick('orders', 'bug')])).toBe(false)
+  expect(matchesIssue(issue, 'orders', { ...emptySelection, query: '#38' }, [pick('orders', 'bug')])).toBe(false)
+})
+
+test('метки невидимого проекта остаются выбранными, но не отбирают', () => {
+  const labels = [{ base: 'orders', name: 'bug' }, { base: 'nota', name: 'docs' }]
+
+  expect(activeLabels(labels, ['nota'])).toEqual([{ base: 'nota', name: 'docs' }])
+  expect(activeLabels(labels, ['orders', 'nota'])).toEqual(labels)
+  expect(isFilteringIssues({ ...emptySelection, labels }, activeLabels(labels, ['other']))).toBe(false)
+  expect(isFilteringIssues({ ...emptySelection, labels }, activeLabels(labels, ['nota']))).toBe(true)
+  expect(isFilteringIssues({ ...emptySelection, query: 'x' }, [])).toBe(true)
+})
+
+test('перечень меток — метки репозитория, а не прочитали их — метки задач по имени', () => {
+  const loaded = { kind: 'loaded' as const, problem: null, detail: null }
+
+  expect(labelChoices({ ...loaded, issues: [issue], labels: ['bug', 'docs', 'ui'] })).toEqual(['bug', 'docs', 'ui'])
+  expect(labelChoices({ ...loaded, issues: [issue, { ...issue, labels: ['api', 'bug'] }], labels: null })).toEqual([
+    'api', 'bug', 'ui',
+  ])
+  expect(labelChoices({ kind: 'loading' })).toEqual([])
 })

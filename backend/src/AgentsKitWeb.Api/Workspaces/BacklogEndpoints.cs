@@ -35,7 +35,7 @@ public static class BacklogEndpoints
             var basePath = bases.List().FirstOrDefault(b => BasesStore.SamePath(b, @base));
             if (basePath is null || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
-            return Results.Ok(await tracker.AssignedAsync(layout, cancellationToken));
+            return Results.Ok(await tracker.ForBacklogAsync(layout, cancellationToken));
         });
 
         // Файл-артефакт записи открывается в VS Code окном на каталоге базы: копии у записи нет, а файл лежит

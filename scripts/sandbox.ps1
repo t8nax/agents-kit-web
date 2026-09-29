@@ -654,6 +654,7 @@ Write-Utf8 (Join-Path $Root 'gh-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'sync-mode.txt') "ok`n"
 # Задачи GitHub, назначенные на оператора, по репозиториям; кусок с трекером кладёт свои.
 $ghIssues = [ordered]@{}
+$ghLabels = [ordered]@{}
 # Подставной YouTrack — на своём порту, в стороне от портов песочниц (они идут парами от 5100): у каждой
 # песочницы свой порт, значит, и свой сервер YouTrack. Задачи — по проектам; кусок с трекером кладёт свои.
 $youTrackPort = $Port + 1000
@@ -784,11 +785,15 @@ if (Test-Piece 'tracker') {
     New-Memory (Join-Path (Get-MemoryDir $trackerBase) 'tracker-gh-48.md') $trackerTask 'feat/gh-48' -Task 'GitHub #48 Показывать версию кита в «Настройках»'
     Add-Commit $trackerPersonal 'Задача из трекера'
     $links.Add([pscustomobject]@{ path = $trackerTask; status = 'Linked'; base = $trackerBase })
+    # Метки задач — как их отдаёт gh; у #7 меток нет. Перечень фильтра «Метки» — все метки репозитория, и среди них
+    # есть метки, которых нет ни у одной задачи (B-305).
+    $label = { param($name, $color) [pscustomobject]@{ name = $name; color = $color } }
     $ghIssues['sandbox/tracker'] = @(
-        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52' }
-        [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48' }
-        [pscustomobject]@{ number = 7; title = 'Установщик проверяет вход в Claude Code до скачивания сборки'; url = 'https://github.com/sandbox/tracker/issues/7' }
+        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52'; labels = @((& $label 'bug' 'd73a4a'), (& $label 'windows' '1d76db')) }
+        [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48'; labels = @((& $label 'enhancement' 'a2eeef'), (& $label 'frontend' 'fbca04')) }
+        [pscustomobject]@{ number = 7; title = 'Установщик проверяет вход в Claude Code до скачивания сборки'; url = 'https://github.com/sandbox/tracker/issues/7'; labels = @() }
     )
+    $ghLabels['sandbox/tracker'] = @('bug', 'documentation', 'enhancement', 'frontend', 'good first issue', 'windows')
     $bases.Add($trackerBase)
     $links.Add([pscustomobject]@{ path = $trackerCopy; status = 'Linked'; base = $trackerBase })
     $findings.Add([pscustomobject]@{ base = $trackerBase; findings = @() })
@@ -1038,6 +1043,7 @@ Write-Utf8 (Join-Path $kitDir 'scripts\links.json') (ConvertTo-Json -InputObject
 Write-Utf8 (Join-Path $kitDir 'scripts\findings.json') (ConvertTo-Json -InputObject $findings.ToArray() -Depth 6)
 Write-Json (Join-Path $panelDir 'bases.json') ([pscustomobject]@{ bases = $bases.ToArray(); kit = $kitDir })
 Write-Utf8 (Join-Path $Root 'gh-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$ghIssues) -Depth 6)
+Write-Utf8 (Join-Path $Root 'gh-labels.json') (ConvertTo-Json -InputObject ([pscustomobject]$ghLabels) -Depth 3)
 Write-Utf8 (Join-Path $Root 'youtrack-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$youTrackIssues) -Depth 6)
 
 # --- живые сессии агентов ----------------------------------------------------------------
@@ -1129,7 +1135,7 @@ if ($RealAgent) {
 else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
-Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, login, error, slow); задачи — gh-issues.json"
+Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, login, error, slow); задачи — gh-issues.json, метки репозиториев — gh-labels.json"
 Write-Host "  сведение базы:  $(Join-Path $Root 'sync-mode.txt')    (ok, push-fail, pull-fail, offline); вызовы — sync.log у скриптов кита"
 Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
