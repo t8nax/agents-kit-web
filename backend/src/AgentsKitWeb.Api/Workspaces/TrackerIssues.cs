@@ -183,12 +183,15 @@ public sealed partial class GhIssues : IGitHubIssues
     /// сочетает её с назначенным и состоянием. Поиск GitHub фильтр не отвергает — непонятное в нём просто ничего
     /// не находит (проверено настоящей gh на ревью B-300: «label:», неизвестный квалификатор, 280 знаков — пустой
     /// список с кодом 0), поэтому отказа фильтра у GitHub нет, и ошибка gh с фильтром — та же, что без него.
+    /// Фильтр — в скобках: gh склеивает его с назначенным и состоянием в одну строку поиска, и «OR» без скобок
+    /// вывел бы поиск за открытые задачи оператора — настоящая gh с «is:closed OR is:open» вернула закрытую
+    /// (ревью B-300).
     /// </summary>
     public static ProcessStartInfo StartInfo(string repo, string? filter = null) =>
         GhStartInfo(
         [
             "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
-            .. string.IsNullOrWhiteSpace(filter) ? Array.Empty<string>() : ["--search", filter.Trim()],
+            .. string.IsNullOrWhiteSpace(filter) ? Array.Empty<string>() : ["--search", $"({filter.Trim()})"],
             "--limit", Limit.ToString(), "--json", "number,title,url",
         ]);
 

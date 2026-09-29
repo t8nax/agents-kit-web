@@ -776,6 +776,8 @@ if ($creating) {
 # Фильтр описания трекера (B-300) приходит в --search: «label:метка» — по меткам задачи, «milestone:этап» —
 # по этапу, прочие слова — по заголовку. Поиск GitHub фильтр не отвергает: непонятное просто ничего не находит.
 $list = @($issues.$repo)
+# Панель передаёт фильтр в скобках.
+if ($search -match '^\((.*)\)$') { $search = $Matches[1] }
 if ($search) {
     foreach ($token in ($search -split '\s+' | Where-Object { $_ })) {
         $list = if ($token -like 'label:*') { @($list | Where-Object { @($_.labels) -contains $token.Substring(6) }) }
@@ -797,7 +799,8 @@ function New-YouTrackStub([string]$Root, [int]$Port) {
 # Подставной YouTrack песочницы на http://localhost:__PORT__/. Ключ — «perm:sandbox», владелец ключа — sandbox.operator.
 # Проекты и их незакрытые задачи на владельце ключа — youtrack-issues.json корня песочницы: объект
 # «проект: [задачи]», у задачи — номер, заголовок, состояние state и теги tags для фильтра (B-300). Новая задача
-# (перенос записи бэклога) дописывается туда следующим номером, её описание — в youtrack-created\<номер>.md. Режим читается на каждый запрос из youtrack-mode.txt корня песочницы:
+# (перенос записи бэклога) дописывается туда следующим номером, её описание — в youtrack-created\<номер>.md.
+# Режим читается на каждый запрос из youtrack-mode.txt корня песочницы:
 #   ok        отвечает как YouTrack
 #   rejected  отклоняет любой ключ
 #   error     отвечает ошибкой сервера

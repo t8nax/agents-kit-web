@@ -25,7 +25,7 @@ public class GhIssuesTests
     public void StartInfo_WithFilter_AddsSearch()
     {
         Assert.Equal(
-            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--search", "label:bug milestone:v2",
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--search", "(label:bug milestone:v2)",
                 "--limit", "100", "--json", "number,title,url"],
             GhIssues.StartInfo("acme/orders", " label:bug milestone:v2 ").ArgumentList);
         Assert.DoesNotContain("--search", GhIssues.StartInfo("acme/orders", " ").ArgumentList);
