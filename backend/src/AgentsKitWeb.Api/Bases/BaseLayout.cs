@@ -5,7 +5,7 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Bases;
 
 /// <summary>
-/// Где что лежит в базе кита на этом компьютере — раскладка кита формата 7 (base-layout.md кита,
+/// Где что лежит в базе кита на этом компьютере — раскладка кита формата 8 (base-layout.md кита,
 /// адреса — как в его scripts/link-state.ps1). Общее знание — в корне базы; список копий этой машины
 /// и имя её оператора — local\me.json вне git; личный репозиторий оператора local\me со своим git —
 /// его рамки, флоу, исполнители, бэклог, память задач и их артефакты. Папка оператора people\&lt;имя&gt;
@@ -17,7 +17,7 @@ namespace AgentsKitWeb.Api.Bases;
 public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyList<string> Workspaces)
 {
     /// <summary>Формат базы, который понимает панель, — поле version в agents-kit.json.</summary>
-    public const int Format = 7;
+    public const int Format = 8;
 
     /// <summary>
     /// База новее формата панели: читается, но панель в неё не пишет — ни флоу, ни исполнителей, ни бэклог;
