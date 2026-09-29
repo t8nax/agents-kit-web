@@ -141,18 +141,21 @@
   padding: 7px 14px;
 }
 
+/* Ячейки таблицы копий не переносятся и подчёркнуты снизу — у текста руководства наоборот */
 .guide-defs td {
   padding: 9px 14px;
   border-top: 1px solid var(--border-subtle);
+  border-bottom: none;
   vertical-align: top;
+  white-space: normal;
   color: var(--text-secondary);
 }
 
+/* Первая колонка — названия; длинное название переносится, а не растягивает таблицу за край колонки текста */
 .guide-defs td:first-child {
   color: var(--text-primary);
   font-weight: 500;
-  white-space: nowrap;
-  width: 1%;
+  width: 26%;
 }
 
 /* Действия — в два столбца, название действия над его описанием */
