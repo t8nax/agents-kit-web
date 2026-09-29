@@ -12,7 +12,7 @@ import './Reports.css'
 
 export type Priority = 'high' | 'medium' | 'low'
 
-/** Требование к флоу из справки кита — таким, каким было при разборе. */
+/** Рекомендация к флоу из справки кита — таким, каким было при разборе. */
 export type Requirement = { code: string; ring: string; priority: Priority; title: string; text: string }
 
 export type RingScore = { name: string; score: number; band: 'pass' | 'avg' | 'fail'; total: number; passed: number }
@@ -41,7 +41,7 @@ export type FlowReport = {
 export type ReportSchedule = { enabled: boolean; days: number[]; hour: number }
 
 /**
- * Почему отчёт не строится: kit — кита или требований нет, check — после старта панели идёт первая сверка,
+ * Почему отчёт не строится: kit — кита или рекомендаций нет, check — после старта панели идёт первая сверка,
  * health — ошибки сверки во флоу, flow — нет сценариев.
  */
 export type ReportBlock = { kind: 'kit' | 'check' | 'health' | 'flow'; reason: string }
@@ -61,7 +61,7 @@ type Order = 'priority' | 'ring'
 /** Как часто раздел смотрит, не начался ли разбор без него, — тем же шагом, что шапка. */
 const refreshIntervalMs = 3000
 
-/** Вычет за находку по приоритету требования — тот же, что считает панель на сервере. */
+/** Вычет за находку по приоритету рекомендации — тот же, что считает панель на сервере. */
 const weights: Record<Priority, number> = { high: 15, medium: 7, low: 2 }
 
 const priorityNames: Record<Priority, string> = { high: 'Высокий', medium: 'Средний', low: 'Низкий' }
@@ -103,7 +103,7 @@ function stamp(at: string) {
   return new Date(at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
-/** Строка отчёта — находка в одном требовании: под двумя требованиями находка стоит двумя строками (B-270, Н2). */
+/** Строка отчёта — находка в одной рекомендации: под двумя рекомендациями находка стоит двумя строками (B-270, Н2). */
 type Row = { key: string; finding: ReportFinding; requirement: Requirement; twins: Requirement[] }
 
 function rowsOf(report: FlowReport): Row[] {
@@ -127,16 +127,16 @@ function passedOf(report: FlowReport) {
 /** Просьба к Чудо-Юдо исправить находку — её вписывают в поле окна «Переписать с Чудо-Юдо», отправляет оператор. */
 function rewriteWish(row: Row) {
   const titles = [row.requirement, ...row.twins].map((requirement) => `«${requirement.title}»`)
-  const by = titles.length > 1 ? `по требованиям ${titles.slice(0, -1).join(', ')} и ${titles.at(-1)}` : `по требованию ${titles[0]}`
+  const by = titles.length > 1 ? `по рекомендациям ${titles.slice(0, -1).join(', ')} и ${titles.at(-1)}` : `по рекомендации ${titles[0]}`
   return [
     `Прошу исправить находку отчёта «Как устроен флоу» ${by}. Место во флоу: ${row.finding.place}.`,
     row.finding.why,
-    `Предлагаемое исправление: ${row.finding.fix}`,
+    `Что предлагается: ${row.finding.fix}`,
   ].join('\n\n')
 }
 
 /**
- * Раздел «Отчёты»: отчёт о том, как устроен флоу выбранного проекта. Разбирает флоу Чудо-Юдо по требованиям кита,
+ * Раздел «Отчёты»: отчёт о том, как устроен флоу выбранного проекта. Разбирает флоу Чудо-Юдо по рекомендациям кита,
  * баллы колец считает панель, и хранится отчёт у панели, а не в базе. Сравнения с прошлым отчётом нет — сужение
  * оператора на B-270.
  */
@@ -616,7 +616,7 @@ function ReportView({
       <div className="rp-list" ref={list}>
         {order === 'priority' ? (
           <>
-            {rows.length === 0 && <p className="rp-clean">Нарушенных требований нет.</p>}
+            {rows.length === 0 && <p className="rp-clean">Все рекомендации кита выполнены.</p>}
             {priorities.map((priority) => {
               const group = rows.filter((row) => row.requirement.priority === priority)
               return (
@@ -644,7 +644,7 @@ function ReportView({
                     <div>
                       <h3>{ring.name}</h3>
                       <span className="rp-ring-count">
-                        Требований {ring.total}, выполнено {ring.passed}.
+                        Рекомендаций {ring.total}, выполнено {ring.passed}.
                       </span>
                     </div>
                   </div>
@@ -681,7 +681,7 @@ function FindingRow({
   const { finding, requirement, twins } = row
   const points = weights[requirement.priority]
   const back = [requirement, ...twins]
-    .map((one) => `кольцу «${one.ring}» ${balls(weights[one.priority])}`)
+    .map((one) => `кольцо «${one.ring}» получит ${balls(weights[one.priority])}`)
     .join(' и ')
   return (
     <details
@@ -698,7 +698,7 @@ function FindingRow({
           {twins.map((twin) => (
             <span key={twin.code} className="rp-twin-tag">
               <LinkIcon />
-              одно исправление с «{twin.title}»
+              одна правка с «{twin.title}»
             </span>
           ))}
           <span className="rp-finding-where">
@@ -706,14 +706,14 @@ function FindingRow({
           </span>
         </span>
         <span className="rp-finding-ring">{inRing ? '' : requirement.ring}</span>
-        <span className="rp-finding-gain" title={`Исправление вернёт кольцу ${balls(points)}`}>
+        <span className="rp-finding-gain" title={`Если выполнить, кольцо получит ${balls(points)}`}>
           +{points}
         </span>
       </summary>
       <div className="rp-finding-body">
         <dl className="rp-fields">
           <div>
-            <dt>Проверяет</dt>
+            <dt>Рекомендация</dt>
             <dd>
               <span>
                 <Inline text={sentence(requirement.text)} />
@@ -725,7 +725,7 @@ function FindingRow({
               <dt>Та же находка</dt>
               <dd>
                 <span>
-                  Эта же находка нарушает требование «{twin.title}» в кольце «{twin.ring}». Одно исправление устраняет
+                  Эта находка относится и к рекомендации «{twin.title}» в кольце «{twin.ring}». Одна правка выполнит
                   обе.{' '}
                   <button type="button" className="rp-link" onClick={() => onTwin(twin)}>
                     Показать строку
@@ -752,7 +752,7 @@ function FindingRow({
             </div>
           )}
           <div>
-            <dt>Почему это плохо</dt>
+            <dt>Почему стоит сделать</dt>
             <dd>
               <span>
                 <Inline text={finding.why} />
@@ -760,7 +760,7 @@ function FindingRow({
             </dd>
           </div>
           <div>
-            <dt>Что сделать</dt>
+            <dt>Что предлагается</dt>
             <dd>
               <span className="rp-fix">
                 <Inline text={finding.fix} />
@@ -769,7 +769,7 @@ function FindingRow({
           </div>
         </dl>
         <div className="rp-finding-foot">
-          <span>Исправление вернёт {back}.</span>
+          <span>Если выполнить, {back}.</span>
           <button type="button" className="bases-btn" onClick={onRewrite}>
             <RewriteIcon />
             Переписать с {AGENT_NAME}
@@ -838,7 +838,7 @@ function Passed({ requirements, withRing }: { requirements: Requirement[]; withR
       <summary>
         <ChevronIcon />
         <span className="rp-group-title">
-          Выполненные требования<span className="rp-count">{requirements.length}</span>
+          Выполненные рекомендации<span className="rp-count">{requirements.length}</span>
         </span>
       </summary>
       <div className="rp-items">
@@ -866,7 +866,7 @@ function PriorityTag({ priority }: { priority: Priority }) {
   return (
     <span
       className={`rp-pr rp-pr-${priority}`}
-      title={`${priorityNames[priority]} приоритет: −${balls(points)} кольцу. С находкой высокого приоритета кольцо не бывает зелёным.`}
+      title={`${priorityNames[priority]} приоритет: −${balls(points)} кольцу, пока рекомендация не выполнена. С невыполненной рекомендацией высокого приоритета кольцо не бывает зелёным.`}
     >
       {priorityNames[priority]}
     </span>
@@ -918,7 +918,7 @@ function Inline({ text }: { text: string }) {
 }
 
 /**
- * Формулировка требования в справке кита идёт после тире со строчной буквы; отдельной строкой в отчёте она начинается
+ * Формулировка рекомендации в справке кита идёт после тире со строчной буквы; отдельной строкой в отчёте она начинается
  * с заглавной, как на макете. Слова остаются дословными.
  */
 function sentence(text: string) {

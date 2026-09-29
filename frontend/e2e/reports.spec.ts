@@ -158,7 +158,7 @@ test('от находки поверх отчёта открывается ок�
 
   const dialog = page.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByLabel('Просьба')).toHaveValue(/по требованию «Каждый исход куда-то ведёт»\. Место во флоу: Мерж\./)
+  await expect(dialog.getByLabel('Просьба')).toHaveValue(/по рекомендации «Каждый исход куда-то ведёт»\. Место во флоу: Мерж\./)
   // Окно стоит поверх отчёта, как на макете: раздел под ним — «Отчёты», а не «Флоу».
   await expect(page.getByRole('heading', { name: 'Отчёты', level: 2 })).toBeAttached()
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toHaveCount(0)
