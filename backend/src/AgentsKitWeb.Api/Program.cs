@@ -84,6 +84,7 @@ builder.Services.AddSingleton<AskConversations>();
 builder.Services.AddSingleton<IBacklogCheckGate, OpenBacklogCheckGate>();
 builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<FlowConversations>();
+builder.Services.AddSingleton<TrackerConversations>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<ResumedSessions>();
 builder.Services.AddSingleton<HealthMonitor>();
@@ -136,6 +137,7 @@ app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 app.MapTrackerServersEndpoints();
 app.MapProjectTrackersEndpoints();
+app.MapTrackerRewriteEndpoints();
 app.MapUsageEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.
