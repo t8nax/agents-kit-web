@@ -43,6 +43,8 @@ test('Ctrl+D сразу после открытия «Взять в работу
   )
   await page.route('**/api/voice', (route) => route.fulfill({ json: { state: 'installed', downloaded: 1, total: 1, error: null } }))
   await page.route('**/api/voice/warm', (route) => route.fulfill({ status: 202, body: '' }))
+  // Распознавание тоже подменено: кусок, успей он нарезаться, не уходит в настоящий API прогона.
+  await page.route('**/api/voice/recognize', (route) => route.fulfill({ json: { text: '' } }))
 
   await page.goto('/')
   await page.getByRole('button', { name: 'Бэклог' }).click()
@@ -56,6 +58,6 @@ test('Ctrl+D сразу после открытия «Взять в работу
 
   await page.keyboard.press('Control+KeyD')
   await expect(mic).toHaveAttribute('aria-pressed', 'false')
-  // Окно закладки Chrome не открылось: страница та же, окно на месте.
-  await expect(dialog).toBeVisible()
+  // Что Ctrl+D не открывает закладку браузера (preventDefault), держит тест кнопки: у Chromium без окна строки
+  // закладок нет, и здесь этого не видно.
 })
