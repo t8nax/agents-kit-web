@@ -75,11 +75,18 @@ public sealed class AskEndpointsTests : IDisposable
     {
         var page = Path.Combine(AskEndpoints.GuideDir, "workspaces.md");
         Assert.True(File.Exists(page));
-        _agent.Answers = [[Tool("Read", new { file_path = page }), Result("Через меню строки.")]];
+        _agent.Answers =
+        [
+            [
+                Tool("Grep", new { pattern = "Удалить", path = AskEndpoints.GuideDir }),
+                Tool("Read", new { file_path = page }),
+                Result("Через меню строки."),
+            ],
+        ];
 
         var client = Client(_base);
         await Ask(client, _base, "как удалить копию?");
-        var events = await Read(client, 3);
+        var events = await Read(client, 4);
 
         var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
         Assert.Contains(AskEndpoints.GuideDir, args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
@@ -93,8 +100,9 @@ public sealed class AskEndpointsTests : IDisposable
             Assert.True(File.Exists(Path.Combine(AskEndpoints.GuideDir, named)), named);
         }
         // Прочитанная страница видна у ответа под своим именем, а не путём от базы.
-        Assert.Equal(new AskEvent("step", "читает руководство/workspaces.md"), events[1]);
-        Assert.Equal(["руководство/workspaces.md"], events[2].Files);
+        Assert.Equal(new AskEvent("step", "ищет «Удалить» в руководство"), events[1]);
+        Assert.Equal(new AskEvent("step", "читает руководство/workspaces.md"), events[2]);
+        Assert.Equal(["руководство/workspaces.md"], events[3].Files);
     }
 
     [Fact]

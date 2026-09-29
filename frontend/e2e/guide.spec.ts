@@ -46,13 +46,16 @@ test('ни одна страница не шире своей колонки: д
     await item.click()
     const name = (await item.textContent())!
     await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible()
-    // Что вылезло за край — названо в падении: страница и начало текста широкого места
-    const wide = await article.evaluate((el) => {
-      const right = el.getBoundingClientRect().right
-      const over = [...el.querySelectorAll('*')].find((child) => child.getBoundingClientRect().right > right + 1)
-      return over ? `${over.tagName}: ${over.textContent?.slice(0, 60)}` : null
-    })
-    expect(wide, name).toBeNull()
+    // Замер повторяется до совпадения: шрифт панели грузится после первой отрисовки (decisions/e2e.md).
+    // Что вылезло за край — названо в падении: страница и начало текста широкого места.
+    await expect(async () => {
+      const wide = await article.evaluate((el) => {
+        const right = el.getBoundingClientRect().right
+        const over = [...el.querySelectorAll('*')].find((child) => child.getBoundingClientRect().right > right + 1)
+        return over ? `${over.tagName}: ${over.textContent?.slice(0, 60)}` : null
+      })
+      expect(wide, name).toBeNull()
+    }).toPass()
   }
 })
 

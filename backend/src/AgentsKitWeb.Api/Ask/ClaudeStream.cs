@@ -114,6 +114,8 @@ public sealed class ClaudeStream(string basePath, string? copyPath = null)
         // длинным и чужим, а без приставки её не отличить от файла копии (B-306).
         if (Inside(AskEndpoints.GuideDir, path))
             return "руководство/" + Path.GetRelativePath(AskEndpoints.GuideDir, path).Replace('\\', '/');
+        if (path.TrimEnd(Path.DirectorySeparatorChar).Equals(AskEndpoints.GuideDir, StringComparison.OrdinalIgnoreCase))
+            return "руководство";
         if (copyPath is not null && !Inside(basePath, path))
             return Inside(copyPath, path) ? Path.GetRelativePath(copyPath, path).Replace('\\', '/') : Path.GetFileName(path);
         return Path.GetRelativePath(basePath, path).Replace('\\', '/');
