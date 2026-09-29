@@ -98,18 +98,21 @@ const PRE_ROLL = 15 // 0,3 с до начала речи: первый слог 
 const SILENCE_END = 40 // 0,8 с тишины после речи — фраза кончилась
 const MIN_SPEECH = 5 // 0,1 с громкого — речь, а не щелчок
 const MAX_WINDOWS = 25 * 50 // 25 с — кусок режется и без паузы, панель держит до минуты
-
+const QUIETEST = 0.004 // громкость (RMS) тише этой речью не считается и в тихой комнате
 /**
  * Режет поток на куски по паузам в речи: Whisper отдаёт текст куском, и оператор видит сказанное
  * фраза за фразой, а не всё в конце. Тишина распознаванию не уходит: на ней Whisper выдумывает текст.
- * Порог громкости следует за шумом комнаты.
+ * Порог громкости следует за шумом комнаты: речь — в два с половиной раза громче шума, но не тише 0,004.
+ * Прежний порог 0,01 не пускал тихий голос живого микрофона, и запись шла впустую (приёмка B-291).
+ * Ровный гул снимает шумоподавление браузера; подтягивать порог к «громкому» нельзя — в долгой фразе без пауз
+ * он обогнал бы голос, и слова терялись бы.
  */
 export class SpeechChunks {
   private readonly windows: Float32Array[] = []
   private pending = new Float32Array(0)
   private speech = 0
   private silence = 0
-  private noise = 0.005
+  private noise = 0.002
   private readonly emit: (chunk: Float32Array) => void
 
   constructor(emit: (chunk: Float32Array) => void) {
@@ -135,8 +138,8 @@ export class SpeechChunks {
     let sum = 0
     for (const sample of frame) sum += sample * sample
     const level = Math.sqrt(sum / frame.length)
-    const loud = level > Math.max(0.01, this.noise * 3)
     this.windows.push(frame.slice())
+    const loud = level > Math.max(QUIETEST, this.noise * 2.5)
     if (loud) {
       this.speech++
       this.silence = 0

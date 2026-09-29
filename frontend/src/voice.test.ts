@@ -60,6 +60,16 @@ test('конец записи отдаёт недоговорённую фраз
   expect(chunks).toHaveLength(1)
 })
 
+test('тихий голос в тихой комнате — тоже речь', () => {
+  // Живой микрофон отдаёт речь куда тише записи: громкость около 0,006 на шуме 0,0005.
+  const quiet = (seconds: number) => Float32Array.from(speech(seconds), (sample) => sample / 35)
+  const hiss = (seconds: number) => Float32Array.from(silence(seconds), (_, i) => 0.0007 * Math.sin(i * 1.3))
+
+  const { chunks } = cut(hiss(1), quiet(1.5), hiss(1))
+
+  expect(chunks).toHaveLength(1)
+})
+
 test('щелчок короче 0,1 с речью не считается', () => {
   const { chunks, splitter } = cut(silence(0.5), speech(0.04), silence(1))
   splitter.flush()
