@@ -123,6 +123,14 @@ test('кольца и находки видны, а находка раскры�
     const items = (await page.locator('.rp-list .rp-items').first().boundingBox())!
     expect(Math.abs(order.x + order.width - (items.x + items.width))).toBeLessThanOrEqual(1)
   }).toPass()
+  // Ряд колец стоит по центру ширины отчёта — правка оператора к макету B-298.
+  await expect(async () => {
+    const strip = (await page.locator('.rp-rings').boundingBox())!
+    const rings = page.locator('.rp-rings .rp-ring')
+    const first = (await rings.first().boundingBox())!
+    const last = (await rings.last().boundingBox())!
+    expect(Math.abs(first.x - strip.x - (strip.x + strip.width - (last.x + last.width)))).toBeLessThanOrEqual(2)
+  }).toPass()
   const row = page.locator('details').filter({ hasText: 'Каждый исход куда-то ведёт' })
   await row.getByText('Каждый исход куда-то ведёт').click()
   await expect(row.getByText('При ответе «не принято» у задачи нет продолжения.')).toBeVisible()
@@ -158,7 +166,7 @@ test('от находки поверх отчёта открывается ок�
 
   const dialog = page.getByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByLabel('Просьба')).toHaveValue(/по требованию «Каждый исход куда-то ведёт»\. Место во флоу: Мерж\./)
+  await expect(dialog.getByLabel('Просьба')).toHaveValue(/по рекомендации «Каждый исход куда-то ведёт»\. Место во флоу: Мерж\./)
   // Окно стоит поверх отчёта, как на макете: раздел под ним — «Отчёты», а не «Флоу».
   await expect(page.getByRole('heading', { name: 'Отчёты', level: 2 })).toBeAttached()
   await expect(page.getByRole('heading', { name: 'Флоу', level: 2 })).toHaveCount(0)
