@@ -57,10 +57,25 @@ public sealed class StartedTasks(TimeProvider time)
             return _started.GetValueOrDefault(Key(copyPath))?.Task;
     }
 
-    public void Add(string copyPath, string session, string task)
+    public void Add(string copyPath, string session, string task, string? basePath = null)
     {
         lock (_started)
-            _started[Key(copyPath)] = new StartedTask(session, task, time.GetUtcNow());
+            _started[Key(copyPath)] = new StartedTask(session, task, time.GetUtcNow(), Base: basePath);
+    }
+
+    /// <summary>
+    /// Задачи базы, которые панель запускает или запустила и памяти у которых ещё нет: копия и задача — номер или
+    /// «номер заголовок». По ним описание трекера не удаляется, пока задача из него только заводится (ревью B-293).
+    /// </summary>
+    public IReadOnlyList<(string Copy, string Task)> OfBase(string basePath)
+    {
+        var prefix = WorkspaceCollector.Normalize(basePath) + "|";
+        lock (_started)
+            return _claimed.Where(c => c.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(c => (c.Value, c.Key[prefix.Length..]))
+                .Concat(_started.Where(s => s.Value.Base is { } b && WorkspaceCollector.Normalize(b).Equals(WorkspaceCollector.Normalize(basePath), StringComparison.OrdinalIgnoreCase))
+                    .Select(s => (s.Key, s.Value.Task)))
+                .ToList();
     }
 
     public void Forget(string copyPath)
@@ -116,7 +131,7 @@ public sealed class StartedTasks(TimeProvider time)
 
     /// <summary>
     /// Запущенная задача: id её сессии, запись бэклога — «B-7 Заголовок записи», — когда панель её
-    /// запустила и видела ли она с тех пор свою сессию живой.
+    /// запустила, видела ли она с тех пор свою сессию живой и в какой базе задача.
     /// </summary>
-    private sealed record StartedTask(string Session, string Task, DateTimeOffset Since, bool Seen = false);
+    private sealed record StartedTask(string Session, string Task, DateTimeOffset Since, bool Seen = false, string? Base = null);
 }

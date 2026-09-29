@@ -41,6 +41,7 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
     private readonly string _main;
     private readonly string _base;
     private string _kit = "";
+    private WebApplicationFactory<Program>? _factory;
 
     public ProjectTrackersEndpointsTests()
     {
@@ -72,7 +73,7 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
 
     private async Task<HttpClient> Client(bool kit = true)
     {
-        var client = _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        _factory = _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
@@ -86,7 +87,8 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
                 services.RemoveAll<IYouTrack>();
                 services.AddSingleton<IYouTrack>(_youTrack);
             });
-        })).CreateClient();
+        }));
+        var client = _factory.CreateClient();
         if (kit)
         {
             _kit = TestKit.Create(Path.Combine(_root, "agents-kit"));
@@ -442,6 +444,23 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal([new TrackerTask("GitHub #37 Починить выгрузку", _main)], rejected.Busy);
         Assert.True(File.Exists(TrackerFile));
         Assert.False(File.Exists(SyncLog));
+    }
+
+    /// <summary>Задачу трекера панель запускает, а памяти у неё ещё нет — описание держит и она (ревью B-293).</summary>
+    [Fact]
+    public async Task Delete_TaskOfTrackerBeingStarted_IsRefused()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        var client = await Client();
+        _factory!.Services.GetRequiredService<AgentsKitWeb.Api.Tasks.StartedTasks>()
+            .Add(_main, "s1", "GitHub #37 Починить выгрузку", _base);
+        var row = await Row(client);
+
+        var response = await client.DeleteAsync($"{Url}?base={Uri.EscapeDataString(_base)}&version={row.Version}");
+
+        Assert.Equal([new TrackerTask("GitHub #37 Починить выгрузку", _main)], row.Busy);
+        Assert.Equal("busy", (await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>())!.Problem);
+        Assert.True(File.Exists(TrackerFile));
     }
 
     [Theory]

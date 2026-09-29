@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
+using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Trackers;
@@ -58,7 +59,8 @@ public static partial class ProjectTrackersEndpoints
     public static void MapProjectTrackersEndpoints(this IEndpointRouteBuilder app)
     {
         // Описания читаются на каждый запрос: их правят и сессии агентов скиллом кита.
-        app.MapGet("/api/trackers/projects", (BasesStore bases) => bases.List().Select(Row).ToList());
+        app.MapGet("/api/trackers/projects", (BasesStore bases, StartedTasks started) =>
+            bases.List().Select(basePath => Row(basePath, started)).ToList());
 
         app.MapPut("/api/trackers/projects", async (
             SaveProjectTrackerRequest request, BasesStore bases, ProjectTracker tracker, CancellationToken cancellationToken) =>
@@ -103,7 +105,7 @@ public static partial class ProjectTrackersEndpoints
         });
 
         app.MapDelete("/api/trackers/projects", async (
-            string? @base, string? version, BasesStore bases, CancellationToken cancellationToken) =>
+            string? @base, string? version, BasesStore bases, StartedTasks started, CancellationToken cancellationToken) =>
         {
             if (Configured(bases, @base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
@@ -111,7 +113,7 @@ public static partial class ProjectTrackersEndpoints
                 return Results.Conflict(new ProjectTrackerRejected("newer-format", BaseLayout.NewerFormatRefusal));
 
             // Удалить нельзя, пока идёт задача из этого трекера: сессии нечем было бы её закрыть — ответ оператора на B-293.
-            if (Busy(layout) is { Count: > 0 } busy)
+            if (Busy(layout, started) is { Count: > 0 } busy)
                 return Results.Conflict(new ProjectTrackerRejected("busy", Busy: busy));
 
             if (SyncOf(bases, layout, out var unready) is not { } sync)
@@ -120,7 +122,7 @@ public static partial class ProjectTrackersEndpoints
             if (await RefreshAsync(sync, layout, version) is { } stale)
                 return stale;
             // Пока база сводилась с сервером, в копии могла начаться задача этого трекера.
-            if (Busy(layout) is { Count: > 0 } arrived)
+            if (Busy(layout, started) is { Count: > 0 } arrived)
                 return Results.Conflict(new ProjectTrackerRejected("busy", Busy: arrived));
             if (!File.Exists(layout.TrackerFile))
                 return Results.Conflict(new ProjectTrackerRejected("changed"));
@@ -151,7 +153,7 @@ public static partial class ProjectTrackersEndpoints
     }
 
     /// <summary>Строка карточки по базе из списка панели.</summary>
-    public static ProjectTrackerRow Row(string basePath)
+    public static ProjectTrackerRow Row(string basePath, StartedTasks? started = null)
     {
         var project = ProjectName.Of(basePath);
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
@@ -169,15 +171,16 @@ public static partial class ProjectTrackersEndpoints
             // Не прочитали — Tracker скажет «unreadable», и окно не откроется.
         }
         return new ProjectTrackerRow(
-            basePath, project, null, Workspaces.Tracker.Read(layout), description, Version(file), Busy(layout), layout.NewerFormat);
+            basePath, project, null, Workspaces.Tracker.Read(layout), description, Version(file), Busy(layout, started), layout.NewerFormat);
     }
 
     /// <summary>
     /// Задачи трекера базы в работе — по памяти всех машин оператора, как занятые сценарии флоу (B-275): заголовок
     /// памяти начат именем трекера и номером задачи, как задачу трекера называет кит — «GitHub #37», «Jira PAY-7».
-    /// Трекер не назван в описании — задач его нет.
+    /// Трекер не назван в описании — задач его нет. Задача, которую панель запускает и памяти у которой ещё нет,
+    /// держит описание так же (ревью B-293).
     /// </summary>
-    public static List<TrackerTask> Busy(BaseLayout layout)
+    public static List<TrackerTask> Busy(BaseLayout layout, StartedTasks? started = null)
     {
         if (Workspaces.Tracker.Read(layout) is not { } tracker)
             return [];
@@ -186,11 +189,18 @@ public static partial class ProjectTrackersEndpoints
             return [];
         var pattern = new Regex(
             $@"^\s*{Regex.Escape(name)}\s*(#\d+|[A-Za-z][A-Za-z0-9_]*-\d+)(\s|$)", RegexOptions.IgnoreCase);
+        var launching = (started?.OfBase(layout.Base) ?? [])
+            .Where(s => pattern.IsMatch(s.Task))
+            .Select(s => new TrackerTask(s.Task, s.Copy));
         return WorkspaceCollector.AllMemories(layout)
             .Where(e => e.Memory.Task is { } task && pattern.IsMatch(task))
             .Select(e => new TrackerTask(e.Memory.Task!, e.Memory.Copy))
+            .Concat(launching)
+            .DistinctBy(t => (t.Copy is null ? "" : WorkspaceCollector.Normalize(t.Copy), taskNumber(t.Task)))
             .OrderBy(t => t.Task, StringComparer.Ordinal)
             .ToList();
+
+        string taskNumber(string task) => pattern.Match(task) is { Success: true } m ? m.Groups[1].Value.ToUpperInvariant() : task;
     }
 
     /// <summary>Имя трекера из описания, которое строки «Бэклога» не назвали (сломанный сервер или проект).</summary>
