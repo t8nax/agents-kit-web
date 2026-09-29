@@ -2,7 +2,25 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
-import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
+import {
+  activeLabels,
+  arrange,
+  emptySelection,
+  isFiltering,
+  isFilteringIssues,
+  matchesIssue,
+  PRIORITIES,
+  readOrder,
+  readRemembered,
+  remember,
+  TYPES,
+  writeOrder,
+  type Order,
+  type Selection,
+  type SortField,
+  type Tab,
+} from './backlogView'
+import './Tabs.css'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { FormatNotice, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import { Sk, Skeleton } from './Skeleton'
@@ -75,10 +93,13 @@ export default function Backlog({
     return { ...emptySelection, types, priorities, labels }
   })
   const [order, setOrder] = useState<Order>(readOrder)
+  // Записи бэклога базы и задачи трекера — на своих вкладках, у каждой свои фильтры (B-305). Просьба к Чудо-Юдо —
+  // о записях: с ней раздел открывается на вкладке записей
+  const [tab, setTab] = useState<Tab>(() => (writeFor !== null ? 'entries' : readRemembered().tab))
 
   useEffect(() => {
-    remember({ tab: 'entries', project: filter, types: selection.types, priorities: selection.priorities, labels: selection.labels })
-  }, [filter, selection.types, selection.priorities, selection.labels])
+    remember({ tab, project: filter, types: selection.types, priorities: selection.priorities, labels: selection.labels })
+  }, [tab, filter, selection.types, selection.priorities, selection.labels])
 
   const changeOrder = useCallback((next: Order) => {
     setOrder(next)
@@ -212,45 +233,91 @@ export default function Backlog({
   // Пока отбор включён, проект, где под него ничего не подошло, не показывается. Проект, чей бэклог
   // не читается, виден всегда: иначе сломанную базу не заметить за фильтром — решение оператора на B-78
   const filtering = isFiltering(selection)
-  // Задачи трекера отбираются тем же поиском и чипами; ничего не подошло — группа трекера скрыта целиком, со строкой
-  // причины тоже: так записан критерий B-277
   const shown = (filter === null ? backlogs : backlogs.filter((b) => b.base === filter))
-    .map((backlog) => {
-      const issues = trackerIssues(trackers[backlog.base]).filter((issue) => matchesIssue(issue, backlog.base, selection, []))
-      return {
-        backlog,
-        entries: arrange(backlog.entries, selection, order),
-        issues,
-        trackerShown: !!backlog.tracker && (!filtering || issues.length > 0),
-        running: runningTasks(copies ?? [], backlog.base),
-      }
-    })
-    .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
+    .map((backlog) => ({
+      backlog,
+      entries: arrange(backlog.entries, selection, order),
+      running: runningTasks(copies ?? [], backlog.base),
+    }))
+    .filter(({ backlog, entries }) => entries.length > 0 || !filtering || backlog.error)
+
+  // Вкладка задач трекера — только проекты с описанным трекером; выбранный проект без трекера на ней — «Все проекты»
+  const trackerBacklogs = backlogs.filter((b) => b.tracker)
+  const trackerFilter = trackerBacklogs.some((b) => b.base === filter) ? filter : null
+  const trackerScope = trackerFilter === null ? trackerBacklogs : trackerBacklogs.filter((b) => b.base === trackerFilter)
+  const labelsActive = activeLabels(selection.labels, trackerScope.map((b) => b.base))
+  const filteringIssues = isFilteringIssues(selection, labelsActive)
+  // Задачи отбираются поиском и метками; ничего не подошло — проект скрыт целиком, со строкой причины тоже: так
+  // записан критерий B-277
+  const trackerShown = trackerScope
+    .map((backlog) => ({
+      backlog,
+      tracker: backlog.tracker!,
+      issues: trackerIssues(trackers[backlog.base]).filter((issue) =>
+        matchesIssue(issue, backlog.base, selection, labelsActive),
+      ),
+      running: runningTasks(copies ?? [], backlog.base),
+    }))
+    .filter(({ issues }) => !filteringIssues || issues.length > 0)
+
   // База нового формата: просить Чудо-Юдо можно, пока в выбранном есть бэклог, который панель знает (B-281).
   const inScope = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
   const writeClosed = inScope.length > 0 && inScope.every((b) => b.formatWarning) ? NEWER_FORMAT_REFUSAL : null
+
+  const projectChips = (list: BaseBacklog[], current: string | null) =>
+    list.length > 1 && (
+      <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
+        <FilterChip label="Все проекты" active={current === null} onClick={() => setFilter(null)} />
+        {list.map((backlog) => (
+          <FilterChip
+            key={backlog.base}
+            label={backlog.project}
+            active={current === backlog.base}
+            onClick={() => setFilter(backlog.base)}
+          />
+        ))}
+      </div>
+    )
 
   return (
     <>
       <div className="content-head">
         <h2>Бэклог</h2>
-        <button
-          type="button"
-          className="bases-btn bases-btn-add head-end"
-          onClick={() => {
-            setEditing(null)
-            setWriting(true)
-          }}
-          disabled={backlogs.length === 0 || writeClosed !== null}
-          title={writeClosed ?? undefined}
-        >
-          <WriteIcon />
-          Попросить {AGENT_NAME}
-        </button>
-        <button type="button" className="bases-btn" onClick={refresh} disabled={load.kind === 'loading'}>
-          <RefreshIcon />
-          Обновить
-        </button>
+        {/* Вкладки — справа в шапке, как «Этапы / Сценарии» во «Флоу»: замечание оператора на макете B-305 */}
+        <div className="head-end backlog-actions">
+          <div className="vc-tabs" role="tablist" aria-label="Части бэклога">
+            {(['entries', 'tracker'] as const).map((one) => (
+              <button
+                key={one}
+                type="button"
+                role="tab"
+                className={`flow-tab ${tab === one ? 'is-on' : ''}`}
+                aria-selected={tab === one}
+                onClick={() => setTab(one)}
+              >
+                {one === 'entries' ? 'Записи бэклога' : 'Задачи трекера'}
+              </button>
+            ))}
+          </div>
+          <span className="backlog-head-sep" aria-hidden="true" />
+          <button
+            type="button"
+            className="bases-btn bases-btn-add"
+            onClick={() => {
+              setEditing(null)
+              setWriting(true)
+            }}
+            disabled={backlogs.length === 0 || writeClosed !== null}
+            title={writeClosed ?? undefined}
+          >
+            <WriteIcon />
+            Попросить {AGENT_NAME}
+          </button>
+          <button type="button" className="bases-btn" onClick={refresh} disabled={load.kind === 'loading'}>
+            <RefreshIcon />
+            Обновить
+          </button>
+        </div>
       </div>
 
       {load.kind === 'loading' && <BacklogSkeleton shown={reveal.shown} />}
@@ -264,21 +331,9 @@ export default function Backlog({
         <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в окне «Базы знаний».</p>
       )}
 
-      {load.kind === 'loaded' && backlogs.length > 0 && (
+      {load.kind === 'loaded' && backlogs.length > 0 && tab === 'entries' && (
         <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
-          {backlogs.length > 1 && (
-            <div className="filter-bar" role="group" aria-label="Фильтр по проектам">
-              <FilterChip label="Все проекты" active={filter === null} onClick={() => setFilter(null)} />
-              {backlogs.map((backlog) => (
-                <FilterChip
-                  key={backlog.base}
-                  label={backlog.project}
-                  active={filter === backlog.base}
-                  onClick={() => setFilter(backlog.base)}
-                />
-              ))}
-            </div>
-          )}
+          {projectChips(backlogs, filter)}
 
           <div className="filter-bar" role="group" aria-label="Отбор и порядок записей">
             <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
@@ -304,12 +359,12 @@ export default function Backlog({
             <OrderBox order={order} onChange={changeOrder} />
           </div>
 
-          {filtering && shown.every(({ entries, issues }) => entries.length === 0 && issues.length === 0) && (
+          {filtering && shown.every(({ entries }) => entries.length === 0) && (
             <p className="empty-message">Под фильтр записей нет</p>
           )}
 
           <div className="backlog-list">
-            {shown.map(({ backlog, entries, issues, trackerShown, running }) => (
+            {shown.map(({ backlog, entries, running }) => (
               <section
                 key={backlog.base}
                 aria-label={backlog.project}
@@ -323,17 +378,12 @@ export default function Backlog({
                 {/* База нового формата — плашкой прямо под заголовком проекта, выбран он или нет: замечание оператора
                     на приёмке B-281 */}
                 {backlog.formatWarning && <FormatNotice text={backlog.formatWarning} />}
-                {/* У проекта с трекером в проекте две группы, и обе подписаны — ответ оператора на макет B-277 */}
-                {backlog.tracker && (entries.length > 0 || !filtering || backlog.error) && (
-                  <div className="backlog-group-head">Записи бэклога</div>
-                )}
                 {backlog.error && (
                   <p className="backlog-note warning-text">
                     <WarningIcon />
                     {backlog.error}
                   </p>
                 )}
-                {/* При отборе строки о пустом бэклоге нет, как и подписи записей: проект виден ради задач трекера */}
                 {!backlog.error && backlog.entries.length === 0 && !filtering && (
                   <p className="backlog-note text-sec">В бэклоге этого проекта записей нет.</p>
                 )}
@@ -420,33 +470,59 @@ export default function Backlog({
                     </div>
                   )
                 })}
-                {backlog.tracker && trackerShown && (
-                  <TrackerGroup
-                    tracker={backlog.tracker}
-                    load={trackers[backlog.base] ?? initialTrackerLoad(backlog.tracker)}
-                    issues={issues}
-                    onTrackers={onTrackers}
-                  >
-                    {(issue) => (
-                      <button
-                        type="button"
-                        className="entry-start"
-                        // Как у записи: копий ещё не прочитали, свободных не осталось или задача уже идёт в копии
-                        disabled={copies === null || freeCopies(copies, backlog.base).length === 0 || running.has(issue.name)}
-                        onClick={(e) => {
-                          opener.current = e.currentTarget
-                          setStarting({ base: backlog.base, entry: { number: issue.name, title: issue.title, text: null } })
-                        }}
-                      >
-                        <PlayIcon />
-                        Взять задачу
-                      </button>
-                    )}
-                  </TrackerGroup>
-                )}
               </section>
             ))}
           </div>
+        </div>
+      )}
+
+      {load.kind === 'loaded' && backlogs.length > 0 && tab === 'tracker' && (
+        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd}>
+          {trackerBacklogs.length === 0 ? (
+            <p className="empty-message">Трекер не описан ни у одного проекта.</p>
+          ) : (
+            <>
+              {projectChips(trackerBacklogs, trackerFilter)}
+
+              <div className="filter-bar" role="group" aria-label="Отбор задач трекера">
+                <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
+              </div>
+
+              {filteringIssues && trackerShown.length === 0 && <p className="empty-message">Под фильтр задач нет</p>}
+
+              <div className="backlog-list">
+                {trackerShown.map(({ backlog, tracker, issues, running }) => (
+                  <section key={backlog.base} aria-label={backlog.project}>
+                    <div className="base-head">
+                      <h3>{backlog.project}</h3>
+                    </div>
+                    <TrackerGroup
+                      tracker={tracker}
+                      load={trackers[backlog.base] ?? initialTrackerLoad(tracker)}
+                      issues={issues}
+                      onTrackers={onTrackers}
+                    >
+                      {(issue) => (
+                        <button
+                          type="button"
+                          className="entry-start"
+                          // Как у записи: копий ещё не прочитали, свободных не осталось или задача уже идёт в копии
+                          disabled={copies === null || freeCopies(copies, backlog.base).length === 0 || running.has(issue.name)}
+                          onClick={(e) => {
+                            opener.current = e.currentTarget
+                            setStarting({ base: backlog.base, entry: { number: issue.name, title: issue.title, text: null } })
+                          }}
+                        >
+                          <PlayIcon />
+                          Взять задачу
+                        </button>
+                      )}
+                    </TrackerGroup>
+                  </section>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

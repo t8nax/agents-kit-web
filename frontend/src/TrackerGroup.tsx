@@ -143,7 +143,8 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
 }
 
 /**
- * Группа задач трекера в проекте — под записями бэклога, со своей подписью (макеты B-277 и B-288). Строка задачи —
+ * Задачи трекера проекта на вкладке «Задачи трекера» (B-305; раньше — подписанная группа под записями, макеты B-277
+ * и B-288). Строка задачи —
  * ссылка на трекер во вкладку браузера, а не окно: описание задачи лежит в трекере. «Взять задачу» — то же окно запуска.
  */
 export default function TrackerGroup({
@@ -167,7 +168,6 @@ export default function TrackerGroup({
   const width = Math.max(0, ...issues.map((issue) => issueLabel(issue).length))
   return (
     <>
-      <div className="backlog-group-head">Задачи трекера, назначенные на вас</div>
       {load.kind === 'loading' && <TrackerSkeleton shown={reveal.shown} />}
       {state && (
         <p className={`tracker-state ${state.warning ? 'warning-text' : 'text-sec'}`}>
