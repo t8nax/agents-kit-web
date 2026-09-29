@@ -106,14 +106,14 @@ public static partial class TrackerDescriptions
     }
 
     /// <summary>
-    /// Текст tracker.md в форме кита: заголовок «# &lt;проект&gt; — трекер», «## Где задачи» с тремя строками, пустой
+    /// Текст tracker.md в форме кита: заголовок «# &lt;проект&gt; — трекер» (или прежний заголовок файла), «## Где задачи» с тремя строками, пустой
     /// строкой и словами, за ним остальные разделы в порядке таблицы. Имя трекера — как в таблице кита.
     /// </summary>
-    public static string Serialize(TrackerDescription description, string project)
+    public static string Serialize(TrackerDescription description, string project, string? header = null)
     {
         var name = Find(description.Tracker)?.Name ?? description.Tracker.Trim();
         var text = new StringBuilder()
-            .Append($"# {project} — трекер\n\n")
+            .Append(header is null ? $"# {project} — трекер\n\n" : $"{header.TrimEnd()}\n\n")
             .Append($"## {WhereSection}\n\n")
             .Append($"трекер: {name}\n")
             .Append($"сервер: {description.Server.Trim()}\n")
@@ -164,6 +164,9 @@ public static partial class TrackerDescriptions
                  })
             if (Clean(body).Length == 0)
                 faults[field] = "Раздел не может быть пустым";
+            else if (body.ReplaceLineEndings("\n").Split('\n').Count(l => l.StartsWith("```", StringComparison.Ordinal)) % 2 != 0)
+                // Кит считает ограды по всему файлу: незакрытая спрятала бы от него все разделы ниже (ревью B-293).
+                faults[field] = "Блок кода, начатый строкой «```», не закрыт";
             else if (HasHeading(body))
                 // Кит считает заголовок «##» вне блока кода началом своего раздела — не из таблицы, а значит, красным.
                 faults[field] = "Строка, начатая с «##», открыла бы новый раздел: уберите её или сделайте заголовок «###»";

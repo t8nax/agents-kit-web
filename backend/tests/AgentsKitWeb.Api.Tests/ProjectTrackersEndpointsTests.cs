@@ -207,6 +207,62 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("2", Git("rev-list", "--count", "HEAD", "--", "tracker.md"));
     }
 
+    /// <summary>Переводы строк, BOM и заголовок прежнего файла остаются: в истории базы видна только правка (ревью B-293).</summary>
+    [Fact]
+    public async Task Save_KeepsLineEndingsBomAndHeaderOfFile()
+    {
+        var text = TrackerDescriptions.Serialize(GitHub, "x", "# Заказы — наш трекер").Replace("\n", "\r\n");
+        File.WriteAllBytes(TrackerFile, [0xEF, 0xBB, 0xBF, .. System.Text.Encoding.UTF8.GetBytes(text)]);
+        TestGit.Run(_base, "add", "--", "tracker.md");
+        TestGit.Run(_base, "commit", "-q", "-m", "трекер");
+        var client = await Client();
+
+        var response = await Save(client, _base, ProjectTrackersEndpoints.Version(TrackerFile), GitHub with { Project = "acme/crm" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var bytes = File.ReadAllBytes(TrackerFile);
+        Assert.Equal([0xEF, 0xBB, 0xBF], bytes[..3]);
+        var written = System.Text.Encoding.UTF8.GetString(bytes[3..]);
+        Assert.Equal(text.Replace("проект: acme/orders", "проект: acme/crm"), written);
+        Assert.Equal("1\t1\ttracker.md", Git("diff", "--numstat", "HEAD~1", "HEAD"));
+    }
+
+    /// <summary>То же описание — коммитить нечего: оно записано, а не «Git не записал» (ревью B-293).</summary>
+    [Fact]
+    public async Task Save_Unchanged_IsSavedWithoutCommit()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        var client = await Client();
+
+        var response = await Save(client, _base, ProjectTrackersEndpoints.Version(TrackerFile), GitHub);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True((await response.Content.ReadFromJsonAsync<ProjectTrackerSaved>())!.Pushed);
+        Assert.Equal("трекер", Git("log", "-1", "--format=%s"));
+        Assert.Equal([$"Pull|Base|{_main}", $"Push|Base|{_main}"], File.ReadAllLines(SyncLog));
+    }
+
+    /// <summary>Проверка трекера идёт секундами: правку сессии, записанную за это время, панель не переписывает.</summary>
+    [Fact]
+    public async Task Save_DescriptionChangedDuringCheck_IsRefused()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        var client = await Client();
+        var version = ProjectTrackersEndpoints.Version(TrackerFile);
+        _github.BeforeAssigned = () =>
+        {
+            File.AppendAllText(TrackerFile, "Правка сессии.\n");
+            TestGit.Run(_base, "commit", "-q", "-m", "сессия", "--", "tracker.md");
+        };
+
+        var response = await Save(client, _base, version, GitHub with { Project = "acme/crm" });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("changed", (await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>())!.Problem);
+        Assert.EndsWith("Правка сессии.\n", File.ReadAllText(TrackerFile));
+        Assert.Equal("сессия", Git("log", "-1", "--format=%s"));
+    }
+
     [Fact]
     public async Task Save_NotKitForm_NamesFieldsAndTouchesNothing()
     {

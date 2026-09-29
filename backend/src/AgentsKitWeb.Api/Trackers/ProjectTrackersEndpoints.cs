@@ -85,9 +85,17 @@ public static partial class ProjectTrackersEndpoints
                 return Results.UnprocessableEntity(
                     new ProjectTrackerRejected("check", check.Detail, Field: check.Field, Code: check.Problem));
 
-            var text = TrackerDescriptions.Serialize(description, ProjectName.Of(basePath));
-            if (await CommitAsync(layout, Encoding.UTF8.GetBytes(text), CommitMessage) is { } failure)
-                return Results.Json(failure, statusCode: StatusCodes.Status502BadGateway);
+            // Проверка трекера ходит в сеть секундами: правку, которую за это время записала сессия, панель не перепишет.
+            if (Version(layout.TrackerFile) != (request.Version ?? "")
+                || await BaseGit.IsDirtyAsync(layout.Base, BaseLayout.TrackerName, CancellationToken.None) is not false)
+                return Results.Conflict(new ProjectTrackerRejected("changed"));
+
+            var before = File.Exists(layout.TrackerFile) ? await File.ReadAllBytesAsync(layout.TrackerFile, CancellationToken.None) : null;
+            var bytes = Bytes(description, ProjectName.Of(basePath), before);
+            // То же описание байт в байт — коммитить нечего, оно уже записано; базу панель всё равно отдаёт.
+            if (before is null || !bytes.AsSpan().SequenceEqual(before))
+                if (await CommitAsync(layout, bytes, CommitMessage) is { } failure)
+                    return Results.Json(failure, statusCode: StatusCodes.Status502BadGateway);
 
             var pushed = await KitSync.RunAsync(sync.Script, sync.Copy, KitSync.Push);
             return Results.Ok(new ProjectTrackerSaved(
@@ -111,7 +119,7 @@ public static partial class ProjectTrackersEndpoints
 
             if (await RefreshAsync(sync, layout, version) is { } stale)
                 return stale;
-            // Задача могла прийти с сервера вместе с базой.
+            // Пока база сводилась с сервером, в копии могла начаться задача этого трекера.
             if (Busy(layout) is { Count: > 0 } arrived)
                 return Results.Conflict(new ProjectTrackerRejected("busy", Busy: arrived));
             if (!File.Exists(layout.TrackerFile))
@@ -123,6 +131,23 @@ public static partial class ProjectTrackersEndpoints
             var pushed = await KitSync.RunAsync(sync.Script, sync.Copy, KitSync.Push);
             return Results.Ok(new ProjectTrackerSaved("", false, pushed.Done, pushed.Done ? null : pushed.Message));
         });
+    }
+
+    /// <summary>
+    /// Байты tracker.md: описание в форме кита, а переводы строк, BOM и заголовок «# …» — как у прежнего файла:
+    /// иначе каждая правка переписывала бы в истории базы весь файл (ревью B-293). Файла не было — LF, без BOM,
+    /// заголовок по имени проекта, как у кита.
+    /// </summary>
+    public static byte[] Bytes(TrackerDescription description, string project, byte[]? before)
+    {
+        var bom = before is [0xEF, 0xBB, 0xBF, ..];
+        var old = before is null ? null : new UTF8Encoding(false).GetString(before, bom ? 3 : 0, before.Length - (bom ? 3 : 0));
+        var header = old?.ReplaceLineEndings("\n").Split('\n').FirstOrDefault(l => l.StartsWith("# ", StringComparison.Ordinal));
+        var text = TrackerDescriptions.Serialize(description, project, header);
+        if (old is not null && old.Contains("\r\n"))
+            text = text.Replace("\n", "\r\n");
+        var bytes = Encoding.UTF8.GetBytes(text);
+        return bom ? [0xEF, 0xBB, 0xBF, .. bytes] : bytes;
     }
 
     /// <summary>Строка карточки по базе из списка панели.</summary>

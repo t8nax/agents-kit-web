@@ -198,6 +198,14 @@ public class TrackerDescriptionTests
         Assert.Equal(["take"], faults.Keys);
     }
 
+    /// <summary>Незакрытая ограда кода спрятала бы от сверки кита все разделы ниже.</summary>
+    [Fact]
+    public void Faults_UnclosedFence_NamesSection()
+    {
+        Assert.Equal(["backlog"], TrackerDescriptions.Faults(Full with { Backlog = "Пример:\n```\ngh issue list" }).Keys);
+        Assert.Empty(TrackerDescriptions.Faults(Full with { Backlog = "Пример:\n```\ngh issue list\n```" }));
+    }
+
     [Fact]
     public void Changed_CountsLinesAndSections()
     {
