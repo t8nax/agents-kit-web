@@ -17,7 +17,7 @@ const youtrack: TrackerDescription = {
   take: 'Назначить на себя.',
   closed: 'Ничего: задачу закрывает мерж.',
   move: 'В проект CRM, тип Task.',
-  query: '',
+  filter: '',
 }
 
 const row: ProjectTrackerRow = {
@@ -199,55 +199,55 @@ test('трекер не прочитан — причина под полем п
   expect(onSaved).not.toHaveBeenCalled()
 })
 
-// B-300: поле «Запрос» — только у трекеров, задачи которых панель читает; заполненное уходит строкой описания.
-test('поле «Запрос» есть у YouTrack и GitHub, нет у Jira, заполненное уходит с правками', async () => {
+// B-300: поле «Фильтр» — только у трекеров, задачи которых панель читает; заполненное уходит строкой описания.
+test('поле «Фильтр» есть у YouTrack и GitHub, нет у Jira, заполненное уходит с правками', async () => {
   const { puts } = stubFetch(controlledStream<TrackerEvent>())
   renderModal()
 
   const tab = changes()
-  expect(screen.getByLabelText('Запрос')).toHaveAttribute('placeholder', 'Строка поиска YouTrack, например State: {To Do}')
+  expect(screen.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска YouTrack, например State: {To Do}')
   fireEvent.click(tab.getByRole('radio', { name: 'GitHub' }))
-  expect(screen.getByLabelText('Запрос')).toHaveAttribute('placeholder', 'Строка поиска GitHub, например label:bug milestone:v2')
+  expect(screen.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска GitHub, например label:bug milestone:v2')
   fireEvent.click(tab.getByRole('radio', { name: 'Jira' }))
-  expect(screen.queryByLabelText('Запрос')).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Фильтр')).not.toBeInTheDocument()
   fireEvent.click(tab.getByRole('radio', { name: 'YouTrack' }))
 
-  fireEvent.change(screen.getByLabelText('Запрос'), { target: { value: 'State: {To Do}' } })
-  expect(within(field('Запрос')).getByText('изменено')).toBeInTheDocument()
-  expect(within(field('Запрос')).getByText('пусто')).toHaveClass('rewrite-was', 'mono')
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
+  expect(within(field('Фильтр')).getByText('изменено')).toBeInTheDocument()
+  expect(within(field('Фильтр')).getByText('пусто')).toHaveClass('rewrite-was', 'mono')
   fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
 
   await waitFor(() => expect(puts).toHaveLength(1))
-  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: { ...youtrack, query: 'State: {To Do}' } })
+  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: { ...youtrack, filter: 'State: {To Do}' } })
 })
 
-test('у Jira запрос не пишется, даже если был набран до смены трекера', async () => {
+test('у Jira фильтр не пишется, даже если был набран до смены трекера', async () => {
   const { puts } = stubFetch(controlledStream<TrackerEvent>())
   renderModal()
 
   const tab = changes()
-  fireEvent.change(screen.getByLabelText('Запрос'), { target: { value: 'State: {To Do}' } })
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
   fireEvent.click(tab.getByRole('radio', { name: 'Jira' }))
   fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
 
   await waitFor(() => expect(puts).toHaveLength(1))
-  expect((puts[0].body.description as TrackerDescription).query).toBe('')
+  expect((puts[0].body.description as TrackerDescription).filter).toBe('')
 })
 
-test('трекер не принял запрос — причина его словами под полем «Запрос»', async () => {
+test('трекер не принял фильтр — причина его словами под полем «Фильтр»', async () => {
   stubFetch(controlledStream<TrackerEvent>(), () =>
-    Response.json({ problem: 'check', field: 'query', code: 'query-rejected', detail: 'Unknown field "Stat"' }, { status: 422 }),
+    Response.json({ problem: 'check', field: 'filter', code: 'filter-rejected', detail: 'Unknown field "Stat"' }, { status: 422 }),
   )
   const { onSaved } = renderModal()
 
   changes()
-  fireEvent.change(screen.getByLabelText('Запрос'), { target: { value: 'Stat: {To Do}' } })
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'Stat: {To Do}' } })
   fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
 
-  expect(await within(field('Запрос')).findByRole('alert')).toHaveTextContent(
-    'YouTrack не принял запрос: Unknown field "Stat". Описание не записано.',
+  expect(await within(field('Фильтр')).findByRole('alert')).toHaveTextContent(
+    'YouTrack не принял фильтр: Unknown field "Stat". Описание не записано.',
   )
-  expect(screen.getByLabelText('Запрос')).toHaveAttribute('aria-invalid', 'true')
+  expect(screen.getByLabelText('Фильтр')).toHaveAttribute('aria-invalid', 'true')
   expect(onSaved).not.toHaveBeenCalled()
 })
 

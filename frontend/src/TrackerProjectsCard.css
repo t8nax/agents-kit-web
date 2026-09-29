@@ -67,7 +67,7 @@
 }
 
 /* Отбор задач (B-300) — строкой под сервером и проектом; нет отбора — строки нет */
-.prj-query {
+.prj-filter {
   grid-column: 3 / 5;
   display: flex;
   align-items: baseline;
@@ -76,13 +76,13 @@
   min-width: 0;
 }
 
-.prj-query-label {
+.prj-filter-label {
   flex: none;
   font-size: 12px;
   color: var(--text-tertiary);
 }
 
-.prj-query .mono {
+.prj-filter .mono {
   min-width: 0;
   color: var(--text-secondary);
   overflow: hidden;
@@ -143,7 +143,7 @@
   .prj-server,
   .prj-project,
   .prj-none,
-  .prj-query,
+  .prj-filter,
   .prj-actions {
     grid-column: 1 / -1;
   }

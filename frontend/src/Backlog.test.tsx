@@ -1299,14 +1299,14 @@ test.each([
 
 // B-300: отбор задан — пустой список называет его, а отказ трекера на него ведёт в карточку «Трекеры проектов».
 test.each([
-  [{ issues: [], problem: null }, /^По запросу State: \{To Do\} на вас в YouTrack сейчас нет задач этого проекта\.$/, false],
+  [{ issues: [], problem: null }, /^По фильтру State: \{To Do\} на вас в YouTrack сейчас нет задач этого проекта\.$/, false],
   [
-    { issues: [], problem: 'query-rejected', detail: 'Unknown field "Stat"' },
-    /^YouTrack не принял запрос State: \{To Do\}: Unknown field "Stat"\. Исправьте его в «Настройках», в карточке «Трекеры проектов»\.$/,
+    { issues: [], problem: 'filter-rejected', detail: 'Unknown field "Stat"' },
+    /^YouTrack не принял фильтр State: \{To Do\}: Unknown field "Stat"\. Исправьте его в «Настройках», в карточке «Трекеры проектов»\.$/,
     true,
   ],
 ])('отбор задан, ответ YouTrack %o — своей строкой на месте задач', async (reply, text, warning) => {
-  const fetchMock = stubFetch(withTracker({ ...youTrack, query: 'State: {To Do}' }))
+  const fetchMock = stubFetch(withTracker({ ...youTrack, filter: 'State: {To Do}' }))
   fetchMock.setTracker(backlogs[0].base, answer(reply))
 
   render(<Backlog />)
@@ -1317,8 +1317,8 @@ test.each([
   expect(within(line).getByText('State: {To Do}').tagName).toBe('CODE')
 })
 
-test('отбор задан, задачи есть — группа как без отбора, запрос не назван', async () => {
-  const fetchMock = stubFetch(withTracker({ ...youTrack, query: 'State: {To Do}' }))
+test('отбор задан, задачи есть — группа как без отбора, фильтр не назван', async () => {
+  const fetchMock = stubFetch(withTracker({ ...youTrack, filter: 'State: {To Do}' }))
   fetchMock.setTracker(backlogs[0].base, answer({ issues: ytIssues, problem: null }))
 
   render(<Backlog />)

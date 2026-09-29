@@ -27,7 +27,7 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// сервер ключ отклонил, «key-forbidden» — ключ принят, но у его владельца нет прав
 /// на это действие, «server-silent» — сервер не ответил, «project-missing» —
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
-/// «query-rejected» — трекер не принял строку отбора «запрос:» описания (B-300), Detail — его строка.
+/// «filter-rejected» — трекер не принял строку «фильтр:» описания (B-300), Detail — его строка.
 /// </summary>
 public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null)
 {
@@ -43,7 +43,7 @@ public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? P
     public const string ServerSilent = "server-silent";
     public const string ProjectMissing = "project-missing";
     public const string YouTrackError = "youtrack-error";
-    public const string QueryRejected = "query-rejected";
+    public const string FilterRejected = "filter-rejected";
 }
 
 /// <summary>
@@ -64,10 +64,10 @@ public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, s
 public interface IGitHubIssues
 {
     /// <summary>
-    /// Открытые задачи репозитория «владелец/репозиторий», назначенные на того, кем gh вошла в GitHub; query — строка
+    /// Открытые задачи репозитория «владелец/репозиторий», назначенные на того, кем gh вошла в GitHub; filter — строка
     /// поиска GitHub из описания трекера (B-300), null — без отбора.
     /// </summary>
-    Task<TrackerIssues> AssignedAsync(string repo, string? query, CancellationToken cancellationToken);
+    Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken);
 
     /// <summary>Новая задача репозитория, назначенная на того, кем gh вошла в GitHub, без меток.</summary>
     Task<CreatedIssue> CreateAsync(string repo, string title, string body);
@@ -86,16 +86,16 @@ public sealed partial class GhIssues : IGitHubIssues
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(1);
 
-    public async Task<TrackerIssues> AssignedAsync(string repo, string? query, CancellationToken cancellationToken)
+    public async Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken)
     {
-        var run = await RunAsync(StartInfo(repo, query), null, cancellationToken);
+        var run = await RunAsync(StartInfo(repo, filter), null, cancellationToken);
         if (run.Missing)
             return new TrackerIssues([], TrackerIssues.GhMissing);
         if (run.TimedOut)
             return new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту");
         if (run.ExitCode == 0)
             return Parse(run.Output);
-        return Failed(run.ExitCode, run.Error, query);
+        return Failed(run.ExitCode, run.Error, filter);
     }
 
     /// <summary>
@@ -181,11 +181,11 @@ public sealed partial class GhIssues : IGitHubIssues
     /// критерия B-277 держат именно эти ключи. Строка отбора описания трекера уходит в --search (B-300): gh
     /// сочетает её с назначенным и состоянием.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string repo, string? query = null) =>
+    public static ProcessStartInfo StartInfo(string repo, string? filter = null) =>
         GhStartInfo(
         [
             "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
-            .. string.IsNullOrWhiteSpace(query) ? Array.Empty<string>() : ["--search", query.Trim()],
+            .. string.IsNullOrWhiteSpace(filter) ? Array.Empty<string>() : ["--search", filter.Trim()],
             "--limit", Limit.ToString(), "--json", "number,title,url",
         ]);
 
@@ -243,10 +243,10 @@ public sealed partial class GhIssues : IGitHubIssues
 
     /// <summary>
     /// Отказ gh: без входа она выходит с кодом 4 и зовёт «gh auth login», с негодным ключом — 401 Bad credentials;
-    /// прочее — строка GitHub как есть. Чтение с отбором, чей отказ называет запрос («Invalid search query …»), —
+    /// прочее — строка GitHub как есть. Чтение с фильтром, чей отказ называет поисковый запрос («Invalid search query …»), —
     /// не принята строка отбора описания (B-300).
     /// </summary>
-    public static TrackerIssues Failed(int exitCode, string error, string? query = null)
+    public static TrackerIssues Failed(int exitCode, string error, string? filter = null)
     {
         var line = error.ReplaceLineEndings("\n").Split('\n').FirstOrDefault(l => l.Trim().Length > 0)?.Trim();
         // Чужой закрытый репозиторий GitHub отвечает так же, как несуществующий; его строка — причиной рядом.
@@ -256,8 +256,8 @@ public sealed partial class GhIssues : IGitHubIssues
         if (exitCode == 4 || error.Contains("gh auth login", StringComparison.Ordinal)
             || error.Contains("401 Unauthorized", StringComparison.Ordinal) || error.Contains("Bad credentials", StringComparison.Ordinal))
             return new TrackerIssues([], TrackerIssues.GhLogin);
-        if (!string.IsNullOrWhiteSpace(query) && error.Contains("query", StringComparison.OrdinalIgnoreCase))
-            return new TrackerIssues([], TrackerIssues.QueryRejected, line);
+        if (!string.IsNullOrWhiteSpace(filter) && error.Contains("query", StringComparison.OrdinalIgnoreCase))
+            return new TrackerIssues([], TrackerIssues.FilterRejected, line);
         return new TrackerIssues([], TrackerIssues.GitHubError, line ?? $"gh вышла с кодом {exitCode}");
     }
 

@@ -49,16 +49,16 @@ public class TrackerTests
         Assert.Null(tracker.GitHubRepo);
     }
 
-    /// <summary>Строка «запрос:» среди строк кита — отбор задач трекера (B-300); повтор — берётся первая, как в окне.</summary>
+    /// <summary>Строка «фильтр:» среди строк кита — отбор задач трекера (B-300); повтор — берётся первая, как в окне.</summary>
     [Fact]
-    public void Parse_QueryLine_TakesFirstQuery()
+    public void Parse_FilterLine_TakesFirstFilter()
     {
         var youTrack = Tracker.Parse(Describe(
-            "трекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: PAY\nЗапрос: State: {To Do}\nзапрос: tag: x"));
-        var gitHub = Tracker.Parse(Describe("трекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nзапрос:"));
+            "трекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: PAY\nФильтр: State: {To Do}\nфильтр: tag: x"));
+        var gitHub = Tracker.Parse(Describe("трекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nфильтр:"));
 
-        Assert.Equal(new TrackerInfo(TrackerInfo.YouTrack, "YouTrack", "https://acme.youtrack.cloud", "PAY", Query: "State: {To Do}"), youTrack);
-        Assert.Null(gitHub.Query);
+        Assert.Equal(new TrackerInfo(TrackerInfo.YouTrack, "YouTrack", "https://acme.youtrack.cloud", "PAY", Filter: "State: {To Do}"), youTrack);
+        Assert.Null(gitHub.Filter);
     }
 
     [Theory]

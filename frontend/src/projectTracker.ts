@@ -3,7 +3,7 @@ import type { TrackerInfo } from './tracker'
 /**
  * Описание трекера проекта полями окна (B-293): три строки раздела «Где задачи» и слова пяти разделов кита —
  * where — «Где задачи» под строками, backlog — «Показ бэклога», take — «Взятие задачи», closed — «Задача закрыта»,
- * move — «Вынос записи бэклога». query — необязательная строка «запрос:» у GitHub и YouTrack: строка поиска трекера,
+ * move — «Вынос записи бэклога». filter — необязательная строка «фильтр:» у GitHub и YouTrack: строка поиска трекера,
  * которой панель отбирает задачи «Бэклога» (B-300).
  */
 export type TrackerDescription = {
@@ -15,7 +15,7 @@ export type TrackerDescription = {
   take: string
   closed: string
   move: string
-  query: string
+  filter: string
 }
 
 export type DescriptionField = keyof TrackerDescription
@@ -68,7 +68,7 @@ export const emptyDescription: TrackerDescription = {
   take: '',
   closed: '',
   move: '',
-  query: '',
+  filter: '',
 }
 
 /** Одно и то же значение поля: без пробелов по краям и разницы в переводах строк — как считает API. */
@@ -89,8 +89,8 @@ export function sameField(field: DescriptionField, a: TrackerDescription, b: Tra
     : sameValue(a[field] ?? '', b[field] ?? '')
 }
 
-/** Подсказка в пустом поле «Запрос» — только у трекеров, задачи которых панель читает (B-300). */
-export const queryPlaceholder: Partial<Record<TrackerName, string>> = {
+/** Подсказка в пустом поле «Фильтр» — только у трекеров, задачи которых панель читает (B-300). */
+export const filterPlaceholder: Partial<Record<TrackerName, string>> = {
   GitHub: 'Строка поиска GitHub, например label:bug milestone:v2',
   YouTrack: 'Строка поиска YouTrack, например State: {To Do}',
 }
@@ -109,7 +109,7 @@ export const projectPlaceholder: Record<TrackerName, string> = {
   YouTrack: 'ID проекта, например ABC',
 }
 
-export const sections: { field: Exclude<DescriptionField, 'tracker' | 'server' | 'project' | 'query'>; label: string; hint: string }[] = [
+export const sections: { field: Exclude<DescriptionField, 'tracker' | 'server' | 'project' | 'filter'>; label: string; hint: string }[] = [
   { field: 'where', label: 'Где задачи', hint: 'Чем ходить в трекер: программа, MCP-сервер, CLI' },
   { field: 'backlog', label: 'Показ бэклога', hint: 'Какие задачи показывать в бэклоге' },
   { field: 'take', label: 'Взятие задачи', hint: 'Что менять в задаче, когда её берут в работу' },
@@ -140,7 +140,7 @@ const faultLabels: Record<DescriptionField, string> = {
   take: 'раздел «Взятие задачи»',
   closed: 'раздел «Задача закрыта»',
   move: 'раздел «Вынос записи бэклога»',
-  query: 'запрос',
+  filter: 'фильтр',
 }
 
 /** Поломки описания, которые кит назовёт красными, — строкой под проектом в карточке (ревью B-293). */
@@ -197,8 +197,8 @@ export function checkText(code: string, detail: string | null | undefined, descr
         return 'Программа gh не вошла в аккаунт GitHub. Войдите командой gh auth login.'
       case 'youtrack-error':
         return `YouTrack ответил ошибкой: ${detail ?? code}.`
-      case 'query-rejected':
-        return `${knownTracker(description.tracker) ?? 'Трекер'} не принял запрос${detail ? `: ${detail}` : ''}.`
+      case 'filter-rejected':
+        return `${knownTracker(description.tracker) ?? 'Трекер'} не принял фильтр${detail ? `: ${detail}` : ''}.`
       default:
         return `GitHub ответил ошибкой: ${detail ?? code}.`
     }

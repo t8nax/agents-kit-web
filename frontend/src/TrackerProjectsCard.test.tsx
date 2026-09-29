@@ -31,7 +31,7 @@ const github: TrackerDescription = {
   take: 'Метка in-progress.',
   closed: 'Ничего: задачу закрывает мерж.',
   move: 'В acme/orders без меток.',
-  query: '',
+  filter: '',
 }
 
 const described: ProjectTrackerRow = {
@@ -77,11 +77,11 @@ test('проект без трекера — «Трекера нет» и «За
 })
 
 // B-300: заданный отбор виден строкой под сервером и проектом; без отбора строки нет.
-test('запрос трекера — строкой «Запрос» в строке проекта, без запроса её нет', async () => {
+test('фильтр трекера — строкой «Фильтр» в строке проекта, без фильтра её нет', async () => {
   stubApi({
     'GET /api/trackers/projects': () =>
       json([
-        { ...described, tracker: { ...described.tracker, query: 'label:bug milestone:v2' }, description: { ...github, query: 'label:bug milestone:v2' } },
+        { ...described, tracker: { ...described.tracker, filter: 'label:bug milestone:v2' }, description: { ...github, filter: 'label:bug milestone:v2' } },
         { ...described, base: 'D:\\Projects\\crm-knowledge', project: 'CRM' },
       ]),
   })
@@ -89,9 +89,9 @@ test('запрос трекера — строкой «Запрос» в стр�
   render(<TrackerProjectsCard />)
 
   const orders = await row('Orders')
-  expect(orders.getByText('Запрос')).toHaveClass('prj-query-label')
+  expect(orders.getByText('Фильтр')).toHaveClass('prj-filter-label')
   expect(orders.getByText('label:bug milestone:v2')).toHaveAttribute('title', 'label:bug milestone:v2')
-  expect((await row('CRM')).queryByText('Запрос')).not.toBeInTheDocument()
+  expect((await row('CRM')).queryByText('Фильтр')).not.toBeInTheDocument()
 })
 
 // Удалить нельзя, пока идёт задача из трекера: подсказка называет копии и задачи — ответ оператора на B-293.

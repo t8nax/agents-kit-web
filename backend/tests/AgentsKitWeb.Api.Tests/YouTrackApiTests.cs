@@ -111,7 +111,7 @@ public sealed class YouTrackApiTests
 
     /// <summary>Строка отбора описания дописывается к запросу панели как есть (B-300).</summary>
     [Fact]
-    public async Task Assigned_WithQuery_AppendsItToSearch()
+    public async Task Assigned_WithFilter_AppendsItToSearch()
     {
         var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
             ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
@@ -125,7 +125,7 @@ public sealed class YouTrackApiTests
 
     /// <summary>YouTrack отверг поиск с отбором — не принята строка отбора, а не сервер сломан.</summary>
     [Fact]
-    public async Task Assigned_QueryRefused_IsQueryRejectedWithYouTrackWords()
+    public async Task Assigned_FilterRefused_IsFilterRejectedWithYouTrackWords()
     {
         var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
             ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
@@ -134,7 +134,7 @@ public sealed class YouTrackApiTests
         var filtered = await api.AssignedAsync(Server, Key, "ABC", "Stat: {To Do}", CancellationToken.None);
         var plain = await api.AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
 
-        Assert.Equal((TrackerIssues.QueryRejected, "Unknown field \"Stat\""), (filtered.Problem, filtered.Detail));
+        Assert.Equal((TrackerIssues.FilterRejected, "Unknown field \"Stat\""), (filtered.Problem, filtered.Detail));
         Assert.Equal(TrackerIssues.YouTrackError, plain.Problem);
     }
 

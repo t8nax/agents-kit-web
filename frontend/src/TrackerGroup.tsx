@@ -17,17 +17,17 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
     case null:
       if (load.issues.length > 0) return null
       // Отбор ничего не нашёл — строка называет его: задач может просто не быть, а может быть опечатка (ответ оператора на B-300)
-      if (tracker.query)
+      if (tracker.filter)
         return {
           warning: false,
           text:
             tracker.kind === 'youtrack' ? (
               <>
-                По запросу <code>{tracker.query}</code> на вас в YouTrack сейчас нет задач этого проекта.
+                По фильтру <code>{tracker.filter}</code> на вас в YouTrack сейчас нет задач этого проекта.
               </>
             ) : (
               <>
-                По запросу <code>{tracker.query}</code> на вас в GitHub сейчас нет открытых задач этого репозитория.
+                По фильтру <code>{tracker.filter}</code> на вас в GitHub сейчас нет открытых задач этого репозитория.
               </>
             ),
         }
@@ -119,12 +119,12 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
       }
     case 'youtrack-error':
       return { warning: true, text: `YouTrack ответил ошибкой: ${load.detail ?? load.problem}.` }
-    case 'query-rejected':
+    case 'filter-rejected':
       return {
         warning: true,
         text: (
           <>
-            {tracker.kind === 'youtrack' ? 'YouTrack' : 'GitHub'} не принял запрос <code>{tracker.query}</code>
+            {tracker.kind === 'youtrack' ? 'YouTrack' : 'GitHub'} не принял фильтр <code>{tracker.filter}</code>
             {load.detail ? <>: {load.detail}</> : ''}. Исправьте его в «Настройках», в карточке{' '}
             <button type="button" className="tracker-link" onClick={onTrackers}>
               «Трекеры проектов»

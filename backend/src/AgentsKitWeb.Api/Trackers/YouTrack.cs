@@ -16,10 +16,10 @@ public interface IYouTrack
     Task<YouTrackUser> WhoAsync(string server, string key, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Незакрытые задачи проекта, назначенные на владельца ключа; query — строка поиска YouTrack из описания трекера,
+    /// Незакрытые задачи проекта, назначенные на владельца ключа; filter — строка поиска YouTrack из описания трекера,
     /// дописанная к запросу (B-300), null — без отбора.
     /// </summary>
-    Task<TrackerIssues> AssignedAsync(string server, string key, string project, string? query, CancellationToken cancellationToken);
+    Task<TrackerIssues> AssignedAsync(string server, string key, string project, string? filter, CancellationToken cancellationToken);
 
     /// <summary>Новая задача проекта, назначенная на владельца ключа, без других полей.</summary>
     Task<CreatedIssue> CreateAsync(string server, string key, string project, string title, string body);
@@ -53,21 +53,21 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
     }
 
     public async Task<TrackerIssues> AssignedAsync(
-        string server, string key, string project, string? query, CancellationToken cancellationToken)
+        string server, string key, string project, string? filter, CancellationToken cancellationToken)
     {
         var found = await ProjectAsync(server, key, project, cancellationToken);
         if (found.Problem is not null)
             return new TrackerIssues([], found.Problem, found.Detail);
 
         var search = $"project: {{{found.ShortName}}} for: me #Unresolved";
-        if (!string.IsNullOrWhiteSpace(query))
-            search += $" {query.Trim()}";
+        if (!string.IsNullOrWhiteSpace(filter))
+            search += $" {filter.Trim()}";
         var reply = await SendAsync(
             Get(server, key, $"api/issues?query={Uri.EscapeDataString(search)}&fields=idReadable,summary&$top={Limit}"),
             ReadTimeout, cancellationToken);
-        // Проект найден и ключ принят — отказ самого поиска с отбором значит, что YouTrack не принял строку отбора.
-        if (reply.Problem == TrackerIssues.YouTrackError && !string.IsNullOrWhiteSpace(query))
-            return new TrackerIssues([], TrackerIssues.QueryRejected, reply.Detail);
+        // Проект найден и ключ принят — отказ самого поиска с фильтром значит, что YouTrack не принял строку фильтра.
+        if (reply.Problem == TrackerIssues.YouTrackError && !string.IsNullOrWhiteSpace(filter))
+            return new TrackerIssues([], TrackerIssues.FilterRejected, reply.Detail);
         if (reply.Problem is not null)
             return new TrackerIssues([], reply.Problem, reply.Detail);
         if (reply.Json is not JsonArray issues)

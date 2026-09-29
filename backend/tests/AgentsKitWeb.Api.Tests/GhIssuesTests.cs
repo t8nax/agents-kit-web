@@ -22,7 +22,7 @@ public class GhIssuesTests
 
     /// <summary>Строка отбора описания уходит поиском gh вдобавок к назначенному и состоянию (B-300).</summary>
     [Fact]
-    public void StartInfo_WithQuery_AddsSearch()
+    public void StartInfo_WithFilter_AddsSearch()
     {
         Assert.Equal(
             ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--search", "label:bug milestone:v2",
@@ -32,11 +32,11 @@ public class GhIssuesTests
     }
 
     [Fact]
-    public void Failed_SearchRefusedWithQuery_IsQueryRejected()
+    public void Failed_SearchRefusedWithFilter_IsFilterRejected()
     {
         const string error = "GraphQL: Invalid search query \"label:\" (search)";
 
-        Assert.Equal(TrackerIssues.QueryRejected, GhIssues.Failed(1, error, "label:").Problem);
+        Assert.Equal(TrackerIssues.FilterRejected, GhIssues.Failed(1, error, "label:").Problem);
         Assert.Equal(TrackerIssues.GitHubError, GhIssues.Failed(1, error).Problem);
     }
 

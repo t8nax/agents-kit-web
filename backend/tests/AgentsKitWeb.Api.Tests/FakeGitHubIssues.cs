@@ -18,13 +18,13 @@ public sealed class FakeGitHubIssues : IGitHubIssues
     public Action BeforeAssigned { get; set; } = () => { };
 
     /// <summary>Строка отбора каждого чтения задач: null — без отбора.</summary>
-    public List<string?> Queries { get; } = [];
+    public List<string?> Filters { get; } = [];
 
-    public Task<TrackerIssues> AssignedAsync(string repo, string? query, CancellationToken cancellationToken)
+    public Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken)
     {
         BeforeAssigned();
         Asked.Add(repo);
-        Queries.Add(query);
+        Filters.Add(filter);
         return Task.FromResult(Answer);
     }
 

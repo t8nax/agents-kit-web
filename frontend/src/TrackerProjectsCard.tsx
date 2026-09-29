@@ -194,11 +194,11 @@ function ProjectRow({ row, onEdit, onDelete }: { row: ProjectTrackerRow; onEdit:
           </>
         )}
       </span>
-      {readable(tracker) && tracker?.query && (
-        <p className="prj-query">
-          <span className="prj-query-label">Запрос</span>
-          <span className="mono" title={tracker.query}>
-            {tracker.query}
+      {readable(tracker) && tracker?.filter && (
+        <p className="prj-filter">
+          <span className="prj-filter-label">Фильтр</span>
+          <span className="mono" title={tracker.filter}>
+            {tracker.filter}
           </span>
         </p>
       )}

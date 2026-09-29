@@ -8,7 +8,7 @@ namespace AgentsKitWeb.Api.Trackers;
 /// Описание трекера проекта — tracker.md корня базы — таким, каким его правит окно «Трекер проекта с Чудо-Юдо»
 /// (B-293): строки раздела «## Где задачи» и слова пяти разделов кита. Where — слова «Где задачи» под строками,
 /// Backlog — «Показ бэклога», Take — «Взятие задачи», Closed — «Задача закрыта», Move — «Вынос записи бэклога».
-/// Query — необязательная строка «запрос:» после трёх строк кита: строка поиска трекера, которую панель дописывает
+/// Filter — необязательная строка «фильтр:» после трёх строк кита: строка поиска трекера, которую панель дописывает
 /// к своему запросу задач на оператора (B-300); кит её не знает, но лишнюю строку его сверка пропускает.
 /// Форму держит раскладка кита (reference/base-layout.md, «Трекер»); панель пишет её так, чтобы сверка кита
 /// не нашла в файле красного.
@@ -22,7 +22,7 @@ public sealed record TrackerDescription(
     string Take = "",
     string Closed = "",
     string Move = "",
-    string Query = "");
+    string Filter = "");
 
 /// <summary>Что в tracker.md вне полей окна: заголовок «# …», текст над первым разделом, разделы не из таблицы кита.</summary>
 public sealed record TrackerFrame(string? Header, string Intro, string Extra);
@@ -93,7 +93,7 @@ public static partial class TrackerDescriptions
             if (Workspaces.Tracker.Pair().Match(where[at]) is not { Success: true } pair)
                 break;
             var key = pair.Groups[1].Value.ToLowerInvariant();
-            if (key is "трекер" or "сервер" or "проект" or "запрос" && !keys.ContainsKey(key))
+            if (key is "трекер" or "сервер" or "проект" or "фильтр" && !keys.ContainsKey(key))
                 keys[key] = pair.Groups[2].Value;
             else
                 rest.Add(where[at]);
@@ -109,12 +109,12 @@ public static partial class TrackerDescriptions
             Body(TakeSection),
             Body(ClosedSection),
             Body(MoveSection),
-            keys.GetValueOrDefault("запрос", ""));
+            keys.GetValueOrDefault("фильтр", ""));
     }
 
     /// <summary>
     /// Текст tracker.md в форме кита: заголовок «# &lt;проект&gt; — трекер» (или прежний заголовок файла), «## Где задачи» с тремя строками
-    /// (и строкой «запрос:», если он задан), пустой строкой и словами, за ним остальные разделы в порядке таблицы. Имя трекера — как в таблице кита.
+    /// (и строкой «фильтр:», если он задан), пустой строкой и словами, за ним остальные разделы в порядке таблицы. Имя трекера — как в таблице кита.
     /// </summary>
     public static string Serialize(TrackerDescription description, string project, TrackerFrame? frame = null)
     {
@@ -128,8 +128,8 @@ public static partial class TrackerDescriptions
             .Append($"трекер: {name}\n")
             .Append($"сервер: {description.Server.Trim()}\n")
             .Append($"проект: {description.Project.Trim()}\n");
-        if (description.Query.Trim().Length > 0)
-            text.Append($"запрос: {description.Query.Trim()}\n");
+        if (description.Filter.Trim().Length > 0)
+            text.Append($"фильтр: {description.Filter.Trim()}\n");
         if (Clean(description.Where).Length > 0)
             text.Append('\n').Append(Trim(description.Where)).Append('\n');
         foreach (var (section, body) in new[]
@@ -188,7 +188,7 @@ public static partial class TrackerDescriptions
 
     /// <summary>
     /// Что в описании не примет сверка кита — по полю окна: tracker, server, project, where, backlog, take, closed,
-    /// move, query. Пусто — описание можно писать.
+    /// move, filter. Пусто — описание можно писать.
     /// </summary>
     public static Dictionary<string, string> Faults(TrackerDescription description)
     {
@@ -226,7 +226,7 @@ public static partial class TrackerDescriptions
                 // Кит считает заголовок «##» вне блока кода началом своего раздела — не из таблицы, а значит, красным.
                 faults[field] = "Строка, начатая с «##», открыла бы новый раздел: уберите её или сделайте заголовок «###»";
         // Строка ключа — одна строка файла: перевод строки в значении сломал бы разбор кита.
-        foreach (var (field, value) in new[] { ("server", server), ("project", project), ("query", description.Query.Trim()) })
+        foreach (var (field, value) in new[] { ("server", server), ("project", project), ("filter", description.Filter.Trim()) })
             if (value.Contains('\n') || value.Contains('\r'))
                 faults[field] = "Значение — одна строка";
         return faults;
@@ -238,7 +238,7 @@ public static partial class TrackerDescriptions
         var lines = new[]
         {
             (before.Tracker, after.Tracker), (before.Server, after.Server), (before.Project, after.Project),
-            (before.Query, after.Query),
+            (before.Filter, after.Filter),
         }.Count(p => !Same(p.Item1, p.Item2));
         var sections = new[]
         {

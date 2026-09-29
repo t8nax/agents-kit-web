@@ -27,15 +27,15 @@ internal sealed class FakeYouTrack : IYouTrack
     }
 
     /// <summary>Строка отбора каждого чтения задач: null — без отбора.</summary>
-    public List<string?> Queries { get; } = [];
+    public List<string?> Filters { get; } = [];
 
     public Task<TrackerIssues> AssignedAsync(
-        string server, string key, string project, string? query, CancellationToken cancellationToken)
+        string server, string key, string project, string? filter, CancellationToken cancellationToken)
     {
         lock (Read)
         {
             Read.Add((server, key, project));
-            Queries.Add(query);
+            Filters.Add(filter);
         }
         return Task.FromResult(Answer);
     }
