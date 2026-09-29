@@ -1636,7 +1636,7 @@ function StageModal({
         </div>
 
         <div className="ask-body">
-          {/* Занятую стадию видно целиком, но поля погашены: правка закрыта, пока задачи идут по её сценарию. */}
+          {/* Стадию базы нового формата видно целиком, но поля погашены: правку закрыл формат (B-281). */}
           <fieldset className="flow-stage-rows flow-stage-set" disabled={lock !== null || saving}>
             <div className="flow-field">
               <span>Значок</span>
@@ -1800,7 +1800,7 @@ function StageModal({
 }
 
 type DrawerActions = {
-  /** Сценарий держат задачи в работе: сайдбар только для чтения. */
+  /** Правку закрыл формат базы (B-281): сайдбар только для чтения. */
   lock: Lock | null
   saving: boolean
   blocked: boolean
@@ -1864,7 +1864,7 @@ function FlowTab({
   guard: (() => void) | null
   /** Идёт запись: перестановка, добавление и уборка стадии недоступны, пока флоу не перечитан. */
   busy: boolean
-  /** По сценарию идёт задача: схема только для чтения, у блоков нет ручки перетаскивания. */
+  /** Правку закрыл формат базы (B-281): схема только для чтения, у блоков нет ручки перетаскивания. */
   locked: boolean
   /** Почему новый сценарий не завести; null — можно. */
   closed: string | null
@@ -3191,7 +3191,7 @@ export function DescriptionEditor({
   title: string
   description: string | null
   warning: string | null
-  /** Стадию держат задачи в работе: описание только читается. */
+  /** Правку закрыл формат базы (B-281): описание только читается. */
   lock: Lock | null
   saving: boolean
   blocked: boolean

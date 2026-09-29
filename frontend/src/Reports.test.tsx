@@ -83,7 +83,7 @@ function stub(list: () => FlowReportItem[], options: { running?: boolean; run?: 
     // Окно переписывания поверх отчёта читает флоу и исполнителей проекта, как раздел «Флоу».
     if (url === '/api/flow')
       return Response.json([
-        { base: 'D:\\kb\\app', project: 'Agents Kit Web', stages: [], flows: [], version: 'v1', error: null, icons: {}, tasks: [] },
+        { base: 'D:\\kb\\app', project: 'Agents Kit Web', stages: [], flows: [], version: 'v1', error: null, icons: {} },
       ])
     if (url === '/api/performers') return Response.json([])
     return null
