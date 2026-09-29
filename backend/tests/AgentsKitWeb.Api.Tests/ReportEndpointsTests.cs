@@ -15,7 +15,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 namespace AgentsKitWeb.Api.Tests;
 
 /// <summary>
-/// Отчёт о флоу: панель зовёт Чудо-Юдо в каталоге базы только на чтение, подаёт ему требования кита, флоу и субагентов,
+/// Отчёт о флоу: панель зовёт Чудо-Юдо в каталоге базы только на чтение, подаёт ему рекомендации кита, флоу и субагентов,
 /// разбирает его ответ, считает кольца и хранит отчёт у себя, не в базе. Настоящий claude в прогоне не запускается.
 /// </summary>
 public sealed class ReportEndpointsTests : IDisposable
@@ -71,11 +71,11 @@ public sealed class ReportEndpointsTests : IDisposable
         Assert.Equal(2, report.Findings.Count);
         Assert.Equal(["П1", "С1"], report.Findings[0].Requirements);
         Assert.Equal("Делить ли мерж", Assert.Single(report.Discussions).Title);
-        // Находка под двумя требованиями снимает в обоих кольцах: −15 −7 в проходимости, −15 в согласованности.
+        // Находка под двумя рекомендациями снимает в обоих кольцах: −15 −7 в проходимости, −15 в согласованности.
         Assert.Equal(new RingScore("Проходимость", 78, "avg", 2, 0), report.Rings[0]);
         Assert.Equal(new RingScore("Согласованность", 85, "avg", 1, 0), report.Rings[1]);
         Assert.Equal(new RingScore("Ясность", 100, "pass", 1, 1), report.Rings[2]);
-        // Формулировка требования — дословно из справки кита.
+        // Формулировка рекомендации — дословно из справки кита.
         Assert.Equal("у каждого исхода есть продолжение.", report.Requirements.First(r => r.Code == "П1").Text);
         // Отчёт у панели, рядом с bases.json, а не в базе.
         Assert.True(File.Exists(ReportsStore.FileBeside(TestBases.File(_root, _base))));
@@ -101,7 +101,10 @@ public sealed class ReportEndpointsTests : IDisposable
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains("официальным стилем", prompt);
         Assert.Contains(TestLayout.Personal(_base), prompt);
-        Assert.Contains("## Требования к флоу", _agent.Input);
+        // Кит зовёт правила рекомендациями, и разбор говорит о них так же: выполнять ли каждую, решает оператор — B-298.
+        Assert.Contains("выполнять ли каждую, решает", prompt);
+        Assert.DoesNotContain("требован", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Рекомендации к флоу из справки кита:\n\n## Рекомендации к флоу", _agent.Input);
         Assert.Contains("=== flow/scenarios.md\n# App — сценарии", _agent.Input);
         Assert.Contains("=== flow/stages/merge.md\n# Мерж", _agent.Input);
         Assert.Contains("=== agents/reviewer.md\n---\nname: reviewer", _agent.Input);
@@ -153,7 +156,7 @@ public sealed class ReportEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task KitWithoutRequirements_BlocksReportWithReason()
+    public async Task KitWithoutRecommendations_BlocksReportWithReason()
     {
         WriteRules("# Флоу\n\n## Этап\n\nКлючи.\n");
         var client = await Client();
@@ -163,7 +166,7 @@ public sealed class ReportEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, run.StatusCode);
         var block = (await run.Content.ReadFromJsonAsync<ReportBlock>(Json))!;
         Assert.Equal("kit", block.Kind);
-        Assert.Contains("нет раздела «Требования к флоу»", block.Reason);
+        Assert.Contains("нет раздела «Рекомендации к флоу»", block.Reason);
         Assert.Equal("kit", Assert.Single(await List(client)).Blocked!.Kind);
         Assert.Null(_agent.StartInfo);
     }
@@ -175,7 +178,7 @@ public sealed class ReportEndpointsTests : IDisposable
         var client = await Client();
         await Run(client);
 
-        // Кит сменился на тот, где требований нет: прошлый отчёт под сообщением не показывается, как на макете.
+        // Кит сменился на тот, где рекомендаций нет: прошлый отчёт под сообщением не показывается, как на макете.
         WriteRules("# Флоу\n\n## Этап\n\nКлючи.\n");
         var item = Assert.Single(await List(client));
 

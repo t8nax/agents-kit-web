@@ -35,7 +35,7 @@ public sealed class FlowReportScoresTests
         var rings = FlowReportScores.Of(Requirements, [Finding("П5"), Finding("Я4"), Finding("Я4")]);
 
         Assert.Equal(new RingScore("Проходимость", 93, "pass", 2, 1), rings[0]);
-        // Две находки под одним требованием снимают дважды, но невыполненное требование одно.
+        // Две находки под одной рекомендацией снимают дважды, но невыполненная рекомендация одна.
         Assert.Equal(new RingScore("Ясность", 96, "pass", 1, 0), rings[2]);
     }
 
