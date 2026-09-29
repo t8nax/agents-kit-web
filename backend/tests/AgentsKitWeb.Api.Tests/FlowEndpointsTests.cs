@@ -70,11 +70,8 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Flow_ReturnsStagesFlowsTasksInWorkAndVersionPerBase()
+    public async Task Flow_ReturnsStagesFlowsAndVersionPerBase()
     {
-        Directory.CreateDirectory(TestLayout.Work(_base));
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# Задача\nрабочая копия: D:\\a\n");
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "b.md"), "# Задача\nрабочая копия: D:\\b\n");
         var withoutFlow = TestLayout.Base(Path.Combine(_root, "empty-knowledge"));
         // Выложенный для коллег флоу в папке оператора общей базы — не свой: агент по нему не работает (формат 6 кита).
         Directory.CreateDirectory(Path.Combine(TestLayout.Published(withoutFlow), "flow", "stages"));
@@ -93,7 +90,6 @@ public sealed class FlowEndpointsTests : IDisposable
         var flow = Assert.Single(flows, f => f.Base == _base);
         Assert.Equal("App", flow.Project);
         Assert.Null(flow.Error);
-        Assert.Equal(2, flow.Tasks!.Count);
         Assert.NotNull(flow.Version);
         Assert.Equal(["Приёмка", "Критерий"], flow.Stages.Select(s => s.Title));
         Assert.Equal("acceptance", flow.Stages[0].Slug);
@@ -141,51 +137,6 @@ public sealed class FlowEndpointsTests : IDisposable
         var rejected = (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
         Assert.Equal(("newer-format", AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal), (rejected.Problem, rejected.Detail));
         Assert.Equal(Acceptance.ReplaceLineEndings("\n"), File.ReadAllText(Stage("acceptance")));
-    }
-
-    [Fact]
-    public async Task Flow_NamesTaskInWorkByBacklogNumberWithTheFlowItGoesBy()
-    {
-        Directory.CreateDirectory(TestLayout.Work(_base));
-        // Флоу памяти сравнивается, как у кита: без регистра и со схлопнутыми пробелами.
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу:  Полный \n");
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "b.md"), "# Задача без номера\nрабочая копия: D:\\b\nфлоу: старый\n");
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "c.md"), "рабочая копия: D:\\c\n");
-        // Слово вида номера с чужими буквами номером не становится: у проекта буквы B. Память кита 0.10 называет
-        // сценарий строкой «сценарий:».
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "d.md"), "# UTF-8 в выгрузке\nрабочая копия: D:\\d\nсценарий: полный\n");
-        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-8\n");
-
-        var flow = Assert.Single(await GetFlows(Client(_base)));
-
-        Assert.Equal(
-            [
-                new FlowTask("B-7", "полный", "Полный"),
-                new FlowTask("UTF-8 в выгрузке", "полный", "полный"),
-                new FlowTask("c", null),
-                new FlowTask("Задача без номера", null, "старый"),
-            ],
-            flow.Tasks);
-    }
-
-    [Fact]
-    // Флоу у оператора один на все его машины: задача, которая идёт на другой, тоже держит свой сценарий (B-275).
-    public async Task Flow_TaskOnOtherMachineOfOperatorHoldsItsFlow()
-    {
-        var other = Path.Combine(TestLayout.Personal(_base), "work", "laptop");
-        Directory.CreateDirectory(other);
-        // Тот же путь копии на другой машине — другая задача.
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "d-app.md"), "# B-7 Здесь\nрабочая копия: D:\\app\nсценарий: полный\n");
-        File.WriteAllText(Path.Combine(other, "d-app.md"), "# B-8 На ноутбуке\nрабочая копия: D:\\app\nсценарий: мелкий\n");
-        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-9\n");
-        var client = Client(_base);
-        var flow = Assert.Single(await GetFlows(client));
-
-        Assert.Equal([new FlowTask("B-7", "полный", "полный"), new FlowTask("B-8", "мелкий", "мелкий")], flow.Tasks);
-        var response = await client.PostAsJsonAsync("/api/flow", new SaveFlowRequest(
-            flow.Base, flow.Version!, flow.Stages, flow.Flows.Where(f => f.Name != "мелкий").ToList()));
-        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-        Assert.Equal("B-8", (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!.Detail);
     }
 
     [Fact]
@@ -364,97 +315,35 @@ public sealed class FlowEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Save_TouchingFlowTaskGoesByOrItsStage_IsRejectedAndTheRestIsWritten()
+    // Задача идёт по своей копии флоу, снятой при взятии (кит формата 8): сценарий, по которому она идёт, и его этапы
+    // правятся, переименовываются и удаляются, как любые, а копию задачи запись не трогает (B-299).
+    public async Task Save_FlowTaskGoesBy_IsWrittenLikeAnyOther()
     {
         Directory.CreateDirectory(TestLayout.Work(_base));
-        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-8\n");
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: мелкий\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nсценарий: мелкий\n");
+        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "b.md"), "# B-8 Без сценария\nрабочая копия: D:\\b\n");
+        var copy = Path.Combine(TestLayout.Work(_base), "a", "flow", "scenarios.md");
+        Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+        File.WriteAllText(copy, "# App — сценарии\n\n## мелкий\n1. [Приёмка](stages/acceptance.md)\n");
         var client = Client(_base);
-        var flow = Assert.Single(await GetFlows(client));
 
-        // «Приёмка» стоит и в свободном «полном», но занятый «мелкий» держит её для всех флоу.
+        var flow = Assert.Single(await GetFlows(client));
         var stage = await Save(client, flow, flow.Stages.Select(s => s.Title == "Приёмка" ? s with { Output = "принято" } : s).ToList());
-        var list = await Save(client, flow, flow.Stages, [flow.Flows[0], flow.Flows[1] with { When = "другое" }]);
+        Assert.Equal(HttpStatusCode.OK, stage.StatusCode);
+
+        flow = Assert.Single(await GetFlows(client));
+        var renamed = await Save(client, flow, flow.Stages, [flow.Flows[0], flow.Flows[1] with { Name = "срочный" }]);
+        Assert.Equal(HttpStatusCode.OK, renamed.StatusCode);
+        Assert.Contains("## срочный", File.ReadAllText(_listPath));
+
+        flow = Assert.Single(await GetFlows(client));
         var gone = await Save(client, flow, flow.Stages, [flow.Flows[0]]);
+        Assert.Equal(HttpStatusCode.OK, gone.StatusCode);
 
-        var stages = new List<string?>();
-        foreach (var response in new[] { stage, list, gone })
-        {
-            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
-            var rejected = (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
-            Assert.Equal(("busy", "мелкий", "B-7"), (rejected.Problem, rejected.Flow, rejected.Detail));
-            stages.Add(rejected.Stage);
-        }
-        Assert.Equal(["Приёмка", null, null], stages);
-        Assert.Equal(Acceptance.ReplaceLineEndings("\n"), File.ReadAllText(Stage("acceptance")));
-        Assert.Equal(List.ReplaceLineEndings("\n"), File.ReadAllText(_listPath));
-
-        // Свободное пишется: стадия только свободного флоу и новый флоу.
-        var free = await Save(client, flow,
-            flow.Stages.Select(s => s.Title == "Критерий" ? s with { Output = "критерий" } : s).ToList(),
-            [.. flow.Flows, new NamedFlow("новый", "другое", [new FlowEntry("Критерий")])]);
-
-        Assert.Equal(HttpStatusCode.OK, free.StatusCode);
-        Assert.Contains("выход: критерий\n", File.ReadAllText(Stage("criterion")));
-        Assert.Contains("## новый", File.ReadAllText(_listPath));
+        Assert.DoesNotContain("## срочный", File.ReadAllText(_listPath));
+        Assert.Contains("выход: принято", File.ReadAllText(Stage("acceptance")));
+        Assert.Equal("# App — сценарии\n\n## мелкий\n1. [Приёмка](stages/acceptance.md)\n", File.ReadAllText(copy));
     }
-
-    [Fact]
-    public async Task Save_BusyOnlyFlowWithoutWhen_TakesWhenOnlyAlongsideNewFlow()
-    {
-        // Один флоу — «когда» кит у него не требует
-        File.WriteAllText(_listPath, "# App — сценарии\n\n## полный\n1. [Критерий](stages/criterion.md)\n2. [Приёмка](stages/acceptance.md)\n");
-        TestGit.Run(TestLayout.Personal(_base), "commit", "-am", "один флоу");
-        Directory.CreateDirectory(TestLayout.Work(_base));
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка\nрабочая копия: D:\\a\nфлоу: полный\n");
-        var client = Client(_base);
-        var flow = Assert.Single(await GetFlows(client));
-        var busy = flow.Flows[0];
-        var fresh = new NamedFlow("срочный", "ошибка на панели", [new FlowEntry("Критерий")]);
-
-        // «Когда» без нового флоу и «когда» вместе с другой правкой занятого — отказ
-        var whenAlone = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }]);
-        var whenAndOrder = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача", Entries = [.. busy.Entries.Reverse()] }, fresh]);
-        foreach (var rejected in new[] { whenAlone, whenAndOrder })
-        {
-            Assert.Equal(HttpStatusCode.Conflict, rejected.StatusCode);
-            Assert.Equal("busy", (await rejected.Content.ReadFromJsonAsync<FlowRejectedResponse>())!.Problem);
-        }
-
-        var withNew = await Save(client, flow, flow.Stages, [busy with { When = "обычная задача" }, fresh]);
-
-        Assert.Equal(HttpStatusCode.OK, withNew.StatusCode);
-        var list = File.ReadAllText(_listPath);
-        Assert.Contains("когда: обычная задача", list);
-        Assert.Contains("## срочный", list);
-    }
-
-    [Fact]
-    public async Task Save_TaskWithUnknownFlow_HoldsEveryFlowAndStageButNotNewOnes()
-    {
-        Directory.CreateDirectory(TestLayout.Work(_base));
-        File.WriteAllText(TestLayout.Backlog(_base), "следующий номер: B-8\n");
-        File.WriteAllText(Path.Combine(TestLayout.Work(_base), "a.md"), "# B-7 Правка окна\nрабочая копия: D:\\a\nфлоу: переименованный\n");
-        var client = Client(_base);
-        var flow = Assert.Single(await GetFlows(client));
-
-        var stage = await Save(client, flow, flow.Stages.Select(s => s.Title == "Критерий" ? s with { Output = "критерий" } : s).ToList());
-
-        Assert.Equal(HttpStatusCode.Conflict, stage.StatusCode);
-        var rejected = (await stage.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
-        Assert.Equal(("busy", null, "Критерий", "B-7"), (rejected.Problem, rejected.Flow, rejected.Stage, rejected.Detail));
-
-        // Отказ по флоу не называет флоу: про задачу с неузнанным флоу неизвестно, что она идёт по нему
-        var list = await Save(client, flow, flow.Stages, [flow.Flows[0] with { When = "другое" }, flow.Flows[1]]);
-        var flowRejected = (await list.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
-        Assert.Equal(("busy", null, "B-7"), (flowRejected.Problem, flowRejected.Flow, flowRejected.Detail));
-
-        var fresh = await Save(client, flow, [.. flow.Stages, new FlowStage("Мерж", "оркестратор", "смержено", null, null)]);
-
-        Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
-        Assert.Equal(3, Directory.GetFiles(Path.Combine(TestLayout.Flow(_base), "stages")).Length);
-    }
-
     [Fact]
     public async Task Save_AnyFlowFileChangedSinceRead_IsRejectedAndFilesUntouched()
     {

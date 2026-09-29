@@ -70,7 +70,7 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         string basePath, string? copyPath, string rules, string wish, IReadOnlyList<FlowStage> stages, IReadOnlyList<NamedFlow> flows)
     {
         // Флоу целиком агент получает первой репликой: дальше разговор идёт о нём.
-        var message = FlowRewriteEndpoints.Input(wish, stages, flows, Tasks(basePath, flows), PerformerList.OfProject(basePath));
+        var message = FlowRewriteEndpoints.Input(wish, stages, flows, PerformerList.OfProject(basePath));
         var replies = Channel.CreateUnbounded<string>();
         var turn = new Turn(replies.Writer, copyPath, rules);
         var request = requests.Start(
@@ -184,7 +184,7 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         }
         var (proposedStages, proposedFlows) = FlowProposals.Apply(screen.Stages, screen.Flows, proposal);
         return FlowRewriteEndpoints.Input(
-            text, proposedStages, proposedFlows, Tasks(request.Base, screen.Flows), PerformerList.OfProject(request.Base));
+            text, proposedStages, proposedFlows, PerformerList.OfProject(request.Base));
     }
 
     /// <summary>
@@ -300,17 +300,6 @@ public sealed class FlowConversations(IAgentChat agent, AgentRequests requests)
         }
     }
 
-    private static List<FlowTask> Tasks(string basePath, IReadOnlyList<NamedFlow> flows)
-    {
-        try
-        {
-            return BaseLayout.Read(basePath) is { } layout ? FlowEndpoints.Tasks(layout, flows) : [];
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            return [];
-        }
-    }
 
     /// <summary>Реплика оператора в потоке stream-json: агент читает их построчно, по одной на ответ.</summary>
     private static string Message(string text) => JsonSerializer.Serialize(
@@ -453,8 +442,6 @@ public static class FlowRewriteEndpoints
             а правок не предлагай. Правка делает соседний пункт лишним или спорящим — поправь и его, даже если о нём
             не просили: флоу после правки должен читаться связно. Название меняй, только если об этом просили.
             Исполнитель и помощники этапа — из исполнителей проекта или «оркестратор», «оператор»; других имён не ставь.
-            Сценарии и этапы, занятые задачами в работе, панель не запишет: если просьба их касается, скажи об этом.
-            Новые сценарии и этапы заводить можно всегда.
             Правки предлагай в конце ответа блоками; до первого блока — что ты сделал или о чём спрашиваешь, коротко.
             Блок — строка-пометка и под ней текст целиком:
             «=== этап «Название»» — этап с этим названием переписан, под пометкой файл этапа целиком: заголовок
@@ -500,14 +487,13 @@ public static class FlowRewriteEndpoints
     }
 
     /// <summary>
-    /// Первая реплика агенту: просьба, флоу целиком — сценарии в форме scenarios.md и каждый этап файлом, — занятое
-    /// задачами и исполнители проекта.
+    /// Первая реплика агенту: просьба, флоу целиком — сценарии в форме scenarios.md и каждый этап файлом — и исполнители
+    /// проекта. Задачи в работе правку флоу не держат — каждая идёт по своей копии (B-299), — и агенту о них не говорят.
     /// </summary>
     public static string Input(
         string wish,
         IReadOnlyList<FlowStage> stages,
         IReadOnlyList<NamedFlow> flows,
-        IReadOnlyList<FlowTask> tasks,
         IReadOnlyList<Performer> performers)
     {
         var text = new StringBuilder().Append("Просьба оператора:\n").Append(wish);
@@ -533,14 +519,6 @@ public static class FlowRewriteEndpoints
         foreach (var stage in stages)
             text.Append($"\n\n=== {(stage.Slug is { } slug ? $"stages/{slug}.md" : "новый, ещё не записан")}\n")
                 .Append(FlowFolder.SerializeStage(stage).TrimEnd());
-
-        text.Append("\n\nЗадачи в работе:");
-        if (tasks.Count == 0)
-            text.Append(" нет — править можно всё.");
-        foreach (var task in tasks)
-            text.Append($"\n- {task.Task}: ").Append(task.Flow is { } flow
-                ? $"идёт по сценарию «{flow}» — его и его этапы панель не запишет"
-                : "сценарий не узнан — панель не запишет ни одного из нынешних сценариев и этапов, а новые заводить можно");
 
         text.Append("\n\nИсполнители проекта:");
         if (performers.Count == 0)
