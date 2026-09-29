@@ -32,12 +32,19 @@ import { useVoiceModuleSource, VoiceContext } from './voice'
 /**
  * starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал.
  * unread — оператор ответил, а прочесть ответ некому: ни сессии VS Code, ни фоновой сессии задачи в копии нет.
+ * stopped — вопросов нет, а сессия задачи стоит без дела дольше полуминуты; terminal — сессия задачи держит
+ * свой диалог и ждёт нажатия в терминале (B-308).
  */
-export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting' | 'unread'
+export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting' | 'unread' | 'stopped' | 'terminal'
 
-/** Без оператора работа в копии стоит: ждёт его ответа или сессии, которая прочтёт ответ, — решение на B-106. */
+/**
+ * Без оператора работа в копии стоит: ждёт его ответа, сессии, которая прочтёт ответ, — решение на B-106, —
+ * или самого оператора в сессии, которая встала или ждёт нажатия, — решение на B-308.
+ */
 function needsOperator(row: WorkspaceRow) {
-  return row.status === 'waiting' || row.status === 'unread'
+  return (
+    row.status === 'waiting' || row.status === 'unread' || row.status === 'stopped' || row.status === 'terminal'
+  )
 }
 
 export type WorkspaceRow = {
@@ -57,8 +64,6 @@ export type WorkspaceRow = {
   problemsState?: ProblemsState | null
   /** Стоит у копии, от которой кит заводит новые: каталог, куда он их кладёт. */
   copiesDir?: string | null
-  /** Что делает сессия агента в копии; null или нет поля — живой сессии в ней нет. */
-  sessionState?: SessionState | null
   /** В копии идёт фоновая сессия агента — в неё есть переход из терминала. */
   backgroundSession?: boolean
   /** В копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора. */
@@ -69,34 +74,8 @@ export type WorkspaceRow = {
   formatWarning?: string | null
 }
 
-/** Состояния сессии агента в копии; отсутствие сессии состоянием не считается. */
-export type SessionState = 'working' | 'waiting' | 'idle'
-
-/**
- * Подписи состояний. «Ждёт вас в терминале» — про вопрос самой сессии, на который из панели не ответить;
- * «Ждёт оператора» в статусе копии — про вопрос в файле памяти, и это разные ожидания.
- */
-const sessionLabels: Record<SessionState, string> = {
-  working: 'сессия работает',
-  waiting: 'сессия ждёт вас в терминале',
-  idle: 'сессия стоит без дела',
-}
-
-const noSessionLabel = 'сессии нет'
-
-const startingSessionLabel = 'сессия заводится'
-
-/** Сколько точка мигает, если заведённая сессия так и не показалась в опросе. */
+/** Сколько строка стоит «Запускается», если заведённая сессия так и не показалась в опросе. */
 const sessionStartMs = 15000
-
-/**
- * Точка состояния сессии у имени копии: слова читаются подсказкой при наведении.
- * Подпись идёт меткой, а не скрытым текстом: скрытый текст попал бы в содержимое ячейки с именем копии.
- */
-function SessionDot({ state }: { state: SessionState | 'starting' | null }) {
-  const label = state === 'starting' ? startingSessionLabel : state ? sessionLabels[state] : noSessionLabel
-  return <span className={`session-dot session-${state ?? 'none'}`} role="img" aria-label={label} title={label} />
-}
 
 /** Только что заведённая копия: её строка отмечена, пока висит уведомление. */
 type Fresh = { base: string; name: string | null }
@@ -121,6 +100,16 @@ const statusLabels: Record<WorkspaceStatus, string> = {
   'in-work': 'В работе',
   waiting: 'Ждёт оператора',
   unread: 'Ответ не прочитан',
+  stopped: 'Сессия стоит',
+  terminal: 'Ждёт в терминале',
+}
+
+/**
+ * Плашка статуса копии. Точки сессии у имени копии больше нет — что делает сессия задачи, говорит сама
+ * плашка (B-308, закрывает B-88).
+ */
+function StatusBadge({ status }: { status: WorkspaceStatus | null }) {
+  return status && <span className={`status-badge status-${status}`}>{statusLabels[status]}</span>
 }
 
 const refreshIntervalMs = 3000
@@ -686,9 +675,8 @@ function WorkspacesHead() {
 function WorkspacesSkeleton({ shown }: { shown: boolean }) {
   const row = (name: number, branch: number, task: string, stage: number, badge: number) => (
     <tr className="sk-frame" key={`${name}-${branch}`}>
-      <td className="copy-col">
+      <td>
         <div className="proj">
-          <Sk w={8} h={8} className="sk-round" />
           <Sk w={name} h={11} />
         </div>
         <div className="sub">
@@ -762,7 +750,7 @@ function WorkspacesTable({
 }) {
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
-  // Копии, где панель заводит сессию задачи: точка мигает, пока сессия не покажется в опросе,
+  // Копии, где панель заводит сессию задачи: плашка «Запускается», пока сессия не покажется в опросе,
   // а отметка живёт до ответа об ошибке или до конца выдержки
   const [launching, setLaunching] = useState<ReadonlySet<string>>(() => new Set())
   const launchTimers = useRef(new Map<string, number>())
@@ -938,14 +926,8 @@ function WorkspacesTable({
               )}
               {!collapsed && group.rows.map((row) => (
             <tr key={rowKey(row)} className={isFresh(row, fresh) ? 'row-fresh' : undefined}>
-              {/* Строке с ошибкой точку ставить не о чем: копии на диске нет или её не прочитали. */}
-              <td title={row.path} className={row.error ? undefined : 'copy-col'}>
+              <td title={row.path}>
                 <div className="proj">
-                  {!row.error && (
-                    <SessionDot
-                      state={launching.has(rowKey(row)) && !row.backgroundSession ? 'starting' : (row.sessionState ?? null)}
-                    />
-                  )}
                   {copyName(row.path)}
                   {isFresh(row, fresh) && <span className="new-tag">новая</span>}
                   {/* Каталог копий приходит только у основной копии проекта — от неё заводят новые */}
@@ -968,9 +950,7 @@ function WorkspacesTable({
                     {row.progress === null ? '—' : <Progress value={row.progress} waiting={needsOperator(row)} />}
                   </td>
                   <td>
-                    {row.status && (
-                      <span className={`status-badge status-${row.status}`}>{statusLabels[row.status]}</span>
-                    )}
+                    <StatusBadge status={launching.has(rowKey(row)) && !row.backgroundSession ? 'starting' : row.status} />
                   </td>
                 </>
               )}
