@@ -593,6 +593,14 @@ test('сайдбар переключает разделы, среди них «
   expect(sidebar.getByRole('button', { name: 'Настройки' })).toHaveAttribute('aria-current', 'page')
   // Кнопки «Базы знаний» больше нет: базы живут в разделе «Настройки»
   expect(sidebar.queryByRole('button', { name: 'Базы знаний' })).not.toBeInTheDocument()
+
+  // Критерий 1 B-306: «Руководство» — последний пункт полосы, под «Настройками»
+  const items = sidebar.getAllByRole('button')
+  expect(items.at(-1)).toHaveAccessibleName('Руководство')
+  expect(items.at(-2)).toHaveAccessibleName('Настройки')
+  fireEvent.click(sidebar.getByRole('button', { name: 'Руководство' }))
+  expect(await screen.findByRole('heading', { name: 'Руководство', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Страницы руководства' })).toBeInTheDocument()
 })
 
 const checked = (baseProblems: number, problems: number): Partial<WorkspaceRow> => ({
