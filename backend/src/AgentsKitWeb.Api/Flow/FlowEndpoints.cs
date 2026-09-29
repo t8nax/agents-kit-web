@@ -264,6 +264,9 @@ public static class FlowEndpoints
         return number is not null && BacklogNumber.Letters(number) == letters ? number : title;
     }
 
+    /// <summary>Этапы флоу оператора с диска: по ним раздел «Исполнители» узнаёт, кого из исполнителей зовут этапы.</summary>
+    internal static List<FlowStage> Stages(BaseLayout layout) => Stages(Files(layout.Personal));
+
     private static List<FlowStage> Stages(IEnumerable<FlowFileBytes> files) =>
         files.Where(f => f.Path.StartsWith(FlowFolder.StagesFolder + "/"))
             .Select(f => FlowFolder.ParseStage(Text(f.Bytes), System.IO.Path.GetFileNameWithoutExtension(f.Path)))

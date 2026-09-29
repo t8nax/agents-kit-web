@@ -542,6 +542,206 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.DoesNotContain("\n", text.Replace("\r\n", ""));
     }
 
+    [Fact]
+    public async Task Performers_DeleteRemovesTheFileInOneCommit()
+    {
+        var basePath = CreateBase("app-knowledge");
+        await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Описание", null, null, "Тело", null));
+        await Save(basePath, new SavePerformerRequest(basePath, "designer", "Описание", null, null, "Тело", null));
+        var personal = TestLayout.Personal(basePath);
+        var before = Run(personal, "rev-list", "--count", "HEAD").Trim();
+
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(["designer.md"], Directory.GetFiles(TestLayout.Agents(basePath)).Select(Path.GetFileName));
+        // Удаление — одна запись в истории базы, и в рабочем дереве после неё ничего не ждёт.
+        Assert.Equal(int.Parse(before) + 1, int.Parse(Run(personal, "rev-list", "--count", "HEAD").Trim()));
+        Assert.Equal("Исполнитель reviewer удалён из панели", Run(personal, "log", "-1", "--format=%s").Trim());
+        Assert.Empty(Status(personal));
+        Assert.Equal(["designer"], (await Get(basePath)).Single().Performers.Select(p => p.Name));
+    }
+
+    [Fact]
+    public async Task Performers_DeleteFindsTheFileByTheNameWrittenInside()
+    {
+        var basePath = CreateBase("app-knowledge");
+        // Заведён в базе руками и не закоммичен: файл назван одним, а зовут исполнителя другим именем.
+        Performer(basePath, "foo", "---\nname: reviewer\n---\n\nТело.\n");
+
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.False(File.Exists(Path.Combine(TestLayout.Agents(basePath), "foo.md")));
+        Assert.Empty(Status(TestLayout.Personal(basePath)));
+    }
+
+    [Fact]
+    public async Task Performers_DeleteOfAnUnknownNameChangesNothing()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+
+        var response = await Delete(basePath, "designer");
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        // Назван отказ: окно отличает «исполнителя нет» от базы, которой нет в списке панели.
+        Assert.Equal("no-performer", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.True(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+    }
+
+    [Theory]
+    // Исполнитель этапа и помощник оркестратора: этап, зовущий удалённого, агент бы не выполнил (B-83).
+    [InlineData("# Дизайн\n\nисполнитель: reviewer\nвыход: макет\n")]
+    [InlineData("# Дизайн\n\nисполнитель: оркестратор\nпомощники: scout, reviewer\nвыход: макет\n")]
+    public async Task Performers_DeleteRefusesOneCalledByAStage(string stage)
+    {
+        var basePath = CreateBase("app-knowledge");
+        await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Описание", null, null, "Тело", null));
+        Stage(basePath, "design", stage);
+
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var rejected = (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!;
+        Assert.Equal(("called-by-flow", "Дизайн"), (rejected.Problem, rejected.Detail));
+        Assert.True(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+    }
+
+    [Fact]
+    public async Task Performers_ListNamesTheStagesThatCallEachPerformer()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+        Performer(basePath, "scout", "---\nname: scout\n---\n\nТело.\n");
+        Stage(basePath, "design", "# Дизайн\n\nисполнитель: reviewer\nвыход: макет\n");
+        Stage(basePath, "review", "# Ревью\n\nисполнитель: оркестратор\nпомощники: reviewer\nвыход: вердикт\n");
+
+        var performers = (await Get(basePath)).Single().Performers;
+
+        Assert.Equal(["Дизайн", "Ревью"], performers.Single(p => p.Name == "reviewer").CalledBy!);
+        Assert.Empty(performers.Single(p => p.Name == "scout").CalledBy!);
+    }
+
+    [Fact]
+    public async Task Performers_DeleteRefusesBaseOfNewerFormat()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+        TestLayout.NewerFormat(basePath);
+
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("newer-format", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.True(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+    }
+
+    [Fact]
+    public async Task Performers_DeleteRefusedByHook_RestoresTheFileAndLeavesNothingStaged()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое тело.\n");
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
+        var bytes = File.ReadAllBytes(file);
+        TestGit.Run(personal, "add", "--", "agents/reviewer.md");
+        TestGit.Run(personal, "commit", "-m", "исполнитель");
+        File.WriteAllText(Path.Combine(personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'сверка: база не приняла' >&2\nexit 1\n");
+
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var rejected = (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!;
+        Assert.Equal("not-committed", rejected.Problem);
+        Assert.Contains("сверка: база не приняла", rejected.Detail);
+        // Исполнитель остался в базе, каким был, и отказанное удаление не ждёт в индексе.
+        Assert.Equal(bytes, File.ReadAllBytes(file));
+        Assert.Empty(Status(personal));
+    }
+
+    [Fact]
+    public async Task Performers_DeleteAbortedWhileTheBaseRefusesTheCommit_RestoresTheFileAndLeavesNothingStaged()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое тело.\n");
+        TestGit.Run(personal, "add", "--", "agents/reviewer.md");
+        TestGit.Run(personal, "commit", "-m", "исполнитель");
+        var (started, release) = HoldCommit(personal);
+        using var abort = new CancellationTokenSource();
+
+        var deleting = Factory(basePath).CreateClient().DeleteAsync(
+            $"/api/performers?base={Uri.EscapeDataString(basePath)}&name=reviewer", abort.Token);
+        await Until(() => File.Exists(started));
+        abort.Cancel();
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
+        // Пока хук держит коммит, файла на месте нет; откат вернёт его и опустошит индекс.
+        Assert.False(File.Exists(file));
+        File.WriteAllText(release, "");
+        await Aborted(deleting);
+
+        await Until(() => File.Exists(file) && Status(personal).Length == 0);
+        Assert.Equal("Первое тело.", PerformerFile.Parse(File.ReadAllText(file)).Prompt);
+        Assert.Equal("исполнитель", Run(personal, "log", "-1", "--format=%s").Trim());
+    }
+
+    [Fact]
+    public async Task Performers_DeleteRemovesEveryFileOfTheName()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        // Два файла называют одно имя: один назван им, у другого оно записано внутри.
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое.\n");
+        Performer(basePath, "foo", "---\nname: reviewer\n---\n\nВторое.\n");
+        TestGit.Run(personal, "add", "--", "agents/reviewer.md", "agents/foo.md");
+        TestGit.Run(personal, "commit", "-m", "исполнители");
+
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        // Иначе исполнитель с этим именем остался бы в списке, хотя удаление «прошло».
+        Assert.Empty((await Get(basePath)).Single().Performers);
+        // Оба файла уходят одним коммитом: между двумя база стояла бы с половиной удаления.
+        Assert.Equal(["Исполнитель reviewer удалён из панели", "исполнители"], Run(personal, "log", "-2", "--format=%s").Trim().Split('\n'));
+        Assert.Empty(Status(personal));
+    }
+
+    [Fact]
+    public async Task Performers_DeleteChangesNothingWhenGitIsSilent()
+    {
+        // Git не отвечает: не узнать, знает ли он файл, — и отслеживаемый ушёл бы с диска без коммита.
+        var basePath = CreateBase("app-knowledge", git: false);
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+
+        var response = await Delete(basePath, "reviewer");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("git-silent", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
+        Assert.True(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
+    }
+
+    [Fact]
+    public async Task Performers_StageWithoutTitleIsNamedByItsFile()
+    {
+        var basePath = CreateBase("app-knowledge");
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nТело.\n");
+        // Заголовок без текста: ключи этапа читаются, а названия у него нет.
+        Stage(basePath, "design", "# \n\nисполнитель: reviewer\nвыход: макет\n");
+
+        var performer = (await Get(basePath)).Single().Performers.Single();
+
+        // Пустое место в подсказке этап бы не нашло.
+        Assert.Equal(["design"], performer.CalledBy!);
+    }
+
+    private static void Stage(string basePath, string slug, string text)
+    {
+        var directory = Path.Combine(TestLayout.Personal(basePath), "flow", "stages");
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, slug + ".md"), text);
+    }
+
     private static void Performer(string basePath, string name, string text)
     {
         var directory = TestLayout.Agents(basePath);
@@ -618,6 +818,13 @@ public sealed class PerformersEndpointsTests : IDisposable
     {
         var factory = Factory(basePath);
         return await factory.CreateClient().PostAsJsonAsync("/api/performers", request);
+    }
+
+    private async Task<HttpResponseMessage> Delete(string basePath, string name)
+    {
+        var factory = Factory(basePath);
+        return await factory.CreateClient().DeleteAsync(
+            $"/api/performers?base={Uri.EscapeDataString(basePath)}&name={Uri.EscapeDataString(name)}");
     }
 
     public void Dispose()
