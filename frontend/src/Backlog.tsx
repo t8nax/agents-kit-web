@@ -329,7 +329,7 @@ export default function Backlog({
               </button>
             ))}
           </div>
-          <span className="backlog-head-sep" aria-hidden="true" />
+          <span className="head-sep" aria-hidden="true" />
           <button
             type="button"
             className="bases-btn bases-btn-add"

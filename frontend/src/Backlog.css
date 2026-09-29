@@ -35,13 +35,6 @@
   gap: 8px;
 }
 
-.backlog-head-sep {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background: var(--border-subtle);
-}
-
 /* Строка задачи трекера — ссылка наружу, а выглядит строкой записи. */
 a.entry {
   text-decoration: none;
