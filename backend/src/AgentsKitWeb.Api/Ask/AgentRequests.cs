@@ -248,8 +248,9 @@ public sealed class AgentRequests
     public const string Backlog = "backlog";
     public const string Flow = "flow";
     public const string Performer = "performer";
+    public const string Report = "report";
 
-    public static readonly IReadOnlyList<string> Kinds = [Ask, Backlog, Flow, Performer];
+    public static readonly IReadOnlyList<string> Kinds = [Ask, Backlog, Flow, Performer, Report];
 
     private readonly object _gate = new();
     private readonly Dictionary<string, AgentRequest> _requests = new(StringComparer.Ordinal);

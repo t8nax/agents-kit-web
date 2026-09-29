@@ -137,6 +137,18 @@ public sealed class OperatorEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Ответ агенту в базе нового формата открыт — решение оператора на B-281.
+    public async Task Answers_BaseOfNewerFormat_AreWritten()
+    {
+        TestLayout.NewerFormat(_base);
+
+        var response = await PostAnswers(_base, _copy, ("Подтвердить критерий?", "принимаю"));
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("принимаю", WorkMemory.Parse(await File.ReadAllTextAsync(_memoryPath)).Questions[0].Answer);
+    }
+
+    [Fact]
     public async Task Answers_AttachedFileGoesToBaseArtifactsAndItsAddressIntoAnswer()
     {
         var response = await PostAnswers(_base, _copy,

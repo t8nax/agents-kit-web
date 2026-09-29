@@ -92,8 +92,10 @@ test('«Настройки» — раздел в ряду остальных, д
   expect(settingsBox?.y).toBe((problemsBox?.y ?? 0) + (problemsBox?.height ?? 0))
   expect(await settings.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe('0px')
 
-  // Tab доходит до раздела: фокус разворачивает сайдбар, Enter открывает раздел
-  for (let presses = 0; presses < 10 && !(await settings.evaluate((element) => element === document.activeElement)); presses++) {
+  // Tab доходит до раздела: фокус разворачивает сайдбар, Enter открывает раздел. Нажатий не больше, чем кнопок
+  // в шапке и сайдбаре: новый раздел в сайдбаре предел не сдвигает.
+  const stops = await page.locator('header button, nav button').count()
+  for (let presses = 0; presses < stops && !(await settings.evaluate((element) => element === document.activeElement)); presses++) {
     await page.keyboard.press('Tab')
   }
   await expect(settings).toBeFocused()

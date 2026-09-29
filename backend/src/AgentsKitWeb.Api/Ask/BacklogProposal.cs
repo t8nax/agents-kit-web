@@ -5,14 +5,16 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Ask;
 
 /// <summary>
-/// Одна правка предложения. Kind — change (запись станет Entry) или delete (запись Entry уходит; Into — в какую
-/// запись она влита при объединении). Text — новый текст записи в файле, Original — её текст, каким его видел
-/// агент: по нему «Сохранить» узнаёт, что запись успели поменять.
+/// Одна правка предложения. Kind — change (запись станет Entry), delete (запись Entry уходит; Into — в какую
+/// запись она влита при объединении) или track (запись уходит задачей в трекер проекта, B-286; Draft — задача, какой
+/// её заведёт «Сохранить»: карточка показывает её, а не текст записи). Text — новый текст записи в файле, Original —
+/// её текст, каким его видел агент: по нему «Сохранить» узнаёт, что запись успели поменять.
 /// </summary>
-public sealed record BacklogChange(string Kind, string Number, BacklogEntry Entry, string? Into = null)
+public sealed record BacklogChange(string Kind, string Number, BacklogEntry Entry, string? Into = null, TrackerDraft? Draft = null)
 {
     public const string Change = "change";
     public const string Delete = "delete";
+    public const string Track = "track";
 
     [JsonIgnore]
     public string? Text { get; init; }
@@ -35,6 +37,12 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
     private static readonly Regex DeleteCommand = new(@"^удалить\s+(?<number>\S+)(?:\s+в\s+(?<into>\S+))?$");
 
     private static readonly Regex ChangeCommand = new(@"^изменить\s+(?<number>\S+)$");
+
+    private static readonly Regex TrackCommand = new(@"^в\s+трекер\s+(?<number>\S+)$");
+
+    /// <summary>В предложении есть перенос записи в трекер: «Сохранить» заводит задачу до записи файла.</summary>
+    [JsonIgnore]
+    public bool Tracks => Changes.Any(c => c.Kind == BacklogChange.Track);
 
     /// <summary>Ответ агента без блоков предложения и сами блоки по порядку.</summary>
     public static (string Text, IReadOnlyList<string> Blocks) Split(string answer)
@@ -80,6 +88,18 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
                 continue;
             }
 
+            if (TrackCommand.Match(command) is { Success: true } track)
+            {
+                var number = BacklogNumber.Normalize(track.Groups["number"].Value);
+                if (Find(entries, number) is not { } original)
+                    return (null, $"Записи {track.Groups["number"].Value} в бэклоге нет");
+                changes.Add(new BacklogChange(BacklogChange.Track, number!, Entry(header, original.Text), Draft: BacklogTracker.Draft(number!, original.Text, Backlog.Declared(file)))
+                {
+                    Original = original.Text,
+                });
+                continue;
+            }
+
             if (ChangeCommand.Match(command) is { Success: true } change)
             {
                 var number = BacklogNumber.Normalize(change.Groups["number"].Value);
@@ -108,15 +128,16 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
 
         if (changes.GroupBy(c => c.Number).FirstOrDefault(g => g.Count() > 1) is { } twice)
             return (null, $"Запись {twice.Key} названа в предложении дважды");
-        var deleted = changes.Where(c => c.Kind == BacklogChange.Delete).Select(c => c.Number).ToHashSet();
+        // Уходит из бэклога и запись, перенесённая в трекер: влить в неё другую нельзя так же, как в удалённую.
+        var deleted = changes.Where(c => c.Kind != BacklogChange.Change).Select(c => c.Number).ToHashSet();
         if (changes.FirstOrDefault(c => c.Into is not null && deleted.Contains(c.Into)) is { } lost)
             return (null, $"Запись {lost.Number} уходит в {lost.Into}, а {lost.Into} удаляется в том же предложении");
         return (new BacklogProposal(Guid.NewGuid().ToString("N"), changes), null);
     }
 
     /// <summary>
-    /// Файл с правками предложения: запись меняется на месте, удалённая вырезается вместе с пустыми строками
-    /// после неё, остальное остаётся байт в байт. null и номер — запись в файле уже не та, что видел агент.
+    /// Файл с правками предложения: запись меняется на месте, удалённая и ушедшая в трекер вырезается вместе
+    /// с пустыми строками после неё, остальное остаётся байт в байт. null и номер — запись в файле уже не та, что видел агент.
     /// </summary>
     public (string? Text, string? Diverged) Apply(string file)
     {

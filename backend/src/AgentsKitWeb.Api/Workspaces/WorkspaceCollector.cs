@@ -28,6 +28,7 @@ public static class WorkspaceStatus
 /// BackgroundSession — в копии идёт фоновая сессия агента, и в неё есть переход из терминала.
 /// Letters — буквы номеров проекта (Backlog.Letters): по ним фронт отделяет номер задачи от её заголовка.
 /// VsCodeSession — в копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора.
+/// FormatWarning — у всех строк базы нового формата (BaseLayout.NewerFormat): фронт ставит его под заголовком группы.
 /// AnswerUnread — в памяти лежит ответ оператора, который сессия ещё не вобрала; наружу не отдаётся,
 /// из него AgentSessions.Annotate ставит статус Unread.
 /// </summary>
@@ -49,7 +50,8 @@ public sealed record WorkspaceRow(
     bool BackgroundSession = false,
     string? Letters = null,
     bool VsCodeSession = false,
-    [property: JsonIgnore] bool AnswerUnread = false);
+    [property: JsonIgnore] bool AnswerUnread = false,
+    string? FormatWarning = null);
 
 public static class WorkspaceCollector
 {
@@ -129,7 +131,7 @@ public static class WorkspaceCollector
                 rows.Add(FromMemory(project, basePath, memory.Copy!, memory.Branch, memory) with { Letters = letters });
         }
 
-        return rows;
+        return layout.FormatWarning is { } warning ? rows.Select(r => r with { FormatWarning = warning }).ToList() : rows;
     }
 
     /// <summary>

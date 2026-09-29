@@ -14,6 +14,7 @@ import { notificationsActive, notifyStatusChange } from './notifications'
 import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
+import Reports, { ReportIcon } from './Reports'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
@@ -64,6 +65,8 @@ export type WorkspaceRow = {
   vsCodeSession?: boolean
   /** Буквы номеров проекта: по ним номер задачи отделяется от заголовка; null или нет поля — букв панель не знает. */
   letters?: string | null
+  /** База нового формата кита: строки видны, но панель предупреждает, что знает её не всю, — B-281. */
+  formatWarning?: string | null
 }
 
 /** Состояния сессии агента в копии; отсутствие сессии состоянием не считается. */
@@ -140,6 +143,7 @@ type Section =
   | 'performers'
   | 'sessions'
   | 'usage'
+  | 'reports'
   | 'problems'
   | 'settings'
 
@@ -267,7 +271,15 @@ function App() {
               setAsking(true)
               return
             }
-            setSection(request.kind === 'backlog' ? 'backlog' : request.kind === 'flow' ? 'flow' : 'performers')
+            setSection(
+              request.kind === 'backlog'
+                ? 'backlog'
+                : request.kind === 'flow'
+                  ? 'flow'
+                  : request.kind === 'report'
+                    ? 'reports'
+                    : 'performers',
+            )
             setOpenRequest({ kind: request.kind, base: request.base, subject: request.subject, at: Date.now() })
           }}
         />
@@ -350,6 +362,13 @@ function App() {
             <Sessions />
           ) : section === 'usage' ? (
             <Usage />
+          ) : section === 'reports' ? (
+            // Возврат к просьбе открывает раздел заново: он встаёт на проекте просьбы.
+            <Reports
+              key={openRequest?.kind === 'report' ? openRequest.at : 'reports'}
+              reportFor={openRequest?.kind === 'report' ? openRequest.base : null}
+              onProblems={() => setSection('problems')}
+            />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
           ) : (
@@ -493,6 +512,15 @@ function Sidebar({
         {/* Расход стоит за сессиями: это тоже про происходящее сейчас, только про его цену */}
         <SideItem label="Расход" expanded={expanded} active={section === 'usage'} onClick={() => onSection('usage')}>
           <UsageIcon />
+        </SideItem>
+        {/* Отчёты стоят за расходом: это оценка того, как устроена работа, а не сама работа */}
+        <SideItem
+          label="Отчёты"
+          expanded={expanded}
+          active={section === 'reports'}
+          onClick={() => onSection('reports')}
+        >
+          <ReportIcon />
         </SideItem>
         <SideItem
           label="Проблемы баз"
@@ -852,6 +880,7 @@ function WorkspacesTable({
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
           const waiting = group.rows.some(needsOperator)
+          const formatWarning = group.rows.find((row) => row.formatWarning)?.formatWarning
           return (
             <tbody key={group.base}>
               <tr className="group-row">
@@ -882,6 +911,18 @@ function WorkspacesTable({
                   </div>
                 </th>
               </tr>
+              {/* База нового формата видна, как обычная, а предупреждение — строкой под шапкой группы, и у свёрнутой
+                  тоже: оно о базе, а не о копиях — B-281, вариант макета Б */}
+              {formatWarning && (
+                <tr className="format-row">
+                  <td colSpan={columnCount}>
+                    <div className="format-line" role="status">
+                      <WarningIcon />
+                      {formatWarning}
+                    </div>
+                  </td>
+                </tr>
+              )}
               {!collapsed && group.rows.map((row) => (
             <tr key={rowKey(row)} className={isFresh(row, fresh) ? 'row-fresh' : undefined}>
               {/* Строке с ошибкой точку ставить не о чем: копии на диске нет или её не прочитали. */}

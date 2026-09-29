@@ -105,3 +105,22 @@ test('просьба об исполнителе названа в шапке с
     await screen.findByRole('button', { name: /Чудо-Юдо заводит исполнителя Agents Kit Web/ }),
   ).toBeInTheDocument()
 })
+
+test('разбор флоу для отчёта назван в шапке своими словами', async () => {
+  stubRequests([
+    {
+      kind: 'report',
+      id: 'r4',
+      base: 'D:\\Projects\\app-knowledge',
+      project: 'Agents Kit Web',
+      text: 'Разбор флоу проекта «Agents Kit Web»',
+      elapsedMs: 4000,
+      state: 'running',
+    },
+  ])
+  const onOpen = vi.fn()
+  render(<AgentBar onOpen={onOpen} />)
+
+  fireEvent.click(await screen.findByRole('button', { name: /Чудо-Юдо строит отчёт о флоу Agents Kit Web/ }))
+  expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ kind: 'report' }))
+})

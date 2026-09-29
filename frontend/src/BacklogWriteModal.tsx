@@ -6,9 +6,12 @@ import { payload, useAttachments, type Attachment, type SentFile } from './attac
 import EntryArtifacts from './EntryArtifacts'
 import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
+import { FormatNotice } from './NewerFormat'
 import { useAgentConversation } from './agentConversation'
 import { appendSpoken } from './voice'
 import VoiceButton from './VoiceButton'
+import { issueLabel, type TrackerDraft, type TrackerIssue } from './tracker'
+import { OutIcon } from './TrackerGroup'
 import './Modal.css'
 import './ReplyModal.css'
 import './AskModal.css'
@@ -17,16 +20,25 @@ import './BacklogWriteModal.css'
 // Имя агента, который ведёт бэклог и отвечает по базе, — выбор оператора.
 export const AGENT_NAME = 'Чудо-Юдо'
 
-export type WriteBase = { base: string; project: string }
+/**
+ * closed — почему в бэклог проекта писать нельзя (база нового формата, B-281): проект выбирается, но окно ставит под
+ * шапкой плашку, а просьбу не отправить — замечание оператора на макете.
+ */
+export type WriteBase = { base: string; project: string; closed?: string | null }
 
 export type WrittenEntry = BacklogEntry
 
-/** Правка предложения: change — запись станет entry, delete — запись entry уходит (into — куда влита). */
+/**
+ * Правка предложения: change — запись станет entry, delete — запись entry уходит (into — куда влита), track — запись
+ * уходит задачей в трекер проекта (B-286).
+ */
 export type ProposalChange = {
-  kind: 'change' | 'delete'
+  kind: 'change' | 'delete' | 'track'
   number: string
   entry: WrittenEntry
   into?: string | null
+  /** У переноса — задача, какой её заведёт «Сохранить»: описание и файлы, которые в неё не попадут. */
+  draft?: TrackerDraft | null
 }
 
 export type Proposal = { id: string; changes: ProposalChange[] }
@@ -35,7 +47,8 @@ export type Proposal = { id: string; changes: ProposalChange[] }
 export type WriteEvent =
   | { type: 'reply'; text: string; number?: string | null; files?: string[] | null }
   | { type: 'step'; text: string }
-  | { type: 'note'; text: string }
+  // issues — задачи трекера, заведённые брошенным предложением: записи о них остались в бэклоге
+  | { type: 'note'; text: string; issues?: Record<string, TrackerIssue> | null }
   | { type: 'stopped'; text: string }
   | {
       type: 'answer'
@@ -46,7 +59,8 @@ export type WriteEvent =
       proposal?: Proposal | null
     }
   | { type: 'error'; text: string; output?: string | null; entries?: WrittenEntry[] | null }
-  | { type: 'saved'; text: string; commit?: string | null; proposalId: string }
+  // issues — задачи трекера, в которые ушли записи предложения: номер записи → задача
+  | { type: 'saved'; text: string; commit?: string | null; proposalId: string; issues?: Record<string, TrackerIssue> | null }
   | { type: 'refused'; text: string; proposalId: string }
 
 /**
@@ -84,12 +98,21 @@ export default function BacklogWriteModal({
   onEntries,
   onSaved,
 }: Props) {
-  const [chosen, setChosen] = useState<string | null>(subject?.base ?? initialBase ?? bases[0]?.base ?? null)
+  const writable = (base: string | null | undefined) => (base && !bases.find((b) => b.base === base)?.closed ? base : null)
+  const [chosen, setChosen] = useState<string | null>(
+    subject?.base ?? writable(initialBase) ?? bases.find((b) => !b.closed)?.base ?? bases[0]?.base ?? null,
+  )
   // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть.
   const [text, setText] = useState<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
-  const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
+  // issues — задачи трекера, уже заведённые этим «Сохранить», хотя бэклог не записан
+  const [saveError, setSaveError] = useState<{
+    id: string
+    text: string
+    output?: string | null
+    issues?: Record<string, TrackerIssue> | null
+  } | null>(null)
   // Переспрос на месте поля ввода: несохранённое предложение не уходит молча — решение оператора на B-228.
   const [asking, setAsking] = useState<Asking | null>(null)
   // Запись, про которую окно: после «Новой переписки» окно от «Изменить» становится общим окном её проекта.
@@ -133,6 +156,7 @@ export default function BacklogWriteModal({
   const value = text ?? retry ?? ''
   const base = conversation.base ?? chosen
   const project = bases.find((b) => b.base === base)?.project ?? ''
+  const closed = bases.find((b) => b.base === base)?.closed ?? null
   const firstReply = events.find((e) => e.type === 'reply')
   const aboutNumber = own?.entry.number ?? (firstReply?.type === 'reply' ? (firstReply.number ?? null) : null)
   const savedCount = events.filter((e) => e.type === 'saved').length
@@ -140,7 +164,7 @@ export default function BacklogWriteModal({
   // После «Сохранить» запись разговора показывается такой, какой её записали, а удалённая — отметкой «удалена».
   // Что с ней стало, говорит сохранённое предложение, а не список раздела: тот мог и не перечитаться.
   const saved = savedChange(events, aboutNumber)
-  const aboutGone = saved?.kind === 'delete'
+  const aboutGone = saved?.kind === 'delete' || saved?.kind === 'track'
   const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (own?.entry ?? current)
 
   // Закрытое окно разговор не трогает: открытое снова, оно показывает его на месте, а кончает его только
@@ -176,6 +200,8 @@ export default function BacklogWriteModal({
   }, [base, savedCount, hidden, onSaved])
 
   const states = proposalStates(events)
+  // Задачи трекера, заведённые сохранённым предложением: по ним карточка переноса показывает номер задачи ссылкой
+  const issues = new Map(events.flatMap((e) => (e.type === 'saved' ? [[e.proposalId, e.issues ?? {}] as const] : [])))
   const pendingProposal =
     events
       .flatMap((e) => (e.type === 'answer' && e.proposal ? [e.proposal] : []))
@@ -274,8 +300,13 @@ export default function BacklogWriteModal({
       if (response.status === 404) setSaveError({ id, text: 'Предложение уже не ждёт сохранения' })
       else if (!response.ok) setSaveError({ id, text: 'Панель не сохранила изменения' })
       else {
-        const saved = (await response.json()) as { commit?: string | null; error?: string | null; output?: string | null }
-        if (saved.error) setSaveError({ id, text: saved.error, output: saved.output })
+        const saved = (await response.json()) as {
+          commit?: string | null
+          error?: string | null
+          output?: string | null
+          issues?: Record<string, TrackerIssue> | null
+        }
+        if (saved.error) setSaveError({ id, text: saved.error, output: saved.output, issues: saved.issues })
       }
     } catch {
       setSaveError({ id, text: 'Нет связи с API' })
@@ -371,8 +402,11 @@ export default function BacklogWriteModal({
             <strong>Не сохранено</strong>
             <span>{saveError.text}</span>
             {saveError.output && <pre>{saveError.output}</pre>}
+            <IssueLinks issues={saveError.issues} />
           </div>
         )}
+
+        {closed && <FormatNotice text={closed} />}
 
         <div className="reply-feed talk-feed" ref={feed}>
           {waiting && <p className="modal-message">Загрузка…</p>}
@@ -381,7 +415,7 @@ export default function BacklogWriteModal({
               <p className="talk-label">Запись</p>
               <ul className="write-entries">
                 {aboutGone ? (
-                  <EntryCard entry={about} badge="удалена" tone="added" removed />
+                  <EntryCard entry={about} badge={saved?.kind === 'track' ? 'перенесена' : 'удалена'} tone="added" removed />
                 ) : (
                   <EntryCard entry={about} base={base} />
                 )}
@@ -404,6 +438,7 @@ export default function BacklogWriteModal({
                 return (
                   <p className="ask-note" key={i}>
                     {event.text}
+                    {event.type === 'note' && <IssueLinks issues={event.issues} />}
                   </p>
                 )
               case 'answer':
@@ -412,6 +447,7 @@ export default function BacklogWriteModal({
                     key={i}
                     event={event}
                     state={event.proposal ? (states.get(event.proposal.id) ?? 'replaced') : null}
+                    issues={event.proposal ? (issues.get(event.proposal.id) ?? {}) : {}}
                   />
                 )
               case 'error':
@@ -493,7 +529,7 @@ export default function BacklogWriteModal({
               value={value}
               placeholder={placeholder}
               // Пока панель пишет предложение, новая просьба не уходит: агент застал бы бэклог посреди записи.
-              disabled={running || waiting || saving !== null}
+              disabled={running || waiting || saving !== null || closed !== null}
               onChange={(e) => setText(e.target.value)}
               onPaste={attach.onPaste}
               onKeyDown={(e) => {
@@ -517,12 +553,13 @@ export default function BacklogWriteModal({
               />
               <AttachButton
                 label="Приложить файл"
-                disabled={running || waiting || saving !== null}
+                disabled={running || waiting || saving !== null || closed !== null}
                 onFiles={(files) => void attach.add(files)}
               />
               <button
                 type="button"
                 className="btn composer-send"
+                // Новая переписка — не просьба к агенту: ею уходят и с базы, которую кит перевёл посреди разговора (ревью B-281)
                 disabled={!talking || running || waiting || saving !== null}
                 onClick={newTalk}
               >
@@ -536,7 +573,7 @@ export default function BacklogWriteModal({
                 <button
                   type="button"
                   className="btn btn-primary composer-send"
-                  disabled={!base || !value.trim() || waiting || saving !== null}
+                  disabled={!base || !value.trim() || waiting || saving !== null || closed !== null}
                   onClick={() => void submit()}
                 >
                   <SendIcon />
@@ -555,9 +592,11 @@ export default function BacklogWriteModal({
 function Answer({
   event,
   state,
+  issues,
 }: {
   event: Extract<WriteEvent, { type: 'answer' }>
   state: ProposalState | null
+  issues: Record<string, TrackerIssue>
 }) {
   const entries = event.entries ?? []
   const proposal = event.proposal ?? null
@@ -573,7 +612,7 @@ function Answer({
       )}
       {proposal && state && (
         <div className={`talk-group ${state === 'refused' || state === 'replaced' ? 'is-void' : ''}`}>
-          <ProposalEntries proposal={proposal} state={state} />
+          <ProposalEntries proposal={proposal} state={state} issues={issues} />
         </div>
       )}
     </div>
@@ -581,7 +620,15 @@ function Answer({
 }
 
 /** Записи предложения: объединение — «Останется» и «Уйдёт в …», остальное — списком. */
-function ProposalEntries({ proposal, state }: { proposal: Proposal; state: ProposalState }) {
+function ProposalEntries({
+  proposal,
+  state,
+  issues,
+}: {
+  proposal: Proposal
+  state: ProposalState
+  issues: Record<string, TrackerIssue>
+}) {
   const targets = [...new Set(proposal.changes.filter((c) => c.kind === 'delete' && c.into).map((c) => c.into!))]
   const merged = new Set([
     ...targets,
@@ -592,9 +639,13 @@ function ProposalEntries({ proposal, state }: { proposal: Proposal; state: Propo
     <>
       {rest.length > 0 && (
         <ul className="write-entries" aria-label="Изменения">
-          {rest.map((change) => (
-            <ChangeCard key={change.number} change={change} state={state} />
-          ))}
+          {rest.map((change) =>
+            change.kind === 'track' ? (
+              <TrackCard key={change.number} change={change} state={state} issue={issues[change.number] ?? null} />
+            ) : (
+              <ChangeCard key={change.number} change={change} state={state} />
+            ),
+          )}
         </ul>
       )}
       {targets.map((target) => {
@@ -647,6 +698,87 @@ function ChangeCard({ change, state }: { change: ProposalChange; state: Proposal
       removed={removed}
       struck={state === 'refused'}
     />
+  )
+}
+
+/**
+ * Перенос записи в трекер (макет B-286, карточка А): пока ждёт — описание будущей задачи, как его заведёт «Сохранить»,
+ * со строкой о файлах, которые в задачу не попадут; после «Сохранить» — заголовок и номер задачи плашкой-ссылкой рядом
+ * с отметкой, без вложенной рамки.
+ */
+function TrackCard({ change, state, issue }: { change: ProposalChange; state: ProposalState; issue: TrackerIssue | null }) {
+  const { entry } = change
+  const body = change.draft ? change.draft.body : entry.text
+  const files = change.draft?.files ?? (entry.artifacts ?? []).filter((a) => !/^https?:\/\//i.test(a.address))
+  const badge = { pending: 'перенести', saved: 'перенесена', refused: 'отказались', replaced: 'заменено' }[state]
+  const open = state === 'pending' || state === 'replaced' || state === 'refused'
+  return (
+    <li className={`write-entry ${state === 'refused' ? 'is-struck' : ''}`}>
+      <div className="write-entry-head">
+        <span className="entry-num">{entry.number}</span>
+        <InlineMarkdown className="write-entry-title" text={entry.title} />
+        {state === 'saved' && issue && (
+          <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
+            {issueLabel(issue)}
+            <OutIcon />
+          </a>
+        )}
+        <span className={`change-badge ${state === 'saved' ? 'added' : ''}`}>{badge}</span>
+      </div>
+      {open &&
+        (body ? (
+          <Markdown className="write-entry-text" text={body} />
+        ) : (
+          <p className="write-entry-text entry-no-text">Описания нет</p>
+        ))}
+      {open && files.length > 0 && (
+        <p className="write-entry-warn">
+          <WarnIcon />
+          <span>
+            {files.length === 1 ? 'Файл ' : 'Файлы '}
+            {files.map((file, i) => (
+              <span key={file.address}>
+                {i > 0 && (i === files.length - 1 ? ' и ' : ', ')}
+                <span className="mono">{file.address.split('/').pop()}</span>
+              </span>
+            ))}
+            {files.length === 1 ? ' в задачу не попадёт и удалится вместе с записью.' : ' в задачу не попадут и удалятся вместе с записью.'}
+          </span>
+        </p>
+      )}
+    </li>
+  )
+}
+
+/**
+ * Задачи трекера, заведённые, хотя бэклог не записан: номер записи и номер задачи плашкой-ссылкой, как на карточке
+ * переноса, — по ним оператор найдёт задачу и уберёт запись (ревью B-286).
+ */
+function IssueLinks({ issues }: { issues?: Record<string, TrackerIssue> | null }) {
+  const list = Object.entries(issues ?? {})
+  if (list.length === 0) return null
+  return (
+    <span className="talk-issues">
+      {list.map(([number, issue]) => (
+        <span className="talk-issue" key={number}>
+          <span className="entry-num">{number}</span>
+          <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
+            {issueLabel(issue)}
+            <OutIcon />
+          </a>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function WarnIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
   )
 }
 
@@ -746,9 +878,11 @@ function pendingParts(proposal: Proposal) {
   const targets = new Set(into.map((c) => c.into!))
   const changes = proposal.changes.filter((c) => c.kind === 'change' && !targets.has(c.number)).length
   const deletes = proposal.changes.filter((c) => c.kind === 'delete' && !c.into).length
+  const tracks = proposal.changes.filter((c) => c.kind === 'track').length
   const parts = [
     changes > 0 && `изменить ${changes}`,
     deletes > 0 && `удалить ${deletes}`,
+    tracks > 0 && `перенести ${tracks} в трекер`,
     ...[...targets].map((target) => {
       const count = 1 + into.filter((c) => c.into === target).length
       return `объединить ${count} ${plural(count, 'запись', 'записи', 'записей')} в одну`

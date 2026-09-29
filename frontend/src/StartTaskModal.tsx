@@ -8,6 +8,7 @@ import { AttachError } from './Attachments'
 import { readStartWords, saveStartWords } from './startWords'
 import { appendSpoken } from './voice'
 import VoiceButton from './VoiceButton'
+import { trackerIssueName } from './tracker'
 import './Modal.css'
 import './ReplyModal.css'
 import './StartTaskModal.css'
@@ -18,32 +19,41 @@ type Props = {
   onClose: () => void
   /** Имя каталога копии, в которую ушла задача: им панель говорит, где она запустилась. */
   onStarted: (copy: string) => void
+  /** Задача уже идёт в другой копии: раздел перечитывает копии, чтобы её кнопка погасла и за окном. */
+  onTaken?: () => void
 }
 
 type Problem =
   | 'copy-busy'
   | 'copy-starting'
   | 'record-unknown'
+  | 'task-running'
   | 'issue-unknown'
   | 'tracker-unavailable'
   | 'flow-unknown'
   | 'words-too-long'
   | 'agent'
 
-/** Задача трекера называется именем трекера и номером в нём, как у кита: «GitHub #37». */
+/** Задача трекера называется именем трекера и номером в нём, как у кита: «GitHub #37», «YouTrack ABC-12». */
 function isTrackerIssue(number: string): boolean {
-  return number.startsWith('GitHub #')
+  return trackerIssueName(number) !== null
 }
 
-// Почему панель не перепроверила задачу трекера по GitHub — словами строк раздела «Бэклог».
+// Почему панель не перепроверила задачу трекера — словами строк раздела «Бэклог».
 const TRACKER_PROBLEMS: Record<string, string> = {
   'no-tracker': 'у проекта больше нет описания трекера',
-  'not-github': 'трекер проекта — не GitHub',
-  'no-address': 'в описании трекера нет адреса репозитория GitHub',
+  other: 'панель читает задачи только из GitHub и YouTrack',
+  'no-keys': 'в описании трекера нет строк «трекер:», «сервер:» и «проект:»',
   unreadable: 'описание трекера не прочитано',
   'gh-missing': 'программа gh не установлена',
   'gh-login': 'программа gh не вошла в аккаунт GitHub',
   'repo-unreachable': 'GitHub не нашёл репозиторий или к нему нет доступа',
+  'no-key': 'для сервера трекера нет ключа в «Настройках»',
+  'key-rejected': 'сервер трекера отклонил ключ',
+  'key-forbidden': 'у владельца ключа нет прав на проект в трекере',
+  'key-unreadable': 'ключ сервера трекера не прочитать на этом компьютере',
+  'server-silent': 'сервер трекера не ответил',
+  'project-missing': 'на сервере трекера нет проекта или к нему нет доступа',
 }
 
 /** Слова уходят сессии аргументом командной строки, а её длину Windows ограничивает — предел с большим запасом. */
@@ -64,10 +74,13 @@ function failureOf(problem: Problem, message: string | null): string {
       return 'В этой копии панель уже запустила задачу — агент ещё не завёл её память.'
     case 'record-unknown':
       return 'Этой записи больше нет в бэклоге: её взяли или удалили. Закройте окно и откройте заново.'
+    case 'task-running':
+      // Текст один и для задачи, начатой не из панели: её панель видит по памяти в копии — ответ оператора на ревью B-89.
+      return `Эта задача уже идёт${message ? ` в копии ${message}` : ''} — вторую панель не запускает.`
     case 'issue-unknown':
-      return 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub. Закройте окно и обновите бэклог.'
+      return 'Этой задачи больше нет среди незакрытых и назначенных на вас в трекере. Закройте окно и обновите бэклог.'
     case 'tracker-unavailable':
-      return `Задача не запущена: панель не перепроверила её по GitHub — ${(message && TRACKER_PROBLEMS[message]) ?? message ?? 'трекер не прочитан'}.`
+      return `Задача не запущена: панель не перепроверила её по трекеру — ${(message && TRACKER_PROBLEMS[message]) ?? message ?? 'трекер не прочитан'}.`
     case 'words-too-long':
       return `Начальные слова длиннее ${WORDS_LIMIT} знаков — сократите их.`
     case 'flow-unknown':
@@ -82,7 +95,7 @@ function failureOf(problem: Problem, message: string | null): string {
  * её проекта. Выбор флоу виден всегда, даже при одном флоу, первым выбран первый — ответ оператора. Последним
  * разделом — необязательные начальные слова сессии; набранные помнятся у записи, пока задачу не запустили.
  */
-export default function StartTaskModal({ base, entry, onClose, onStarted }: Props) {
+export default function StartTaskModal({ base, entry, onClose, onStarted, onTaken }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [path, setPath] = useState<string | null>(null)
   const [flows, setFlows] = useState<Flows>({ kind: 'loading' })
@@ -97,6 +110,8 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
     saveStartWords(base, entry.number, next)
   }
   const [failure, setFailure] = useState<string | null>(null)
+  // Задача уже идёт в другой копии — в какую копию её ни пошли, откажет так же: кнопка запуска гаснет до закрытия окна (B-89).
+  const [taken, setTaken] = useState(false)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -173,7 +188,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
 
   async function start(event: FormEvent) {
     event.preventDefault()
-    if (!chosen || !flowReady || busy) return
+    if (!chosen || !flowReady || busy || taken) return
     setBusy(true)
     setFailure(null)
     try {
@@ -191,6 +206,10 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
       if (response.status === 400) {
         const body = (await response.json()) as { problem: Problem; message: string | null }
         setFailure(failureOf(body.problem, body.message))
+        if (body.problem === 'task-running') {
+          setTaken(true)
+          onTaken?.()
+        }
       } else if (response.status === 404) {
         setFailure('Этой базы или копии больше нет в списке панели.')
       } else {
@@ -254,7 +273,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                         disabled={busy}
                         onChange={() => {
                           setFlow(one.name)
-                          setFailure(null)
+                          if (!taken) setFailure(null)
                         }}
                       />
                       <ChoiceMark />
@@ -289,7 +308,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
                         disabled={busy}
                         onChange={() => {
                           setPath(row.path)
-                          setFailure(null)
+                          if (!taken) setFailure(null)
                         }}
                       />
                       <ChoiceMark />
@@ -345,7 +364,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted }: Prop
             <button type="button" className="btn" disabled={busy} onClick={onClose}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-primary" disabled={busy || !chosen || !flowReady}>
+            <button type="submit" className="btn btn-primary" disabled={busy || taken || !chosen || !flowReady}>
               {busy ? 'Запускается…' : 'Взять в работу'}
             </button>
           </div>

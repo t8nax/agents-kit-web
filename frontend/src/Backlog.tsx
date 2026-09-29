@@ -4,16 +4,18 @@ import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
 import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
+import { FormatNotice, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import EntryArtifacts, { type Artifact } from './EntryArtifacts'
 import { BugIcon, EntryFields, FeatureIcon } from './EntryFields'
-import { freeCopies } from './copies'
+import { freeCopies, runningTasks } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
-import { numberLetters } from './taskTitle'
+import { normalizeNumber, numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
-import { initialTrackerLoad, loadTrackerIssues, type TrackerInfo, type TrackerLoad } from './tracker'
+import TrackerMoveModal, { SendIcon } from './TrackerMoveModal'
+import { initialTrackerLoad, loadTrackerIssues, readable, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
@@ -35,6 +37,8 @@ export type BaseBacklog = {
   letters?: string | null
   /** Трекер проекта из tracker.md базы; нет — у проекта нет трекера, и группы задач трекера нет. */
   tracker?: TrackerInfo | null
+  /** База нового формата кита: записи видны и берутся в работу, но не правятся (B-281). */
+  formatWarning?: string | null
 }
 
 /** Запись, которую берут в работу, вместе с базой её проекта: по ним идёт запуск. */
@@ -83,6 +87,8 @@ export default function Backlog({
   const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry } | null>(null)
   // Запись, которую берут в работу
   const [starting, setStarting] = useState<Started | null>(null)
+  // Запись, которую переносят в трекер проекта
+  const [moving, setMoving] = useState<Started | null>(null)
   // Копии всех баз: по ним видно, есть ли у проекта записи куда запускать. null — ещё не прочитаны.
   const [copies, setCopies] = useState<WorkspaceRow[] | null>(null)
   // Записи, добавленные из панели, ключом «база|номер»: отмечены новыми до следующего «Обновить».
@@ -97,22 +103,24 @@ export default function Backlog({
     focusOpener()
   }, [focusOpener])
 
-  // Задачи трекера по базам. Их читает gh из GitHub — дольше файла, поэтому своим запросом на базу: записи
+  // Задачи трекера по базам. Их читают из GitHub или YouTrack — дольше файла, поэтому своим запросом на базу: записи
   // бэклога их не ждут. Ответ прошлого чтения, пришедший после нового, отбрасывается.
   const [trackers, setTrackers] = useState<Record<string, TrackerLoad>>({})
   const trackerRound = useRef(0)
 
-  // Вид трекера каждой базы, как его знало последнее чтение: бэклог, перечитанный после записи или запуска, узнаёт по
-  // нему базу, чей трекер появился или сменился, пока раздел открыт, — её трекер читается сразу, а не висит заготовкой
+  // Трекер каждой базы — вид, сервер и проект, — как его знало последнее чтение: бэклог, перечитанный после записи или
+  // запуска, узнаёт по нему базу, чей трекер появился или сменился, пока раздел открыт, — её трекер читается сразу,
+  // а не висит заготовкой
   const trackerKinds = useRef<Record<string, string>>({})
 
-  // all — читать трекеры всех баз (открытие раздела и «Обновить»); иначе только появившихся и сменивших вид
+  // all — читать трекеры всех баз (открытие раздела и «Обновить»); иначе только появившихся и сменившихся
   const loadTrackers = useCallback((backlogs: BaseBacklog[], all: boolean) => {
     const round = all ? ++trackerRound.current : trackerRound.current
+    const identity = (tracker: TrackerInfo) => `${tracker.kind}|${tracker.server ?? ''}|${tracker.project ?? ''}`
     const read = new Set(
-      backlogs.filter((b) => b.tracker && (all || trackerKinds.current[b.base] !== b.tracker.kind)).map((b) => b.base),
+      backlogs.filter((b) => b.tracker && (all || trackerKinds.current[b.base] !== identity(b.tracker))).map((b) => b.base),
     )
-    trackerKinds.current = Object.fromEntries(backlogs.flatMap((b) => (b.tracker ? [[b.base, b.tracker.kind]] : [])))
+    trackerKinds.current = Object.fromEntries(backlogs.flatMap((b) => (b.tracker ? [[b.base, identity(b.tracker)]] : [])))
     setTrackers((prev) => {
       const next: Record<string, TrackerLoad> = {}
       for (const backlog of backlogs) {
@@ -122,7 +130,7 @@ export default function Backlog({
       return next
     })
     for (const backlog of backlogs) {
-      if (backlog.tracker?.kind !== 'github' || !read.has(backlog.base)) continue
+      if (!readable(backlog.tracker) || !read.has(backlog.base)) continue
       void loadTrackerIssues(backlog.base).then((result) => {
         if (round !== trackerRound.current) return
         setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
@@ -211,9 +219,13 @@ export default function Backlog({
         entries: arrange(backlog.entries, selection, order),
         issues,
         trackerShown: !!backlog.tracker && (!filtering || issues.length > 0),
+        running: runningTasks(copies ?? [], backlog.base),
       }
     })
     .filter(({ backlog, entries, trackerShown }) => entries.length > 0 || trackerShown || !filtering || backlog.error)
+  // База нового формата: просить Чудо-Юдо можно, пока в выбранном есть бэклог, который панель знает (B-281).
+  const inScope = filter === null ? backlogs : backlogs.filter((b) => b.base === filter)
+  const writeClosed = inScope.length > 0 && inScope.every((b) => b.formatWarning) ? NEWER_FORMAT_REFUSAL : null
 
   return (
     <>
@@ -226,7 +238,8 @@ export default function Backlog({
             setEditing(null)
             setWriting(true)
           }}
-          disabled={backlogs.length === 0}
+          disabled={backlogs.length === 0 || writeClosed !== null}
+          title={writeClosed ?? undefined}
         >
           <WriteIcon />
           Попросить {AGENT_NAME}
@@ -293,7 +306,7 @@ export default function Backlog({
           )}
 
           <div className="backlog-list">
-            {shown.map(({ backlog, entries, issues, trackerShown }) => (
+            {shown.map(({ backlog, entries, issues, trackerShown, running }) => (
               <section
                 key={backlog.base}
                 aria-label={backlog.project}
@@ -304,6 +317,9 @@ export default function Backlog({
                 <div className="base-head">
                   <h3>{backlog.project}</h3>
                 </div>
+                {/* База нового формата — плашкой прямо под заголовком проекта, выбран он или нет: замечание оператора
+                    на приёмке B-281 */}
+                {backlog.formatWarning && <FormatNotice text={backlog.formatWarning} />}
                 {/* У проекта с трекером в проекте две группы, и обе подписаны — ответ оператора на макет B-277 */}
                 {backlog.tracker && (entries.length > 0 || !filtering || backlog.error) && (
                   <div className="backlog-group-head">Записи бэклога</div>
@@ -346,6 +362,8 @@ export default function Backlog({
                         <button
                           type="button"
                           className="entry-start"
+                          disabled={!!backlog.formatWarning}
+                          title={backlog.formatWarning ? NEWER_FORMAT_REFUSAL : undefined}
                           onClick={(e) => {
                             opener.current = e.currentTarget
                             setEditing({ base: backlog.base, entry })
@@ -356,17 +374,36 @@ export default function Backlog({
                           Изменить
                         </button>
                       )}
+                      {/* Переносят в трекер GitHub или YouTrack со строками описания — B-286, B-288; между «Изменить» и «Взять задачу» */}
+                      {entry.number && readable(backlog.tracker) && (
+                        <button
+                          type="button"
+                          className="entry-start"
+                          // Перенос вырезает запись из бэклога — у базы нового формата правка бэклога закрыта (B-281)
+                          disabled={!!backlog.formatWarning}
+                          title={backlog.formatWarning ? NEWER_FORMAT_REFUSAL : undefined}
+                          onClick={(e) => {
+                            opener.current = e.currentTarget
+                            setMoving({ base: backlog.base, entry: { ...entry, number: entry.number! } })
+                          }}
+                        >
+                          <SendIcon />
+                          В трекер
+                        </button>
+                      )}
                       {entry.number && (
                         <button
                           type="button"
                           className="entry-start"
                           // Копий ещё не прочитали или свободных не осталось — запускать некуда; запись чужими
-                          // буквами кит перенумерует — запускать её рано. Почему, кнопка не пишет — как
-                          // приглушённые переходы строки копии.
+                          // буквами кит перенумерует — запускать её рано; запись уже взяли в копию — вторую
+                          // сессию над ней панель не заводит (B-89). Почему, кнопка не пишет — как приглушённые
+                          // переходы строки копии.
                           disabled={
                             copies === null ||
                             freeCopies(copies, backlog.base).length === 0 ||
-                            numberLetters(entry.number) !== backlog.letters
+                            numberLetters(entry.number) !== backlog.letters ||
+                            running.has(normalizeNumber(entry.number) ?? entry.number)
                           }
                           onClick={(e) => {
                             opener.current = e.currentTarget
@@ -390,8 +427,8 @@ export default function Backlog({
                       <button
                         type="button"
                         className="entry-start"
-                        // Как у записи: копий ещё не прочитали или свободных не осталось — запускать некуда
-                        disabled={copies === null || freeCopies(copies, backlog.base).length === 0}
+                        // Как у записи: копий ещё не прочитали, свободных не осталось или задача уже идёт в копии
+                        disabled={copies === null || freeCopies(copies, backlog.base).length === 0 || running.has(issue.name)}
                         onClick={(e) => {
                           opener.current = e.currentTarget
                           setStarting({ base: backlog.base, entry: { number: issue.name, title: issue.title, text: null } })
@@ -418,9 +455,12 @@ export default function Backlog({
             setStarting(null)
             focusOpener()
           }}
+          onTaken={loadCopies}
           onStarted={(copy) => {
             setStarting(null)
-            focusOpener()
+            // Запущенная задача гасит свою кнопку (B-89), а погасшая кнопка роняет фокус — клавиатура остаётся
+            // в строке, на её заголовке.
+            ;(opener.current?.closest('.entry-row')?.querySelector<HTMLElement>('button, a') ?? opener.current)?.focus()
             onStarted?.(copy)
             // Копия становится занятой сразу, а запись из бэклога убирает агент, когда до неё дойдёт:
             // в этом чтении её обычно ещё видно.
@@ -429,9 +469,25 @@ export default function Backlog({
           }}
         />
       )}
+      {moving && (
+        <TrackerMoveModal
+          base={moving.base}
+          entry={moving.entry}
+          onClose={() => {
+            setMoving(null)
+            focusOpener()
+          }}
+          // Задача заведена — бэклог перечитывается: запись из него ушла или, если вырезать не вышло, осталась
+          onMoved={() => loadBacklogs()}
+        />
+      )}
       {writing && (
         <BacklogWriteModal
-          bases={backlogs.map((b) => ({ base: b.base, project: b.project }))}
+          bases={backlogs.map((b) => ({
+            base: b.base,
+            project: b.project,
+            closed: b.formatWarning ? NEWER_FORMAT_REFUSAL : null,
+          }))}
           initialBase={filter}
           subject={editing}
           findEntry={(base, number) =>

@@ -73,6 +73,15 @@ function stubFetch(...responses: BaseBacklog[][]) {
       expect(reply, `задачи трекера ${base} не ожидались`).toBeDefined()
       return reply!()
     }
+    // Перенос записи в трекер: окно собирает задачу у API и заводит её — B-286
+    if (url.startsWith('/api/backlog/tracker/draft?')) {
+      const number = new URLSearchParams(url.slice(url.indexOf('?'))).get('number')!
+      return Promise.resolve(Response.json({ number, title: 'Заголовок', body: 'Описание', files: [], original: `## ${number} Заголовок` }))
+    }
+    if (url === '/api/backlog/tracker/move') {
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(Response.json({ issue: { name: 'GitHub #58', number: 58, title: 'Заголовок', url: 'https://github.com/acme/orders/issues/58' } }))
+    }
     if (url === '/api/backlog/artifact/open') {
       posts.push(JSON.parse(String(init?.body)))
       return Promise.resolve(artifactReply())
@@ -105,6 +114,9 @@ function stubFetch(...responses: BaseBacklog[][]) {
     backlogReads: () => fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length,
     setCopies: (next: WorkspaceRow[]) => {
       rows = next
+    },
+    setTaskReply: (next: Response) => {
+      taskReply = next
     },
     setArtifactReply: (next: () => Response) => {
       artifactReply = next
@@ -484,6 +496,57 @@ test('«Изменить» есть только у записи с номеро
   )
 })
 
+test('бэклог базы нового формата виден и берётся в работу, а правка и просьба закрыты с причиной', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  stubFetch([{ ...backlogs[0], formatWarning: warning }, backlogs[1]])
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-13 / })).closest('.entry-row') as HTMLElement
+
+  // «Все проекты»: плашка — прямо под заголовком проекта этой базы, у другого проекта её нет
+  const own = screen.getByRole('region', { name: 'Agents Kit Web' })
+  expect(within(own).getByRole('status')).toHaveTextContent(warning)
+  expect(own.querySelector('.base-head')?.nextElementSibling).toBe(within(own).getByRole('status'))
+  expect(within(screen.getByRole('region', { name: 'Nota' })).queryByText(warning)).not.toBeInTheDocument()
+  expect(screen.getAllByText(warning)).toHaveLength(1)
+  // У записей базы нового формата «Изменить» погашена, «Взять задачу» открыта
+  expect(within(row).getByRole('button', { name: 'Изменить' })).toBeDisabled()
+  expect(within(row).getByRole('button', { name: 'Изменить' })).toHaveAttribute('title', refusal)
+  await waitFor(() => expect(within(row).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  const nota = screen.getByRole('button', { name: /B-2 / }).closest('.entry-row') as HTMLElement
+  expect(within(nota).getByRole('button', { name: 'Изменить' })).toBeEnabled()
+
+  // Просить Чудо-Юдо можно: окно встаёт на базе, которую панель знает, а базу нового формата выбрать можно —
+  // тогда под шапкой плашка, а просьбу не написать и не отправить (замечание оператора на макете)
+  fireEvent.click(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Чудо-Юдо' }))
+  // Проект выбирается, когда окно узнало, что разговора в панели нет
+  await waitFor(() => expect(dialog.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+  const field = dialog.getByLabelText('Просьба к Чудо-Юдо')
+  expect(field).toBeEnabled()
+  expect(dialog.queryByText(refusal)).not.toBeInTheDocument()
+  fireEvent.click(dialog.getByRole('button', { name: 'Проект: Nota' }))
+  const option = dialog.getByRole('option', { name: 'Agents Kit Web' })
+  expect(option).not.toHaveTextContent(refusal)
+  fireEvent.click(option)
+  expect(dialog.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeInTheDocument()
+  // Плашка — сразу под шапкой окна, вне ленты
+  expect(dialog.getByText(refusal).closest('.format-notice')?.previousElementSibling).toHaveClass('reply-head')
+  expect(field).toBeDisabled()
+  expect(dialog.getByRole('button', { name: 'Отправить' })).toBeDisabled()
+  expect(dialog.getByRole('button', { name: 'Приложить файл' })).toBeDisabled()
+  fireEvent.click(dialog.getAllByRole('button', { name: 'Закрыть' })[0])
+
+  // Выбран проект этой базы: плашка на том же месте, под заголовком проекта, и погашенная просьба
+  fireEvent.click(screen.getByRole('button', { name: 'Agents Kit Web' }))
+  const selected = screen.getByRole('region', { name: 'Agents Kit Web' })
+  expect(selected.querySelector('.base-head')?.nextElementSibling).toHaveTextContent(warning)
+  expect(screen.getAllByText(warning)).toHaveLength(1)
+  expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' })).toHaveAttribute('title', refusal)
+})
+
 test('без баз добавлять некуда', async () => {
   stubFetch([])
 
@@ -514,8 +577,8 @@ test('«Взять задачу» запускает свою запись в в
     { base: 'D:\\Projects\\nota-knowledge', copy: 'D:\\Projects\\nota-copy', number: 'B-2', flow: 'полный' },
   ])
   expect(screen.queryByRole('dialog', { name: 'Взять задачу в работу' })).not.toBeInTheDocument()
-  // Фокус возвращается кнопке запуска — клавиатура остаётся на месте в списке
-  expect(start).toHaveFocus()
+  // Кнопка запуска гаснет — задача взята (B-89), — и фокус встаёт на заголовок строки: клавиатура остаётся на месте
+  expect(screen.getByRole('button', { name: /B-2 Экспорт заметок/ })).toHaveFocus()
   // Копия занята, а запись убирает агент, когда до неё дойдёт: раздел перечитывает и то и другое
   await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
 })
@@ -545,6 +608,51 @@ test('у проекта без свободной копии кнопка зап
   )!
 
   await waitFor(() => expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled())
+})
+
+test('у записи, которую уже взяли в копию, кнопка погашена, а «Изменить» живая — B-89', async () => {
+  const fetchMock = stubFetch(backlogs)
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+    // Агент ещё не вырезал запись — она в списке, а её номер уже стоит в строке копии, набранный кириллицей
+    {
+      ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'),
+      task: 'В-1 Панель показывает проблемы баз знаний',
+      letters: 'B',
+    },
+  ])
+
+  render(<Backlog />)
+  const taken = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  const other = screen.getByRole('button', { name: /B-13 У панели есть светлая тема/ }).closest('.entry-row')!
+
+  await waitFor(() => expect(within(other as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Изменить' })).toBeEnabled()
+})
+
+test('запись успели взять из другой вкладки: после отказа окна её кнопка гаснет и в разделе — ревью B-89', async () => {
+  const fetchMock = stubFetch(backlogs)
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  const start = within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })
+  await waitFor(() => expect(start).toBeEnabled())
+  fireEvent.click(start)
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /noble-keen-walrus/ }))
+
+  // Пока окно открыто, запись взяли в другой вкладке
+  fetchMock.setCopies([
+    ...copies,
+    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'starting'), task: 'B-1 Панель показывает проблемы баз знаний', letters: 'B' },
+  ])
+  fetchMock.setTaskReply(Response.json({ problem: 'task-running', message: 'brave-quiet-otter' }, { status: 400 }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+  await within(dialog).findByRole('alert')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }))
+
+  await waitFor(() => expect(start).toBeDisabled())
 })
 
 test('у записи без номера запуска нет: запуск адресует её номером', async () => {
@@ -838,7 +946,7 @@ test('проект, чей бэклог не читается, при отбор
 
 const withTracker = (tracker: BaseBacklog['tracker']): BaseBacklog[] => [{ ...backlogs[0], tracker }, backlogs[1]]
 
-const github = { kind: 'github' as const, repo: 'acme/orders' }
+const github = { kind: 'github' as const, name: 'GitHub', server: 'https://github.com', project: 'acme/orders' }
 
 const issues = [
   { name: 'GitHub #52', number: 52, title: 'Панель не стартует с пробелом в пути', url: 'https://github.com/acme/orders/issues/52' },
@@ -957,15 +1065,29 @@ test('ответ трекера прошлого чтения, пришедши�
 })
 
 test.each([
-  [{ kind: 'not-github' as const }, 'Трекер проекта — не GitHub. Панель пока читает только GitHub.', false],
-  [{ kind: 'no-address' as const }, 'В описании трекера нет адреса репозитория GitHub. Укажите его в описании трекера проекта.', true],
-])('трекер без адреса GitHub (%o) — строка на месте задач, gh не зовётся', async (tracker, text, warning) => {
+  [{ kind: 'other' as const, name: 'Jira' }, /^Трекер проекта — Jira\. Панель пока читает задачи только из GitHub и YouTrack\.$/, false],
+  [
+    { kind: 'no-keys' as const, faults: ['трекер', 'сервер', 'проект'] },
+    /^В описании трекера проекта нет строк «трекер:», «сервер:» и «проект:» или они записаны не так\. Допишите их навыком \/tracker\.$/,
+    true,
+  ],
+  [
+    { kind: 'no-keys' as const, faults: ['сервер', 'проект'] },
+    /^В описании трекера проекта нет строк «сервер:» и «проект:» или они записаны не так\. Допишите их навыком \/tracker\.$/,
+    true,
+  ],
+  [
+    { kind: 'no-keys' as const, faults: ['проект'] },
+    /^В описании трекера проекта нет строки «проект:» или она записана не так\. Допишите её навыком \/tracker\.$/,
+    true,
+  ],
+])('трекер, которого панель не читает (%o), — строка на месте задач, трекер не зовётся', async (tracker, text, warning) => {
   const fetchMock = stubFetch(withTracker(tracker))
 
   render(<Backlog />)
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
-  const line = project.getByText(text).closest('p')!
+  const line = project.getByText((_, el) => el?.matches('p.tracker-state > span') === true && text.test(el.textContent)).closest('p')!
   expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
   expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
   expect(fetchMock.trackerReads()).toBe(0)
@@ -1074,9 +1196,198 @@ test('«Взять задачу» у задачи трекера запуска�
   expect(fetchMock.posts).toEqual([
     { base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\noble-keen-walrus', number: 'GitHub #52', flow: 'полный' },
   ])
-  expect(start).toHaveFocus()
+  // Фокус — на строке задачи: её кнопка погаснет, когда раздел узнает, что задача взята (B-89)
+  expect(within(row as HTMLElement).getByRole('link', { name: /#52/ })).toHaveFocus()
   // Бэклог после запуска перечитывается, а трекер — только при открытии раздела и по «Обновить»
   await waitFor(() => expect(fetchMock.backlogReads()).toBe(2))
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+// ——— Задачи YouTrack (B-288) ———
+
+const youTrack = { kind: 'youtrack' as const, name: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'ABC' }
+
+const ytIssues = [
+  { name: 'YouTrack ABC-7', number: 7, title: 'Письмо о сбросе пароля уходит без ссылки', url: 'https://acme.youtrack.cloud/issue/ABC-7' },
+  { name: 'YouTrack ABC-1287', number: 1287, title: 'Перевести отчёты на новую схему налогов', url: 'https://acme.youtrack.cloud/issue/ABC-1287' },
+]
+
+test('у проекта с трекером YouTrack — его задачи с номерами вида ABC-12 ссылками на YouTrack', async () => {
+  const fetchMock = stubFetch(withTracker(youTrack))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: ytIssues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const link = await project.findByRole('link', { name: /^ABC-7 Письмо о сбросе пароля уходит без ссылки/ })
+  expect(link).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-7')
+  expect(link).toHaveAttribute('title', 'Открыть YouTrack ABC-7 во вкладке браузера')
+  // Колонка номера — по самому длинному номеру
+  expect(link.closest('.tracker-issues')).toHaveStyle({ '--entry-num-width': '8ch' })
+  expect(project.getByRole('link', { name: /^ABC-1287 / })).toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+test('поиск находит задачи YouTrack по номеру без имени трекера', async () => {
+  const fetchMock = stubFetch(withTracker(youTrack))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: ytIssues, problem: null }))
+
+  render(<Backlog />)
+  await screen.findByRole('link', { name: /ABC-7/ })
+
+  fireEvent.change(screen.getByRole('textbox', { name: 'Поиск' }), { target: { value: 'abc-1287' } })
+
+  expect(screen.getByRole('link', { name: /ABC-1287/ })).toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: /ABC-7 / })).not.toBeInTheDocument()
+})
+
+test.each([
+  [{ issues: [], problem: null }, /^На вас в YouTrack нет незакрытых задач этого проекта\.$/, false],
+  [
+    { issues: [], problem: 'no-key' },
+    /^Для сервера https:\/\/acme\.youtrack\.cloud нет ключа\. Добавьте сервер и ключ в «Настройках», в карточке «Серверы трекеров»\.$/,
+    true,
+  ],
+  [
+    { issues: [], problem: 'key-rejected' },
+    /^Сервер https:\/\/acme\.youtrack\.cloud отклонил ключ\. Замените ключ в «Настройках», в карточке «Серверы трекеров»\.$/,
+    true,
+  ],
+  [
+    { issues: [], problem: 'key-unreadable' },
+    /^Ключ сервера https:\/\/acme\.youtrack\.cloud не прочитать на этом компьютере\. Замените ключ в «Настройках», в карточке «Серверы трекеров»\.$/,
+    true,
+  ],
+  [
+    { issues: [], problem: 'key-forbidden' },
+    /^Сервер https:\/\/acme\.youtrack\.cloud принял ключ, но у его владельца нет прав на проект ABC\. Проверьте права владельца ключа в YouTrack\.$/,
+    true,
+  ],
+  [
+    { issues: [], problem: 'server-silent', detail: 'истекло время ожидания' },
+    /^Сервер https:\/\/acme\.youtrack\.cloud не ответил: истекло время ожидания\. Проверьте адрес сервера в описании трекера проекта и подключение к сети\.$/,
+    true,
+  ],
+  [
+    { issues: [], problem: 'project-missing' },
+    /^На сервере https:\/\/acme\.youtrack\.cloud нет проекта ABC или у вашего ключа нет к нему доступа\. Проверьте строку «проект:» в описании трекера проекта\.$/,
+    true,
+  ],
+  [{ issues: [], problem: 'youtrack-error', detail: 'Сервер на обслуживании' }, /^YouTrack ответил ошибкой: Сервер на обслуживании\.$/, true],
+])('ответ YouTrack %o — своей строкой на месте задач', async (reply, text, warning) => {
+  const fetchMock = stubFetch(withTracker(youTrack))
+  fetchMock.setTracker(backlogs[0].base, answer(reply))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const line = (await project.findByText((_, el) => el?.matches('p.tracker-state > span') === true && text.test(el.textContent))).closest('p')!
+  expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
+})
+
+test('«Взять задачу» у задачи YouTrack запускает её по имени «YouTrack ABC-N»', async () => {
+  const fetchMock = stubFetch(withTracker(youTrack))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: ytIssues, problem: null }))
+
+  render(<Backlog onStarted={vi.fn()} />)
+  const row = (await screen.findByRole('link', { name: /ABC-7/ })).closest('.entry-row')!
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' }))
+
+  const dialog = screen.getByRole('dialog', { name: 'Взять задачу в работу' })
+  expect(within(dialog).getByText('Задача трекера')).toBeInTheDocument()
+  expect(dialog).toHaveTextContent('YouTrack ABC-7')
+  fireEvent.click(await within(dialog).findByRole('radio', { name: /noble-keen-walrus/ }))
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Взять в работу' }))
+
+  await waitFor(() =>
+    expect(fetchMock.posts).toEqual([
+      { base: 'D:\\Projects\\app-knowledge', copy: 'D:\\Projects\\noble-keen-walrus', number: 'YouTrack ABC-7', flow: 'полный' },
+    ]),
+  )
+})
+
+test('«В трекер» есть и у записей проекта с YouTrack, а у проекта с Jira — нет', async () => {
+  const fetchMock = stubFetch([
+    { ...backlogs[0], tracker: youTrack },
+    { ...backlogs[1], tracker: { kind: 'other', name: 'Jira' } },
+  ])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  expect(within(row as HTMLElement).getByRole('button', { name: 'В трекер' })).toBeInTheDocument()
+  const nota = within(screen.getByRole('region', { name: 'Nota' }))
+  expect(nota.queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+})
+
+// ——— Перенос записи в трекер (B-286) ———
+
+test('«В трекер» — у записей с номером в проекте с трекером GitHub, между «Изменить» и «Взять задачу»', async () => {
+  const fetchMock = stubFetch([
+    { ...backlogs[0], entries: [...backlogs[0].entries, { number: null, title: 'Дописано руками', text: null }], tracker: github },
+    { ...backlogs[1], tracker: { kind: 'no-keys' } },
+  ])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  expect(within(row as HTMLElement).getAllByRole('button').map((b) => b.textContent)).toEqual([
+    expect.stringContaining('B-1'),
+    'Изменить',
+    'В трекер',
+    'Взять задачу',
+  ])
+  // У записи без номера кнопки нет: перенос адресует запись номером
+  const bare = screen.getByRole('button', { name: /Дописано руками/ }).closest('.entry-row')!
+  expect(within(bare as HTMLElement).queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+  // Трекер без адреса репозитория — переносить некуда
+  const nota = within(screen.getByRole('region', { name: 'Nota' }))
+  expect(nota.queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+})
+
+test('у базы нового формата «В трекер» погашена с причиной, как «Изменить» (B-281)', async () => {
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  const fetchMock = stubFetch([
+    { ...backlogs[0], tracker: github, formatWarning: 'Кит перевёл базу на формат, которого эта версия панели не знает.' },
+    backlogs[1],
+  ])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+
+  const send = within(row as HTMLElement).getByRole('button', { name: 'В трекер' })
+  expect(send).toBeDisabled()
+  expect(send).toHaveAttribute('title', refusal)
+})
+
+test('у проекта без трекера кнопки «В трекер» нет', async () => {
+  stubFetch(backlogs)
+
+  render(<Backlog />)
+  await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })
+
+  expect(screen.queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
+})
+
+test('перенос из строки записи заводит задачу и перечитывает бэклог', async () => {
+  const fetchMock = stubFetch(withTracker(github), [{ ...backlogs[0], entries: [backlogs[0].entries[1]], tracker: github }, backlogs[1]])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+
+  render(<Backlog />)
+  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
+
+  const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
+  fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
+
+  expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
+  expect(fetchMock.posts).toContainEqual({ base: backlogs[0].base, number: 'B-1', original: '## B-1 Заголовок' })
+  await waitFor(() => expect(screen.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument())
+  expect(fetchMock.backlogReads()).toBe(2)
+  // Задачи трекера перечитываются только открытием раздела и «Обновить» — как после записи Чудо-Юдо (B-277)
   expect(fetchMock.trackerReads()).toBe(1)
 })
 
@@ -1095,4 +1406,20 @@ test('у задачи трекера «Взять задачу» погашен�
   await waitFor(() => expect(within(nota as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
 
   expect(within(row as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
+})
+
+test('у задачи трекера, которая уже идёт в копии, «Взять задачу» погашена всё время работы — B-89', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+  fetchMock.setCopies([
+    copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\noble-keen-walrus', 'free'),
+    { ...copy('D:\\Projects\\app-knowledge', 'D:\\Projects\\brave-quiet-otter', 'waiting'), task: 'GitHub #52 Панель не стартует с пробелом в пути' },
+  ])
+
+  render(<Backlog />)
+  const taken = (await screen.findByRole('link', { name: /#52/ })).closest('.entry-row')!
+  const other = screen.getByRole('link', { name: /#7/ }).closest('.entry-row')!
+
+  await waitFor(() => expect(within(other as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeEnabled())
+  expect(within(taken as HTMLElement).getByRole('button', { name: 'Взять задачу' })).toBeDisabled()
 })

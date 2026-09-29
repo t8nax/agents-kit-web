@@ -111,6 +111,36 @@ public sealed class FlowEndpointsTests : IDisposable
             Assert.NotNull(none.Version);
         }
         Assert.Equal("База не найдена на диске", Assert.Single(flows, f => f.Base == missing).Error);
+        Assert.Null(flow.FormatWarning);
+    }
+
+    [Fact]
+    // Флоу базы нового формата читается, как был, с предупреждением (B-281).
+    public async Task Flow_BaseOfNewerFormat_IsReadWithWarning()
+    {
+        TestLayout.NewerFormat(_base);
+
+        var flow = Assert.Single(await GetFlows(Client(_base)));
+
+        Assert.Null(flow.Error);
+        Assert.Equal(["полный", "мелкий"], flow.Flows.Select(f => f.Name));
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatWarning, flow.FormatWarning);
+    }
+
+    [Fact]
+    // Флоу базы нового формата панель не пишет: разметка флоу у кита могла смениться (B-281).
+    public async Task Flow_BaseOfNewerFormat_IsNotWritten()
+    {
+        var client = Client(_base);
+        var flow = Assert.Single(await GetFlows(client));
+        TestLayout.NewerFormat(_base);
+
+        var response = await Save(client, flow, flow.Stages.Select(s => s.Title == "Приёмка" ? s with { Output = "принято" } : s).ToList());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var rejected = (await response.Content.ReadFromJsonAsync<FlowRejectedResponse>())!;
+        Assert.Equal(("newer-format", AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal), (rejected.Problem, rejected.Detail));
+        Assert.Equal(Acceptance.ReplaceLineEndings("\n"), File.ReadAllText(Stage("acceptance")));
     }
 
     [Fact]

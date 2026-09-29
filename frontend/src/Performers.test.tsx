@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import Performers, { type BasePerformers } from './Performers'
 
@@ -153,6 +153,38 @@ test('карточка добавления открывает окно на в�
 
   expect(await screen.findByRole('dialog')).toBeInTheDocument()
   expect(screen.getByLabelText('Проект', { selector: '#pf-base' })).toHaveDisplayValue('Nota')
+})
+
+test('исполнители базы нового формата видны, а правка и новый закрыты с причиной', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  stubFetch([{ ...bases[0], formatWarning: warning }, bases[1]]).mockResolvedValue(new Response('[]', { status: 200 }))
+
+  render(<Performers />)
+
+  // На «Всех» плашки нет, а новый заводится в базу, которую панель знает
+  await screen.findByRole('button', { name: 'reviewer, Agents Kit Web' })
+  expect(screen.queryByText(warning)).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Новый исполнитель' }))
+  const pick = screen.getByLabelText('Проект', { selector: '#pf-base' })
+  expect(pick).toHaveDisplayValue('Nota')
+  expect(within(pick).getByRole('option', { name: 'Agents Kit Web' })).toBeDisabled()
+  fireEvent.click(screen.getAllByRole('button', { name: 'Закрыть' })[0])
+
+  // Выбран проект базы нового формата — плашка и погашенная карточка добавления
+  fireEvent.change(screen.getByRole('combobox', { name: 'Проект' }), { target: { value: bases[0].base } })
+  expect(screen.getByRole('status')).toHaveTextContent(warning)
+  const add = screen.getByRole('button', { name: 'Новый исполнитель' })
+  expect(add).toBeDisabled()
+  expect(add).toHaveAttribute('title', refusal)
+
+  // Заведённый открывается для чтения: поля и «Сохранить» погашены, причина — в окне
+  fireEvent.click(screen.getByRole('button', { name: 'reviewer, Agents Kit Web' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(dialog).toHaveTextContent(refusal)
+  expect(screen.getByRole('textbox', { name: 'Описание' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toHaveAttribute('title', refusal)
 })
 
 test('у проекта без исполнителей в сетке одна карточка добавления и нет строки о пустом списке', async () => {

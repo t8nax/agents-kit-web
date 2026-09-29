@@ -4,7 +4,9 @@ using AgentsKitWeb.Api.Flow;
 using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Panel;
 using AgentsKitWeb.Api.Performers;
+using AgentsKitWeb.Api.Reports;
 using AgentsKitWeb.Api.Tasks;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Usage;
 using AgentsKitWeb.Api.Voice;
 using AgentsKitWeb.Api.Workspaces;
@@ -16,6 +18,11 @@ builder.Services.AddSingleton(services =>
 {
     var config = services.GetRequiredService<IConfiguration>();
     return new FlowIconsStore(config["FlowIconsFile"] ?? FlowIconsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
+});
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    return new ReportsStore(config["ReportsFile"] ?? ReportsStore.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
 builder.Services.AddSingleton(services =>
     new AgentSessions(services.GetRequiredService<IConfiguration>()["SessionsDir"] ?? AgentSessions.DefaultDirectory));
@@ -81,18 +88,36 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
 builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
 builder.Services.AddSingleton<IGitHubIssues, GhIssues>();
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    // Свой список баз (песочница, тесты) — свои и серверы трекеров, рядом с ним; у панели оператора — локальный профиль
+    return new TrackerServersStore(config["TrackersFile"]
+        ?? (config["BasesFile"] is { } basesFile ? TrackerServersStore.FileBeside(basesFile) : TrackerServersStore.DefaultFile));
+});
+// Сроки запросам к YouTrack ставит сам клиент — у чтения и заведения они разные.
+builder.Services.AddHttpClient(YouTrackApi.Client, client =>
+{
+    client.Timeout = Timeout.InfiniteTimeSpan;
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
+});
+builder.Services.AddSingleton<IYouTrack, YouTrackApi>();
+builder.Services.AddSingleton<ProjectTracker>();
 builder.Services.AddSingleton<IAgentChat, AgentChat>();
 builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<AskConversations>();
 builder.Services.AddSingleton<IBacklogCheckGate, OpenBacklogCheckGate>();
 builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<FlowConversations>();
+builder.Services.AddSingleton<FlowReports>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<ResumedSessions>();
 builder.Services.AddSingleton<HealthMonitor>();
 builder.Services.AddHostedService(services => services.GetRequiredService<HealthMonitor>());
 // Отработавшую сессию задачи панель гасит сама — решение оператора на B-68.
 builder.Services.AddHostedService<FinishedTaskSessions>();
+builder.Services.AddSingleton<ScheduledReports>();
+builder.Services.AddHostedService(services => services.GetRequiredService<ScheduledReports>());
 var app = builder.Build();
 
 // Собранный фронт лежит в wwwroot поставленной панели; в разработке его отдаёт Vite, а wwwroot пуст.
@@ -124,6 +149,7 @@ app.MapAgentRequestEndpoints();
 app.MapAskEndpoints();
 app.MapBacklogEndpoints();
 app.MapBacklogWriteEndpoints();
+app.MapBacklogTrackerEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
 app.MapFlowRewriteEndpoints();
@@ -134,8 +160,10 @@ app.MapPanelEndpoints();
 app.MapPerformerDraftEndpoints();
 app.MapPerformersEndpoints();
 app.MapRemoveWorkspaceEndpoints();
+app.MapReportEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
+app.MapTrackerServersEndpoints();
 app.MapUsageEndpoints();
 app.MapVoiceEndpoints();
 

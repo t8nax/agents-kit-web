@@ -226,6 +226,54 @@ test('«Изменить» открывает разговор про запис
   await expect(page.getByRole('button', { name: /B-1 .*сводкой/ })).toBeVisible()
 })
 
+test('перенос в трекер: карточка со строкой о файлах, после «Сохранить» — номер задачи ссылкой (B-286)', async ({ page }) => {
+  const panel = await mockApi(page)
+  // «Сохранить» переноса возвращает заведённую задачу — событием переписки, как API
+  const issue = { name: 'GitHub #58', number: 58, title: B2.title, url: 'https://github.com/acme/orders/issues/58' }
+  await page.route('**/api/backlog/write/save', async (route) => {
+    const { id } = route.request().postDataJSON() as { id: string }
+    panel.saves.push(id)
+    panel.say({ type: 'saved', text: '', commit: 'c0ffee1', proposalId: id, issues: { 'B-2': issue } })
+    await route.fulfill({ json: { commit: 'c0ffee1', issues: { 'B-2': issue } } })
+  })
+  await page.context().route('https://github.com/**', (route) => route.fulfill({ body: '<title>GitHub</title>', contentType: 'text/html' }))
+
+  const dialog = await openFromHead(page)
+  await say(dialog, 'перенеси B-2 в трекер')
+  const files = [{ label: 'снимок', address: 'artifacts/B-2-снимок.png' }]
+  panel.answer({
+    type: 'answer',
+    text: 'Перенесу B-2 в трекер.',
+    proposal: {
+      id: 'p9',
+      changes: [
+        {
+          kind: 'track',
+          number: 'B-2',
+          entry: { ...B2, artifacts: files },
+          draft: { number: 'B-2', title: B2.title, body: 'Нужна выгрузка.\n\n### Агенту\n- где: Backlog.tsx', files, original: '## B-2 Выгрузка бэклога в CSV' },
+        },
+      ],
+    },
+  })
+
+  await expect(dialog.getByText('Ждёт сохранения: перенести 1 в трекер')).toBeVisible()
+  const card = dialog.locator('.write-entry').filter({ hasText: 'перенести' })
+  await expect(card.getByRole('heading', { name: 'Агенту' })).toBeVisible()
+  const warn = card.locator('.write-entry-warn')
+  await expect(warn).toContainText('Файл B-2-снимок.png в задачу не попадёт и удалится вместе с записью.')
+  // Значок строки о файлах — своего размера, а не общего правила значков окна (decisions/tests.md, B-80)
+  await expect(async () => expect((await warn.locator('svg').boundingBox())!.width).toBe(14)).toPass()
+
+  await dialog.getByRole('button', { name: 'Сохранить' }).click()
+  const moved = dialog.locator('.write-entry').filter({ hasText: 'перенесена' })
+  const link = moved.getByRole('link', { name: '#58' })
+  await expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  await expect(async () => expect((await link.locator('svg').boundingBox())!.width).toBe(12)).toPass()
+  await expect(moved).not.toContainText('Нужна выгрузка.')
+  expect(panel.saves).toEqual(['p9'])
+})
+
 test('«Отказаться» ничего не пишет, а новая просьба гасит прежнее предложение', async ({ page }) => {
   const panel = await mockApi(page)
 
@@ -359,4 +407,41 @@ test('микрофон стоит первым в ряду кнопок под �
     expect(micBox.x + micBox.width).toBeLessThanOrEqual(attachBox.x)
     expect(Math.abs(micBox.y + micBox.height / 2 - (attachBox.y + attachBox.height / 2))).toBeLessThan(2)
   }).toPass()
+})
+
+test('база нового формата в окне Чудо-Юдо: плашка сразу под шапкой, значок 16px, как в списке', async ({ page }) => {
+  await mockApi(page)
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  // Позже поставленная подмена главнее: бэклог «Agents Kit Web» — базы нового формата
+  await page.route('**/api/backlog', (route) =>
+    route.fulfill({
+      json: [
+        { base: akwBase, project: 'Agents Kit Web', entries: [B1, B2], error: null, letters: 'B', formatWarning: warning },
+        { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', entries: [], error: null, letters: 'B' },
+      ],
+    }),
+  )
+
+  const dialog = await openFromHead(page)
+  await dialog.getByRole('button', { name: 'Проект: Nota' }).click()
+  await dialog.getByRole('option', { name: 'Agents Kit Web' }).click()
+
+  const notice = dialog.locator('.format-notice')
+  await expect(notice).toBeVisible()
+  await expect(dialog.getByLabel('Просьба к Чудо-Юдо')).toBeDisabled()
+  await expect(async () => {
+    const [head, own, icon] = await Promise.all([
+      dialog.locator('.reply-head').boundingBox(),
+      notice.boundingBox(),
+      notice.locator('svg').boundingBox(),
+    ])
+    expect(own!.y).toBeGreaterThanOrEqual(head!.y + head!.height - 1)
+    expect(own!.y).toBeLessThan(head!.y + head!.height + 24)
+    expect(icon!.width).toBe(16)
+  }).toPass()
+
+  // В списке бэклога значок той же плашки — тоже 16px
+  await page.keyboard.press('Escape')
+  const listed = page.locator('.backlog-list .format-notice svg')
+  await expect(async () => expect((await listed.boundingBox())!.width).toBe(16)).toPass()
 })

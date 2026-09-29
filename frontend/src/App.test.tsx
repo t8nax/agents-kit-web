@@ -258,6 +258,29 @@ test('группа сворачивается кликом по любому м�
   expect(localStorage.getItem('agents-kit-web.collapsed-groups')).toBe('[]')
 })
 
+test('база нового формата — строки копий как обычно, под шапкой группы строка предупреждения, и у свёрнутой тоже', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  const newer = rows.map((row) => ({ ...row, formatWarning: warning }))
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([...newer, otherBase]), { status: 200 })))
+
+  render(<App />)
+
+  const line = await screen.findByText(warning)
+  expect(line).toHaveAttribute('role', 'status')
+  expect(screen.getAllByText(warning)).toHaveLength(1)
+  // Копии базы видны обычными строками, и на вопрос агента ответить можно
+  const task = screen.getByText('Таблица рабочих копий').closest('tr')!
+  expect(within(task).getByRole('button', { name: 'Ответить' })).toBeEnabled()
+  // Строка стоит сразу под шапкой своей группы
+  const all = screen.getAllByRole('row')
+  const header = all.findIndex((row) => within(row).queryByRole('rowheader')?.textContent === 'app-knowledge')
+  expect(within(all[header + 1]).getByText(warning)).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Свернуть app-knowledge' }))
+  expect(screen.queryByText('Таблица рабочих копий')).not.toBeInTheDocument()
+  expect(screen.getByText(warning)).toBeInTheDocument()
+})
+
 test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
   const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой', letters: 'B' }
   const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога', letters: 'B' }
@@ -537,7 +560,8 @@ test('копия не открылась — панель говорит об э
 
 test('сайдбар переключает разделы, среди них «Проблемы баз» и «Настройки»', async () => {
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === '/api/backlog' || url === '/api/bases') return new Response(JSON.stringify([]), { status: 200 })
+    if (url === '/api/backlog' || url === '/api/bases' || url === '/api/trackers')
+      return new Response(JSON.stringify([]), { status: 200 })
     if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
     if (url === '/api/health')
       return new Response(JSON.stringify({ pending: false, kit: 'ok', bases: [], checkedAt: null }), { status: 200 })
@@ -640,7 +664,7 @@ test('без пути к киту таблица говорит об этом в
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      if (url === '/api/bases') return new Response(JSON.stringify([]), { status: 200 })
+      if (url === '/api/bases' || url === '/api/trackers') return new Response(JSON.stringify([]), { status: 200 })
       if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
       return new Response(JSON.stringify(tableRows), { status: 200 })
     }),
@@ -1060,11 +1084,18 @@ function stubSections() {
     if (url === '/api/flow') return new Response(JSON.stringify(flows), { status: 200 })
     if (url === '/api/performers') return new Response(JSON.stringify(performers), { status: 200 })
     if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
+    if (url === '/api/reports/flow') return new Response(JSON.stringify(reportItems), { status: 200 })
     return new Response(JSON.stringify([]), { status: 200 })
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
+
+// Отчёты двух проектов — без отчёта: разделу хватает названий, чтобы показать выбранный проект
+const reportItems = [
+  { base: 'D:\\Projects\\app-knowledge', project: 'App', schedule: { enabled: false, days: [], hour: 9 }, report: null, blocked: null },
+  { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', schedule: { enabled: false, days: [], hour: 9 }, report: null, blocked: null },
+]
 
 // Оператор вернулся к просьбе отметкой в шапке: панель открывает её раздел с её окном
 function returnToRequest(kind: AgentKind, base: string) {
@@ -1128,6 +1159,18 @@ test('«Исполнители» из сайдбара открываются с
 
   expect(await screen.findByRole('heading', { name: 'Исполнители' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Новый исполнитель' })).not.toBeInTheDocument()
+})
+
+test('отметка разбора флоу открывает «Отчёты» на проекте разбора, и открытый раздел переключается на другой', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('report', 'D:\\Projects\\nota-knowledge')
+  expect(await screen.findByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
+
+  returnToRequest('report', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('button', { name: 'Проект: App' })).toBeInTheDocument()
 })
 
 test('возврат к просьбе из шапки открывает раздел с окном на её базе сколько угодно раз', async () => {
