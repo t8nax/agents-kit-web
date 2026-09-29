@@ -218,6 +218,8 @@ public static partial class ProjectTrackersEndpoints
         // Строки ключей для кита — уже непустой раздел «Где задачи»; слов под ними требует только панель при записи.
         if (new[] { description.Tracker, description.Server, description.Project }.Any(v => v.Trim().Length > 0))
             faults.Remove("where");
+        // Строку «фильтр:» сверка кита не судит вовсе: её держит панель при записи (B-300).
+        faults.Remove("filter");
         return faults;
     }
 

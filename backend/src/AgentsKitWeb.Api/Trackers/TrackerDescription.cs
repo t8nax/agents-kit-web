@@ -225,6 +225,9 @@ public static partial class TrackerDescriptions
             else if (HasHeading(body))
                 // Кит считает заголовок «##» вне блока кода началом своего раздела — не из таблицы, а значит, красным.
                 faults[field] = "Строка, начатая с «##», открыла бы новый раздел: уберите её или сделайте заголовок «###»";
+        // Фильтр — только у трекеров, задачи которых панель читает: у Jira и GitLab его некому применить (B-300).
+        if (description.Filter.Trim().Length > 0 && known is not null && known.Name is not ("GitHub" or "YouTrack"))
+            faults["filter"] = "Фильтр задают только у GitHub и YouTrack";
         // Строка ключа — одна строка файла: перевод строки в значении сломал бы разбор кита.
         foreach (var (field, value) in new[] { ("server", server), ("project", project), ("filter", description.Filter.Trim()) })
             if (value.Contains('\n') || value.Contains('\r'))

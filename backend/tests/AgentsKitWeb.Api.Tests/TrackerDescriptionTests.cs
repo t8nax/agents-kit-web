@@ -246,6 +246,9 @@ public class TrackerDescriptionTests
     [Fact]
     public void Faults_FilterOnSeveralLines_IsNamed()
     {
+        Assert.Equal("Фильтр задают только у GitHub и YouTrack",
+            TrackerDescriptions.Faults(Full with { Tracker = "Jira", Project = "PAY", Filter = "status = Open" })["filter"]);
+        Assert.DoesNotContain("filter", TrackerDescriptions.Faults(Full with { Tracker = "Jira", Project = "PAY" }).Keys);
         Assert.Equal("Значение — одна строка", TrackerDescriptions.Faults(Full with { Filter = "State: {To Do}\ntag: x" })["filter"]);
         Assert.DoesNotContain("filter", TrackerDescriptions.Faults(Full with { Filter = "State: {To Do}" }).Keys);
     }
