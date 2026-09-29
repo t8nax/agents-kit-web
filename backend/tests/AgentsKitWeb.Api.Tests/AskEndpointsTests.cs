@@ -86,6 +86,12 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
         var prompt = args[args.IndexOf("--append-system-prompt") + 1];
         Assert.Contains($"Руководство оператора по панели — в каталоге {AskEndpoints.GuideDir}", prompt);
+        // Названные агенту страницы есть в каталоге руководства: переименование не разойдётся с промптом молча.
+        foreach (var named in new[] { "start.md", "header.md" })
+        {
+            Assert.Contains(named, prompt);
+            Assert.True(File.Exists(Path.Combine(AskEndpoints.GuideDir, named)), named);
+        }
         // Прочитанная страница видна у ответа под своим именем, а не путём от базы.
         Assert.Equal(new AskEvent("step", "читает руководство/workspaces.md"), events[1]);
         Assert.Equal(["руководство/workspaces.md"], events[2].Files);
