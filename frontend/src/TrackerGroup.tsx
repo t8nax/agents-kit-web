@@ -9,7 +9,7 @@ type State = { warning: boolean; text: ReactNode }
 /** Где на это посмотреть в «Настройках» — одними словами у всех причин ключа. */
 const settingsCard = '«Настройках», в карточке «Серверы трекеров»'
 
-function trackerState(load: TrackerLoad, tracker: TrackerInfo): State | null {
+function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () => void): State | null {
   if (load.kind === 'loading') return null
   if (load.kind === 'failed') return { warning: true, text: `Задачи трекера не загрузились: ${load.message}.` }
   const server = <code>{tracker.server}</code>
@@ -25,7 +25,8 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo): State | null {
         text: `Трекер проекта — ${tracker.name ?? 'не GitHub и не YouTrack'}. Панель пока читает задачи только из GitHub и YouTrack.`,
       }
     case 'no-keys': {
-      // Называются именно те строки, которых нет или что записаны не так, — как на макете B-288
+      // Называются именно те строки, которых нет или что записаны не так, — как на макете B-288; описание
+      // исправляется в «Настройках», а не словами киту в сессии (макет B-293)
       const faults = (tracker.faults?.length ? tracker.faults : ['трекер', 'сервер', 'проект']).map((key) => `«${key}:»`)
       const named = faults.length === 1 ? faults[0] : `${faults.slice(0, -1).join(', ')} и ${faults[faults.length - 1]}`
       return {
@@ -33,9 +34,13 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo): State | null {
         text: (
           <>
             {faults.length === 1
-              ? `В описании трекера проекта нет строки ${named} или она записана не так. Допишите её навыком `
-              : `В описании трекера проекта нет строк ${named} или они записаны не так. Допишите их навыком `}
-            <code>/tracker</code>.
+              ? `В описании трекера проекта нет строки ${named} или она записана не так. `
+              : `В описании трекера проекта нет строк ${named} или они записаны не так. `}
+            Исправьте описание в «Настройках», в карточке{' '}
+            <button type="button" className="tracker-link" onClick={onTrackers}>
+              «Трекеры проектов»
+            </button>
+            .
           </>
         ),
       }
@@ -145,17 +150,20 @@ export default function TrackerGroup({
   tracker,
   load,
   issues,
+  onTrackers,
   children,
 }: {
   tracker: TrackerInfo
   load: TrackerLoad
   /** Задачи, прошедшие отбор раздела; при отборе без подошедших задач раздел группу не показывает вовсе. */
   issues: TrackerIssue[]
+  /** Переход в «Настройки» к карточке «Трекеры проектов» — из строки о поломке описания. */
+  onTrackers?: () => void
   /** Кнопка запуска задачи — её держит раздел: окно запуска у него. */
   children: (issue: TrackerIssue) => ReactNode
 }) {
   const reveal = useReveal(load.kind === 'loading')
-  const state = trackerState(load, tracker)
+  const state = trackerState(load, tracker, onTrackers)
   const width = Math.max(0, ...issues.map((issue) => issueLabel(issue).length))
   return (
     <>

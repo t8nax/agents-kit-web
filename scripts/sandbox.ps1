@@ -644,13 +644,14 @@ $kitDir = Join-Path $claudeDir "plugins\cache\agents-kit\agents-kit\$kitVersion"
 # этапы как в жизни. Путь к киту — из списка баз оператора, только на чтение; нет его — место по умолчанию.
 $installedKit = try { (Get-Content -LiteralPath (Join-Path $env:APPDATA 'agents-kit-web\bases.json') -Raw | ConvertFrom-Json).kit } catch { $null }
 if (-not $installedKit) { $installedKit = Join-Path $HOME '.claude\skills\agents-kit' }
-New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md')
+New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md') -Layout (Join-Path $installedKit 'reference\base-layout.md')
 Write-KitPlugin $claudeDir $kitDir $kitVersion
 New-ClaudeStub $binDir
 New-GhStub $ghDir
 Write-Utf8 (Join-Path $Root 'kit-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'claude-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'gh-mode.txt') "ok`n"
+Write-Utf8 (Join-Path $Root 'sync-mode.txt') "ok`n"
 # Задачи GitHub, назначенные на оператора, по репозиториям; кусок с трекером кладёт свои.
 $ghIssues = [ordered]@{}
 # Подставной YouTrack — на своём порту, в стороне от портов песочниц (они идут парами от 5100): у каждой
@@ -776,6 +777,13 @@ if (Test-Piece 'tracker') {
 
 '@)
     Add-Commit $trackerPersonal 'Запись с файлом для переноса в трекер'
+    # Копия, где идёт задача из трекера: пока она идёт, описание трекера не удалить (B-293), и её «Взять задачу»
+    # в «Бэклоге» погашено.
+    $trackerTask = Join-Path $copiesDir 'tracker-gh-48'
+    git -C $trackerCopy worktree add -b feat/gh-48 $trackerTask --quiet
+    New-Memory (Join-Path (Get-MemoryDir $trackerBase) 'tracker-gh-48.md') $trackerTask 'feat/gh-48' -Task 'GitHub #48 Показывать версию кита в «Настройках»'
+    Add-Commit $trackerPersonal 'Задача из трекера'
+    $links.Add([pscustomobject]@{ path = $trackerTask; status = 'Linked'; base = $trackerBase })
     $ghIssues['sandbox/tracker'] = @(
         [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52' }
         [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48' }
@@ -1122,6 +1130,7 @@ else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
 Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, login, error, slow); задачи — gh-issues.json"
+Write-Host "  сведение базы:  $(Join-Path $Root 'sync-mode.txt')    (ok, push-fail, pull-fail, offline); вызовы — sync.log у скриптов кита"
 Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
 $self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""

@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import { type AgentKind, type AgentRequestSummary } from './agentRequest'
 import { forgetRemembered } from './backlogView'
@@ -560,7 +560,7 @@ test('копия не открылась — панель говорит об э
 
 test('сайдбар переключает разделы, среди них «Проблемы баз» и «Настройки»', async () => {
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === '/api/backlog' || url === '/api/bases' || url === '/api/trackers')
+    if (url === '/api/backlog' || url === '/api/bases' || url === '/api/trackers' || url === '/api/trackers/projects')
       return new Response(JSON.stringify([]), { status: 200 })
     if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
     if (url === '/api/health')
@@ -664,7 +664,8 @@ test('без пути к киту таблица говорит об этом в
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      if (url === '/api/bases' || url === '/api/trackers') return new Response(JSON.stringify([]), { status: 200 })
+      if (url === '/api/bases' || url === '/api/trackers' || url === '/api/trackers/projects')
+        return new Response(JSON.stringify([]), { status: 200 })
       if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
       return new Response(JSON.stringify(tableRows), { status: 200 })
     }),
@@ -1143,6 +1144,67 @@ test('возврат к просьбе о флоу открывает разде
 
   expect(await screen.findByRole('heading', { name: 'Флоу' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+})
+
+const trackerRows = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    problem: null,
+    tracker: { kind: 'no-keys', faults: ['проект'] },
+    description: {
+      tracker: 'GitHub', server: 'https://github.com', project: '', where: 'gh', backlog: 'мои', take: 'метка', closed: 'ничего', move: 'туда',
+    },
+    version: 'v1',
+    busy: [],
+    newerFormat: false,
+  },
+]
+
+function stubTrackers() {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/backlog')
+      return new Response(JSON.stringify([{ ...backlogs[0], tracker: trackerRows[0].tracker }]), { status: 200 })
+    if (url === '/api/trackers/projects') return new Response(JSON.stringify(trackerRows), { status: 200 })
+    if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
+    if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
+    return new Response(JSON.stringify([]), { status: 200 })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+}
+
+// Критерий 7 B-293: строка поломки описания трекера в «Бэклоге» ведёт в карточку «Трекеры проектов».
+test('строка поломки трекера в «Бэклоге» открывает «Настройки» на карточке «Трекеры проектов»', async () => {
+  stubTrackers()
+  // В jsdom прокрутки нет: тест ставит её себе и убирает за собой.
+  const scrolled = vi.fn()
+  Element.prototype.scrollIntoView = scrolled
+  onTestFinished(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+  })
+  render(<App />)
+  await screen.findByRole('table')
+
+  fireEvent.click(sidebarButtons().getByRole('button', { name: /Бэклог/ }))
+  fireEvent.click(await screen.findByRole('button', { name: '«Трекеры проектов»' }))
+
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  const card = await screen.findByRole('region', { name: 'Трекеры проектов' })
+  await waitFor(() => expect(scrolled).toHaveBeenCalled())
+  expect(scrolled.mock.contexts[0]).toBe(card)
+  expect(within(card).getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
+})
+
+test('возврат к переписке о трекере открывает «Настройки» с окном трекера этого проекта', async () => {
+  stubTrackers()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('tracker', 'D:\\Projects\\app-knowledge')
+
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  const dialog = await screen.findByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })
+  expect(within(dialog).getByText('app-knowledge', { selector: '.rewrite-project-name' })).toBeInTheDocument()
 })
 
 test('«Исполнители» из сайдбара открываются списком, а не окном заведения после возврата к просьбе', async () => {

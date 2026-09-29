@@ -179,6 +179,16 @@ public static class WorkspaceCollector
         return result;
     }
 
+    /// <summary>
+    /// Памяти задач всех машин оператора, какие приехали в его личный репозиторий, — work\&lt;машина&gt;\*.md: одинаковый
+    /// путь копии на двух машинах — две задачи, поэтому по копии они не схлопываются. Флоу задачи рядом с памятью
+    /// (кит формата 8) памятью не читается.
+    /// </summary>
+    internal static IEnumerable<(string File, WorkMemory Memory)> AllMemories(BaseLayout layout) =>
+        Directory.Exists(layout.WorkDir)
+            ? Directory.EnumerateDirectories(layout.WorkDir).SelectMany(ReadMemoryFiles)
+            : [];
+
     private static IEnumerable<(string File, WorkMemory Memory)> ReadMemoryFiles(string memoryDir)
     {
         if (!Directory.Exists(memoryDir))
