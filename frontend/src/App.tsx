@@ -22,7 +22,7 @@ import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
-import { splitTask } from './taskTitle'
+import { splitTask, splitTrackerTask } from './taskTitle'
 import { TerminalIcon } from './TerminalIcon'
 import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
@@ -76,6 +76,8 @@ export type WorkspaceRow = {
   vsCodeSession?: boolean
   /** Буквы номеров проекта: по ним номер задачи отделяется от заголовка; null или нет поля — букв панель не знает. */
   letters?: string | null
+  /** Имя трекера проекта: по нему номер задачи трекера отделяется от заголовка; null или нет поля — трекера нет. */
+  tracker?: string | null
   /** База нового формата кита: строки видны, но панель предупреждает, что знает её не всю, — B-281. */
   formatWarning?: string | null
 }
@@ -640,8 +642,9 @@ function MoonIcon() {
   )
 }
 
-// Номер записи бэклога стоит своей колонкой перед заголовком: в тексте задачи он терялся
-function TaskCells({ task, letters }: { task: string | null; letters: string | null | undefined }) {
+// Номер записи бэклога стоит своей колонкой перед заголовком: в тексте задачи он терялся. Номер задачи трекера
+// стоит там же вместе с именем трекера — B-303
+function TaskCells({ task, letters, tracker }: { task: string | null; letters: string | null | undefined; tracker: string | null | undefined }) {
   if (task === null) {
     // Задачу берут в разделе «Бэклог», а у свободной копии здесь стоит прочерк — решение оператора на B-86
     return (
@@ -651,7 +654,8 @@ function TaskCells({ task, letters }: { task: string | null; letters: string | n
       </>
     )
   }
-  const { number, title } = splitTask(task, letters)
+  const tracked = splitTrackerTask(task, tracker)
+  const { number, title } = tracked.number ? tracked : splitTask(task, letters)
   return (
     <>
       <td className={`num-col ${number ? '' : 'text-ter'}`}>
@@ -958,7 +962,7 @@ function WorkspacesTable({
                 </td>
               ) : (
                 <>
-                  <TaskCells task={row.task} letters={row.letters} />
+                  <TaskCells task={row.task} letters={row.letters} tracker={row.tracker} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
                     {row.progress === null ? (

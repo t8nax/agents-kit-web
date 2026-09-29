@@ -103,6 +103,42 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`номер задачи трекера стоит в колонке номера плашкой с именем трекера, в одну строку (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await page.route('**/api/workspaces', (route) =>
+      route.fulfill({
+        json: [
+          { ...row, tracker: 'YouTrack', task: 'YouTrack ABC-12 Выгрузка отчётов падает на длинных именах' },
+          { ...row, tracker: 'YouTrack', path: 'D:\\Projects\\agents-kit-web-2' },
+        ],
+      }),
+    )
+    await page.goto('/')
+
+    const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
+    await expect(bodyRows).toHaveCount(2)
+    const tracked = bodyRows.nth(0).getByRole('cell')
+    await expect(tracked.nth(2)).toHaveText('Выгрузка отчётов падает на длинных именах')
+    const chip = tracked.nth(1).locator('.num-chip')
+    await expect(chip).toHaveText('YouTrack ABC-12')
+    await expect(chip).toHaveCSS('border-top-width', '1px')
+    await expect(chip).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const backlogChip = bodyRows.nth(1).getByRole('cell').nth(1).locator('.num-chip')
+    await expect(backlogChip).toHaveText('B-24')
+    // Плашка с пробелом не переносится: она той же высоты, что плашка номера бэклога, а колонка — по ней
+    await expect(async () => {
+      const [chipBox, backlogBox, cellBox] = await Promise.all([
+        chip.boundingBox(),
+        backlogChip.boundingBox(),
+        tracked.nth(1).boundingBox(),
+      ])
+      expect(Math.abs(chipBox!.height - backlogBox!.height)).toBeLessThan(2)
+      expect(cellBox!.width).toBeLessThan(chipBox!.width + 40)
+    }).toPass()
+  })
+}
+
 test('номер задачи отделяется по буквам её проекта, слово с другими буквами номером не становится', async ({ page }) => {
   const orders = { ...row, project: 'Orders', base: 'D:\\Projects\\orders-knowledge', letters: 'ORD' }
   await page.route('**/api/workspaces', (route) =>
