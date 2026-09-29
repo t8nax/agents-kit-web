@@ -148,8 +148,7 @@ public static class PerformersEndpoints
             {
                 System.IO.Directory.CreateDirectory(directory);
                 // Через временный файл рядом: сорвавшаяся запись оставляет прежнего исполнителя целым.
-                await FlowEndpoints.WriteAsync(
-                    file, Encoding.UTF8.GetBytes(PerformerFile.Serialize(fields, newline)), CancellationToken.None);
+                await FlowEndpoints.WriteAsync(file, Encoding.UTF8.GetBytes(PerformerFile.Serialize(fields, newline)));
                 // Правка сменила имя — прежний файл уходит тем же коммитом, что приносит новый.
                 if (prior is not null)
                     Remove(prior);
@@ -201,7 +200,7 @@ public static class PerformersEndpoints
             return;
         try
         {
-            await FlowEndpoints.WriteAsync(file, kept, CancellationToken.None);
+            await FlowEndpoints.WriteAsync(file, kept);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

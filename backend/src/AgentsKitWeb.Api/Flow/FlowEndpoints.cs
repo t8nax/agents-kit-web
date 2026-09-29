@@ -355,7 +355,7 @@ public static class FlowEndpoints
         try
         {
             foreach (var write in writes)
-                await WriteAsync(Path.Combine(basePath, write.Path), write.Bytes, CancellationToken.None);
+                await WriteAsync(Path.Combine(basePath, write.Path), write.Bytes);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -383,7 +383,7 @@ public static class FlowEndpoints
         {
             try
             {
-                await WriteAsync(Path.Combine(basePath, write.Path), write.Before, CancellationToken.None);
+                await WriteAsync(Path.Combine(basePath, write.Path), write.Before);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
@@ -410,8 +410,11 @@ public static class FlowEndpoints
         return configured is not null && Directory.Exists(configured) ? configured : null;
     }
 
-    /// <summary>Пишет файл через временный рядом; null — удаляет. Сорвавшаяся запись оставляет прежний файл целым.</summary>
-    internal static async Task WriteAsync(string file, byte[]? bytes, CancellationToken cancellationToken)
+    /// <summary>
+    /// Пишет файл через временный рядом; null — удаляет. Сорвавшаяся запись оставляет прежний файл целым.
+    /// Отмены у записи нет: начавшись, она не рвётся запросом.
+    /// </summary>
+    internal static async Task WriteAsync(string file, byte[]? bytes)
     {
         if (bytes is null)
         {
@@ -424,7 +427,7 @@ public static class FlowEndpoints
         var temp = file + ".panel-tmp";
         try
         {
-            await File.WriteAllBytesAsync(temp, bytes, cancellationToken);
+            await File.WriteAllBytesAsync(temp, bytes);
             File.Move(temp, file, overwrite: true);
         }
         catch
