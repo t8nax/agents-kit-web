@@ -853,6 +853,8 @@ while ($listener.IsListening) {
             # Отбор описания трекера (B-300) — хвост после «#Unresolved»: поля State и tag значением или {значениями}
             # через запятую, прочие слова — по заголовку; другое поле YouTrack отвергает, как настоящий.
             $tail = if ($query -match '#Unresolved\s*(.*)$') { $Matches[1].Trim() } else { '' }
+            # Панель дописывает фильтр в скобках: «… #Unresolved and (<фильтр>)».
+            if ($tail -match '^and \((.*)\)$') { $tail = $Matches[1].Trim() }
             $pattern = '([A-Za-z]+):\s*((?:\{[^}]*\}(?:\s*,\s*\{[^}]*\})*)|\S+)'
             $unknown = @([regex]::Matches($tail, $pattern) | Where-Object { $_.Groups[1].Value -notin 'State', 'tag' } |
                 ForEach-Object { $_.Groups[1].Value })

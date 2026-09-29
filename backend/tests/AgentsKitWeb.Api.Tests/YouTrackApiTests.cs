@@ -109,7 +109,10 @@ public sealed class YouTrackApiTests
         Assert.Contains("query=project: {ABC} for: me #Unresolved", query);
     }
 
-    /// <summary>Строка отбора описания дописывается к запросу панели как есть (B-300).</summary>
+    /// <summary>
+    /// Фильтр описания дописывается к запросу панели в скобках (B-300): «or» в нём не выводит поиск за задачи
+    /// оператора в проекте (ревью B-300).
+    /// </summary>
     [Fact]
     public async Task Assigned_WithFilter_AppendsItToSearch()
     {
@@ -120,7 +123,7 @@ public sealed class YouTrackApiTests
         var issues = await api.AssignedAsync(Server, Key, "ABC", " State: {To Do} ", CancellationToken.None);
 
         Assert.Null(issues.Problem);
-        Assert.Contains("query=project: {ABC} for: me #Unresolved State: {To Do}&", Uri.UnescapeDataString(_asked[1].Url));
+        Assert.Contains("query=project: {ABC} for: me #Unresolved and (State: {To Do})&", Uri.UnescapeDataString(_asked[1].Url));
     }
 
     /// <summary>YouTrack отверг поиск с отбором — не принята строка отбора, а не сервер сломан.</summary>
@@ -136,6 +139,19 @@ public sealed class YouTrackApiTests
 
         Assert.Equal((TrackerIssues.FilterRejected, "Unknown field \"Stat\""), (filtered.Problem, filtered.Detail));
         Assert.Equal(TrackerIssues.YouTrackError, plain.Problem);
+    }
+
+    /// <summary>Сбой сервера при поиске с фильтром — ошибка YouTrack, а не отказ фильтра (ревью B-300).</summary>
+    [Fact]
+    public async Task Assigned_ServerFailureWithFilter_IsYouTrackError()
+    {
+        var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
+            ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
+            : Json("<html>Bad Gateway</html>", HttpStatusCode.BadGateway));
+
+        var issues = await api.AssignedAsync(Server, Key, "ABC", "State: {To Do}", CancellationToken.None);
+
+        Assert.Equal((TrackerIssues.YouTrackError, "HTTP 502"), (issues.Problem, issues.Detail));
     }
 
     /// <summary>Проектов с искомым в имени больше страницы — нужный ищется и на следующих (ревью B-288).</summary>

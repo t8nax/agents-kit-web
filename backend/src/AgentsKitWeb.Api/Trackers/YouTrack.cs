@@ -60,13 +60,16 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
             return new TrackerIssues([], found.Problem, found.Detail);
 
         var search = $"project: {{{found.ShortName}}} for: me #Unresolved";
+        // Фильтр — в скобках: «and» в поиске YouTrack связывает сильнее «or», и «State: A or State: B» без скобок
+        // вернул бы чужие задачи других проектов (ревью B-300).
         if (!string.IsNullOrWhiteSpace(filter))
-            search += $" {filter.Trim()}";
+            search += $" and ({filter.Trim()})";
         var reply = await SendAsync(
             Get(server, key, $"api/issues?query={Uri.EscapeDataString(search)}&fields=idReadable,summary&$top={Limit}"),
             ReadTimeout, cancellationToken);
-        // Проект найден и ключ принят — отказ самого поиска с фильтром значит, что YouTrack не принял строку фильтра.
-        if (reply.Problem == TrackerIssues.YouTrackError && !string.IsNullOrWhiteSpace(filter))
+        // Проект найден и ключ принят — поиск с фильтром, отвергнутый как неверный запрос (400), значит, что YouTrack
+        // не принял строку фильтра; сбой сервера (5xx) фильтр не винит.
+        if (reply.Status == HttpStatusCode.BadRequest && !string.IsNullOrWhiteSpace(filter))
             return new TrackerIssues([], TrackerIssues.FilterRejected, reply.Detail);
         if (reply.Problem is not null)
             return new TrackerIssues([], reply.Problem, reply.Detail);
@@ -157,7 +160,7 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
     private static string? Text(JsonNode? node, string name) =>
         node is JsonObject obj && obj[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
 
-    private sealed record Reply(JsonNode? Json, string? Problem = null, string? Detail = null);
+    private sealed record Reply(JsonNode? Json, string? Problem = null, string? Detail = null, HttpStatusCode? Status = null);
 
     private static HttpRequestMessage Get(string server, string key, string path) => Request(HttpMethod.Get, server, key, path);
 
@@ -188,7 +191,7 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
             if (response.StatusCode is HttpStatusCode.Forbidden)
                 return new Reply(null, TrackerIssues.KeyForbidden, Described(text));
             if (!response.IsSuccessStatusCode)
-                return new Reply(null, TrackerIssues.YouTrackError, Described(text) ?? $"HTTP {(int)response.StatusCode}");
+                return new Reply(null, TrackerIssues.YouTrackError, Described(text) ?? $"HTTP {(int)response.StatusCode}", response.StatusCode);
             try
             {
                 return new Reply(JsonNode.Parse(text));
