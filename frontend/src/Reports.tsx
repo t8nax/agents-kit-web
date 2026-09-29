@@ -325,7 +325,7 @@ export default function Reports({
       )}
 
       {item && (
-        <div className={reveal.className} onAnimationEnd={reveal.onAnimationEnd} inert={rewrite !== null}>
+        <div className={`rp-body ${reveal.className}`} onAnimationEnd={reveal.onAnimationEnd} inert={rewrite !== null}>
           <ScheduleLine
             schedule={item.schedule}
             report={report}

@@ -224,3 +224,22 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(await high.evaluate((tag) => getComputedStyle(tag).color)).toBe(await token('--accent-error-text'))
   })
 }
+
+test('когда отчёта нет, блок об этом стоит по центру области раздела, а не сверху', async ({ page }) => {
+  await mockReports(page, { report: null })
+  await openReports(page)
+
+  const empty = page.locator('.rp-empty')
+  await expect(empty.getByRole('heading', { name: 'Отчёта ещё нет' })).toBeVisible()
+  // Замер повторяется до совпадения: шрифт грузится после первой отрисовки (decisions/e2e.md).
+  await expect(async () => {
+    const area = (await page.locator('main.content').boundingBox())!
+    const block = (await empty.boundingBox())!
+    const button = (await empty.getByRole('button', { name: 'Построить отчёт' }).boundingBox())!
+    const mark = (await empty.locator('.rp-empty-mark').boundingBox())!
+    // Блок занимает всё место до низа области, а его содержимое — посередине блока.
+    expect(Math.abs(block.y + block.height - (area.y + area.height))).toBeLessThanOrEqual(1)
+    const middle = (mark.y + button.y + button.height) / 2
+    expect(Math.abs(middle - (block.y + block.height / 2))).toBeLessThanOrEqual(2)
+  }).toPass()
+})

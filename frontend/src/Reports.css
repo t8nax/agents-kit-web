@@ -251,7 +251,22 @@
 }
 
 /* Отчёта ещё нет — пустое состояние, как у раздела «Флоу». */
+/* Раздел во всю высоту области: пустое состояние занимает место под строкой расписания и стоит по его центру,
+   как во «Флоу» (замечание оператора на приёмке). */
+.rp {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.rp-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
 .rp-empty {
+  flex: 1;
   min-height: 380px;
   display: flex;
   flex-direction: column;
