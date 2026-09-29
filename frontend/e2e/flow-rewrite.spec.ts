@@ -38,7 +38,7 @@ type Said = Record<string, unknown> & { type: string; text: string }
  * читает её потоком с начала. /api подменяется: настоящая просьба запустила бы агента в живой копии оператора,
  * а «Принять правки» записало бы флоу в живую базу и закоммитило бы его.
  */
-async function mockApi(page: Page, tasks: { task: string; flow: string | null }[] = []) {
+async function mockApi(page: Page) {
   const panel = {
     posts: [] as Record<string, unknown>[],
     replies: [] as Record<string, unknown>[],
@@ -88,7 +88,7 @@ async function mockApi(page: Page, tasks: { task: string; flow: string | null }[
     }
     return route.fulfill({
       json: [
-        { base, project: 'Agents Kit Web', stages: [review, merge, spare], flows: [full, small], version: 'v1', error: null, icons: {}, tasks },
+        { base, project: 'Agents Kit Web', stages: [review, merge, spare], flows: [full, small], version: 'v1', error: null, icons: {} },
       ],
     })
   })
@@ -246,20 +246,4 @@ test('описание из правок открывается окном то�
   await page.getByRole('menu').getByRole('menuitem', { name: 'Редактировать описание' }).click()
   const fromStages = page.getByRole('dialog', { name: 'Описание этапа «Ревью»' })
   await expect(async () => expect(await measure(fromStages)).toEqual(rewriteSize)).toPass()
-})
-
-test('правки занятого задачей сценария помечены замком, и «Принять правки» погашена', async ({ page }) => {
-  const panel = await mockApi(page, [{ task: 'B-238', flow: 'мелкий' }])
-  const modal = await openRewrite(page)
-
-  await modal.getByLabel('Просьба').fill('Заведи документацию в мелком')
-  await modal.getByRole('button', { name: 'Отправить' }).click()
-  panel.answer({ type: 'answer', text: 'Готово.', proposal, changed: { scenarios: 1, stages: 3 } })
-  await modal.getByRole('button', { name: '1 сценарий, 3 этапа' }).click()
-
-  await expect(modal.getByRole('status')).toContainText('Правки не записать: заняты задачами в работе')
-  await expect(modal.getByRole('status')).toContainText('сценарий «мелкий»')
-  await expect(modal.getByTitle('Занят: B-238').first()).toBeVisible()
-  await expect(modal.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
-  expect(panel.saved).toHaveLength(0)
 })

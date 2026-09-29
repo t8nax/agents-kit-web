@@ -146,7 +146,7 @@ test('от находки поверх отчёта открывается ок�
   await page.route('**/api/performers', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/flow', (route) =>
     route.fulfill({
-      json: [{ base, project: 'Agents Kit Web', stages: [], flows: [], version: 'v1', error: null, icons: {}, tasks: [] }],
+      json: [{ base, project: 'Agents Kit Web', stages: [], flows: [], version: 'v1', error: null, icons: {} }],
     }),
   )
   await page.route('**/api/agent/requests', (route) => route.fulfill({ json: [] }))
