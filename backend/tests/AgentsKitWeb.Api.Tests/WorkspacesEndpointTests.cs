@@ -191,6 +191,28 @@ public sealed class WorkspacesEndpointTests : IDisposable
     }
 
     [Fact]
+    // Задача идёт по своей копии сценария рядом с памятью (кит формата 8): сценария, названного памятью, во флоу базы
+    // уже нет — его переименовали или удалили, — а строка копии по-прежнему показывает этап и ход из памяти.
+    // Файлы копии флоу памятью не читаются, даже если строка в них похожа на строку памяти (B-299).
+    public async Task Workspaces_TaskWhoseScenarioIsGoneFromFlow_KeepsItsStepAndProgress()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", copy);
+        File.WriteAllText(Path.Combine(TestLayout.Work(basePath), "app.md"),
+            $"# B-7 Задача\nрабочая копия: {copy}\nсценарий: мелкий\n\n## Агенту\n\n### Сценарий\n- [x] 1. Ветка — выход: b-7\n- [ ] 2. Реализация\n");
+        var taskFlow = Path.Combine(TestLayout.Work(basePath), "app", "flow");
+        Directory.CreateDirectory(Path.Combine(taskFlow, "stages"));
+        File.WriteAllText(Path.Combine(taskFlow, "scenarios.md"), "# App — сценарии\n\n## мелкий\n1. [Ветка](stages/branch.md)\n2. [Реализация](stages/implementation.md)\n");
+        File.WriteAllText(Path.Combine(taskFlow, "stages", "implementation.md"),
+            $"# Реализация\n\nисполнитель: оркестратор\nвыход: sha\n\nрабочая копия: {Path.Combine(_root, "elsewhere")}\n");
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal(copy, row.Path);
+        Assert.Equal("Реализация", row.FlowStep);
+        Assert.Equal(50, row.Progress);
+    }
+
+    [Fact]
     public async Task Workspaces_BaseOfOlderFormat_IsOneRowWithReason()
     {
         var copy = TestGit.Repository(Path.Combine(_root, "app"));
