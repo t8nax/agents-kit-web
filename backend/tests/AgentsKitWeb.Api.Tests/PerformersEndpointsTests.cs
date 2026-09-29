@@ -387,13 +387,13 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Performers_RequestAbortedDuringCommit_StillCommitsThePerformer()
+    public async Task Performers_RequestAbortedWhileStaging_StillCommitsThePerformer()
     {
-        // Вкладку закрыли, когда исполнитель уже записан и коммитится: оборванная запись оставила бы
-        // его в индексе для чужого коммита соседней сессии.
+        // Вкладку закрыли, когда исполнитель уже записан и заносится в индекс: оборванная запись оставила
+        // бы его в индексе без коммита, для чужого коммита соседней сессии.
         var basePath = CreateBase("app-knowledge");
         var personal = TestLayout.Personal(basePath);
-        var (started, release) = HoldCommit(personal, refuse: false);
+        var (started, release) = HoldStaging(personal);
         using var abort = new CancellationTokenSource();
 
         var saving = Factory(basePath).CreateClient().PostAsJsonAsync("/api/performers", new SavePerformerRequest(
@@ -416,7 +416,7 @@ public sealed class PerformersEndpointsTests : IDisposable
         Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое тело.\n");
         TestGit.Run(personal, "add", "--", "agents/reviewer.md");
         TestGit.Run(personal, "commit", "-m", "исполнитель");
-        var (started, release) = HoldCommit(personal, refuse: true);
+        var (started, release) = HoldCommit(personal);
         using var abort = new CancellationTokenSource();
 
         var saving = Factory(basePath).CreateClient().PostAsJsonAsync("/api/performers", new SavePerformerRequest(
@@ -470,9 +470,9 @@ public sealed class PerformersEndpointsTests : IDisposable
 
     /// <summary>
     /// Хук личного репозитория держит коммит: отмечает начало файлом started и ждёт файла release, потом
-    /// пропускает коммит или отказывает. Ждёт не дольше запаса тестов, чтобы упавший тест не оставил git висеть.
+    /// отказывает. Ждёт не дольше запаса тестов, чтобы упавший тест не оставил git висеть.
     /// </summary>
-    private (string Started, string Release) HoldCommit(string personal, bool refuse)
+    private (string Started, string Release) HoldCommit(string personal)
     {
         var started = Path.Combine(_root, "commit-started");
         var release = Path.Combine(_root, "commit-release");
@@ -481,9 +481,32 @@ public sealed class PerformersEndpointsTests : IDisposable
             touch '{{started.Replace('\\', '/')}}'
             i=0
             while [ ! -f '{{release.Replace('\\', '/')}}' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-            {{(refuse ? "echo 'сверка: база не приняла' >&2\nexit 1" : "exit 0")}}
+            echo 'сверка: база не приняла' >&2
+            exit 1
 
             """.ReplaceLineEndings("\n"));
+        return (started, release);
+    }
+
+    /// <summary>
+    /// Фильтр личного репозитория держит git add файла исполнителя, как хук держит коммит. Коммит по пути
+    /// прогоняет файл через фильтр ещё раз — к тому времени release уже лежит, и фильтр пропускает сразу.
+    /// </summary>
+    private (string Started, string Release) HoldStaging(string personal)
+    {
+        var started = Path.Combine(_root, "add-started");
+        var release = Path.Combine(_root, "add-release");
+        var filter = Path.Combine(_root, "hold.sh");
+        File.WriteAllText(filter, $$"""
+            #!/bin/sh
+            touch '{{started.Replace('\\', '/')}}'
+            i=0
+            while [ ! -f '{{release.Replace('\\', '/')}}' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+            cat
+
+            """.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(personal, ".git", "info", "attributes"), "agents/*.md filter=hold\n");
+        TestGit.Run(personal, "config", "filter.hold.clean", $"sh '{filter.Replace('\\', '/')}'");
         return (started, release);
     }
 
