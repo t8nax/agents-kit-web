@@ -317,6 +317,24 @@ test('номер задачи отделяется по буквам её про
   expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'UTF-8 в именах файлов ломает выгрузку'])
 })
 
+test('номер задачи трекера стоит в колонке номера с именем трекера, только у проекта с этим трекером', async () => {
+  const jira: WorkspaceRow = { ...rows[0], task: 'Jira PAY-7 Выгрузка отчётов', letters: 'B', tracker: 'Jira' }
+  const backlog: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'B-24 Номер задачи отдельной колонкой', letters: 'B', tracker: 'Jira' }
+  const foreign: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-3', task: 'GitHub #37 Оплата падает', letters: 'B', tracker: 'Jira' }
+  const untracked: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-4', task: 'GitHub #37 Оплата падает', letters: 'B', tracker: null }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([jira, backlog, foreign, untracked])))
+
+  render(<App />)
+
+  const tableRows = await findTableRows()
+  const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((cell) => cell.textContent)
+  expect(cells(tableRows[1]).slice(1, 3)).toEqual(['Jira PAY-7', 'Выгрузка отчётов'])
+  expect(within(tableRows[1]).getByText('Jira PAY-7')).toHaveClass('num-chip')
+  expect(cells(tableRows[2]).slice(1, 3)).toEqual(['B-24', 'Номер задачи отдельной колонкой'])
+  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', 'GitHub #37 Оплата падает'])
+  expect(cells(tableRows[4]).slice(1, 3)).toEqual(['—', 'GitHub #37 Оплата падает'])
+})
+
 // Меню действий строки: кнопка «⋯» открывает его, пункт — действие над копией этой строки
 async function openRowMenu(row: HTMLElement) {
   await act(async () => {

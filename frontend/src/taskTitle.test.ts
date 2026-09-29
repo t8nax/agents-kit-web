@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { normalizeNumber, numberLetters, splitTask } from './taskTitle'
+import { normalizeNumber, numberLetters, splitTask, splitTrackerTask } from './taskTitle'
 
 test('отделяет номер записи бэклога от заголовка', () => {
   expect(splitTask('B-24 Номер задачи и её заголовок — отдельные колонки таблицы', 'B')).toEqual({
@@ -39,6 +39,23 @@ test('номер без заголовка или слово, похожее н�
   expect(splitTask('B-24', 'B')).toEqual({ number: null, title: 'B-24' })
   expect(splitTask('B-24x Заголовок', 'B')).toEqual({ number: null, title: 'B-24x Заголовок' })
   expect(splitTask('Про B-24 и B-11', 'B')).toEqual({ number: null, title: 'Про B-24 и B-11' })
+})
+
+test('отделяет номер задачи трекера проекта вместе с именем трекера', () => {
+  expect(splitTrackerTask('GitHub #37 Оплата падает', 'GitHub')).toEqual({ number: 'GitHub #37', title: 'Оплата падает' })
+  expect(splitTrackerTask('Jira PAY-7 Выгрузка отчётов', 'Jira')).toEqual({ number: 'Jira PAY-7', title: 'Выгрузка отчётов' })
+  expect(splitTrackerTask('youtrack abc-12 Строчными', 'YouTrack')).toEqual({ number: 'YouTrack ABC-12', title: 'Строчными' })
+  expect(splitTrackerTask('github#37 Без пробела', 'GitHub')).toEqual({ number: 'GitHub #37', title: 'Без пробела' })
+  expect(splitTrackerTask('Трекер.Свой X-1 Своё имя', 'Трекер.Свой')).toEqual({ number: 'Трекер.Свой X-1', title: 'Своё имя' })
+})
+
+test('номер чужого трекера или без трекера проекта не отделяется', () => {
+  expect(splitTrackerTask('GitHub #37 Оплата падает', 'Jira')).toEqual({ number: null, title: 'GitHub #37 Оплата падает' })
+  expect(splitTrackerTask('GitHub #37 Оплата падает', null)).toEqual({ number: null, title: 'GitHub #37 Оплата падает' })
+  expect(splitTrackerTask('GitHub #37 Оплата падает', undefined)).toEqual({ number: null, title: 'GitHub #37 Оплата падает' })
+  expect(splitTrackerTask('GitHub #37', 'GitHub')).toEqual({ number: null, title: 'GitHub #37' })
+  expect(splitTrackerTask('GitHubber #37 Не то имя', 'GitHub')).toEqual({ number: null, title: 'GitHubber #37 Не то имя' })
+  expect(splitTrackerTask('B-24 Запись бэклога', 'GitHub')).toEqual({ number: null, title: 'B-24 Запись бэклога' })
 })
 
 test('номер по правилу кита', () => {
