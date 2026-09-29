@@ -366,17 +366,50 @@ test('Ctrl+D включает и выключает запись в окне, г
   expect(mic.closed).toBe(1)
 })
 
-test('Ctrl+D вне окон с кнопкой ничего не трогает и браузеру не мешает', () => {
+test('фокус вне окон — Ctrl+D пишет в верхнем, последнем открытом окне', async () => {
+  // «Взять в работу» и «Новая сессия» фокус себе не берут, щелчок по ленте уводит его из поля.
   stubRecognize()
   render(<TwoWindows />)
   const outside = screen.getByLabelText('Вне окон')
   outside.focus()
 
   const event = ctrlD(outside)
+  await vi.waitFor(() => expect(mic.feed).not.toBeNull())
+
+  expect(event.defaultPrevented).toBe(true)
+  expect(micIn('Второе')).toHaveAttribute('aria-pressed', 'true')
+  expect(micIn('Первое')).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('окно под другим (inert) Ctrl+D не получает', async () => {
+  stubRecognize()
+  render(<TwoWindows />)
+  screen.getByRole('dialog', { name: 'Второе' }).setAttribute('inert', '')
+
+  ctrlD(document.body)
+  await vi.waitFor(() => expect(mic.feed).not.toBeNull())
+
+  expect(micIn('Первое')).toHaveAttribute('aria-pressed', 'true')
+})
+
+test('без кнопки микрофона на экране Ctrl+D остаётся браузеру', () => {
+  const { unmount } = render(<TwoWindows />)
+  unmount()
+
+  const event = ctrlD(document.body)
 
   expect(event.defaultPrevented).toBe(false)
-  expect(micIn('Первое')).toHaveAttribute('aria-pressed', 'false')
-  expect(micIn('Второе')).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('Ctrl+D на недоступной кнопке называет причину строкой под полем', () => {
+  render(<Field state="absent" />)
+  field().focus()
+
+  const event = ctrlD(field())
+
+  expect(event.defaultPrevented).toBe(true)
+  expect(screen.getByRole('alert')).toHaveTextContent(VOICE_TITLES.notInstalled)
+  expect(button()).toHaveAttribute('aria-pressed', 'false')
 })
 
 test('клавиатура включает и выключает запись щелчком', async () => {

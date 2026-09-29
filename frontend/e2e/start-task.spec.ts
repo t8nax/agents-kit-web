@@ -221,3 +221,30 @@ test('копию успели занять: окно называет идущу
   await expect(dialog.getByRole('alert')).toContainText('В копии уже идёт задача «B-5 Прошлая задача»')
   await expect(dialog).toBeVisible()
 })
+
+test.describe('голосовой ввод с клавиатуры', () => {
+  // Микрофон — подставной у Chromium, разрешение выдано заранее: проверяется, какой кнопке достаётся Ctrl+D.
+  test.use({
+    launchOptions: { args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] },
+    permissions: ['microphone'],
+  })
+
+  test('Ctrl+D сразу после открытия «Взять в работу» пишет в его поле, хотя фокус окно себе не берёт', async ({ page }) => {
+    await routeApi(page, { status: 200, json: { session: '7339dced' } })
+    await page.route('**/api/voice', (route) => route.fulfill({ json: { state: 'installed', downloaded: 1, total: 1, error: null } }))
+    await page.route('**/api/voice/warm', (route) => route.fulfill({ status: 202, body: '' }))
+    const entries = await openBacklog(page)
+    await entries.filter({ hasText: 'B-8' }).getByRole('button', { name: 'Взять задачу' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
+    const mic = dialog.getByRole('button', { name: 'Голосовой ввод' })
+    await expect(mic).toHaveAttribute('title', /^Надиктовать/)
+
+    await page.keyboard.press('Control+KeyD')
+    await expect(mic).toHaveAttribute('aria-pressed', 'true')
+
+    await page.keyboard.press('Control+KeyD')
+    await expect(mic).toHaveAttribute('aria-pressed', 'false')
+    // Окно закладки Chrome не открылось: страница та же, окно на месте.
+    await expect(dialog).toBeVisible()
+  })
+})

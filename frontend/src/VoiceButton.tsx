@@ -20,6 +20,40 @@ import {
 
 type Mode = 'idle' | 'pressed' | 'click' | 'hold'
 
+type Registered = { element: () => HTMLButtonElement | null; press: () => void }
+
+/**
+ * Кнопки микрофона на экране, в порядке появления. Ctrl+D достаётся кнопке окна, где стоит фокус, а фокуса в окне
+ * с кнопкой нет — последней открытой, то есть верхнему окну: «Взять в работу» и «Новая сессия» фокус себе не берут,
+ * а щелчок по ленте или по микрофону уводит его из поля (ревью B-291). Окно под другим (inert) нажатия не получает.
+ * Клавиша — по месту на клавиатуре (KeyD), а не по букве: в русской раскладке это «В». Закладку браузера Ctrl+D при
+ * кнопке на экране не открывает; нет кнопки — браузер делает своё.
+ */
+const registered: Registered[] = []
+
+function onCtrlD(event: KeyboardEvent) {
+  if (event.code !== 'KeyD' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return
+  const live = registered.filter((button) => {
+    const element = button.element()
+    return element?.isConnected && !element.closest('[inert]')
+  })
+  if (live.length === 0) return
+  const focused = document.activeElement instanceof Element ? document.activeElement.closest('[role="dialog"]') : null
+  const target = (focused && live.find((button) => button.element()?.closest('[role="dialog"]') === focused)) || live.at(-1)!
+  event.preventDefault()
+  // Зажатая клавиша повторяет нажатие: запись от этого не мигает.
+  if (!event.repeat) target.press()
+}
+
+function register(button: Registered) {
+  if (registered.length === 0) document.addEventListener('keydown', onCtrlD)
+  registered.push(button)
+  return () => {
+    registered.splice(registered.indexOf(button), 1)
+    if (registered.length === 0) document.removeEventListener('keydown', onCtrlD)
+  }
+}
+
 function MicIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -220,27 +254,14 @@ export default function VoiceButton<T = undefined>({
     if (event.detail === 0) toggle()
   }
 
-  // Ctrl+D — тот же щелчок, не беря мышь (приёмка B-291). Слушает кнопка того окна, где стоит фокус: у каждого окна
-  // своя кнопка, и нажатие в одном окне запись в другом не трогает. Клавиша — по месту на клавиатуре (KeyD), а не
-  // по букве: в русской раскладке это «В». Закладку браузера Ctrl+D в окне с кнопкой не открывает.
+  // Ctrl+D — тот же щелчок, не беря мышь (приёмка B-291); недоступная кнопка называет причину строкой под полем —
+  // подсказку при наведении без мыши не увидеть. Какой кнопке нажатие, решает общий список кнопок ниже.
   const self = useRef<HTMLButtonElement>(null)
-  const toggleRef = useRef(toggle)
+  const pressRef = useRef(toggle)
   useLayoutEffect(() => {
-    toggleRef.current = toggle
+    pressRef.current = () => (reason ? callbacks.current.onError?.(reason) : toggle())
   })
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'KeyD' || !event.ctrlKey || event.altKey || event.shiftKey || event.metaKey) return
-      const dialog = self.current?.closest('[role="dialog"]')
-      const focused = document.activeElement
-      if (!dialog || !(focused instanceof Element) || focused.closest('[role="dialog"]') !== dialog) return
-      event.preventDefault()
-      // Зажатая клавиша повторяет нажатие: запись от этого не мигает.
-      if (!event.repeat) toggleRef.current()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [])
+  useEffect(() => register({ element: () => self.current, press: () => pressRef.current() }), [])
 
   const listening = mode !== 'idle'
   const recognizing = !listening && pending > 0
