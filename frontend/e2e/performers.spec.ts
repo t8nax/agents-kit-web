@@ -7,6 +7,7 @@ type Performer = {
   tools: string | null
   prompt: string
   path: string
+  calledBy?: string[]
 }
 
 const agents = 'D:\\Projects\\app-knowledge\\agents'
@@ -36,10 +37,20 @@ const others: Performer[] = ['designer', 'test-runner', 'code-reader'].map((name
  */
 async function mockApi(page: Page, options: { taken?: boolean; performers?: Performer[] } = {}) {
   const saved: unknown[] = []
+  const deleted: string[] = []
   let performers: Performer[] = options.performers ?? [reviewer, ...others]
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/agent/requests', (route) => route.fulfill({ json: [] }))
+
+  // Удаление называет базу и имя строкой запроса: исполнитель уходит из списка, как ушёл бы из базы.
+  await page.route('**/api/performers?*', (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback()
+    const name = new URL(route.request().url()).searchParams.get('name')!
+    deleted.push(name)
+    performers = performers.filter((p) => p.name !== name)
+    return route.fulfill({ status: 204 })
+  })
 
   await page.route('**/api/performers', (route) => {
     if (route.request().method() === 'POST') {
@@ -65,7 +76,7 @@ async function mockApi(page: Page, options: { taken?: boolean; performers?: Perf
       ],
     })
   })
-  return { saved }
+  return { saved, deleted }
 }
 
 async function openPerformers(page: Page) {
@@ -172,6 +183,49 @@ test('отказ записи виден словами, а окно остаё�
 
   await expect(modal.getByRole('alert')).toContainText('уже есть')
   await expect(modal.getByLabel('Модель')).toHaveValue('sonnet')
+})
+
+test('исполнитель удаляется из окна через окно подтверждения, и его карточка уходит', async ({ page }) => {
+  const { deleted } = await mockApi(page)
+  await openPerformers(page)
+
+  await card(page, 'reviewer').click()
+  const modal = page.getByRole('dialog', { name: 'reviewer' })
+  const remove = modal.getByRole('button', { name: 'Удалить исполнителя' })
+  // Кнопка — слева в подвале, отдельно от «Сохранить», как «Удалить этап» во «Флоу»; в покое контурная (макет B-83).
+  await expect(async () => {
+    const [left, save] = await Promise.all([remove.boundingBox(), modal.getByRole('button', { name: 'Сохранить' }).boundingBox()])
+    expect(left!.x).toBeLessThan(save!.x)
+    expect(left!.y).toBe(save!.y)
+  }).toPass()
+  expect(await remove.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+
+  await remove.click()
+  const confirm = page.getByRole('dialog', { name: 'Удалить исполнителя' })
+  await expect(confirm).toContainText('Исполнитель reviewer проекта Agents Kit Web уйдёт из базы.')
+  // Кнопка, которая удаляет, залита цветом ошибки, как «Удалить копию»: её не спутать с «Отменой».
+  const [danger, cancel] = await Promise.all([
+    confirm.getByRole('button', { name: 'Удалить исполнителя' }).evaluate((el) => getComputedStyle(el).backgroundColor),
+    confirm.getByRole('button', { name: 'Отмена' }).evaluate((el) => getComputedStyle(el).backgroundColor),
+  ])
+  expect(danger).not.toBe(cancel)
+
+  await confirm.getByRole('button', { name: 'Удалить исполнителя' }).click()
+
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(card(page, 'reviewer')).toHaveCount(0)
+  await expect(card(page, 'designer')).toBeVisible()
+  expect(deleted).toEqual(['reviewer'])
+})
+
+test('исполнителя, которого зовут этапы флоу, удалить нельзя', async ({ page }) => {
+  await mockApi(page, { performers: [{ ...reviewer, calledBy: ['Дизайн', 'Ревью'] }, ...others] })
+  await openPerformers(page)
+
+  await card(page, 'reviewer').click()
+  const remove = page.getByRole('dialog', { name: 'reviewer' }).getByRole('button', { name: 'Удалить исполнителя' })
+  await expect(remove).toBeDisabled()
+  await expect(remove).toHaveAttribute('title', 'Его зовут этапы: Дизайн, Ревью')
 })
 
 test('проект выбирается выпадающим списком над сеткой, а не чипами', async ({ page }) => {
