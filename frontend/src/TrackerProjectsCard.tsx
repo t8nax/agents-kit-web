@@ -6,6 +6,7 @@ import { Sk, Skeleton } from './Skeleton'
 import TrackerRewriteModal from './TrackerRewriteModal'
 import { busyText, faultsText, kitFaultsText, knownTracker, type ProjectTrackerRow } from './projectTracker'
 import { useReveal, withReveal } from './reveal'
+import { readable } from './tracker'
 import './TrackerProjectsCard.css'
 
 type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 'loaded'; rows: ProjectTrackerRow[] }
@@ -193,6 +194,14 @@ function ProjectRow({ row, onEdit, onDelete }: { row: ProjectTrackerRow; onEdit:
           </>
         )}
       </span>
+      {readable(tracker) && tracker?.query && (
+        <p className="prj-query">
+          <span className="prj-query-label">Запрос</span>
+          <span className="mono" title={tracker.query}>
+            {tracker.query}
+          </span>
+        </p>
+      )}
       {row.problem !== null && (
         <p className="prj-line err">
           <WarningIcon />
