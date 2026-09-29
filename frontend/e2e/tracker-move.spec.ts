@@ -80,7 +80,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await done.getByRole('button', { name: 'Закрыть' }).last().click()
     await expect(page.locator('.entry-row').filter({ hasText: 'B-281' })).toHaveCount(0)
     await expect(page.locator('.entry-row').filter({ hasText: 'B-7' })).toBeVisible()
-    // Задача видна в группе задач трекера сразу, без «Обновить»
+    // Задача видна на вкладке задач трекера сразу, без «Обновить» (вкладки — B-305)
+    await page.getByRole('tab', { name: 'Задачи трекера' }).click()
     await expect(page.getByRole('main').getByRole('link', { name: /#58 Экспорт истории задачи копии в markdown/ })).toBeVisible()
   })
 }

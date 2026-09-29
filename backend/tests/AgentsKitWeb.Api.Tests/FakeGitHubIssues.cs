@@ -28,6 +28,17 @@ public sealed class FakeGitHubIssues : IGitHubIssues
         return Task.FromResult(Answer);
     }
 
+    /// <summary>Метки репозитория; null — gh их не прочла.</summary>
+    public IReadOnlyList<string>? Labels { get; set; }
+
+    public List<string> LabelsAsked { get; } = [];
+
+    public Task<IReadOnlyList<string>?> LabelsAsync(string repo, CancellationToken cancellationToken)
+    {
+        LabelsAsked.Add(repo);
+        return Task.FromResult(Labels);
+    }
+
     /// <summary>Ход перед ответом на заведение: им тест держит gh «в GitHub», пока проверяет, что делает второй перенос.</summary>
     public Func<Task> BeforeCreate { get; set; } = () => Task.CompletedTask;
 

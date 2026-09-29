@@ -27,18 +27,12 @@
   padding: 4px 0;
 }
 
-/* Подписи групп проекта с трекером — «Записи бэклога» и «Задачи трекера, назначенные на вас»: мельче имени
-   проекта, группа входит в проект, а не стоит рядом с ним. У проекта без трекера подписей нет (макет B-277). */
-.backlog-group-head {
-  padding: 14px 0 4px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-tertiary);
-}
-
-.base-head + .backlog-group-head {
-  padding-top: 2px;
+/* Правый край шапки: вкладки «Записи бэклога / Задачи трекера», черта, «Попросить Чудо-Юдо» и «Обновить» — как
+   шапка «Флоу» (макет B-305). */
+.backlog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Строка задачи трекера — ссылка наружу, а выглядит строкой записи. */
@@ -56,6 +50,33 @@ a.entry {
   border-radius: 4px;
   padding: 0 6px;
   flex-shrink: 0;
+}
+
+/* Метки задачи GitHub — серые плашки сразу за заголовком, квадратнее плашки приоритета, чтобы их не путать (макет B-305). */
+.issue-labels {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Заголовок задачи не растягивается: метки стоят за ним, а значок ссылки — у правого края. */
+.tracker-issues .entry-title {
+  flex: 0 1 auto;
+}
+
+.tracker-issues .tracker-out {
+  margin-left: auto;
+}
+
+.issue-label {
+  font-size: 12px;
+  line-height: 16px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--accent-free-bg);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
 }
 
 /* На месте шеврона окна — значок «открыть во вкладке». */
@@ -558,4 +579,146 @@ a.entry {
   width: 14px;
   height: 14px;
   color: var(--text-secondary);
+}
+
+/* Фильтр «Метки» вкладки задач трекера: кнопка со списком галочек (макет B-305, вариант Б) — названия выбранных
+   на самой кнопке, не влезшие — плашкой «+N»; с выбором кнопка как включённый чип. */
+.labels-pick {
+  position: relative;
+}
+
+.labels-btn {
+  font: inherit;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.labels-btn:hover {
+  border-color: var(--border-strong);
+}
+
+.labels-btn.has-picked {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-hover);
+}
+
+.labels-btn:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.labels-btn svg {
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+}
+
+.labels-btn .lbl-key {
+  color: var(--text-secondary);
+}
+
+.labels-btn .lbl-names {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lbl-more {
+  font-size: 12px;
+  line-height: 16px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--accent-free-bg);
+  border: 1px solid var(--border-subtle);
+}
+
+.labels-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 5;
+  width: 260px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px -8px var(--shadow-color);
+}
+
+.labels-group {
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.labels-sep {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 6px;
+}
+
+.labels-none {
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.labels-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.labels-opt:hover,
+.labels-opt:focus-visible {
+  background: var(--bg-surface-hover);
+  outline: none;
+}
+
+.labels-box {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.labels-opt.on .labels-box {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--bg-base);
+}
+
+.labels-box svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3;
+}
+
+.labels-opt:not(.on) .labels-box svg {
+  display: none;
 }

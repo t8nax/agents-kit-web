@@ -172,8 +172,9 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
 }
 
 /**
- * Группа задач трекера в проекте — под записями бэклога, со своей подписью (макеты B-277 и B-288). Строка задачи —
- * ссылка на трекер во вкладку браузера, а не окно: описание задачи лежит в трекере. «Взять задачу» — то же окно запуска.
+ * Задачи трекера проекта на вкладке «Задачи трекера» (B-305; раньше — подписанная группа под записями, макеты B-277
+ * и B-288). Строка задачи — ссылка на трекер во вкладку браузера, а не окно: описание задачи лежит в трекере.
+ * «Взять задачу» — то же окно запуска.
  */
 export default function TrackerGroup({
   tracker,
@@ -196,7 +197,6 @@ export default function TrackerGroup({
   const width = Math.max(0, ...issues.map((issue) => issueLabel(issue).length))
   return (
     <>
-      <div className="backlog-group-head">Задачи трекера, назначенные на вас</div>
       {load.kind === 'loading' && <TrackerSkeleton shown={reveal.shown} />}
       {state && (
         <p className={`tracker-state ${state.warning ? 'warning-text' : 'text-sec'}`}>
@@ -224,6 +224,17 @@ export default function TrackerGroup({
                   <span className="tracker-num">{issueLabel(issue)}</span>
                 </span>{' '}
                 <span className="entry-title">{issue.title}</span>
+                {/* Метки — серыми плашками сразу за заголовком, не цветами GitHub: цвет в строке несёт только
+                    приоритет записи (B-305) */}
+                {issue.labels && issue.labels.length > 0 && (
+                  <span className="issue-labels">
+                    {issue.labels.map((label) => (
+                      <span key={label} className="issue-label">
+                        {label}
+                      </span>
+                    ))}
+                  </span>
+                )}
                 <OutIcon />
               </a>
               {children(issue)}

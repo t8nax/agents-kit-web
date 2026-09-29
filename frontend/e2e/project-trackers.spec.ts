@@ -175,6 +175,8 @@ test('строка поломки трекера в «Бэклоге» ведё�
 
   await page.goto('/')
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+  // Строки о задачах трекера — на своей вкладке (B-305)
+  await page.getByRole('tab', { name: 'Задачи трекера' }).click()
   await page.getByRole('button', { name: '«Трекеры проектов»' }).click()
 
   const card = page.getByRole('region', { name: 'Трекеры проектов' })

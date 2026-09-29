@@ -9,13 +9,22 @@ namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>
 /// Задача трекера, назначенная на оператора. Name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
-/// Number — число номера.
+/// Number — число номера. Labels — метки задачи GitHub (B-305); у YouTrack и у заведённой панелью задачи их нет.
 /// </summary>
-public sealed record TrackerIssue(string Name, int Number, string Title, string Url)
+public sealed record TrackerIssue(string Name, int Number, string Title, string Url, IReadOnlyList<string>? Labels = null)
 {
+    public IReadOnlyList<string>? Labels { get; init; } = Labels ?? [];
+
     /// <summary>Номер без имени трекера — как на плашке задачи: «#37», «ABC-12».</summary>
     [JsonIgnore]
     public string Label => Name[(Name.IndexOf(' ') + 1)..];
+
+    // Метки сравниваются по значению: задача, прочитанная дважды, — та же задача.
+    public bool Equals(TrackerIssue? other) =>
+        other is not null && Name == other.Name && Number == other.Number && Title == other.Title && Url == other.Url
+        && (Labels ?? []).SequenceEqual(other.Labels ?? []);
+
+    public override int GetHashCode() => HashCode.Combine(Name, Number, Title, Url);
 }
 
 /// <summary>
@@ -29,8 +38,11 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
 /// «filter-rejected» — YouTrack не принял строку «фильтр:» описания (B-300), Detail — его строка; поиск GitHub
 /// фильтр не отвергает.
+/// Labels — все метки репозитория GitHub, перечень фильтра «Метки» (B-305); null — трекер не GitHub или меток
+/// прочитать не вышло, и фильтр предлагает метки прочитанных задач.
 /// </summary>
-public sealed record TrackerIssues(IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null)
+public sealed record TrackerIssues(
+    IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null, IReadOnlyList<string>? Labels = null)
 {
     public const string NoTracker = "no-tracker";
     public const string GhMissing = "gh-missing";
@@ -72,6 +84,9 @@ public interface IGitHubIssues
 
     /// <summary>Новая задача репозитория, назначенная на того, кем gh вошла в GitHub, без меток.</summary>
     Task<CreatedIssue> CreateAsync(string repo, string title, string body);
+
+    /// <summary>Имена всех меток репозитория; не прочитали — null.</summary>
+    Task<IReadOnlyList<string>?> LabelsAsync(string repo, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -84,6 +99,8 @@ public sealed partial class GhIssues : IGitHubIssues
     public const string Gh = "gh";
 
     private const int Limit = 100;
+
+    private const int LabelLimit = 1000;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(1);
 
@@ -116,6 +133,16 @@ public sealed partial class GhIssues : IGitHubIssues
             return new CreatedIssue(null, failed.Problem, failed.Detail);
         }
         return ParseCreated(run.Output, title);
+    }
+
+    /// <summary>
+    /// Метки — перечень фильтра, а не задачи: не прочитали — оператор видит метки задач, и причину отказа gh
+    /// назовёт чтение задач тем же запуском рядом.
+    /// </summary>
+    public async Task<IReadOnlyList<string>?> LabelsAsync(string repo, CancellationToken cancellationToken)
+    {
+        var run = await RunAsync(LabelsStartInfo(repo), null, cancellationToken);
+        return run is { Missing: false, TimedOut: false, ExitCode: 0 } ? ParseLabels(run.Output) : null;
     }
 
     /// <summary>Чем кончился запуск gh: Missing — программы нет, TimedOut — не уложилась в срок.</summary>
@@ -192,8 +219,12 @@ public sealed partial class GhIssues : IGitHubIssues
         [
             "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
             .. string.IsNullOrWhiteSpace(filter) ? Array.Empty<string>() : ["--search", $"({filter.Trim()})"],
-            "--limit", Limit.ToString(), "--json", "number,title,url",
+            "--limit", Limit.ToString(), "--json", "number,title,url,labels",
         ]);
+
+    /// <summary>Запуск gh: все метки репозитория по имени — перечень фильтра «Метки» (B-305).</summary>
+    public static ProcessStartInfo LabelsStartInfo(string repo) =>
+        GhStartInfo("label", "list", "--repo", repo, "--limit", LabelLimit.ToString(), "--sort", "name", "--json", "name");
 
     /// <summary>
     /// Запуск gh на заведение задачи: назначена на того, кем gh вошла, без меток — критерий B-286. Описание
@@ -269,7 +300,8 @@ public sealed partial class GhIssues : IGitHubIssues
         try
         {
             var issues = JsonSerializer.Deserialize<List<GhIssue>>(output) ?? [];
-            return new TrackerIssues(issues.Select(i => new TrackerIssue($"GitHub #{i.Number}", i.Number, i.Title, i.Url)).ToList());
+            return new TrackerIssues(issues.Select(i => new TrackerIssue(
+                $"GitHub #{i.Number}", i.Number, i.Title, i.Url, (i.Labels ?? []).Select(l => l.Name).ToList())).ToList());
         }
         catch (JsonException)
         {
@@ -280,5 +312,20 @@ public sealed partial class GhIssues : IGitHubIssues
     private sealed record GhIssue(
         [property: JsonPropertyName("number")] int Number,
         [property: JsonPropertyName("title")] string Title,
-        [property: JsonPropertyName("url")] string Url);
+        [property: JsonPropertyName("url")] string Url,
+        [property: JsonPropertyName("labels")] List<GhLabel>? Labels = null);
+
+    public static IReadOnlyList<string>? ParseLabels(string output)
+    {
+        try
+        {
+            return (JsonSerializer.Deserialize<List<GhLabel>>(output) ?? []).Select(l => l.Name).ToList();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private sealed record GhLabel([property: JsonPropertyName("name")] string Name);
 }

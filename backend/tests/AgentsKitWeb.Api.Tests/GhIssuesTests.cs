@@ -13,7 +13,7 @@ public class GhIssuesTests
 
         Assert.Equal("gh", startInfo.FileName);
         Assert.Equal(
-            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url"],
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"],
             startInfo.ArgumentList);
         Assert.True(startInfo.CreateNoWindow);
         Assert.False(startInfo.UseShellExecute);
@@ -26,7 +26,7 @@ public class GhIssuesTests
     {
         Assert.Equal(
             ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--search", "(label:bug milestone:v2)",
-                "--limit", "100", "--json", "number,title,url"],
+                "--limit", "100", "--json", "number,title,url,labels"],
             GhIssues.StartInfo("acme/orders", " label:bug milestone:v2 ").ArgumentList);
         Assert.DoesNotContain("--search", GhIssues.StartInfo("acme/orders", " ").ArgumentList);
     }
@@ -38,6 +38,40 @@ public class GhIssuesTests
 
         Assert.Null(issues.Problem);
         Assert.Equal(new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37"), Assert.Single(issues.Issues));
+    }
+
+    /// <summary>Метки задачи — их имена в порядке gh; цвет и описание метки панели не нужны (B-305).</summary>
+    [Fact]
+    public void Parse_TakesLabelNames()
+    {
+        var issues = GhIssues.Parse("""
+            [{"number":37,"title":"Оплата падает","url":"https://github.com/acme/orders/issues/37",
+              "labels":[{"id":"LA_1","name":"bug","description":"","color":"d73a4a"},{"id":"LA_2","name":"ui","description":"","color":"a2eeef"}]}]
+            """);
+
+        Assert.Equal(
+            new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", ["bug", "ui"]),
+            Assert.Single(issues.Issues));
+    }
+
+    [Fact]
+    public void LabelsStartInfo_AsksAllLabelNamesOfRepositoryByName()
+    {
+        var startInfo = GhIssues.LabelsStartInfo("acme/orders");
+
+        Assert.Equal("gh", startInfo.FileName);
+        Assert.Equal(
+            ["label", "list", "--repo", "acme/orders", "--limit", "1000", "--sort", "name", "--json", "name"],
+            startInfo.ArgumentList);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    [Fact]
+    public void ParseLabels_TakesNames_NotJsonIsNull()
+    {
+        Assert.Equal(["bug", "ui"], GhIssues.ParseLabels("""[{"name":"bug"},{"name":"ui"}]"""));
+        Assert.Null(GhIssues.ParseLabels("oops"));
     }
 
     [Fact]
