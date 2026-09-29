@@ -36,7 +36,8 @@ public sealed record AgentSession(
     string? Status = null,
     long? ProcStart = null,
     string? Name = null,
-    long? StartedAt = null)
+    long? StartedAt = null,
+    long? StatusUpdatedAt = null)
 {
     public bool InVsCode => Entrypoint == "claude-vscode";
 
@@ -61,9 +62,17 @@ public sealed record AgentSession(
 /// Реестр живых сессий агентов — файлы &lt;pid&gt;.json каталога сессий Claude Code.
 /// Формат чужой: панель его только читает и на неизвестные поля не опирается.
 /// </summary>
-public sealed class AgentSessions(string directory, Func<int, long?>? processStart = null)
+public sealed class AgentSessions(string directory, Func<int, long?>? processStart = null, TimeProvider? time = null)
 {
     private readonly Func<int, long?> _processStart = processStart ?? StartedAt;
+    private readonly TimeProvider _time = time ?? TimeProvider.System;
+
+    /// <summary>
+    /// Сколько сессия задачи стоит без дела, прежде чем копия числится остановившейся. Между ходами сессия
+    /// бывает свободна на секунды — без выдержки строка мигала бы и слала ложное уведомление; полминуты —
+    /// решение оператора на B-308.
+    /// </summary>
+    public static readonly TimeSpan StoppedAfter = TimeSpan.FromSeconds(30);
 
     public static string DefaultDirectory => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "sessions");
@@ -87,6 +96,8 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
     /// с ошибкой дописывать нечего: копии на диске нет или её не прочитали.
     /// Ответ оператора прочтёт только сессия VS Code копии или фоновая сессия задачи — решение оператора
     /// на B-106; нет ни той, ни другой — строка с непрочитанным ответом получает статус Unread.
+    /// Задача в работе без вопросов, а сессия задачи держит диалог в терминале — статус Terminal, стоит без
+    /// дела дольше выдержки — Stopped: обе ждут оператора, хотя вопроса в памяти нет — решение на B-308.
     /// </summary>
     public IReadOnlyList<WorkspaceRow> Annotate(IReadOnlyList<WorkspaceRow> rows, Func<string, string?> taskSession)
     {
@@ -105,11 +116,29 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
                 SessionState = session?.State,
                 BackgroundSession = session is not null,
                 VsCodeSession = vsCode,
-                Status = unread ? WorkspaceStatus.Unread : row.Status,
+                Status = unread ? WorkspaceStatus.Unread : StatusOf(row.Status, session),
             };
         })
         .ToList();
     }
+
+    /// <summary>Статус копии в работе по её сессии задачи; остальным статусам сессия ничего не меняет.</summary>
+    private string? StatusOf(string? status, AgentSession? session)
+    {
+        if (status != WorkspaceStatus.InWork || session is null)
+            return status;
+        if (session.State == SessionState.Waiting)
+            return WorkspaceStatus.Terminal;
+        return session.State == SessionState.Idle && StoodLongEnough(session) ? WorkspaceStatus.Stopped : status;
+    }
+
+    /// <summary>
+    /// Сессия стоит дольше выдержки. Времени смены состояния в файле нет — отсчитывать не от чего, и стоящая
+    /// сессия считается стоящей давно: отметка не должна пропасть из-за чужого формата.
+    /// </summary>
+    private bool StoodLongEnough(AgentSession session) =>
+        session.StatusUpdatedAt is not { } since
+        || _time.GetUtcNow() - DateTimeOffset.FromUnixTimeMilliseconds(since) >= StoppedAfter;
 
     /// <summary>
     /// Сколько после записи недочитанный файл реестра считается дописываемым. Файл, брошенный недописанным
@@ -217,7 +246,8 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
                 Text(root, "status"),
                 Number(root, "procStart"),
                 Text(root, "name"),
-                Number(root, "startedAt"));
+                Number(root, "startedAt"),
+                Number(root, "statusUpdatedAt"));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {

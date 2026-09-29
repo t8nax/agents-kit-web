@@ -17,6 +17,18 @@ public static class WorkspaceStatus
     /// (AgentSessions.Annotate) — решение оператора на B-106.
     /// </summary>
     public const string Unread = "unread";
+
+    /// <summary>
+    /// Задача в работе, вопросов нет, а сессия задачи стоит без дела дольше выдержки: работа встала, и
+    /// продолжить её без оператора некому (AgentSessions.Annotate) — решение оператора на B-308.
+    /// </summary>
+    public const string Stopped = "stopped";
+
+    /// <summary>
+    /// Сессия задачи держит свой диалог Claude Code и ждёт нажатия в терминале; вопрос в памяти важнее —
+    /// с ним строка остаётся Waiting (AgentSessions.Annotate) — решение оператора на B-308.
+    /// </summary>
+    public const string Terminal = "terminal";
 }
 
 /// <summary>

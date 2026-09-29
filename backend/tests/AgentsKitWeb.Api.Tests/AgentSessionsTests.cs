@@ -9,6 +9,7 @@ public sealed class AgentSessionsTests : IDisposable
 
     /// <summary>Время старта процесса, которое видит панель, когда процесс идёт.</summary>
     private const long Started = 134341890912115758;
+    private static readonly DateTimeOffset Now = new(2026, 9, 29, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public void VsCodeIn_LiveSessionOfThatCopy_IsFound()
@@ -284,7 +285,7 @@ public sealed class AgentSessionsTests : IDisposable
     [Fact]
     public void Annotate_AnsweredCopyWithTaskSession_StaysInWork()
     {
-        WriteBackground(@"D:\Projects\app", 200, "7339dced");
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "busy");
 
         var annotated = Sessions(live: true).Annotate([AnsweredRow(@"D:\Projects\app")], _ => "7339dced");
 
@@ -346,6 +347,82 @@ public sealed class AgentSessionsTests : IDisposable
         Assert.Equal(WorkspaceStatus.InWork, annotated[0].Status);
     }
 
+    [Theory]
+    [InlineData("busy")]
+    [InlineData("shell")]
+    public void Annotate_CopyInWorkWhoseSessionWorks_StaysInWork(string status)
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: status, statusUpdatedAt: Now.AddMinutes(-10));
+
+        Assert.Equal(WorkspaceStatus.InWork, InWork(@"D:\Projects\app")[0].Status);
+    }
+
+    /// <summary>Сессия задачи стоит дольше выдержки, а вопросов нет — работа встала (B-308).</summary>
+    [Fact]
+    public void Annotate_CopyInWorkWhoseSessionStoodLongerThanTheDelay_IsStopped()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "idle",
+            statusUpdatedAt: Now - AgentSessions.StoppedAfter - TimeSpan.FromSeconds(1));
+
+        Assert.Equal(WorkspaceStatus.Stopped, InWork(@"D:\Projects\app")[0].Status);
+    }
+
+    /// <summary>Между ходами сессия свободна на секунды — строка не мигает «стоит».</summary>
+    [Fact]
+    public void Annotate_CopyInWorkWhoseSessionJustStopped_StaysInWork()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "idle", statusUpdatedAt: Now.AddSeconds(-10));
+
+        Assert.Equal(WorkspaceStatus.InWork, InWork(@"D:\Projects\app")[0].Status);
+    }
+
+    [Fact]
+    public void Annotate_CopyInWorkWhoseStandingSessionHasNoStatusTime_IsStopped()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "idle");
+
+        Assert.Equal(WorkspaceStatus.Stopped, InWork(@"D:\Projects\app")[0].Status);
+    }
+
+    [Fact]
+    public void Annotate_CopyInWorkWhoseSessionHoldsItsDialog_WaitsInTerminal()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "waiting", statusUpdatedAt: Now);
+
+        Assert.Equal(WorkspaceStatus.Terminal, InWork(@"D:\Projects\app")[0].Status);
+    }
+
+    /// <summary>Вопрос в памяти важнее того, что делает сессия: оператор отвечает на него из панели.</summary>
+    [Theory]
+    [InlineData("waiting")]
+    [InlineData("idle")]
+    public void Annotate_CopyWithQuestion_StaysWaitingWhateverItsSessionDoes(string status)
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: status);
+
+        var annotated = Sessions(live: true).Annotate(
+            [Row(@"D:\Projects\app") with { Status = WorkspaceStatus.Waiting }], _ => "7339dced");
+
+        Assert.Equal(WorkspaceStatus.Waiting, annotated[0].Status);
+    }
+
+    [Fact]
+    public void Annotate_FreeCopyWithStandingSession_StaysFree()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "7339dced", status: "idle");
+
+        Assert.Equal(WorkspaceStatus.Free, Annotated(@"D:\Projects\app", "7339dced")[0].Status);
+    }
+
+    /// <summary>Задачу ведёт не сессия, которую завела панель: что делает чужая, строке не говорят.</summary>
+    [Fact]
+    public void Annotate_CopyInWorkWithOnlySomeoneElsesStandingSession_StaysInWork()
+    {
+        WriteBackground(@"D:\Projects\app", 200, "outsider", status: "idle");
+
+        Assert.Equal(WorkspaceStatus.InWork, InWork(@"D:\Projects\app")[0].Status);
+    }
+
     [Fact]
     public void Row_AnswerUnread_IsNotSentToTheFront()
     {
@@ -363,7 +440,10 @@ public sealed class AgentSessionsTests : IDisposable
     private static WorkspaceRow Row(string path) =>
         new("Проект", @"D:\base", path, "dev", null, null, null, WorkspaceStatus.Free, null);
 
-    private AgentSessions Sessions(bool live) => new(_dir, _ => live ? Started : null);
+    private IReadOnlyList<WorkspaceRow> InWork(string path) =>
+        Sessions(live: true).Annotate([Row(path) with { Status = WorkspaceStatus.InWork }], _ => "7339dced");
+
+    private AgentSessions Sessions(bool live) => new(_dir, _ => live ? Started : null, new Clock(Now));
 
     private void Write(
         string cwd, int pid, string entrypoint = "claude-vscode", string? status = "waiting", long procStart = Started) =>
@@ -374,12 +454,18 @@ public sealed class AgentSessionsTests : IDisposable
             """);
 
     private void WriteBackground(
-        string cwd, int pid, string? jobId, string? status = null, long procStart = Started) =>
+        string cwd, int pid, string? jobId, string? status = null, long procStart = Started,
+        DateTimeOffset? statusUpdatedAt = null) =>
         File.WriteAllText(
             Path.Combine(_dir, $"{pid}.json"),
             $$"""
-            {"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg","procStart":"{{procStart}}"{{(jobId is null ? "" : $",\"jobId\":\"{jobId}\"")}}{{(status is null ? "" : $",\"status\":\"{status}\"")}}}
+            {"pid":{{pid}},"cwd":{{JsonSerializer.Serialize(cwd)}},"entrypoint":"cli","kind":"bg","procStart":"{{procStart}}"{{(jobId is null ? "" : $",\"jobId\":\"{jobId}\"")}}{{(status is null ? "" : $",\"status\":\"{status}\"")}}{{(statusUpdatedAt is null ? "" : $",\"statusUpdatedAt\":{statusUpdatedAt.Value.ToUnixTimeMilliseconds()}")}}}
             """);
+
+    private sealed class Clock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 
     public void Dispose()
     {
