@@ -51,7 +51,8 @@ public sealed record PerformerSavedResponse(string Path);
 
 /// <summary>
 /// Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed · newer-format ·
-/// called-by-flow (удаление; Detail — этапы через запятую) · git-silent (удаление: git не сказал, знает ли он файл).
+/// called-by-flow (удаление; Detail — этапы через запятую) · git-silent (удаление: git не сказал, знает ли он файл) ·
+/// no-performer (удаление, 404: исполнителя с этим именем в базе нет).
 /// </summary>
 public sealed record PerformerRejectedResponse(string Problem, string? Detail = null);
 
@@ -204,8 +205,9 @@ public static class PerformersEndpoints
                 .Where(p => string.Equals(p.Name, name, StringComparison.Ordinal))
                 .Select(p => p.Path)
                 .ToList();
+            // Исполнителя уже нет — удалять нечего; отказ назван, чтобы окно не спутало его с базой, которой нет в списке.
             if (files.Count == 0)
-                return Results.NotFound();
+                return Results.NotFound(new PerformerRejectedResponse("no-performer"));
 
             // Кнопку окна гасит тот же список, но окно могло открыться до правки флоу: запрет держит и сама панель.
             // Этап, зовущий удалённого, агент бы не выполнил, — решение оператора на B-83.

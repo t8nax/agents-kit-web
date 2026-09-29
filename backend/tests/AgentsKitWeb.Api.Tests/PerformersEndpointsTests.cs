@@ -585,6 +585,8 @@ public sealed class PerformersEndpointsTests : IDisposable
         var response = await Delete(basePath, "designer");
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        // Назван отказ: окно отличает «исполнителя нет» от базы, которой нет в списке панели.
+        Assert.Equal("no-performer", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
         Assert.True(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
     }
 

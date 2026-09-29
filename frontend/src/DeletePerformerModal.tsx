@@ -38,14 +38,23 @@ export default function DeletePerformerModal({ base, project, name, onClose, onR
     setFailure(null)
     try {
       const response = await fetch(`/api/performers?${new URLSearchParams({ base, name })}`, { method: 'DELETE' })
-      // Исполнителя уже нет в базе — удалять нечего, окно закрывается так же.
-      if (response.ok || response.status === 404) {
+      if (response.ok) {
         onRemoved()
+        return
+      }
+      if (response.status === 404) {
+        const body = (await response.json().catch(() => null)) as { problem?: string } | null
+        // Исполнителя уже нет в базе — удалять нечего, окно закрывается так же. Нет базы — это другое: исполнитель
+        // на месте, и молча закрытое окно выдало бы его за удалённого.
+        if (body?.problem === 'no-performer') onRemoved()
+        else setFailure({ git: false, text: 'Этой базы больше нет в списке панели.' })
         return
       }
       if (response.status === 409) {
         const body = (await response.json()) as { problem: string; detail?: string | null }
         if (body.problem === 'not-committed') setFailure({ git: true, text: body.detail ?? 'База не приняла коммит.' })
+        else if (body.problem === 'git-silent')
+          setFailure({ git: false, text: 'Git базы не ответил, исполнитель не тронут. Попробуйте ещё раз.' })
         // Флоу поправили, пока окно было открыто: этап снова зовёт исполнителя, и панель его не удалила.
         // Слова те же, что у подсказки погашенной кнопки в окне исполнителя.
         else if (body.problem === 'called-by-flow')

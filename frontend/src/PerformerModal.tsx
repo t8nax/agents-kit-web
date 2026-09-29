@@ -99,6 +99,13 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     if (wasReading.current && !reading) taskButton.current?.focus()
     wasReading.current = reading
   }, [reading])
+  // То же с окном удаления: после «Отмены» фокус возвращается на «Удалить исполнителя».
+  const deleteButton = useRef<HTMLButtonElement>(null)
+  const wasDeleting = useRef(false)
+  useEffect(() => {
+    if (wasDeleting.current && !deleting) deleteButton.current?.focus()
+    wasDeleting.current = deleting
+  }, [deleting])
 
   // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
   // Окно подхватывает только свою просьбу: правка — просьбу об этом исполнителе этого проекта, новое — просьбу
@@ -601,6 +608,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
             {editing && (
               <button
                 type="button"
+                ref={deleteButton}
                 className="btn btn-danger"
                 disabled={frozen || calledBy.length > 0}
                 title={closed ?? (calledBy.length > 0 ? `Его зовут этапы: ${calledBy.join(', ')}` : undefined)}

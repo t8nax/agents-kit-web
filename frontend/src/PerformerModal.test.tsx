@@ -864,7 +864,10 @@ test('удаление подтверждается своим окном и у�
 
 test('«Отмена» и Escape закрывают только окно удаления', () => {
   stubDelete(() => new Response(null, { status: 204 }))
-  open(reviewer)
+  const onClose = vi.fn()
+  render(
+    <PerformerModal bases={bases} initial={bases[0].base} editing={reviewer} onClose={onClose} onSaved={vi.fn()} onDeleted={vi.fn()} />,
+  )
 
   fireEvent.click(within(askToDelete()).getByRole('button', { name: 'Отмена' }))
   expect(screen.queryByRole('dialog', { name: 'Удалить исполнителя' })).not.toBeInTheDocument()
@@ -872,8 +875,41 @@ test('«Отмена» и Escape закрывают только окно уда
   askToDelete()
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByRole('dialog', { name: 'Удалить исполнителя' })).not.toBeInTheDocument()
-  // Окно исполнителя под ним осталось.
-  expect(screen.getByRole('heading', { name: 'reviewer' })).toBeInTheDocument()
+  // Окно исполнителя под ним осталось: Escape его не закрывал.
+  expect(onClose).not.toHaveBeenCalled()
+})
+
+test('исполнителя уже нет в базе — окно удаления закрывается, как после удаления', async () => {
+  stubDelete(() => Response.json({ problem: 'no-performer' }, { status: 404 }))
+  const onDeleted = vi.fn()
+  open(reviewer, vi.fn(), bases, onDeleted)
+
+  fireEvent.click(within(askToDelete()).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('reviewer'))
+})
+
+test('базы нет в списке панели — окно удаления говорит об этом, а не закрывается', async () => {
+  stubDelete(() => new Response(null, { status: 404 }))
+  const onDeleted = vi.fn()
+  open(reviewer, vi.fn(), bases, onDeleted)
+
+  const confirm = askToDelete()
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  // Исполнитель на месте: молча закрытое окно выдало бы его за удалённого.
+  expect(await within(confirm).findByRole('alert')).toHaveTextContent('Этой базы больше нет в списке панели.')
+  expect(onDeleted).not.toHaveBeenCalled()
+})
+
+test('git базы не ответил — окно удаления говорит, что исполнитель не тронут', async () => {
+  stubDelete(() => Response.json({ problem: 'git-silent' }, { status: 409 }))
+  open(reviewer)
+
+  const confirm = askToDelete()
+  fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
+
+  expect(await within(confirm).findByRole('alert')).toHaveTextContent('Git базы не ответил, исполнитель не тронут.')
 })
 
 test('отказ базы остаётся в окне удаления словами git, и удаление можно повторить', async () => {
