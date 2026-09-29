@@ -426,6 +426,35 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal([$"Pull|Base|{_main}"], File.ReadAllLines(SyncLog));
     }
 
+    /// <summary>Трекер не принял строку отбора — причина под полем «Фильтр», описание не записано (B-300).</summary>
+    [Fact]
+    public async Task Save_FilterRejected_NamesFilterFieldAndDoesNotWrite()
+    {
+        _github.Answer = new TrackerIssues([], TrackerIssues.FilterRejected, "Invalid search query");
+        var client = await Client();
+
+        var response = await Save(client, _base, "", GitHub with { Filter = "label:" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(
+            new ProjectTrackerRejected("check", "Invalid search query", Field: "filter", Code: TrackerIssues.FilterRejected),
+            await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
+        Assert.Equal(["label:"], _github.Filters);
+        Assert.False(File.Exists(TrackerFile));
+    }
+
+    /// <summary>Отбор, по которому сейчас задач нет, записывается: пустой список — не ошибка (ответ оператора на B-300).</summary>
+    [Fact]
+    public async Task Save_FilterFindingNothing_IsWritten()
+    {
+        var client = await Client();
+
+        var response = await Save(client, _base, "", GitHub with { Filter = "label:bug" });
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal("label:bug", TrackerDescriptions.Parse(File.ReadAllText(TrackerFile)).Filter);
+    }
+
     /// <summary>Jira панель не читает — описание пишется без проверки, и окно говорит об этом.</summary>
     [Fact]
     public async Task Save_Jira_WrittenUnchecked()

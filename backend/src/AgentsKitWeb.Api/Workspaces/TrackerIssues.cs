@@ -36,6 +36,8 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// сервер ключ отклонил, «key-forbidden» — ключ принят, но у его владельца нет прав
 /// на это действие, «server-silent» — сервер не ответил, «project-missing» —
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
+/// «filter-rejected» — YouTrack не принял строку «фильтр:» описания (B-300), Detail — его строка; поиск GitHub
+/// фильтр не отвергает.
 /// Labels — все метки репозитория GitHub, перечень фильтра «Метки» (B-305); null — трекер не GitHub или меток
 /// прочитать не вышло, и фильтр предлагает метки прочитанных задач.
 /// </summary>
@@ -54,6 +56,7 @@ public sealed record TrackerIssues(
     public const string ServerSilent = "server-silent";
     public const string ProjectMissing = "project-missing";
     public const string YouTrackError = "youtrack-error";
+    public const string FilterRejected = "filter-rejected";
 }
 
 /// <summary>
@@ -73,8 +76,11 @@ public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, s
 
 public interface IGitHubIssues
 {
-    /// <summary>Открытые задачи репозитория «владелец/репозиторий», назначенные на того, кем gh вошла в GitHub.</summary>
-    Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken);
+    /// <summary>
+    /// Открытые задачи репозитория «владелец/репозиторий», назначенные на того, кем gh вошла в GitHub; filter — строка
+    /// поиска GitHub из описания трекера (B-300), null — без отбора.
+    /// </summary>
+    Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken);
 
     /// <summary>Новая задача репозитория, назначенная на того, кем gh вошла в GitHub, без меток.</summary>
     Task<CreatedIssue> CreateAsync(string repo, string title, string body);
@@ -98,13 +104,16 @@ public sealed partial class GhIssues : IGitHubIssues
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(1);
 
-    public async Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
+    public async Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken)
     {
-        var run = await RunAsync(StartInfo(repo), null, cancellationToken);
-        return run.Missing ? new TrackerIssues([], TrackerIssues.GhMissing)
-            : run.TimedOut ? new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту")
-            : run.ExitCode == 0 ? Parse(run.Output)
-            : Failed(run.ExitCode, run.Error);
+        var run = await RunAsync(StartInfo(repo, filter), null, cancellationToken);
+        if (run.Missing)
+            return new TrackerIssues([], TrackerIssues.GhMissing);
+        if (run.TimedOut)
+            return new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту");
+        if (run.ExitCode == 0)
+            return Parse(run.Output);
+        return Failed(run.ExitCode, run.Error);
     }
 
     /// <summary>
@@ -197,12 +206,21 @@ public sealed partial class GhIssues : IGitHubIssues
 
     /// <summary>
     /// Запуск gh: открытые задачи репозитория, назначенные на того, кем gh вошла, — «назначенные на оператора»
-    /// критерия B-277 держат именно эти ключи.
+    /// критерия B-277 держат именно эти ключи. Строка «фильтр:» описания трекера уходит в --search (B-300): gh
+    /// сочетает её с назначенным и состоянием. Поиск GitHub фильтр не отвергает — непонятное в нём просто ничего
+    /// не находит (проверено настоящей gh на ревью B-300: «label:», неизвестный квалификатор, 280 знаков — пустой
+    /// список с кодом 0), поэтому отказа фильтра у GitHub нет, и ошибка gh с фильтром — та же, что без него.
+    /// Фильтр — в скобках: gh склеивает его с назначенным и состоянием в одну строку поиска, и «OR» без скобок
+    /// вывел бы поиск за открытые задачи оператора — настоящая gh с «is:closed OR is:open» вернула закрытую
+    /// (ревью B-300).
     /// </summary>
-    public static ProcessStartInfo StartInfo(string repo) =>
+    public static ProcessStartInfo StartInfo(string repo, string? filter = null) =>
         GhStartInfo(
+        [
             "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
-            "--limit", Limit.ToString(), "--json", "number,title,url,labels");
+            .. string.IsNullOrWhiteSpace(filter) ? Array.Empty<string>() : ["--search", $"({filter.Trim()})"],
+            "--limit", Limit.ToString(), "--json", "number,title,url,labels",
+        ]);
 
     /// <summary>Запуск gh: все метки репозитория по имени — перечень фильтра «Метки» (B-305).</summary>
     public static ProcessStartInfo LabelsStartInfo(string repo) =>

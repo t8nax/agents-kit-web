@@ -17,6 +17,7 @@ const youtrack: TrackerDescription = {
   take: 'Назначить на себя.',
   closed: 'Ничего: задачу закрывает мерж.',
   move: 'В проект CRM, тип Task.',
+  filter: '',
 }
 
 const row: ProjectTrackerRow = {
@@ -195,6 +196,72 @@ test('трекер не прочитан — причина под полем п
     'На сервере https://acme.youtrack.cloud нет проекта CRMX или у вашего ключа нет к нему доступа. Описание не записано.',
   )
   expect(screen.getByLabelText('Проект')).toHaveAttribute('aria-invalid', 'true')
+  expect(onSaved).not.toHaveBeenCalled()
+})
+
+// B-300: поле «Фильтр» — только у трекеров, задачи которых панель читает; заполненное уходит строкой описания.
+test('поле «Фильтр» есть у YouTrack и GitHub, нет у Jira, заполненное уходит с правками', async () => {
+  const { puts } = stubFetch(controlledStream<TrackerEvent>())
+  renderModal()
+
+  const tab = changes()
+  expect(screen.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска YouTrack, например State: {To Do}')
+  fireEvent.click(tab.getByRole('radio', { name: 'GitHub' }))
+  expect(screen.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска GitHub, например label:bug milestone:v2')
+  fireEvent.click(tab.getByRole('radio', { name: 'Jira' }))
+  expect(screen.queryByLabelText('Фильтр')).not.toBeInTheDocument()
+  fireEvent.click(tab.getByRole('radio', { name: 'YouTrack' }))
+
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
+  expect(within(field('Фильтр')).getByText('изменено')).toBeInTheDocument()
+  expect(within(field('Фильтр')).getByText('пусто')).toHaveClass('rewrite-was', 'mono')
+  fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
+
+  await waitFor(() => expect(puts).toHaveLength(1))
+  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: { ...youtrack, filter: 'State: {To Do}' } })
+})
+
+test('у Jira фильтр не пишется, даже если был набран до смены трекера', async () => {
+  const { puts } = stubFetch(controlledStream<TrackerEvent>())
+  renderModal()
+
+  const tab = changes()
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
+  fireEvent.click(tab.getByRole('radio', { name: 'Jira' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
+
+  await waitFor(() => expect(puts).toHaveLength(1))
+  expect((puts[0].body.description as TrackerDescription).filter).toBe('')
+})
+
+// Ревью B-300: скрытый фильтр — не правка; у трекера, поменявшего вид обратно, записывать нечего.
+test('набранный фильтр, скрытый сменой трекера на Jira, правкой не считается', () => {
+  stubFetch(controlledStream<TrackerEvent>())
+  renderModal({ ...row, tracker: { kind: 'other', name: 'Jira' }, description: { ...youtrack, tracker: 'Jira' } })
+
+  const tab = changes()
+  fireEvent.click(tab.getByRole('radio', { name: 'YouTrack' }))
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeEnabled()
+  fireEvent.click(tab.getByRole('radio', { name: 'Jira' }))
+
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
+})
+
+test('трекер не принял фильтр — причина его словами под полем «Фильтр»', async () => {
+  stubFetch(controlledStream<TrackerEvent>(), () =>
+    Response.json({ problem: 'check', field: 'filter', code: 'filter-rejected', detail: 'Unknown field "Stat"' }, { status: 422 }),
+  )
+  const { onSaved } = renderModal()
+
+  changes()
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'Stat: {To Do}' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
+
+  expect(await within(field('Фильтр')).findByRole('alert')).toHaveTextContent(
+    'YouTrack не принял фильтр: Unknown field "Stat". Описание не записано.',
+  )
+  expect(screen.getByLabelText('Фильтр')).toHaveAttribute('aria-invalid', 'true')
   expect(onSaved).not.toHaveBeenCalled()
 })
 

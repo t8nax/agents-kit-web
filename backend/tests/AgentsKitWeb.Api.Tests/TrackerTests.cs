@@ -49,6 +49,18 @@ public class TrackerTests
         Assert.Null(tracker.GitHubRepo);
     }
 
+    /// <summary>Строка «фильтр:» среди строк кита — отбор задач трекера (B-300); повтор — берётся первая, как в окне.</summary>
+    [Fact]
+    public void Parse_FilterLine_TakesFirstFilter()
+    {
+        var youTrack = Tracker.Parse(Describe(
+            "трекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: PAY\nФильтр: State: {To Do}\nфильтр: tag: x"));
+        var gitHub = Tracker.Parse(Describe("трекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nфильтр:"));
+
+        Assert.Equal(new TrackerInfo(TrackerInfo.YouTrack, "YouTrack", "https://acme.youtrack.cloud", "PAY", Filter: "State: {To Do}"), youTrack);
+        Assert.Null(gitHub.Filter);
+    }
+
     [Theory]
     [InlineData("трекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY", "Jira")]
     [InlineData("трекер: Redmine\nсервер: http://redmine.acme.local:8080/tasks\nпроект: заказы", "Redmine")]

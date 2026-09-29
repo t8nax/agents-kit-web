@@ -26,10 +26,17 @@ internal sealed class FakeYouTrack : IYouTrack
         return Task.FromResult(Who);
     }
 
-    public Task<TrackerIssues> AssignedAsync(string server, string key, string project, CancellationToken cancellationToken)
+    /// <summary>Строка отбора каждого чтения задач: null — без отбора.</summary>
+    public List<string?> Filters { get; } = [];
+
+    public Task<TrackerIssues> AssignedAsync(
+        string server, string key, string project, string? filter, CancellationToken cancellationToken)
     {
         lock (Read)
+        {
             Read.Add((server, key, project));
+            Filters.Add(filter);
+        }
         return Task.FromResult(Answer);
     }
 

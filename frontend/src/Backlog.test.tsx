@@ -1589,6 +1589,42 @@ test.each([
   expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
 })
 
+// B-300: отбор задан — пустой список называет его, а отказ трекера на него ведёт в карточку «Трекеры проектов».
+test.each([
+  [youTrack, 'State: {To Do}', { issues: [], problem: null }, /^По фильтру State: \{To Do\} на вас в YouTrack сейчас нет задач этого проекта\.$/, false],
+  [
+    youTrack,
+    'State: {To Do}',
+    { issues: [], problem: 'filter-rejected', detail: 'Unknown field "Stat"' },
+    /^YouTrack не принял фильтр State: \{To Do\}: Unknown field "Stat"\. Исправьте его в «Настройках», в карточке «Трекеры проектов»\.$/,
+    true,
+  ],
+  [github, 'label:bug', { issues: [], problem: null }, /^По фильтру label:bug на вас в GitHub сейчас нет открытых задач этого репозитория\.$/, false],
+])('отбор задан, трекер %o, фильтр %s, ответ %o — своей строкой на месте задач', async (tracker, filter, reply, text, warning) => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker({ ...tracker, filter }))
+  fetchMock.setTracker(backlogs[0].base, answer(reply))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const line = (await project.findByText((_, el) => el?.matches('p.tracker-state > span') === true && text.test(el.textContent))).closest('p')!
+  expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
+  expect(within(line).getByText(filter).tagName).toBe('CODE')
+})
+
+test('отбор задан, задачи есть — группа как без отбора, фильтр не назван', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker({ ...youTrack, filter: 'State: {To Do}' }))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: ytIssues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /ABC-7/ })
+  expect(project.queryByText(/State: \{To Do\}/)).not.toBeInTheDocument()
+})
+
 test('«Взять задачу» у задачи YouTrack запускает её по имени «YouTrack ABC-N»', async () => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker(youTrack))

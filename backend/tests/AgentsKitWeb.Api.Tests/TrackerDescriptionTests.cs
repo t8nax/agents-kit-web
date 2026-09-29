@@ -224,5 +224,32 @@ public class TrackerDescriptionTests
 
         Assert.Equal((1, 1), TrackerDescriptions.Changed(Full, after));
         Assert.Equal((0, 0), TrackerDescriptions.Changed(Full, Full));
+        Assert.Equal((1, 0), TrackerDescriptions.Changed(Full, Full with { Filter = "State: {To Do}" }));
+    }
+
+    /// <summary>
+    /// Фильтр — строка «фильтр:» сразу за тремя строками кита (B-300): записанное читается и окном, и разбором «Бэклога»;
+    /// пустой фильтр строки не пишет.
+    /// </summary>
+    [Fact]
+    public void Filter_WrittenAfterKitLines_AndRoundTrips()
+    {
+        var filtered = Full with { Filter = " State: {To Do} " };
+        var text = TrackerDescriptions.Serialize(filtered, "Order Service");
+
+        Assert.Contains("проект: PAY\nфильтр: State: {To Do}\n\nХодим MCP-сервером youtrack.", text);
+        Assert.Equal(filtered with { Filter = "State: {To Do}" }, TrackerDescriptions.Parse(text));
+        Assert.Equal("State: {To Do}", Tracker.Parse(text).Filter);
+        Assert.DoesNotContain("фильтр:", TrackerDescriptions.Serialize(Full, "Order Service"));
+    }
+
+    [Fact]
+    public void Faults_FilterOnSeveralLines_IsNamed()
+    {
+        Assert.Equal("Фильтр задают только у GitHub и YouTrack",
+            TrackerDescriptions.Faults(Full with { Tracker = "Jira", Project = "PAY", Filter = "status = Open" })["filter"]);
+        Assert.DoesNotContain("filter", TrackerDescriptions.Faults(Full with { Tracker = "Jira", Project = "PAY" }).Keys);
+        Assert.Equal("Значение — одна строка", TrackerDescriptions.Faults(Full with { Filter = "State: {To Do}\ntag: x" })["filter"]);
+        Assert.DoesNotContain("filter", TrackerDescriptions.Faults(Full with { Filter = "State: {To Do}" }).Keys);
     }
 }

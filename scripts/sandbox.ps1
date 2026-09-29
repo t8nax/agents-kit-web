@@ -789,7 +789,7 @@ if (Test-Piece 'tracker') {
     # есть метки, которых нет ни у одной задачи (B-305).
     $label = { param($name, $color) [pscustomobject]@{ name = $name; color = $color } }
     $ghIssues['sandbox/tracker'] = @(
-        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52'; labels = @((& $label 'bug' 'd73a4a'), (& $label 'windows' '1d76db')) }
+        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52'; labels = @((& $label 'bug' 'd73a4a'), (& $label 'windows' '1d76db')); milestone = 'v2' }
         [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48'; labels = @((& $label 'enhancement' 'a2eeef'), (& $label 'frontend' 'fbca04')) }
         [pscustomobject]@{ number = 7; title = 'Установщик проверяет вход в Claude Code до скачивания сборки'; url = 'https://github.com/sandbox/tracker/issues/7'; labels = @() }
     )
@@ -830,10 +830,10 @@ if (Test-Piece 'tracker') {
 "@
     Add-Commit $ytBase 'Трекер проекта'
     $youTrackIssues['ABC'] = @(
-        [pscustomobject]@{ number = 7; title = 'Письмо о сбросе пароля уходит без ссылки' }
-        [pscustomobject]@{ number = 12; title = 'Добавить роль «Бухгалтер» с доступом только к счетам' }
-        [pscustomobject]@{ number = 104; title = 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой' }
-        [pscustomobject]@{ number = 1287; title = 'Перевести отчёты на новую схему налогов' }
+        [pscustomobject]@{ number = 7; title = 'Письмо о сбросе пароля уходит без ссылки'; state = 'To Do'; tags = @('почта') }
+        [pscustomobject]@{ number = 12; title = 'Добавить роль «Бухгалтер» с доступом только к счетам'; state = 'In Progress'; tags = @() }
+        [pscustomobject]@{ number = 104; title = 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой'; state = 'To Do'; tags = @() }
+        [pscustomobject]@{ number = 1287; title = 'Перевести отчёты на новую схему налогов'; state = 'In Progress'; tags = @('отчёты') }
     )
     $bases.Add($ytBase)
     $links.Add([pscustomobject]@{ path = $ytCopy; status = 'Linked'; base = $ytBase })
