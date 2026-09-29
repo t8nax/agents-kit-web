@@ -61,10 +61,11 @@ public sealed class FlowReports(
         file is not null && file.Replace('\\', '/').Split('/').Contains("flow");
 
     /// <summary>
-    /// Разбор идёт или его итог ещё ждёт оператора: итог одноразовой просьбы лежит, пока его не прочли
-    /// (decisions/base-agent.md), и новый разбор его бы заменил.
+    /// Разбор идёт или его неудача ещё ждёт оператора: новый разбор заменил бы её раньше, чем оператор её увидел.
+    /// Удачный итог не держит: отчёт уже записан, и новый разбор ничего не теряет — ответ оператора на B-270.
     /// </summary>
-    public bool Busy => requests.Of(AgentRequests.Report) is not null;
+    public bool Busy => requests.Of(AgentRequests.Report) is { } request
+        && (!request.Finished || request.Summary.State == AgentRequest.Failed);
 
     /// <summary>Заводит разбор флоу базы. Не строится — причина; иначе просьба, ход которой раздел читает потоком.</summary>
     public async Task<(AgentRequest? Started, ReportBlock? Block)> StartAsync(string basePath, CancellationToken cancellationToken)

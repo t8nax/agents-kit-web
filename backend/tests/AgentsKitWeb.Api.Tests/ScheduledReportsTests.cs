@@ -148,16 +148,17 @@ public sealed class ScheduledReportsTests : IDisposable
     }
 
     [Fact]
-    public async Task Tick_WaitsWhileOutcomeIsUnread()
+    public async Task Tick_WaitsWhileFailureIsUnread()
     {
         var client = await Client();
         await Schedule(client, [DayOfWeek.Monday, DayOfWeek.Tuesday], 9);
+        _agent.Result = "Флоу в порядке.";
         _time.Set(Monday.AddHours(9));
         await Tick();
-        await Outcome(client);
+        await Outcome(client, "error");
 
-        // Итог понедельника оператор не прочёл: разбор вторника его не заменяет, а ждёт.
-        File.AppendAllText(Path.Combine(TestLayout.Flow(_base), "stages", "merge.md"), "\n- Мержить после «принято».\n");
+        // Неудачу понедельника оператор не видел: разбор вторника её не заменяет, а ждёт (ответ оператора на B-270).
+        _agent.Result = Answer;
         _time.Set(Monday.AddDays(1).AddHours(9));
         await Tick();
         Assert.Equal(1, _agent.Runs);
@@ -165,6 +166,24 @@ public sealed class ScheduledReportsTests : IDisposable
         (await client.DeleteAsync("/api/agent/report")).EnsureSuccessStatusCode();
         await Tick();
         await Outcome(client);
+        Assert.Equal(2, _agent.Runs);
+    }
+
+    [Fact]
+    public async Task Tick_UnreadSuccessDoesNotHold()
+    {
+        var client = await Client();
+        await Schedule(client, [DayOfWeek.Monday, DayOfWeek.Tuesday], 9);
+        _time.Set(Monday.AddHours(9));
+        await Tick();
+        await Outcome(client);
+
+        // Удачный итог понедельника не прочитан, но отчёт уже записан: разбор вторника идёт в свой час.
+        File.AppendAllText(Path.Combine(TestLayout.Flow(_base), "stages", "merge.md"), "\n- Мержить после «принято».\n");
+        _time.Set(Monday.AddDays(1).AddHours(9));
+        await Tick();
+        await Outcome(client);
+
         Assert.Equal(2, _agent.Runs);
     }
 
@@ -222,11 +241,11 @@ public sealed class ScheduledReportsTests : IDisposable
         (await client.DeleteAsync("/api/agent/report")).EnsureSuccessStatusCode();
     }
 
-    private static async Task Outcome(HttpClient client)
+    private static async Task Outcome(HttpClient client, string type = "reported")
     {
         using var stream = await client.GetAsync("/api/agent/report/stream?from=0");
         Assert.Equal(HttpStatusCode.OK, stream.StatusCode);
-        Assert.Contains("\"reported\"", await stream.Content.ReadAsStringAsync());
+        Assert.Contains($"\"type\":\"{type}\"", await stream.Content.ReadAsStringAsync());
     }
 
     private async Task<HttpClient> Client(NoFindings? checks = null, bool kitAtStart = false)
@@ -291,13 +310,15 @@ public sealed class ScheduledReportsTests : IDisposable
 
         public int Runs => Volatile.Read(ref _runs);
 
+        public string Result { get; set; } = Answer;
+
         public async Task<AgentExit> RunAsync(
             ProcessStartInfo startInfo, string input, Func<string, Task> onLine, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _runs);
             await onLine(JsonSerializer.Serialize(new
             {
-                type = "result", subtype = "success", is_error = false, duration_ms = 100, result = Answer,
+                type = "result", subtype = "success", is_error = false, duration_ms = 100, result = Result,
             }));
             return new AgentExit(0, "");
         }
