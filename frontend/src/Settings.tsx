@@ -4,6 +4,7 @@ import NotificationsCard from './NotificationsCard'
 import PanelCard from './PanelCard'
 import { KitUpdateNotice, type KitVersion } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
+import TrackerProjectsCard from './TrackerProjectsCard'
 import TrackerServersCard from './TrackerServersCard'
 import { useReveal, withReveal } from './reveal'
 import VoiceCard from './VoiceCard'
@@ -69,8 +70,15 @@ function loadJson<T>(url: string, what: string): Promise<Load<T>> {
     )
 }
 
+type SettingsProps = {
+  /** Окно трекера этой базы открывается само — возврат к просьбе о трекере из шапки панели. */
+  trackerFor?: { base: string; at: number } | null
+  /** Показать карточку «Трекеры проектов» — переход из строки «Бэклога» о поломке описания трекера. */
+  trackersAt?: number | null
+}
+
 /** Раздел «Настройки»: какие базы видны в панели и где стоит кит, которым они проверяются. */
-export default function Settings() {
+export default function Settings({ trackerFor = null, trackersAt = null }: SettingsProps) {
   return (
     <div className="settings">
       <div className="content-head">
@@ -79,6 +87,7 @@ export default function Settings() {
       <BasesSettings />
       <KitSettings />
       <TrackerServersCard />
+      <TrackerProjectsCard key={trackerFor?.at ?? 'trackers'} rewriteFor={trackerFor} focusAt={trackersAt} />
       <PanelCard />
       <NotificationsCard />
       <VoiceCard />

@@ -14,8 +14,12 @@ public sealed class FakeGitHubIssues : IGitHubIssues
 
     public List<(string Repo, string Title, string Body)> Creates { get; } = [];
 
+    /// <summary>Ход, пока gh «читает» задачи: им тест меняет базу посреди проверки трекера.</summary>
+    public Action BeforeAssigned { get; set; } = () => { };
+
     public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
     {
+        BeforeAssigned();
         Asked.Add(repo);
         return Task.FromResult(Answer);
     }

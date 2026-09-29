@@ -5,14 +5,50 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Trackers;
 
 /// <summary>
+/// Чем кончилась проверка описания трекера перед записью. Checked — false: трекер панель не читает (Jira, GitLab),
+/// и описание пишется без проверки. Problem задан — задачи не прочитаны: значения — как у TrackerIssues.
+/// </summary>
+public sealed record TrackerCheck(bool Checked, string? Field = null, string? Problem = null, string? Detail = null)
+{
+    public bool Passed => Problem is null;
+}
+
+/// <summary>
 /// Трекер проекта, как его называет описание трекера базы: GitHub панель читает программой gh оператора (B-277),
 /// YouTrack — своим клиентом с ключом из «Настроек» (B-288). Другие трекеры панель не читает.
 /// </summary>
 public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTrack, TrackerServersStore servers)
 {
     /// <summary>Незакрытые задачи трекера базы, назначенные на оператора; не прочитали — Problem.</summary>
-    public async Task<TrackerIssues> AssignedAsync(BaseLayout layout, CancellationToken cancellationToken) =>
-        Tracker.Read(layout) switch
+    public Task<TrackerIssues> AssignedAsync(BaseLayout layout, CancellationToken cancellationToken) =>
+        AssignedAsync(Tracker.Read(layout), cancellationToken);
+
+    /// <summary>
+    /// Проверка описания перед записью — решение оператора на B-293: у GitHub и YouTrack панель читает задачи,
+    /// назначенные на оператора, из названных трекера и проекта — тем же разбором, которым прочтёт записанный файл;
+    /// у Jira и GitLab проверить нечем, и Checked — false. Не прочитала — Problem, как у задач «Бэклога», и Field —
+    /// поле окна, к которому причина относится: server или project; причина вне полей (нет gh) — null.
+    /// </summary>
+    public async Task<TrackerCheck> CheckAsync(TrackerDescription description, CancellationToken cancellationToken)
+    {
+        var tracker = Tracker.Parse(TrackerDescriptions.Serialize(description, "Проверка"));
+        if (tracker.Kind is not (TrackerInfo.GitHub or TrackerInfo.YouTrack))
+            return new TrackerCheck(false);
+
+        var issues = await AssignedAsync(tracker, cancellationToken);
+        return issues.Problem switch
+        {
+            null => new TrackerCheck(true),
+            TrackerIssues.RepoUnreachable or TrackerIssues.ProjectMissing =>
+                new TrackerCheck(true, "project", issues.Problem, issues.Detail),
+            TrackerIssues.GhMissing or TrackerIssues.GhLogin =>
+                new TrackerCheck(true, null, issues.Problem, issues.Detail),
+            _ => new TrackerCheck(true, "server", issues.Problem, issues.Detail),
+        };
+    }
+
+    private async Task<TrackerIssues> AssignedAsync(TrackerInfo? tracker, CancellationToken cancellationToken) =>
+        tracker switch
         {
             null => new TrackerIssues([], TrackerIssues.NoTracker),
             { GitHubRepo: { } repo } => await github.AssignedAsync(repo, cancellationToken),

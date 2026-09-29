@@ -49,7 +49,8 @@ function Write-Session([string]$Dir, [int]$Process, [string]$Cwd, [hashtable]$Ex
 # и находки сверки заглушка не вычисляет, а берёт из таблиц, которые пишет этот скрипт.
 # $Rules — справка кита о флоу (reference/flow-stages.md установленного кита): из неё панель подаёт
 # агенту правила формы этапа. Не нашлась — заглушка кладёт короткую свою, чтобы переписывание не отвечало отказом.
-function New-Kit([string]$Path, [string]$Rules) {
+# $Layout — справка кита о раскладке базы (reference/base-layout.md): из её раздела «Трекер» — правила описания трекера.
+function New-Kit([string]$Path, [string]$Rules, [string]$Layout) {
     $scripts = Join-Path $Path 'scripts'
 
     Write-Utf8 (Join-Path $scripts 'link-state.ps1') @'
@@ -181,6 +182,53 @@ if ($LASTEXITCODE -ne 0) { throw "git не убрал копию «$tree»: $(($
 "Рабочая копия удалена: $tree"
 if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $branch" }
 '@
+
+    Write-Utf8 (Join-Path $scripts 'sync.ps1') @'
+# Заглушка кита: сведение базы с сервером (B-293). Сервера у баз песочницы нет — настоящий кит ответил бы
+# «сводить не с чем». Режим читается на каждый вызов из sync-mode.txt корня песочницы:
+#   ok         сведено (по умолчанию)
+#   push-fail  забор проходит, отдача отказывает, как при чужом коммите на сервере
+#   pull-fail  забор отказывает, как при незакоммиченной правке в базе
+#   offline    сервер недоступен: код 2
+# Вызовы пишутся в sync.log рядом со скриптами: по нему видно, что панель забрала базу до записи и отдала после.
+param([string]$Path, [string]$Repo, [string]$Action)
+
+Add-Content -LiteralPath (Join-Path $PSScriptRoot 'sync.log') -Value "$(Get-Date -Format s) $Action $Repo $Path" -Encoding utf8
+$mode = 'ok'
+$dir = $PSScriptRoot
+while ($dir) {
+    $candidate = Join-Path $dir 'sync-mode.txt'
+    if (Test-Path -LiteralPath $candidate) { $mode = (Get-Content -LiteralPath $candidate -Raw).Trim().ToLowerInvariant(); break }
+    $dir = Split-Path $dir -Parent
+}
+switch ($mode) {
+    'offline' { Write-Host 'remote базы недоступен: заглушка кита так настроена — работа идёт с локальным, отдастся при следующем сведении'; exit 2 }
+    'pull-fail' { Write-Host 'с remote базы не забрано — в базе незакоммиченная правка: product.md. Её закоммитит сессия, которая её ведёт; забрать при следующем сведении'; exit 1 }
+    'push-fail' {
+        if ($Action -eq 'Push') { Write-Host "на remote базы не отдано — git: ! [rejected] main -> main (fetch first); отдастся при следующем сведении"; exit 1 }
+    }
+}
+if ($Action -eq 'Push') { Write-Host 'на remote базы отдано коммитов: 1' } else { Write-Host 'с remote базы забирать нечего' }
+exit 0
+'@
+
+    # Правила описания трекера — раздел «Трекер» справки кита о раскладке базы: из него панель подаёт их
+    # Чудо-Юдо в окне «Трекер проекта». Берутся у установленного кита, как справка о флоу.
+    $layout = Join-Path $Path 'reference\base-layout.md'
+    if ($Layout -and (Test-Path -LiteralPath $Layout)) {
+        New-Item -ItemType Directory -Path (Split-Path $layout -Parent) -Force | Out-Null
+        Copy-Item -LiteralPath $Layout -Destination $layout -Force
+    } else {
+        Write-Utf8 $layout @'
+# Раскладка базы
+
+## Трекер
+
+Заглушка кита: настоящей справки рядом не нашлось. `tracker.md` — заголовок `# <проект> — трекер` и разделы
+`## Где задачи` (строки `трекер:`, `сервер:`, `проект:`, пустая строка и слова), `## Показ бэклога`,
+`## Взятие задачи`, `## Задача закрыта`, `## Вынос записи бэклога` — каждый непустой.
+'@
+    }
 
     $reference = Join-Path $Path 'reference\flow-stages.md'
     if ($Rules -and (Test-Path -LiteralPath $Rules)) {
@@ -437,6 +485,60 @@ if ($system -and $system -match 'правишь (его )?флоу проект�
         }
 
         Write-Result "Реплика $turn — «$($said.Trim())». Правки прежние: они на вкладке «Изменения». Скажите «удали», и подставной агент уберёт этап заметок."
+    }
+    exit 0
+}
+
+# Переписка об описании трекера (B-293): каждая реплика несёт описание, каким оно стоит в окне, а ждёт панель слов
+# и блока «=== описание» с tracker.md целиком. Подставной на первую реплику переспрашивает, на вторую предлагает
+# описание: пустое заводит GitHub-трекером sandbox/tracker, имеющееся дополняет разделом «Взятие задачи» словами
+# просьбы. По слову «неполное» предлагает описание с пустым разделом — панель вернёт его на доработку.
+if ($system -and $system -match 'пишешь описание трекера проекта') {
+    $project = if ($system -match 'трекера проекта «([^»]*)»') { $Matches[1] } else { 'Проект' }
+    $turn = 0
+    $wish = ''
+    $broken = $false
+    while ($null -ne ($line = $stdinReader.ReadLine())) {
+        if (-not $line.Trim()) { continue }
+        $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text) -replace "`r`n", "`n" } catch { $line }
+        Write-Step 'Read' @{ file_path = 'tracker.md' }
+        if ($mode -eq 'truncated') { exit 0 }
+        $current = if ($said -match '(?s)\n\nОписание в окне сейчас:\n(.*)$') { $Matches[1] } else { '' }
+        $words = ($said -replace '(?s)\n\nОписание в окне сейчас:\n.*$', '') -replace '^(Просьба оператора|Оператор):\n', ''
+        function Get-Section([string]$Name) {
+            $m = [regex]::Match($current, "(?ms)^## $([regex]::Escape($Name))\s*\n(.*?)(?=^## |\z)")
+            if ($m.Success) { return $m.Groups[1].Value.Trim() } else { return '' }
+        }
+        function Get-Key([string]$Name) {
+            $m = [regex]::Match($current, "(?m)^$([regex]::Escape($Name)):\s*(.*)$")
+            if ($m.Success) { return $m.Groups[1].Value.Trim() } else { return '' }
+        }
+        $closedText = 'Ничего: задачу закрывает мерж.'
+        if ($said -match '^Панель не приняла твой ответ') {
+            $broken = $false
+        } else {
+            $turn++
+            if ($turn -eq 1) { $wish = $words.Trim() }
+            if ($words -match 'неполн') { $broken = $true }
+            if ($turn -eq 1 -and -not $broken) {
+                Write-Result "Подставной агент песочницы переспрашивает: что ещё записать в описание трекера по просьбе «$wish»? Ответьте что угодно — следующей репликой он предложит описание."
+                continue
+            }
+        }
+        $empty = $current -match '^пусто'
+        $tracker = if ($empty -or -not (Get-Key 'трекер')) { 'GitHub' } else { Get-Key 'трекер' }
+        $server = if ($empty -or -not (Get-Key 'сервер')) { 'https://github.com' } else { Get-Key 'сервер' }
+        $proj = if ($empty -or -not (Get-Key 'проект')) { 'sandbox/tracker' } else { Get-Key 'проект' }
+        $whereText = (Get-Section 'Где задачи') -replace '(?m)^(трекер|сервер|проект):.*\n?', ''
+        if (-not $whereText.Trim()) { $whereText = 'Ходить программой gh.' }
+        $backlogText = if (Get-Section 'Показ бэклога') { Get-Section 'Показ бэклога' } else { 'Открытые задачи, назначенные на меня.' }
+        $takeText = if (Get-Section 'Взятие задачи') { Get-Section 'Взятие задачи' } else { 'Назначить на себя.' }
+        $takeText = "$takeText Уточнено подставным агентом по просьбе «$wish»."
+        $moveText = if (Get-Section 'Вынос записи бэклога') { Get-Section 'Вынос записи бэклога' } else { "Новая задача в $proj без меток." }
+        if (-not $broken) { $closedText = if (Get-Section 'Задача закрыта') { Get-Section 'Задача закрыта' } else { $closedText } } else { $closedText = '' }
+        $file = "# $project — трекер`n`n## Где задачи`n`nтрекер: $tracker`nсервер: $server`nпроект: $proj`n`n$($whereText.Trim())`n`n## Показ бэклога`n`n$backlogText`n`n## Взятие задачи`n`n$takeText`n`n## Задача закрыта`n`n$closedText`n`n## Вынос записи бэклога`n`n$moveText`n"
+        $lead = if ($broken) { 'Предлагаю описание, раздел «Задача закрыта» забыл.' } else { "Предлагаю описание трекера по просьбе «$wish»." }
+        Write-Result "$lead`n`n=== описание`n$file"
     }
     exit 0
 }

@@ -110,6 +110,7 @@ builder.Services.AddSingleton<IBacklogCheckGate, OpenBacklogCheckGate>();
 builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<FlowConversations>();
 builder.Services.AddSingleton<FlowReports>();
+builder.Services.AddSingleton<TrackerConversations>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<ResumedSessions>();
 builder.Services.AddSingleton<HealthMonitor>();
@@ -164,6 +165,8 @@ app.MapReportEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 app.MapTrackerServersEndpoints();
+app.MapProjectTrackersEndpoints();
+app.MapTrackerRewriteEndpoints();
 app.MapUsageEndpoints();
 app.MapVoiceEndpoints();
 

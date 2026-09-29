@@ -124,7 +124,7 @@ public static partial class TaskEndpoints
 
                 // Номер с заголовком записи — всё, что панель знает о задаче, пока агент не завёл память:
                 // из них и стоит задача в строке копии, чтобы не числить её свободной (Tasks/StartedTasks).
-                started.Add(row.Path, session, $"{number} {title}");
+                started.Add(row.Path, session, $"{number} {title}", basePath);
                 // Переход в сессию копии ведёт по этой записи: чем ещё узнать ту самую, панель не знает.
                 taskSessions.Remember(row.Path, session);
                 return Results.Ok(new TaskStartResponse(session));

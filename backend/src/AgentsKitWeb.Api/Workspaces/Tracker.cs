@@ -35,7 +35,8 @@ public sealed record TrackerInfo(
 /// трекеров раскладки кита, сервер — http(s)://хост[:порт][/путь] без логина, пароля, запроса и фрагмента.
 /// Разбор — как у сверки кита (Get-KitTrackerKeys в base-check.ps1): заголовок «##» вне блока кода,
 /// HTML-комментарии вырезаны. В прозе раздела панель ничего не ищет — ни у YouTrack, ни у GitHub: решение
-/// оператора на B-288, трекер без строк не читается, пока их не допишут скиллом /tracker.
+/// оператора на B-288, трекер без строк не читается, пока их не допишут — в карточке «Трекеры проектов» «Настроек»
+/// или скиллом /tracker кита (B-293).
 /// </summary>
 public static partial class Tracker
 {
@@ -129,13 +130,13 @@ public static partial class Tracker
     }
 
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
-    private static partial Regex Comment();
+    internal static partial Regex Comment();
 
     [GeneratedRegex(@"^##\s+(.+?)\s*$")]
-    private static partial Regex Heading();
+    internal static partial Regex Heading();
 
     [GeneratedRegex(@"^\s*([^\s:][^:]*?)\s*:\s*(.*?)\s*$")]
-    private static partial Regex Pair();
+    internal static partial Regex Pair();
 
     // Логин, пароль, запрос и фрагмент — «@», «?», «#» — адрес не несёт: секрету не место в базе.
     [GeneratedRegex(@"^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s@?#]*)?$")]
