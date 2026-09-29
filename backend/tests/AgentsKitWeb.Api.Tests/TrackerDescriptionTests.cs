@@ -224,5 +224,29 @@ public class TrackerDescriptionTests
 
         Assert.Equal((1, 1), TrackerDescriptions.Changed(Full, after));
         Assert.Equal((0, 0), TrackerDescriptions.Changed(Full, Full));
+        Assert.Equal((1, 0), TrackerDescriptions.Changed(Full, Full with { Query = "State: {To Do}" }));
+    }
+
+    /// <summary>
+    /// Запрос — строка «запрос:» сразу за тремя строками кита (B-300): записанное читается и окном, и разбором «Бэклога»;
+    /// пустой запрос строки не пишет.
+    /// </summary>
+    [Fact]
+    public void Query_WrittenAfterKitLines_AndRoundTrips()
+    {
+        var filtered = Full with { Query = " State: {To Do} " };
+        var text = TrackerDescriptions.Serialize(filtered, "Order Service");
+
+        Assert.Contains("проект: PAY\nзапрос: State: {To Do}\n\nХодим MCP-сервером youtrack.", text);
+        Assert.Equal(filtered with { Query = "State: {To Do}" }, TrackerDescriptions.Parse(text));
+        Assert.Equal("State: {To Do}", Tracker.Parse(text).Query);
+        Assert.DoesNotContain("запрос:", TrackerDescriptions.Serialize(Full, "Order Service"));
+    }
+
+    [Fact]
+    public void Faults_QueryOnSeveralLines_IsNamed()
+    {
+        Assert.Equal("Значение — одна строка", TrackerDescriptions.Faults(Full with { Query = "State: {To Do}\ntag: x" })["query"]);
+        Assert.DoesNotContain("query", TrackerDescriptions.Faults(Full with { Query = "State: {To Do}" }).Keys);
     }
 }
