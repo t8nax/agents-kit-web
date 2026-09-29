@@ -232,49 +232,6 @@
   background: var(--accent-error-bg);
 }
 
-/* Занятое задачей: замок и номер у пункта, строка над списком. */
-.rewrite-held {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--accent-waiting-text);
-  white-space: nowrap;
-}
-
-.rewrite-held svg,
-.rewrite-held-line svg {
-  width: 13px;
-  height: 13px;
-  flex: none;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-}
-
-.rewrite-held-line {
-  margin: 0;
-  padding: 8px 12px;
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--accent-waiting-text);
-  background: var(--accent-waiting-bg);
-  border: 1px solid var(--accent-waiting-border);
-  border-radius: 6px;
-}
-
-.rewrite-held-line svg {
-  margin-top: 3px;
-}
-
-.rewrite-held-line .flow-task-tag {
-  margin-left: 6px;
-}
-
 /* Сценарий: этапы по порядку, новый и убранный помечены. */
 .rewrite-chain-list {
   margin: 0;

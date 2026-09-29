@@ -1396,7 +1396,7 @@ test('с отметки в шапке у непрочитанного флоу �
   expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 
-test('с отметки в шапке у базы нового формата окна переписывания нет, и причина — формат, а не задачи', async () => {
+test('с отметки в шапке у базы нового формата окна переписывания нет, и причина — формат', async () => {
   stubApi(api([{ ...app, formatWarning: 'Кит перевёл базу на формат, которого эта версия панели не знает.' }], rewriteApi([])))
   render(<Flow baseFor={app.base} rewriteAt={1} />)
 
@@ -1406,7 +1406,6 @@ test('с отметки в шапке у базы нового формата о
     ),
   ).toBeInTheDocument()
   expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
-  expect(screen.queryByText(/заняты задачами/)).not.toBeInTheDocument()
   // Верх раздела не заперт
   expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeEnabled()
 })
@@ -1780,51 +1779,6 @@ test('сорванная запись файла названа своим те�
   ).toBeInTheDocument()
 })
 
-test('сценарий, по которому идёт задача, только для чтения: строка называет задачи, действия на схеме погашены', async () => {
-  const fetchMock = stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'полный' }, { task: 'B-9', flow: 'полный' }] }], saved()))
-  const region = await renderFlow()
-
-  expect(screen.getByText(/^Правка сценария закрыта — по нему идут задачи/)).toHaveTextContent(
-    'Правка сценария закрыта — по нему идут задачи B-7, B-9',
-  )
-  expect(region.getByRole('button', { name: 'Этап 2 выше' })).toBeDisabled()
-  expect(region.getByRole('button', { name: 'Добавить этап' })).toBeDisabled()
-  expect(menuOf(region, 'Этап 2: Ревью').getByRole('menuitem', { name: 'Убрать из сценария' })).toBeDisabled()
-  // «Новый сценарий» не занят никем
-  expect(screen.getByRole('button', { name: 'Новый сценарий' })).toBeEnabled()
-
-  // Окна открываются, но только для чтения
-  fireEvent.click(screen.getByRole('menuitem', { name: 'Править этап «Ревью»' }))
-  const stage = within(await screen.findByRole('dialog', { name: 'Этап «Ревью»' }))
-  expect(stage.getByText(/^Правка закрыта: по сценарию «полный» идут задачи/)).toBeInTheDocument()
-  expect(stage.getByRole('textbox', { name: 'Выход этапа' })).toBeDisabled()
-  expect(stage.getByRole('textbox', { name: 'Название этапа' })).toBeDisabled()
-  expect(stage.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
-  expect(stage.queryByRole('button', { name: 'Удалить этап' })).not.toBeInTheDocument()
-  // Крестик в шапке и «Закрыть» в подвале; фокус — на подвальной
-  const close = stage.getAllByRole('button', { name: 'Закрыть' }).at(-1)!
-  expect(close).toHaveFocus()
-  fireEvent.click(close)
-
-  const drawer = await open(region, 'Сценарий «полный»: название и «когда»')
-  expect(drawer.getByRole('textbox', { name: 'Название сценария' })).toBeDisabled()
-  // Задачи называет строка над разделом, своей строки у сайдбара нет
-  expect(drawer.queryByText(/^Правка закрыта/)).not.toBeInTheDocument()
-  expect(drawer.queryByRole('button', { name: 'Удалить сценарий' })).not.toBeInTheDocument()
-  expect(drawer.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
-  fireEvent.click(drawer.getByRole('button', { name: 'Закрыть сайдбар' }))
-
-  const returns = await returnsOf(region, /^Этап 3: Приёмка/)
-  expect(returns.getByRole('button', { name: 'Добавить возврат' })).toBeDisabled()
-  expect(returns.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
-  fireEvent.click(returns.getAllByRole('button', { name: 'Закрыть' }).at(-1)!)
-
-  fireEvent.click(menuOf(region, 'Этап 2: Ревью').getByRole('menuitem', { name: 'Редактировать описание' }))
-  const description = within(await screen.findByRole('dialog', { name: 'Описание этапа «Ревью»' }))
-  expect(description.queryByRole('button', { name: 'Редактировать' })).not.toBeInTheDocument()
-  expect(posts(fetchMock)).toBe(0)
-})
-
 test('флоу базы нового формата виден, но не правится ничем, и новое не заводится', async () => {
   const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
   const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
@@ -1869,63 +1823,6 @@ test('кит перевёл базу, пока окно было открыто:
   )
 })
 
-test('на вкладке «Этапы» занятые стадии с замком и задачами открываются для чтения, свободные правятся', async () => {
-  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'мелкий' }] }]))
-  await renderFlow()
-  fireEvent.click(screen.getByRole('tab', { name: 'Этапы' }))
-
-  const list = within(screen.getByRole('list', { name: 'Этапы базы' }))
-  // Ревью и Приёмка стоят в «мелком», Критерий и Запас — нет
-  expect(list.getAllByLabelText('Правка закрыта: по сценарию «мелкий» идёт задача B-7')).toHaveLength(2)
-  expect(within(list.getByRole('button', { name: /^Критерий/ })).queryByText('B-7')).not.toBeInTheDocument()
-  // Строки над разделом на вкладке «Этапы» нет: сценарий назван, закрыт не весь проект
-  expect(screen.queryByText(/^Правка этапов и сценариев закрыта/)).not.toBeInTheDocument()
-
-  const free = await stagesTab('Запас')
-  expect(free.getByRole('textbox', { name: 'Выход этапа' })).toBeEnabled()
-  fireEvent.click(free.getByRole('button', { name: 'Отмена' }))
-  const held = await stagesTab('Приёмка')
-  expect(held.getByRole('textbox', { name: 'Выход этапа' })).toBeDisabled()
-})
-
-test('задача с неузнанным сценарием закрывает правку всего проекта, а новые стадия и сценарий заводятся', async () => {
-  stubApi(api([{ ...app, tasks: [{ task: 'B-130', flow: null }] }]))
-  const region = await renderFlow()
-
-  expect(screen.getByText(/^Правка этапов и сценариев закрыта/)).toHaveTextContent(
-    'Правка этапов и сценариев закрыта — задача B-130 не называет своего сценария',
-  )
-  expect(region.getByRole('button', { name: 'Этап 2 выше' })).toBeDisabled()
-  expect(screen.getByRole('button', { name: 'Новый сценарий' })).toBeEnabled()
-
-  fireEvent.click(screen.getByRole('tab', { name: 'Этапы' }))
-  expect(screen.getByText(/^Правка этапов и сценариев закрыта/)).toBeInTheDocument()
-  // Замок на каждой карточке, и на стадии вне сценариев тоже
-  expect(within(screen.getByRole('list', { name: 'Этапы базы' })).getAllByText('B-130')).toHaveLength(4)
-  fireEvent.click(screen.getByRole('button', { name: 'Новый этап' }))
-  const blank = within(await screen.findByRole('dialog', { name: 'Этап «без названия»' }))
-  expect(blank.getByRole('textbox', { name: 'Название этапа' })).toBeEnabled()
-})
-
-test('задача, пошедшая по сценарию, пока окно было открыто: отказ записи назван задачами', async () => {
-  const fetchMock = stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'busy', flow: 'полный', stage: 'Ревью', detail: 'B-7' }, 409) }))
-  await renderFlow()
-  const edit = await stagesTab('Ревью')
-  fireEvent.change(edit.getByRole('textbox', { name: 'Выход этапа' }), { target: { value: 'вердикт' } })
-
-  fireEvent.click(edit.getByRole('button', { name: 'Сохранить' }))
-
-  expect(await edit.findByRole('alert')).toHaveTextContent(
-    'Флоу не сохранён: по сценарию «полный» идёт задача B-7. Пока она в работе, сценарий и его этапы не правятся. Закройте окно — раздел перечитает флоу, когда все окна будут закрыты.',
-  )
-  // Набранное в окне остаётся, а флоу до закрытия окна не перечитывается
-  expect(edit.getByRole('textbox', { name: 'Выход этапа' })).toHaveValue('вердикт')
-  const reads = () => fetchMock.mock.calls.filter(([url, init]) => url === '/api/flow' && !init?.method).length
-  expect(reads()).toBe(1)
-  fireEvent.click(edit.getByRole('button', { name: 'Отмена' }))
-  await vi.waitFor(() => expect(reads()).toBe(2))
-})
-
 test('после отказа записи окно держит набранное, а флоу перечитывается, когда окно закрыли', async () => {
   const fetchMock = stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'changed' }, 409) }))
   await renderFlow()
@@ -1940,19 +1837,6 @@ test('после отказа записи окно держит набранн�
 
   fireEvent.click(edit.getByRole('button', { name: 'Отмена' }))
   await vi.waitFor(() => expect(reads()).toBe(2))
-})
-
-test('в окне Чудо-Юдо правки занятого сценария и его этапов помечены задачами, и «Принять правки» погашена', async () => {
-  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'мелкий' }] }], rewriteApi([rewriteAnswer])))
-  await renderFlow()
-
-  fireEvent.click(moreItem('Переписать с Чудо-Юдо'))
-  const modal = within(await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' }))
-  await askForChanges(modal, 'Переименуй ревью')
-
-  expect(modal.getByRole('status')).toHaveTextContent('сценарий «мелкий»B-7; этап «Ревью»B-7')
-  expect(modal.getAllByTitle('Занят: B-7')).toHaveLength(2)
-  expect(modal.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
 })
 
 test('сайдбар после «Сохранить» остаётся открытым и дальше считает свои правки: пишет их и спрашивает при закрытии', async () => {
@@ -2016,15 +1900,6 @@ test('у новой, ещё не записанной стадии удалят�
   expect(edit.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
-test('задача, чей сценарий назван, но его в проекте нет, названа так, как на макете', async () => {
-  stubApi(api([{ ...app, tasks: [{ task: 'B-130', flow: null, named: 'Старый' }] }]))
-  await renderFlow()
-
-  expect(screen.getByText(/^Правка этапов и сценариев закрыта/)).toHaveTextContent(
-    'Правка этапов и сценариев закрыта — задача B-130 идёт по сценарию, которого в проекте нет',
-  )
-})
-
 test('действие, после которого флоу остался бы с ошибкой, не пишется и называет её; действие, которое её убирает, пишется', async () => {
   const broken: NamedFlow = { ...full, entries: [...full.entries, { stage: 'Сборка' }] }
   const fetchMock = stubApi(api([{ ...app, flows: [broken, small] }], saved()))
@@ -2048,21 +1923,8 @@ test('действие, после которого флоу остался бы
   ])
 })
 
-test('ошибка в занятой стадии не запирает запись остального проекта', async () => {
-  const fetchMock = stubApi(
-    api([{ ...app, stages: [criterion, { ...review, executor: 'doc-writer' }, acceptance, spare], tasks: [{ task: 'B-7', flow: 'мелкий' }] }], saved()),
-  )
-  await renderFlow()
-  // Ревью стоит в занятом «мелком»: её не починить, пока задача идёт, — и её ошибка не останавливает остальное
-  expect(screen.queryByText(/^Не сохранить/)).not.toBeInTheDocument()
-
-  const free = await stagesTab('Запас')
-  fireEvent.change(free.getByRole('textbox', { name: 'Выход этапа' }), { target: { value: 'кое-что' } })
-  expect((await saveAndRead(fetchMock)).stages[3].output).toBe('кое-что')
-})
-
-test('у единственного сценария без «когда», по которому идёт задача, «когда» вписывается в окне нового сценария', async () => {
-  const fetchMock = stubApi(api([{ ...app, flows: [{ ...full, when: null }], tasks: [{ task: 'B-7', flow: 'полный' }] }], saved()))
+test('у единственного сценария без «когда» оно вписывается в окне нового сценария и пишется тем же разом', async () => {
+  const fetchMock = stubApi(api([{ ...app, flows: [{ ...full, when: null }] }], saved()))
   await renderFlow()
 
   fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
@@ -2078,7 +1940,7 @@ test('у единственного сценария без «когда», по
     ['полный', 'обычная задача'],
     ['срочный', 'ошибка на панели'],
   ])
-  // Порядок и стадии занятого сценария не тронуты
+  // Порядок и стадии прежнего сценария не тронуты
   expect(sent.flows[0].entries).toEqual(full.entries.map((entry) => ({ stage: entry.stage, returns: entry.returns ?? [] })))
 })
 
@@ -2128,13 +1990,6 @@ test('незаписанный новый сценарий и описание �
   const sent = body(fetchMock, 'POST /api/flow')
   expect(sent.flows.map((f: NamedFlow) => f.name)).toEqual(['полный', 'мелкий'])
   expect(sent.stages.find((stage: FlowStage) => stage.title === 'Приёмка').description).toBeNull()
-})
-
-test('ошибку формы кита в занятой стадии видно заранее: её не обойдёт и API', async () => {
-  stubApi(api([{ ...app, stages: [criterion, { ...review, output: '' }, acceptance, spare], tasks: [{ task: 'B-7', flow: 'мелкий' }] }]))
-  await renderFlow()
-
-  expect(screen.getByText('Не сохранить: этап «Ревью» — не указан выход')).toBeInTheDocument()
 })
 
 test('открытый сайдбар переживает окно нового сценария: его правка сохраняется и спрашивается при закрытии', async () => {
@@ -2209,22 +2064,6 @@ test('окно нового сценария открывается без от�
 
   fireEvent.click(screen.getByRole('button', { name: 'Новый сценарий' }))
   expect(within(screen.getByRole('dialog', { name: 'Новый сценарий' })).queryByRole('alert')).not.toBeInTheDocument()
-})
-
-test('задачу, которую называют две памяти, строка занятости называет один раз', async () => {
-  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: 'полный' }, { task: 'B-7', flow: 'полный' }] }]))
-  await renderFlow()
-
-  expect(screen.getByText(/^Правка сценария закрыта/)).toHaveTextContent('Правка сценария закрыта — по нему идёт задача B-7')
-})
-
-test('задачу с неузнанным сценарием, которую называют две памяти, строка проекта называет один раз и в единственном числе', async () => {
-  stubApi(api([{ ...app, tasks: [{ task: 'B-7', flow: null, named: 'старый' }, { task: 'B-7', flow: null }] }]))
-  await renderFlow()
-
-  expect(screen.getByText(/^Правка этапов и сценариев закрыта/)).toHaveTextContent(
-    'Правка этапов и сценариев закрыта — задача B-7 идёт по сценарию, которого в проекте нет или который не назван',
-  )
 })
 
 test('«Отмена» закрывает окно с правкой сразу, без вопроса; крестик спрашивает', async () => {
