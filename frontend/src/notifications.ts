@@ -43,6 +43,8 @@ export function useNotifications() {
 const titles: Record<StatusChange['kind'], string> = {
   waiting: 'ждёт оператора',
   unread: 'ответ не прочитан',
+  stopped: 'сессия стоит',
+  terminal: 'ждёт в терминале',
   freed: 'копия свободна',
 }
 

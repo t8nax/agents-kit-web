@@ -264,12 +264,6 @@
   stroke: none;
 }
 
-.guide-dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .guide-pager {
   display: flex;
   justify-content: space-between;

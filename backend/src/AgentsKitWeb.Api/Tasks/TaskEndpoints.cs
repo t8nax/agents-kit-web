@@ -160,7 +160,8 @@ public static partial class TaskEndpoints
                 return Results.NotFound();
 
             // Продолжать нечего: памяти у копии нет, задачу берут из бэклога.
-            if (row.Status is not (WorkspaceStatus.InWork or WorkspaceStatus.Waiting or WorkspaceStatus.Unread))
+            if (row.Status is not (WorkspaceStatus.InWork or WorkspaceStatus.Waiting or WorkspaceStatus.Unread
+                or WorkspaceStatus.Stopped or WorkspaceStatus.Terminal))
                 return Results.BadRequest(new TaskStartProblem("no-task"));
             // Сессия задачи жива — вторая стала бы вести ту же задачу рядом с ней.
             if (row.BackgroundSession || row.VsCodeSession)

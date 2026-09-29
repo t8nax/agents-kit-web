@@ -229,41 +229,43 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`точка у имени копии показывает состояние её сессии в обеих темах (${colorScheme})`, async ({ page }) => {
+  test(`сессия задачи, вставшая или ждущая в терминале, видна плашкой в обеих темах (${colorScheme})`, async ({
+    page,
+  }) => {
     await page.emulateMedia({ colorScheme })
     await page.route('**/api/workspaces', (route) =>
       route.fulfill({
         json: [
-          { ...row, sessionState: 'working' },
-          { ...row, path: 'D:\\Projects\\agents-kit-web-2', sessionState: 'waiting' },
-          { ...row, path: 'D:\\Projects\\agents-kit-web-3', sessionState: 'idle' },
-          { ...row, path: 'D:\\Projects\\agents-kit-web-4', sessionState: null },
+          { ...row, status: 'in-work' },
+          { ...row, path: 'D:\\Projects\\agents-kit-web-2', status: 'terminal' },
+          { ...row, path: 'D:\\Projects\\agents-kit-web-3', status: 'stopped' },
         ],
       }),
     )
     await page.goto('/')
 
     const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
-    const states = ['сессия работает', 'сессия ждёт вас в терминале', 'сессия стоит без дела', 'сессии нет']
-    const colors: string[] = []
-    for (const [index, state] of states.entries()) {
-      const dot = bodyRows.nth(index).getByRole('img', { name: state })
-      await expect(dot).toBeVisible()
-      colors.push(await dot.evaluate((node) => getComputedStyle(node).backgroundColor))
-    }
+    // Точки сессии у имени копии больше нет — что делает сессия задачи, говорит плашка (B-308)
+    await expect(bodyRows).toHaveCount(3)
+    await expect(bodyRows.locator('td:first-child [role="img"]')).toHaveCount(0)
 
-    // Состояние читается цветом, поэтому у работающей, ждущей и стоящей сессии он разный,
-    // а у копии без сессии точка пустая и обведена рамкой
-    expect(new Set(colors.slice(0, 3)).size).toBe(3)
-    const empty = bodyRows.nth(3).getByRole('img', { name: 'сессии нет' })
-    await expect(empty).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    await expect(empty).toHaveCSS('border-top-width', '1px')
+    const working = bodyRows.nth(0).getByText('В работе')
+    const terminal = bodyRows.nth(1).getByText('Ждёт в терминале')
+    const stopped = bodyRows.nth(2).getByText('Сессия стоит')
+    await expect(terminal).toBeVisible()
+    await expect(stopped).toBeVisible()
 
-    // Легенды под таблицей нет — слова состояния держит подсказка самой точки
-    await expect(page.locator('.session-legend')).toHaveCount(0)
-    for (const [index, state] of states.entries()) {
-      await expect(bodyRows.nth(index).getByRole('img', { name: state })).toHaveAttribute('title', state)
-    }
+    // Обе в цвете ожидания и отличны от работающей; «в терминале» залита, «стоит» — без заливки, рамка пунктиром
+    const color = (badge: typeof working) => badge.evaluate((node) => getComputedStyle(node).color)
+    expect(await color(terminal)).toBe(await color(stopped))
+    expect(await color(terminal)).not.toBe(await color(working))
+    await expect(terminal).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    // Пульсирует только «Ждёт оператора»: на вопрос отвечают из панели, а в терминал идут сами
+    await expect(terminal).toHaveCSS('animation-name', 'none')
+    await expect(stopped).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(stopped).toHaveCSS('border-top-style', 'dashed')
+
+    await expect(page.getByRole('button', { name: 'Рабочие копии, 2 ждут' })).toBeAttached()
   })
 }
 
