@@ -365,6 +365,166 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Performers_EditingKeepsTheCaseOfTheFileName()
+    {
+        // Заведённый руками файл назван с заглавной: правка не должна сменить регистр имени на диске,
+        // иначе он разойдётся с тем, что знает git.
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        Directory.CreateDirectory(TestLayout.Agents(basePath));
+        File.WriteAllText(Path.Combine(TestLayout.Agents(basePath), "Reviewer.md"), "---\nname: reviewer\n---\n\nПервое тело.\n");
+        TestGit.Run(personal, "add", "--", "agents/Reviewer.md");
+        TestGit.Run(personal, "commit", "-m", "исполнитель");
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["Reviewer.md"], Directory.EnumerateFiles(TestLayout.Agents(basePath)).Select(f => Path.GetFileName(f)).ToArray());
+        Assert.Equal("Другое тело", PerformerFile.Parse(File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "Reviewer.md"))).Prompt);
+        Assert.Equal("agents/Reviewer.md", Run(personal, "ls-files").Trim());
+        Assert.Empty(Status(personal));
+    }
+
+    [Fact]
+    public async Task Performers_RequestAbortedWhileStaging_StillCommitsThePerformer()
+    {
+        // Вкладку закрыли, когда исполнитель уже записан и заносится в индекс: оборванная запись оставила
+        // бы его в индексе без коммита, для чужого коммита соседней сессии.
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        var (started, release) = HoldStaging(personal);
+        using var abort = new CancellationTokenSource();
+
+        var saving = Factory(basePath).CreateClient().PostAsJsonAsync("/api/performers", new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Тело", null), abort.Token);
+        await Until(() => File.Exists(started));
+        abort.Cancel();
+        File.WriteAllText(release, "");
+        await Aborted(saving);
+
+        await Until(() => Run(personal, "log", "-1", "--format=%s").Trim() == "Исполнитель reviewer записан из панели");
+        Assert.Equal("Тело", PerformerFile.Parse(File.ReadAllText(Path.Combine(TestLayout.Agents(basePath), "reviewer.md"))).Prompt);
+        Assert.Empty(Status(personal));
+    }
+
+    [Fact]
+    public async Task Performers_RequestAbortedWhileTheBaseRefusesTheCommit_RestoresTheFileAndLeavesNothingStaged()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        Performer(basePath, "reviewer", "---\nname: reviewer\n---\n\nПервое тело.\n");
+        TestGit.Run(personal, "add", "--", "agents/reviewer.md");
+        TestGit.Run(personal, "commit", "-m", "исполнитель");
+        var (started, release) = HoldCommit(personal);
+        using var abort = new CancellationTokenSource();
+
+        var saving = Factory(basePath).CreateClient().PostAsJsonAsync("/api/performers", new SavePerformerRequest(
+            basePath, "reviewer", "Описание", null, null, "Другое тело", "reviewer"), abort.Token);
+        await Until(() => File.Exists(started));
+        abort.Cancel();
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
+        // Пока хук держит коммит, на месте исполнителя лежит правка; откат вернёт прежнее и опустошит индекс.
+        Assert.Equal("Другое тело", PerformerFile.Parse(File.ReadAllText(file)).Prompt);
+        File.WriteAllText(release, "");
+        await Aborted(saving);
+
+        await Until(() => PerformerFile.Parse(File.ReadAllText(file)).Prompt == "Первое тело." && Status(personal).Length == 0);
+        Assert.Equal("исполнитель", Run(personal, "log", "-1", "--format=%s").Trim());
+    }
+
+    [Theory]
+    [InlineData(null, "reviewer")]
+    [InlineData("reviewer", "reviewer")]
+    [InlineData("reviewer", "critic")]
+    public async Task Performers_FileNotWritten_LeavesThePerformerAsItWas(string? editing, string name)
+    {
+        // Диск отказал посреди записи: недописанный файл не должен встать на место прежнего исполнителя.
+        var basePath = CreateBase("app-knowledge");
+        var personal = TestLayout.Personal(basePath);
+        var agents = TestLayout.Agents(basePath);
+        var before = "---\nname: reviewer\n---\n\nПервое тело.\n";
+        if (editing is not null)
+        {
+            Performer(basePath, "reviewer", before);
+            TestGit.Run(personal, "add", "--", "agents/reviewer.md");
+            TestGit.Run(personal, "commit", "-m", "исполнитель");
+        }
+        // Каталог на месте временного файла: запись срывается раньше, чем тронет файл исполнителя.
+        Directory.CreateDirectory(Path.Combine(agents, name + ".md.panel-tmp"));
+
+        var response = await Save(basePath, new SavePerformerRequest(
+            basePath, name, "Описание", null, null, "Другое тело", editing));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        var left = Directory.EnumerateFiles(agents).Select(f => Path.GetFileName(f)).ToArray();
+        if (editing is null)
+            Assert.Empty(left);
+        else
+        {
+            Assert.Equal(["reviewer.md"], left);
+            Assert.Equal(before, File.ReadAllText(Path.Combine(agents, "reviewer.md")));
+        }
+        Assert.Empty(Status(personal));
+    }
+
+    /// <summary>
+    /// Хук личного репозитория держит коммит: отмечает начало файлом started и ждёт файла release, потом
+    /// отказывает. Ждёт не дольше запаса тестов, чтобы упавший тест не оставил git висеть.
+    /// </summary>
+    private (string Started, string Release) HoldCommit(string personal)
+    {
+        var started = Path.Combine(_root, "commit-started");
+        var release = Path.Combine(_root, "commit-release");
+        File.WriteAllText(Path.Combine(personal, ".git", "hooks", "pre-commit"), $$"""
+            #!/bin/sh
+            touch '{{started.Replace('\\', '/')}}'
+            i=0
+            while [ ! -f '{{release.Replace('\\', '/')}}' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+            echo 'сверка: база не приняла' >&2
+            exit 1
+
+            """.ReplaceLineEndings("\n"));
+        return (started, release);
+    }
+
+    /// <summary>
+    /// Фильтр личного репозитория держит git add файла исполнителя, как хук держит коммит. Коммит по пути
+    /// прогоняет файл через фильтр ещё раз — к тому времени release уже лежит, и фильтр пропускает сразу.
+    /// </summary>
+    private (string Started, string Release) HoldStaging(string personal)
+    {
+        var started = Path.Combine(_root, "add-started");
+        var release = Path.Combine(_root, "add-release");
+        var filter = Path.Combine(_root, "hold.sh");
+        File.WriteAllText(filter, $$"""
+            #!/bin/sh
+            touch '{{started.Replace('\\', '/')}}'
+            i=0
+            while [ ! -f '{{release.Replace('\\', '/')}}' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
+            cat
+
+            """.ReplaceLineEndings("\n"));
+        File.WriteAllText(Path.Combine(personal, ".git", "info", "attributes"), "agents/*.md filter=hold\n");
+        TestGit.Run(personal, "config", "filter.hold.clean", $"sh '{filter.Replace('\\', '/')}'");
+        return (started, release);
+    }
+
+    /// <summary>
+    /// Оборванный запрос: тестовый сервер отдаёт клиенту отмену, только когда запрос отработал, поэтому хук
+    /// отпускают раньше, чем ждут клиента.
+    /// </summary>
+    private static async Task Aborted(Task<HttpResponseMessage> saving) =>
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => saving);
+
+    private static async Task Until(Func<bool> condition)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while (!condition())
+            await Task.Delay(50, deadline.Token);
+    }
+
+    [Fact]
     public async Task Performers_KeepsTheLineEndingsOfTheFileItRewrites()
     {
         var basePath = CreateBase("app-knowledge");
