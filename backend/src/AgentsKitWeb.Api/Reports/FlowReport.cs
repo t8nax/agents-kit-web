@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace AgentsKitWeb.Api.Reports;
 
 /// <summary>Место во флоу и что там написано.</summary>
@@ -37,6 +39,7 @@ public sealed record ReportSchedule(bool Enabled, IReadOnlyList<DayOfWeek> Days,
     public static readonly ReportSchedule Off = new(false, [], 9);
 
     /// <summary>Расписание, годное к записи: час в пределах суток, дни без повторов по порядку недели от понедельника.</summary>
+    [JsonIgnore]
     public bool IsValid => Hour is >= 0 and <= 23 && Days.All(Enum.IsDefined);
 
     public ReportSchedule Normalized() =>

@@ -251,6 +251,8 @@ public sealed class ReportEndpointsTests : IDisposable
     {
         var client = await Client();
         Assert.False(Assert.Single(await List(client)).Schedule.Enabled);
+        // Служебная проверка расписания в ответ не уходит.
+        Assert.DoesNotContain("isValid", await client.GetStringAsync("/api/reports/flow"));
 
         using var saved = await client.PutAsJsonAsync("/api/reports/flow/schedule",
             new FlowReportScheduleRequest(_base, true, [DayOfWeek.Friday, DayOfWeek.Monday], 9));
