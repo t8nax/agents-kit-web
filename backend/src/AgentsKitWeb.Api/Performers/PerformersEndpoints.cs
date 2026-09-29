@@ -9,6 +9,7 @@ namespace AgentsKitWeb.Api.Performers;
 /// Исполнитель — субагент проекта: файл в базе знаний, откуда кит развозит его по рабочим копиям.
 /// Name — имя, которым зовёт его шаг флоу, Path — файл базы, откуда взяты поля.
 /// Prompt — задание из файла: окно правки берёт его отсюда, а не отдельным запросом по пути к файлу.
+/// CalledBy — названия этапов флоу, которые зовут его исполнителем или помощником: пока они есть, удалить его нельзя.
 /// </summary>
 public sealed record Performer(
     string Name,
@@ -16,7 +17,8 @@ public sealed record Performer(
     string? Model,
     string? Tools,
     string Prompt,
-    string Path);
+    string Path,
+    IReadOnlyList<string>? CalledBy = null);
 
 /// <summary>
 /// Исполнители одного проекта. Directory — каталог базы, куда лягут файлы: по нему окно показывает
@@ -46,7 +48,10 @@ public sealed record SavePerformerRequest(
 
 public sealed record PerformerSavedResponse(string Path);
 
-/// <summary>Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed · newer-format.</summary>
+/// <summary>
+/// Problem: invalid-name · invalid-description · name-taken · name-in-project · not-committed · newer-format ·
+/// called-by-flow (удаление; Detail — этапы через запятую).
+/// </summary>
 public sealed record PerformerRejectedResponse(string Problem, string? Detail = null);
 
 public static class PerformersEndpoints
@@ -169,7 +174,85 @@ public static class PerformersEndpoints
             health.RequestCheck();
             return Results.Ok(new PerformerSavedResponse(file));
         });
+
+        app.MapDelete("/api/performers", async (
+            string @base,
+            string name,
+            BasesStore bases,
+            HealthMonitor health,
+            CancellationToken cancellationToken) =>
+        {
+            if (Configured(bases, @base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
+                return Results.NotFound();
+            if (layout.NewerFormat)
+                return Results.Conflict(new PerformerRejectedResponse("newer-format", BaseLayout.NewerFormatRefusal));
+            var root = layout.Personal;
+
+            // Файл ищется по списку базы, как его зовёт шаг флоу: имя внутри файла может расходиться с именем файла.
+            name = name.Trim();
+            if (PerformerList.OfProject(layout).FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal))?.Path
+                is not { } file)
+                return Results.NotFound();
+
+            // Кнопку окна гасит тот же список, но окно могло открыться до правки флоу: запрет держит и сама панель.
+            // Этап, зовущий удалённого, агент бы не выполнил, — решение оператора на B-83.
+            List<string> calledBy;
+            try
+            {
+                calledBy = CalledBy(FlowEndpoints.Stages(layout), name);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return Results.Problem("Флоу базы не прочитан", statusCode: StatusCodes.Status500InternalServerError);
+            }
+            if (calledBy.Count > 0)
+                return Results.Conflict(new PerformerRejectedResponse("called-by-flow", string.Join(", ", calledBy)));
+
+            // Байты, а не текст: отказ коммита возвращает файл ровно таким, каким он лежал в базе под git.
+            byte[] kept;
+            try
+            {
+                kept = await File.ReadAllBytesAsync(file, cancellationToken);
+                File.Delete(file);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                return Results.Problem("Файл исполнителя не удалён", statusCode: StatusCodes.Status500InternalServerError);
+            }
+
+            // Неотслеживаемый файл — заведённый руками и не закоммиченный — уходит с диска, коммитить нечего.
+            var path = Relative(file);
+            if (await BaseGit.TrackedAsync(root, path, cancellationToken))
+            {
+                var commit = await BaseGit.CommitFileAsync(root, path, $"Исполнитель {name} удалён из панели", cancellationToken);
+                if (!commit.Done)
+                {
+                    // Иначе удаление ушло бы в чужой коммит соседней сессии: вернуть файл и показать, что сказал git.
+                    try
+                    {
+                        await File.WriteAllBytesAsync(file, kept, CancellationToken.None);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    {
+                        // Файла нет — об этом скажет сверка базы; оператору всё равно нужен ответ git.
+                    }
+                    await BaseGit.ResetFilesAsync(root, [path], cancellationToken);
+                    return Results.Conflict(new PerformerRejectedResponse("not-committed", commit.Error));
+                }
+            }
+
+            // Из рабочих копий удалённого убирает кит в фоновой проверке баз — её просят начать сразу.
+            health.RequestCheck();
+            return Results.NoContent();
+        });
     }
+
+    /// <summary>Названия этапов, которые зовут исполнителя — исполнителем этапа или помощником оркестратора.</summary>
+    private static List<string> CalledBy(IReadOnlyList<FlowStage> stages, string name) =>
+        stages
+            .Where(s => string.Equals(s.Executor.Trim(), name, StringComparison.Ordinal) || FlowFolder.Helpers(s).Contains(name))
+            .Select(s => s.Title)
+            .ToList();
 
     private static BasePerformers Read(string basePath)
     {
@@ -180,8 +263,22 @@ public static class PerformersEndpoints
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
             return new BasePerformers(basePath, project, "", [], problem);
 
+        // Флоу не прочитан — этапы никого не зовут: запрет удаления всё равно проверит запрос на удаление.
+        IReadOnlyList<FlowStage> stages;
+        try
+        {
+            stages = FlowEndpoints.Stages(layout);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            stages = [];
+        }
+        var performers = PerformerList.OfProject(layout)
+            .Select(p => p with { CalledBy = CalledBy(stages, p.Name) })
+            .ToList();
+
         return new BasePerformers(
-            basePath, project, PerformerList.Directory(layout), PerformerList.OfProject(layout), null, layout.FormatWarning);
+            basePath, project, PerformerList.Directory(layout), performers, null, layout.FormatWarning);
     }
 
     /// <summary>Возвращает прежнее содержимое на место; не вышло — файла нет, и об этом скажет сверка базы.</summary>
