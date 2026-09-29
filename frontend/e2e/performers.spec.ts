@@ -218,6 +218,28 @@ test('исполнитель удаляется из окна через окн�
   expect(deleted).toEqual(['reviewer'])
 })
 
+test('Tab не выходит из окна удаления, а «Отмена» возвращает фокус на «Удалить исполнителя»', async ({ page }) => {
+  const { deleted } = await mockApi(page)
+  await openPerformers(page)
+
+  await card(page, 'reviewer').click()
+  const modal = page.getByRole('dialog', { name: 'reviewer' })
+  await modal.getByRole('button', { name: 'Удалить исполнителя' }).click()
+  const confirm = page.getByRole('dialog', { name: 'Удалить исполнителя' })
+  await expect(confirm).toBeVisible()
+
+  // Окно исполнителя под окном удаления недоступно: фокус ходит только по окну удаления.
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press('Tab')
+    expect(await modal.evaluate((el) => el.contains(document.activeElement))).toBe(false)
+  }
+
+  await confirm.getByRole('button', { name: 'Отмена' }).click()
+  await expect(confirm).toHaveCount(0)
+  await expect(modal.getByRole('button', { name: 'Удалить исполнителя' })).toBeFocused()
+  expect(deleted).toEqual([])
+})
+
 test('исполнителя, которого зовут этапы флоу, удалить нельзя', async ({ page }) => {
   await mockApi(page, { performers: [{ ...reviewer, calledBy: ['Дизайн', 'Ревью'] }, ...others] })
   await openPerformers(page)
