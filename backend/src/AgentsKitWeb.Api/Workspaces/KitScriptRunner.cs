@@ -14,7 +14,8 @@ public enum KitRunOutcome
     TimedOut,
 }
 
-public sealed record KitRun(KitRunOutcome Outcome, string Output, string Error);
+/// <summary>Итог запуска. Rest — у скрипта, которого панель перестала ждать по сроку, не убив: его конец.</summary>
+public sealed record KitRun(KitRunOutcome Outcome, string Output, string Error, Task? Rest = null);
 
 /// <summary>
 /// Запуск скрипта установленного кита. Общий для всех скриптов, которые панель зовёт: правила запуска
@@ -65,29 +66,54 @@ public static class KitScriptRunner
         if (process is null)
             return new KitRun(KitRunOutcome.NotStarted, "", "");
 
-        using (process)
-        using (var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        limit.CancelAfter(timeout);
+        // Брошенный по сроку скрипт дочитывается до конца: закрытый канал вывода уронил бы pwsh на следующей строке,
+        // и сведение, которому панель перестала мешать, всё равно не дошло бы.
+        var reads = killOnTimeout ? limit.Token : CancellationToken.None;
+        var stdout = process.StandardOutput.ReadToEndAsync(reads);
+        var stderr = process.StandardError.ReadToEndAsync(reads);
+        try
         {
-            limit.CancelAfter(timeout);
+            await process.WaitForExitAsync(limit.Token);
+            var output = await stdout;
+            var error = (await stderr).Trim();
+            return process.ExitCode == 0
+                ? new KitRun(KitRunOutcome.Ok, output, error)
+                : new KitRun(
+                    KitRunOutcome.Refused,
+                    output,
+                    error.Length > 0 ? error : $"скрипт кита завершился с кодом {process.ExitCode}");
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            if (killOnTimeout)
+            {
+                process.Kill(entireProcessTree: true);
+                return new KitRun(KitRunOutcome.TimedOut, "", "");
+            }
+            var owned = process;
+            process = null;
+            return new KitRun(KitRunOutcome.TimedOut, "", "", DrainAsync(owned, stdout, stderr));
+        }
+        finally
+        {
+            process?.Dispose();
+        }
+    }
+
+    /// <summary>Дожидается скрипта, который панель перестала ждать, дочитывая его вывод, и отпускает процесс.</summary>
+    private static async Task DrainAsync(Process process, Task<string> stdout, Task<string> stderr)
+    {
+        using (process)
+        {
             try
             {
-                var stdout = process.StandardOutput.ReadToEndAsync(limit.Token);
-                var stderr = process.StandardError.ReadToEndAsync(limit.Token);
-                await process.WaitForExitAsync(limit.Token);
-                var output = await stdout;
-                var error = (await stderr).Trim();
-                return process.ExitCode == 0
-                    ? new KitRun(KitRunOutcome.Ok, output, error)
-                    : new KitRun(
-                        KitRunOutcome.Refused,
-                        output,
-                        error.Length > 0 ? error : $"скрипт кита завершился с кодом {process.ExitCode}");
+                await Task.WhenAll(stdout, stderr, process.WaitForExitAsync());
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            catch (Exception e) when (e is IOException or InvalidOperationException)
             {
-                if (killOnTimeout)
-                    process.Kill(entireProcessTree: true);
-                return new KitRun(KitRunOutcome.TimedOut, "", "");
+                // Вывод, которого уже никто не покажет: важно только дождаться конца процесса.
             }
         }
     }
