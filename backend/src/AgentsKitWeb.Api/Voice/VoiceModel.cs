@@ -30,6 +30,7 @@ public sealed class VoiceModel
     private readonly string _directory;
     private readonly Uri _source;
     private readonly Uri _runtimeSource;
+    private readonly string _runtimeSha512;
     private readonly IHttpClientFactory _clients;
 
     /// <summary>
@@ -37,11 +38,12 @@ public sealed class VoiceModel
     /// мегабайт, которых «Удалить» не видно: новая панель убирает их сразу (ревью B-291). Скачивания в ней ещё нет.
     /// Рантайм убранного модуля, который прошлая панель держала загруженным и удалить не дала, уходит тоже.
     /// </summary>
-    public VoiceModel(string directory, Uri source, Uri runtimeSource, IHttpClientFactory clients)
+    public VoiceModel(string directory, Uri source, Uri runtimeSource, string runtimeSha512, IHttpClientFactory clients)
     {
         _directory = directory;
         _source = source;
         _runtimeSource = runtimeSource;
+        _runtimeSha512 = runtimeSha512;
         _clients = clients;
         DeletePart(PartFile);
         DeletePart(RuntimePartFile);
@@ -66,11 +68,22 @@ public sealed class VoiceModel
         new("https://huggingface.co/ggerganov/whisper.cpp/resolve/main/" + FileName);
 
     /// <summary>
-    /// Рантайм Whisper для видеокарты (Vulkan) — пакет авторов Whisper.net в NuGet. Версия та же, что у Whisper.net
-    /// в сборке панели (AgentsKitWeb.Api.csproj): рантайм другой версии обёртка не загрузит.
+    /// Версия рантайма Whisper для видеокарты — та же, что у Whisper.net в сборке панели (AgentsKitWeb.Api.csproj):
+    /// рантайм другой версии обёртка не загрузит и молча уйдёт на процессор. Сходство держит тест; поднят
+    /// Whisper.net — поднимаются версия и хеш здесь, и стоящий рантайм прежней версии докачивается заново.
     /// </summary>
-    public static readonly Uri DefaultRuntimeSource =
-        new("https://api.nuget.org/v3-flatcontainer/whisper.net.runtime.vulkan/1.9.1/whisper.net.runtime.vulkan.1.9.1.nupkg");
+    public const string RuntimeVersion = "1.9.1";
+
+    /// <summary>Рантайм — пакет авторов Whisper.net в NuGet.</summary>
+    public static readonly Uri DefaultRuntimeSource = new(
+        $"https://api.nuget.org/v3-flatcontainer/whisper.net.runtime.vulkan/{RuntimeVersion}/whisper.net.runtime.vulkan.{RuntimeVersion}.nupkg");
+
+    /// <summary>
+    /// SHA-512 пакета этой версии, как его отдаёт nuget.org: библиотеки из пакета грузятся в процесс панели, и
+    /// подменённый или испорченный по дороге пакет не встаёт.
+    /// </summary>
+    public const string DefaultRuntimeSha512 =
+        "hRYbrj76y09g38wZccGb3DvNiempYMq6Zf6FX/gKzxjS2Ff1JeTZ/XSSuJ0UgU13q/TAsD/Gl/Ctu0PmNcFjdA==";
 
     private const string RuntimeEntries = "build/win-x64/";
 
@@ -103,7 +116,24 @@ public sealed class VoiceModel
 
     private string RuntimePartFile => Path.Combine(_directory, "runtime.nupkg.part");
 
-    private bool RuntimeInstalled => System.IO.File.Exists(Path.Combine(RuntimeDirectory, "whisper.dll"));
+    /// <summary>Отметка версии рядом с библиотеками: рантайм прежней версии стоящим не считается.</summary>
+    private string RuntimeVersionFile => Path.Combine(RuntimeDirectory, "version.txt");
+
+    private bool RuntimeInstalled
+    {
+        get
+        {
+            try
+            {
+                return System.IO.File.Exists(Path.Combine(RuntimeDirectory, "whisper.dll"))
+                       && System.IO.File.ReadAllText(RuntimeVersionFile).Trim() == RuntimeVersion;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+        }
+    }
 
     public bool Installed => System.IO.File.Exists(File) && RuntimeInstalled;
 
@@ -184,32 +214,35 @@ public sealed class VoiceModel
             var needRuntime = !RuntimeInstalled;
             var needModel = !System.IO.File.Exists(File);
 
-            using var runtime = needRuntime
-                ? await client.GetAsync(_runtimeSource, HttpCompletionOption.ResponseHeadersRead, download.Token)
+            // Модель — первой, рантайм — последним: соседняя панель на том же каталоге, стартуя, убирает рантайм
+            // без модели и стёрла бы свежий, пока минутами качается модель (ревью B-291). Размер рантайма
+            // спрашивается сразу: ход считается от всего модуля.
+            using var model = needModel
+                ? await client.GetAsync(_source, HttpCompletionOption.ResponseHeadersRead, download.Token)
                 : null;
-            runtime?.EnsureSuccessStatusCode();
-            // Размер модели спрашивается до скачивания рантайма: ход сразу считается от всего модуля.
-            long? modelSize = null;
-            if (needModel)
+            model?.EnsureSuccessStatusCode();
+            long? runtimeSize = null;
+            if (needRuntime)
             {
-                using var head = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, _source), download.Token);
+                using var head = await client.SendAsync(new HttpRequestMessage(HttpMethod.Head, _runtimeSource), download.Token);
                 head.EnsureSuccessStatusCode();
-                modelSize = head.Content.Headers.ContentLength;
+                runtimeSize = head.Content.Headers.ContentLength;
             }
             lock (_lock)
-                _total = (runtime is null ? 0 : runtime.Content.Headers.ContentLength) + (needModel ? modelSize : 0);
+                _total = (model is null ? 0 : model.Content.Headers.ContentLength) + (needRuntime ? runtimeSize : 0);
 
-            if (runtime is not null)
+            if (model is not null)
             {
-                await StreamAsync(runtime, RuntimePartFile, download);
-                ExtractRuntime();
-            }
-            if (needModel)
-            {
-                using var model = await client.GetAsync(_source, HttpCompletionOption.ResponseHeadersRead, download.Token);
-                model.EnsureSuccessStatusCode();
                 await StreamAsync(model, PartFile, download);
                 System.IO.File.Move(PartFile, File, overwrite: true);
+            }
+            if (needRuntime)
+            {
+                using var runtime = await client.GetAsync(_runtimeSource, HttpCompletionOption.ResponseHeadersRead, download.Token);
+                runtime.EnsureSuccessStatusCode();
+                await StreamAsync(runtime, RuntimePartFile, download);
+                CheckRuntimeHash();
+                ExtractRuntime();
             }
         }
         catch (Exception exception)
@@ -248,7 +281,7 @@ public sealed class VoiceModel
                 }
                 catch (OperationCanceledException) when (!download.IsCancellationRequested)
                 {
-                    throw new TimeoutException("Сервер перестал отдавать модель.");
+                    throw new TimeoutException("Сервер перестал отдавать файлы модуля.");
                 }
                 if (read == 0)
                     break;
@@ -259,7 +292,14 @@ public sealed class VoiceModel
             }
         }
         if (expected is { } total && written != total)
-            throw new IncompleteDownload("Сервер отдал модель не целиком.");
+            throw new IncompleteDownload("Сервер отдал файлы модуля не целиком.");
+    }
+
+    private void CheckRuntimeHash()
+    {
+        using var package = System.IO.File.OpenRead(RuntimePartFile);
+        if (Convert.ToBase64String(System.Security.Cryptography.SHA512.HashData(package)) != _runtimeSha512)
+            throw new IncompleteDownload("Пакет рантайма не совпал с опубликованным.");
     }
 
     /// <summary>Из пакета берутся только библиотеки Windows x64; каталог рантайма встаёт целым или не встаёт.</summary>
@@ -280,6 +320,7 @@ public sealed class VoiceModel
                 throw new IncompleteDownload("В пакете рантайма нет библиотек для Windows.");
             foreach (var library in libraries)
                 library.ExtractToFile(Path.Combine(part, library.Name), overwrite: true);
+            System.IO.File.WriteAllText(Path.Combine(part, "version.txt"), RuntimeVersion);
         }
         DeleteRuntime();
         Directory.CreateDirectory(Path.GetDirectoryName(RuntimeDirectory)!);
@@ -289,10 +330,10 @@ public sealed class VoiceModel
     /// <summary>Причина словами оператору: сообщения HttpClient и сокетов приходят по-английски.</summary>
     private static string Reason(Exception exception) => exception switch
     {
-        HttpRequestException { StatusCode: { } status } => $"Сервер модели ответил {(int)status}.",
+        HttpRequestException { StatusCode: { } status } => $"Сервер модуля ответил {(int)status}.",
         TimeoutException or IncompleteDownload => exception.Message,
         InvalidDataException => "Пакет рантайма пришёл испорченным.",
-        _ => "Связь с сервером модели прервалась.",
+        _ => "Связь с сервером модуля прервалась.",
     };
 
     private sealed class IncompleteDownload(string message) : IOException(message);

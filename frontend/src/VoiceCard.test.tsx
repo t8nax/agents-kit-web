@@ -99,7 +99,7 @@ test('«Удалить» убирает поставленную модель', 
 
 test('сорвавшееся скачивание говорит, на чём прервалось, и даёт повторить', async () => {
   const calls = stubVoice(
-    { state: 'failed', downloaded: 212.4 * MB, total: model, error: 'Связь с сервером модели прервалась.' },
+    { state: 'failed', downloaded: 212.4 * MB, total: model, error: 'Связь с сервером модуля прервалась.' },
     downloading,
   )
   renderCard()
@@ -108,7 +108,7 @@ test('сорвавшееся скачивание говорит, на чём п
 
   expect(alert).toHaveTextContent('Модель не скачалась')
   expect(alert).toHaveTextContent(
-    'Связь с сервером модели прервалась на 212,4 из 547,4 МБ. Скачанное удалено, голосовой ввод не установлен.',
+    'Связь с сервером модуля прервалась на 212,4 из 547,4 МБ. Скачанное удалено, голосовой ввод не установлен.',
   )
   expect(within(card()).queryByRole('button', { name: 'Установить' })).not.toBeInTheDocument()
   fireEvent.click(within(alert).getByRole('button', { name: 'Повторить' }))
@@ -117,11 +117,11 @@ test('сорвавшееся скачивание говорит, на чём п
 })
 
 test('отказ сервера до первого байта называется без «скачанное удалено»', async () => {
-  stubVoice({ state: 'failed', downloaded: 0, total: null, error: 'Сервер модели ответил 404.' })
+  stubVoice({ state: 'failed', downloaded: 0, total: null, error: 'Сервер модуля ответил 404.' })
   renderCard()
 
   expect(await within(card()).findByRole('alert')).toHaveTextContent(
-    'Сервер модели ответил 404. Голосовой ввод не установлен.',
+    'Сервер модуля ответил 404. Голосовой ввод не установлен.',
   )
 })
 
