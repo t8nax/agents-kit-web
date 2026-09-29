@@ -879,14 +879,14 @@ function Gauge({ ring, size }: { ring: RingScore; size: number }) {
   return (
     <span className={`rp-gauge rp-${ring.band}`} style={{ width: size, height: size }}>
       <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
-        <circle className="rp-gauge-track" cx={size / 2} cy={size / 2} r={radius} strokeWidth={width} />
+        {/* Толщина — стилем: общее правило значков панели (svg в App.css) перебило бы атрибут. */}
+        <circle className="rp-gauge-track" cx={size / 2} cy={size / 2} r={radius} style={{ strokeWidth: width }} />
         <circle
           className="rp-gauge-value"
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          strokeWidth={width}
-          strokeDasharray={`${(length * ring.score) / 100} ${length}`}
+          style={{ strokeWidth: width, strokeDasharray: `${(length * ring.score) / 100} ${length}` }}
         />
       </svg>
       <span className="rp-gauge-num" style={{ fontSize: size > 80 ? 26 : 22 }}>

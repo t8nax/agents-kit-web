@@ -208,6 +208,11 @@ for (const colorScheme of ['light', 'dark'] as const) {
         .locator('.rp-gauge-value')
         .evaluate((circle) => getComputedStyle(circle).stroke)
 
+    // Кольцо во всю рамку и с толщиной по макету: общее правило значков панели его не сжимает (приёмка B-270).
+    const ring = page.getByRole('button', { name: /^Ясность:/ }).locator('svg')
+    const box = (await ring.boundingBox())!
+    expect(Math.round(box.width)).toBe(72)
+    expect(await ring.locator('.rp-gauge-value').evaluate((circle) => getComputedStyle(circle).strokeWidth)).toBe('6px')
     expect(await stroke('Ясность')).toBe(await token('--accent-active-text'))
     expect(await stroke('Проходимость')).toBe(await token('--accent-waiting-fill'))
     const high = page.locator('.rp-pr-high').first()
