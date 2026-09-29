@@ -973,12 +973,13 @@ function SkeletonRings() {
   )
 }
 
+/** Лист с загнутым углом и строками текста — по образцу оператора: столбики были похожи на «Расход» (приёмка B-270). */
 export function ReportIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 2 14 8 20 8" />
-      <path d="M8 18v-3M12 18v-6M16 18v-4" />
+      <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+      <path d="M8 11h8M8 14.5h8M8 18h3" />
     </svg>
   )
 }
