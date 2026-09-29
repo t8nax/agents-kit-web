@@ -17,10 +17,14 @@ public sealed class FakeGitHubIssues : IGitHubIssues
     /// <summary>Ход, пока gh «читает» задачи: им тест меняет базу посреди проверки трекера.</summary>
     public Action BeforeAssigned { get; set; } = () => { };
 
-    public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
+    /// <summary>Строка отбора каждого чтения задач: null — без отбора.</summary>
+    public List<string?> Queries { get; } = [];
+
+    public Task<TrackerIssues> AssignedAsync(string repo, string? query, CancellationToken cancellationToken)
     {
         BeforeAssigned();
         Asked.Add(repo);
+        Queries.Add(query);
         return Task.FromResult(Answer);
     }
 

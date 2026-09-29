@@ -96,7 +96,7 @@ public sealed class YouTrackApiTests
             ? Json("""[{"id":"0-7","shortName":"ABCD"},{"id":"0-1","shortName":"ABC"}]""")
             : Json("""[{"idReadable":"ABC-12","summary":"Оплата падает"},{"idReadable":"ABC-1287","summary":"Отчёты"}]"""));
 
-        var issues = await api.AssignedAsync(Server, Key, "abc", CancellationToken.None);
+        var issues = await api.AssignedAsync(Server, Key, "abc", null, CancellationToken.None);
 
         Assert.Null(issues.Problem);
         Assert.Equal(
@@ -109,6 +109,35 @@ public sealed class YouTrackApiTests
         Assert.Contains("query=project: {ABC} for: me #Unresolved", query);
     }
 
+    /// <summary>Строка отбора описания дописывается к запросу панели как есть (B-300).</summary>
+    [Fact]
+    public async Task Assigned_WithQuery_AppendsItToSearch()
+    {
+        var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
+            ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
+            : Json("""[{"idReadable":"ABC-12","summary":"Оплата падает"}]"""));
+
+        var issues = await api.AssignedAsync(Server, Key, "ABC", " State: {To Do} ", CancellationToken.None);
+
+        Assert.Null(issues.Problem);
+        Assert.Contains("query=project: {ABC} for: me #Unresolved State: {To Do}&", Uri.UnescapeDataString(_asked[1].Url));
+    }
+
+    /// <summary>YouTrack отверг поиск с отбором — не принята строка отбора, а не сервер сломан.</summary>
+    [Fact]
+    public async Task Assigned_QueryRefused_IsQueryRejectedWithYouTrackWords()
+    {
+        var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
+            ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
+            : Json("""{"error":"bad_request","error_description":"Unknown field \"Stat\""}""", HttpStatusCode.BadRequest));
+
+        var filtered = await api.AssignedAsync(Server, Key, "ABC", "Stat: {To Do}", CancellationToken.None);
+        var plain = await api.AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
+
+        Assert.Equal((TrackerIssues.QueryRejected, "Unknown field \"Stat\""), (filtered.Problem, filtered.Detail));
+        Assert.Equal(TrackerIssues.YouTrackError, plain.Problem);
+    }
+
     /// <summary>Проектов с искомым в имени больше страницы — нужный ищется и на следующих (ревью B-288).</summary>
     [Fact]
     public async Task Assigned_ProjectOnSecondPage_IsFound()
@@ -118,7 +147,7 @@ public sealed class YouTrackApiTests
             ? request.RequestUri.Query.Contains("$skip=0") ? Json(firstPage.ToJsonString()) : Json("""[{"id":"0-500","shortName":"ABC"}]""")
             : Json("""[{"idReadable":"ABC-1","summary":"Т"}]"""));
 
-        var issues = await api.AssignedAsync(Server, Key, "ABC", CancellationToken.None);
+        var issues = await api.AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Null(issues.Problem);
         Assert.Equal("YouTrack ABC-1", Assert.Single(issues.Issues).Name);
@@ -129,7 +158,7 @@ public sealed class YouTrackApiTests
     public async Task Assigned_ProjectNotVisible_IsProjectMissingWithoutReadingIssues()
     {
         var issues = await Api(_ => Json("""[{"id":"0-7","shortName":"ABCD"}]"""))
-            .AssignedAsync(Server, Key, "ABC", CancellationToken.None);
+            .AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Equal(TrackerIssues.ProjectMissing, issues.Problem);
         Assert.Single(_asked);
@@ -138,7 +167,7 @@ public sealed class YouTrackApiTests
     [Fact]
     public async Task Assigned_KeyRejected_IsKeyRejected()
     {
-        var issues = await Api(_ => Json("{}", HttpStatusCode.Unauthorized)).AssignedAsync(Server, Key, "ABC", CancellationToken.None);
+        var issues = await Api(_ => Json("{}", HttpStatusCode.Unauthorized)).AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Equal(TrackerIssues.KeyRejected, issues.Problem);
         Assert.Empty(issues.Issues);

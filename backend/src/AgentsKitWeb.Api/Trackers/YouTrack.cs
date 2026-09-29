@@ -15,8 +15,11 @@ public interface IYouTrack
     /// <summary>Кому принадлежит ключ: им проверяется ключ при сохранении в «Настройках».</summary>
     Task<YouTrackUser> WhoAsync(string server, string key, CancellationToken cancellationToken);
 
-    /// <summary>Незакрытые задачи проекта, назначенные на владельца ключа.</summary>
-    Task<TrackerIssues> AssignedAsync(string server, string key, string project, CancellationToken cancellationToken);
+    /// <summary>
+    /// Незакрытые задачи проекта, назначенные на владельца ключа; query — строка поиска YouTrack из описания трекера,
+    /// дописанная к запросу (B-300), null — без отбора.
+    /// </summary>
+    Task<TrackerIssues> AssignedAsync(string server, string key, string project, string? query, CancellationToken cancellationToken);
 
     /// <summary>Новая задача проекта, назначенная на владельца ключа, без других полей.</summary>
     Task<CreatedIssue> CreateAsync(string server, string key, string project, string title, string body);
@@ -49,15 +52,22 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
             : new YouTrackUser(null, TrackerIssues.YouTrackError, NotYouTrack);
     }
 
-    public async Task<TrackerIssues> AssignedAsync(string server, string key, string project, CancellationToken cancellationToken)
+    public async Task<TrackerIssues> AssignedAsync(
+        string server, string key, string project, string? query, CancellationToken cancellationToken)
     {
         var found = await ProjectAsync(server, key, project, cancellationToken);
         if (found.Problem is not null)
             return new TrackerIssues([], found.Problem, found.Detail);
 
-        var query = Uri.EscapeDataString($"project: {{{found.ShortName}}} for: me #Unresolved");
+        var search = $"project: {{{found.ShortName}}} for: me #Unresolved";
+        if (!string.IsNullOrWhiteSpace(query))
+            search += $" {query.Trim()}";
         var reply = await SendAsync(
-            Get(server, key, $"api/issues?query={query}&fields=idReadable,summary&$top={Limit}"), ReadTimeout, cancellationToken);
+            Get(server, key, $"api/issues?query={Uri.EscapeDataString(search)}&fields=idReadable,summary&$top={Limit}"),
+            ReadTimeout, cancellationToken);
+        // Проект найден и ключ принят — отказ самого поиска с отбором значит, что YouTrack не принял строку отбора.
+        if (reply.Problem == TrackerIssues.YouTrackError && !string.IsNullOrWhiteSpace(query))
+            return new TrackerIssues([], TrackerIssues.QueryRejected, reply.Detail);
         if (reply.Problem is not null)
             return new TrackerIssues([], reply.Problem, reply.Detail);
         if (reply.Json is not JsonArray issues)

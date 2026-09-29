@@ -51,10 +51,10 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         tracker switch
         {
             null => new TrackerIssues([], TrackerIssues.NoTracker),
-            { GitHubRepo: { } repo } => await github.AssignedAsync(repo, cancellationToken),
+            { GitHubRepo: { } repo } => await github.AssignedAsync(repo, tracker.Query, cancellationToken),
             { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
                 KeyOf(server, out var problem) is { } key
-                    ? await youTrack.AssignedAsync(server, key, project, cancellationToken)
+                    ? await youTrack.AssignedAsync(server, key, project, tracker.Query, cancellationToken)
                     : new TrackerIssues([], problem),
             var other => new TrackerIssues([], other.Kind),
         };
