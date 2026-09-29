@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { BacklogEntry } from './Backlog'
 import { Markdown } from './Markdown'
 import { OutIcon } from './TrackerGroup'
-import type { TrackerDraft, TrackerIssue, TrackerMoved } from './tracker'
+import { issueLabel, type TrackerDraft, type TrackerIssue, type TrackerMoved } from './tracker'
 import './Modal.css'
 import './ReplyModal.css'
 import './StartTaskModal.css'
@@ -46,7 +46,7 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
     fetch(`/api/backlog/tracker/draft?base=${encodeURIComponent(base)}&number=${encodeURIComponent(entry.number)}`)
       .then((response) => {
         if (response.status === 404) throw new Error('Этой записи больше нет в бэклоге: её взяли или удалили.')
-        if (response.status === 409) throw new Error('Трекер проекта больше не GitHub с адресом репозитория.')
+        if (response.status === 409) throw new Error('Трекер проекта больше не GitHub и не YouTrack со строками описания трекера.')
         if (!response.ok) throw new Error(`Задача не собрана: HTTP ${response.status}.`)
         return response.json() as Promise<TrackerDraft>
       })
@@ -76,7 +76,7 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
           response.status === 404
             ? 'Этой записи больше нет в бэклоге: её взяли или удалили.'
             : response.status === 409
-              ? 'Трекер проекта больше не GitHub с адресом репозитория.'
+              ? 'Трекер проекта больше не GitHub и не YouTrack со строками описания трекера.'
               : `Задача не заведена: HTTP ${response.status}.`,
         )
         return
@@ -224,14 +224,14 @@ function movedText(number: string, files: number, removed: number): string {
   return `Запись ${number} убрана из бэклога. Часть приложенных к ней файлов осталась в базе.`
 }
 
-/** Строка задачи — как в группе задач трекера: ссылка на GitHub во вкладку браузера, и адрес под ней. */
+/** Строка задачи — как в группе задач трекера: ссылка на трекер во вкладку браузера, и адрес под ней. */
 function IssueLink({ issue }: { issue: TrackerIssue }) {
   return (
     <div>
       <div className="entry-row">
         <a className="entry" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
           <span className="entry-num-slot tt-num-slot">
-            <span className="tracker-num">#{issue.number}</span>
+            <span className="tracker-num">{issueLabel(issue)}</span>
           </span>{' '}
           <span className="entry-title">{issue.title}</span>
           <OutIcon />

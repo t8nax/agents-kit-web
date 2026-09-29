@@ -31,6 +31,16 @@ internal static class TestLayout
         File.WriteAllText(Path.Combine(basePath, BaseLayout.MarkerFile),
             JsonSerializer.Serialize(new { kit = "agents-kit", prefix = "B", version = BaseLayout.Format + 1 }));
 
+    /// <summary>tracker.md базы с трекером, сервером и проектом строками «## Где задачи», как у кита формата 7.</summary>
+    public static void Tracker(string basePath, string tracker, string server, string project) =>
+        File.WriteAllText(Path.Combine(basePath, "tracker.md"), TrackerText(tracker, server, project));
+
+    public static string TrackerText(string tracker, string server, string project) =>
+        $"# Трекер\n\n## Где задачи\n\nтрекер: {tracker}\nсервер: {server}\nпроект: {project}\n\nХодим инструментом оператора.\n";
+
+    /// <summary>Трекер GitHub на github.com.</summary>
+    public static void GitHubTracker(string basePath, string repo) => Tracker(basePath, "GitHub", "https://github.com", repo);
+
     /// <summary>Переписывает local\me.json базы: оператор этой машины и её копии.</summary>
     public static void Machine(string basePath, string? name, params string[] copies)
     {

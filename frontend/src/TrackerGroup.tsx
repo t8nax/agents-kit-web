@@ -1,21 +1,104 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
-import type { TrackerInfo, TrackerIssue, TrackerLoad } from './tracker'
+import { issueLabel, type TrackerInfo, type TrackerIssue, type TrackerLoad } from './tracker'
 
 /** Строка на месте задач: спокойная — серая, поломка — красная со значком и советом. */
 type State = { warning: boolean; text: ReactNode }
 
-function trackerState(load: TrackerLoad, repo: string | null | undefined): State | null {
+/** Где на это посмотреть в «Настройках» — одними словами у всех причин ключа. */
+const settingsCard = '«Настройках», в карточке «Серверы трекеров»'
+
+function trackerState(load: TrackerLoad, tracker: TrackerInfo): State | null {
   if (load.kind === 'loading') return null
   if (load.kind === 'failed') return { warning: true, text: `Задачи трекера не загрузились: ${load.message}.` }
+  const server = <code>{tracker.server}</code>
   switch (load.problem) {
     case null:
-      return load.issues.length === 0 ? { warning: false, text: 'На вас в GitHub нет открытых задач этого репозитория.' } : null
-    case 'not-github':
-      return { warning: false, text: 'Трекер проекта — не GitHub. Панель пока читает только GitHub.' }
-    case 'no-address':
-      return { warning: true, text: 'В описании трекера нет адреса репозитория GitHub. Укажите его в описании трекера проекта.' }
+      if (load.issues.length > 0) return null
+      return tracker.kind === 'youtrack'
+        ? { warning: false, text: 'На вас в YouTrack нет незакрытых задач этого проекта.' }
+        : { warning: false, text: 'На вас в GitHub нет открытых задач этого репозитория.' }
+    case 'other':
+      return {
+        warning: false,
+        text: `Трекер проекта — ${tracker.name ?? 'не GitHub и не YouTrack'}. Панель пока читает задачи только из GitHub и YouTrack.`,
+      }
+    case 'no-keys': {
+      // Называются именно те строки, которых нет или что записаны не так, — как на макете B-288
+      const faults = (tracker.faults?.length ? tracker.faults : ['трекер', 'сервер', 'проект']).map((key) => `«${key}:»`)
+      const named = faults.length === 1 ? faults[0] : `${faults.slice(0, -1).join(', ')} и ${faults[faults.length - 1]}`
+      return {
+        warning: true,
+        text: (
+          <>
+            {faults.length === 1
+              ? `В описании трекера проекта нет строки ${named} или она записана не так. Допишите её навыком `
+              : `В описании трекера проекта нет строк ${named} или они записаны не так. Допишите их навыком `}
+            <code>/tracker</code>.
+          </>
+        ),
+      }
+    }
+    case 'no-key':
+      return {
+        warning: true,
+        text: (
+          <>
+            Для сервера {server} нет ключа. Добавьте сервер и ключ в {settingsCard}.
+          </>
+        ),
+      }
+    case 'key-rejected':
+      return {
+        warning: true,
+        text: (
+          <>
+            Сервер {server} отклонил ключ. Замените ключ в {settingsCard}.
+          </>
+        ),
+      }
+    case 'key-unreadable':
+      return {
+        warning: true,
+        text: (
+          <>
+            Ключ сервера {server} не прочитать на этом компьютере. Замените ключ в {settingsCard}.
+          </>
+        ),
+      }
+    case 'key-forbidden':
+      return {
+        warning: true,
+        text: (
+          <>
+            Сервер {server} принял ключ, но у его владельца нет прав на проект <code>{tracker.project}</code>. Проверьте права
+            владельца ключа в YouTrack.
+          </>
+        ),
+      }
+    case 'server-silent':
+      return {
+        warning: true,
+        text: (
+          <>
+            Сервер {server} не ответил: {load.detail ?? 'нет связи'}. Проверьте адрес сервера в описании трекера проекта и
+            подключение к сети.
+          </>
+        ),
+      }
+    case 'project-missing':
+      return {
+        warning: true,
+        text: (
+          <>
+            На сервере {server} нет проекта <code>{tracker.project}</code> или у вашего ключа нет к нему доступа. Проверьте
+            строку «проект:» в описании трекера проекта.
+          </>
+        ),
+      }
+    case 'youtrack-error':
+      return { warning: true, text: `YouTrack ответил ошибкой: ${load.detail ?? load.problem}.` }
     case 'unreadable':
       return { warning: true, text: 'Описание трекера проекта не прочитано.' }
     // Описание трекера убрали, пока раздел его читал
@@ -44,7 +127,7 @@ function trackerState(load: TrackerLoad, repo: string | null | undefined): State
         warning: true,
         text: (
           <>
-            GitHub не нашёл репозиторий <code>{repo}</code> или у вашего аккаунта нет к нему доступа
+            GitHub не нашёл репозиторий <code>{tracker.project}</code> или у вашего аккаунта нет к нему доступа
             {load.detail ? <>: {load.detail}</> : '.'}
           </>
         ),
@@ -55,8 +138,8 @@ function trackerState(load: TrackerLoad, repo: string | null | undefined): State
 }
 
 /**
- * Группа задач трекера в проекте — под записями бэклога, со своей подписью (макет B-277). Строка задачи — ссылка
- * на GitHub во вкладку браузера, а не окно: описание задачи лежит в трекере. «Взять задачу» — то же окно запуска.
+ * Группа задач трекера в проекте — под записями бэклога, со своей подписью (макеты B-277 и B-288). Строка задачи —
+ * ссылка на трекер во вкладку браузера, а не окно: описание задачи лежит в трекере. «Взять задачу» — то же окно запуска.
  */
 export default function TrackerGroup({
   tracker,
@@ -72,8 +155,8 @@ export default function TrackerGroup({
   children: (issue: TrackerIssue) => ReactNode
 }) {
   const reveal = useReveal(load.kind === 'loading')
-  const state = trackerState(load, tracker.repo)
-  const width = Math.max(0, ...issues.map((issue) => `#${issue.number}`.length))
+  const state = trackerState(load, tracker)
+  const width = Math.max(0, ...issues.map((issue) => issueLabel(issue).length))
   return (
     <>
       <div className="backlog-group-head">Задачи трекера, назначенные на вас</div>
@@ -88,11 +171,11 @@ export default function TrackerGroup({
         <div
           className={`tracker-issues ${reveal.className}`}
           onAnimationEnd={reveal.onAnimationEnd}
-          // Колонка номера — своя, по самому длинному «#NN»: номера задач не той длины, что номера записей
+          // Колонка номера — своя, по самому длинному «#NN» или «ABC-NN»: номера задач не той длины, что номера записей
           style={{ '--entry-num-width': `${width}ch` } as CSSProperties}
         >
           {issues.map((issue) => (
-            <div className="entry-row" key={issue.number}>
+            <div className="entry-row" key={issue.name}>
               <a
                 className="entry"
                 href={issue.url}
@@ -101,7 +184,7 @@ export default function TrackerGroup({
                 title={`Открыть ${issue.name} во вкладке браузера`}
               >
                 <span className="entry-num-slot">
-                  <span className="tracker-num">#{issue.number}</span>
+                  <span className="tracker-num">{issueLabel(issue)}</span>
                 </span>{' '}
                 <span className="entry-title">{issue.title}</span>
                 <OutIcon />

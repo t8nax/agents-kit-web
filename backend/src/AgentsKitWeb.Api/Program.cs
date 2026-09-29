@@ -5,6 +5,7 @@ using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Panel;
 using AgentsKitWeb.Api.Performers;
 using AgentsKitWeb.Api.Tasks;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Usage;
 using AgentsKitWeb.Api.Workspaces;
 
@@ -62,6 +63,21 @@ builder.Services.AddSingleton(services =>
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
 builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
 builder.Services.AddSingleton<IGitHubIssues, GhIssues>();
+builder.Services.AddSingleton(services =>
+{
+    var config = services.GetRequiredService<IConfiguration>();
+    // Свой список баз (песочница, тесты) — свои и серверы трекеров, рядом с ним; у панели оператора — локальный профиль
+    return new TrackerServersStore(config["TrackersFile"]
+        ?? (config["BasesFile"] is { } basesFile ? TrackerServersStore.FileBeside(basesFile) : TrackerServersStore.DefaultFile));
+});
+// Сроки запросам к YouTrack ставит сам клиент — у чтения и заведения они разные.
+builder.Services.AddHttpClient(YouTrackApi.Client, client =>
+{
+    client.Timeout = Timeout.InfiniteTimeSpan;
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
+});
+builder.Services.AddSingleton<IYouTrack, YouTrackApi>();
+builder.Services.AddSingleton<ProjectTracker>();
 builder.Services.AddSingleton<IAgentChat, AgentChat>();
 builder.Services.AddSingleton<AgentRequests>();
 builder.Services.AddSingleton<AskConversations>();
@@ -118,6 +134,7 @@ app.MapPerformersEndpoints();
 app.MapRemoveWorkspaceEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
+app.MapTrackerServersEndpoints();
 app.MapUsageEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.

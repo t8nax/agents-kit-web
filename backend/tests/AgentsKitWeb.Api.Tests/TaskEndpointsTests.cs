@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Tasks;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -218,8 +219,7 @@ public sealed class TaskEndpointsTests : IDisposable
 
     private readonly FakeGitHubIssues _github = new();
 
-    private void WriteGitHubTracker() =>
-        File.WriteAllText(Path.Combine(_base, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+    private void WriteGitHubTracker() => TestLayout.GitHubTracker(_base, "acme/orders");
 
     /// <summary>Задачу трекера берёт навык кита по её имени, как кит её называет, — B-277.</summary>
     [Theory]
@@ -268,6 +268,62 @@ public sealed class TaskEndpointsTests : IDisposable
         var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(new TaskStartProblem("tracker-unavailable", message), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+        Assert.Null(_agent.StartInfo);
+    }
+
+    private readonly FakeYouTrack _youTrack = new();
+
+    private void WriteYouTrackTracker()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        new TrackerServersStore(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")))
+            .Save("https://acme.youtrack.cloud", "boris.k", "perm:ключ");
+    }
+
+    /// <summary>Задачу YouTrack берёт навык кита по имени «YouTrack ABC-12»; регистр букв номера ничего не значит.</summary>
+    [Theory]
+    [InlineData("YouTrack ABC-12")]
+    [InlineData("youtrack abc-12")]
+    public async Task Start_TakesYouTrackIssueByItsName(string name)
+    {
+        WriteYouTrackTracker();
+        _youTrack.Answer = new TrackerIssues([new TrackerIssue("YouTrack ABC-12", 12, "Оплата падает", "https://acme.youtrack.cloud/issue/ABC-12")]);
+        _agent.Lines = ["backgrounded · abc123"];
+        var client = Client();
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, name));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC")], _youTrack.Read);
+        Assert.Equal("/agents-kit:drive YouTrack ABC-12", _agent.StartInfo!.ArgumentList[^1]);
+        var rows = await client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
+        Assert.Equal("YouTrack ABC-12 Оплата падает", Assert.Single(rows!, r => r.Path == _copy).Task);
+    }
+
+    [Fact]
+    public async Task Start_RejectsYouTrackIssueNotAssignedAndUnresolved()
+    {
+        WriteYouTrackTracker();
+        _youTrack.Answer = new TrackerIssues([new TrackerIssue("YouTrack ABC-11", 11, "Другая", "https://acme.youtrack.cloud/issue/ABC-11")]);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "YouTrack ABC-12"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("issue-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    [Theory]
+    [InlineData(TrackerIssues.KeyRejected, null, TrackerIssues.KeyRejected)]
+    [InlineData(TrackerIssues.YouTrackError, "Сервер на обслуживании", "Сервер на обслуживании")]
+    public async Task Start_YouTrackUnreadable_SaysWhy(string problem, string? detail, string message)
+    {
+        WriteYouTrackTracker();
+        _youTrack.Answer = new TrackerIssues([], problem, detail);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "YouTrack ABC-12"));
+
         Assert.Equal(new TaskStartProblem("tracker-unavailable", message), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
         Assert.Null(_agent.StartInfo);
     }
@@ -433,6 +489,8 @@ public sealed class TaskEndpointsTests : IDisposable
     [InlineData("GitHub #37 Оплата падает", "B", "GitHub #37")]
     [InlineData("github#037", null, "GitHub #37")]
     [InlineData("GitHub #37x Не номер", "B", null)]
+    [InlineData("YouTrack abc-12 Оплата падает", "B", "YouTrack ABC-12")]
+    [InlineData("YouTrack ABC-12x Не номер", "B", null)]
     // Номером панель признаёт только номер буквами своего проекта — decisions/backlog-numbers.md
     [InlineData("UTF-8 в именах файлов", "B", null)]
     [InlineData("B-7 Буквы проекта не известны", null, null)]
@@ -800,6 +858,8 @@ public sealed class TaskEndpointsTests : IDisposable
                 services.AddSingleton<IAgentProcess>(_agent);
                 services.RemoveAll<IGitHubIssues>();
                 services.AddSingleton<IGitHubIssues>(_github);
+                services.RemoveAll<IYouTrack>();
+                services.AddSingleton<IYouTrack>(_youTrack);
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(_time);
             });

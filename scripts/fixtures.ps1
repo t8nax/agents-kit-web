@@ -674,3 +674,88 @@ exit 0
 '@
     Write-Utf8 (Join-Path $Path 'gh-stub.ps1') $stub
 }
+
+# Задачи YouTrack панель читает сама, по REST с ключом из «Настроек» (B-288), и в песочнице ей отвечает свой
+# сервер на localhost — youtrack-stub.ps1 корня песочницы, его поднимает start-panel.ps1 рядом с API. Ключ
+# сервер принимает один — perm:sandbox: его оператор вводит в «Настройках», в карточке «Серверы трекеров».
+function New-YouTrackStub([string]$Root, [int]$Port) {
+    $stub = @'
+# Подставной YouTrack песочницы на http://localhost:__PORT__/. Ключ — «perm:sandbox», владелец ключа — sandbox.operator.
+# Проекты и их незакрытые задачи на владельце ключа — youtrack-issues.json корня песочницы: объект
+# «проект: [задачи]». Новая задача (перенос записи бэклога) дописывается туда следующим номером, её описание —
+# в youtrack-created\<номер>.md. Режим читается на каждый запрос из youtrack-mode.txt корня песочницы:
+#   ok        отвечает как YouTrack
+#   rejected  отклоняет любой ключ
+#   error     отвечает ошибкой сервера
+#   slow      отвечает через двадцать секунд — панель считает, что сервер не ответил
+#   slow-create  читает как ok, а заведение задачи отвечает через семьдесят секунд — задача заводится, но панель
+#             не дожидается ответа и пишет, что задача, возможно, заведена
+$ErrorActionPreference = 'Stop'
+$root = $PSScriptRoot
+$issuesFile = Join-Path $root 'youtrack-issues.json'
+$utf8 = [Text.UTF8Encoding]::new($false)
+
+function Send($context, [int]$status, $body) {
+    $bytes = $utf8.GetBytes((ConvertTo-Json -InputObject $body -Depth 6 -Compress))
+    $context.Response.StatusCode = $status
+    $context.Response.ContentType = 'application/json; charset=utf-8'
+    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+    $context.Response.Close()
+}
+
+$listener = [Net.HttpListener]::new()
+$listener.Prefixes.Add('http://localhost:__PORT__/')
+$listener.Start()
+while ($listener.IsListening) {
+    $context = $listener.GetContext()
+    try {
+        $modeFile = Join-Path $root 'youtrack-mode.txt'
+        $mode = if (Test-Path -LiteralPath $modeFile) { (Get-Content -LiteralPath $modeFile -Raw).Trim().ToLowerInvariant() } else { 'ok' }
+        if ($mode -eq 'slow') { Start-Sleep -Seconds 20 }
+        if ($mode -eq 'error') { Send $context 503 @{ error = 'unavailable'; error_description = 'Сервер песочницы на обслуживании' }; continue }
+        if ($mode -eq 'rejected' -or $context.Request.Headers['Authorization'] -ne 'Bearer perm:sandbox') {
+            Send $context 401 @{ error = 'Unauthorized'; error_description = 'Unauthorized' }
+            continue
+        }
+        $path = $context.Request.Url.AbsolutePath
+        $issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
+        $projects = @($issues.PSObject.Properties.Name)
+        if ($path.EndsWith('/api/users/me')) { Send $context 200 @{ login = 'sandbox.operator' }; continue }
+        if ($path.EndsWith('/api/admin/projects')) {
+            $i = 0
+            Send $context 200 @($projects | ForEach-Object { $i++; @{ id = "0-$i"; shortName = $_ } })
+            continue
+        }
+        if ($path.EndsWith('/api/issues') -and $context.Request.HttpMethod -eq 'GET') {
+            $query = [Uri]::UnescapeDataString($context.Request.Url.Query)
+            $project = if ($query -match 'project: \{([^}]+)\}') { $Matches[1] } else { $null }
+            $list = if ($project -and $projects -contains $project) { @($issues.$project) } else { @() }
+            Send $context 200 @($list | ForEach-Object { @{ idReadable = "$project-$($_.number)"; summary = $_.title } })
+            continue
+        }
+        if ($path.EndsWith('/api/issues') -and $context.Request.HttpMethod -eq 'POST') {
+            $reader = [IO.StreamReader]::new($context.Request.InputStream, $utf8)
+            $payload = $reader.ReadToEnd() | ConvertFrom-Json
+            $index = [int]($payload.project.id -replace '^0-', '') - 1
+            $project = $projects[$index]
+            $known = @($issues.$project)
+            # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
+            $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
+            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary }
+            [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), $utf8)
+            $created = Join-Path $root 'youtrack-created'
+            New-Item -ItemType Directory -Force -Path $created | Out-Null
+            [IO.File]::WriteAllText((Join-Path $created "$project-$number.md"), "# $($payload.summary)`n`n$($payload.description)", $utf8)
+            if ($mode -eq 'slow-create') { Start-Sleep -Seconds 70 }
+            Send $context 200 @{ idReadable = "$project-$number"; summary = $payload.summary }
+            continue
+        }
+        Send $context 404 @{ error = 'Not Found'; error_description = "Нет такого адреса: $path" }
+    }
+    catch {
+        try { Send $context 500 @{ error = 'stub'; error_description = $_.Exception.Message } } catch { }
+    }
+}
+'@
+    Write-Utf8 (Join-Path $Root 'youtrack-stub.ps1') ($stub -replace '__PORT__', $Port)
+}

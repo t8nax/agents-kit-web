@@ -1,8 +1,8 @@
 using System.Diagnostics;
-using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Tasks;
@@ -36,7 +36,7 @@ public static partial class TaskEndpoints
             StartedTasks started,
             TaskSessions taskSessions,
             IAgentProcess agent,
-            IGitHubIssues github,
+            ProjectTracker tracker,
             CancellationToken cancellationToken) =>
         {
             var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
@@ -46,9 +46,9 @@ public static partial class TaskEndpoints
                 return Results.BadRequest();
 
             // Номер набран кириллицей или строчными — тот же номер (Workspaces/BacklogNumber). Задача трекера
-            // называется именем трекера и номером в нём, как у кита: «GitHub #37».
-            var issue = TrackerIssueNumber(request.Number);
-            var number = issue is null ? BacklogNumber.Normalize(request.Number) : $"GitHub #{issue}";
+            // называется именем трекера и номером в нём, как у кита: «GitHub #37», «YouTrack ABC-12».
+            var issue = ProjectTracker.IssueName(request.Number);
+            var number = issue ?? BacklogNumber.Normalize(request.Number);
             if (number is null)
                 return Results.BadRequest();
 
@@ -63,19 +63,19 @@ public static partial class TaskEndpoints
                     return Results.BadRequest(new TaskStartProblem("flow-unknown"));
             }
 
-            // Задачу трекера панель перепроверяет по GitHub: закрытую или назначенную не на оператора не запускает
-            // — критерий B-277. До проверки копии: иначе между нею и запуском вставало бы ожидание GitHub.
+            // Задачу трекера панель перепроверяет по трекеру: закрытую или назначенную не на оператора не запускает
+            // — критерии B-277 и B-288. До проверки копии: иначе между нею и запуском вставало бы ожидание трекера.
             string? issueTitle = null;
             if (issue is not null)
             {
                 if (BaseLayout.Read(basePath) is not { } layout)
                     return Results.NotFound();
-                var issues = await BacklogEndpoints.TrackerIssuesOf(layout, github, cancellationToken);
+                var issues = await tracker.AssignedAsync(layout, cancellationToken);
                 if (issues.Problem is not null)
-                    // Окну — код причины, его оно называет словами; строку GitHub — только когда кода у причины нет
+                    // Окну — код причины, его оно называет словами; строку трекера — только когда кода у причины нет
                     return Results.BadRequest(new TaskStartProblem("tracker-unavailable",
-                        issues.Problem == TrackerIssues.GitHubError ? issues.Detail : issues.Problem));
-                issueTitle = issues.Issues.FirstOrDefault(i => i.Number == issue)?.Title;
+                        issues.Problem is TrackerIssues.GitHubError or TrackerIssues.YouTrackError ? issues.Detail : issues.Problem));
+                issueTitle = issues.Issues.FirstOrDefault(i => string.Equals(i.Name, issue, StringComparison.OrdinalIgnoreCase))?.Title;
                 if (issueTitle is null)
                     return Results.BadRequest(new TaskStartProblem("issue-unknown"));
             }
@@ -202,26 +202,13 @@ public static partial class TaskEndpoints
         return BackgroundSession.StartInfo(copyPath, prompt);
     }
 
-    /// <summary>Номер задачи GitHub в имени «GitHub #37», регистр и пробел перед «#» ничего не значат; не оно — null.</summary>
-    public static int? TrackerIssueNumber(string text) =>
-        TrackerIssueName().Match(text.Trim()) is { Success: true } match && int.TryParse(match.Groups[1].Value, out var value) && value > 0
-            ? value
-            : null;
-
-    [GeneratedRegex(@"^github\s*#(\d{1,9})$", RegexOptions.IgnoreCase)]
-    private static partial Regex TrackerIssueName();
-
     /// <summary>
     /// Номер задачи, которым начат её заголовок в строке копии, в том виде, в каком запускается задача:
-    /// «B-7 Заголовок» — «B-7» при буквах проекта «B», «GitHub #37 Заголовок» — «GitHub #37». Без номера — null.
+    /// «B-7 Заголовок» — «B-7» при буквах проекта «B», «GitHub #37 Заголовок» — «GitHub #37»,
+    /// «YouTrack abc-12 Заголовок» — «YouTrack ABC-12». Без номера — null.
     /// </summary>
     public static string? TaskNumberOf(string? task, string? letters) =>
-        task is not null && TrackerIssueTitle().Match(task) is { Success: true } issue
-            ? $"GitHub #{int.Parse(issue.Groups[1].Value)}"
-            : BacklogNumber.OfTask(task, letters);
-
-    [GeneratedRegex(@"^\s*github\s*#(\d{1,9})(?:\s|$)", RegexOptions.IgnoreCase)]
-    private static partial Regex TrackerIssueTitle();
+        (task is null ? null : ProjectTracker.IssueNameAtStart(task)) ?? BacklogNumber.OfTask(task, letters);
 
     /// <summary>
     /// Записи бэклога оператора с буквами проекта базы: номер — заголовок. Запись чужими буквами кит считает ошибкой

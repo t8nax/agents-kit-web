@@ -11,7 +11,7 @@ const entry = {
 }
 const other = { number: 'B-7', title: 'Панель показывает задачу сразу после её старта', text: null }
 const backlogOf = (entries: unknown[]) => [
-  { base, project: 'Agents Kit Web', entries, error: null, letters: 'B', tracker: { kind: 'github', repo: 'acme/orders' } },
+  { base, project: 'Agents Kit Web', entries, error: null, letters: 'B', tracker: { kind: 'github', name: 'GitHub', server: 'https://github.com', project: 'acme/orders' } },
 ]
 const draft = {
   number: 'B-281',
