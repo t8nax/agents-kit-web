@@ -124,8 +124,10 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
   const fields: DescriptionField[] = ['tracker', 'server', 'project', 'filter', 'where', 'backlog', 'take', 'closed', 'move']
   // Отбор задач — только у трекеров, задачи которых панель читает; у Jira и GitLab поля нет, и строка не пишется (B-300).
   const filtered = checked(kind)
+  // Что уйдёт в базу: скрытый у Jira и GitLab фильтр — пустым, и правкой он не считается (ревью B-300).
+  const written = filtered ? draft : { ...draft, filter: '' }
   // Имеющееся описание без правок записывать нечего.
-  const unchanged = saved !== null && fields.every((field) => sameField(field, saved, draft))
+  const unchanged = saved !== null && fields.every((field) => sameField(field, saved, written))
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -195,7 +197,7 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
       const response = await fetch('/api/trackers/projects', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: row.base, version: row.version, description: filtered ? draft : { ...draft, filter: '' } }),
+        body: JSON.stringify({ base: row.base, version: row.version, description: written }),
       })
       if (response.ok) {
         const answer = (await response.json()) as { pushed: boolean; message?: string | null }

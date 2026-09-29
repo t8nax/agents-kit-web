@@ -234,6 +234,20 @@ test('у Jira фильтр не пишется, даже если был наб�
   expect((puts[0].body.description as TrackerDescription).filter).toBe('')
 })
 
+// Ревью B-300: скрытый фильтр — не правка; у трекера, поменявшего вид обратно, записывать нечего.
+test('набранный фильтр, скрытый сменой трекера на Jira, правкой не считается', () => {
+  stubFetch(controlledStream<TrackerEvent>())
+  renderModal({ ...row, tracker: { kind: 'other', name: 'Jira' }, description: { ...youtrack, tracker: 'Jira' } })
+
+  const tab = changes()
+  fireEvent.click(tab.getByRole('radio', { name: 'YouTrack' }))
+  fireEvent.change(screen.getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeEnabled()
+  fireEvent.click(tab.getByRole('radio', { name: 'Jira' }))
+
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
+})
+
 test('трекер не принял фильтр — причина его словами под полем «Фильтр»', async () => {
   stubFetch(controlledStream<TrackerEvent>(), () =>
     Response.json({ problem: 'check', field: 'filter', code: 'filter-rejected', detail: 'Unknown field "Stat"' }, { status: 422 }),
