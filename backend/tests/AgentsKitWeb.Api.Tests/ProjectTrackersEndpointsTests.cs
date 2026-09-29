@@ -265,6 +265,73 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("сессия", Git("log", "-1", "--format=%s"));
     }
 
+    private string Hook => Path.Combine(_base, ".git", "hooks", "pre-commit");
+
+    /// <summary>Коммит отказан — описание возвращается как было, в индексе ничего не остаётся, база на сервер не идёт.</summary>
+    [Fact]
+    public async Task Save_CommitRefused_BringsFileBack()
+    {
+        var before = TrackerDescriptions.Serialize(GitHub, "Order Service");
+        Committed(before);
+        File.WriteAllText(Hook, "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+        var client = await Client();
+
+        var response = await Save(client, _base, ProjectTrackersEndpoints.Version(TrackerFile), GitHub with { Project = "acme/crm" });
+
+        Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
+        var rejected = (await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>())!;
+        Assert.Equal("not-committed", rejected.Problem);
+        Assert.Contains("сверка не прошла", rejected.Detail);
+        Assert.Equal(before, File.ReadAllText(TrackerFile));
+        Assert.Equal("", Git("status", "--porcelain"));
+        Assert.Equal([$"Pull|Base|{_main}"], File.ReadAllLines(SyncLog));
+    }
+
+    /// <summary>Новое описание, коммит которого отказан, снимается с индекса и с диска: чужой коммит его не прихватит.</summary>
+    [Fact]
+    public async Task Save_NewFileCommitRefused_LeavesNothingStaged()
+    {
+        File.WriteAllText(Hook, "#!/bin/sh\nexit 1\n");
+        var client = await Client();
+
+        var response = await Save(client, _base, "", GitHub);
+
+        Assert.Equal("not-committed", (await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>())!.Problem);
+        Assert.False(File.Exists(TrackerFile));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
+    /// <summary>
+    /// Запрос оборван, пока git держит запись нового описания на `git add` (clean-фильтр ждёт): начатая запись доходит
+    /// до коммита, а не бросает описание записанным без коммита — окно держат на add, а не на коммите (decisions/tests.md, B-283).
+    /// </summary>
+    [Fact]
+    public async Task Save_RequestAbortedDuringAdd_CommitStillLands()
+    {
+        var started = Path.Combine(_base, ".git", "hold-started");
+        var gate = Path.Combine(_base, ".git", "hold-gate");
+        File.WriteAllText(Path.Combine(_base, ".git", "info", "attributes"), "tracker.md filter=hold\n");
+        TestGit.Run(_base, "config", "filter.hold.clean",
+            "sh -c 'touch .git/hold-started; while [ ! -f .git/hold-gate ]; do sleep 0.1; done; cat'");
+        var client = await Client();
+        using var abort = new CancellationTokenSource();
+
+        var saving = client.PutAsJsonAsync(Url, new SaveProjectTrackerRequest(_base, "", GitHub), abort.Token);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!File.Exists(started) && DateTime.UtcNow < deadline)
+            await Task.Delay(50);
+        Assert.True(File.Exists(started), "git add не дошёл до фильтра");
+        abort.Cancel();
+        // Заглушку отпускаем раньше, чем ждём клиента: тестовый сервер отдаёт отмену, только когда запрос отработал.
+        File.WriteAllText(gate, "");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => saving);
+
+        while (Git("log", "-1", "--format=%s") != ProjectTrackersEndpoints.CommitMessage && DateTime.UtcNow < deadline)
+            await Task.Delay(100);
+        Assert.Equal(ProjectTrackersEndpoints.CommitMessage, Git("log", "-1", "--format=%s"));
+        Assert.Equal("", Git("status", "--porcelain", "--", "tracker.md"));
+    }
+
     [Fact]
     public async Task Save_NotKitForm_NamesFieldsAndTouchesNothing()
     {
