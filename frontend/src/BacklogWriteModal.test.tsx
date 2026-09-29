@@ -61,6 +61,7 @@ function renderModal(
 ) {
   const onEntries = vi.fn()
   const onSaved = vi.fn()
+  const onTracked = vi.fn()
   const onClose = vi.fn()
   const view = render(
     <BacklogWriteModal
@@ -71,9 +72,10 @@ function renderModal(
       onClose={onClose}
       onEntries={onEntries}
       onSaved={onSaved}
+      onTracked={onTracked}
     />,
   )
-  return { onEntries, onSaved, onClose, unmount: view.unmount }
+  return { onEntries, onSaved, onTracked, onClose, unmount: view.unmount }
 }
 
 async function say(text: string) {
@@ -253,7 +255,7 @@ test('снимок из буфера прикладывается с имене�
 test('изменение и удаление ждут «Сохранить», а сохранённые отмечены в прошедшем времени', async () => {
   const stream = controlledStream<WriteEvent>()
   const { calls } = stubFetch(stream)
-  const { onSaved } = renderModal()
+  const { onSaved, onTracked } = renderModal()
 
   await say('Убери B-36, в B-40 приоритет высокий')
   stream.send({ type: 'reply', text: 'Убери B-36, в B-40 приоритет высокий' })
@@ -280,6 +282,8 @@ test('изменение и удаление ждут «Сохранить», а
   expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
   expect(screen.queryByText('Ждут сохранения: изменить 1, удалить 1')).not.toBeInTheDocument()
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(bases[0].base))
+  // Задач трекера это «Сохранить» не заводило — трекер раздел не перечитывает
+  expect(onTracked).not.toHaveBeenCalled()
 })
 
 // ——— Перенос записи в трекер (B-286) ———
@@ -318,7 +322,7 @@ const withTrack: Proposal = {
 test('перенос в трекер ждёт «Сохранить» вместе с правкой, а после — номер задачи ссылкой у отметки «перенесена»', async () => {
   const stream = controlledStream<WriteEvent>()
   const { calls } = stubFetch(stream)
-  renderModal()
+  const { onTracked } = renderModal()
 
   await say('перенеси B-281 в трекер, а в B-40 приоритет высокий')
   stream.send({ type: 'reply', text: 'перенеси B-281 в трекер, а в B-40 приоритет высокий' })
@@ -355,6 +359,8 @@ test('перенос в трекер ждёт «Сохранить» вмест�
   expect(moved).not.toHaveTextContent('Нужна выгрузка истории.')
   expect(moved).not.toHaveTextContent('в задачу не попадут')
   expect(changes.getByText('изменена')).toBeInTheDocument()
+  // Заведённую задачу раздел покажет в группе трекера, перечитав его
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
 })
 
 const issue58 = { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' }
@@ -368,7 +374,7 @@ test('задача заведена, а бэклог не записан — п�
         issues: { 'B-281': issue58 },
       }),
   })
-  renderModal()
+  const { onSaved, onTracked } = renderModal()
 
   await say('перенеси B-281 в трекер')
   stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
@@ -379,12 +385,15 @@ test('задача заведена, а бэклог не записан — п�
   expect(alert).toHaveTextContent('Уже заведены в трекере: B-281 — #58')
   expect(within(alert).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  // Бэклог не записан, а задача в трекере есть — раздел её покажет
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
+  expect(onSaved).not.toHaveBeenCalled()
 })
 
 test('брошенное предложение с заведёнными задачами панель называет в ленте со ссылками', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream)
-  renderModal()
+  const { onTracked } = renderModal()
 
   await say('перенеси B-281 в трекер')
   stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
@@ -396,6 +405,7 @@ test('брошенное предложение с заведёнными зад
 
   const note = (await screen.findByText(/Задачи в трекере уже заведены/)).closest('p')!
   expect(within(note).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
 })
 
 const issueYouTrack = { name: 'YouTrack ABC-58', number: 58, title: B281.title, url: 'https://acme.youtrack.cloud/issue/ABC-58' }
