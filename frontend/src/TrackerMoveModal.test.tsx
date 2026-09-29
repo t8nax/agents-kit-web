@@ -63,6 +63,19 @@ test('показывает запись, заголовок и описание 
   expect(fetchMock).toHaveBeenCalledWith(`/api/backlog/tracker/draft?base=${encodeURIComponent(base)}&number=B-281`)
 })
 
+test('задача YouTrack — номером вида ABC-58 без решётки, ссылкой на YouTrack (B-288)', async () => {
+  const youTrackIssue = { name: 'YouTrack ABC-58', number: 58, title: draft.title, url: 'https://acme.youtrack.cloud/issue/ABC-58' }
+  stubFetch(draft, { issue: youTrackIssue })
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Перевести задачу' }))
+
+  const link = await screen.findByRole('link', { name: /^ABC-58 Экспорт истории задачи копии в markdown/ })
+  expect(link).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-58')
+  expect(link).toHaveAttribute('title', 'Открыть YouTrack ABC-58 во вкладке браузера')
+  expect(screen.getByText('acme.youtrack.cloud/issue/ABC-58')).toBeInTheDocument()
+})
+
 test('файлы записи названы, и сказано, что в задачу они не попадут', async () => {
   stubFetch({ ...draft, files: [{ label: 'снимок', address: 'artifacts/B-281-снимок.png' }] })
 

@@ -182,9 +182,10 @@ test('задача уже идёт в другой копии: окно назы
 })
 
 test.each([
-  [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub'],
-  [{ problem: 'tracker-unavailable', message: 'gh-login' }, 'панель не перепроверила её по GitHub — программа gh не вошла в аккаунт GitHub'],
-  [{ problem: 'tracker-unavailable', message: 'HTTP 502: Bad Gateway' }, 'панель не перепроверила её по GitHub — HTTP 502: Bad Gateway'],
+  [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди незакрытых и назначенных на вас в трекере'],
+  [{ problem: 'tracker-unavailable', message: 'gh-login' }, 'панель не перепроверила её по трекеру — программа gh не вошла в аккаунт GitHub'],
+  [{ problem: 'tracker-unavailable', message: 'HTTP 502: Bad Gateway' }, 'панель не перепроверила её по трекеру — HTTP 502: Bad Gateway'],
+  [{ problem: 'tracker-unavailable', message: 'key-rejected' }, 'панель не перепроверила её по трекеру — сервер трекера отклонил ключ'],
 ])('задачу трекера панель не запустила (%o): окно говорит почему', async (reply, text) => {
   stub(Response.json(reply, { status: 400 }))
   render(<StartTaskModal base={base} entry={{ number: 'GitHub #37', title: 'Оплата падает', text: null }} onClose={vi.fn()} onStarted={vi.fn()} />)

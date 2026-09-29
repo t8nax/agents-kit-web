@@ -8,7 +8,7 @@ import { InlineMarkdown, Markdown } from './Markdown'
 import PickMenu from './PickMenu'
 import { FormatNotice } from './NewerFormat'
 import { useAgentConversation } from './agentConversation'
-import type { TrackerDraft, TrackerIssue } from './tracker'
+import { issueLabel, type TrackerDraft, type TrackerIssue } from './tracker'
 import { OutIcon } from './TrackerGroup'
 import './Modal.css'
 import './ReplyModal.css'
@@ -709,7 +709,7 @@ function TrackCard({ change, state, issue }: { change: ProposalChange; state: Pr
         <InlineMarkdown className="write-entry-title" text={entry.title} />
         {state === 'saved' && issue && (
           <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
-            #{issue.number}
+            {issueLabel(issue)}
             <OutIcon />
           </a>
         )}
@@ -753,7 +753,7 @@ function IssueLinks({ issues }: { issues?: Record<string, TrackerIssue> | null }
         <span className="talk-issue" key={number}>
           <span className="entry-num">{number}</span>
           <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
-            #{issue.number}
+            {issueLabel(issue)}
             <OutIcon />
           </a>
         </span>

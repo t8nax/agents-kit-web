@@ -171,7 +171,7 @@ function Stop-OldDummies {
 
 # --- содержимое баз ----------------------------------------------------------------------
 
-# Раскладка базы кита формата 6, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
+# Раскладка базы кита формата 7, как в его link-state.ps1: копии этой машины и её оператор — local\me.json,
 # личный репозиторий оператора local\me со своим git — флоу, исполнители, бэклог, память задач по машинам и их артефакты,
 # папка оператора people\<имя> — выложенное для коллег. Оператор песочницы — «sandbox».
 $sandboxOperator = 'sandbox'
@@ -476,11 +476,11 @@ $designBlock$artifactsBlock$question
     Write-Utf8 $Path $text -Crlf:$Crlf
 }
 
-# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 6, и панель читает её теми же правилами.
+# Выдуманная база знаний: та же раскладка, что у настоящей, — кита формата 7, и панель читает её теми же правилами.
 # $StagesOnly — этапы без списка сценариев, $NoFlow — ни этапов, ни сценариев. $Format 5 — база до перевода китом
 # на формат 6: флоу и исполнители ещё в папке оператора общей базы.
 function New-Base([string]$Path, [string]$Title, [string[]]$Copies, [switch]$NoProduct, [switch]$BrokenJson, [switch]$FlowUncommitted,
-    [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow, [int]$Format = 6) {
+    [switch]$Orders, [switch]$StagesOnly, [switch]$NoFlow, [int]$Format = 7) {
     New-Repo $Path
     if (-not $NoProduct) {
         Write-Utf8 (Join-Path $Path 'product.md') @"
@@ -631,6 +631,13 @@ Write-Utf8 (Join-Path $Root 'claude-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'gh-mode.txt') "ok`n"
 # Задачи GitHub, назначенные на оператора, по репозиториям; кусок с трекером кладёт свои.
 $ghIssues = [ordered]@{}
+# Подставной YouTrack — на своём порту, в стороне от портов песочниц (они идут парами от 5100): у каждой
+# песочницы свой порт, значит, и свой сервер YouTrack. Задачи — по проектам; кусок с трекером кладёт свои.
+$youTrackPort = $Port + 1000
+$youTrackServer = "http://localhost:$youTrackPort"
+$youTrackIssues = [ordered]@{}
+New-YouTrackStub $Root $youTrackPort
+Write-Utf8 (Join-Path $Root 'youtrack-mode.txt') "ok`n"
 
 $links = [Collections.Generic.List[object]]::new()
 $findings = [Collections.Generic.List[object]]::new()
@@ -690,9 +697,11 @@ if (Test-Piece 'orders') {
         [pscustomobject]@{ severity = 'FAIL'; file = 'backlog.md'; message = 'номер чужими буквами: B-7' }) })
 }
 
-# Проекты с трекером (B-277): задачи GitHub, назначенные на оператора, раздел «Бэклог» показывает группой под
-# записями. Отдаёт их подставная gh из gh-issues.json, а режим gh-mode.txt ломает ответ. У второго проекта трекер
-# GitHub без адреса репозитория, у третьего — Jira: задач панель не читает и называет причину.
+# Проекты с трекером (B-277, B-288): задачи, назначенные на оператора, раздел «Бэклог» показывает группой под
+# записями. Трекер описание называет строками «трекер:», «сервер:», «проект:» (кит формата 7). Задачи GitHub отдаёт
+# подставная gh из gh-issues.json, задачи YouTrack — подставной сервер youtrack-stub.ps1 из youtrack-issues.json;
+# ключ к нему оператор вводит в «Настройках». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом,
+# которого на сервере нет, описание без строк и Jira — задач панель не читает и называет причину.
 if (Test-Piece 'tracker') {
     $trackerCopy = Join-Path $copiesDir 'tracker'
     $trackerBase = Join-Path $basesDir 'tracker-knowledge'
@@ -704,7 +713,12 @@ if (Test-Piece 'tracker') {
 # Трекер — трекер
 
 ## Где задачи
-GitHub Issues репозитория https://github.com/sandbox/tracker, ходить программой gh; номер задачи — #37.
+
+трекер: GitHub
+сервер: https://github.com
+проект: sandbox/tracker
+
+Ходить программой gh.
 
 ## Показ бэклога
 Открытые задачи, назначенные на меня.
@@ -749,9 +763,53 @@ GitHub Issues репозитория https://github.com/sandbox/tracker, ход�
     $links.Add([pscustomobject]@{ path = $trackerCopy; status = 'Linked'; base = $trackerBase })
     $findings.Add([pscustomobject]@{ base = $trackerBase; findings = @() })
 
+    # YouTrack: своя копия — задачу YouTrack в неё берут, а запись её бэклога переносят в YouTrack.
+    $ytCopy = Join-Path $copiesDir 'tracker-youtrack'
+    New-Repo $ytCopy
+    Write-Utf8 (Join-Path $ytCopy 'README.md') "# YouTrack`n`nВыдуманный проект песочницы.`n"
+    Add-Commit $ytCopy 'Первый коммит'
+    $ytBase = Join-Path $basesDir 'tracker-youtrack'
+    New-Base $ytBase 'YouTrack' @($ytCopy)
+    Write-Utf8 (Join-Path $ytBase 'tracker.md') @"
+# YouTrack — трекер
+
+## Где задачи
+
+трекер: YouTrack
+сервер: $youTrackServer
+проект: ABC
+
+Ходить MCP-сервером youtrack.
+
+## Показ бэклога
+Незакрытые задачи проекта, назначенные на меня.
+
+## Взятие задачи
+Назначить на себя и перевести в состояние «В работе».
+
+## Задача закрыта
+Перевести в состояние «Готово».
+
+## Вынос записи бэклога
+Новая задача в том же проекте, назначенная на меня.
+"@
+    Add-Commit $ytBase 'Трекер проекта'
+    $youTrackIssues['ABC'] = @(
+        [pscustomobject]@{ number = 7; title = 'Письмо о сбросе пароля уходит без ссылки' }
+        [pscustomobject]@{ number = 12; title = 'Добавить роль «Бухгалтер» с доступом только к счетам' }
+        [pscustomobject]@{ number = 104; title = 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой' }
+        [pscustomobject]@{ number = 1287; title = 'Перевести отчёты на новую схему налогов' }
+    )
+    $bases.Add($ytBase)
+    $links.Add([pscustomobject]@{ path = $ytCopy; status = 'Linked'; base = $ytBase })
+    $findings.Add([pscustomobject]@{ base = $ytBase; findings = @() })
+
+    $keys = { param($tracker, $server, $project) "`nтрекер: $tracker`nсервер: $server`nпроект: $project`n" }
     foreach ($other in @(
-            @{ Dir = 'tracker-no-address'; Title = 'Трекер без адреса'; Where = 'GitHub Issues, ходить программой gh; номер задачи — #37.' }
-            @{ Dir = 'tracker-jira'; Title = 'Трекер Jira'; Where = 'Jira, проект PAY на https://sandbox.atlassian.net, MCP-сервер atlassian; номер задачи — PAY-7.' })) {
+            @{ Dir = 'tracker-youtrack-nokey'; Title = 'YouTrack без ключа'; Where = (& $keys 'YouTrack' "$youTrackServer/other" 'ABC') }
+            @{ Dir = 'tracker-youtrack-noproject'; Title = 'YouTrack без проекта'; Where = (& $keys 'YouTrack' $youTrackServer 'ZZZ') }
+            @{ Dir = 'tracker-no-keys'; Title = 'Трекер без строк'; Where = 'GitHub Issues репозитория https://github.com/sandbox/tracker, ходить программой gh.' }
+            @{ Dir = 'tracker-jira'; Title = 'Трекер Jira'; Where = (& $keys 'Jira' 'https://sandbox.atlassian.net' 'PAY') + "`nMCP-сервер atlassian." })) {
         $otherBase = Join-Path $basesDir $other.Dir
         New-Base $otherBase $other.Title @()
         Write-Utf8 (Join-Path $otherBase 'tracker.md') "# $($other.Title) — трекер`n`n## Где задачи`n$($other.Where)`n"
@@ -950,6 +1008,7 @@ Write-Utf8 (Join-Path $kitDir 'scripts\links.json') (ConvertTo-Json -InputObject
 Write-Utf8 (Join-Path $kitDir 'scripts\findings.json') (ConvertTo-Json -InputObject $findings.ToArray() -Depth 6)
 Write-Json (Join-Path $panelDir 'bases.json') ([pscustomobject]@{ bases = $bases.ToArray(); kit = $kitDir })
 Write-Utf8 (Join-Path $Root 'gh-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$ghIssues) -Depth 6)
+Write-Utf8 (Join-Path $Root 'youtrack-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$youTrackIssues) -Depth 6)
 
 # --- живые сессии агентов ----------------------------------------------------------------
 
@@ -1008,7 +1067,10 @@ if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
 
 `$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command',
-    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --ProjectsDir '$projectsDir' --CredentialsFile '$(Join-Path $Root 'no-credentials.json')' --PublishedFile '$(Join-Path $panelDir 'published.json')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
+    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --ProjectsDir '$projectsDir' --CredentialsFile '$(Join-Path $Root 'no-credentials.json')' --PublishedFile '$(Join-Path $panelDir 'published.json')' --TrackersFile '$(Join-Path $panelDir 'trackers.json')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
+# Подставной YouTrack песочницы: ключ к нему — в «Настройках», в карточке «Серверы трекеров» (trackers.json лежит
+# рядом с bases.json песочницы, ключи оператора панель песочницы не видит).
+`$youTrack = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-File', '$(Join-Path $Root 'youtrack-stub.ps1')')
 
 try {
     `$env:WEB_PORT = '$Port'
@@ -1021,6 +1083,7 @@ finally {
     Pop-Location
     # dotnet run держит API отдельным дочерним процессом: гасим всё дерево.
     & taskkill.exe /PID `$api.Id /T /F 2>`$null | Out-Null
+    & taskkill.exe /PID `$youTrack.Id /T /F 2>`$null | Out-Null
 }
 "@
 
@@ -1037,6 +1100,7 @@ else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
 Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, login, error, slow); задачи — gh-issues.json"
+Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
 $self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
 $where = ''

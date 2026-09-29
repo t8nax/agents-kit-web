@@ -4,6 +4,7 @@ import NotificationsCard from './NotificationsCard'
 import PanelCard from './PanelCard'
 import { KitUpdateNotice, type KitVersion } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
+import TrackerServersCard from './TrackerServersCard'
 import { useReveal, withReveal } from './reveal'
 import './Settings.css'
 
@@ -76,6 +77,7 @@ export default function Settings() {
       </div>
       <BasesSettings />
       <KitSettings />
+      <TrackerServersCard />
       <PanelCard />
       <NotificationsCard />
     </div>
