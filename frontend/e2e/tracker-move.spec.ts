@@ -28,7 +28,8 @@ async function routeApi(page: Page) {
   let moved = false
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/backlog', (route) => route.fulfill({ json: backlogOf(moved ? [other] : [entry, other]) }))
-  await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues: [], problem: null } }))
+  // Заведённую задачу трекер отдаёт, когда её завели: раздел перечитывает его после переноса (GitHub #3)
+  await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues: moved ? [issue] : [], problem: null } }))
   await page.route('**/api/backlog/tracker/draft?**', (route) => route.fulfill({ json: draft }))
   await page.route('**/api/backlog/tracker/move', async (route) => {
     posts.push(route.request().postDataJSON())
@@ -79,6 +80,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await done.getByRole('button', { name: 'Закрыть' }).last().click()
     await expect(page.locator('.entry-row').filter({ hasText: 'B-281' })).toHaveCount(0)
     await expect(page.locator('.entry-row').filter({ hasText: 'B-7' })).toBeVisible()
+    // Задача видна в группе задач трекера сразу, без «Обновить»
+    await expect(page.getByRole('main').getByRole('link', { name: /#58 Экспорт истории задачи копии в markdown/ })).toBeVisible()
   })
 }
 

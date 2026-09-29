@@ -130,7 +130,7 @@ test('пока отчёты читаются, на месте выбора пр�
   expect(document.querySelector('.rp-head .sk')).toBeNull()
 })
 
-test('раздел показывает вид отчёта, проект, кольца и находки по приоритету без номеров требований', async () => {
+test('раздел показывает вид отчёта, проект, кольца и находки по приоритету без номеров рекомендаций', async () => {
   stub(() => [item()])
 
   renderReports()
@@ -141,26 +141,31 @@ test('раздел показывает вид отчёта, проект, ко�
   expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeTruthy()
   expect(screen.getByText('Высокий приоритет')).toBeTruthy()
   expect(screen.getByText('Средний приоритет')).toBeTruthy()
-  // Номеров требований нет — замечание оператора к макету.
+  // Номеров рекомендаций нет — замечание оператора к макету.
   expect(document.body.textContent).not.toMatch(/П1|П6|С1/)
+  // Кит зовёт правила рекомендациями, которые оператор вправе не выполнять, — отчёт не говорит о требованиях и нарушениях (B-298).
+  expect(document.body.textContent).not.toMatch(/требован|наруш|исправлени/i)
   // Чисел у заголовков групп нет.
   expect(screen.getByText('Высокий приоритет').textContent).toBe('Высокий приоритет')
   expect(screen.getByText('Разделить ли этап «Мерж»')).toBeTruthy()
 })
 
-test('находка под двумя требованиями стоит двумя строками, и ссылка раскрывает вторую', async () => {
+test('находка под двумя рекомендациями стоит двумя строками, и ссылка раскрывает вторую', async () => {
   stub(() => [item()])
   renderReports()
 
-  const tags = await screen.findAllByText(/одно исправление с/)
+  const tags = await screen.findAllByText(/одна правка с/)
   expect(tags.map((tag) => tag.textContent)).toEqual([
-    'одно исправление с «Флоу себе не противоречит»',
-    'одно исправление с «Задача не теряет себя»',
+    'одна правка с «Флоу себе не противоречит»',
+    'одна правка с «Задача не теряет себя»',
   ])
 
   const first = tags[0].closest('details')!
   fireEvent.click(within(first).getByText('Задача не теряет себя'))
   await waitFor(() => expect(first.open).toBe(true))
+  expect(first.textContent).toContain(
+    'Эта находка относится и к рекомендации «Флоу себе не противоречит» в кольце «Согласованность». Одна правка выполнит обе.',
+  )
   fireEvent.click(within(first).getByRole('button', { name: 'Показать строку' }))
 
   const twin = tags[1].closest('details')!
@@ -169,7 +174,7 @@ test('находка под двумя требованиями стоит дв�
   expect(scrolled.mock.contexts.at(-1)).toBe(twin)
 })
 
-test('раскрытая находка говорит, что проверяет требование, где проблема, почему и что сделать', async () => {
+test('раскрытая находка говорит, какая рекомендация, где находка, почему стоит сделать и что предлагается', async () => {
   stub(() => [item()])
   renderReports()
 
@@ -178,18 +183,29 @@ test('раскрытая находка говорит, что проверяе�
 
   await waitFor(() => expect(row.open).toBe(true))
   expect(within(row).getByText('У каждого исхода есть продолжение.')).toBeTruthy()
+  expect([...row.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual([
+    'Рекомендация',
+    'Где во флоу',
+    'Почему стоит сделать',
+    'Что предлагается',
+  ])
   expect(within(row).getByText('Мерж, описание')).toBeTruthy()
   expect(within(row).getByText('При ответе «не принято» у задачи нет продолжения.')).toBeTruthy()
   expect(within(row).getByText('Добавить этапу «Мерж» возврат на этап «Реализация».')).toBeTruthy()
-  expect(within(row).getByText('Исправление вернёт кольцу «Проходимость» 15 баллов.')).toBeTruthy()
+  expect(within(row).getByText('Если выполнить, кольцо «Проходимость» получит 15 баллов.')).toBeTruthy()
+  // Подсказки у плашки приоритета и у «+15» — тоже словами рекомендаций (макет B-298).
+  expect(row.querySelector('.rp-pr-high')!.getAttribute('title')).toBe(
+    'Высокий приоритет: −15 баллов кольцу, пока рекомендация не выполнена. С невыполненной рекомендацией высокого приоритета кольцо не бывает зелёным.',
+  )
+  expect(within(row).getByText('+15').getAttribute('title')).toBe('Если выполнить, кольцо получит 15 баллов')
 
   // Окно встаёт поверх отчёта, как на макете, с просьбой по находке в поле; отправляет оператор.
   fireEvent.click(within(row).getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
   const dialog = await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
   expect(within(dialog).getByLabelText('Просьба')).toHaveValue(
-    'Прошу исправить находку отчёта «Как устроен флоу» по требованию «Каждый исход куда-то ведёт». Место во флоу: Мерж.' +
+    'Прошу исправить находку отчёта «Как устроен флоу» по рекомендации «Каждый исход куда-то ведёт». Место во флоу: Мерж.' +
       '\n\nПри ответе «не принято» у задачи нет продолжения.' +
-      '\n\nПредлагаемое исправление: Добавить этапу «Мерж» возврат на этап «Реализация».',
+      '\n\nЧто предлагается: Добавить этапу «Мерж» возврат на этап «Реализация».',
   )
   expect(screen.getByRole('heading', { name: 'Отчёты' })).toBeTruthy()
 
@@ -202,11 +218,11 @@ test('раскрытая находка говорит, что проверяе�
   fireEvent.click(within(other).getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
   const again = await screen.findByRole('dialog', { name: 'Переписать с Чудо-Юдо' })
   expect((within(again).getByLabelText('Просьба') as HTMLTextAreaElement).value).toContain(
-    'по требованию «Нужное дальше — выходом». Место во флоу: Дизайн.',
+    'по рекомендации «Нужное дальше — выходом». Место во флоу: Дизайн.',
   )
 })
 
-test('код в формулировке требования показан моноширинным, без обратных кавычек', async () => {
+test('код в формулировке рекомендации показан моноширинным, без обратных кавычек', async () => {
   const withCode = {
     ...report,
     requirements: report.requirements.map((one) =>
@@ -243,7 +259,7 @@ test('код в ответе Чудо-Юдо — в месте находки, �
   expect([...discussion.querySelectorAll('code')].map((code) => code.textContent)).toEqual(['merge', 'merge.md'])
 })
 
-test('формулировка требования начинается с заглавной, а у выполненных требований стоит их число, как на макете', async () => {
+test('формулировка рекомендации начинается с заглавной, а у выполненных рекомендаций стоит их число, как на макете', async () => {
   const lower = {
     ...report,
     requirements: report.requirements.map((one) => ({ ...one, text: one.text.charAt(0).toLowerCase() + one.text.slice(1) })),
@@ -255,8 +271,8 @@ test('формулировка требования начинается с за
   fireEvent.click(within(row).getByText('Каждый исход куда-то ведёт'))
   await waitFor(() => expect(row.open).toBe(true))
   expect(within(row).getByText('У каждого исхода есть продолжение.')).toBeTruthy()
-  // Выполнено одно требование из пяти — «Во флоу только порядок работы», и его формулировка тоже с заглавной.
-  expect(screen.getByText('Выполненные требования').textContent).toBe('Выполненные требования1')
+  // Выполнена одна рекомендация из пяти — «Во флоу только порядок работы», и её формулировка тоже с заглавной.
+  expect(screen.getByText('Выполненные рекомендации').textContent).toBe('Выполненные рекомендации1')
   const passed = screen.getByText('Во флоу только порядок работы').closest('.rp-passed-row')!
   expect(passed.querySelector('.rp-passed-text')!.textContent).toBe('Во флоу нет устройства системы.')
 })
@@ -273,18 +289,25 @@ test('формулировка, начатая не русской буквой,
   expect(passed.querySelector('.rp-passed-text')!.textContent).toBe('flow/ держит только порядок работы.')
 })
 
-test('по кольцам находки стоят под своим кольцом со счётом требований, без «вычтено»', async () => {
+test('по кольцам находки стоят под своим кольцом со счётом рекомендаций, без «вычтено»', async () => {
   stub(() => [item()])
   renderReports()
 
   fireEvent.click(await screen.findByRole('tab', { name: 'По кольцам' }))
 
   const section = screen.getByRole('heading', { name: 'Согласованность' }).closest('section')!
-  expect(within(section).getByText('Требований 1, выполнено 0.')).toBeTruthy()
+  expect(within(section).getByText('Рекомендаций 1, выполнено 0.')).toBeTruthy()
   expect(within(section).getByText('Флоу себе не противоречит')).toBeTruthy()
   const clean = screen.getByRole('heading', { name: 'Ясность' }).closest('section')!
-  expect(within(clean).getByText('Выполненные требования')).toBeTruthy()
+  expect(within(clean).getByText('Выполненные рекомендации')).toBeTruthy()
   expect(document.body.textContent).not.toMatch(/вычтено/)
+})
+
+test('флоу без находок выполняет все рекомендации кита', async () => {
+  stub(() => [item({ report: { ...report, findings: [] } })])
+  renderReports()
+
+  expect(await screen.findByText('Все рекомендации кита выполнены.')).toBeTruthy()
 })
 
 test('строка расписания пишет изменение сразу, а дни и час выключенного расписания недоступны', async () => {
@@ -356,12 +379,12 @@ test('ошибки сверки во флоу: отчёта нет, причин
   expect(screen.queryByRole('button', { name: 'Построить отчёт' })).toBeNull()
 })
 
-test('без кита или требований в его справке раздел называет причину без перехода', async () => {
-  stub(() => [item({ report: null, blocked: { kind: 'kit', reason: 'В справке кита нет раздела «Требования к флоу».' } })])
+test('без кита или рекомендаций в его справке раздел называет причину без перехода', async () => {
+  stub(() => [item({ report: null, blocked: { kind: 'kit', reason: 'В справке кита нет раздела «Рекомендации к флоу».' } })])
   renderReports()
 
   const alert = await screen.findByRole('alert')
-  expect(within(alert).getByText('В справке кита нет раздела «Требования к флоу».')).toBeTruthy()
+  expect(within(alert).getByText('В справке кита нет раздела «Рекомендации к флоу».')).toBeTruthy()
   expect(within(alert).queryByRole('button')).toBeNull()
 })
 
