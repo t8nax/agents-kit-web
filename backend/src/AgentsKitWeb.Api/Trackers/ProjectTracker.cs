@@ -27,7 +27,9 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
     /// Проверка описания перед записью — решение оператора на B-293: у GitHub и YouTrack панель читает задачи,
     /// назначенные на оператора, из названных трекера и проекта — тем же разбором, которым прочтёт записанный файл;
     /// у Jira и GitLab проверить нечем, и Checked — false. Не прочитала — Problem, как у задач «Бэклога», и Field —
-    /// поле окна, к которому причина относится: server или project; причина вне полей (нет gh) — null.
+    /// поле окна, к которому причина относится: server, project или query — трекер не принял строку отбора (B-300);
+    /// причина вне полей (нет gh) — null. Отбор, который сейчас ничего не нашёл, проверку проходит: задач по нему
+    /// может просто не быть, и «Бэклог» скажет это сам — ответ оператора на B-300.
     /// </summary>
     public async Task<TrackerCheck> CheckAsync(TrackerDescription description, CancellationToken cancellationToken)
     {
@@ -41,6 +43,7 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
             null => new TrackerCheck(true),
             TrackerIssues.RepoUnreachable or TrackerIssues.ProjectMissing =>
                 new TrackerCheck(true, "project", issues.Problem, issues.Detail),
+            TrackerIssues.QueryRejected => new TrackerCheck(true, "query", issues.Problem, issues.Detail),
             TrackerIssues.GhMissing or TrackerIssues.GhLogin =>
                 new TrackerCheck(true, null, issues.Problem, issues.Detail),
             _ => new TrackerCheck(true, "server", issues.Problem, issues.Detail),

@@ -426,6 +426,35 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal([$"Pull|Base|{_main}"], File.ReadAllLines(SyncLog));
     }
 
+    /// <summary>Трекер не принял строку отбора — причина под полем «Запрос», описание не записано (B-300).</summary>
+    [Fact]
+    public async Task Save_QueryRejected_NamesQueryFieldAndDoesNotWrite()
+    {
+        _github.Answer = new TrackerIssues([], TrackerIssues.QueryRejected, "Invalid search query");
+        var client = await Client();
+
+        var response = await Save(client, _base, "", GitHub with { Query = "label:" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(
+            new ProjectTrackerRejected("check", "Invalid search query", Field: "query", Code: TrackerIssues.QueryRejected),
+            await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
+        Assert.Equal(["label:"], _github.Queries);
+        Assert.False(File.Exists(TrackerFile));
+    }
+
+    /// <summary>Отбор, по которому сейчас задач нет, записывается: пустой список — не ошибка (ответ оператора на B-300).</summary>
+    [Fact]
+    public async Task Save_QueryFindingNothing_IsWritten()
+    {
+        var client = await Client();
+
+        var response = await Save(client, _base, "", GitHub with { Query = "label:bug" });
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal("label:bug", TrackerDescriptions.Parse(File.ReadAllText(TrackerFile)).Query);
+    }
+
     /// <summary>Jira панель не читает — описание пишется без проверки, и окно говорит об этом.</summary>
     [Fact]
     public async Task Save_Jira_WrittenUnchecked()
