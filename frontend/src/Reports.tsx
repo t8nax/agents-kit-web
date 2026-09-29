@@ -716,7 +716,7 @@ function FindingRow({
             <dt>Проверяет</dt>
             <dd>
               <span>
-                <Inline text={requirement.text} />
+                <Inline text={sentence(requirement.text)} />
               </span>
             </dd>
           </div>
@@ -837,7 +837,9 @@ function Passed({ requirements, withRing }: { requirements: Requirement[]; withR
     <details className="rp-passed">
       <summary>
         <ChevronIcon />
-        <span className="rp-group-title">Выполненные требования</span>
+        <span className="rp-group-title">
+          Выполненные требования <span className="rp-count">{requirements.length}</span>
+        </span>
       </summary>
       <div className="rp-items">
         {requirements.map((requirement) => (
@@ -850,7 +852,7 @@ function Passed({ requirements, withRing }: { requirements: Requirement[]; withR
               {withRing && <span className="rp-passed-ring">{requirement.ring}</span>}
             </span>
             <span className="rp-passed-text">
-              <Inline text={requirement.text} />
+              <Inline text={sentence(requirement.text)} />
             </span>
           </div>
         ))}
@@ -913,6 +915,14 @@ function Inline({ text }: { text: string }) {
       {text.split('`').map((part, i) => (i % 2 === 1 ? <code key={i}>{part}</code> : <Fragment key={i}>{part}</Fragment>))}
     </>
   )
+}
+
+/**
+ * Формулировка требования в справке кита идёт после тире со строчной буквы; отдельной строкой в отчёте она начинается
+ * с заглавной, как на макете. Слова остаются дословными.
+ */
+function sentence(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
 function smooth(): ScrollBehavior {

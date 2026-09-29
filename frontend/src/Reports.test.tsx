@@ -243,6 +243,22 @@ test('код в ответе Чудо-Юдо — в месте находки, �
   expect([...discussion.querySelectorAll('code')].map((code) => code.textContent)).toEqual(['merge', 'merge.md'])
 })
 
+test('формулировка требования начинается с заглавной, а у выполненных требований стоит их число, как на макете', async () => {
+  const lower = {
+    ...report,
+    requirements: report.requirements.map((one) => ({ ...one, text: one.text.charAt(0).toLowerCase() + one.text.slice(1) })),
+  }
+  stub(() => [item({ report: lower })])
+  renderReports()
+
+  const row = (await screen.findByText('Каждый исход куда-то ведёт')).closest('details')!
+  fireEvent.click(within(row).getByText('Каждый исход куда-то ведёт'))
+  await waitFor(() => expect(row.open).toBe(true))
+  expect(within(row).getByText('У каждого исхода есть продолжение.')).toBeTruthy()
+  // Выполнено одно требование из пяти — «Во флоу только порядок работы».
+  expect(screen.getByText('Выполненные требования').textContent).toBe('Выполненные требования 1')
+})
+
 test('по кольцам находки стоят под своим кольцом со счётом требований, без «вычтено»', async () => {
   stub(() => [item()])
   renderReports()
