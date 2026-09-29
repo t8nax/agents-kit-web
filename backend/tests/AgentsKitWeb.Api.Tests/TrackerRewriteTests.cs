@@ -122,6 +122,23 @@ public sealed class TrackerRewriteTests : IDisposable
         Assert.Contains("проект: acme/orders", Text(_agent.Input[0]));
     }
 
+    /// <summary>Чудо-Юдо знает строку отбора и предлагает её в поле «Запрос» (B-300).</summary>
+    [Fact]
+    public async Task Answer_WithQueryLine_ProposesQuery()
+    {
+        var proposed = GitHub with { Query = "label:bug" };
+        _agent.Answers = [[Result("Добавил отбор.\n=== описание\n" + TrackerDescriptions.Serialize(proposed, "Order Service"))]];
+        var client = await Client();
+
+        await Start(client, "Показывай только баги", GitHub);
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal(proposed, answer.Proposal);
+        Assert.Equal(new TrackerChanged(1, 0), answer.Changed);
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        Assert.Contains("«запрос: State: {To Do}»", args[args.IndexOf("--append-system-prompt") + 1]);
+    }
+
     /// <summary>Описание не в форме кита панель один раз возвращает агенту на доработку, как переписка о флоу.</summary>
     [Fact]
     public async Task Answer_NotKitForm_GoesBackForReworkOnce()
