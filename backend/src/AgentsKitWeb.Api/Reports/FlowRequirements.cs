@@ -12,16 +12,18 @@ public enum Priority
     [JsonStringEnumMemberName("low")] Low,
 }
 
-/// <summary>Требование к смыслу флоу из справки кита: номер, кольцо — его группа, приоритет, короткое название, формулировка.</summary>
+/// <summary>Рекомендация к смыслу флоу из справки кита: номер, кольцо — её группа, приоритет, короткое название, формулировка.</summary>
 public sealed record Requirement(string Code, string Ring, Priority Priority, string Title, string Text);
 
 /// <summary>
-/// Раздел «Требования к флоу» справки кита reference/flow-stages.md: по нему Чудо-Юдо разбирает флоу, а панель считает кольца.
-/// Своей копии требований у панели нет — их правят в ките, и копия расходилась бы с ним молча.
+/// Раздел «Рекомендации к флоу» справки кита reference/flow-stages.md: по нему Чудо-Юдо разбирает флоу, а панель считает кольца.
+/// Выполнять ли каждую, решает оператор. Своей копии рекомендаций у панели нет — их правят в ките, и копия расходилась бы
+/// с ним молча. Кит прежнего вида звал раздел «Требования к флоу» — B-298.
 /// </summary>
 public sealed partial record FlowRequirements(string Section, IReadOnlyList<string> Rings, IReadOnlyList<Requirement> Items)
 {
-    public const string Heading = "## Требования к флоу";
+    public const string Heading = "## Рекомендации к флоу";
+    private static readonly string[] Headings = [Heading, "## Требования к флоу"];
 
     /// <summary>Путь справки в словах оператору — через «/», как его пишет кит.</summary>
     private static readonly string Shown = FlowRules.RulesFile.Replace('\\', '/');
@@ -32,7 +34,7 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
 
     public Requirement? Find(string code) => Items.FirstOrDefault(item => item.Code == code);
 
-    /// <summary>Требования установленного кита; null — прочитать не вышло, и <paramref name="error"/> называет причину.</summary>
+    /// <summary>Рекомендации установленного кита; null — прочитать не вышло, и <paramref name="error"/> называет причину.</summary>
     public static FlowRequirements? Read(string? kitPath, out string error)
     {
         error = "";
@@ -53,9 +55,9 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
             return null;
         }
 
-        if (FlowRules.Section(lines, Heading) is not { } section)
+        if (Headings.Select(heading => FlowRules.Section(lines, heading)).FirstOrDefault(found => found is not null) is not { } section)
         {
-            error = $"В справке кита {Shown} нет раздела «Требования к флоу». Отчёт строится по киту, в котором этот раздел есть.";
+            error = $"В справке кита {Shown} нет раздела «Рекомендации к флоу». Отчёт строится по киту, в котором этот раздел есть.";
             return null;
         }
 
@@ -69,14 +71,14 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
                 rings.Add(line[4..].Trim());
                 continue;
             }
-            // Пункты стоят только в группах: перечень приоритетов над ними — тоже список, но не требований.
+            // Пункты стоят только в группах: перечень приоритетов над ними — тоже список, но не рекомендаций.
             if (rings.Count == 0 || !line.StartsWith("- ", StringComparison.Ordinal))
                 continue;
 
             var match = ItemLine().Match(line);
             if (!match.Success)
             {
-                error = $"В разделе «Требования к флоу» справки кита не разобрана строка: «{line}».";
+                error = $"В разделе «Рекомендации к флоу» справки кита не разобрана строка: «{line}».";
                 return null;
             }
             items.Add(new Requirement(
@@ -89,7 +91,7 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
 
         if (items.Count == 0)
         {
-            error = "В разделе «Требования к флоу» справки кита нет ни одного требования.";
+            error = "В разделе «Рекомендации к флоу» справки кита нет ни одной рекомендации.";
             return null;
         }
         return new FlowRequirements(section, rings.Where(ring => items.Any(item => item.Ring == ring)).ToList(), items);

@@ -4,8 +4,8 @@ using AgentsKitWeb.Api.Flow;
 namespace AgentsKitWeb.Api.Reports;
 
 /// <summary>
-/// Ответ Чудо-Юдо о флоу — один блок JSON с находками и вопросами устройства. Разбирает его панель: номер требования
-/// сверяется со справкой кита, а баллы агент не считает вовсе — их считает панель по приоритетам требований.
+/// Ответ Чудо-Юдо о флоу — один блок JSON с находками и вопросами устройства. Разбирает его панель: номер рекомендации
+/// сверяется со справкой кита, а баллы агент не считает вовсе — их считает панель по приоритетам рекомендаций.
 /// </summary>
 public static class FlowReportAnswer
 {
@@ -34,12 +34,12 @@ public static class FlowReportAnswer
             var codes = (finding.Requirements ?? []).Select(code => code.Trim()).Where(code => code.Length > 0).Distinct().ToList();
             if (codes.Count == 0)
             {
-                error = "у находки не названо требование";
+                error = "у находки не названа рекомендация";
                 return null;
             }
             if (codes.FirstOrDefault(code => requirements.Find(code) is null) is { } unknown)
             {
-                error = $"находка ссылается на требование {unknown}, которого нет в справке кита";
+                error = $"находка ссылается на рекомендацию {unknown}, которой нет в справке кита";
                 return null;
             }
             if (Blank(finding.Place) || Blank(finding.Why) || Blank(finding.Fix))

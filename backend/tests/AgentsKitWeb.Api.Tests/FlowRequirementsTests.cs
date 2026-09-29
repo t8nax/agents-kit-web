@@ -8,9 +8,9 @@ public sealed class FlowRequirementsTests : IDisposable
     private readonly string _kit = Directory.CreateTempSubdirectory("akw-requirements-").FullName;
 
     public const string Section = """
-        ## Требования к флоу
+        ## Рекомендации к флоу
 
-        Требования к смыслу флоу, которых сверка не проверяет. Приоритет — что будет, если требование нарушено:
+        Рекомендации к смыслу флоу, которых сверка не проверяет. Выполнять ли каждую, решает оператор. Приоритет — что будет, если рекомендация не выполнена:
 
         - **высокий** — в тексте дыра или противоречие;
         - **средний** — две сессии поймут текст по-разному;
@@ -25,7 +25,7 @@ public sealed class FlowRequirementsTests : IDisposable
         """;
 
     [Fact]
-    public void Read_TakesRequirementsByGroups()
+    public void Read_TakesRecommendationsByGroups()
     {
         Write($"# Флоу\n\n## Этап\n\nКлючи.\n\n{Section}\n## Дальше\n\nДругое.\n");
 
@@ -40,8 +40,21 @@ public sealed class FlowRequirementsTests : IDisposable
                 new Requirement("Я4", "Ясность", Priority.Low, "Во флоу только порядок работы", "во флоу нет устройства системы."),
             ],
             requirements.Items);
-        Assert.StartsWith("## Требования к флоу", requirements.Section);
+        Assert.StartsWith("## Рекомендации к флоу", requirements.Section);
         Assert.DoesNotContain("## Дальше", requirements.Section);
+    }
+
+    [Fact]
+    public void Read_OldKitRequirements_TakenAlike()
+    {
+        // Кит прежнего вида звал раздел «Требования к флоу»: пока он у кого-то стоит, отчёт строится и по нему — B-298.
+        Write($"# Флоу\n\n{Section.Replace("## Рекомендации к флоу", "## Требования к флоу")}");
+
+        var requirements = FlowRequirements.Read(_kit, out var error)!;
+
+        Assert.Equal("", error);
+        Assert.Equal(["П1", "П5", "Я4"], requirements.Items.Select(item => item.Code));
+        Assert.StartsWith("## Требования к флоу", requirements.Section);
     }
 
     [Fact]
@@ -59,7 +72,7 @@ public sealed class FlowRequirementsTests : IDisposable
         Write("# Флоу\n\n## Этап\n\nКлючи.\n");
 
         Assert.Null(FlowRequirements.Read(_kit, out var error));
-        Assert.Contains("нет раздела «Требования к флоу»", error);
+        Assert.Contains("нет раздела «Рекомендации к флоу»", error);
         // Путь в словах оператору — через «/», как его пишет кит.
         Assert.Contains("reference/flow-stages.md", error);
     }
@@ -67,7 +80,7 @@ public sealed class FlowRequirementsTests : IDisposable
     [Fact]
     public void Read_UnreadableItem_NamesLine()
     {
-        Write("# Флоу\n\n## Требования к флоу\n\n### Проходимость\n- **П1** высокий Каждый исход\n");
+        Write("# Флоу\n\n## Рекомендации к флоу\n\n### Проходимость\n- **П1** высокий Каждый исход\n");
 
         Assert.Null(FlowRequirements.Read(_kit, out var error));
         Assert.Contains("«- **П1** высокий Каждый исход»", error);
@@ -76,10 +89,10 @@ public sealed class FlowRequirementsTests : IDisposable
     [Fact]
     public void Read_SectionWithoutItems_NamesReason()
     {
-        Write("# Флоу\n\n## Требования к флоу\n\nПока пусто.\n");
+        Write("# Флоу\n\n## Рекомендации к флоу\n\nПока пусто.\n");
 
         Assert.Null(FlowRequirements.Read(_kit, out var error));
-        Assert.Contains("нет ни одного требования", error);
+        Assert.Contains("нет ни одной рекомендации", error);
     }
 
     [Fact]
