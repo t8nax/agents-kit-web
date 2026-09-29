@@ -45,16 +45,13 @@ public sealed class FlowRequirementsTests : IDisposable
     }
 
     [Fact]
-    public void Read_OldKitRequirements_TakenAlike()
+    public void Read_OldKitRequirements_NamesReason()
     {
-        // Кит прежнего вида звал раздел «Требования к флоу»: пока он у кого-то стоит, отчёт строится и по нему — B-298.
+        // Кит прежнего вида звал раздел «Требования к флоу»; старые форматы кита панель не поддерживает — решение оператора на B-298.
         Write($"# Флоу\n\n{Section.Replace("## Рекомендации к флоу", "## Требования к флоу")}");
 
-        var requirements = FlowRequirements.Read(_kit, out var error)!;
-
-        Assert.Equal("", error);
-        Assert.Equal(["П1", "П5", "Я4"], requirements.Items.Select(item => item.Code));
-        Assert.StartsWith("## Требования к флоу", requirements.Section);
+        Assert.Null(FlowRequirements.Read(_kit, out var error));
+        Assert.Contains("нет раздела «Рекомендации к флоу»", error);
     }
 
     [Fact]

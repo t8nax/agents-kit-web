@@ -18,12 +18,12 @@ public sealed record Requirement(string Code, string Ring, Priority Priority, st
 /// <summary>
 /// Раздел «Рекомендации к флоу» справки кита reference/flow-stages.md: по нему Чудо-Юдо разбирает флоу, а панель считает кольца.
 /// Выполнять ли каждую, решает оператор. Своей копии рекомендаций у панели нет — их правят в ките, и копия расходилась бы
-/// с ним молча. Кит прежнего вида звал раздел «Требования к флоу» — B-298.
+/// с ним молча. Кит прежнего вида с разделом «Требования к флоу» панель не читает: старые форматы кита не поддерживаются —
+/// решение оператора на B-298.
 /// </summary>
 public sealed partial record FlowRequirements(string Section, IReadOnlyList<string> Rings, IReadOnlyList<Requirement> Items)
 {
     public const string Heading = "## Рекомендации к флоу";
-    private static readonly string[] Headings = [Heading, "## Требования к флоу"];
 
     /// <summary>Путь справки в словах оператору — через «/», как его пишет кит.</summary>
     private static readonly string Shown = FlowRules.RulesFile.Replace('\\', '/');
@@ -55,7 +55,7 @@ public sealed partial record FlowRequirements(string Section, IReadOnlyList<stri
             return null;
         }
 
-        if (Headings.Select(heading => FlowRules.Section(lines, heading)).FirstOrDefault(found => found is not null) is not { } section)
+        if (FlowRules.Section(lines, Heading) is not { } section)
         {
             error = $"В справке кита {Shown} нет раздела «Рекомендации к флоу». Отчёт строится по киту, в котором этот раздел есть.";
             return null;
