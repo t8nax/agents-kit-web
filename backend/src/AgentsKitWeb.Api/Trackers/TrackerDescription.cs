@@ -73,8 +73,12 @@ public static partial class TrackerDescriptions
 
         string Body(string name) => sections.TryGetValue(name, out var lines) ? Trim(lines) : "";
 
+        // Строки «ключ: значение» в начале раздела кит читает до первой пустой строки или прозы. Из них окно берёт три
+        // своих; прочие — «доска: …» или проза с адресом, где двоеточие есть всегда, — остаются словами раздела,
+        // иначе запись описания стёрла бы их молча (ревью B-293).
         var where = sections.TryGetValue(WhereSection, out var whereLines) ? whereLines : [];
         var keys = new Dictionary<string, string>();
+        var rest = new List<string>();
         var at = 0;
         while (at < where.Count && where[at].Trim().Length == 0)
             at++;
@@ -82,14 +86,19 @@ public static partial class TrackerDescriptions
         {
             if (Workspaces.Tracker.Pair().Match(where[at]) is not { Success: true } pair)
                 break;
-            keys.TryAdd(pair.Groups[1].Value.ToLowerInvariant(), pair.Groups[2].Value);
+            var key = pair.Groups[1].Value.ToLowerInvariant();
+            if (key is "трекер" or "сервер" or "проект" && !keys.ContainsKey(key))
+                keys[key] = pair.Groups[2].Value;
+            else
+                rest.Add(where[at]);
         }
+        rest.AddRange(where.Skip(at));
 
         return new TrackerDescription(
             keys.GetValueOrDefault("трекер", ""),
             keys.GetValueOrDefault("сервер", ""),
             keys.GetValueOrDefault("проект", ""),
-            Trim(where.Skip(at).ToList()),
+            Trim(rest),
             Body(BacklogSection),
             Body(TakeSection),
             Body(ClosedSection),

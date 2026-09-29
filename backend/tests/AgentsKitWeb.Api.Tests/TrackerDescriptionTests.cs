@@ -110,6 +110,24 @@ public class TrackerDescriptionTests
         Assert.Equal("", description.Move);
     }
 
+    /// <summary>
+    /// Строки вида «слово: значение» в начале раздела, кроме трёх ключей, — слова раздела: проза с адресом (в нём
+    /// всегда есть двоеточие) и «доска: …» не стираются записью описания (ревью B-293).
+    /// </summary>
+    [Fact]
+    public void Parse_OtherPairsAtStart_StayInWhere()
+    {
+        var prose = TrackerDescriptions.Parse(
+            "## Где задачи\nGitHub Issues репозитория https://github.com/sandbox/tracker, ходить программой gh.\n");
+        var board = TrackerDescriptions.Parse(
+            "## Где задачи\n\nтрекер: Jira\nдоска: PAY-доска\nсервер: https://acme.atlassian.net\nпроект: PAY\n\nХодим MCP.\n");
+
+        Assert.Equal("GitHub Issues репозитория https://github.com/sandbox/tracker, ходить программой gh.", prose.Where);
+        Assert.Equal("", prose.Server);
+        Assert.Equal(("Jira", "https://acme.atlassian.net", "PAY"), (board.Tracker, board.Server, board.Project));
+        Assert.Equal("доска: PAY-доска\n\nХодим MCP.", board.Where);
+    }
+
     [Fact]
     public void Faults_Full_None()
     {
