@@ -14,7 +14,7 @@ test('каждая ссылка страницы ведёт на существ�
   const broken: string[] = []
   let checked = 0
   for (const file of guideFiles()) {
-    for (const [, href] of guideText(file)!.matchAll(/\]\(([^)\s]+)\)/g)) {
+    for (const [, href] of guideText(file)!.matchAll(/\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g)) {
       checked++
       if (/^https?:\/\//.test(href)) continue
       const target = pageLink(href)
