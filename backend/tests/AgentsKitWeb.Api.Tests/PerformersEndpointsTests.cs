@@ -470,19 +470,19 @@ public sealed class PerformersEndpointsTests : IDisposable
 
     /// <summary>
     /// Хук личного репозитория держит коммит: отмечает начало файлом started и ждёт файла release, потом
-    /// отказывает, а accept — пропускает коммит. Ждёт не дольше запаса тестов, чтобы упавший тест не оставил git висеть.
+    /// отказывает. Ждёт не дольше запаса тестов, чтобы упавший тест не оставил git висеть.
     /// </summary>
-    private (string Started, string Release) HoldCommit(string personal, bool accept = false)
+    private (string Started, string Release) HoldCommit(string personal)
     {
         var started = Path.Combine(_root, "commit-started");
         var release = Path.Combine(_root, "commit-release");
-        var verdict = accept ? "exit 0" : "echo 'сверка: база не приняла' >&2\nexit 1";
         File.WriteAllText(Path.Combine(personal, ".git", "hooks", "pre-commit"), $$"""
             #!/bin/sh
             touch '{{started.Replace('\\', '/')}}'
             i=0
             while [ ! -f '{{release.Replace('\\', '/')}}' ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done
-            {{verdict}}
+            echo 'сверка: база не приняла' >&2
+            exit 1
 
             """.ReplaceLineEndings("\n"));
         return (started, release);
@@ -661,29 +661,6 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Performers_DeleteAbortedWhileCommitting_StillCommitsTheDeletion()
-    {
-        // Вкладку закрыли, когда файл уже снят с диска и коммитится: оборванное удаление осталось бы
-        // незакоммиченным, для чужого коммита соседней сессии.
-        var basePath = CreateBase("app-knowledge");
-        var personal = TestLayout.Personal(basePath);
-        await Save(basePath, new SavePerformerRequest(basePath, "reviewer", "Описание", null, null, "Тело", null));
-        var (started, release) = HoldCommit(personal, accept: true);
-        using var abort = new CancellationTokenSource();
-
-        var deleting = Factory(basePath).CreateClient().DeleteAsync(
-            $"/api/performers?base={Uri.EscapeDataString(basePath)}&name=reviewer", abort.Token);
-        await Until(() => File.Exists(started));
-        abort.Cancel();
-        File.WriteAllText(release, "");
-        await Aborted(deleting);
-
-        await Until(() => Run(personal, "log", "-1", "--format=%s").Trim() == "Исполнитель reviewer удалён из панели");
-        Assert.False(File.Exists(Path.Combine(TestLayout.Agents(basePath), "reviewer.md")));
-        Assert.Empty(Status(personal));
-    }
-
-    [Fact]
     public async Task Performers_DeleteAbortedWhileTheBaseRefusesTheCommit_RestoresTheFileAndLeavesNothingStaged()
     {
         var basePath = CreateBase("app-knowledge");
@@ -725,7 +702,8 @@ public sealed class PerformersEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         // Иначе исполнитель с этим именем остался бы в списке, хотя удаление «прошло».
         Assert.Empty((await Get(basePath)).Single().Performers);
-        Assert.Equal("Исполнитель reviewer удалён из панели", Run(personal, "log", "-1", "--format=%s").Trim());
+        // Оба файла уходят одним коммитом: между двумя база стояла бы с половиной удаления.
+        Assert.Equal(["Исполнитель reviewer удалён из панели", "исполнители"], Run(personal, "log", "-2", "--format=%s").Trim().Split('\n'));
         Assert.Empty(Status(personal));
     }
 

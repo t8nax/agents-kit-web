@@ -47,7 +47,7 @@ export default function DeletePerformerModal({ base, project, name, onClose, onR
         // Исполнителя уже нет в базе — удалять нечего, окно закрывается так же. Нет базы — это другое: исполнитель
         // на месте, и молча закрытое окно выдало бы его за удалённого.
         if (body?.problem === 'no-performer') onRemoved()
-        else setFailure({ git: false, text: 'Этой базы больше нет в списке панели.' })
+        else setFailure({ git: false, text: 'Базы нет в списке панели, или она не читается.' })
         return
       }
       if (response.status === 409) {

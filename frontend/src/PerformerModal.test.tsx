@@ -889,7 +889,7 @@ test('исполнителя уже нет в базе — окно удален
   await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('reviewer'))
 })
 
-test('базы нет в списке панели — окно удаления говорит об этом, а не закрывается', async () => {
+test('базы нет в списке или она не читается — окно удаления говорит об этом, а не закрывается', async () => {
   stubDelete(() => new Response(null, { status: 404 }))
   const onDeleted = vi.fn()
   open(reviewer, vi.fn(), bases, onDeleted)
@@ -898,7 +898,7 @@ test('базы нет в списке панели — окно удаления
   fireEvent.click(within(confirm).getByRole('button', { name: 'Удалить исполнителя' }))
 
   // Исполнитель на месте: молча закрытое окно выдало бы его за удалённого.
-  expect(await within(confirm).findByRole('alert')).toHaveTextContent('Этой базы больше нет в списке панели.')
+  expect(await within(confirm).findByRole('alert')).toHaveTextContent('Базы нет в списке панели, или она не читается.')
   expect(onDeleted).not.toHaveBeenCalled()
 })
 

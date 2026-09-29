@@ -229,7 +229,10 @@ public static class PerformersEndpoints
             var paths = new List<string>();
             foreach (var file in files)
             {
-                kept.Add((file, await KeptAsync(file, cancellationToken)));
+                // Файл не прочитался — вернуть его при отказе коммита было бы нечем: удалять такой панель не станет.
+                if (await KeptAsync(file, cancellationToken) is not { } bytes)
+                    return Results.Problem("Файл исполнителя не прочитан", statusCode: StatusCodes.Status500InternalServerError);
+                kept.Add((file, bytes));
                 // Неотслеживаемый файл — заведённый руками и не закоммиченный — уходит с диска, коммитить нечего.
                 // Git не ответил — не узнать, какой он: удалить без коммита отслеживаемый панель не станет.
                 switch (await BaseGit.TrackingAsync(root, Relative(file), cancellationToken))
