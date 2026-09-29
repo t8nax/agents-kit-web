@@ -1,4 +1,4 @@
-/* Переключатель вкладок — один на панель: «Стадии / Сценарии» во «Флоу» и вкладки окна ответа. */
+/* Переключатель вкладок — один на панель: «Стадии / Сценарии» во «Флоу», вкладки «Бэклога» и окна ответа. */
 
 .vc-tabs {
   display: inline-flex;
@@ -28,6 +28,14 @@
   background: var(--bg-surface);
   box-shadow: 0 1px 2px var(--shadow-color);
   font-weight: 500;
+}
+
+/* Черта в шапке раздела между вкладками и кнопками справа — во «Флоу» и «Бэклоге». */
+.head-sep {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--border-subtle);
 }
 
 .flow-tab:focus-visible {
