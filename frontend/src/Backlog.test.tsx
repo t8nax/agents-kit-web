@@ -1649,23 +1649,28 @@ test('перенос из строки записи заводит задачу 
   fetchMock.setTracker(backlogs[1].base, answer({ issues: [], problem: null }))
 
   render(<Backlog />)
-  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
-  await project.findByRole('link', { name: /#52/ })
-  expect(trackerReadsOf(fetchMock, backlogs[0].base)).toBe(1)
+  const entries = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await waitFor(() => expect(trackerReadsOf(fetchMock, backlogs[0].base)).toBe(1))
 
   // Трекер после переноса отвечает не сразу: пока он читается, на месте его задач — заготовка, как по «Обновить»
   let reply: (response: Response) => void = () => {}
   fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (reply = resolve)))
-  const row = project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
+  const row = entries.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
   fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
   const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
   fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
 
   expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
   expect(fetchMock.posts).toContainEqual({ base: backlogs[0].base, number: 'B-1', original: '## B-1 Заголовок' })
+  await waitFor(() =>
+    expect(entries.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument(),
+  )
+
+  // Заведённая задача — на вкладке задач трекера (B-305)
+  fireEvent.click(screen.getByRole('tab', { name: 'Задачи трекера' }))
+  const project = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
   expect(await project.findByRole('status', { name: 'Загрузка задач трекера' })).toBeInTheDocument()
   expect(project.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument()
-  expect(project.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument()
 
   reply(Response.json({ issues: [moved, ...issues], problem: null }))
   expect(await project.findByRole('link', { name: /#58 Заголовок/ })).toBeInTheDocument()
@@ -1712,7 +1717,9 @@ function stubSaving(stream: object[], saved: BaseBacklog[] = withTracker(github)
   })
 }
 
+/** Просьба к Чудо-Юдо с вкладки задач трекера: на ней видно, что стало с задачами (B-305). */
 async function saySaving() {
+  fireEvent.click(await screen.findByRole('tab', { name: 'Задачи трекера' }))
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   await project.findByRole('link', { name: /#52/ })
   fireEvent.click(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' }))
@@ -1774,10 +1781,13 @@ test('«Сохранить» Чудо-Юдо без переноса треке�
   render(<Backlog />)
   const { project } = await saySaving()
 
-  // Раздел перечитал бэклог после «Сохранить» — удалённой записи в списке нет, а трекер остался как был
-  await waitFor(() => expect(project.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument())
+  // Раздел перечитал бэклог после «Сохранить», а трекер остался как был
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length).toBe(2))
   expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
   expect(project.getByRole('link', { name: /#52/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Записи бэклога' }))
+  const entries = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
+  expect(entries.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument()
   expect(fetchMock.trackerReads()).toBe(1)
 })
 
@@ -1787,13 +1797,15 @@ test('ответ чтения трекера при открытии, прише
   fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (late = resolve)))
 
   render(<Backlog />)
-  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const entries = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   // Трекер ещё читается с открытия раздела, а запись уже переносят
   fetchMock.setTracker(backlogs[0].base, answer({ issues: [moved, ...issues], problem: null }))
-  const row = project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
+  const row = entries.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
   fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
   const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
   fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
+  fireEvent.click(screen.getByRole('tab', { name: 'Задачи трекера' }))
+  const project = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
   expect(await project.findByRole('link', { name: /#58 Заголовок/ })).toBeInTheDocument()
 
   // Запоздавший ответ разобран, и ход раздела после разбора прошёл (decisions/tests.md, B-183)
@@ -1817,18 +1829,20 @@ test('задача заведена, а запись не вырезалась �
   )
 
   render(<Backlog />)
-  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
-  await project.findByRole('link', { name: /#52/ })
+  const entries = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await waitFor(() => expect(fetchMock.trackerReads()).toBe(1))
   fetchMock.setTracker(backlogs[0].base, answer({ issues: [moved, ...issues], problem: null }))
 
-  const row = project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
+  const row = entries.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
   fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
   const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
   fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
 
+  await waitFor(() => expect(fetchMock.trackerReads()).toBe(2))
+  expect(entries.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: 'Задачи трекера' }))
+  const project = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
   expect(await project.findByRole('link', { name: /#58 Заголовок/ })).toBeInTheDocument()
-  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
-  expect(fetchMock.trackerReads()).toBe(2)
 })
 
 test('у задачи трекера «Взять задачу» погашена, когда свободной копии нет', async () => {
