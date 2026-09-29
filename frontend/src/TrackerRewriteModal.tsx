@@ -226,10 +226,11 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
     const changed = saved !== null && !sameField(field, saved, draft)
     return (
       <>
-        <label className="tf-label" htmlFor={id}>
-          {label}
+        {/* Пометка — рядом с подписью, а не в ней: имя поля остаётся «Проект», а не «Проект изменено» */}
+        <div className="tf-label">
+          {id ? <label htmlFor={id}>{label}</label> : <span>{label}</span>}
           {changed && <span className="rewrite-mark rewrite-mark-changed">изменено</span>}
-        </label>
+        </div>
         {changed && (
           <p className={`rewrite-was ${field === 'server' || field === 'project' ? 'mono' : ''}`}>{saved[field] || 'пусто'}</p>
         )}
