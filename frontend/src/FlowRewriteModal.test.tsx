@@ -5,6 +5,13 @@ import FlowRewriteModal, { type RewriteEvent } from './FlowRewriteModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 import { changedText, type FlowProposal } from './flowChanges'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('и этап ревью.')} />
+  ),
+}))
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -126,6 +133,34 @@ test('просьба уходит с флоу раздела целиком, «+
   expect(within(steps).getByText('читает flow/stages/review.md')).toBeInTheDocument()
   // Пока агент отвечает, на месте «Отправить» стоит «Отменить».
   expect(screen.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+})
+
+test('микрофон стоит слева в подвале переписки: сказанное дописывается к просьбе, пока агент отвечает — погашен', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream)
+  renderModal()
+  const field = await screen.findByLabelText('Просьба')
+  fireEvent.change(field, { target: { value: 'Заведи документацию' } })
+
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('ask-actions')
+  expect(mic.parentElement?.firstElementChild).toBe(mic)
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Заведи документацию и этап ревью.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled())
+})
+
+test('на вкладке «Изменения» поля нет — нет и микрофона', async () => {
+  await answered()
+
+  expect(screen.getByRole('button', { name: 'Голосовой ввод' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: /^Изменения/ }))
+
+  expect(screen.queryByRole('button', { name: 'Голосовой ввод' })).not.toBeInTheDocument()
+  // Просмотр списка браузер помнит по переписке: соседние тесты ждут непросмотренный.
+  localStorage.clear()
 })
 
 test('ответ, вернутый на доработку, остаётся строкой панели, а агент дописывает его', async () => {

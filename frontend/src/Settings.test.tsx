@@ -51,13 +51,14 @@ const api = (extra: Record<string, Handler> = {}) => ({
   'GET /api/trackers': () => json([]),
   'GET /api/panel': () => json(panel),
   'GET /api/panel/update': () => json(noUpdate),
+  'GET /api/voice': () => json({ state: 'absent', downloaded: 0, total: null, error: null }),
   ...extra,
 })
 
 test('пока карточки настроек читаются, в каждой заготовка, а заголовки карточек уже видны', async () => {
   const handlers: Record<string, Handler> = api()
   const waiting: (() => void)[] = []
-  const held = ['GET /api/bases', 'GET /api/kit', 'GET /api/panel']
+  const held = ['GET /api/bases', 'GET /api/kit', 'GET /api/panel', 'GET /api/voice']
   vi.stubGlobal(
     'fetch',
     vi.fn((input: string, init?: RequestInit) => {
@@ -70,10 +71,16 @@ test('пока карточки настроек читаются, в каждо
   render(<App />)
   fireEvent.click(await screen.findByRole('button', { name: 'Настройки' }))
 
-  for (const name of ['Загрузка списка баз', 'Загрузка пути к киту', 'Загрузка сведений о панели'])
+  for (const name of [
+    'Загрузка списка баз',
+    'Загрузка пути к киту',
+    'Загрузка сведений о панели',
+    'Загрузка сведений о голосовом вводе',
+  ])
     expect(await screen.findByRole('status', { name })).toHaveAttribute('aria-busy', 'true')
   expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument()
-  for (const name of ['Базы знаний', 'Кит', 'Панель']) expect(screen.getByRole('heading', { name })).toBeInTheDocument()
+  for (const name of ['Базы знаний', 'Кит', 'Панель', 'Голосовой ввод'])
+    expect(screen.getByRole('heading', { name })).toBeInTheDocument()
 
   await act(async () => waiting.forEach((answer) => answer()))
 
@@ -92,14 +99,15 @@ test('раздел «Настройки» показывает список ба
   expect(within(list).getByRole('button', { name: 'Удалить D:\\Projects\\app-knowledge' })).toBeInTheDocument()
 })
 
-test('карточка «Уведомления» стоит в разделе последней, под «Панелью»', async () => {
+test('карточки «Уведомления» и «Голосовой ввод» стоят в разделе последними, под «Панелью»', async () => {
   stubApi(api())
 
   await openSettings()
 
   const cards = screen.getAllByRole('region').map((card) => card.getAttribute('aria-labelledby'))
-  expect(cards.slice(-2)).toEqual(['settings-panel', 'settings-notifications'])
+  expect(cards.slice(-3)).toEqual(['settings-panel', 'settings-notifications', 'settings-voice'])
   expect(screen.getByRole('region', { name: 'Уведомления' })).toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Голосовой ввод' })).toBeInTheDocument()
 })
 
 test('добавленная база появляется в списке', async () => {

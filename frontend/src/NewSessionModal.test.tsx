@@ -4,6 +4,13 @@ import type { WorkspaceRow } from './App'
 import NewSessionModal from './NewSessionModal'
 import type { SessionRow } from './Sessions'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('и почини.')} />
+  ),
+}))
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -94,6 +101,23 @@ test('сессия запускается в выбранной копии с н
 
   await waitFor(() => expect(props.onStarted).toHaveBeenCalledWith('7339dced', true))
   expect(posts).toEqual([{ base, copy: free.path, prompt: 'посмотри, почему падает e2e' }])
+})
+
+test('микрофон стоит в углу поля просьбы, и надиктованное уходит сессии с набранным', async () => {
+  const posts = stub(Response.json({ session: '7339dced', terminal: true }))
+  const props = renderModal()
+  await screen.findAllByRole('radio')
+  const field = screen.getByLabelText('С чего начать — необязательно')
+  fireEvent.change(field, { target: { value: 'Посмотри e2e' } })
+
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('voice-field')
+  expect(mic.previousElementSibling).toBe(field)
+  fireEvent.click(mic)
+  fireEvent.click(screen.getByRole('button', { name: 'Запустить' }))
+
+  await waitFor(() => expect(props.onStarted).toHaveBeenCalled())
+  expect(posts).toEqual([{ base, copy: free.path, prompt: 'Посмотри e2e и почини.' }])
 })
 
 test('пустая просьба уходит как её отсутствие', async () => {

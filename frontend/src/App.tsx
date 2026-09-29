@@ -27,6 +27,7 @@ import { TerminalIcon } from './TerminalIcon'
 import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
+import { useVoiceModuleSource, VoiceContext } from './voice'
 
 /**
  * starting — панель запустила задачу, а памяти у копии ещё нет: агент только начал.
@@ -172,6 +173,7 @@ function App() {
   // Прошлый удачный опрос — с ним сравнивается новый, чтобы найти смены статуса
   const polledRows = useRef<WorkspaceRow[] | null>(null)
   const theme = useTheme()
+  const voice = useVoiceModuleSource()
 
   const loadRows = useCallback(function load() {
     const request = ++lastRequest.current
@@ -257,7 +259,7 @@ function App() {
   }, [removed])
 
   return (
-    <>
+    <VoiceContext value={voice}>
       <header className="app-header">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
@@ -438,7 +440,7 @@ function App() {
           </span>
         </div>
       )}
-    </>
+    </VoiceContext>
   )
 }
 

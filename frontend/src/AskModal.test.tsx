@@ -3,6 +3,13 @@ import { afterEach, expect, test, vi } from 'vitest'
 import AskModal, { type AskBase, type AskCopy, type AskEvent } from './AskModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('и проверь код.')} />
+  ),
+}))
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -124,6 +131,24 @@ test('разговор продолжается: следующая реплик
   expect(screen.getByText('Первый вопрос')).toBeInTheDocument()
   expect(screen.getByText('Первый ответ')).toBeInTheDocument()
   expect(screen.getByLabelText('Следующая реплика')).toHaveValue('')
+})
+
+test('микрофон стоит слева в подвале; сказанное дописывается к вопросу, пока агент отвечает — погашен', async () => {
+  const stream = controlledStream<AskEvent>()
+  stubFetch(stream)
+  render(<AskModal onClose={() => {}} />)
+  const field = await screen.findByLabelText('Вопрос')
+  fireEvent.change(field, { target: { value: 'Почему опрос' } })
+
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('ask-actions')
+  expect(mic.parentElement?.firstElementChild).toBe(mic)
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Почему опрос и проверь код.')
+
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled())
 })
 
 /** Кнопки подвала по порядку: по ним видно, стоит ли «Отправить» на своём месте. */
