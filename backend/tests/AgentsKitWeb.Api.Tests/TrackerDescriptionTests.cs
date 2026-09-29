@@ -87,7 +87,7 @@ public class TrackerDescriptionTests
             Ничего.
             ## Вынос записи бэклога
             В acme/orders.
-            """.Replace("\n", "\r\n"));
+            """.ReplaceLineEndings("\r\n"));
 
         Assert.Equal("GitHub", description.Tracker);
         Assert.Equal("https://github.com", description.Server);
