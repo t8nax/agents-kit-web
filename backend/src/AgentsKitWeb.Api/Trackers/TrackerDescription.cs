@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Trackers;
@@ -53,6 +54,26 @@ public static partial class TrackerDescriptions
     /// <summary>Трекер таблицы по имени без регистра; не из таблицы — null.</summary>
     public static KnownTracker? Find(string name) =>
         Known.FirstOrDefault(k => k.Name.Equals(name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Имя трекера, которым заголовок памяти начинает задачу трекера — «GitHub #37», «Jira PAY-7»: из строк описания,
+    /// а сломаны в нём сервер или проект — из одной строки «трекер:»; трекер из таблицы — в написании кита, чтобы
+    /// «github» и «GitHub» не расходились (ревью B-303). tracker.md нет, он не прочитан или трекер не назван — null.
+    /// </summary>
+    public static string? NameOf(BaseLayout layout)
+    {
+        string text;
+        try
+        {
+            text = File.ReadAllText(layout.TrackerFile);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+        var name = Workspaces.Tracker.Parse(text).Name ?? Parse(text).Tracker.Trim();
+        return name.Length == 0 ? null : Find(name)?.Name ?? name;
+    }
 
     /// <summary>
     /// Описание из текста tracker.md. Разделы — по заголовкам «##» вне блоков кода, слова раздела — как в файле,
