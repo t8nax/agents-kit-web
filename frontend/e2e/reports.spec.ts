@@ -68,9 +68,12 @@ test('«Отчёты» стоят в сайдбаре сразу за «Расх
   await mockReports(page, { report })
   await page.goto('/')
 
+  // Сайдбар рисуется уже после загрузки страницы: порядок читается, когда кнопка «Отчёты» на месте — на машине
+  // GitHub список, прочитанный сразу, приходил пустым (прогон 36551737782).
+  const nav = page.getByRole('navigation', { name: 'Разделы панели' })
+  await expect(nav.getByRole('button', { name: 'Отчёты', exact: true })).toBeVisible()
   // Свёрнутый сайдбар держит название раздела в имени кнопки, а не в тексте.
-  const names = await page
-    .getByRole('navigation', { name: 'Разделы панели' })
+  const names = await nav
     .getByRole('button')
     .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')))
   expect(names).toContain('Отчёты')
