@@ -1823,15 +1823,19 @@ test('«Сохранить» Чудо-Юдо без переноса треке�
   )
 
   render(<Backlog />)
-  const { project } = await saySaving()
+  await saySaving()
 
-  // Раздел перечитал бэклог после «Сохранить», а трекер остался как был
-  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length).toBe(2))
-  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
-  expect(project.getByRole('link', { name: /#52/ })).toBeInTheDocument()
+  // Раздел перечитал бэклог после «Сохранить» — удалённой записи на вкладке записей нет; трекер он решает перечитывать
+  // тем же ходом, что показывает бэклог (decisions/tests.md, B-183)
   fireEvent.click(screen.getByRole('tab', { name: 'Записи бэклога' }))
   const entries = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
-  expect(entries.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument()
+  await waitFor(() => expect(entries.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument())
+
+  // А трекер остался как был
+  fireEvent.click(screen.getByRole('tab', { name: 'Задачи трекера' }))
+  const project = within(screen.getByRole('region', { name: 'Agents Kit Web' }))
+  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
+  expect(project.getByRole('link', { name: /#52/ })).toBeInTheDocument()
   expect(fetchMock.trackerReads()).toBe(1)
 })
 
