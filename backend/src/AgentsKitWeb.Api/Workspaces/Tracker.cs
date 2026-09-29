@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Trackers;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -55,6 +56,27 @@ public static partial class Tracker
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return new TrackerInfo(TrackerInfo.Unreadable);
+        }
+    }
+
+    /// <summary>
+    /// Имя трекера, которым заголовок памяти начинает задачу трекера — «GitHub #37», «Jira PAY-7»: из строк описания,
+    /// а сломаны в нём сервер или проект — из одной строки «трекер:». tracker.md нет или трекер не назван — null.
+    /// </summary>
+    public static string? NameOf(BaseLayout layout)
+    {
+        if (Read(layout) is not { } tracker)
+            return null;
+        if (tracker.Name is not null)
+            return tracker.Name;
+        try
+        {
+            var name = TrackerDescriptions.Parse(File.ReadAllText(layout.TrackerFile)).Tracker.Trim();
+            return name.Length > 0 ? name : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

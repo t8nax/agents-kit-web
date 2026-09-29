@@ -27,6 +27,7 @@ public static class WorkspaceStatus
 /// SessionState — что делает сессия агента в копии (значения — SessionState), null — живой сессии в ней нет.
 /// BackgroundSession — в копии идёт фоновая сессия агента, и в неё есть переход из терминала.
 /// Letters — буквы номеров проекта (Backlog.Letters): по ним фронт отделяет номер задачи от её заголовка.
+/// Tracker — имя трекера проекта (Tracker.NameOf): по нему фронт отделяет номер задачи трекера — B-303.
 /// VsCodeSession — в копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора.
 /// FormatWarning — у всех строк базы нового формата (BaseLayout.NewerFormat): фронт ставит его под заголовком группы.
 /// AnswerUnread — в памяти лежит ответ оператора, который сессия ещё не вобрала; наружу не отдаётся,
@@ -51,7 +52,8 @@ public sealed record WorkspaceRow(
     string? Letters = null,
     bool VsCodeSession = false,
     [property: JsonIgnore] bool AnswerUnread = false,
-    string? FormatWarning = null);
+    string? FormatWarning = null,
+    string? Tracker = null);
 
 public static class WorkspaceCollector
 {
@@ -78,6 +80,7 @@ public static class WorkspaceCollector
         var copies = layout.Workspaces;
         var memories = ReadMemories(layout);
         var letters = Backlog.ReadLetters(layout);
+        var tracker = Tracker.NameOf(layout);
         var source = NewCopySource(copies);
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var rows = new List<WorkspaceRow>();
@@ -116,7 +119,7 @@ public static class WorkspaceCollector
                 var row = memories.TryGetValue(key, out var memory)
                     ? FromMemory(project, basePath, path, worktree.Branch, memory)
                     : new WorkspaceRow(project, basePath, path, worktree.Branch, null, null, null, WorkspaceStatus.Free, null);
-                row = row with { Letters = letters };
+                row = row with { Letters = letters, Tracker = tracker };
                 // Кит кладёт новую копию рядом с корнем основного дерева, а git называет основное дерево первым.
                 if (source is not null && string.Equals(key, Normalize(source), StringComparison.OrdinalIgnoreCase))
                     row = row with { CopiesDir = Path.GetDirectoryName(Normalize(worktrees[0].Path)) };
@@ -128,7 +131,7 @@ public static class WorkspaceCollector
         foreach (var (key, memory) in memories)
         {
             if (claimed.Add(key))
-                rows.Add(FromMemory(project, basePath, memory.Copy!, memory.Branch, memory) with { Letters = letters });
+                rows.Add(FromMemory(project, basePath, memory.Copy!, memory.Branch, memory) with { Letters = letters, Tracker = tracker });
         }
 
         return layout.FormatWarning is { } warning ? rows.Select(r => r with { FormatWarning = warning }).ToList() : rows;

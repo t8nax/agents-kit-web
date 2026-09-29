@@ -347,6 +347,27 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal("ORD", (await Row(Client())).Letters);
     }
 
+    /// <summary>По имени трекера проекта фронт отделяет номер задачи трекера от заголовка — B-303.</summary>
+    [Fact]
+    public async Task CopyRow_CarriesTheProjectsTrackerName()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+
+        Assert.Equal("Jira", (await Row(Client())).Tracker);
+    }
+
+    [Fact]
+    public async Task CopyRow_TakesTrackerNameFromBrokenDescription()
+    {
+        TestLayout.Tracker(_base, "GitHub", "ftp://github.com", "acme/orders");
+
+        Assert.Equal("GitHub", (await Row(Client())).Tracker);
+    }
+
+    [Fact]
+    public async Task CopyRow_HasNoTrackerNameWithoutTrackerFile() =>
+        Assert.Null((await Row(Client())).Tracker);
+
     [Fact]
     public async Task Start_RejectsCopyThatAlreadyHasTaskMemory()
     {
