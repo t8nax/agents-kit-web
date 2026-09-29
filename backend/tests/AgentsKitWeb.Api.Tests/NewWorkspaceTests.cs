@@ -53,6 +53,19 @@ public sealed class NewWorkspaceTests : IDisposable
     }
 
     [Fact]
+    // Копию в базе нового формата заводит кит, который формат знает: панель её не закрывает — B-281.
+    public async Task Create_InBaseOfNewerFormat_RunsKit()
+    {
+        TestLayout.NewerFormat(_base);
+        var kit = await SetKit(Succeeds);
+
+        var response = await Client.PostAsJsonAsync("/api/workspaces", new NewWorkspaceRequest(_base, "quiet-cedar"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal($"{_main}|quiet-cedar", File.ReadAllText(Path.Combine(kit, "scripts", "called.txt")).Trim());
+    }
+
+    [Fact]
     public async Task Create_WithoutName_KitPicksName()
     {
         var kit = await SetKit(Succeeds);

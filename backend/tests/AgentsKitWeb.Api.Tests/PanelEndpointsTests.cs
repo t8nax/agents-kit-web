@@ -28,7 +28,7 @@ public sealed class PanelEndpointsTests : IDisposable
         Assert.False(panel.Installed);
         Assert.Null(panel.Published);
         // Номер приходит из version.txt репозитория, зашитого в сборку.
-        Assert.Matches(@"^\d+\.\d+\.\d+$", panel.Version);
+        Assert.Matches(@"^\d+\.\d+\.\d+(\.\d+)?$", panel.Version);
         Assert.Equal(PanelChannelStore.Master, panel.Channel);
     }
 
@@ -206,6 +206,66 @@ public sealed class PanelEndpointsTests : IDisposable
         Assert.Equal(["вторая задача", "первая задача"], dev[0].Tasks);
         Assert.Equal("v0.10.1-dev", dev[0].Tag);
         Assert.Equal(["v0.10.1"], master.Select(release => release.Tag));
+    }
+
+    [Fact]
+    public void Releases_WithThreeAndFourPartNumbers_AreReadTogether()
+    {
+        // Номер из четырёх чисел сменил номер из трёх: выпуски обеих записей в канале рядом, пятое число — не номер.
+        const string answer = """
+            [
+              {"tag_name":"v0.25.1.0-dev","draft":false,"prerelease":true,"body":""},
+              {"tag_name":"v0.25.0-dev","draft":false,"prerelease":true,"body":""},
+              {"tag_name":"v0.25.0.0.1-dev","draft":false,"prerelease":true,"body":""},
+              {"tag_name":"v0.25.0.1","draft":false,"prerelease":false,"body":""},
+              {"tag_name":"v0.25.0","draft":false,"prerelease":false,"body":""}
+            ]
+            """;
+
+        var dev = GitHubReleases.Parse(answer, "dev");
+        var master = GitHubReleases.Parse(answer, "master");
+
+        Assert.Equal(["0.25.1.0", "0.25.0"], dev.Select(release => release.Version));
+        Assert.Equal(["v0.25.0.1", "v0.25.0"], master.Select(release => release.Tag));
+    }
+
+    [Fact]
+    public async Task Updates_OfThreePartPanel_ListFourPartReleases()
+    {
+        _releases.Channel("dev", Release("0.25.1.0"), Release("0.25.0"), Release("0.24.0"));
+        var file = Published(Panel("dev", "origin/dev", "4189d1f", "0.24.0"));
+        var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Equal("0.25.1.0", update?.Latest);
+        Assert.Equal(["0.25.1.0", "0.25.0"], update!.Releases.Select(release => release.Version));
+    }
+
+    [Fact]
+    public async Task Updates_OfFourPartPanel_SkipTheBridge()
+    {
+        // Мост 0.25.0 старше 0.25.1.0: стоящей панели он не новее.
+        _releases.Channel("dev", Release("0.25.1.1"), Release("0.25.1.0"), Release("0.25.0"));
+        var file = Published(Panel("dev", "origin/dev", "4189d1f", "0.25.1.0"));
+        var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Equal(["0.25.1.1"], update!.Releases.Select(release => release.Version));
+    }
+
+    [Fact]
+    public async Task Updates_WithTheSameNumberWrittenInFull_ListNothing()
+    {
+        // 0.25.1.0 — тот же номер, что 0.25.1: дописанный ноль номер не поднимает.
+        _releases.Channel("dev", Release("0.25.1.0"));
+        var file = Published(Panel("dev", "origin/dev", "4189d1f", "0.25.1"));
+        var factory = Factory(file);
+
+        var update = await factory.CreateClient().GetFromJsonAsync<PanelUpdate>("/api/panel/updates");
+
+        Assert.Empty(update!.Releases);
     }
 
     private static PanelRelease Release(string version, params string[] tasks) => new(version, $"v{version}", tasks);

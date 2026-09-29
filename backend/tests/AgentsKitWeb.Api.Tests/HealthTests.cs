@@ -71,6 +71,32 @@ public sealed class HealthTests : IDisposable
     }
 
     [Fact]
+    // Базу нового формата кит, который её перевёл, знает: сверка идёт, как у любой, а предупреждение — рядом (B-281).
+    public async Task Health_BaseOfNewerFormat_IsCheckedWithWarning()
+    {
+        TestLayout.NewerFormat(_base);
+        var kit = TestKit.Create(Path.Combine(_root, "agents-kit"),
+            baseCheck: """
+                function Get-KitBaseFindings([string]$Base, [string]$Worktree) {
+                    [pscustomobject]@{ severity = 'WARN'; file = 'product.md'; message = 'находка кита'; kind = '' }
+                }
+                """,
+            linkState: $$"""
+                function Get-KitLinkState([string]$Dir) { [pscustomobject]@{ status = 'Linked'; base = '{{_base}}' } }
+                """);
+        await WaitFor(s => !s.Pending);
+
+        await Client.PutAsJsonAsync("/api/kit", new SetKitRequest(kit));
+        var snapshot = await WaitFor(s => s.Kit == KitStatus.Ok && s.Bases.All(b => b.Status != BaseHealthStatus.Unchecked));
+
+        var baseHealth = Assert.Single(snapshot.Bases);
+        Assert.Equal(BaseHealthStatus.Checked, baseHealth.Status);
+        Assert.Equal(BaseLayout.NewerFormatWarning, baseHealth.FormatWarning);
+        Assert.Equal([new HealthProblem("warning", "product.md", "находка кита")], baseHealth.Problems);
+        Assert.All(await GetRows(), row => Assert.Equal(1, row.BaseProblems));
+    }
+
+    [Fact]
     public async Task Health_KitSet_ReturnsKitFindingsOncePerBaseAndLinkProblemsPerCopy()
     {
         var kit = TestKit.Create(Path.Combine(_root, "agents-kit"),

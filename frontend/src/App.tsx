@@ -64,6 +64,8 @@ export type WorkspaceRow = {
   vsCodeSession?: boolean
   /** Буквы номеров проекта: по ним номер задачи отделяется от заголовка; null или нет поля — букв панель не знает. */
   letters?: string | null
+  /** База нового формата кита: строки видны, но панель предупреждает, что знает её не всю, — B-281. */
+  formatWarning?: string | null
 }
 
 /** Состояния сессии агента в копии; отсутствие сессии состоянием не считается. */
@@ -876,6 +878,7 @@ function WorkspacesTable({
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
           const waiting = group.rows.some(needsOperator)
+          const formatWarning = group.rows.find((row) => row.formatWarning)?.formatWarning
           return (
             <tbody key={group.base}>
               <tr className="group-row">
@@ -906,6 +909,18 @@ function WorkspacesTable({
                   </div>
                 </th>
               </tr>
+              {/* База нового формата видна, как обычная, а предупреждение — строкой под шапкой группы, и у свёрнутой
+                  тоже: оно о базе, а не о копиях — B-281, вариант макета Б */}
+              {formatWarning && (
+                <tr className="format-row">
+                  <td colSpan={columnCount}>
+                    <div className="format-line" role="status">
+                      <WarningIcon />
+                      {formatWarning}
+                    </div>
+                  </td>
+                </tr>
+              )}
               {!collapsed && group.rows.map((row) => (
             <tr key={rowKey(row)} className={isFresh(row, fresh) ? 'row-fresh' : undefined}>
               {/* Строке с ошибкой точку ставить не о чем: копии на диске нет или её не прочитали. */}

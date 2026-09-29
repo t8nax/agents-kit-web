@@ -126,6 +126,16 @@ test('копию успели занять: окно называет идущу
   expect(screen.getByRole('radio', { name: /rustic-silver-sparrow/ })).toBeChecked()
 })
 
+test('задача уже идёт, а имени копии API не прислал: окно не пишет пустую «в копии»', async () => {
+  stub(Response.json({ problem: 'task-running', message: null }, { status: 400 }))
+  renderModal()
+
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(/^Эта задача уже идёт — вторую панель не запускает\.$/)
+})
+
 test('агент не стартовал: окно показывает, что сказал запуск', async () => {
   stub(Response.json({ problem: 'agent', message: 'Не удалось найти указанный файл' }, { status: 400 }))
   renderModal()
@@ -148,10 +158,34 @@ test('запись успели взять: окно говорит, что её
   expect(await screen.findByRole('alert')).toHaveTextContent('Этой записи больше нет в бэклоге')
 })
 
+test('задача уже идёт в другой копии: окно называет её, и запускать больше нечего — B-89', async () => {
+  const posts = stub(Response.json({ problem: 'task-running', message: 'noble-keen-walrus' }, { status: 400 }))
+  const props = { onClose: vi.fn(), onStarted: vi.fn(), onTaken: vi.fn() }
+  render(<StartTaskModal base={base} entry={entry} {...props} />)
+
+  fireEvent.click(await screen.findByRole('radio', { name: /rustic-silver-sparrow/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Взять в работу' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Эта задача уже идёт в копии noble-keen-walrus — вторую панель не запускает.',
+  )
+  expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+  // Раздел узнаёт, что задача взята, и гасит её кнопку и за окном
+  expect(props.onTaken).toHaveBeenCalledTimes(1)
+  // Другая копия задачу не освобождает: отказ остаётся на виду, кнопка — погашенной.
+  fireEvent.click(screen.getByRole('radio', { name: /noble-keen-walrus/ }))
+  expect(screen.getByRole('alert')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Взять в работу' })).toBeDisabled()
+  fireEvent.keyDown(screen.getByLabelText('Начальные слова'), { key: 'Enter', ctrlKey: true })
+  expect(posts).toHaveLength(1)
+  expect(props.onStarted).not.toHaveBeenCalled()
+})
+
 test.each([
-  [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди открытых и назначенных на вас в GitHub'],
-  [{ problem: 'tracker-unavailable', message: 'gh-login' }, 'панель не перепроверила её по GitHub — программа gh не вошла в аккаунт GitHub'],
-  [{ problem: 'tracker-unavailable', message: 'HTTP 502: Bad Gateway' }, 'панель не перепроверила её по GitHub — HTTP 502: Bad Gateway'],
+  [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди незакрытых и назначенных на вас в трекере'],
+  [{ problem: 'tracker-unavailable', message: 'gh-login' }, 'панель не перепроверила её по трекеру — программа gh не вошла в аккаунт GitHub'],
+  [{ problem: 'tracker-unavailable', message: 'HTTP 502: Bad Gateway' }, 'панель не перепроверила её по трекеру — HTTP 502: Bad Gateway'],
+  [{ problem: 'tracker-unavailable', message: 'key-rejected' }, 'панель не перепроверила её по трекеру — сервер трекера отклонил ключ'],
 ])('задачу трекера панель не запустила (%o): окно говорит почему', async (reply, text) => {
   stub(Response.json(reply, { status: 400 }))
   render(<StartTaskModal base={base} entry={{ number: 'GitHub #37', title: 'Оплата падает', text: null }} onClose={vi.fn()} onStarted={vi.fn()} />)

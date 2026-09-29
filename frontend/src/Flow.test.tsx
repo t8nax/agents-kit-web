@@ -1370,6 +1370,21 @@ test('с отметки в шапке у непрочитанного флоу �
   expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 
+test('с отметки в шапке у базы нового формата окна переписывания нет, и причина — формат, а не задачи', async () => {
+  stubApi(api([{ ...app, formatWarning: 'Кит перевёл базу на формат, которого эта версия панели не знает.' }], rewriteApi([])))
+  render(<Flow baseFor={app.base} rewriteAt={1} />)
+
+  expect(
+    await screen.findByText(
+      'Окно «Переписать с Чудо-Юдо» не открыть: кит перевёл базу на формат, которого эта версия панели не знает. Правки флоу в этой базе закрыты, пока панель не обновится.',
+    ),
+  ).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/заняты задачами/)).not.toBeInTheDocument()
+  // Верх раздела не заперт
+  expect(screen.getByRole('button', { name: 'Проект: Agents Kit Web' })).toBeEnabled()
+})
+
 test('проект выбирается списком в шапке', async () => {
   stubApi(api([app, nota]))
   await renderFlow()
@@ -1782,6 +1797,50 @@ test('сценарий, по которому идёт задача, тольк�
   const description = within(await screen.findByRole('dialog', { name: 'Описание этапа «Ревью»' }))
   expect(description.queryByRole('button', { name: 'Редактировать' })).not.toBeInTheDocument()
   expect(posts(fetchMock)).toBe(0)
+})
+
+test('флоу базы нового формата виден, но не правится ничем, и новое не заводится', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  const fetchMock = stubApi(api([{ ...app, formatWarning: warning }], saved()))
+  const region = await renderFlow()
+
+  expect(screen.getByText(warning)).toHaveClass('flow-lock')
+  expect(screen.queryByText(/^Правка сценария закрыта/)).not.toBeInTheDocument()
+  expect(region.getByRole('button', { name: 'Этап 2 выше' })).toBeDisabled()
+  expect(region.getByRole('button', { name: 'Добавить этап' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Новый сценарий' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Новый сценарий' })).toHaveAttribute('title', refusal)
+  expect(moreItem('Переписать с Чудо-Юдо')).toBeDisabled()
+  fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+
+  // Окно этапа — только для чтения с одной «Закрыть», причина в шапке
+  fireEvent.click(menuOf(region, 'Этап 2: Ревью').getByRole('menuitem', { name: 'Править этап «Ревью»' }))
+  const stage = within(await screen.findByRole('dialog', { name: 'Этап «Ревью»' }))
+  expect(stage.getByText(refusal)).toBeInTheDocument()
+  expect(stage.getByRole('textbox', { name: 'Выход этапа' })).toBeDisabled()
+  expect(stage.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+  fireEvent.click(stage.getAllByRole('button', { name: 'Закрыть' }).at(-1)!)
+
+  // На вкладке «Этапы» — та же строка, замок на каждой карточке и погашенный «Новый этап»
+  fireEvent.click(screen.getByRole('tab', { name: 'Этапы' }))
+  expect(screen.getByText(warning)).toBeInTheDocument()
+  expect(within(screen.getByRole('list', { name: 'Этапы базы' })).getAllByLabelText(refusal)).toHaveLength(4)
+  expect(screen.getByRole('button', { name: 'Новый этап' })).toBeDisabled()
+  expect(posts(fetchMock)).toBe(0)
+})
+
+test('кит перевёл базу, пока окно было открыто: отказ записи назван форматом', async () => {
+  stubApi(api([app], { 'POST /api/flow': () => json({ problem: 'newer-format', detail: 'Правка закрыта' }, 409) }))
+  await renderFlow()
+  const edit = await stagesTab('Ревью')
+  fireEvent.change(edit.getByRole('textbox', { name: 'Выход этапа' }), { target: { value: 'вердикт' } })
+
+  fireEvent.click(edit.getByRole('button', { name: 'Сохранить' }))
+
+  expect(await edit.findByRole('alert')).toHaveTextContent(
+    'Флоу не сохранён: кит перевёл базу на формат, которого эта версия панели не знает. Закройте окно — раздел перечитает флоу, когда все окна будут закрыты.',
+  )
 })
 
 test('на вкладке «Этапы» занятые стадии с замком и задачами открываются для чтения, свободные правятся', async () => {

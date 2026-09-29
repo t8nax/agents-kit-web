@@ -149,6 +149,10 @@ test('оператор спрашивает базу из шапки и чита
   await dialog.getByRole('button', { name: 'Отправить' }).click()
 
   await expect(dialog.getByText('Почему таблица обновляется опросом?')).toBeVisible()
+  // Ответ уходит, когда окно уже ждёт агента, а не только показало реплику (decisions/e2e.md, B-268).
+  const waiting = dialog.getByRole('status')
+  await expect(waiting).toContainText('Чудо-Юдо читает базу и код Nota…')
+  await expect(waiting.getByLabel('Прошло времени')).toBeVisible()
   panel.answer(
     { type: 'step', text: 'читает decisions/ui.md' },
     {
@@ -379,6 +383,9 @@ test('сбой посреди переписки её не рушит: репл�
 
 for (const theme of ['dark', 'light'] as const) {
   test(`окно разговора читается в теме ${theme}`, async ({ page }) => {
+    // Кнопку шапки openAsk ждёт весь срок теста, и нагруженная машина GitHub не отрисовала
+    // страницу и за 30 секунд — решение оператора: минута этой проверке (B-279, на B-280).
+    test.setTimeout(60_000)
     const panel = await mockConversation(page)
     await page.emulateMedia({ colorScheme: theme })
 

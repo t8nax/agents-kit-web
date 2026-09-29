@@ -143,6 +143,17 @@
   color: var(--accent-error-text);
 }
 
+/* База нового формата: причина закрытой правки — в начале окна, янтарем, как предупреждение (B-281) */
+.pf-closed {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--accent-waiting-text);
+}
+
+.pf-modal .pf-closed svg,
 .pf-modal .pf-down svg {
   width: 15px;
   height: 15px;

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentsKitWeb.Api.Ask;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -44,6 +45,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     private readonly string _copy;
     private readonly TestChat _agent = new();
     private readonly TestCheckGate _checkGate = new();
+    private readonly FakeGitHubIssues _github = new();
 
     /// <summary>Команда коммита, которую панель диктует агенту и кладёт в правило разрешения.</summary>
     private string Commit => $"git -C \"{_personal}\" commit -m \"{BacklogWriteEndpoints.CommitMessage}\" -- backlog.md";
@@ -661,6 +663,201 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal("D\tartifacts/B-2-снимок.png\nM\tbacklog.md", Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
     }
 
+    // ——— Перенос записи в трекер (B-286) ———
+
+    private void GitHubTracker() => TestLayout.GitHubTracker(_base, "acme/orders");
+
+    [Fact]
+    public void StartInfo_TellsAgentTrackBlockOnlyForGitHubTracker()
+    {
+        string Prompt()
+        {
+            var args = BacklogWriteEndpoints.StartInfo(_base, _copy).ArgumentList.ToList();
+            return args[args.IndexOf("--append-system-prompt") + 1];
+        }
+
+        Assert.DoesNotContain("в трекер B-14", Prompt());
+        Assert.Contains("Переноса записей в трекер у этого проекта нет", Prompt());
+
+        GitHubTracker();
+
+        Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
+        Assert.Contains("GitHub acme/orders", Prompt());
+
+        // В YouTrack перенос тоже предлагается — B-288
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+
+        Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
+        Assert.Contains("YouTrack ABC", Prompt());
+    }
+
+    /// <summary>«Сохранить» с переносом у проекта с YouTrack заводит задачу в YouTrack ключом его сервера (B-288).</summary>
+    [Fact]
+    public async Task Save_TrackToYouTrack_CreatesIssueWithServerKey()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        new TrackerServersStore(TrackerServersStore.FileBeside(TestBasesFile)).Save("https://acme.youtrack.cloud", "boris.k", "perm:ключ");
+        _youTrack.Created = new CreatedIssue(new TrackerIssue("YouTrack ABC-58", 58, "Вторая запись", "https://acme.youtrack.cloud/issue/ABC-58"));
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Null(saved.Error);
+        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC", "Вторая запись", "Текст второй записи.")], _youTrack.Creates);
+        Assert.Empty(_github.Creates);
+        Assert.Equal("YouTrack ABC-58", saved.Issues!["B-2"].Name);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
+    public async Task Save_TrackToYouTrackWithoutKey_DoesNotTouchBacklog()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        var before = File.ReadAllText(BacklogPath);
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal(
+            "Задача для B-2 не заведена: для сервера https://acme.youtrack.cloud нет ключа — добавьте его в «Настройках», в карточке «Серверы трекеров» — бэклог не записан",
+            saved.Error);
+        Assert.Empty(_youTrack.Creates);
+        Assert.Equal(before, File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
+    public async Task Save_TrackCreatesIssueThenCutsEntryTogetherWithChange()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("Так.\n\n~~~backlog\nв трекер B-2\n~~~\n~~~backlog\nизменить B-1\n## B-1 Старая запись\nтип: фича\nприоритет: средний\n\nНовый текст.\n\n### Агенту\n- где: App.tsx\n~~~\n")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер, а B-1 перепиши");
+        var answer = (await Read(client, 2))[1];
+        Assert.Equal([BacklogChange.Track, BacklogChange.Change], answer.Proposal!.Changes.Select(c => c.Kind));
+        Assert.Empty(_github.Creates);
+
+        var saved = await Save(client, answer.Proposal.Id);
+
+        Assert.Null(saved.Error);
+        Assert.Equal(("acme/orders", "Вторая запись", "Текст второй записи."), Assert.Single(_github.Creates));
+        Assert.Equal(58, saved.Issues!["B-2"].Number);
+        var file = File.ReadAllText(BacklogPath);
+        Assert.DoesNotContain("## B-2", file);
+        Assert.Contains("Новый текст.", file);
+        Assert.Equal("", Git("status", "--porcelain"));
+        var savedEvent = (await Read(client, 3))[2];
+        Assert.Equal("saved", savedEvent.Type);
+        Assert.Equal("https://github.com/acme/orders/issues/58", savedEvent.Issues!["B-2"].Url);
+    }
+
+    [Fact]
+    public async Task Save_TrackGitHubRefuses_WritesNothingAndProposalWaits()
+    {
+        GitHubTracker();
+        _github.Created = new CreatedIssue(null, TrackerIssues.GhLogin);
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        var file = File.ReadAllText(BacklogPath);
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal(
+            "Задача для B-2 не заведена: программа gh не вошла в аккаунт GitHub — войдите командой gh auth login — бэклог не записан",
+            saved.Error);
+        Assert.Null(saved.Issues);
+        Assert.Equal(file, File.ReadAllText(BacklogPath));
+
+        // Предложение ждёт: вошли в gh — «Сохранить» ещё раз
+        _github.Created = null;
+        Assert.Null((await Save(client, answer.Proposal.Id)).Error);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
+    public async Task Save_TrackAfterRefusedCommit_DoesNotCreateIssueTwice()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        var hook = Path.Combine(_personal, ".git", "hooks", "pre-commit");
+        File.WriteAllText(hook, "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+
+        var refused = await Save(client, answer.Proposal!.Id);
+
+        Assert.Equal(
+            "Коммит не прошёл — backlog.md оставлен как был. Уже заведены в трекере: B-2 — #58 — «Сохранить» ещё раз их не повторит",
+            refused.Error);
+        Assert.Equal(58, refused.Issues!["B-2"].Number);
+        Assert.Contains("## B-2", File.ReadAllText(BacklogPath));
+
+        File.Delete(hook);
+        var saved = await Save(client, answer.Proposal.Id);
+
+        Assert.Null(saved.Error);
+        Assert.Single(_github.Creates);
+        Assert.Equal(58, saved.Issues!["B-2"].Number);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    /// <summary>Заведённые задачи не пропадают молча вместе с брошенным предложением (ревью B-286).</summary>
+    [Fact]
+    public async Task Refuse_AfterIssueCreated_TellsFeedWhichIssuesStayed()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        File.WriteAllText(Path.Combine(_personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n");
+        Assert.NotNull((await Save(client, answer.Proposal!.Id)).Error);
+
+        using var refused = await client.PostAsJsonAsync("/api/backlog/write/refuse", new BacklogProposalRequest(answer.Proposal.Id));
+        Assert.Equal(HttpStatusCode.NoContent, refused.StatusCode);
+
+        var note = (await Read(client, 4))[3];
+        Assert.Equal("note", note.Type);
+        Assert.Equal("Задачи в трекере уже заведены, а записи остались в бэклоге: B-2 — #58. Уберите эти записи из бэклога.", note.Text);
+        Assert.Equal(58, note.Issues!["B-2"].Number);
+    }
+
+    /// <summary>Кит перевёл базу на новый формат посреди разговора — перенос не заводит задачу (B-281).</summary>
+    [Fact]
+    public async Task Save_TrackInBaseTurnedToNewerFormat_CreatesNoIssue()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+        TestLayout.NewerFormat(_base);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, (await Save(client, answer.Proposal!.Id)).Error);
+        Assert.Empty(_github.Creates);
+    }
+
+    [Fact]
+    public async Task Answer_TrackWithoutGitHubTracker_IsError()
+    {
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("error", answer.Type);
+        Assert.Equal($"Чудо-Юдо предложил перенос в трекер, а {ProjectTracker.NotMovable}", answer.Text);
+    }
+
     [Fact]
     public async Task Save_RefusedCommitReturnsDeletedArtifacts()
     {
@@ -1010,6 +1207,38 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Бэклог базы нового формата панель не правит, пока не узнает формат (B-281).
+    public async Task Write_DoesNotSendToBaseOfNewerFormat()
+    {
+        TestLayout.NewerFormat(_base);
+        var client = Client(_base);
+
+        await Start(client, "Мысль");
+        var events = await Read(client, 2);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, events[1].Text);
+        Assert.Empty(_agent.Input);
+    }
+
+    [Fact]
+    // Кит перевёл базу посреди разговора: предложение агента «Сохранить» уже не пишет (B-281).
+    public async Task Save_BaseTurnedToNewerFormatMeanwhile_WritesNothing()
+    {
+        _agent.Answers =
+        [
+            [Result("~~~backlog\nизменить B-1\n## B-1 Новая суть\n\nТекст.\n\n### Агенту\n- где: App.tsx\n~~~")],
+        ];
+        var client = Client(_base);
+        await Start(client, "перепиши B-1");
+        var answer = (await Read(client, 2))[1];
+        var before = File.ReadAllText(BacklogPath);
+        TestLayout.NewerFormat(_base);
+
+        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, (await Save(client, answer.Proposal!.Id)).Error);
+        Assert.Equal(before, File.ReadAllText(BacklogPath));
+    }
+
+    [Fact]
     public async Task Write_DoesNotStartWithoutProjectCopyOnDisk()
     {
         Directory.Delete(_copy, recursive: true);
@@ -1144,8 +1373,17 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
                 services.AddSingleton<IAgentChat>(_agent);
                 services.RemoveAll<IBacklogCheckGate>();
                 services.AddSingleton<IBacklogCheckGate>(_checkGate);
+                services.RemoveAll<IGitHubIssues>();
+                services.AddSingleton<IGitHubIssues>(_github);
+                services.RemoveAll<IYouTrack>();
+                services.AddSingleton<IYouTrack>(_youTrack);
             });
         })).CreateClient();
+
+    private readonly FakeYouTrack _youTrack = new();
+
+    /// <summary>bases.json панели теста — рядом с ним лежат её серверы трекеров.</summary>
+    private string TestBasesFile => Path.Combine(_root, "panel", "bases.json");
 
     /// <summary>Ход перед проверкой базы: n — какая по счёту реплика разговора проверяется.</summary>
     private sealed class TestCheckGate : IBacklogCheckGate

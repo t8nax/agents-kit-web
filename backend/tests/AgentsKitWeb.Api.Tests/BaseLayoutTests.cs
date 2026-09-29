@@ -21,20 +21,49 @@ public sealed class BaseLayoutTests : IDisposable
         Assert.Equal(Path.Combine(basePath, "local", "me"), layout.Personal);
         Assert.Equal(Path.Combine(basePath, "local", "me", "work"), layout.WorkDir);
         Assert.Equal(Path.Combine(basePath, "local", "me", "work", BaseLayout.Machine()), layout.MemoryDir);
+        Assert.False(layout.NewerFormat);
+        Assert.Null(layout.FormatWarning);
     }
 
     [Theory]
-    [InlineData(BaseLayout.Format - 1, "База прежнего формата — переведите её китом")]
-    [InlineData(1, "База прежнего формата — переведите её китом")]
-    [InlineData(BaseLayout.Format + 1, "База нового формата, которого панель не знает, — обновите панель")]
-    public void Read_OtherFormat_IsNotRead(int format, string expected)
+    [InlineData(BaseLayout.Format - 1)]
+    [InlineData(1)]
+    public void Read_OlderFormat_IsNotRead(int format)
     {
         var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
         File.WriteAllText(Path.Combine(basePath, BaseLayout.MarkerFile),
             JsonSerializer.Serialize(new { kit = "agents-kit", version = format }));
 
         Assert.Null(BaseLayout.Read(basePath, out var problem));
-        Assert.Equal(expected, problem);
+        Assert.Equal("База прежнего формата — переведите её китом", problem);
+    }
+
+    [Fact]
+    // Базу нового формата панель читает своей раскладкой, с пометкой, — B-281.
+    public void Read_NewerFormat_IsReadWithWarning()
+    {
+        var basePath = TestLayout.Base(Path.Combine(_root, "kb"), Path.Combine(_root, "app"));
+        TestLayout.NewerFormat(basePath);
+
+        var layout = BaseLayout.Read(basePath, out var problem);
+
+        Assert.NotNull(layout);
+        Assert.Equal("", problem);
+        Assert.True(layout.NewerFormat);
+        Assert.Equal(BaseLayout.NewerFormatWarning, layout.FormatWarning);
+        Assert.Equal([Path.Combine(_root, "app")], layout.Workspaces);
+    }
+
+    [Fact]
+    // Пометка формата не прячет прочие отказы раскладки: без оператора машины база нового формата тоже не читается.
+    public void Read_NewerFormatWithoutOperator_IsNotRead()
+    {
+        var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
+        TestLayout.NewerFormat(basePath);
+        TestLayout.Machine(basePath, null);
+
+        Assert.Null(BaseLayout.Read(basePath, out var problem));
+        Assert.Equal("На этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard", problem);
     }
 
     [Theory]

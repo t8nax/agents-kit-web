@@ -190,19 +190,44 @@ public sealed class WorkspacesEndpointTests : IDisposable
         Assert.Equal("Задача", row.Task);
     }
 
-    [Theory]
-    [InlineData(BaseLayout.Format - 1, "База прежнего формата — переведите её китом")]
-    [InlineData(BaseLayout.Format + 1, "База нового формата, которого панель не знает, — обновите панель")]
-    public async Task Workspaces_BaseOfOtherFormat_IsOneRowWithReason(int format, string reason)
+    [Fact]
+    public async Task Workspaces_BaseOfOlderFormat_IsOneRowWithReason()
     {
         var copy = TestGit.Repository(Path.Combine(_root, "app"));
         var basePath = CreateBase("app-knowledge", copy);
         File.WriteAllText(Path.Combine(basePath, "agents-kit.json"),
-            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = format }));
+            System.Text.Json.JsonSerializer.Serialize(new { kit = "agents-kit", version = BaseLayout.Format - 1 }));
 
         var row = Assert.Single(await GetRows(basePath));
         Assert.Equal(basePath, row.Path);
-        Assert.Equal(reason, row.Error);
+        Assert.Equal("База прежнего формата — переведите её китом", row.Error);
+    }
+
+    [Fact]
+    // База нового формата — обычными строками копий, у каждой предупреждение: выпуска под формат ещё нет (B-281).
+    public async Task Workspaces_BaseOfNewerFormat_IsRowsOfCopiesWithWarning()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", copy);
+        TestLayout.NewerFormat(basePath);
+        File.WriteAllText(Path.Combine(TestLayout.Work(basePath), "app.md"),
+            $"# Задача\nрабочая копия: {copy}\n\n## Агенту\n\n### Сценарий\n- [ ] 1. Ветка\n");
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Equal(copy, row.Path);
+        Assert.Null(row.Error);
+        Assert.Equal("Задача", row.Task);
+        Assert.Equal(BaseLayout.NewerFormatWarning, row.FormatWarning);
+    }
+
+    [Fact]
+    public async Task Workspaces_BaseOfPanelFormat_HasNoWarning()
+    {
+        var copy = TestGit.Repository(Path.Combine(_root, "app"));
+        var basePath = CreateBase("app-knowledge", copy);
+
+        var row = Assert.Single(await GetRows(basePath));
+        Assert.Null(row.FormatWarning);
     }
 
     [Fact]

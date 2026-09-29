@@ -33,6 +33,16 @@ public static partial class BacklogNumber
     /// <summary>Буквы номера в виде кита: «ORD-12» → «ORD».</summary>
     public static string Letters(string number) => Format.Match(number).Groups["letters"].Value;
 
+    /// <summary>
+    /// Номер записи, которым начат заголовок задачи, — первое слово, если оно номер буквами этой базы:
+    /// «UTF-8 в именах файлов» номером не становится (decisions/backlog-numbers.md). Букв нет — номера нет.
+    /// </summary>
+    public static string? OfTask(string? task, string? letters) =>
+        task?.TrimStart().Split(' ', 2)[0] is { } first && Normalize(first) is { } number
+        && letters is not null && Letters(number) == letters
+            ? number
+            : null;
+
     /// <summary>Число номера: «ORD-12» → 12.</summary>
     public static long Value(string number) =>
         long.TryParse(number[(number.LastIndexOf('-') + 1)..], out var value) ? value : 0;
