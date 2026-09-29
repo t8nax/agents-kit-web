@@ -91,6 +91,19 @@ a.entry {
   white-space: nowrap;
 }
 
+/* Переход из строки о поломке описания в карточку «Трекеры проектов» «Настроек» (B-293) */
+.tracker-link {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--accent-error-border);
+  text-underline-offset: 3px;
+}
+
 /* Строка записи держит две кнопки: чтение записи и её запуск — кнопка в кнопку не вкладывается. */
 .entry-row {
   display: flex;
