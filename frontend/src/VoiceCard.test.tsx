@@ -1,7 +1,15 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import { VoiceContext } from './voice'
+import { useVoiceModuleSource, VOICE_POLL_MS, VOICE_TITLES, VoiceContext } from './voice'
+import VoiceButton from './VoiceButton'
 import VoiceCard, { type VoiceState } from './VoiceCard'
+
+// Микрофон браузера кнопке здесь нужен только тем, что он есть: запись проверяется своим тестом.
+vi.mock('./microphone', async (original) => ({
+  ...(await original<typeof import('./microphone')>()),
+  microphoneSupported: () => true,
+  watchMicrophonePermission: async () => () => {},
+}))
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -115,6 +123,42 @@ test('отказ сервера до первого байта называет�
   expect(await within(card()).findByRole('alert')).toHaveTextContent(
     'Сервер модели ответил 404. Голосовой ввод не установлен.',
   )
+})
+
+test('«Установить», уход из «Настроек» — модель докачалась, и кнопка в окне зажглась сама', async () => {
+  let current: VoiceState = absent
+  let reads = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && input === '/api/voice/install') {
+        current = downloading
+        return new Response(null, { status: 202 })
+      }
+      reads++
+      return Response.json(current)
+    }),
+  )
+  function Panel({ settings }: { settings: boolean }) {
+    return (
+      <VoiceContext value={useVoiceModuleSource()}>
+        {settings && <VoiceCard />}
+        <VoiceButton onText={() => {}} />
+      </VoiceContext>
+    )
+  }
+  const { rerender } = render(<Panel settings />)
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  // Панель прочитала «не установлен» сама и по знаку карточки, а карточка — для себя: три чтения до «Установить».
+  await within(card()).findByRole('button', { name: 'Установить' })
+  await vi.waitFor(() => expect(reads).toBeGreaterThanOrEqual(3))
+
+  fireEvent.click(within(card()).getByRole('button', { name: 'Установить' }))
+  await within(card()).findByText('Скачивается')
+  rerender(<Panel settings={false} />)
+  current = installed
+
+  await vi.waitFor(() => expect(mic).toHaveAttribute('title', VOICE_TITLES.ready), { timeout: 4 * VOICE_POLL_MS })
 })
 
 test('API не ответил — карточка говорит это строкой', async () => {

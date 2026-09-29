@@ -67,11 +67,12 @@ export default function VoiceCard() {
     return () => clearInterval(timer)
   }, [downloading, load])
 
-  // Скачивание кончилось или модель убрали — окна узнают, стоит ли теперь модуль.
-  const settled = voice && voice.state !== 'downloading' ? voice.state : null
+  // Каждая смена состояния — и начало скачивания тоже — доходит до панели: увидев, что модель качается, панель
+  // следит за ней сама, и кнопки в окнах зажигаются, даже если оператор ушёл из «Настроек» (ревью B-291).
+  const state = voice?.state ?? null
   useEffect(() => {
-    if (settled) refresh()
-  }, [settled, refresh])
+    if (state) refresh()
+  }, [state, refresh])
 
   const act = (method: string, url: string, failed: string) => {
     setBusy(true)
