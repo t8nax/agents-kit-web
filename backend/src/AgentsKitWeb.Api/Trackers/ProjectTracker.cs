@@ -24,6 +24,21 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         AssignedAsync(Tracker.Read(layout), cancellationToken);
 
     /// <summary>
+    /// Задачи для раздела «Бэклог» — с метками репозитория GitHub для фильтра «Метки» (B-305); метки читаются
+    /// вместе с задачами, а не после них. Задачи не прочитаны — меток нет: перечень без задач ни к чему.
+    /// </summary>
+    public async Task<TrackerIssues> ForBacklogAsync(BaseLayout layout, CancellationToken cancellationToken)
+    {
+        var tracker = Tracker.Read(layout);
+        var labels = tracker?.GitHubRepo is { } repo
+            ? github.LabelsAsync(repo, cancellationToken)
+            : Task.FromResult<IReadOnlyList<string>?>(null);
+        var issues = await AssignedAsync(tracker, cancellationToken);
+        var names = await labels;
+        return issues.Problem is null && names is not null ? issues with { Labels = names } : issues;
+    }
+
+    /// <summary>
     /// Проверка описания перед записью — решение оператора на B-293: у GitHub и YouTrack панель читает задачи,
     /// назначенные на оператора, из названных трекера и проекта — тем же разбором, которым прочтёт записанный файл;
     /// у Jira и GitLab проверить нечем, и Checked — false. Не прочитала — Problem, как у задач «Бэклога», и Field —

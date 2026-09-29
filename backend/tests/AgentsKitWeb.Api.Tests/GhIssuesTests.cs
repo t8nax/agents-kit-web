@@ -44,6 +44,26 @@ public class GhIssuesTests
     }
 
     [Fact]
+    public void LabelsStartInfo_AsksAllLabelNamesOfRepositoryByName()
+    {
+        var startInfo = GhIssues.LabelsStartInfo("acme/orders");
+
+        Assert.Equal("gh", startInfo.FileName);
+        Assert.Equal(
+            ["label", "list", "--repo", "acme/orders", "--limit", "200", "--sort", "name", "--json", "name"],
+            startInfo.ArgumentList);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    [Fact]
+    public void ParseLabels_TakesNames_NotJsonIsNull()
+    {
+        Assert.Equal(["bug", "ui"], GhIssues.ParseLabels("""[{"name":"bug"},{"name":"ui"}]"""));
+        Assert.Null(GhIssues.ParseLabels("oops"));
+    }
+
+    [Fact]
     public void Parse_EmptyList_HasNoIssuesAndNoProblem()
     {
         var issues = GhIssues.Parse("[]\n");
