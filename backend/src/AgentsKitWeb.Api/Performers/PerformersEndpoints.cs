@@ -302,19 +302,27 @@ public static class PerformersEndpoints
             return callers;
 
         var letters = Backlog.ReadLetters(layout);
-        foreach (var machine in System.IO.Directory.EnumerateDirectories(layout.WorkDir))
+        foreach (var machine in System.IO.Directory.EnumerateDirectories(layout.WorkDir).Order(StringComparer.Ordinal))
             foreach (var task in System.IO.Directory.EnumerateDirectories(machine).Order(StringComparer.Ordinal))
             {
                 // Флоу задачи устроен, как flow/ личного репозитория: этапы — в том же flow/stages от своего корня.
                 var stages = System.IO.Path.Combine(task, FlowFolder.StagesFolder);
                 if (!System.IO.Directory.Exists(stages))
                     continue;
-                var label = TaskLabel(task, letters);
-                foreach (var file in System.IO.Directory.EnumerateFiles(stages, "*.md").Order(StringComparer.Ordinal))
+                // Задачу закрыли посреди обхода — её копии уже нет, и исполнителя она не держит; флоу оператора из-за
+                // неё непрочитанным не считается.
+                try
                 {
-                    var stage = FlowFolder.ParseStage(
-                        FlowFolder.Decode(File.ReadAllBytes(file)).Text, System.IO.Path.GetFileNameWithoutExtension(file));
-                    callers.Add(new Caller($"{Title(stage)} ({label})", stage));
+                    var label = TaskLabel(task, letters);
+                    foreach (var file in System.IO.Directory.EnumerateFiles(stages, "*.md").Order(StringComparer.Ordinal))
+                    {
+                        var stage = FlowFolder.ParseStage(
+                            FlowFolder.Decode(File.ReadAllBytes(file)).Text, System.IO.Path.GetFileNameWithoutExtension(file));
+                        callers.Add(new Caller($"{Title(stage)} ({label})", stage));
+                    }
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
                 }
             }
         return callers;
@@ -327,12 +335,21 @@ public static class PerformersEndpoints
 
     /// <summary>
     /// Задача копии флоу — по памяти рядом, каталог которой назван так же: номер бэклога буквами проекта
-    /// (decisions/backlog-numbers.md), без номера — заголовок, а без памяти или заголовка — имя каталога.
+    /// (decisions/backlog-numbers.md), без номера — заголовок, а без памяти, заголовка или когда память сейчас не
+    /// читается — её пишет сессия — имя каталога.
     /// </summary>
     private static string TaskLabel(string taskFlowDir, string? letters)
     {
         var memory = taskFlowDir + ".md";
-        var title = File.Exists(memory) ? WorkMemory.Parse(File.ReadAllText(memory)).Task : null;
+        string? title;
+        try
+        {
+            title = File.Exists(memory) ? WorkMemory.Parse(File.ReadAllText(memory)).Task : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            title = null;
+        }
         if (string.IsNullOrWhiteSpace(title))
             return System.IO.Path.GetFileName(taskFlowDir);
         return BacklogNumber.OfTask(title, letters) ?? title;

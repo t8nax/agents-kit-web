@@ -642,11 +642,17 @@ public sealed class PerformersEndpointsTests : IDisposable
         File.WriteAllText(laptop + ".md", "# Починить выгрузку\nрабочая копия: D:\\app\n");
         File.WriteAllText(Path.Combine(laptop, "flow", "stages", "design.md"),
             "# Дизайн\n\nисполнитель: оркестратор\nпомощники: reviewer\nвыход: макет\n");
+        // Копия без памяти рядом — задача названа именем каталога.
+        var orphan = Path.Combine(TestLayout.Work(basePath), "d-other");
+        Directory.CreateDirectory(Path.Combine(orphan, "flow", "stages"));
+        File.WriteAllText(Path.Combine(orphan, "flow", "stages", "merge.md"), "# Мерж\n\nисполнитель: reviewer\nвыход: sha\n");
 
         var performers = (await Get(basePath)).Single().Performers;
         var response = await Delete(basePath, "reviewer");
 
-        Assert.Equal(["Дизайн (Починить выгрузку)", "Ревью (B-7)"], performers.Single(p => p.Name == "reviewer").CalledBy!.Order());
+        Assert.Equal(
+            ["Дизайн (Починить выгрузку)", "Мерж (d-other)", "Ревью (B-7)"],
+            performers.Single(p => p.Name == "reviewer").CalledBy!.Order());
         Assert.Empty(performers.Single(p => p.Name == "scout").CalledBy!);
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         Assert.Equal("called-by-flow", (await response.Content.ReadFromJsonAsync<PerformerRejectedResponse>())!.Problem);
