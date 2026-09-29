@@ -730,9 +730,11 @@ if (-not $mode) { $mode = 'ok' }
 $arguments = if ($env:AKW_GH_ARGS) { @($env:AKW_GH_ARGS -split [char]1) } else { @($args) }
 $repo = $null
 $title = $null
+$search = $null
 for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
     if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] }
     if ($arguments[$i] -eq '--title') { $title = $arguments[$i + 1] }
+    if ($arguments[$i] -eq '--search') { $search = $arguments[$i + 1] }
 }
 $creating = $arguments.Count -ge 2 -and $arguments[0] -eq 'issue' -and $arguments[1] -eq 'create'
 # Панель пишет описание в UTF-8, как его читает настоящая gh; скрытый pwsh иначе читал бы ввод кодировкой консоли
@@ -771,7 +773,23 @@ if ($creating) {
     [Console]::Out.WriteLine("`nCreating issue in $repo`n`n$url")
     exit 0
 }
-[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($issues.$repo) -Depth 4 -Compress))
+# Отбор описания трекера (B-300) приходит в --search: «label:метка» — по меткам задачи, «milestone:этап» — по этапу,
+# прочие слова — по заголовку;
+# другой квалификатор подставная gh отвергает, как GitHub — поиск с ошибкой.
+$list = @($issues.$repo)
+if ($search) {
+    $unknown = @([regex]::Matches($search, '([A-Za-z-]+):') | Where-Object { $_.Groups[1].Value -notin 'label', 'milestone' })
+    if ($unknown.Count -gt 0) {
+        [Console]::Error.WriteLine("GraphQL: Invalid search query `"$search`": unknown qualifier $($unknown[0].Groups[1].Value) (search)")
+        exit 1
+    }
+    foreach ($token in ($search -split '\s+' | Where-Object { $_ })) {
+        $list = if ($token -like 'label:*') { @($list | Where-Object { @($_.labels) -contains $token.Substring(6) }) }
+                elseif ($token -like 'milestone:*') { @($list | Where-Object { $_.milestone -eq $token.Substring(10) }) }
+                else { @($list | Where-Object { $_.title -like "*$token*" }) }
+    }
+}
+[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($list | Select-Object number, title, url) -Depth 4 -Compress))
 exit 0
 '@
     Write-Utf8 (Join-Path $Path 'gh-stub.ps1') $stub
@@ -784,7 +802,7 @@ function New-YouTrackStub([string]$Root, [int]$Port) {
     $stub = @'
 # Подставной YouTrack песочницы на http://localhost:__PORT__/. Ключ — «perm:sandbox», владелец ключа — sandbox.operator.
 # Проекты и их незакрытые задачи на владельце ключа — youtrack-issues.json корня песочницы: объект
-# «проект: [задачи]». Новая задача (перенос записи бэклога) дописывается туда следующим номером, её описание —
+# «проект: [задачи]», у задачи — номер, заголовок, состояние state и теги tags для отбора (B-300). Новая задача (перенос записи бэклога) дописывается туда следующим номером, её описание —
 # в youtrack-created\<номер>.md. Режим читается на каждый запрос из youtrack-mode.txt корня песочницы:
 #   ok        отвечает как YouTrack
 #   rejected  отклоняет любой ключ
@@ -829,9 +847,28 @@ while ($listener.IsListening) {
             continue
         }
         if ($path.EndsWith('/api/issues') -and $context.Request.HttpMethod -eq 'GET') {
-            $query = [Uri]::UnescapeDataString($context.Request.Url.Query)
+            $query = "$($context.Request.QueryString['query'])"
             $project = if ($query -match 'project: \{([^}]+)\}') { $Matches[1] } else { $null }
             $list = if ($project -and $projects -contains $project) { @($issues.$project) } else { @() }
+            # Отбор описания трекера (B-300) — хвост после «#Unresolved»: поля State и tag значением или {значениями}
+            # через запятую, прочие слова — по заголовку; другое поле YouTrack отвергает, как настоящий.
+            $tail = if ($query -match '#Unresolved\s*(.*)$') { $Matches[1].Trim() } else { '' }
+            $pattern = '([A-Za-z]+):\s*((?:\{[^}]*\}(?:\s*,\s*\{[^}]*\})*)|\S+)'
+            $unknown = @([regex]::Matches($tail, $pattern) | Where-Object { $_.Groups[1].Value -notin 'State', 'tag' } |
+                ForEach-Object { $_.Groups[1].Value })
+            if ($unknown.Count -gt 0) {
+                Send $context 400 @{ error = 'bad_request'; error_description = "Unknown field `"$($unknown[0])`"" }
+                continue
+            }
+            foreach ($match in [regex]::Matches($tail, $pattern)) {
+                $wanted = @([regex]::Matches($match.Groups[2].Value, '\{([^}]*)\}') | ForEach-Object { $_.Groups[1].Value.Trim() })
+                if ($wanted.Count -eq 0) { $wanted = @($match.Groups[2].Value) }
+                $field = if ($match.Groups[1].Value -eq 'State') { 'state' } else { 'tags' }
+                $list = @($list | Where-Object { @($_.$field | Where-Object { $_ -in $wanted }).Count -gt 0 })
+            }
+            foreach ($word in ([regex]::Replace($tail, $pattern, '') -split '\s+' | Where-Object { $_ })) {
+                $list = @($list | Where-Object { $_.title -like "*$word*" })
+            }
             Send $context 200 @($list | ForEach-Object { @{ idReadable = "$project-$($_.number)"; summary = $_.title } })
             continue
         }

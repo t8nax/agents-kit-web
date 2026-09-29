@@ -785,9 +785,9 @@ if (Test-Piece 'tracker') {
     Add-Commit $trackerPersonal 'Задача из трекера'
     $links.Add([pscustomobject]@{ path = $trackerTask; status = 'Linked'; base = $trackerBase })
     $ghIssues['sandbox/tracker'] = @(
-        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52' }
-        [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48' }
-        [pscustomobject]@{ number = 7; title = 'Установщик проверяет вход в Claude Code до скачивания сборки'; url = 'https://github.com/sandbox/tracker/issues/7' }
+        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52'; labels = @('bug'); milestone = 'v2' }
+        [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48'; labels = @('enhancement') }
+        [pscustomobject]@{ number = 7; title = 'Установщик проверяет вход в Claude Code до скачивания сборки'; url = 'https://github.com/sandbox/tracker/issues/7'; labels = @('bug', 'installer') }
     )
     $bases.Add($trackerBase)
     $links.Add([pscustomobject]@{ path = $trackerCopy; status = 'Linked'; base = $trackerBase })
@@ -825,10 +825,10 @@ if (Test-Piece 'tracker') {
 "@
     Add-Commit $ytBase 'Трекер проекта'
     $youTrackIssues['ABC'] = @(
-        [pscustomobject]@{ number = 7; title = 'Письмо о сбросе пароля уходит без ссылки' }
-        [pscustomobject]@{ number = 12; title = 'Добавить роль «Бухгалтер» с доступом только к счетам' }
-        [pscustomobject]@{ number = 104; title = 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой' }
-        [pscustomobject]@{ number = 1287; title = 'Перевести отчёты на новую схему налогов' }
+        [pscustomobject]@{ number = 7; title = 'Письмо о сбросе пароля уходит без ссылки'; state = 'To Do'; tags = @('почта') }
+        [pscustomobject]@{ number = 12; title = 'Добавить роль «Бухгалтер» с доступом только к счетам'; state = 'In Progress'; tags = @() }
+        [pscustomobject]@{ number = 104; title = 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой'; state = 'To Do'; tags = @() }
+        [pscustomobject]@{ number = 1287; title = 'Перевести отчёты на новую схему налогов'; state = 'In Progress'; tags = @('отчёты') }
     )
     $bases.Add($ytBase)
     $links.Add([pscustomobject]@{ path = $ytCopy; status = 'Linked'; base = $ytBase })
