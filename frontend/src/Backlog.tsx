@@ -117,11 +117,14 @@ export default function Backlog({
   const trackerKinds = useRef<Record<string, string>>({})
 
   // all — читать трекеры всех баз (открытие раздела и «Обновить»); иначе только появившихся и сменившихся
-  const loadTrackers = useCallback((backlogs: BaseBacklog[], all: boolean) => {
+  // и трекер базы reread — туда перенесли запись бэклога
+  const loadTrackers = useCallback((backlogs: BaseBacklog[], all: boolean, reread: string | null) => {
     const round = all ? ++trackerRound.current : trackerRound.current
     const identity = (tracker: TrackerInfo) => `${tracker.kind}|${tracker.server ?? ''}|${tracker.project ?? ''}`
     const read = new Set(
-      backlogs.filter((b) => b.tracker && (all || trackerKinds.current[b.base] !== identity(b.tracker))).map((b) => b.base),
+      backlogs
+        .filter((b) => b.tracker && (all || b.base === reread || trackerKinds.current[b.base] !== identity(b.tracker)))
+        .map((b) => b.base),
     )
     trackerKinds.current = Object.fromEntries(backlogs.flatMap((b) => (b.tracker ? [[b.base, identity(b.tracker)]] : [])))
     setTrackers((prev) => {
@@ -145,7 +148,7 @@ export default function Backlog({
 
   // Задачи трекера перечитываются только при открытии раздела и по «Обновить» — критерий B-277: запись Чудо-Юдо
   // и запуск задачи перечитывают бэклог, но gh заново зовут только для трекера, которого раздел ещё не читал
-  const loadBacklogs = useCallback((readTrackers = false) => {
+  const loadBacklogs = useCallback((readTrackers = false, reread: string | null = null) => {
     fetch('/api/backlog')
       .then((response) => {
         if (!response.ok) throw new Error(`Бэклог не загрузился: HTTP ${response.status}`)
@@ -154,7 +157,7 @@ export default function Backlog({
       .then(
         (backlogs) => {
           setLoad({ kind: 'loaded', backlogs })
-          loadTrackers(backlogs, readTrackers)
+          loadTrackers(backlogs, readTrackers, reread)
           forgetGoneStartWords(backlogs)
           // База могла уйти из списка, пока раздел был открыт: показываем тогда все проекты.
           setFilter((current) => (backlogs.some((b) => b.base === current) ? current : null))
@@ -481,8 +484,9 @@ export default function Backlog({
             setMoving(null)
             focusOpener()
           }}
-          // Задача заведена — бэклог перечитывается: запись из него ушла или, если вырезать не вышло, осталась
-          onMoved={() => loadBacklogs()}
+          // Задача заведена — бэклог перечитывается: запись из него ушла или, если вырезать не вышло, осталась;
+          // трекер этой базы перечитывается с заготовкой, как по «Обновить», и показывает заведённую задачу
+          onMoved={() => loadBacklogs(false, moving.base)}
         />
       )}
       {writing && (

@@ -62,6 +62,8 @@ function stubFetch(...responses: BaseBacklog[][]) {
   let rows = copies
   let taskReply: Response | null = null
   let artifactReply: () => Response = () => new Response(null, { status: 204 })
+  let moveReply: () => Response = () =>
+    Response.json({ issue: { name: 'GitHub #58', number: 58, title: 'Заголовок', url: 'https://github.com/acme/orders/issues/58' } })
   // Задачи трекера по базам: ответ или обещание ответа — им тест держит чтение трекера незаконченным
   const trackerReplies = new Map<string, () => Promise<Response>>()
   // Задержка ответов бэклога: пока она стоит, чтение бэклога не кончается
@@ -80,7 +82,7 @@ function stubFetch(...responses: BaseBacklog[][]) {
     }
     if (url === '/api/backlog/tracker/move') {
       posts.push(JSON.parse(String(init?.body)))
-      return Promise.resolve(Response.json({ issue: { name: 'GitHub #58', number: 58, title: 'Заголовок', url: 'https://github.com/acme/orders/issues/58' } }))
+      return Promise.resolve(moveReply())
     }
     if (url === '/api/backlog/artifact/open') {
       posts.push(JSON.parse(String(init?.body)))
@@ -120,6 +122,9 @@ function stubFetch(...responses: BaseBacklog[][]) {
     },
     setArtifactReply: (next: () => Response) => {
       artifactReply = next
+    },
+    setMoveReply: (next: Response) => {
+      moveReply = () => next
     },
     setTracker: (base: string, reply: () => Promise<Response>) => {
       trackerReplies.set(base, reply)
@@ -1384,23 +1389,70 @@ test('у проекта без трекера кнопки «В трекер» �
   expect(screen.queryByRole('button', { name: 'В трекер' })).not.toBeInTheDocument()
 })
 
-test('перенос из строки записи заводит задачу и перечитывает бэклог', async () => {
-  const fetchMock = stubFetch(withTracker(github), [{ ...backlogs[0], entries: [backlogs[0].entries[1]], tracker: github }, backlogs[1]])
-  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
+const moved = { name: 'GitHub #58', number: 58, title: 'Заголовок', url: 'https://github.com/acme/orders/issues/58' }
+
+/** Сколько раз читали задачи трекера одной базы. */
+const trackerReadsOf = (fetchMock: ReturnType<typeof stubFetch>, base: string) =>
+  fetchMock.mock.calls.filter(([url]) => url === `/api/backlog/tracker?base=${encodeURIComponent(base)}`).length
+
+test('перенос из строки записи заводит задачу и перечитывает бэклог и трекер своей базы', async () => {
+  const other = { ...github, project: 'acme/notes' }
+  const fetchMock = stubFetch(
+    [{ ...backlogs[0], tracker: github }, { ...backlogs[1], tracker: other }],
+    [{ ...backlogs[0], entries: [backlogs[0].entries[1]], tracker: github }, { ...backlogs[1], tracker: other }],
+  )
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+  fetchMock.setTracker(backlogs[1].base, answer({ issues: [], problem: null }))
 
   render(<Backlog />)
-  const row = (await screen.findByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).closest('.entry-row')!
-  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /#52/ })
+  expect(trackerReadsOf(fetchMock, backlogs[0].base)).toBe(1)
 
+  // Трекер после переноса отвечает не сразу: пока он читается, на месте его задач — заготовка, как по «Обновить»
+  let reply: (response: Response) => void = () => {}
+  fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (reply = resolve)))
+  const row = project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
   const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
   fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
 
   expect(await screen.findByRole('dialog', { name: 'Задача заведена' })).toBeInTheDocument()
   expect(fetchMock.posts).toContainEqual({ base: backlogs[0].base, number: 'B-1', original: '## B-1 Заголовок' })
-  await waitFor(() => expect(screen.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument())
+  expect(await project.findByRole('status', { name: 'Загрузка задач трекера' })).toBeInTheDocument()
+  expect(project.queryByRole('link', { name: /#52/ })).not.toBeInTheDocument()
+  expect(project.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument()
+
+  reply(Response.json({ issues: [moved, ...issues], problem: null }))
+  expect(await project.findByRole('link', { name: /#58 Заголовок/ })).toBeInTheDocument()
+  expect(project.getByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
   expect(fetchMock.backlogReads()).toBe(2)
-  // Задачи трекера перечитываются только открытием раздела и «Обновить» — как после записи Чудо-Юдо (B-277)
-  expect(fetchMock.trackerReads()).toBe(1)
+  expect(trackerReadsOf(fetchMock, backlogs[0].base)).toBe(2)
+  // Трекер другого проекта перенос не трогает
+  expect(trackerReadsOf(fetchMock, backlogs[1].base)).toBe(1)
+})
+
+test('задача заведена, а запись не вырезалась — трекер всё равно перечитывается и показывает задачу рядом с записью', async () => {
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+  fetchMock.setMoveReply(
+    Response.json({ issue: moved, error: 'Запись не вырезана: backlog.md правили в другом месте.', output: null, removed: [] }),
+  )
+
+  render(<Backlog />)
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /#52/ })
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [moved, ...issues], problem: null }))
+
+  const row = project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
+  const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
+  fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
+
+  expect(await project.findByRole('link', { name: /#58 Заголовок/ })).toBeInTheDocument()
+  expect(project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(2)
 })
 
 test('у задачи трекера «Взять задачу» погашена, когда свободной копии нет', async () => {
