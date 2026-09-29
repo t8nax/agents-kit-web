@@ -232,7 +232,7 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
     [Fact]
     public async Task Save_KeepsLineEndingsBomAndHeaderOfFile()
     {
-        var text = TrackerDescriptions.Serialize(GitHub, "x", "# Заказы — наш трекер").Replace("\n", "\r\n");
+        var text = TrackerDescriptions.Serialize(GitHub, "x", new TrackerFrame("# Заказы — наш трекер", "", "")).Replace("\n", "\r\n");
         File.WriteAllBytes(TrackerFile, [0xEF, 0xBB, 0xBF, .. System.Text.Encoding.UTF8.GetBytes(text)]);
         TestGit.Run(_base, "add", "--", "tracker.md");
         TestGit.Run(_base, "commit", "-q", "-m", "трекер");
@@ -284,6 +284,50 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("сессия", Git("log", "-1", "--format=%s"));
     }
 
+    /// <summary>Текст над разделами и разделы не из таблицы запись переносит как есть: панель не стирает того, чего не показывает.</summary>
+    [Fact]
+    public async Task Save_KeepsIntroAndForeignSections()
+    {
+        Committed(
+            "Вступление, которое кит не требует.\n\n" + TrackerDescriptions.Serialize(GitHub, "Order Service").TrimEnd()
+            + "\n\n## Свой раздел\n\nЗаметки команды.\n```\n# не заголовок\n```\n");
+        var client = await Client();
+
+        var response = await Save(client, _base, ProjectTrackersEndpoints.Version(TrackerFile), GitHub with { Project = "acme/crm" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var text = File.ReadAllText(TrackerFile);
+        Assert.StartsWith("# Order Service — трекер\n\nВступление, которое кит не требует.\n\n## Где задачи", text);
+        Assert.EndsWith("## Свой раздел\n\nЗаметки команды.\n```\n# не заголовок\n```\n", text);
+        Assert.Contains("проект: acme/crm", text);
+    }
+
+    /// <summary>Строки ключей для кита — уже непустой «Где задачи»: карточка не приписывает киту требование слов под ними.</summary>
+    [Fact]
+    public async Task List_KeysWithoutWords_IsNotKitFault()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub with { Where = "" }, "X"));
+
+        var row = await Row(await Client(kit: false));
+
+        Assert.Empty(row.Faults!);
+    }
+
+    /// <summary>Путь копии в памяти — полным: «a\..\b» и «b» — одна копия, и задача в подсказке «Удалить» одна.</summary>
+    [Fact]
+    public async Task List_TaskCopyOfMemory_IsFullPath()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        File.WriteAllText(
+            Path.Combine(TestLayout.Work(_base), "a.md"),
+            $"# GitHub #37 Починить выгрузку\nрабочая копия: {Path.Combine(_root, "gone", "..", "app")}\n");
+        var client = await Client();
+        _factory!.Services.GetRequiredService<AgentsKitWeb.Api.Tasks.StartedTasks>().Add(_main, "s1", "GitHub #37 Починить выгрузку", _base);
+
+        var row = await Row(client);
+
+        Assert.Equal([new TrackerTask("GitHub #37 Починить выгрузку", _main)], row.Busy);
+    }
     private string Hook => Path.Combine(_base, ".git", "hooks", "pre-commit");
 
     /// <summary>Коммит отказан — описание возвращается как было, в индексе ничего не остаётся, база на сервер не идёт.</summary>

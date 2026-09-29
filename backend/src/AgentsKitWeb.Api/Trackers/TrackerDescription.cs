@@ -21,6 +21,9 @@ public sealed record TrackerDescription(
     string Closed = "",
     string Move = "");
 
+/// <summary>Что в tracker.md вне полей окна: заголовок «# …», текст над первым разделом, разделы не из таблицы кита.</summary>
+public sealed record TrackerFrame(string? Header, string Intro, string Extra);
+
 /// <summary>Трекер из таблицы трекеров кита: имя, как его пишет /tracker, и шаблон проекта на значение целиком.</summary>
 public sealed record KnownTracker(string Name, Regex ProjectPattern, string ProjectFault);
 
@@ -109,11 +112,14 @@ public static partial class TrackerDescriptions
     /// Текст tracker.md в форме кита: заголовок «# &lt;проект&gt; — трекер» (или прежний заголовок файла), «## Где задачи» с тремя строками, пустой
     /// строкой и словами, за ним остальные разделы в порядке таблицы. Имя трекера — как в таблице кита.
     /// </summary>
-    public static string Serialize(TrackerDescription description, string project, string? header = null)
+    public static string Serialize(TrackerDescription description, string project, TrackerFrame? frame = null)
     {
         var name = Find(description.Tracker)?.Name ?? description.Tracker.Trim();
         var text = new StringBuilder()
-            .Append(header is null ? $"# {project} — трекер\n\n" : $"{header.TrimEnd()}\n\n")
+            .Append(frame?.Header is { } header ? $"{header.TrimEnd()}\n\n" : $"# {project} — трекер\n\n");
+        if (frame?.Intro is { Length: > 0 } intro)
+            text.Append(intro).Append("\n\n");
+        text
             .Append($"## {WhereSection}\n\n")
             .Append($"трекер: {name}\n")
             .Append($"сервер: {description.Server.Trim()}\n")
@@ -128,8 +134,51 @@ public static partial class TrackerDescriptions
                      (MoveSection, description.Move),
                  })
             text.Append($"\n## {section}\n\n").Append(Trim(body)).Append('\n');
+        if (frame?.Extra is { Length: > 0 } extra)
+            text.Append('\n').Append(extra).Append('\n');
         return text.ToString();
     }
+
+    /// <summary>
+    /// Что в файле вне полей окна: заголовок «# …» над первым разделом, текст между ним и первым разделом и разделы не
+    /// из таблицы кита целиком. Запись описания переносит их как есть — панель не стирает того, чего не показывает
+    /// (ревью B-293). Заголовки «#» и «##» внутри блоков кода — не заголовки, как у сверки кита.
+    /// </summary>
+    public static TrackerFrame Frame(string text)
+    {
+        string? header = null;
+        var intro = new List<string>();
+        var extra = new List<string>();
+        var fence = false;
+        var inSection = false;
+        var foreign = false;
+        foreach (var line in text.ReplaceLineEndings("\n").Split('\n'))
+        {
+            if (!fence && Workspaces.Tracker.Heading().Match(line) is { Success: true } heading)
+            {
+                inSection = true;
+                foreign = !Table.Contains(heading.Groups[1].Value);
+                if (foreign)
+                    extra.Add(line);
+                continue;
+            }
+            var fenceLine = line.StartsWith("```", StringComparison.Ordinal);
+            if (!inSection)
+            {
+                if (header is null && !fence && !fenceLine && line.StartsWith("# ", StringComparison.Ordinal))
+                    header = line;
+                else
+                    intro.Add(line);
+            }
+            else if (foreign)
+                extra.Add(line);
+            if (fenceLine)
+                fence = !fence;
+        }
+        return new TrackerFrame(header, Trim(intro), Trim(extra));
+    }
+
+    private static readonly string[] Table = [WhereSection, BacklogSection, TakeSection, ClosedSection, MoveSection];
 
     /// <summary>
     /// Что в описании не примет сверка кита — по полю окна: tracker, server, project, where, backlog, take, closed,

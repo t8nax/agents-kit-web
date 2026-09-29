@@ -138,7 +138,8 @@ public static partial class ProjectTrackersEndpoints
     }
 
     /// <summary>
-    /// Байты tracker.md: описание в форме кита, а переводы строк, BOM и заголовок «# …» — как у прежнего файла:
+    /// Байты tracker.md: описание в форме кита, а переводы строк, BOM, заголовок «# …», текст над разделами и разделы не
+    /// из таблицы — как у прежнего файла:
     /// иначе каждая правка переписывала бы в истории базы весь файл (ревью B-293). Файла не было — LF, без BOM,
     /// заголовок по имени проекта, как у кита.
     /// </summary>
@@ -146,8 +147,7 @@ public static partial class ProjectTrackersEndpoints
     {
         var bom = before is [0xEF, 0xBB, 0xBF, ..];
         var old = before is null ? null : new UTF8Encoding(false).GetString(before, bom ? 3 : 0, before.Length - (bom ? 3 : 0));
-        var header = old?.ReplaceLineEndings("\n").Split('\n').FirstOrDefault(l => l.StartsWith("# ", StringComparison.Ordinal));
-        var text = TrackerDescriptions.Serialize(description, project, header);
+        var text = TrackerDescriptions.Serialize(description, project, old is null ? null : TrackerDescriptions.Frame(old));
         if (old is not null && old.Contains("\r\n"))
             text = text.Replace("\n", "\r\n");
         var bytes = Encoding.UTF8.GetBytes(text);
@@ -197,7 +197,7 @@ public static partial class ProjectTrackersEndpoints
             .Select(s => new TrackerTask(s.Task, s.Copy));
         return WorkspaceCollector.AllMemories(layout)
             .Where(e => e.Memory.Task is { } task && pattern.IsMatch(task))
-            .Select(e => new TrackerTask(e.Memory.Task!, e.Memory.Copy))
+            .Select(e => new TrackerTask(e.Memory.Task!, FullPath(e.Memory.Copy)))
             .Concat(launching)
             .DistinctBy(t => (t.Copy is null ? "" : WorkspaceCollector.Normalize(t.Copy), taskNumber(t.Task)))
             .OrderBy(t => t.Task, StringComparer.Ordinal)
@@ -215,7 +215,25 @@ public static partial class ProjectTrackersEndpoints
         var faults = TrackerDescriptions.Faults(description);
         if (description.Tracker.Trim().Length > 0)
             faults.Remove("tracker");
+        // Строки ключей для кита — уже непустой раздел «Где задачи»; слов под ними требует только панель при записи.
+        if (new[] { description.Tracker, description.Server, description.Project }.Any(v => v.Trim().Length > 0))
+            faults.Remove("where");
         return faults;
+    }
+
+    /// <summary>Путь копии из памяти — полным, как его приводит таблица копий: «a\..\b» — та же копия, что «b».</summary>
+    private static string? FullPath(string? copy)
+    {
+        if (copy is null)
+            return null;
+        try
+        {
+            return Path.GetFullPath(copy);
+        }
+        catch (Exception e) when (e is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return copy;
+        }
     }
 
     /// <summary>Имя трекера из описания, которое строки «Бэклога» не назвали (сломанный сервер или проект).</summary>

@@ -207,6 +207,17 @@ public class TrackerDescriptionTests
     }
 
     [Fact]
+    public void Frame_TakesHeaderIntroAndForeignSections()
+    {
+        var frame = TrackerDescriptions.Frame(
+            "```\n# в коде\n```\n# Заказы — трекер\nВступление.\n\n## Где задачи\n\nтрекер: GitHub\n\n## Свой\nзаметки\n```\n## в коде\n```\n## Показ бэклога\nмои\n");
+
+        Assert.Equal("# Заказы — трекер", frame.Header);
+        Assert.Equal("```\n# в коде\n```\nВступление.", frame.Intro);
+        Assert.Equal("## Свой\nзаметки\n```\n## в коде\n```", frame.Extra);
+    }
+
+    [Fact]
     public void Changed_CountsLinesAndSections()
     {
         var after = Full with { Project = "CRM", Take = Full.Take + "\nМетка in-progress.", Move = Full.Move + "  \r\n" };
