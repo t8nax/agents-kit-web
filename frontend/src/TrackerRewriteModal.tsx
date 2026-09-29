@@ -118,6 +118,11 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
   const outcome = result?.at === proposalAt ? result.outcome : null
   const setOutcome = (next: Outcome | null) => setResult(next ? { at: proposalAt, outcome: next } : null)
   const kind = knownTracker(draft.tracker)
+  // Пока Чудо-Юдо отвечает, поля не правятся: его предложение легло бы поверх набранного (ревью B-293).
+  const answering = running && !foreign
+  const fields: DescriptionField[] = ['tracker', 'server', 'project', 'where', 'backlog', 'take', 'closed', 'move']
+  // Имеющееся описание без правок записывать нечего.
+  const unchanged = saved !== null && fields.every((field) => sameField(field, saved, draft))
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -341,7 +346,7 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
                           name="tf-kind"
                           className="visually-hidden"
                           checked={kind === name}
-                          disabled={applying}
+                          disabled={applying || answering}
                           onChange={() => edit('tracker', name)}
                         />
                         <ChoiceMark />
@@ -367,7 +372,7 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
                         placeholder={kind ? (field === 'server' ? serverPlaceholder : projectPlaceholder)[kind] : undefined}
                         autoComplete="off"
                         spellCheck={false}
-                        disabled={applying}
+                        disabled={applying || answering}
                         aria-invalid={faults[field] ? true : undefined}
                         onChange={(e) => edit(field, e.target.value)}
                       />
@@ -391,7 +396,7 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
                       rows={2}
                       value={draft[field]}
                       placeholder={hint}
-                      disabled={applying}
+                      disabled={applying || answering}
                       aria-invalid={faults[field] ? true : undefined}
                       onChange={(e) => edit(field, e.target.value)}
                     />
@@ -454,7 +459,7 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={applying || running || outcome?.kind === 'unpushed'}
+                  disabled={applying || answering || unchanged || outcome?.kind === 'unpushed'}
                   onClick={() => void apply()}
                 >
                   {applying ? (checked(kind) ? 'Проверка…' : 'Запись…') : 'Принять правки'}

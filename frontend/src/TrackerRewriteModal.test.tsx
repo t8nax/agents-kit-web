@@ -221,6 +221,7 @@ test('база не ушла на сервер — описание записа
   const { onSaved } = renderModal()
 
   changes()
+  fireEvent.change(screen.getByLabelText('Проект'), { target: { value: 'CRM2' } })
   fireEvent.click(screen.getByRole('button', { name: 'Принять правки' }))
 
   const alert = await screen.findByRole('alert')
@@ -242,4 +243,50 @@ test('описание поменялось под окном — карточк
   expect(await screen.findByRole('alert')).toHaveTextContent('Описание трекера изменилось с тех пор, как окно его прочитало.')
   expect(onSaved).toHaveBeenCalledTimes(1)
   expect(screen.getByLabelText('Проект')).toHaveValue('CRM2')
+})
+
+// Ревью B-293: пока Чудо-Юдо отвечает, поля не правятся — его предложение легло бы поверх набранного.
+test('пока Чудо-Юдо отвечает, поля и «Принять правки» погашены, после ответа открыты', async () => {
+  const stream = controlledStream<TrackerEvent>()
+  stubFetch(stream)
+  renderModal()
+  await say('Проект переехал')
+  stream.send({ type: 'reply', text: 'Проект переехал' })
+  await screen.findByText('Чудо-Юдо разбирает трекер crm-core…')
+
+  changes()
+  expect(screen.getByLabelText('Проект')).toBeDisabled()
+  expect(screen.getByRole('radio', { name: 'Jira' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
+
+  stream.send({ type: 'answer', text: 'Поменял.', durationMs: 1000, proposal, changed: { lines: 1, sections: 3 } })
+  await waitFor(() => expect(screen.getByLabelText('Проект')).toBeEnabled())
+  expect(screen.getByLabelText('Проект')).toHaveValue('CRM2')
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeEnabled()
+})
+
+test('имеющееся описание без правок записывать нечего — «Принять правки» погашена', async () => {
+  stubFetch(controlledStream<TrackerEvent>())
+  renderModal()
+
+  changes()
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Проект'), { target: { value: 'CRM2' } })
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeEnabled()
+  fireEvent.change(screen.getByLabelText('Проект'), { target: { value: 'CRM' } })
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
+})
+
+test('переписка о трекере другого проекта запись этого не держит', async () => {
+  const stream = controlledStream<TrackerEvent>()
+  stubPanel('tracker', stream, {
+    running: { kind: 'tracker', id: 'r1', base: String.raw`D:\Projects\other-knowledge`, project: 'Другой', text: 'x', elapsedMs: 0, state: 'running' },
+  })
+  renderModal()
+
+  expect(await screen.findByText(/Идёт переписка о трекере Другой/)).toBeInTheDocument()
+  changes()
+  fireEvent.change(screen.getByLabelText('Проект'), { target: { value: 'CRM2' } })
+  expect(screen.getByLabelText('Проект')).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeEnabled()
 })
