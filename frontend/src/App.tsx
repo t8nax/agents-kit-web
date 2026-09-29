@@ -18,6 +18,7 @@ import Reports, { ReportIcon } from './Reports'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
+import Guide from './Guide'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
 import { PlayIcon } from './StartTaskModal'
@@ -148,6 +149,7 @@ type Section =
   | 'reports'
   | 'problems'
   | 'settings'
+  | 'guide'
 
 function App() {
   const [state, setState] = useState<State>({ rows: null, failed: false })
@@ -305,7 +307,7 @@ function App() {
           waiting={state.rows?.filter(needsOperator).length ?? 0}
           onSection={chooseSection}
         />
-        <main className={`content ${section === 'flow' ? 'content-fixed' : ''}`}>
+        <main className={`content ${section === 'flow' || section === 'guide' ? 'content-fixed' : ''}`}>
           {section === 'workspaces' ? (
             <>
               <div className="content-head">
@@ -383,6 +385,8 @@ function App() {
             />
           ) : section === 'problems' ? (
             <Problems onSettings={() => setSection('settings')} />
+          ) : section === 'guide' ? (
+            <Guide />
           ) : (
             <Settings
               trackerFor={openRequest?.kind === 'tracker' ? { base: openRequest.base, at: openRequest.at } : null}
@@ -554,6 +558,15 @@ function Sidebar({
         >
           <GearIcon />
         </SideItem>
+        {/* Руководство — последним, под настройками: в него идут не за работой, а за объяснением (B-306) */}
+        <SideItem
+          label="Руководство"
+          expanded={expanded}
+          active={section === 'guide'}
+          onClick={() => onSection('guide')}
+        >
+          <BookIcon />
+        </SideItem>
       </nav>
     </div>
   )
@@ -590,6 +603,15 @@ function SideItem({
       {expanded && <span className="side-label">{label}</span>}
       {note && (expanded ? <span className="side-count">{note}</span> : <span className="side-dot" />)}
     </button>
+  )
+}
+
+function BookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z" />
+      <path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z" />
+    </svg>
   )
 }
 
