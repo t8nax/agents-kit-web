@@ -59,6 +59,33 @@ a.entry {
   flex-shrink: 0;
 }
 
+/* Метки задачи GitHub — серые плашки сразу за заголовком, квадратнее плашки приоритета, чтобы их не путать (макет B-305). */
+.issue-labels {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Заголовок задачи не растягивается: метки стоят за ним, а значок ссылки — у правого края. */
+.tracker-issues .entry-title {
+  flex: 0 1 auto;
+}
+
+.tracker-issues .tracker-out {
+  margin-left: auto;
+}
+
+.issue-label {
+  font-size: 12px;
+  line-height: 16px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  background: var(--accent-free-bg);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
 /* На месте шеврона окна — значок «открыть во вкладке». */
 .tracker-out {
   width: 16px;

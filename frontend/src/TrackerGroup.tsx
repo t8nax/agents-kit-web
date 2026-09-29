@@ -195,6 +195,17 @@ export default function TrackerGroup({
                   <span className="tracker-num">{issueLabel(issue)}</span>
                 </span>{' '}
                 <span className="entry-title">{issue.title}</span>
+                {/* Метки — серыми плашками сразу за заголовком, не цветами GitHub: цвет в строке несёт только
+                    приоритет записи (B-305) */}
+                {issue.labels && issue.labels.length > 0 && (
+                  <span className="issue-labels">
+                    {issue.labels.map((label) => (
+                      <span key={label} className="issue-label">
+                        {label}
+                      </span>
+                    ))}
+                  </span>
+                )}
                 <OutIcon />
               </a>
               {children(issue)}

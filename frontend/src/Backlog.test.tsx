@@ -1009,6 +1009,19 @@ test('на вкладке трекера — только проекты с тр
   expect(fetchMock.trackerReads()).toBe(1)
 })
 
+test('метки задачи GitHub — серыми плашками за заголовком; у задачи без меток плашек нет', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [{ ...issues[0], labels: ['bug', 'ui'] }, issues[1]], problem: null }))
+
+  render(<Backlog />)
+
+  const labeled = await screen.findByRole('link', { name: /#52/ })
+  expect([...labeled.querySelectorAll('.issue-label')].map((el) => el.textContent)).toEqual(['bug', 'ui'])
+  expect(labeled.querySelector('.entry-title + .issue-labels')).not.toBeNull()
+  expect(screen.getByRole('link', { name: /#7/ }).querySelector('.issue-labels')).toBeNull()
+})
+
 test('вкладка помнится между открытиями раздела; раздел с просьбой к Чудо-Юдо открывается на записях', async () => {
   const fetchMock = stubFetch(withTracker(github))
   fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
