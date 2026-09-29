@@ -209,10 +209,12 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     /// <summary>
     /// Агент только читает: набор инструментов сужен до чтения, а не одобрен поверх остальных. Реплики уходят
     /// в stdin, а не в аргументы: текст оператора не должен стать флагом или командой. Копия проекта подана
-    /// вторым каталогом: агент остаётся в базе, а код читает рядом с ней — тоже только чтением.
+    /// вторым каталогом: агент остаётся в базе, а код читает рядом с ней — тоже только чтением. Руководство
+    /// панели — ещё одним каталогом: об устройстве самой панели оператор спрашивает здесь же (B-306).
     /// </summary>
     public static ProcessStartInfo StartInfo(string basePath, string? copyPath = null)
     {
+        var guide = Directory.Exists(AskEndpoints.GuideDir) ? AskEndpoints.GuideDir : null;
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, basePath);
         foreach (var arg in new[]
                  {
@@ -223,7 +225,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                      "--tools", "Read,Grep,Glob",
                      "--no-session-persistence",
                      "--strict-mcp-config",
-                     "--append-system-prompt", AskEndpoints.Prompt(BaseLayout.Read(basePath)?.Operator, copyPath),
+                     "--append-system-prompt", AskEndpoints.Prompt(BaseLayout.Read(basePath)?.Operator, copyPath, guide),
                  })
             startInfo.ArgumentList.Add(arg);
         AgentProcess.AddAutoMode(startInfo);
@@ -231,6 +233,11 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         {
             startInfo.ArgumentList.Add("--add-dir");
             startInfo.ArgumentList.Add(copyPath);
+        }
+        if (guide is not null)
+        {
+            startInfo.ArgumentList.Add("--add-dir");
+            startInfo.ArgumentList.Add(guide);
         }
         return startInfo;
     }
@@ -304,14 +311,35 @@ public static class AskEndpoints
         ? "Своё у оператора этого компьютера"
         : $"Своё у оператора этого компьютера, {operatorName},";
 
-    /// <summary>Без копии агент знает только базу; с копией ему названо, где код проекта.</summary>
-    internal static string Prompt(string? operatorName, string? copyPath) => copyPath is null
-        ? SystemPrompt(operatorName)
-        : $"""
-            {SystemPrompt(operatorName)}
-            Код проекта — в каталоге {copyPath}: это рабочая копия проекта, её тоже только читай. Вопрос о коде
-            проверяй по самому коду, а не по пересказу в базе.
-            """;
+    /// <summary>
+    /// Страницы руководства панели: сборка кладёт их рядом с exe, и в запуске для разработки — тоже (csproj).
+    /// </summary>
+    public static string GuideDir => Path.Combine(AppContext.BaseDirectory, "guide");
+
+    /// <summary>
+    /// Без копии агент знает только базу; с копией ему названо, где код проекта; с руководством — где страницы
+    /// о самой панели.
+    /// </summary>
+    internal static string Prompt(string? operatorName, string? copyPath, string? guidePath = null)
+    {
+        var prompt = SystemPrompt(operatorName);
+        if (copyPath is not null)
+            prompt = $"""
+                {prompt}
+                Код проекта — в каталоге {copyPath}: это рабочая копия проекта, её тоже только читай. Вопрос о коде
+                проверяй по самому коду, а не по пересказу в базе.
+                """;
+        if (guidePath is not null)
+            prompt = $"""
+                {prompt}
+                Разговор идёт в панели agents-kit-web, и оператор спрашивает и о ней самой: что в каком разделе, как что
+                сделать, что значит статус или надпись. Руководство оператора по панели — в каталоге {guidePath}:
+                start.md — с чего начать и словарь, header.md — шапка панели и разговор с тобой, остальные страницы —
+                по разделу панели: workspaces.md, backlog.md, flow.md, performers.md, sessions.md, usage.md,
+                reports.md, problems.md, settings.md. На вопросы о панели отвечай по этим страницам, тоже только читая.
+                """;
+        return prompt;
+    }
 
     public static void MapAskEndpoints(this IEndpointRouteBuilder app)
     {

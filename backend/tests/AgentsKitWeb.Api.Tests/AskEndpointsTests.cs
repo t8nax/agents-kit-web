@@ -69,6 +69,25 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Equal(8335, answer.DurationMs);
     }
 
+    // Критерий 5 B-306: о самой панели Чудо-Юдо отвечает по её руководству, которое лежит рядом с панелью.
+    [Fact]
+    public async Task Ask_GivesTheAgentThePanelGuide()
+    {
+        Assert.True(File.Exists(Path.Combine(AskEndpoints.GuideDir, "workspaces.md")));
+        _agent.Answers = [[Result("ok")]];
+
+        var client = Client(_base);
+        await Ask(client, _base, "как удалить копию?");
+        await Read(client, 2);
+
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        Assert.Contains(AskEndpoints.GuideDir, args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
+        Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains($"Руководство оператора по панели — в каталоге {AskEndpoints.GuideDir}", prompt);
+        Assert.Contains("workspaces.md", prompt);
+    }
+
     [Fact]
     public async Task Ask_RunsReadOnlyClaudeInBaseWithReplyOnStdin()
     {
@@ -90,8 +109,8 @@ public sealed class AskEndpointsTests : IDisposable
         // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
         Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
         Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
-        // Копия не выбрана — разговор идёт по одной базе.
-        Assert.DoesNotContain("--add-dir", args);
+        // Копия не выбрана — разговор идёт по одной базе, а вторым каталогом подано только руководство панели.
+        Assert.Equal([AskEndpoints.GuideDir], args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
         // Флоу базы лежит в форме кита — сценарии и этапы по файлу: так агенту и сказано, где его читать.
