@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import type { WorkspaceRow } from './App'
 import './Backlog.css'
 import BacklogWriteModal, { AGENT_NAME, WriteIcon } from './BacklogWriteModal'
-import { arrange, emptySelection, isFiltering, matchesIssue, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
+import { arrange, emptySelection, isFiltering, matchesIssue, newlyTracked, PRIORITIES, readOrder, readRemembered, remember, TYPES, writeOrder, type Order, type Selection, type SortField } from './backlogView'
 import { InlineMarkdown, Markdown } from './Markdown'
 import { FormatNotice, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import { Sk, Skeleton } from './Skeleton'
@@ -211,15 +211,11 @@ export default function Backlog({
   // Панель записала изменения по «Сохранить» — список показывает новый бэклог.
   const markSaved = useCallback(() => loadBacklogs(), [loadBacklogs])
 
-  // Задачи трекера, которые завёл разговор с Чудо-Юдо и под которые трекер уже перечитан: окно, открытое заново,
-  // называет их снова, а группа от этого не мигает заготовкой
-  const trackedSeen = useRef(new Set<string>())
+  // Разговор с Чудо-Юдо завёл задачи трекера — трекер базы перечитывается, но только под задачи, названные впервые:
+  // окно, открытое заново, называет их снова, а группа от этого не мигает заготовкой
   const markTracked = useCallback(
     (base: string, issues: string[]) => {
-      const fresh = issues.map((issue) => `${base}|${issue}`).filter((key) => !trackedSeen.current.has(key))
-      if (fresh.length === 0) return
-      fresh.forEach((key) => trackedSeen.current.add(key))
-      loadBacklogs(false, base)
+      if (newlyTracked(base, issues).length > 0) loadBacklogs(false, base)
     },
     [loadBacklogs],
   )

@@ -100,9 +100,22 @@ export function remember(next: Remembered) {
   remembered = next
 }
 
+// Задачи трекера, которые завёл разговор с Чудо-Юдо и под которые трекер уже перечитан, — «база|имя задачи». Они живут
+// в памяти страницы, как отбор: разговор переживает уход из раздела, и окно, открытое после возвращения, называет
+// их снова — трекер под них второй раз не перечитывается (GitHub #3).
+const tracked = new Set<string>()
+
+/** Какие из задач трекера разговор назвал впервые; они запоминаются. */
+export function newlyTracked(base: string, issues: string[]): string[] {
+  const fresh = issues.filter((issue) => !tracked.has(`${base}|${issue}`))
+  fresh.forEach((issue) => tracked.add(`${base}|${issue}`))
+  return fresh
+}
+
 /** Для тестов: каждый начинает с раздела без отбора, как после перезагрузки страницы. */
 export function forgetRemembered() {
   remembered = nothingRemembered
+  tracked.clear()
 }
 
 const orderKey = 'agents-kit-web.backlog-order'

@@ -1483,7 +1483,7 @@ test('«Сохранить» Чудо-Юдо с переносом в треке
   let reply: (response: Response) => void = () => {}
   fetchMock.setTracker([answer({ issues, problem: null }), () => new Promise<Response>((resolve) => (reply = resolve))])
 
-  render(<Backlog />)
+  const view = render(<Backlog />)
   const { project, dialog } = await saySaving()
 
   // Пока трекер читается — заготовка на месте его задач
@@ -1500,6 +1500,19 @@ test('«Сохранить» Чудо-Юдо с переносом в треке
   await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length).toBe(4))
   expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
   expect(fetchMock.trackerReads()).toBe(2)
+
+  // Ушли в другой раздел и вернулись: раздел читает трекер при открытии, а окно с тем же разговором — уже нет
+  fetchMock.setTracker([answer({ issues: [moved, ...issues], problem: null })])
+  view.unmount()
+  render(<Backlog />)
+  const again = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await again.findByRole('link', { name: /#58 Заголовок/ })
+  expect(fetchMock.trackerReads()).toBe(3)
+  fireEvent.click(screen.getByRole('button', { name: 'Попросить Чудо-Юдо' }))
+  await within(await screen.findByRole('dialog', { name: 'Чудо-Юдо' })).findByText('Мысль')
+  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length).toBe(6))
+  expect(again.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(3)
 })
 
 test('«Сохранить» Чудо-Юдо без переноса трекер не перечитывает', async () => {
