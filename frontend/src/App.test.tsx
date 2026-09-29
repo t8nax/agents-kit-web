@@ -1194,6 +1194,7 @@ test('строка поломки трекера в «Бэклоге» откр�
   await screen.findByRole('table')
 
   fireEvent.click(sidebarButtons().getByRole('button', { name: /Бэклог/ }))
+  fireEvent.click(await screen.findByRole('tab', { name: 'Задачи трекера' }))
   fireEvent.click(await screen.findByRole('button', { name: '«Трекеры проектов»' }))
 
   expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()

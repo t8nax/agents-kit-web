@@ -711,6 +711,8 @@ public static class GhShim
     $stub = @'
 # Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» задачами из gh-issues.json
 # корня песочницы — объект «репозиторий: [задачи]»; репозитория там нет — как GitHub о чужом.
+# Метки задачи — полем labels задачи в том же файле, как их отдаёт gh ([{ name, color }]); «gh label list --repo …»
+# (перечень фильтра «Метки», B-305) отвечает метками репозитория из gh-labels.json — объект «репозиторий: [имена]».
 # «gh issue create --repo … --title …» (перенос записи бэклога, B-286) дописывает задачу в тот же файл
 # следующим номером — она назначена на оператора и видна в разделе после «Обновить», — кладёт описание,
 # пришедшее во ввод, в gh-created\<номер>.md корня песочницы и печатает адрес задачи, как gh.
@@ -735,6 +737,7 @@ for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
     if ($arguments[$i] -eq '--title') { $title = $arguments[$i + 1] }
 }
 $creating = $arguments.Count -ge 2 -and $arguments[0] -eq 'issue' -and $arguments[1] -eq 'create'
+$labeling = $arguments.Count -ge 2 -and $arguments[0] -eq 'label' -and $arguments[1] -eq 'list'
 # Панель пишет описание в UTF-8, как его читает настоящая gh; скрытый pwsh иначе читал бы ввод кодировкой консоли
 [Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
 # Описание приходит во ввод и читается до всякого ответа: иначе панель ждала бы, пока его заберут.
@@ -757,6 +760,14 @@ $issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom
 if (-not $repo -or -not ($issues.PSObject.Properties.Name -contains $repo)) {
     [Console]::Error.WriteLine("GraphQL: Could not resolve to a Repository with the name '$repo'. (repository)")
     exit 1
+}
+if ($labeling) {
+    $labelsFile = Join-Path $root 'gh-labels.json'
+    $labels = if (Test-Path -LiteralPath $labelsFile) { Get-Content -LiteralPath $labelsFile -Raw -Encoding utf8 | ConvertFrom-Json } else { $null }
+    $names = if ($labels -and ($labels.PSObject.Properties.Name -contains $repo)) { @($labels.$repo) } else { @() }
+    $named = @($names | Sort-Object | ForEach-Object { [pscustomobject]@{ name = $_ } })
+    [Console]::Out.WriteLine((ConvertTo-Json -InputObject $named -Depth 3 -Compress))
+    exit 0
 }
 if ($creating) {
     $known = @($issues.$repo)

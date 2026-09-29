@@ -291,8 +291,9 @@ test('перенос в трекер: карточка со строкой о ф
   await expect(moved).not.toContainText('Нужна выгрузка.')
   expect(panel.saves).toEqual(['p9'])
 
-  // Раздел перечитал трекер: задача в группе задач трекера без «Обновить»
+  // Раздел перечитал трекер: задача на вкладке задач трекера без «Обновить» (вкладки — B-305)
   await dialog.getByRole('button', { name: 'Закрыть' }).click()
+  await page.getByRole('tab', { name: 'Задачи трекера' }).click()
   await expect(page.getByRole('main').getByRole('link', { name: /#58 Выгрузка бэклога в CSV/ })).toBeVisible()
 })
 
