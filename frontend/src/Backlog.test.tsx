@@ -1434,8 +1434,11 @@ test('перенос из строки записи заводит задачу 
   expect(trackerReadsOf(fetchMock, backlogs[1].base)).toBe(1)
 })
 
-/** Раздел с трекером у первой базы и разговор Чудо-Юдо, который отдаёт события stream. */
-function stubSaving(stream: object[]) {
+/**
+ * Раздел с трекером у первой базы и разговор Чудо-Юдо, который отдаёт события stream; saved — бэклог после
+ * «Сохранить»: его отдаёт каждое чтение, кроме первого.
+ */
+function stubSaving(stream: object[], saved: BaseBacklog[] = withTracker(github)) {
   const body = new TextEncoder().encode(stream.map((event) => JSON.stringify(event) + '\n').join(''))
   let replies = [answer({ issues, problem: null })]
   // Заведённый разговор панель называет окну, открытому заново: оно показывает его на месте
@@ -1454,7 +1457,8 @@ function stubSaving(stream: object[]) {
     if (url.startsWith('/api/backlog/tracker?')) return (replies.length > 1 ? replies.shift()! : replies[0])()
     if (url === '/api/workspaces') return Promise.resolve(Response.json([]))
     expect(url).toBe('/api/backlog')
-    return Promise.resolve(Response.json(withTracker(github)))
+    const reads = fetchMock.mock.calls.filter(([u]) => u === '/api/backlog').length
+    return Promise.resolve(Response.json(reads > 1 ? saved : withTracker(github)))
   })
   vi.stubGlobal('fetch', fetchMock)
   return Object.assign(fetchMock, {
@@ -1516,15 +1520,21 @@ test('«Сохранить» Чудо-Юдо с переносом в треке
 })
 
 test('«Сохранить» Чудо-Юдо без переноса трекер не перечитывает', async () => {
-  const fetchMock = stubSaving([
-    { type: 'reply', text: 'Мысль' },
-    { type: 'saved', text: '', commit: 'c0ffee1', proposalId: 'p1' },
-  ])
+  const fetchMock = stubSaving(
+    [
+      { type: 'reply', text: 'Мысль' },
+      { type: 'saved', text: '', commit: 'c0ffee1', proposalId: 'p1' },
+    ],
+    [{ ...backlogs[0], entries: [backlogs[0].entries[1]], tracker: github }, backlogs[1]],
+  )
 
   render(<Backlog />)
-  await saySaving()
+  const { project } = await saySaving()
 
-  await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length).toBe(2))
+  // Раздел перечитал бэклог после «Сохранить» — удалённой записи в списке нет, а трекер остался как был
+  await waitFor(() => expect(project.queryByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ })).not.toBeInTheDocument())
+  expect(project.queryByRole('status', { name: 'Загрузка задач трекера' })).not.toBeInTheDocument()
+  expect(project.getByRole('link', { name: /#52/ })).toBeInTheDocument()
   expect(fetchMock.trackerReads()).toBe(1)
 })
 
