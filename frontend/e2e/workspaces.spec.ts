@@ -224,6 +224,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     expect(await color(terminal)).toBe(await color(stopped))
     expect(await color(terminal)).not.toBe(await color(working))
     await expect(terminal).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    // Пульсирует только «Ждёт оператора»: на вопрос отвечают из панели, а в терминал идут сами
+    await expect(terminal).toHaveCSS('animation-name', 'none')
     await expect(stopped).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(stopped).toHaveCSS('border-top-style', 'dashed')
 

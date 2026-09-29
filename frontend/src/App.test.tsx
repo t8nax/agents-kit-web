@@ -1300,6 +1300,21 @@ test('уведомляет, когда сессия задачи встала б
   expect(shown[0].title).toBe('app-knowledge: сессия стоит')
 })
 
+test('уведомляет, когда сессия задачи ждёт нажатия в терминале', async () => {
+  fakeInterval()
+  const { shown } = stubNotification('granted')
+  const inWork: WorkspaceRow = { ...terminal, status: 'in-work' }
+  workspaceResponses([inWork, rows[1]], [terminal, rows[1]])
+
+  render(<App />)
+  expect(await screen.findByText('В работе')).toBeInTheDocument()
+
+  await tick(3000)
+  expect(await screen.findByText('Ждёт в терминале')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
+  expect(shown[0].title).toBe('app-knowledge: ждёт в терминале')
+})
+
 test('«Завести сессию задачи» открыт у копии с задачей без сессии и приглушён у остальных', async () => {
   // Сессия задачи жива — фоновая или в VS Code — заводить нечего; свободной копии продолжать нечего
   const withBackground: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-bg' }
@@ -1373,6 +1388,10 @@ test('«Завести сессию задачи» заводит сессию �
   // Окна терминала панель не открывает — решение оператора
   expect(fetchMock).not.toHaveBeenCalledWith('/api/session/terminal', expect.anything())
   expect(within(tableRows[1]).getByText('Запускается')).toHaveClass('status-starting')
+  // «Запускается» оператора не ждёт: ни полосой, ни счётом в сайдбаре
+  expect(document.querySelector('.progress-fill.waiting')).toBeNull()
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+  expect(sidebar.queryByRole('button', { name: /ждёт/ })).not.toBeInTheDocument()
 
   list = [alive, rows[1]]
   await tick(3000)

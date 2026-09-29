@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import './App.css'
 import AskModal, { AskIcon } from './AskModal'
 import Backlog from './Backlog'
@@ -41,10 +41,16 @@ export type WorkspaceStatus = 'free' | 'starting' | 'in-work' | 'waiting' | 'unr
  * Без оператора работа в копии стоит: ждёт его ответа, сессии, которая прочтёт ответ, — решение на B-106, —
  * или самого оператора в сессии, которая встала или ждёт нажатия, — решение на B-308.
  */
-function needsOperator(row: WorkspaceRow) {
-  return (
-    row.status === 'waiting' || row.status === 'unread' || row.status === 'stopped' || row.status === 'terminal'
-  )
+function needsOperator(status: WorkspaceStatus | null) {
+  return status === 'waiting' || status === 'unread' || status === 'stopped' || status === 'terminal'
+}
+
+/**
+ * Статус строки, который видит оператор: пока панель заводит сессию задачи, копия «Запускается» и оператора
+ * не ждёт — ни плашкой, ни полосой, ни счётом в сайдбаре (B-308).
+ */
+function shownStatus(row: WorkspaceRow, launching: ReadonlySet<string>) {
+  return launching.has(rowKey(row)) && !row.backgroundSession ? 'starting' : row.status
 }
 
 export type WorkspaceRow = {
@@ -158,6 +164,9 @@ function App() {
   const [removing, setRemoving] = useState<WorkspaceRow | null>(null)
   const [removed, setRemoved] = useState<string | null>(null)
   const [fresh, setFresh] = useState<Fresh | null>(null)
+  // Копии, где панель заводит сессию задачи: плашка «Запускается», пока сессия не покажется в опросе, а отметка
+  // живёт до ответа об ошибке или до конца выдержки. Держит её раздел, а не таблица: по ней же считает сайдбар
+  const [launching, setLaunching] = useState<ReadonlySet<string>>(() => new Set())
   const lastRequest = useRef(0)
   const inFlight = useRef(0)
   const pending = useRef<{ controller: AbortController; timeout: ReturnType<typeof setTimeout> } | null>(null)
@@ -289,7 +298,7 @@ function App() {
       <div className="app-body">
         <Sidebar
           section={section}
-          waiting={state.rows?.filter(needsOperator).length ?? 0}
+          waiting={state.rows?.filter((row) => needsOperator(shownStatus(row, launching))).length ?? 0}
           onSection={chooseSection}
         />
         <main className={`content ${section === 'flow' ? 'content-fixed' : ''}`}>
@@ -314,6 +323,8 @@ function App() {
                   <WorkspacesTable
                     rows={state.rows}
                     fresh={fresh}
+                    launching={launching}
+                    setLaunching={setLaunching}
                     onReply={setReplyTo}
                     onRemove={setRemoving}
                     onProblems={() => setSection('problems')}
@@ -736,6 +747,8 @@ function WorkspacesSkeleton({ shown }: { shown: boolean }) {
 function WorkspacesTable({
   rows,
   fresh,
+  launching,
+  setLaunching,
   onReply,
   onRemove,
   onProblems,
@@ -743,6 +756,8 @@ function WorkspacesTable({
 }: {
   rows: WorkspaceRow[]
   fresh: Fresh | null
+  launching: ReadonlySet<string>
+  setLaunching: Dispatch<SetStateAction<ReadonlySet<string>>>
   onReply: (row: WorkspaceRow) => void
   onRemove: (row: WorkspaceRow) => void
   onProblems: () => void
@@ -750,9 +765,6 @@ function WorkspacesTable({
 }) {
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
-  // Копии, где панель заводит сессию задачи: плашка «Запускается», пока сессия не покажется в опросе,
-  // а отметка живёт до ответа об ошибке или до конца выдержки
-  const [launching, setLaunching] = useState<ReadonlySet<string>>(() => new Set())
   const launchTimers = useRef(new Map<string, number>())
   // Конец выдержки сверяет последний опрос, а не тот, что был при нажатии
   const latestRows = useRef(rows)
@@ -762,14 +774,16 @@ function WorkspacesTable({
     latestRows.current = rows
   }, [rows])
 
-  // Ушла таблица — вместе с ней уходят её отметки, и таймерам нечего снимать
+  // Ушла таблица — вместе с ней уходят её отметки, и таймерам нечего снимать: отметку без таймера
+  // снять было бы некому, и копия так и стояла бы «Запускается»
   useEffect(() => {
     const timers = launchTimers.current
     return () => {
       for (const timer of timers.values()) window.clearTimeout(timer)
       timers.clear()
+      setLaunching(new Set())
     }
-  }, [])
+  }, [setLaunching])
 
   function stopLaunching(key: string) {
     setLaunching((current) => {
@@ -880,7 +894,7 @@ function WorkspacesTable({
         <WorkspacesHead />
         {groupByBase(rows).map((group) => {
           const collapsed = groups.isCollapsed(group.base)
-          const waiting = group.rows.some(needsOperator)
+          const waiting = group.rows.some((row) => needsOperator(shownStatus(row, launching)))
           const formatWarning = group.rows.find((row) => row.formatWarning)?.formatWarning
           return (
             <tbody key={group.base}>
@@ -947,10 +961,14 @@ function WorkspacesTable({
                   <TaskCells task={row.task} letters={row.letters} />
                   <td className={row.flowStep ? '' : 'text-ter'}>{row.flowStep ?? '—'}</td>
                   <td className={row.progress === null ? 'text-ter' : ''}>
-                    {row.progress === null ? '—' : <Progress value={row.progress} waiting={needsOperator(row)} />}
+                    {row.progress === null ? (
+                      '—'
+                    ) : (
+                      <Progress value={row.progress} waiting={needsOperator(shownStatus(row, launching))} />
+                    )}
                   </td>
                   <td>
-                    <StatusBadge status={launching.has(rowKey(row)) && !row.backgroundSession ? 'starting' : row.status} />
+                    <StatusBadge status={shownStatus(row, launching)} />
                   </td>
                 </>
               )}
@@ -1079,7 +1097,12 @@ function RowActionsMenu({
 
 /** Задача в копии идёт, а ответ оператора прочесть и работу продолжить некому. */
 function needsTaskSession(row: WorkspaceRow) {
-  const inWork = row.status === 'in-work' || row.status === 'waiting' || row.status === 'unread'
+  const inWork =
+    row.status === 'in-work' ||
+    row.status === 'waiting' ||
+    row.status === 'unread' ||
+    row.status === 'stopped' ||
+    row.status === 'terminal'
   return inWork && !row.backgroundSession && !row.vsCodeSession
 }
 
