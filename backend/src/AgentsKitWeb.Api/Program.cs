@@ -135,6 +135,7 @@ app.MapRemoveWorkspaceEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
 app.MapTrackerServersEndpoints();
+app.MapProjectTrackersEndpoints();
 app.MapUsageEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.
