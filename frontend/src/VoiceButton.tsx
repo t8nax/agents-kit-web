@@ -219,10 +219,15 @@ export default function VoiceButton<T = undefined>({
 
   const listening = mode !== 'idle'
   const recognizing = !listening && pending > 0
+  // Запись идёт, а сказанное раньше ещё распознаётся: «стоп» остаётся, а в углу крутится колёсико — иначе
+  // оператор говорит и не видит, что панель работает (приёмка B-291).
+  const busyListening = listening && pending > 0
   const title = unavailable
     ? reason
     : mode === 'click'
-      ? VOICE_TITLES.stop
+      ? busyListening
+        ? `${VOICE_TITLES.stop}. ${VOICE_TITLES.recognizing}`
+        : VOICE_TITLES.stop
       : recognizing
         ? VOICE_TITLES.recognizing
         : mode === 'idle'
@@ -237,7 +242,7 @@ export default function VoiceButton<T = undefined>({
         .join(' ')}
       aria-label="Голосовой ввод"
       aria-pressed={listening}
-      aria-busy={recognizing || undefined}
+      aria-busy={pending > 0 || undefined}
       aria-disabled={unavailable || undefined}
       disabled={disabled}
       title={title}
@@ -248,6 +253,7 @@ export default function VoiceButton<T = undefined>({
       onContextMenu={(event) => event.preventDefault()}
     >
       {mode === 'click' ? <StopIcon /> : recognizing ? <span className="mic-spin" aria-hidden="true" /> : <MicIcon />}
+      {busyListening && <span className="mic-spin mic-spin-corner" aria-hidden="true" />}
     </button>
   )
 }

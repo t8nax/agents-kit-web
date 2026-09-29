@@ -80,6 +80,17 @@
   animation: mic-spin 0.9s linear infinite;
 }
 
+/* Запись идёт, а прошлый кусок ещё распознаётся: маленькое колёсико в углу, «стоп» остаётся на месте. */
+.mic-spin-corner {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+  background: var(--bg-surface);
+}
+
 @keyframes mic-spin {
   to {
     transform: rotate(360deg);

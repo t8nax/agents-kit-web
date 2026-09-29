@@ -298,6 +298,28 @@ test('кусок возвращает цель, какой она была, ко
   await vi.waitFor(() => expect(heard).toEqual([['Принимаю.', 1]]))
 })
 
+test('запись щелчком идёт, а сказанное раньше распознаётся — на кнопке колёсико в углу, «стоп» на месте', async () => {
+  const { fetchMock, answerLater } = stubRecognize()
+  render(<Field />)
+  click()
+  await vi.waitFor(() => expect(mic.feed).not.toBeNull())
+
+  phrase()
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+
+  expect(button()).toHaveAttribute('aria-pressed', 'true')
+  expect(button()).toHaveAttribute('aria-busy', 'true')
+  expect(button()).toHaveAttribute('title', `${VOICE_TITLES.stop}. ${VOICE_TITLES.recognizing}`)
+  expect(button().querySelector('.mic-stop')).not.toBeNull()
+  expect(button().querySelector('.mic-spin-corner')).not.toBeNull()
+
+  answerLater({ text: 'готово' })
+  await vi.waitFor(() => expect(field()).toHaveValue('Набрано готово'))
+  expect(button()).not.toHaveAttribute('aria-busy')
+  expect(button().querySelector('.mic-spin-corner')).toBeNull()
+  expect(button()).toHaveAttribute('title', VOICE_TITLES.stop)
+})
+
 test('клавиатура включает и выключает запись щелчком', async () => {
   stubRecognize()
   render(<Field />)
