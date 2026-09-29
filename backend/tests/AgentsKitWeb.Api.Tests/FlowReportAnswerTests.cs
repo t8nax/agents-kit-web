@@ -5,7 +5,7 @@ namespace AgentsKitWeb.Api.Tests;
 public sealed class FlowReportAnswerTests
 {
     private static readonly FlowRequirements Requirements = new(
-        "## Требования к флоу",
+        "## Рекомендации к флоу",
         ["Проходимость", "Согласованность"],
         [
             new("П1", "Проходимость", Priority.High, "Каждый исход куда-то ведёт", "…"),
@@ -57,8 +57,8 @@ public sealed class FlowReportAnswerTests
 
     [Theory]
     [InlineData("Флоу хороший.", "ответ не разобран")]
-    [InlineData("""{"findings":[{"requirements":["Х9"],"place":"Мерж","why":"…","fix":"…"}]}""", "требование Х9, которого нет")]
-    [InlineData("""{"findings":[{"requirements":[],"place":"Мерж","why":"…","fix":"…"}]}""", "не названо требование")]
+    [InlineData("""{"findings":[{"requirements":["Х9"],"place":"Мерж","why":"…","fix":"…"}]}""", "рекомендацию Х9, которой нет")]
+    [InlineData("""{"findings":[{"requirements":[],"place":"Мерж","why":"…","fix":"…"}]}""", "не названа рекомендация")]
     [InlineData("""{"findings":[{"requirements":["П1"],"place":"Мерж","why":"…"}]}""", "не сказано, что сделать")]
     public void Parse_Rejected_NamesReason(string answer, string reason)
     {

@@ -150,6 +150,52 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Equal("GitHub #37", Assert.Single(issues.Issues).Name);
     }
 
+    /// <summary>Перечень фильтра «Метки» — все метки репозитория, а не только метки задач (B-305); метки задачи доходят до фронта.</summary>
+    [Fact]
+    public async Task TrackerIssues_GitHubTracker_CarriesRepositoryLabelsAndIssueLabels()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", ["bug"])]);
+        _github.Labels = ["bug", "docs", "ui"];
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(["acme/orders"], _github.LabelsAsked);
+        Assert.Equal(["bug", "docs", "ui"], issues.Labels);
+        Assert.Equal(["bug"], Assert.Single(issues.Issues).Labels);
+    }
+
+    /// <summary>Меток не прочли — задачи всё равно видны, а перечень фильтр соберёт из меток задач.</summary>
+    [Fact]
+    public async Task TrackerIssues_LabelsUnread_GivesIssuesWithoutLabelList()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", ["bug"])]);
+        _github.Labels = null;
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Null(issues.Problem);
+        Assert.Null(issues.Labels);
+        Assert.Single(issues.Issues);
+    }
+
+    [Fact]
+    public async Task TrackerIssues_IssuesUnread_HasNoLabelList()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
+        _github.Answer = new TrackerIssues([], TrackerIssues.GhLogin);
+        _github.Labels = ["bug"];
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(TrackerIssues.GhLogin, issues.Problem);
+        Assert.Null(issues.Labels);
+    }
+
     [Theory]
     [InlineData(null, TrackerIssues.NoTracker)]
     [InlineData("## Где задачи\n\nтрекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY\n", TrackerInfo.Other)]
@@ -192,6 +238,8 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC")], _youTrack.Read);
         Assert.Equal("YouTrack ABC-12", Assert.Single(issues.Issues).Name);
         Assert.Empty(_github.Asked);
+        Assert.Empty(_github.LabelsAsked);
+        Assert.Null(issues.Labels);
     }
 
     [Fact]

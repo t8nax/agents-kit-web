@@ -1,11 +1,11 @@
 namespace AgentsKitWeb.Api.Reports;
 
-/// <summary>Кольцо отчёта: баллы, цвет — pass, avg или fail, — сколько в нём требований и сколько выполнено.</summary>
+/// <summary>Кольцо отчёта: баллы, цвет — pass, avg или fail, — сколько в нём рекомендаций и сколько выполнено.</summary>
 public sealed record RingScore(string Name, int Score, string Band, int Total, int Passed);
 
 /// <summary>
-/// Баллы колец. Кольцо — группа требований кита; оно начинается со 100, и каждая находка снимает по приоритету своего
-/// требования: высокий −15, средний −7, низкий −2. Находка под двумя требованиями снимает в обоих. Цвет: 90–100 —
+/// Баллы колец. Кольцо — группа рекомендаций кита; оно начинается со 100, и каждая находка снимает по приоритету своей
+/// рекомендации: высокий −15, средний −7, низкий −2. Находка под двумя рекомендациями снимает в обоих. Цвет: 90–100 —
 /// зелёный, 50–89 — жёлтый, ниже — красный, и с находкой высокого приоритета кольцо не зелёное — решения оператора на B-270.
 /// </summary>
 public static class FlowReportScores
@@ -24,7 +24,7 @@ public static class FlowReportScores
     public static IReadOnlyList<RingScore> Of(IReadOnlyList<Requirement> requirements, IReadOnlyList<ReportFinding> findings)
     {
         var byCode = requirements.ToDictionary(requirement => requirement.Code);
-        // Нарушение — пара «находка — требование»: по ней и снимаются баллы.
+        // Невыполненное — пара «находка — рекомендация»: по ней и снимаются баллы.
         var violations = findings
             .SelectMany(finding => finding.Requirements)
             .Where(byCode.ContainsKey)

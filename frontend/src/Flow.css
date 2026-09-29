@@ -1039,14 +1039,6 @@ fieldset.flow-stage-set.flow-stage-rows {
   align-self: center;
 }
 
-/* Черта между вкладками и выбором проекта. */
-.head-sep {
-  width: 1px;
-  height: 20px;
-  margin: 0 4px;
-  background: var(--border-subtle);
-}
-
 /* Список выбора в шапке раздела раскрывается влево: он стоит у правого края. */
 .head-end .flow-pick-menu {
   left: auto;

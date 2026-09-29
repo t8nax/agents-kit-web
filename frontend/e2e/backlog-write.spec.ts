@@ -237,6 +237,24 @@ test('перенос в трекер: карточка со строкой о ф
     await route.fulfill({ json: { commit: 'c0ffee1', issues: { 'B-2': issue } } })
   })
   await page.context().route('https://github.com/**', (route) => route.fulfill({ body: '<title>GitHub</title>', contentType: 'text/html' }))
+  // У проекта трекер GitHub: заведённую задачу он отдаёт после «Сохранить», и раздел её показывает сразу (GitHub #3)
+  await page.route('**/api/backlog', (route) =>
+    route.fulfill({
+      json: [
+        {
+          base: akwBase,
+          project: 'Agents Kit Web',
+          entries: panel.saves.length > 0 ? [B1] : [B1, B2],
+          error: null,
+          letters: 'B',
+          tracker: { kind: 'github', name: 'GitHub', server: 'https://github.com', project: 'acme/orders' },
+        },
+      ],
+    }),
+  )
+  await page.route('**/api/backlog/tracker?**', (route) =>
+    route.fulfill({ json: { issues: panel.saves.length > 0 ? [issue] : [], problem: null } }),
+  )
 
   const dialog = await openFromHead(page)
   await say(dialog, 'перенеси B-2 в трекер')
@@ -272,6 +290,11 @@ test('перенос в трекер: карточка со строкой о ф
   await expect(async () => expect((await link.locator('svg').boundingBox())!.width).toBe(12)).toPass()
   await expect(moved).not.toContainText('Нужна выгрузка.')
   expect(panel.saves).toEqual(['p9'])
+
+  // Раздел перечитал трекер: задача на вкладке задач трекера без «Обновить» (вкладки — B-305)
+  await dialog.getByRole('button', { name: 'Закрыть' }).click()
+  await page.getByRole('tab', { name: 'Задачи трекера' }).click()
+  await expect(page.getByRole('main').getByRole('link', { name: /#58 Выгрузка бэклога в CSV/ })).toBeVisible()
 })
 
 test('«Отказаться» ничего не пишет, а новая просьба гасит прежнее предложение', async ({ page }) => {
