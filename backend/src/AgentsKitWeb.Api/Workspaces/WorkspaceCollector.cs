@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Trackers;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
@@ -27,7 +28,7 @@ public static class WorkspaceStatus
 /// SessionState — что делает сессия агента в копии (значения — SessionState), null — живой сессии в ней нет.
 /// BackgroundSession — в копии идёт фоновая сессия агента, и в неё есть переход из терминала.
 /// Letters — буквы номеров проекта (Backlog.Letters): по ним фронт отделяет номер задачи от её заголовка.
-/// Tracker — имя трекера проекта (Tracker.NameOf): по нему фронт отделяет номер задачи трекера — B-303.
+/// Tracker — имя трекера проекта (TrackerDescriptions.NameOf): по нему фронт отделяет номер задачи трекера — B-303.
 /// VsCodeSession — в копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора.
 /// FormatWarning — у всех строк базы нового формата (BaseLayout.NewerFormat): фронт ставит его под заголовком группы.
 /// AnswerUnread — в памяти лежит ответ оператора, который сессия ещё не вобрала; наружу не отдаётся,
@@ -80,7 +81,7 @@ public static class WorkspaceCollector
         var copies = layout.Workspaces;
         var memories = ReadMemories(layout);
         var letters = Backlog.ReadLetters(layout);
-        var tracker = Tracker.NameOf(layout);
+        var tracker = TrackerDescriptions.NameOf(layout);
         var source = NewCopySource(copies);
         var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var rows = new List<WorkspaceRow>();

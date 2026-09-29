@@ -356,12 +356,16 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal("Jira", (await Row(Client())).Tracker);
     }
 
-    [Fact]
-    public async Task CopyRow_TakesTrackerNameFromBrokenDescription()
+    /// <summary>Имя трекера из таблицы кита — в его написании, здорово описание или сломано (ревью B-303).</summary>
+    [Theory]
+    [InlineData("jira", "https://acme.atlassian.net", "PAY", "Jira")]
+    [InlineData("github", "ftp://github.com", "acme/orders", "GitHub")]
+    [InlineData("Свой", "https://tasks.acme.ru", "orders", "Свой")]
+    public async Task CopyRow_TrackerNameIsWrittenAsKitWritesIt(string written, string server, string project, string shown)
     {
-        TestLayout.Tracker(_base, "GitHub", "ftp://github.com", "acme/orders");
+        TestLayout.Tracker(_base, written, server, project);
 
-        Assert.Equal("GitHub", (await Row(Client())).Tracker);
+        Assert.Equal(shown, (await Row(Client())).Tracker);
     }
 
     [Fact]
