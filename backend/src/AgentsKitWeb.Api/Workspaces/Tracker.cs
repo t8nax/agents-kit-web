@@ -129,13 +129,13 @@ public static partial class Tracker
     }
 
     [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
-    private static partial Regex Comment();
+    internal static partial Regex Comment();
 
     [GeneratedRegex(@"^##\s+(.+?)\s*$")]
-    private static partial Regex Heading();
+    internal static partial Regex Heading();
 
     [GeneratedRegex(@"^\s*([^\s:][^:]*?)\s*:\s*(.*?)\s*$")]
-    private static partial Regex Pair();
+    internal static partial Regex Pair();
 
     // Логин, пароль, запрос и фрагмент — «@», «?», «#» — адрес не несёт: секрету не место в базе.
     [GeneratedRegex(@"^https?://[A-Za-z0-9.-]+(:\d{1,5})?(/[^\s@?#]*)?$")]
