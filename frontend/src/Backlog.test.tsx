@@ -1412,6 +1412,50 @@ test('выбранные метки помнятся между открытия
   expect(await screen.findByRole('button', { name: 'Метки: export' })).toBeInTheDocument()
 })
 
+test('выбранные метки не прячут проект, пока его трекер читается или не прочитан: видны заготовка и строка причины', async () => {
+  onTrackerTab()
+  const fetchMock = stubLabeled()
+  const first = render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  fireEvent.click(screen.getByRole('button', { name: 'Метки' }))
+  fireEvent.click(option('Agents Kit Web', 'docs'))
+  first.unmount()
+
+  // Вернулись в раздел: трекер Agents Kit Web читается заново, а gh у Nota не вошла в аккаунт
+  let reply: (response: Response) => void = () => {}
+  fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (reply = resolve)))
+  fetchMock.setTracker(backlogs[1].base, answer({ issues: [], problem: 'gh-login' }))
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(await project.findByRole('status', { name: 'Загрузка задач трекера' })).toBeInTheDocument()
+  expect(await screen.findByText(/Программа gh не вошла в аккаунт/)).toBeInTheDocument()
+  expect(screen.queryByText('Под фильтр задач нет')).not.toBeInTheDocument()
+
+  // Прочитан — метка снова отбирает и стоит на кнопке, её можно снять
+  reply(Response.json({ issues: labeled, problem: null, labels: ['bug', 'docs', 'enhancement', 'ui'] }))
+  expect(await screen.findByRole('button', { name: 'Метки: docs' })).toBeInTheDocument()
+  expect(links()).toEqual(['#7'])
+})
+
+test('метка, которой больше нет в репозитории, не отбирает и не стоит на кнопке', async () => {
+  onTrackerTab()
+  const fetchMock = stubLabeled()
+  const first = render(<Backlog />)
+  await screen.findByRole('link', { name: /#3 / })
+  fireEvent.click(screen.getByRole('button', { name: 'Метки' }))
+  fireEvent.click(option('Agents Kit Web', 'enhancement'))
+  expect(links()).toEqual([])
+  first.unmount()
+
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: labeled, problem: null, labels: ['bug', 'docs', 'ui'] }))
+  render(<Backlog />)
+
+  await screen.findByRole('link', { name: /#3 / })
+  expect(links()).toEqual(['#52', '#7', '#9', '#3'])
+  expect(screen.getByRole('button', { name: 'Метки' })).not.toHaveClass('has-picked')
+})
+
 test('меток репозитория не прочли — в списке метки задач; у YouTrack кнопки «Метки» нет', async () => {
   onTrackerTab()
   const fetchMock = stubFetch([{ ...backlogs[0], tracker: orders }, { ...backlogs[1], tracker: youTrack }])

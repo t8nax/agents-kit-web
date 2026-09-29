@@ -265,7 +265,13 @@ export default function Backlog({
   const trackerBacklogs = backlogs.filter((b) => b.tracker)
   const trackerFilter = trackerBacklogs.some((b) => b.base === filter) ? filter : null
   const trackerScope = trackerFilter === null ? trackerBacklogs : trackerBacklogs.filter((b) => b.base === trackerFilter)
-  const labelsActive = activeLabels(selection.labels, trackerScope.map((b) => b.base))
+  // Отбирают только метки прочитанных без поломки проектов и только те, что есть в их перечне: пока трекер читается или
+  // не прочитан, проект виден с заготовкой или строкой причины, а метка, которой в репозитории больше нет, не отбирает
+  // невидимо для оператора (ревью B-305)
+  const labelsActive = activeLabels(selection.labels, trackerScope.map((b) => b.base)).filter((label) => {
+    const load = trackers[label.base]
+    return load?.kind === 'loaded' && load.problem === null && labelChoices(load).includes(label.name)
+  })
   // Перечень меток — у проектов с GitHub, пока их задачи прочитаны: все метки репозитория (B-305)
   const labelGroups = trackerScope
     .filter((b) => b.tracker?.kind === 'github' && trackers[b.base]?.kind === 'loaded' && !problemOf(trackers[b.base]))
