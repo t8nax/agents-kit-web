@@ -107,9 +107,11 @@ export default function Backlog({
   }, [focusOpener])
 
   // Задачи трекера по базам. Их читают из GitHub или YouTrack — дольше файла, поэтому своим запросом на базу: записи
-  // бэклога их не ждут. Ответ прошлого чтения, пришедший после нового, отбрасывается.
+  // бэклога их не ждут. Ответ прошлого чтения, пришедший после нового, отбрасывается: и после чтения всех баз,
+  // и после перечитывания одной — её номер чтения растёт отдельно.
   const [trackers, setTrackers] = useState<Record<string, TrackerLoad>>({})
   const trackerRound = useRef(0)
+  const trackerReads = useRef<Record<string, number>>({})
 
   // Трекер каждой базы — вид, сервер и проект, — как его знало последнее чтение: бэклог, перечитанный после записи или
   // запуска, узнаёт по нему базу, чей трекер появился или сменился, пока раздел открыт, — её трекер читается сразу,
@@ -137,8 +139,10 @@ export default function Backlog({
     })
     for (const backlog of backlogs) {
       if (!readable(backlog.tracker) || !read.has(backlog.base)) continue
+      const reading = (trackerReads.current[backlog.base] ?? 0) + 1
+      trackerReads.current[backlog.base] = reading
       void loadTrackerIssues(backlog.base).then((result) => {
-        if (round !== trackerRound.current) return
+        if (round !== trackerRound.current || reading !== trackerReads.current[backlog.base]) return
         setTrackers((prev) => ({ ...prev, [backlog.base]: result }))
         if (result.kind === 'loaded' && result.problem === null)
           forgetGoneIssueWords(backlog.base, result.issues.map((issue) => issue.name))

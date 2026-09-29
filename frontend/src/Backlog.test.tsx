@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { WorkspaceRow } from './App'
 import Backlog, { type BaseBacklog } from './Backlog'
@@ -1526,6 +1526,34 @@ test('«Сохранить» Чудо-Юдо без переноса треке�
 
   await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === '/api/backlog').length).toBe(2))
   expect(fetchMock.trackerReads()).toBe(1)
+})
+
+test('ответ чтения трекера при открытии, пришедший после перечитывания переносом, не затирает заведённую задачу', async () => {
+  const fetchMock = stubFetch(withTracker(github), [{ ...backlogs[0], entries: [backlogs[0].entries[1]], tracker: github }, backlogs[1]])
+  let late: (response: Response) => void = () => {}
+  fetchMock.setTracker(backlogs[0].base, () => new Promise<Response>((resolve) => (late = resolve)))
+
+  render(<Backlog />)
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  // Трекер ещё читается с открытия раздела, а запись уже переносят
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [moved, ...issues], problem: null }))
+  const row = project.getByRole('button', { name: /B-1 Панель показывает проблемы баз знаний/ }).closest('.entry-row')!
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'В трекер' }))
+  const dialog = within(await screen.findByRole('dialog', { name: 'Перенести в трекер' }))
+  fireEvent.click(await dialog.findByRole('button', { name: 'Перевести задачу' }))
+  expect(await project.findByRole('link', { name: /#58 Заголовок/ })).toBeInTheDocument()
+
+  // Запоздавший ответ разобран, и ход раздела после разбора прошёл (decisions/tests.md, B-183)
+  const stale = Response.json({ issues, problem: null })
+  const parsed = vi.spyOn(stale, 'json')
+  late(stale)
+  await waitFor(() => expect(parsed).toHaveBeenCalled())
+  await act(async () => {
+    await parsed.mock.results[0].value
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+  expect(project.getByRole('link', { name: /#58 Заголовок/ })).toBeInTheDocument()
+  expect(fetchMock.trackerReads()).toBe(2)
 })
 
 test('задача заведена, а запись не вырезалась — трекер всё равно перечитывается и показывает задачу рядом с записью', async () => {
