@@ -1311,6 +1311,36 @@ test('строка о ключе сервера в «Бэклоге» откры
   expect(scrolled.mock.calls.length).toBe(calls)
 })
 
+// Приёмка B-323: «Добавить» у недостающего ключа ведёт к «Серверам трекеров», адрес сервера проекта подставлен,
+// курсор — в поле «Ключ».
+test('«Добавить» у недостающего ключа подставляет адрес сервера и ставит курсор в «Ключ»', async () => {
+  const youtrack = { kind: 'youtrack', name: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'ABC' }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url === '/api/trackers/projects') return Response.json([{ ...trackerRows[0], tracker: youtrack }])
+      if (url === '/api/kit') return Response.json({ path: null, found: false })
+      if (url === '/api/workspaces') return Response.json(rows)
+      return Response.json([])
+    }),
+  )
+  const scrolled = vi.fn()
+  Element.prototype.scrollIntoView = scrolled
+  onTestFinished(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+  })
+  render(<App />)
+  await screen.findByRole('table')
+
+  fireEvent.click(sidebarButtons().getByRole('button', { name: 'Трекеры' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Добавить ключ к серверу https://acme.youtrack.cloud' }))
+
+  const servers = screen.getByRole('region', { name: 'Серверы трекеров' })
+  expect(within(servers).getByLabelText('Адрес сервера')).toHaveValue('https://acme.youtrack.cloud')
+  await waitFor(() => expect(within(servers).getByLabelText('Ключ')).toHaveFocus())
+  expect(scrolled.mock.contexts.at(-1)).toContainElement(servers)
+})
+
 test('возврат к переписке о трекере открывает раздел «Трекеры» с окном трекера этого проекта', async () => {
   stubTrackers()
   render(<App />)

@@ -248,6 +248,13 @@
   height: 12px;
 }
 
+.tp-key {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .tp-pill.bad {
   color: var(--accent-error-text);
   background: var(--accent-error-bg);

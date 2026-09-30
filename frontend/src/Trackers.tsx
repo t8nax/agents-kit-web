@@ -17,6 +17,8 @@ type TrackersProps = {
 export default function Trackers({ trackerFor = null, trackersAt = null }: TrackersProps) {
   const [servers, setServers] = useState<TrackerServer[] | null>(null)
   const [projectsRead, setProjectsRead] = useState(false)
+  // «Добавить» у недостающего ключа: адрес сервера проекта ложится в поле «Адрес сервера», курсор — в «Ключ».
+  const [addKey, setAddKey] = useState<{ server: string; at: number } | null>(null)
   const serversCard = useRef<HTMLDivElement>(null)
   const scrolledAt = useRef<number | null>(null)
   const toServers = trackersAt?.servers ? trackersAt.at : null
@@ -40,9 +42,13 @@ export default function Trackers({ trackerFor = null, trackersAt = null }: Track
         selected={trackersAt?.base ?? null}
         servers={servers}
         onRead={setProjectsRead}
+        onAddKey={(server) => {
+          setAddKey({ server, at: Date.now() })
+          serversCard.current?.scrollIntoView?.({ block: 'start' })
+        }}
       />
       <div ref={serversCard}>
-        <TrackerServersCard onServers={setServers} />
+        <TrackerServersCard onServers={setServers} prefill={addKey} />
       </div>
     </div>
   )

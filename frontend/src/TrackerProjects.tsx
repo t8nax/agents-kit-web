@@ -24,6 +24,8 @@ type Props = {
   servers?: TrackerServer[] | null
   /** Проекты прочитаны или не прочитались — раздел может прокрутить к тому, что под ними. */
   onRead?: (read: boolean) => void
+  /** «Добавить» у недостающего ключа: завести сервер проекта в «Серверах трекеров». */
+  onAddKey?: (server: string) => void
 }
 
 /**
@@ -31,7 +33,14 @@ type Props = {
  * трекер выбранного — вид, сервер, проект, фильтр, ключ к серверу и поломки описания. Описание заводится,
  * правится и удаляется отсюда, а не словами киту в сессии (B-293).
  */
-export default function TrackerProjects({ rewriteFor = null, focus = null, selected: initial = null, servers = null, onRead }: Props) {
+export default function TrackerProjects({
+  rewriteFor = null,
+  focus = null,
+  selected: initial = null,
+  servers = null,
+  onRead,
+  onAddKey,
+}: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const reveal = useReveal(load.kind === 'loading')
   const [selected, setSelected] = useState<string | null>(rewriteFor?.base ?? focus?.base ?? initial)
@@ -124,6 +133,7 @@ export default function TrackerProjects({ rewriteFor = null, focus = null, selec
             <ProjectDetail
               row={current}
               servers={servers}
+              onAddKey={onAddKey}
               onEdit={() => setOpen({ base: current.base, talking: false })}
               onDelete={() => setDeleting(current.base)}
             />
@@ -183,8 +193,11 @@ function serverKey(server: string): string {
 
 const sameServer = (a: string, b: string) => serverKey(a) === serverKey(b)
 
-/** Ключ, которым панель читает задачи: у GitHub — вход программы gh, у YouTrack — ключ из «Серверов трекеров». */
-function keyOf(tracker: TrackerInfo, servers: TrackerServer[] | null): ReactNode {
+/**
+ * Ключ, которым панель читает задачи: у GitHub — вход программы gh, у YouTrack — ключ из «Серверов трекеров».
+ * Ключа нет — рядом «Добавить»: сервер проекта заводится в «Серверах трекеров» (приёмка B-323).
+ */
+function keyOf(tracker: TrackerInfo, servers: TrackerServer[] | null, onAddKey?: (server: string) => void): ReactNode {
   if (tracker.kind === 'github') return <span className="tp-pill">вход через gh</span>
   if (tracker.kind !== 'youtrack' || servers === null) return null
   const entry = servers.find((one) => sameServer(one.server, tracker.server ?? ''))
@@ -194,9 +207,21 @@ function keyOf(tracker: TrackerInfo, servers: TrackerServer[] | null): ReactNode
       ключ пользователя <span className="mono">{entry.login}</span>
     </span>
   ) : (
-    <span className="tp-pill bad">
-      <KeyIcon />
-      нет ключа — добавьте сервер в «Серверах трекеров»
+    <span className="tp-key">
+      <span className="tp-pill bad">
+        <KeyIcon />
+        нет ключа к этому серверу
+      </span>
+      {onAddKey && tracker.server && (
+        <button
+          type="button"
+          className="bases-btn bases-btn-small"
+          aria-label={`Добавить ключ к серверу ${tracker.server}`}
+          onClick={() => onAddKey(tracker.server!)}
+        >
+          Добавить
+        </button>
+      )}
     </span>
   )
 }
@@ -221,9 +246,15 @@ function ProjectItem({ row, active, onPick }: { row: ProjectTrackerRow; active: 
   )
 }
 
-type DetailProps = { row: ProjectTrackerRow; servers: TrackerServer[] | null; onEdit: () => void; onDelete: () => void }
+type DetailProps = {
+  row: ProjectTrackerRow
+  servers: TrackerServer[] | null
+  onAddKey?: (server: string) => void
+  onEdit: () => void
+  onDelete: () => void
+}
 
-function ProjectDetail({ row, servers, onEdit, onDelete }: DetailProps) {
+function ProjectDetail({ row, servers, onAddKey, onEdit, onDelete }: DetailProps) {
   const tracker = row.tracker
   const description = row.description
   const unreadable = tracker?.kind === 'unreadable'
@@ -236,7 +267,7 @@ function ProjectDetail({ row, servers, onEdit, onDelete }: DetailProps) {
   const busy = row.busy.length > 0 ? busyText(row.busy) : null
   const refusal = row.newerFormat ? 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.' : undefined
   const fault = faultOf(row)
-  const key = tracker === null ? null : keyOf(tracker, servers)
+  const key = tracker === null ? null : keyOf(tracker, servers, onAddKey)
   const shown = tracker !== null && row.problem === null && !unreadable
 
   // Проект без трекера — как пустой проект во «Флоу», без градиента на фоне (приёмка B-323).

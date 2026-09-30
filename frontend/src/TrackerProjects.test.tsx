@@ -137,6 +137,25 @@ test('ключ к серверу: вход через gh, владелец кл�
   expect((await row('Legacy')).getByText(/нет ключа/)).toHaveClass('bad')
 })
 
+// Приёмка B-323: у недостающего ключа — «Добавить», он заводит сервер проекта в «Серверах трекеров».
+test('«Добавить» у недостающего ключа отдаёт разделу сервер проекта', async () => {
+  const legacy: ProjectTrackerRow = {
+    ...described,
+    project: 'Legacy',
+    tracker: { kind: 'youtrack', name: 'YouTrack', server: 'https://yt.legacy.ru', project: 'CRM' },
+    description: { ...github, tracker: 'YouTrack', server: 'https://yt.legacy.ru', project: 'CRM' },
+  }
+  stubApi({ 'GET /api/trackers/projects': () => json([legacy]) })
+  const onAddKey = vi.fn()
+
+  render(<TrackerProjects servers={[]} onAddKey={onAddKey} />)
+
+  const card = await row('Legacy')
+  expect(card.getByText('нет ключа к этому серверу')).toHaveClass('bad')
+  fireEvent.click(card.getByRole('button', { name: 'Добавить ключ к серверу https://yt.legacy.ru' }))
+  expect(onAddKey).toHaveBeenCalledExactlyOnceWith('https://yt.legacy.ru')
+})
+
 // B-300: заданный отбор виден строкой под сервером и проектом; без отбора строки нет.
 test('фильтр трекера — строкой «Фильтр» в подробностях проекта, без фильтра — «нет»', async () => {
   stubApi({

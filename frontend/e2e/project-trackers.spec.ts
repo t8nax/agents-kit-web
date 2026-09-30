@@ -122,6 +122,20 @@ test('выбранный проект выделен так же, как выб�
   await expect(async () => expect(await look(list.getByRole('button', { name: /^CRM/ }))).toEqual(await look(section))).toPass()
 })
 
+// Приёмка B-323: «Добавить» у недостающего ключа — экран у «Серверов трекеров», адрес подставлен, курсор в «Ключе».
+test('«Добавить» у недостающего ключа подставляет адрес сервера и ставит курсор в «Ключ»', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 600 })
+  await mockApi(page)
+
+  await openSection(page)
+  await detail(page, logistics).getByRole('button', { name: `Добавить ключ к серверу ${long}` }).click()
+
+  const servers = page.getByRole('region', { name: 'Серверы трекеров' })
+  await expect(servers.getByLabel('Адрес сервера')).toHaveValue(long)
+  await expect(servers.getByLabel('Ключ')).toBeFocused()
+  await expect(servers.getByLabel('Ключ')).toBeInViewport()
+})
+
 // Замечание оператора к макету B-293: окно без горизонтальной прокрутки на любой ширине.
 for (const width of [1400, 700]) {
   test(`окно трекера без горизонтальной прокрутки, «Сохранить» пишет описание из полей (${width}px)`, async ({ page }) => {

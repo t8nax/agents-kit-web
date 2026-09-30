@@ -69,7 +69,14 @@ async function refusalFrom(response: Response): Promise<Refusal> {
  * Карточка «Серверы трекеров» раздела «Трекеры»: адреса серверов и ключи оператора к ним (B-288, макет в памяти задачи).
  * onServers — список, как он сейчас на экране: по нему подробности проекта называют ключ к его серверу (B-323).
  */
-export default function TrackerServersCard({ onServers }: { onServers?: (servers: TrackerServer[] | null) => void }) {
+export default function TrackerServersCard({
+  onServers,
+  prefill = null,
+}: {
+  onServers?: (servers: TrackerServer[] | null) => void
+  /** «Добавить» у ключа проекта: адрес его сервера — в поле «Адрес сервера», курсор — в поле «Ключ» (приёмка B-323). */
+  prefill?: { server: string; at: number } | null
+}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const reveal = useReveal(load.kind === 'loading')
   const [server, setServer] = useState('')
@@ -78,6 +85,15 @@ export default function TrackerServersCard({ onServers }: { onServers?: (servers
   const [refusal, setRefusal] = useState<Refusal | null>(null)
   const [rekey, setRekey] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<TrackerServer | null>(null)
+  const keyInput = useRef<HTMLInputElement>(null)
+  // Адрес подставляется при событии, а не в эффекте: так правило React о состоянии в эффекте не нарушается,
+  // и каждое новое «Добавить» (своё at) подставляет адрес заново.
+  const [filledAt, setFilledAt] = useState<number | null>(null)
+  if (prefill && prefill.at !== filledAt) {
+    setFilledAt(prefill.at)
+    setServer(prefill.server)
+    setRefusal(null)
+  }
 
   useEffect(() => {
     fetch('/api/trackers')
@@ -99,6 +115,12 @@ export default function TrackerServersCard({ onServers }: { onServers?: (servers
   }, [])
 
   const servers = load.kind === 'loaded' ? load.value : []
+
+  // Курсор — в поле «Ключ», когда форма добавления на месте: список серверов мог ещё читаться.
+  const formShown = load.kind === 'loaded'
+  useEffect(() => {
+    if (prefill && formShown) keyInput.current?.focus()
+  }, [prefill, formShown])
 
   useEffect(() => {
     onServers?.(load.kind === 'loaded' ? load.value : null)
@@ -208,6 +230,7 @@ export default function TrackerServersCard({ onServers }: { onServers?: (servers
                 <div className="trk-field">
                   <label htmlFor="trk-new-key">Ключ</label>
                   <input
+                    ref={keyInput}
                     id="trk-new-key"
                     type="password"
                     value={key}
