@@ -122,6 +122,35 @@ test('выбранный проект выделен так же, как выб�
   await expect(async () => expect(await look(list.getByRole('button', { name: /^CRM/ }))).toEqual(await look(section))).toPass()
 })
 
+// Приёмка B-323: проект без трекера — как пустой проект во «Флоу», но без градиента на фоне.
+test('проект без трекера — круг пунктиром, заголовок и «Завести трекер» по центру подробностей, без градиента', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await mockApi(page)
+
+  const list = await openSection(page)
+  await list.getByRole('button', { name: /^CRM/ }).click()
+  const card = detail(page, 'CRM')
+  const empty = card.locator('.empty-state')
+  await expect(card.getByRole('heading', { name: 'В этом проекте нет трекера' })).toBeVisible()
+  await expect(empty.getByRole('button')).toHaveText(['Завести трекер'])
+  // Заголовок по центру подробностей; замер — до совпадения: шрифт грузится после первой отрисовки
+  await expect(async () => {
+    const [frame, title] = await Promise.all([card.boundingBox(), empty.locator('h3').boundingBox()])
+    expect(Math.abs(title!.x + title!.width / 2 - (frame!.x + frame!.width / 2))).toBeLessThan(2)
+  }).toPass()
+  const look = await empty.evaluate((element) => {
+    const mark = element.querySelector('.empty-state-mark')!
+    const style = getComputedStyle(mark)
+    return {
+      background: getComputedStyle(element).backgroundImage,
+      border: style.borderTopStyle,
+      round: style.borderRadius,
+      size: (mark as HTMLElement).offsetWidth,
+    }
+  })
+  expect(look).toEqual({ background: 'none', border: 'dashed', round: '50%', size: 96 })
+})
+
 // Приёмка B-323: «Добавить» у недостающего ключа — экран у «Серверов трекеров», адрес подставлен, курсор в «Ключе».
 test('«Добавить» у недостающего ключа подставляет адрес сервера и ставит курсор в «Ключ»', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 600 })
