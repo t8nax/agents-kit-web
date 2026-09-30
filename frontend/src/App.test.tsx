@@ -1276,7 +1276,8 @@ test('строка о ключе сервера в «Бэклоге» откры
   const youtrack = { kind: 'youtrack', name: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'ABC' }
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string) => {
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/trackers' && init?.method === 'POST') return Response.json({ server: 'https://acme.youtrack.cloud', login: 'b.petrov' })
       if (url === '/api/backlog') return Response.json([{ ...backlogs[0], tracker: youtrack }])
       if (url.startsWith('/api/backlog/tracker')) return Response.json({ issues: [], problem: 'no-key' })
       if (url === '/api/trackers/projects') return Response.json([{ ...trackerRows[0], tracker: youtrack }])
@@ -1300,6 +1301,14 @@ test('строка о ключе сервера в «Бэклоге» откры
   const servers = await screen.findByRole('region', { name: 'Серверы трекеров' })
   await waitFor(() => expect(scrolled).toHaveBeenCalled())
   expect(scrolled.mock.contexts.at(-1)).toContainElement(servers)
+
+  // Прокрутка — одна на переход: добавленный ключ экран больше не дёргает (ревью B-323).
+  const calls = scrolled.mock.calls.length
+  fireEvent.change(within(servers).getByLabelText('Адрес сервера'), { target: { value: 'https://acme.youtrack.cloud' } })
+  fireEvent.change(within(servers).getByLabelText('Ключ'), { target: { value: 'perm:good' } })
+  fireEvent.click(within(servers).getByRole('button', { name: 'Добавить' }))
+  expect(await within(servers).findByText('b.petrov')).toBeInTheDocument()
+  expect(scrolled.mock.calls.length).toBe(calls)
 })
 
 test('возврат к переписке о трекере открывает раздел «Трекеры» с окном трекера этого проекта', async () => {

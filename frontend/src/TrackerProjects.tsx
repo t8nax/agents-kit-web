@@ -21,6 +21,8 @@ type Props = {
   selected?: string | null
   /** Серверы трекеров с владельцами ключей; null — список ещё не прочитан или не прочитался. */
   servers?: TrackerServer[] | null
+  /** Проекты прочитаны или не прочитались — раздел может прокрутить к тому, что под ними. */
+  onRead?: (read: boolean) => void
 }
 
 /**
@@ -28,7 +30,7 @@ type Props = {
  * трекер выбранного — вид, сервер, проект, фильтр, ключ к серверу и поломки описания. Описание заводится,
  * правится и удаляется отсюда, а не словами киту в сессии (B-293).
  */
-export default function TrackerProjects({ rewriteFor = null, focus = null, selected: initial = null, servers = null }: Props) {
+export default function TrackerProjects({ rewriteFor = null, focus = null, selected: initial = null, servers = null, onRead }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const reveal = useReveal(load.kind === 'loading')
   const [selected, setSelected] = useState<string | null>(rewriteFor?.base ?? focus?.base ?? initial)
@@ -65,6 +67,10 @@ export default function TrackerProjects({ rewriteFor = null, focus = null, selec
   // Переход из «Бэклога»: выбран проект, чьё описание сломано (раздел для него встаёт заново), и список с подробностями
   // встаёт на экран, когда прочитан.
   const loaded = load.kind === 'loaded'
+  const read = load.kind !== 'loading'
+  useEffect(() => {
+    onRead?.(read)
+  }, [read, onRead])
   useEffect(() => {
     if (focus !== null && loaded) panel.current?.scrollIntoView?.({ block: 'start' })
   }, [focus, loaded])

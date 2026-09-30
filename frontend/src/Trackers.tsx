@@ -16,12 +16,18 @@ type TrackersProps = {
  */
 export default function Trackers({ trackerFor = null, trackersAt = null }: TrackersProps) {
   const [servers, setServers] = useState<TrackerServer[] | null>(null)
+  const [projectsRead, setProjectsRead] = useState(false)
   const serversCard = useRef<HTMLDivElement>(null)
+  const scrolledAt = useRef<number | null>(null)
   const toServers = trackersAt?.servers ? trackersAt.at : null
-  // Переход из строки о ключе: на экране — список серверов, где ключ добавляют и меняют.
+  const serversRead = servers !== null
+  // Переход из строки о ключе: на экране — список серверов, где ключ добавляют и меняют. Прокрутка — одна на переход
+  // и после того, как прочитаны и проекты над списком, и сам список: правка ключа экран больше не дёргает (ревью B-323).
   useEffect(() => {
-    if (toServers !== null && servers !== null) serversCard.current?.scrollIntoView?.({ block: 'start' })
-  }, [toServers, servers])
+    if (toServers === null || scrolledAt.current === toServers || !projectsRead || !serversRead) return
+    scrolledAt.current = toServers
+    serversCard.current?.scrollIntoView?.({ block: 'start' })
+  }, [toServers, projectsRead, serversRead])
   return (
     <div className="settings">
       <div className="content-head">
@@ -33,6 +39,7 @@ export default function Trackers({ trackerFor = null, trackersAt = null }: Track
         focus={trackersAt?.servers ? null : trackersAt}
         selected={trackersAt?.base ?? null}
         servers={servers}
+        onRead={setProjectsRead}
       />
       <div ref={serversCard}>
         <TrackerServersCard onServers={setServers} />
