@@ -160,6 +160,9 @@ public sealed class AskEndpointsTests : IDisposable
         // Кит формата 8: задача идёт по копии своего сценария рядом с памятью, а не по нынешнему flow/ (B-299).
         Assert.Contains("work/<машина>/<имя памяти>/flow/ — копия сценария задачи", prompt);
         Assert.DoesNotContain("boundaries.md", prompt);
+        // Оператору — обычными словами, файлы в тексте ответа не называются: прочитанное видно списком (B-324).
+        Assert.Contains(OperatorSpeech.Rule, prompt);
+        Assert.DoesNotContain("называя файлы", prompt);
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);
         Assert.Equal("user", JsonDocument.Parse(sent).RootElement.GetProperty("type").GetString());

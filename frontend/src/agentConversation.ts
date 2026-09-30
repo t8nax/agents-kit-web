@@ -14,15 +14,16 @@ export type AskEvent =
 const reconnectDelay = 500
 
 /**
- * Просьбы-переписки панели: вопрос по базе (B-79), разговор о бэклоге (B-72), переписывание флоу (B-242) и описание
- * трекера проекта (B-293).
+ * Просьбы-переписки панели: вопрос по базе (B-79), разговор о бэклоге (B-72), переписывание флоу (B-242), описание
+ * трекера проекта (B-293) и исполнитель (B-320).
  */
-export type ConversationKind = 'ask' | 'backlog' | 'flow' | 'tracker'
+export type ConversationKind = 'ask' | 'backlog' | 'flow' | 'performer' | 'tracker'
 
 const routes: Record<ConversationKind, { start: string; reply: string; stop: string }> = {
   ask: { start: '/api/ask', reply: '/api/ask/reply', stop: '/api/ask/stop' },
   backlog: { start: '/api/backlog/write', reply: '/api/backlog/write/reply', stop: '/api/backlog/write/stop' },
   flow: { start: '/api/flow/rewrite', reply: '/api/flow/rewrite/reply', stop: '/api/flow/rewrite/stop' },
+  performer: { start: '/api/performers/draft', reply: '/api/performers/draft/reply', stop: '/api/performers/draft/stop' },
   tracker: { start: '/api/trackers/rewrite', reply: '/api/trackers/rewrite/reply', stop: '/api/trackers/rewrite/stop' },
 }
 

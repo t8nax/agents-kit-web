@@ -113,6 +113,7 @@ builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<FlowConversations>();
 builder.Services.AddSingleton<FlowReports>();
 builder.Services.AddSingleton<TrackerConversations>();
+builder.Services.AddSingleton<PerformerConversations>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<ResumedSessions>();
 builder.Services.AddSingleton<HealthMonitor>();
