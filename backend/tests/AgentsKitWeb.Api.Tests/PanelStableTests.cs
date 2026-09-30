@@ -153,7 +153,7 @@ public sealed class PanelStableTests : IDisposable
         var response = await client.PostAsync("/api/panel/stable", null);
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
-        Assert.Equal(("t8nax/agents-kit-web", "0.28.1.3"), _promotion.Started);
+        Assert.Equal(("t8nax/agents-kit-web", "0.28.1.3", "4189d1f"), _promotion.Started);
         var stable = await client.GetFromJsonAsync<PanelStableResponse>("/api/panel/stable");
         Assert.Equal("running", stable!.State);
     }
@@ -274,7 +274,7 @@ public sealed class PanelStableTests : IDisposable
 
         public string? AskedRun { get; private set; }
 
-        public (string Repository, string Version)? Started { get; private set; }
+        public (string Repository, string Version, string Sha)? Started { get; private set; }
 
         public Task<bool> CanPromoteAsync(string repository, CancellationToken cancellationToken)
         {
@@ -288,10 +288,10 @@ public sealed class PanelStableTests : IDisposable
             return Task.FromResult(Run);
         }
 
-        public Task<string?> StartAsync(string repository, string version)
+        public Task<string?> StartAsync(string repository, string version, string sha)
         {
             if (Refusal is null)
-                Started = (repository, version);
+                Started = (repository, version, sha);
             return Task.FromResult(Refusal);
         }
     }

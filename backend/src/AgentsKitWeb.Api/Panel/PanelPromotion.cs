@@ -31,8 +31,8 @@ public interface IPanelPromotion
     /// <summary>Последний запуск выкладки сборки <paramref name="version"/>; не было или не прочитать — null.</summary>
     Task<PromotionRun?> LastRunAsync(string repository, string version, CancellationToken cancellationToken);
 
-    /// <summary>Запускает выкладку; запустилась — null, иначе строка отказа gh.</summary>
-    Task<string?> StartAsync(string repository, string version);
+    /// <summary>Переносит master на код <paramref name="sha"/> и запускает выкладку; запустилась — null, иначе строка отказа gh.</summary>
+    Task<string?> StartAsync(string repository, string version, string sha);
 }
 
 public static class PanelPromotions
@@ -89,7 +89,11 @@ public sealed class GhPromotion(TimeProvider time) : IPanelPromotion
             return cached.Can;
         var run = await GhIssues.RunAsync(
             GhIssues.GhStartInfo("api", $"repos/{repository}", "--jq", ".permissions.push"), null, cancellationToken);
-        var can = run is { Missing: false, TimedOut: false, ExitCode: 0 } && run.Output.Trim() == "true";
+        // Помнится только ответ GitHub: gh не вошла, не ответила или её нет — это поправимо, и после входа
+        // блок должен узнать о праве сразу, а не через пять минут.
+        if (run is not { Missing: false, TimedOut: false, ExitCode: 0 })
+            return false;
+        var can = run.Output.Trim() == "true";
         _rights[repository] = (time.GetUtcNow(), can);
         return can;
     }
@@ -114,15 +118,31 @@ public sealed class GhPromotion(TimeProvider time) : IPanelPromotion
         }
     }
 
-    public async Task<string?> StartAsync(string repository, string version)
+    /// <summary>
+    /// master переносится здесь, ключом оператора, а не в promote.yml: ключ GITHUB_TOKEN не может отправить в master
+    /// коммиты, которые меняют .github/workflows, а Бета их часто несёт. Слияние на сервере GitHub: master содержит
+    /// только слияния кода Беты, и конфликта нет; уже перенесённый — «сливать нечего», и повтор проходит. Первая
+    /// выкладка этим же слиянием приносит в master и сам promote.yml, который следом запускается.
+    /// </summary>
+    public async Task<string?> StartAsync(string repository, string version, string sha)
     {
+        var merge = await GhIssues.RunAsync(
+            GhIssues.GhStartInfo(
+                "api", "--method", "POST", $"repos/{repository}/merges", "-f", "base=master", "-f", $"head={sha}",
+                "-f", $"commit_message=Выпуск {version} в Стабильный"),
+            null, CancellationToken.None);
+        if (Refusal(merge) is { } mergeRefused)
+            return mergeRefused;
         var run = await GhIssues.RunAsync(
             GhIssues.GhStartInfo(
                 "workflow", "run", PanelPromotions.Workflow, "--repo", repository, "-f", $"version={version}"),
             null, CancellationToken.None);
-        return run.Missing ? "Программы gh нет на этом компьютере."
-            : run.TimedOut ? "GitHub не ответил за минуту."
-            : run.ExitCode == 0 ? null
-            : string.IsNullOrWhiteSpace(run.Error) ? $"gh завершилась с кодом {run.ExitCode}." : run.Error;
+        return Refusal(run);
     }
+
+    private static string? Refusal(GhIssues.Run run) =>
+        run.Missing ? "Программы gh нет на этом компьютере."
+        : run.TimedOut ? "GitHub не ответил за минуту."
+        : run.ExitCode == 0 ? null
+        : string.IsNullOrWhiteSpace(run.Error) ? $"gh завершилась с кодом {run.ExitCode}." : run.Error;
 }

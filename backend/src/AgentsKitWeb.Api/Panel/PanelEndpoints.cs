@@ -94,7 +94,7 @@ public static class PanelEndpoints
                 return Results.StatusCode(StatusCodes.Status502BadGateway);
             if (state.State is not ("ready" or "failed"))
                 return Results.Conflict(state);
-            if (await promotion.StartAsync(Repository(published), published.Version) is { } refused)
+            if (await promotion.StartAsync(Repository(published), published.Version, published.Sha) is { } refused)
                 return Results.Problem(refused, statusCode: StatusCodes.Status502BadGateway);
             starts.Started(published.Version, time.GetUtcNow());
             return Results.Accepted();
