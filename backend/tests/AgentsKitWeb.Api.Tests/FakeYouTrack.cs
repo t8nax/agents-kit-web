@@ -29,7 +29,7 @@ internal sealed class FakeYouTrack : IYouTrack
     /// <summary>Строка отбора каждого чтения задач: null — без отбора.</summary>
     public List<string?> Filters { get; } = [];
 
-    public Task<TrackerIssues> AssignedAsync(
+    public Task<TrackerIssues> OpenAsync(
         string server, string key, string project, string? filter, CancellationToken cancellationToken)
     {
         lock (Read)

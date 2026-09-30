@@ -19,8 +19,10 @@ public sealed class YouTrackApiTests
     private YouTrackApi Api(Func<HttpRequestMessage, HttpResponseMessage> answer) =>
         new(new Clients(new Handler(request =>
         {
-            _asked.Add((request.Method, request.RequestUri!.ToString(), request.Headers.Authorization?.ToString(),
-                request.Content?.ReadAsStringAsync().Result));
+            // Задачи и владелец ключа спрашиваются разом
+            lock (_asked)
+                _asked.Add((request.Method, request.RequestUri!.ToString(), request.Headers.Authorization?.ToString(),
+                    request.Content?.ReadAsStringAsync().Result));
             return answer(request);
         })));
 
@@ -89,14 +91,22 @@ public sealed class YouTrackApiTests
         Assert.Equal(new YouTrackUser(null, TrackerIssues.YouTrackError, "Сервер на обслуживании"), who);
     }
 
+    /// <summary>Вопрос о задачах — поиск задач среди всех вопросов чтения: владелец ключа спрашивается рядом.</summary>
+    private string IssuesAsked() =>
+        Uri.UnescapeDataString(Assert.Single(_asked, a => a.Url.Contains("/api/issues?")).Url);
+
+    /// <summary>
+    /// Отбора по исполнителю в запросе нет: «for: me» облачный YouTrack искал текстом и находил одну задачу, где эти
+    /// слова процитированы (AKW-17). Видны все незакрытые задачи проекта, сто первая спрашивается — понять, есть ли ещё.
+    /// </summary>
     [Fact]
-    public async Task Assigned_ReadsUnresolvedIssuesOfProjectForKeyOwner()
+    public async Task Open_ReadsAllUnresolvedIssuesOfProject()
     {
         var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
             ? Json("""[{"id":"0-7","shortName":"ABCD"},{"id":"0-1","shortName":"ABC"}]""")
             : Json("""[{"idReadable":"ABC-12","summary":"Оплата падает"},{"idReadable":"ABC-1287","summary":"Отчёты"}]"""));
 
-        var issues = await api.AssignedAsync(Server, Key, "abc", null, CancellationToken.None);
+        var issues = await api.OpenAsync(Server, Key, "abc", null, CancellationToken.None);
 
         Assert.Null(issues.Problem);
         Assert.Equal(
@@ -105,37 +115,85 @@ public sealed class YouTrackApiTests
                 new TrackerIssue("YouTrack ABC-1287", 1287, "Отчёты", "https://yt.acme.local/youtrack/issue/ABC-1287"),
             ],
             issues.Issues);
-        var query = Uri.UnescapeDataString(_asked[1].Url);
-        Assert.Contains("query=project: {ABC} for: me #Unresolved", query);
+        var query = IssuesAsked();
+        Assert.Contains("query=project: {ABC} #Unresolved&", query);
+        Assert.DoesNotContain("for: me", query);
+        Assert.Contains("$top=101", query);
     }
 
     /// <summary>
-    /// Фильтр описания дописывается к запросу панели в скобках (B-300): «or» в нём не выводит поиск за задачи
-    /// оператора в проекте (ревью B-300).
+    /// Исполнитель — поле Assignee: полное имя, без него логин; своя задача — логин владельца ключа, без регистра.
+    /// Владельца не узнали — своих не отмечено, а задачи видны.
     /// </summary>
     [Fact]
-    public async Task Assigned_WithFilter_AppendsItToSearch()
+    public async Task Open_TakesAssigneeAndMarksKeyOwnerIssues()
+    {
+        const string answer = """
+            [{"idReadable":"ABC-1","summary":"А","customFields":[{"name":"Priority","value":{"name":"Normal"}},
+               {"name":"Assignee","value":{"login":"Boris.K","fullName":"Борис Ким"}}]},
+             {"idReadable":"ABC-2","summary":"Б","customFields":[{"name":"Assignee","value":{"login":"anna","fullName":""}}]},
+             {"idReadable":"ABC-3","summary":"В","customFields":[{"name":"Assignee","value":null}]},
+             {"idReadable":"ABC-4","summary":"Г"}]
+            """;
+        HttpResponseMessage Answer(HttpRequestMessage request, string me) => request.RequestUri!.AbsolutePath switch
+        {
+            var p when p.EndsWith("/users/me") => Json(me),
+            var p when p.EndsWith("/admin/projects") => Json("""[{"id":"0-1","shortName":"ABC"}]"""),
+            _ => Json(answer),
+        };
+
+        var issues = await Api(r => Answer(r, """{"login":"boris.k"}""")).OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
+        Assert.Contains("fields=idReadable,summary,customFields(name,value(login,fullName))&", IssuesAsked());
+        var unknown = await Api(r => Answer(r, "{}")).OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
+
+        Assert.Equal(
+            [("Борис Ким", true), ("anna", false), (null, false), (null, false)],
+            issues.Issues.Select(i => (i.Assignee, i.Mine)));
+        Assert.All(unknown.Issues, i => Assert.False(i.Mine));
+        Assert.Equal("Борис Ким", unknown.Issues[0].Assignee);
+    }
+
+    [Fact]
+    public async Task Open_MoreThanHundred_KeepsHundredAndIsTruncated()
+    {
+        var many = new JsonArray([.. Enumerable.Range(1, 101).Select(i => (JsonNode)new JsonObject { ["idReadable"] = $"ABC-{i}", ["summary"] = "Т" })]);
+        var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
+            ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
+            : Json(many.ToJsonString()));
+
+        var issues = await api.OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
+
+        Assert.True(issues.Truncated);
+        Assert.Equal(100, issues.Issues.Count);
+    }
+
+    /// <summary>
+    /// Фильтр описания дописывается к запросу панели в скобках (B-300): «or» в нём не выводит поиск за незакрытые
+    /// задачи проекта (ревью B-300). «Только свои» — фильтром Assignee: me.
+    /// </summary>
+    [Fact]
+    public async Task Open_WithFilter_AppendsItToSearch()
     {
         var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
             ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
             : Json("""[{"idReadable":"ABC-12","summary":"Оплата падает"}]"""));
 
-        var issues = await api.AssignedAsync(Server, Key, "ABC", " State: {To Do} ", CancellationToken.None);
+        var issues = await api.OpenAsync(Server, Key, "ABC", " Assignee: me ", CancellationToken.None);
 
         Assert.Null(issues.Problem);
-        Assert.Contains("query=project: {ABC} for: me #Unresolved and (State: {To Do})&", Uri.UnescapeDataString(_asked[1].Url));
+        Assert.Contains("query=project: {ABC} #Unresolved and (Assignee: me)&", IssuesAsked());
     }
 
     /// <summary>YouTrack отверг поиск с отбором — не принята строка отбора, а не сервер сломан.</summary>
     [Fact]
-    public async Task Assigned_FilterRefused_IsFilterRejectedWithYouTrackWords()
+    public async Task Open_FilterRefused_IsFilterRejectedWithYouTrackWords()
     {
         var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
             ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
             : Json("""{"error":"bad_request","error_description":"Unknown field \"Stat\""}""", HttpStatusCode.BadRequest));
 
-        var filtered = await api.AssignedAsync(Server, Key, "ABC", "Stat: {To Do}", CancellationToken.None);
-        var plain = await api.AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
+        var filtered = await api.OpenAsync(Server, Key, "ABC", "Stat: {To Do}", CancellationToken.None);
+        var plain = await api.OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Equal((TrackerIssues.FilterRejected, "Unknown field \"Stat\""), (filtered.Problem, filtered.Detail));
         Assert.Equal(TrackerIssues.YouTrackError, plain.Problem);
@@ -143,47 +201,47 @@ public sealed class YouTrackApiTests
 
     /// <summary>Сбой сервера при поиске с фильтром — ошибка YouTrack, а не отказ фильтра (ревью B-300).</summary>
     [Fact]
-    public async Task Assigned_ServerFailureWithFilter_IsYouTrackError()
+    public async Task Open_ServerFailureWithFilter_IsYouTrackError()
     {
         var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
             ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
             : Json("<html>Bad Gateway</html>", HttpStatusCode.BadGateway));
 
-        var issues = await api.AssignedAsync(Server, Key, "ABC", "State: {To Do}", CancellationToken.None);
+        var issues = await api.OpenAsync(Server, Key, "ABC", "State: {To Do}", CancellationToken.None);
 
         Assert.Equal((TrackerIssues.YouTrackError, "HTTP 502"), (issues.Problem, issues.Detail));
     }
 
     /// <summary>Проектов с искомым в имени больше страницы — нужный ищется и на следующих (ревью B-288).</summary>
     [Fact]
-    public async Task Assigned_ProjectOnSecondPage_IsFound()
+    public async Task Open_ProjectOnSecondPage_IsFound()
     {
         var firstPage = new JsonArray([.. Enumerable.Range(0, 100).Select(i => (JsonNode)new JsonObject { ["id"] = $"0-{i}", ["shortName"] = $"ABC{i}" })]);
         var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
             ? request.RequestUri.Query.Contains("$skip=0") ? Json(firstPage.ToJsonString()) : Json("""[{"id":"0-500","shortName":"ABC"}]""")
             : Json("""[{"idReadable":"ABC-1","summary":"Т"}]"""));
 
-        var issues = await api.AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
+        var issues = await api.OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Null(issues.Problem);
         Assert.Equal("YouTrack ABC-1", Assert.Single(issues.Issues).Name);
-        Assert.Contains("$skip=100", _asked[1].Url);
+        Assert.Contains("$skip=100", _asked.Where(a => a.Url.Contains("/admin/projects")).ElementAt(1).Url);
     }
 
     [Fact]
-    public async Task Assigned_ProjectNotVisible_IsProjectMissingWithoutReadingIssues()
+    public async Task Open_ProjectNotVisible_IsProjectMissingWithoutReadingIssues()
     {
         var issues = await Api(_ => Json("""[{"id":"0-7","shortName":"ABCD"}]"""))
-            .AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
+            .OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Equal(TrackerIssues.ProjectMissing, issues.Problem);
-        Assert.Single(_asked);
+        Assert.DoesNotContain(_asked, a => a.Url.Contains("/api/issues?"));
     }
 
     [Fact]
-    public async Task Assigned_KeyRejected_IsKeyRejected()
+    public async Task Open_KeyRejected_IsKeyRejected()
     {
-        var issues = await Api(_ => Json("{}", HttpStatusCode.Unauthorized)).AssignedAsync(Server, Key, "ABC", null, CancellationToken.None);
+        var issues = await Api(_ => Json("{}", HttpStatusCode.Unauthorized)).OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Equal(TrackerIssues.KeyRejected, issues.Problem);
         Assert.Empty(issues.Issues);
