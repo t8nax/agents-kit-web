@@ -149,3 +149,43 @@ test('API не отдал блок — блока нет', async () => {
   await waitFor(() => expect(fetchMock).toHaveBeenCalled())
   expect(document.querySelector('.rel-block')).toBeNull()
 })
+
+
+test('сбой опроса посреди выкладки блок не убирает, и итог приходит следующим опросом', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const answers: (() => Response)[] = [
+    () => json(stable('running')),
+    () => new Response(null, { status: 502 }),
+    () => json(stable('already', { stable: '0.28.1.3' })),
+  ]
+  let index = 0
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => Promise.resolve(answers[Math.min(index++, answers.length - 1)]())),
+  )
+  render(<StablePromotion />)
+  expect(await screen.findByText('Выпускается 0.28.1.3…')).toBeTruthy()
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000)
+  })
+
+  expect(screen.getByText('Выпускается 0.28.1.3…')).toBeTruthy()
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(5000)
+  })
+
+  expect(await screen.findByText('Сборка 0.28.1.3 вышла в Стабильный')).toBeTruthy()
+})
+
+test('отказ запуска без объяснения — GitHub не ответил', async () => {
+  stubApi([stable('ready')], () => new Response(null, { status: 502 }))
+  render(<StablePromotion />)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Выпустить в Стабильный' }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Выпустить в Стабильный' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert.textContent).toBe('Выкладка не удалась: GitHub не ответил. В Стабильном осталась 0.27.4.0.')
+})

@@ -28,15 +28,21 @@ export default function StablePromotion() {
   const watched = useRef(false)
   const [done, setDone] = useState(false)
 
+  // Блока нет, пока API его не отдал. Сбой посреди выкладки — GitHub промолчал или отказал по лимиту — блок
+  // не убирает: он остаётся как был, и опрос идёт дальше.
   const load = useCallback(() => {
     fetch('/api/panel/stable')
-      .then((response) => (response.ok ? (response.json() as Promise<PanelStable>) : null))
+      .then((response) => {
+        if (response.status === 404) return null
+        return response.ok ? (response.json() as Promise<PanelStable>) : undefined
+      })
       .then((loaded) => {
+        if (loaded === undefined) return
         if (loaded?.state === 'running') watched.current = true
         else if (loaded?.state === 'already' && watched.current) setDone(true)
         setStable(loaded)
       })
-      .catch(() => setStable(null))
+      .catch(() => undefined)
   }, [])
 
   useEffect(() => {
@@ -61,10 +67,7 @@ export default function StablePromotion() {
           return
         }
         // Выкладка уже идёт или выкладывать больше нечего — блок просто читает, как обстоит дело.
-        if (response.status !== 409) {
-          const problem = response.status === 502 ? ((await response.json()) as { detail?: string }).detail : null
-          setRefused(problem ?? `HTTP ${response.status}`)
-        }
+        if (response.status !== 409) setRefused(await refusal(response))
         load()
       })
       .catch(() => setRefused('нет связи с API'))
@@ -217,6 +220,16 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
       </div>
     </div>
   )
+}
+
+/** Причина отказа запуска: 502 с телом — слова gh, без тела — GitHub не отдал выпуски. */
+async function refusal(response: Response) {
+  if (response.status !== 502) return `HTTP ${response.status}`
+  const detail = await response
+    .json()
+    .then((body: { detail?: string }) => body.detail)
+    .catch(() => undefined)
+  return detail ?? 'GitHub не ответил'
 }
 
 /** «1 задача», «2 задачи», «5 задач». */
