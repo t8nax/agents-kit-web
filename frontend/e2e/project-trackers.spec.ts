@@ -133,10 +133,22 @@ test('проект без трекера — круг пунктиром, заг
   const empty = card.locator('.empty-state')
   await expect(card.getByRole('heading', { name: 'В этом проекте нет трекера' })).toBeVisible()
   await expect(empty.getByRole('button')).toHaveText(['Завести трекер'])
-  // Заголовок по центру подробностей; замер — до совпадения: шрифт грузится после первой отрисовки
+  // Текст заголовка — по центру подробностей, пустой вид — во всю их высоту; замер — до совпадения: шрифт грузится
+  // после первой отрисовки. Меряется сам текст, а не блок h3: блок во всю ширину стоял бы «по центру» и у текста слева.
   await expect(async () => {
-    const [frame, title] = await Promise.all([card.boundingBox(), empty.locator('h3').boundingBox()])
-    expect(Math.abs(title!.x + title!.width / 2 - (frame!.x + frame!.width / 2))).toBeLessThan(2)
+    const [frame, box, text] = await Promise.all([
+      card.boundingBox(),
+      empty.boundingBox(),
+      empty.locator('h3').evaluate((element) => {
+        const range = document.createRange()
+        range.selectNodeContents(element)
+        const rect = range.getBoundingClientRect()
+        return { x: rect.x, width: rect.width }
+      }),
+    ])
+    expect(Math.abs(text.x + text.width / 2 - (frame!.x + frame!.width / 2))).toBeLessThan(2)
+    expect(Math.abs(box!.y + box!.height - (frame!.y + frame!.height))).toBeLessThan(24)
+    expect(box!.height).toBeGreaterThan(frame!.height / 2)
   }).toPass()
   const look = await empty.evaluate((element) => {
     const mark = element.querySelector('.empty-state-mark')!
