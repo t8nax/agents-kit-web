@@ -150,7 +150,6 @@ test('API не отдал блок — блока нет', async () => {
   expect(document.querySelector('.rel-block')).toBeNull()
 })
 
-
 test('сбой опроса посреди выкладки блок не убирает, и итог приходит следующим опросом', async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true })
   const answers: (() => Response)[] = [

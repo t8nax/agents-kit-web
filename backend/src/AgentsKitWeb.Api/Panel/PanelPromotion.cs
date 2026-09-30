@@ -133,12 +133,24 @@ public sealed class GhPromotion(TimeProvider time) : IPanelPromotion
             null, CancellationToken.None);
         if (Refusal(merge) is { } mergeRefused)
             return mergeRefused;
-        var run = await GhIssues.RunAsync(
-            GhIssues.GhStartInfo(
-                "workflow", "run", PanelPromotions.Workflow, "--repo", repository, "-f", $"version={version}"),
-            null, CancellationToken.None);
-        return Refusal(run);
+        // Первая выкладка приносит promote.yml в master этим же слиянием, и GitHub видит его не сразу:
+        // «не найден в ветке по умолчанию» — подождать и спросить ещё. master уже перенесён, и отказ здесь
+        // доделывает «Повторить».
+        for (var attempt = 1; ; attempt++)
+        {
+            var run = await GhIssues.RunAsync(
+                GhIssues.GhStartInfo(
+                    "workflow", "run", PanelPromotions.Workflow, "--repo", repository, "-f", $"version={version}"),
+                null, CancellationToken.None);
+            if (attempt >= DispatchAttempts || !run.Error.Contains("not found", StringComparison.OrdinalIgnoreCase))
+                return Refusal(run);
+            await Task.Delay(DispatchPause);
+        }
     }
+
+    private const int DispatchAttempts = 4;
+
+    private static readonly TimeSpan DispatchPause = TimeSpan.FromSeconds(5);
 
     private static string? Refusal(GhIssues.Run run) =>
         run.Missing ? "Программы gh нет на этом компьютере."

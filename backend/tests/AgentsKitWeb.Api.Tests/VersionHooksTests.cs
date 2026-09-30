@@ -29,7 +29,7 @@ public sealed class VersionHooksTests : IDisposable
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("в dev 0.10.0, в Стабильном последним вышел 0.10.0, после слияния 0.10.0", errors);
-        Assert.Contains("поднимает номер выпуска на один шаг: 0.11.0 или 0.10.1", errors);
+        Assert.Contains("поднимается на один шаг: 0.11.0 или 0.10.1", errors);
         Assert.Contains("version.txt", errors);
         Assert.Contains(Rule, errors);
     }
@@ -125,7 +125,7 @@ public sealed class VersionHooksTests : IDisposable
         var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/again", "-m", "Merge feat/again");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains($"в dev уже {dev} после Стабильного 0.10.0, после слияния {task}", errors);
+        Assert.Contains($"в dev уже {dev}, в Стабильном последним вышел 0.10.0, после слияния {task}", errors);
         Assert.Contains(advice, errors);
         Assert.Contains(Rule, errors);
     }
@@ -173,8 +173,26 @@ public sealed class VersionHooksTests : IDisposable
         var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains($"в dev 0.27.4.0, выпусков Стабильного ещё нет, после слияния {task}", errors);
-        Assert.Contains("поднимает номер выпуска на один шаг: 0.28.0 или 0.27.5", errors);
+        Assert.Contains($"в dev 0.27.4.0, это номер прежней записи, после слияния {task}", errors);
+        Assert.Contains("поднимается на один шаг: 0.28.0 или 0.27.5", errors);
+    }
+
+    [Fact]
+    public void BreakingAfterFirstReleaseNumber_BeforeNewStable_RaisesSecondNumber()
+    {
+        // В Стабильном ещё выпуск прежней записи: номер выпуска поднят от последнего номера прежней записи в dev,
+        // и поломка после одних новинок поднимает второе число, а не упирается в старый Стабильный.
+        var repository = Repository();
+        Stable(repository, "0.25.1");
+        Commit(repository, "version.txt", "0.27.4.0");
+        Task(repository, "feat/first", "0.27.5");
+        var (firstCode, firstErrors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first");
+        Assert.True(firstCode == 0, firstErrors);
+        Task(repository, "feat/breaking", "0.28.0");
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/breaking", "-m", "Merge feat/breaking");
+
+        Assert.True(exitCode == 0, errors);
     }
 
     [Fact]

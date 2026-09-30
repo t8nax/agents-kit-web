@@ -62,15 +62,26 @@ function Get-Release($parts) { , @($parts[0], $parts[1], $parts[2], 0) }
 
 function Format-Release($parts) { "$($parts[0]).$($parts[1]).$($parts[2])" }
 
-# Последний выпуск Стабильного — наибольший тег v<номер> без -dev; его нет — $null.
+# Последний выпуск Стабильного — наибольший тег v<номер> без -dev; его нет — $null. New — выпуск нынешней записи:
+# номер сборки Беты в нём от единицы, а у выпусков прежней записи четвёртого числа нет или оно ноль.
 function Get-Stable {
     $best = $null
     foreach ($tag in git tag --list 'v*') {
         if ($tag -notmatch '^v(\d+\.\d+\.\d+(?:\.\d+)?)$') { continue }
         $parts = ConvertTo-Parts $Matches[1]
-        if (-not $best -or (Compare-Parts $parts $best) -gt 0) { $best = $parts }
+        if (-not $best -or (Compare-Parts $parts $best.Parts) -gt 0) { $best = @{ Parts = $parts; New = $parts[3] -gt 0 } }
     }
     $best
+}
+
+# Последний номер прежней записи — из четырёх чисел, на каждое слияние — в истории version.txt dev; нет — $null.
+# Пока в Стабильном нет выпуска нынешней записи, номер выпуска считается поднятым от него, а не от старого Стабильного.
+function Get-Legacy {
+    foreach ($sha in git log --format=%H -n 200 HEAD -- version.txt) {
+        $text = Get-Text "${sha}:"
+        if ($text -and $text.Split('.').Count -eq 4 -and (ConvertTo-Parts $text)) { return $text }
+    }
+    $null
 }
 
 function Stop-Merge($message) {
@@ -93,13 +104,26 @@ if ($Mode -eq 'Merge') {
         Stop-Merge "В version.txt после слияния «$nowText», а нужен номер выпуска из трёх чисел."
     }
 
+    # От чего считается подъём номера выпуска: от последнего Стабильного, а пока выпуска нынешней записи нет —
+    # от последнего номера прежней записи в dev, и первый номер выпуска — шаг от его первых трёх чисел.
     $stable = Get-Stable
-    $base = if ($stable) { Get-Release $stable } else { $null }
-    # До номера выпуска в version.txt лежал номер из четырёх чисел на каждое слияние: первый номер выпуска —
-    # шаг от его первых трёх чисел, как у первой задачи после выкладки.
+    $legacy = if ($stable -and $stable.New) { $null } else { Get-Legacy }
     if ($wasText.Split('.').Count -ne 3) {
         $was = Get-Release $was
         $base = $was
+        $since = 'это номер прежней записи'
+    }
+    elseif ($legacy) {
+        $base = Get-Release (ConvertTo-Parts $legacy)
+        $since = "до номера выпуска в dev был $legacy"
+    }
+    elseif ($stable) {
+        $base = Get-Release $stable.Parts
+        $since = "в Стабильном последним вышел $(Format-Release $stable.Parts)"
+    }
+    else {
+        $base = $null
+        $since = 'выпусков Стабильного ещё нет'
     }
     # Подъём на один шаг: второе число на единицу и третье в ноль или третье на единицу.
     $breaking = @($was[0], ($was[1] + 1), 0, 0)
@@ -109,9 +133,8 @@ if ($Mode -eq 'Merge') {
     if (-not $raised) {
         # С последней выкладки номер выпуска ещё не поднимали: поднимает эта задача.
         if ((Compare-Parts $now $breaking) -eq 0 -or (Compare-Parts $now $adding) -eq 0) { exit 0 }
-        $since = if ($stable) { "в Стабильном последним вышел $(Format-Release $stable)" } else { 'выпусков Стабильного ещё нет' }
         Stop-Merge ("Номер выпуска поднят не так: в dev $wasText, $since, после слияния $nowText. " +
-            "Первая задача после выкладки поднимает номер выпуска на один шаг: $(Format-Release $breaking) или $(Format-Release $adding).")
+            "Номер выпуска поднимается на один шаг: $(Format-Release $breaking) или $(Format-Release $adding).")
     }
 
     # Номер выпуска уже поднят: остаётся как есть, а поломка привычного после одного поднятого третьего
@@ -120,7 +143,7 @@ if ($Mode -eq 'Merge') {
     $onlyThird = $was[1] -eq $base[1]
     if ($onlyThird -and (Compare-Parts $now $breaking) -eq 0) { exit 0 }
     $allowed = if ($onlyThird) { "оставить $wasText или, если задача ломает привычное, $(Format-Release $breaking)" } else { "оставить $wasText" }
-    Stop-Merge ("Номер выпуска поднят не так: в dev уже $wasText после Стабильного $(Format-Release $stable), после слияния $nowText. " +
+    Stop-Merge ("Номер выпуска поднят не так: в dev уже $wasText, $since, после слияния $nowText. " +
         "Нужно $allowed.")
 }
 

@@ -56,6 +56,13 @@ jobs:
             Write-Output "::error::В Стабильном уже $stable — новее $env:VERSION"
             exit 1
           }
+          # master на код выпуска переносит кнопка до запуска; запуск мимо неё выпустил бы Стабильный, а master
+          # остался бы на прежнем коде, откуда install.ps1 берут одной строкой.
+          git merge-base --is-ancestor $sha origin/master
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::Код Беты $env:VERSION не в master: выкладку запускает кнопка «Выпустить в Стабильный»"
+            exit 1
+          }
           $released = [bool](git tag --list "v$env:VERSION")
           "sha=$sha" >> $env:GITHUB_OUTPUT
           "tag=$beta" >> $env:GITHUB_OUTPUT
