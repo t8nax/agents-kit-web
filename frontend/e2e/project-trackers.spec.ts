@@ -59,6 +59,8 @@ async function mockApi(page: Page, list: unknown[] = rows) {
 async function openSection(page: Page) {
   await page.goto('/')
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Трекеры' }).click()
+  // Мышь уходит с полосы разделов: под ней полоса раскрыта и лежит поверх списка проектов.
+  await page.mouse.move(page.viewportSize()!.width - 20, page.viewportSize()!.height - 20)
   return page.getByRole('navigation', { name: 'Трекеры проектов' })
 }
 
