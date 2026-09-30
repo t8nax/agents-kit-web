@@ -169,6 +169,9 @@ public sealed class PanelStableTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         Assert.NotNull(_promotion.Started);
+        // GitHub ещё показывает прежний сорвавшийся запуск: новая выкладка идёт, а не сорвалась снова.
+        var stable = await client.GetFromJsonAsync<PanelStableResponse>("/api/panel/stable");
+        Assert.Equal("running", stable!.State);
     }
 
     [Theory]
