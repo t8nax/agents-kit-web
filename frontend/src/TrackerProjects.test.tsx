@@ -67,8 +67,9 @@ test('проект без трекера — «Трекера нет» и «За
   render(<TrackerProjects />)
 
   const list = within(await screen.findByRole('navigation', { name: 'Трекеры проектов' }))
-  expect(list.getByRole('button', { name: /^Orders/ })).toHaveTextContent('GitHub · acme/orders')
-  expect(list.getByRole('button', { name: /^CRM/ })).toHaveTextContent('Трекера нет')
+  // Приёмка B-323: у проекта в списке — метка трекера и имя, без второй строки.
+  expect(list.getByRole('button', { name: /^Orders/ })).toHaveTextContent(/^GHOrders$/)
+  expect(list.getByRole('button', { name: /^CRM/ })).toHaveTextContent(/^CRM$/)
 
   const orders = await row('Orders')
   expect(orders.getByText('GitHub', { selector: 'dd' })).toBeInTheDocument()
@@ -77,7 +78,9 @@ test('проект без трекера — «Трекера нет» и «За
   expect(orders.getByRole('button', { name: 'Изменить трекер Orders' })).toBeEnabled()
   expect(orders.getByRole('button', { name: 'Удалить трекер Orders' })).toBeEnabled()
   const crm = await row('CRM')
-  expect(crm.getByText('У проекта нет трекера, его задачи живут только в бэклоге.')).toBeInTheDocument()
+  // Проект без трекера — как пустой проект во «Флоу»: заголовок и крупная «Завести трекер» (приёмка B-323).
+  expect(crm.getByRole('heading', { name: 'В этом проекте нет трекера' })).toBeInTheDocument()
+  expect(crm.getByRole('button', { name: 'Завести трекер CRM' })).toHaveTextContent('Завести трекер')
   expect(crm.getByRole('button', { name: 'Завести трекер CRM' })).toBeEnabled()
   expect(crm.queryByRole('button', { name: /Удалить/ })).not.toBeInTheDocument()
 })
@@ -256,7 +259,7 @@ test('«Удалить» спрашивает окном, удаляет пов�
   )
   fireEvent.click(dialog.getByRole('button', { name: 'Удалить трекер' }))
 
-  expect(await (await row('Orders')).findByText('У проекта нет трекера, его задачи живут только в бэклоге.')).toBeInTheDocument()
+  expect(await (await row('Orders')).findByRole('heading', { name: 'В этом проекте нет трекера' })).toBeInTheDocument()
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   const deleted = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')![0]
   expect(new URLSearchParams(deleted.split('?')[1])).toEqual(new URLSearchParams({ base: described.base, version: 'v1' }))
@@ -283,7 +286,7 @@ test('база не ушла на сервер после удаления — �
   // Кнопка внизу окна, а не крестик: у обоих имя «Закрыть».
   fireEvent.click(screen.getByText('Закрыть', { selector: '.dw-footer button' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-  expect(await (await row('Orders')).findByText('У проекта нет трекера, его задачи живут только в бэклоге.')).toBeInTheDocument()
+  expect(await (await row('Orders')).findByRole('heading', { name: 'В этом проекте нет трекера' })).toBeInTheDocument()
 })
 
 test('пришла задача трекера — окно удаления называет её, проекты перечитываются', async () => {

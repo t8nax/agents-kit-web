@@ -19,6 +19,7 @@ import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
 import Trackers from './Trackers'
+import { TicketIcon } from './TrackerProjects'
 import Guide from './Guide'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
@@ -667,15 +668,6 @@ function ListIcon() {
       <line x1="3" y1="6" x2="3.01" y2="6" />
       <line x1="3" y1="12" x2="3.01" y2="12" />
       <line x1="3" y1="18" x2="3.01" y2="18" />
-    </svg>
-  )
-}
-
-function TicketIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z" />
-      <path d="M14 5v2M14 11v2M14 17v2" />
     </svg>
   )
 }

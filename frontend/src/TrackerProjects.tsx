@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import DeleteProjectTrackerModal from './DeleteProjectTrackerModal'
 import { TrashIcon } from './DeleteWorkspaceModal'
+import { PlusIcon } from './NewWorkspaceModal'
 import { WarningIcon } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
 import TrackerModal from './TrackerModal'
@@ -200,18 +201,10 @@ function keyOf(tracker: TrackerInfo, servers: TrackerServer[] | null): ReactNode
   )
 }
 
+// Строка списка — метка трекера и имя проекта, без второй строки: остальное — в подробностях справа (приёмка B-323).
 function ProjectItem({ row, active, onPick }: { row: ProjectTrackerRow; active: boolean; onPick: () => void }) {
   const name = trackerName(row)
   const tracker = row.tracker
-  const project = tracker?.project ?? row.description?.project.trim() ?? ''
-  const sub =
-    row.problem !== null
-      ? 'База не читается'
-      : tracker === null
-        ? 'Трекера нет'
-        : tracker.kind === 'unreadable'
-          ? 'Описание не прочитано'
-          : [name, project].filter(Boolean).join(' · ') || '—'
   const broken = faultOf(row) !== null || row.newerFormat
   return (
     <button
@@ -222,10 +215,7 @@ function ProjectItem({ row, active, onPick }: { row: ProjectTrackerRow; active: 
       onClick={onPick}
     >
       <TrackerMark name={tracker === null || row.problem !== null ? null : name} />
-      <span className="tp-item-text">
-        <span className="tp-item-name">{row.project}</span>
-        <span className="tp-item-sub">{sub}</span>
-      </span>
+      <span className="tp-item-name">{row.project}</span>
       {broken ? <span className="tp-dot" role="img" aria-label="есть поломка" /> : <span />}
     </button>
   )
@@ -249,6 +239,38 @@ function ProjectDetail({ row, servers, onEdit, onDelete }: DetailProps) {
   const key = tracker === null ? null : keyOf(tracker, servers)
   const shown = tracker !== null && row.problem === null && !unreadable
 
+  // Проект без трекера — как пустой проект во «Флоу», без градиента на фоне (приёмка B-323).
+  if (tracker === null && row.problem === null)
+    return (
+      <div className="tp-empty">
+        <span className="tp-empty-mark" aria-hidden="true">
+          <TicketIcon />
+        </span>
+        <h3>В этом проекте нет трекера</h3>
+        <p>
+          Трекер — место, где команда ведёт задачи проекта: GitHub, GitLab, Jira или YouTrack. Пока его нет, задачи
+          проекта живут только в бэклоге.
+        </p>
+        {row.newerFormat && (
+          <p className="tp-notice fmt">
+            <WarningIcon />
+            <span>{refusal}</span>
+          </p>
+        )}
+        <button
+          type="button"
+          className="bases-btn bases-btn-primary"
+          aria-label={`Завести трекер ${row.project}`}
+          disabled={closed}
+          title={refusal}
+          onClick={onEdit}
+        >
+          <PlusIcon />
+          Завести трекер
+        </button>
+      </div>
+    )
+
   return (
     <>
       <div className="tp-head">
@@ -258,18 +280,7 @@ function ProjectDetail({ row, servers, onEdit, onDelete }: DetailProps) {
           <span>{tracker === null || row.problem !== null ? 'Проект из списка баз' : name ? `Трекер ${name}` : 'Трекер'}</span>
         </div>
         <span className="tp-acts">
-          {tracker === null ? (
-            <button
-              type="button"
-              className="bases-btn bases-btn-add"
-              aria-label={`Завести трекер ${row.project}`}
-              disabled={closed}
-              title={refusal}
-              onClick={onEdit}
-            >
-              Завести
-            </button>
-          ) : (
+          {tracker === null ? null : (
             <>
               <button
                 type="button"
@@ -329,14 +340,7 @@ function ProjectDetail({ row, servers, onEdit, onDelete }: DetailProps) {
             </>
           )}
         </dl>
-      ) : (
-        tracker === null &&
-        row.problem === null && (
-          <div className="tp-empty">
-            <p>У проекта нет трекера, его задачи живут только в бэклоге.</p>
-          </div>
-        )
-      )}
+      ) : null}
     </>
   )
 }
@@ -349,6 +353,15 @@ function TrackerMark({ name, large = false }: { name: string | null; large?: boo
     <span className={`tp-mark ${kind} ${large ? 'lg' : ''}`} aria-hidden="true">
       {text}
     </span>
+  )
+}
+
+export function TicketIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z" />
+      <path d="M14 5v2M14 11v2M14 17v2" />
+    </svg>
   )
 }
 
