@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-// Карточка «Трекеры проектов» в «Настройках» и окно «Трекер проекта с Чудо-Юдо» (B-293). /api подменяется: запись
-// описания коммитит в базу и сводит её с сервером скриптом кита — это проверяют тесты бэкенда на временной базе.
+// Трекеры проектов раздела «Трекеры» и окно «Трекер проекта» (B-293, B-323). /api подменяется: запись описания
+// коммитит в базу и сводит её с сервером скриптом кита — это проверяют тесты бэкенда на временной базе.
 
 const long = 'https://tracker.severo-zapadnaya-logisticheskaya-kompaniya.corp.northwind-group.ru/youtrack'
 
@@ -56,10 +56,15 @@ async function mockApi(page: Page, list: unknown[] = rows) {
   return saved
 }
 
-async function openCard(page: Page) {
+async function openSection(page: Page) {
   await page.goto('/')
-  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Настройки' }).click()
-  return page.getByRole('region', { name: 'Трекеры проектов' })
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Трекеры' }).click()
+  return page.getByRole('navigation', { name: 'Трекеры проектов' })
+}
+
+/** Подробности выбранного проекта — справа от списка. */
+function detail(page: Page, project: string) {
+  return page.getByRole('region', { name: `Трекер проекта ${project}` })
 }
 
 /** Элемент не выходит за правый край рамки. */
@@ -78,69 +83,101 @@ async function noSideScroll(element: Locator) {
   }).toPass()
 }
 
+const logistics = rows[0].project
+
 for (const width of [1400, 900]) {
-  test(`строки проектов с длинным адресом не выталкивают кнопки из карточки (${width}px)`, async ({ page }) => {
+  test(`длинный адрес сервера не выталкивает кнопки из подробностей проекта (${width}px)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     await mockApi(page)
 
-    const card = await openCard(page)
-    const row = card.getByRole('listitem').filter({ hasText: 'Логистика' })
-    await expect(row.locator('.prj-server')).toHaveAttribute('title', long)
-    await inside(row.getByRole('button', { name: /^Изменить трекер/ }), card)
-    await inside(row.getByRole('button', { name: /^Удалить трекер/ }), card)
-    await inside(card.getByRole('button', { name: 'Завести трекер CRM' }), card)
+    await openSection(page)
+    const card = detail(page, logistics)
+    await expect(card.getByText(long)).toBeVisible()
+    await inside(card.getByRole('button', { name: /^Изменить трекер/ }), card)
+    await inside(card.getByRole('button', { name: /^Удалить трекер/ }), card)
+    await inside(card.getByText(long), card)
     await noSideScroll(page.locator('html'))
   })
 }
 
+// Критерий 2 B-323: выбранный проект выделен, как выбранный пункт полосы разделов (ответ оператора на макет).
+test('выбранный проект выделен так же, как выбранный раздел в полосе', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await mockApi(page)
+
+  const list = await openSection(page)
+  await list.getByRole('button', { name: /^CRM/ }).click()
+  await expect(detail(page, 'CRM')).toBeVisible()
+
+  const look = (element: Locator) =>
+    element.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return { background: style.backgroundColor, border: style.borderLeftColor, color: style.color, width: style.borderLeftWidth }
+    })
+  const section = page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Трекеры' })
+  // Мышь уводится и с полосы, и со строки: под ней обе подсвечивались бы наведением.
+  await page.mouse.move(1300, 850)
+  await expect(async () => expect(await look(list.getByRole('button', { name: /^CRM/ }))).toEqual(await look(section))).toPass()
+})
+
 // Замечание оператора к макету B-293: окно без горизонтальной прокрутки на любой ширине.
 for (const width of [1400, 700]) {
-  test(`окно трекера без горизонтальной прокрутки, «Принять правки» пишет описание из полей (${width}px)`, async ({ page }) => {
+  test(`окно трекера без горизонтальной прокрутки, «Сохранить» пишет описание из полей (${width}px)`, async ({ page }) => {
     const saved = await mockApi(page)
 
-    const card = await openCard(page)
-    await card.getByRole('button', { name: /^Изменить трекер/ }).click()
-    const dialog = page.getByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })
-    // Окно сужается уже открытым: на узком экране раскрытый сайдбар лёг бы поверх кнопок карточки.
+    await openSection(page)
+    await detail(page, logistics).getByRole('button', { name: /^Изменить трекер/ }).click()
+    const dialog = page.getByRole('dialog', { name: 'Трекер проекта', exact: true })
+    // Окно сужается уже открытым: на узком экране раскрытый сайдбар лёг бы поверх кнопок раздела.
     await page.setViewportSize({ width, height: 900 })
-    await dialog.getByRole('tab', { name: 'Изменения' }).click()
     await expect(dialog.getByLabel('Адрес сервера')).toHaveValue(long)
     await noSideScroll(dialog)
     await noSideScroll(dialog.locator('.ask-body'))
-    await inside(dialog.getByRole('button', { name: 'Принять правки' }), dialog)
+    await inside(dialog.getByRole('button', { name: 'Сохранить' }), dialog)
+    await inside(dialog.getByRole('button', { name: 'Переписать с Чудо-Юдо' }), dialog)
 
     await dialog.getByLabel('Проект').fill('LOGISTICS')
     await expect(dialog.getByText('изменено')).toBeVisible()
-    await dialog.getByRole('button', { name: 'Принять правки' }).click()
+    await dialog.getByRole('button', { name: 'Сохранить' }).click()
     await expect
       .poll(() => saved)
       .toEqual([{ base: rows[0].base, version: 'v1', description: { ...description, project: 'LOGISTICS' } }])
-    await expect(dialog.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
-
-    await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()
   })
 }
 
-// Макет B-300: фильтр — строкой под сервером и проектом в карточке и полем под их парой в окне, во всю ширину пары.
-test('фильтр трекера — под сервером и проектом в карточке и в окне', async ({ page }) => {
+// Критерий 3 B-323: переписка с Чудо-Юдо — окном поверх окна трекера, как у исполнителя; Escape закрывает верхнее.
+test('переписка открывается поверх окна трекера, Escape закрывает сначала её', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 })
+  await mockApi(page)
+
+  await openSection(page)
+  await detail(page, logistics).getByRole('button', { name: /^Изменить трекер/ }).click()
+  const form = page.getByRole('dialog', { name: 'Трекер проекта', exact: true })
+  await form.getByRole('button', { name: 'Переписать с Чудо-Юдо' }).click()
+  const chat = page.getByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })
+  await expect(chat.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
+  await expect(chat.getByRole('button', { name: 'Голосовой ввод' })).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(chat).toBeHidden()
+  await expect(form).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(form).toBeHidden()
+})
+
+// Макет B-300: фильтр — строкой в подробностях проекта и полем под парой «Адрес сервера / Проект» во всю её ширину.
+test('фильтр трекера — в подробностях проекта и под сервером и проектом в окне', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 })
   const filter = 'State: {To Do}'
   await mockApi(page, [{ ...rows[0], tracker: { ...rows[0].tracker, filter }, description: { ...description, filter } }, rows[1]])
 
-  const card = await openCard(page)
-  const row = card.getByRole('listitem').filter({ hasText: 'Логистика' })
-  await expect(row.locator('.prj-filter')).toContainText(filter)
-  const [server, project, line] = await Promise.all(
-    [row.locator('.prj-server'), row.locator('.prj-project'), row.locator('.prj-filter')].map((one) => one.boundingBox()),
-  )
-  expect(line!.y).toBeGreaterThanOrEqual(server!.y + server!.height - 0.5)
-  expect(Math.abs(line!.x - server!.x)).toBeLessThanOrEqual(1)
-  expect(line!.x + line!.width).toBeLessThanOrEqual(project!.x + project!.width + 1)
+  await openSection(page)
+  const card = detail(page, logistics)
+  await expect(card.getByText(filter)).toBeVisible()
 
-  await row.getByRole('button', { name: /^Изменить трекер/ }).click()
-  const dialog = page.getByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })
-  await dialog.getByRole('tab', { name: 'Изменения' }).click()
+  await card.getByRole('button', { name: /^Изменить трекер/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Трекер проекта', exact: true })
   await expect(dialog.getByLabel('Фильтр')).toHaveValue(filter)
   const [address, key, field] = await Promise.all(
     [dialog.getByLabel('Адрес сервера'), dialog.getByLabel('Проект'), dialog.getByLabel('Фильтр')].map((one) => one.boundingBox()),
@@ -150,15 +187,10 @@ test('фильтр трекера — под сервером и проекто�
   expect(Math.abs(field!.x + field!.width - (key!.x + key!.width))).toBeLessThanOrEqual(1)
 })
 
-// Ревью B-293: переход из «Бэклога» показывает карточку, хотя карточки выше дочитываются позже и растут.
-test('строка поломки трекера в «Бэклоге» ведёт к карточке, и она остаётся на экране', async ({ page }) => {
+// Критерий 4 B-323: строка поломки в «Бэклоге» ведёт в раздел «Трекеры» и выбирает проект с поломкой.
+test('строка поломки трекера в «Бэклоге» ведёт в раздел «Трекеры» к своему проекту', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 800 })
-  await mockApi(page)
-  const bases = Array.from({ length: 14 }, (_, i) => ({ path: String.raw`D:\Projects\base-${i}-knowledge`, copies: 1 }))
-  await page.route('**/api/bases', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 700))
-    await route.fulfill({ json: bases })
-  })
+  await mockApi(page, [rows[0], { ...rows[1], tracker: { kind: 'no-keys', faults: ['проект'] } }])
   await page.route('**/api/backlog', (route) =>
     route.fulfill({
       json: [
@@ -177,13 +209,13 @@ test('строка поломки трекера в «Бэклоге» ведё�
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
   // Строки о задачах трекера — на своей вкладке (B-305)
   await page.getByRole('tab', { name: 'Задачи трекера' }).click()
-  await page.getByRole('button', { name: '«Трекеры проектов»' }).click()
+  await page.getByRole('button', { name: '«Трекеры»' }).click()
 
-  const card = page.getByRole('region', { name: 'Трекеры проектов' })
-  await expect(page.getByRole('list', { name: 'Базы знаний' }).getByRole('listitem')).toHaveCount(14)
-  await expect(async () => {
-    const box = await card.boundingBox()
-    expect(box!.y).toBeGreaterThanOrEqual(-1)
-    expect(box!.y).toBeLessThan(800 / 2)
-  }).toPass()
+  const card = detail(page, 'CRM')
+  await expect(card).toBeInViewport()
+  await expect(card.getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Трекеры проектов' }).getByRole('button', { name: /^CRM/ })).toHaveAttribute(
+    'aria-current',
+    'true',
+  )
 })
