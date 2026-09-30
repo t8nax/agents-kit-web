@@ -14,6 +14,21 @@
   font-weight: 500;
 }
 
+/* Кнопка шапки одним значком — квадрат ростом с соседние кнопки с надписью.
+   Два класса: Settings.css с `.bases-btn` грузится позже и иначе перебивает отступы. */
+.bases-btn.header-icon-btn {
+  width: calc(1.5em + 14px);
+  height: calc(1.5em + 14px);
+  padding: 0;
+  justify-content: center;
+}
+
+/* Открытый раздел отмечен заливкой, как выбранный пункт полосы разделов (макет B-318, вариант А). */
+.bases-btn.header-icon-btn.active {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
 svg {
   width: 16px;
   height: 16px;

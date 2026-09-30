@@ -1,0 +1,93 @@
+# Выкладка в Стабильный: признанная оператором Бета выходит выпуском v<номер> с тем же номером и тем же архивом,
+# без пересборки, — в Стабильный уходит ровно та сборка, на которой оператор работал. Запускает кнопка «Выпустить
+# в Стабильный» в карточке «Панель» — `gh workflow run` от имени оператора, поэтому выкладку может начать только тот,
+# кому можно менять репозиторий. master на код выпуска панель переносит сама, до запуска и тем же ключом оператора:
+# ключ GITHUB_TOKEN отсюда не может отправить в master коммиты, которые меняют .github/workflows. Выпуск — последний
+# шаг: он есть — выкладка кончилась, а повтор после срыва готовый выпуск второй раз не создаёт.
+name: Выкладка в Стабильный
+run-name: Выкладка ${{ inputs.version }} в Стабильный
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Номер признанной Беты, например 0.28.0.3
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Вся история и теги: перечень задач считается от прошлого выпуска Стабильного.
+          fetch-depth: 0
+
+      - name: Что выкладывается
+        id: beta
+        run: |
+          if ($env:VERSION -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            Write-Output "::error::«$env:VERSION» — не номер Беты из четырёх чисел"
+            exit 1
+          }
+          $beta = "v$env:VERSION-dev"
+          $sha = git rev-list -n 1 $beta 2>$null
+          if ($LASTEXITCODE -ne 0 -or -not $sha) {
+            Write-Output "::error::Беты $env:VERSION нет: нет тега $beta"
+            exit 1
+          }
+          # Стабильный не откатывается назад: выкладывается Бета новее последнего выпуска Стабильного.
+          $stable = git tag --list 'v*' | Where-Object { $_ -match '^v(\d+\.\d+\.\d+(?:\.\d+)?)$' } |
+            ForEach-Object { [version]$Matches[1] } | Sort-Object | Select-Object -Last 1
+          if ($stable -and [version]$env:VERSION -lt $stable) {
+            Write-Output "::error::В Стабильном уже $stable — новее $env:VERSION"
+            exit 1
+          }
+          # master на код выпуска переносит кнопка до запуска; запуск мимо неё выпустил бы Стабильный, а master
+          # остался бы на прежнем коде, откуда install.ps1 берут одной строкой.
+          git merge-base --is-ancestor $sha origin/master
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "::error::Код Беты $env:VERSION не в master: выкладку запускает кнопка «Выпустить в Стабильный»"
+            exit 1
+          }
+          $released = [bool](git tag --list "v$env:VERSION")
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+          "tag=$beta" >> $env:GITHUB_OUTPUT
+          "released=$released" >> $env:GITHUB_OUTPUT
+
+      - name: Архив Беты для Стабильного
+        if: steps.beta.outputs.released != 'True'
+        run: |
+          gh release download '${{ steps.beta.outputs.tag }}' --pattern agents-kit-web-win-x64.zip --dir build/beta
+          Expand-Archive build/beta/agents-kit-web-win-x64.zip -DestinationPath build/agents-kit-web
+          # Сборка та же, меняется только запись о канале: поставленная из Стабильного панель остаётся в нём.
+          $build = Get-Content build/agents-kit-web/build.json -Raw | ConvertFrom-Json
+          $build.channel = 'master'
+          $build.ref = 'master'
+          Set-Content build/agents-kit-web/build.json ($build | ConvertTo-Json)
+          Compress-Archive -Path build/agents-kit-web/* -DestinationPath build/agents-kit-web-win-x64.zip
+
+      - name: Перечень задач
+        if: steps.beta.outputs.released != 'True'
+        run: |
+          git checkout --quiet --detach '${{ steps.beta.outputs.sha }}'
+          ./scripts/release-notes.ps1 -Channel master | Set-Content build/notes.md -Encoding utf8NoBOM
+
+      - name: Выпуск
+        if: steps.beta.outputs.released != 'True'
+        run: |
+          gh release create "v$env:VERSION" build/agents-kit-web-win-x64.zip `
+            --target '${{ steps.beta.outputs.sha }}' --title $env:VERSION --notes-file build/notes.md --latest

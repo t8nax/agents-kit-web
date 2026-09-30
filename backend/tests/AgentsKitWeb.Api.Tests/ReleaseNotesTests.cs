@@ -81,6 +81,26 @@ public sealed class ReleaseNotesTests : IDisposable
     }
 
     [Fact]
+    public void Notes_OfPromotedBeta_CountFromPreviousStableOnTheMasterMerge()
+    {
+        // Стабильный выходит выкладкой кода Беты, а прежний выпуск Стабильного стоит на слиянии в master,
+        // которого в коде Беты нет: перечень всё равно считается от него, а не от начала истории.
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        Task(repository, "feat/first", "первая задача");
+        TestGit.Run(repository, "switch", "-c", "master");
+        TestGit.Run(repository, "switch", "dev");
+        Task(repository, "feat/second", "вторая задача");
+        TestGit.Run(repository, "switch", "master");
+        Git(repository, "merge", "--no-ff", "dev", "-m", "Merge dev into master");
+        TestGit.Run(repository, "tag", "v0.25.1");
+        TestGit.Run(repository, "switch", "dev");
+        Task(repository, "feat/third", "третья задача");
+        Task(repository, "feat/fourth", "четвёртая задача");
+
+        Assert.Equal(["- четвёртая задача", "- третья задача"], Notes(repository, "master"));
+    }
+
+    [Fact]
     public void Notes_SkipTheMergeATaskMadeIntoItself()
     {
         // Задача перед мержем подтянула канал к себе: это слияние ничего в канал не привезло.
