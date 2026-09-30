@@ -52,5 +52,15 @@ public sealed class OperatorSpeechTests : IDisposable
 
     [Fact]
     public void Report_KeepsQuotesVerbatim() =>
-        Assert.Contains("кроме цитат quotes: они дословные", Prompt(StartInfo("report")));
+        Assert.Contains("кроме text цитат quotes: он дословный", Prompt(StartInfo("report")));
+
+    [Fact]
+    // Правило не мешает называть то, что оператор видит сам: номер записи, поле трекера, модель исполнителя (ревью B-324).
+    public void Rule_AllowsNamesOperatorSeesInPanelOrTracker()
+    {
+        var rule = OperatorSpeech.Rule.ReplaceLineEndings(" ");
+        Assert.Contains("номера записей бэклога", rule);
+        Assert.Contains("модель и инструменты исполнителя", rule);
+        Assert.Contains("статусы, метки и поля трекера", rule);
+    }
 }
