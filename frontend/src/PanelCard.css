@@ -13,10 +13,6 @@
   gap: 16px;
 }
 
-.panel-row-top {
-  align-items: flex-start;
-}
-
 .panel-row-actions {
   padding-top: 4px;
 }
@@ -26,10 +22,6 @@
   flex-shrink: 0;
   color: var(--text-secondary);
   font-size: 13px;
-}
-
-.panel-row-top .panel-label {
-  padding-top: 1px;
 }
 
 .panel-divider {
@@ -103,7 +95,7 @@
   color: var(--accent-active-text);
 }
 
-/* Вышедшее: номер свежего выпуска со счётом задач, ниже задачи — под номером каждого выпуска, если их несколько. */
+/* Вышедшее: номер свежей сборки и счёт изменений — вход в окно «Что нового»; сами изменения — в окне (B-313). */
 .panel-news {
   display: flex;
   flex-direction: column;
@@ -122,12 +114,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.panel-release {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
 }
 
 .panel-release-num {
@@ -163,6 +149,62 @@
   height: 5px;
   border-radius: 999px;
   background: var(--accent-done-text);
+}
+
+/* Сборки Беты строками: номер слева своей колонкой, её фраза справа (макет B-313). */
+.build-lines {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 14px;
+  row-gap: 8px;
+}
+
+.build-lines .panel-release-num {
+  line-height: 1.45;
+  padding-top: 1px;
+}
+
+.build-line {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+/* Счёт изменений — сам вход в окно «Что нового»: стрелка и подчёркивание под мышью (макет окна B-313). */
+.news-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-done-text);
+  cursor: pointer;
+}
+
+.news-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.news-link:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.news-link svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
 }
 
 .panel-primary {
@@ -502,5 +544,11 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  align-items: center;
   padding-top: 4px;
+}
+
+/* Окно «Что нового»: подсказка про недоступность — слева в строке кнопок. */
+.panel-window .window-actions .panel-hint {
+  margin-right: auto;
 }

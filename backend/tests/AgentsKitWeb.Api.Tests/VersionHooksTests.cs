@@ -6,7 +6,7 @@ namespace AgentsKitWeb.Api.Tests;
 /// <summary>
 /// Хуки git из .githooks: в dev не приходит номер выпуска панели, поднятый не по правилу, а в dev и master — номер
 /// ниже, чем на сервере. Номер выпуска поднимает первая задача после выкладки в Стабильный; следующие — только
-/// если привозят поломку привычного после одних новинок и починок.
+/// если привозят поломку привычного после одних новинок и починок. Слияние в dev несёт фразу оператору.
 /// </summary>
 public sealed class VersionHooksTests : IDisposable
 {
@@ -18,6 +18,56 @@ public sealed class VersionHooksTests : IDisposable
         "третье после поднятого второго — ноль. Четвёртое число, номер сборки Беты, ставит сборка на GitHub. " +
         "Номер выпуска поднимает первая задача после выкладки в Стабильный, следующие — только если привозят поломку привычного, когда поднято одно третье число.";
 
+    // Слияние в dev несёт фразу оператору — её проверяет свой хук, commit-msg.
+    private const string Phrase = "Оператору: правка видна в панели";
+
+    [Fact]
+    public void MergeIntoDev_WithoutPhrase_IsRefused()
+    {
+        var repository = Repository();
+        Task(repository, "feat/silent", "0.10.1");
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/silent", "-m", "Merge feat/silent");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("нет фразы оператору", errors);
+        Assert.Contains("«Оператору: ", errors);
+        // Коммита слияния нет: у головы dev один родитель.
+        Assert.DoesNotContain(" ", Git(repository, "log", "-1", "--format=%P").Errors.Trim());
+    }
+
+    [Fact]
+    public void MergeIntoDev_FinishedAfterConflict_WithoutPhrase_IsRefused()
+    {
+        var repository = Repository();
+        Task(repository, "feat/conflict", "0.10.1");
+        TestGit.Run(repository, "switch", "feat/conflict");
+        Commit(repository, "shared.txt", "из задачи");
+        TestGit.Run(repository, "switch", "dev");
+        Commit(repository, "shared.txt", "из dev");
+        Git(repository, "merge", "--no-ff", "feat/conflict", "-m", "Merge feat/conflict");
+        File.WriteAllText(Path.Combine(repository, "shared.txt"), "вместе\n");
+        TestGit.Run(repository, "add", "shared.txt");
+
+        var (exitCode, errors) = Git(repository, "commit", "--no-edit");
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("нет фразы оператору", errors);
+    }
+
+    [Fact]
+    public void MergeIntoDev_WithPhraseOnlyInComment_IsRefused()
+    {
+        // Строки-комментарии git из сообщения вырезает: фраза в них в выпуск не попала бы.
+        var repository = Repository();
+        Task(repository, "feat/comment", "0.10.1");
+
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/comment", "-m", "Merge feat/comment", "-m", "# " + Phrase);
+
+        Assert.NotEqual(0, exitCode);
+        Assert.Contains("нет фразы оператору", errors);
+    }
+
     [Fact]
     public void FirstMergeAfterStable_WithoutRaise_IsRefused()
     {
@@ -25,7 +75,7 @@ public sealed class VersionHooksTests : IDisposable
         Stable(repository, "0.10.0.3");
         Task(repository, "feat/forgot", "0.10.0");
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/forgot", "-m", "Merge feat/forgot");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/forgot", "-m", "Merge feat/forgot", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("в dev 0.10.0, в Стабильном последним вышел 0.10.0, после слияния 0.10.0", errors);
@@ -43,7 +93,7 @@ public sealed class VersionHooksTests : IDisposable
         Stable(repository, "0.10.0.3");
         Task(repository, "feat/raised", task);
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/raised", "-m", "Merge feat/raised");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/raised", "-m", "Merge feat/raised", "-m", Phrase);
 
         Assert.True(exitCode == 0, errors);
         Assert.Equal(task, Read(repository, "version.txt"));
@@ -60,7 +110,7 @@ public sealed class VersionHooksTests : IDisposable
         Stable(repository, "0.10.0.3");
         Task(repository, "feat/wrong", task);
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/wrong", "-m", "Merge feat/wrong");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/wrong", "-m", "Merge feat/wrong", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains($"после слияния {task}", errors);
@@ -75,7 +125,7 @@ public sealed class VersionHooksTests : IDisposable
         var repository = Repository();
         Task(repository, "feat/forgot", "0.10.0");
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/forgot", "-m", "Merge feat/forgot");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/forgot", "-m", "Merge feat/forgot", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("выпусков Стабильного ещё нет", errors);
@@ -90,7 +140,7 @@ public sealed class VersionHooksTests : IDisposable
         TestGit.Run(repository, "tag", "v0.10.0.1-dev");
         Task(repository, "feat/next", "0.10.0");
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/next", "-m", "Merge feat/next");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/next", "-m", "Merge feat/next", "-m", Phrase);
 
         Assert.True(exitCode == 0, errors);
     }
@@ -106,7 +156,7 @@ public sealed class VersionHooksTests : IDisposable
         Commit(repository, "version.txt", dev);
         Task(repository, "feat/next", task);
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/next", "-m", "Merge feat/next");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/next", "-m", "Merge feat/next", "-m", Phrase);
 
         Assert.True(exitCode == 0, errors);
     }
@@ -122,7 +172,7 @@ public sealed class VersionHooksTests : IDisposable
         Commit(repository, "version.txt", dev);
         Task(repository, "feat/again", task);
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/again", "-m", "Merge feat/again");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/again", "-m", "Merge feat/again", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains($"в dev уже {dev}, в Стабильном последним вышел 0.10.0, после слияния {task}", errors);
@@ -138,7 +188,7 @@ public sealed class VersionHooksTests : IDisposable
         Stable(repository, "0.10.0.3");
         Task(repository, "feat/four", "0.10.1.0");
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/four", "-m", "Merge feat/four");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/four", "-m", "Merge feat/four", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("«0.10.1.0», а нужен номер выпуска из трёх чисел", errors);
@@ -155,7 +205,7 @@ public sealed class VersionHooksTests : IDisposable
         Commit(repository, "version.txt", dev);
         Task(repository, "feat/first", task);
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first", "-m", Phrase);
 
         Assert.True(exitCode == 0, errors);
     }
@@ -170,7 +220,7 @@ public sealed class VersionHooksTests : IDisposable
         Commit(repository, "version.txt", "0.27.4.0");
         Task(repository, "feat/first", task);
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains($"в dev 0.27.4.0, это номер прежней записи, после слияния {task}", errors);
@@ -186,11 +236,11 @@ public sealed class VersionHooksTests : IDisposable
         Stable(repository, "0.25.1");
         Commit(repository, "version.txt", "0.27.4.0");
         Task(repository, "feat/first", "0.27.5");
-        var (firstCode, firstErrors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first");
+        var (firstCode, firstErrors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first", "-m", Phrase);
         Assert.True(firstCode == 0, firstErrors);
         Task(repository, "feat/breaking", "0.28.0");
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/breaking", "-m", "Merge feat/breaking");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/breaking", "-m", "Merge feat/breaking", "-m", Phrase);
 
         Assert.True(exitCode == 0, errors);
     }
@@ -201,7 +251,7 @@ public sealed class VersionHooksTests : IDisposable
         var repository = Repository();
         Task(repository, "feat/typo", "0.1o.1");
 
-        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/typo", "-m", "Merge feat/typo");
+        var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/typo", "-m", "Merge feat/typo", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("«0.1o.1», а нужен номер выпуска из трёх чисел", errors);
@@ -216,7 +266,7 @@ public sealed class VersionHooksTests : IDisposable
         var repository = Repository();
         Task(repository, "feat/forgot", "0.10.0");
 
-        var (exitCode, errors) = Git(repository, "merge", "feat/forgot", "-m", "Merge feat/forgot");
+        var (exitCode, errors) = Git(repository, "merge", "feat/forgot", "-m", "Merge feat/forgot", "-m", Phrase);
 
         Assert.NotEqual(0, exitCode);
         Assert.Contains("в dev 0.10.0, выпусков Стабильного ещё нет, после слияния 0.10.0", errors);
@@ -259,7 +309,7 @@ public sealed class VersionHooksTests : IDisposable
         Commit(repository, "shared.txt", "из задачи");
         TestGit.Run(repository, "switch", "dev");
         Commit(repository, "shared.txt", "из dev");
-        Git(repository, "merge", "--no-ff", "feat/conflict", "-m", "Merge feat/conflict");
+        Git(repository, "merge", "--no-ff", "feat/conflict", "-m", "Merge feat/conflict", "-m", Phrase);
         File.WriteAllText(Path.Combine(repository, "shared.txt"), "вместе\n");
         TestGit.Run(repository, "add", "shared.txt");
 

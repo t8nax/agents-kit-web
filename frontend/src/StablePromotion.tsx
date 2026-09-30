@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PanelRelease } from './PanelCard'
+import { plural } from './plural'
+import ReleaseChanges from './ReleaseChanges'
 import './DeleteWorkspaceModal.css'
 
 /**
@@ -160,7 +162,7 @@ function End({
   }
 }
 
-/** Окно подтверждения: что уйдёт, какие задачи оно привезёт и что отменить выпуск нельзя. */
+/** Окно подтверждения: что уйдёт, какие изменения оно привезёт и что отменить выпуск нельзя. */
 function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCancel: () => void; onConfirm: () => void }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -170,7 +172,8 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])
 
-  const tasks = stable.releases.reduce((count, release) => count + release.tasks.length, 0)
+  // Строки всех сборок подряд, свежие сверху, без номеров Беты — то, что увидит Стабильный (макет B-313).
+  const changes = stable.releases.flatMap((release) => release.tasks)
 
   return (
     <div className="panel-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
@@ -184,7 +187,7 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
         {stable.releases.length > 0 && (
           <div className="release-what">
             <div className="release-what-head">
-              <span className="panel-arrived">{taskCount(tasks)}</span>
+              <span className="panel-arrived">{plural(changes.length, 'изменение', 'изменения', 'изменений')}</span>
               {stable.stable && (
                 <span className="from">
                   новее Стабильного <span className="panel-release-num">{stable.stable}</span>
@@ -192,16 +195,7 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
               )}
             </div>
             <div className="panel-releases release-list">
-              {stable.releases.map((release) => (
-                <div key={release.tag} className="panel-release">
-                  <span className="panel-release-num">{release.version}</span>
-                  <ul>
-                    {release.tasks.map((task, index) => (
-                      <li key={index}>{task}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              <ReleaseChanges changes={changes} />
             </div>
           </div>
         )}
@@ -230,12 +224,4 @@ async function refusal(response: Response) {
     .then((body: { detail?: string }) => body.detail)
     .catch(() => undefined)
   return detail ?? 'GitHub не ответил'
-}
-
-/** «1 задача», «2 задачи», «5 задач». */
-function taskCount(count: number) {
-  const tail = count % 100
-  if (tail % 10 === 1 && tail !== 11) return `${count} задача`
-  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} задачи`
-  return `${count} задач`
 }
