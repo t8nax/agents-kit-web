@@ -162,8 +162,19 @@ function faultOf(row: ProjectTrackerRow): string | null {
   return kitFaultsText(row.faults)
 }
 
-const sameServer = (a: string, b: string) =>
-  a.trim().replace(/\/+$/, '').toLowerCase() === b.trim().replace(/\/+$/, '').toLowerCase()
+/** Адрес для сравнения — тем же правилом, что сервер панели (TrackerServersStore.Normalize): схема и хост без регистра
+ *  и без порта по умолчанию, без «/» в конце (ревью B-323). */
+function serverKey(server: string): string {
+  const trimmed = server.trim().replace(/\/+$/, '')
+  try {
+    const url = new URL(trimmed)
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, '')}`.toLowerCase()
+  } catch {
+    return trimmed.toLowerCase()
+  }
+}
+
+const sameServer = (a: string, b: string) => serverKey(a) === serverKey(b)
 
 /** Ключ, которым панель читает задачи: у GitHub — вход программы gh, у YouTrack — ключ из «Серверов трекеров». */
 function keyOf(tracker: TrackerInfo, servers: TrackerServer[] | null): ReactNode {

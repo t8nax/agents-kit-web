@@ -126,7 +126,8 @@ test('ключ к серверу: вход через gh, владелец кл�
   }
   stubApi({ 'GET /api/trackers/projects': () => json([described, youtrack, legacy]) })
 
-  render(<TrackerProjects servers={[{ server: 'https://ACME.youtrack.cloud/', login: 'b.petrov' }]} />)
+  // Адрес сверяется, как на сервере панели: регистр, «/» в конце и порт по умолчанию разницы не делают.
+  render(<TrackerProjects servers={[{ server: 'https://ACME.youtrack.cloud:443/', login: 'b.petrov' }]} />)
 
   expect((await row('Orders')).getByText('вход через gh')).toBeInTheDocument()
   expect((await row('Billing')).getByText(/ключ пользователя/)).toHaveTextContent('ключ пользователя b.petrov')
