@@ -87,7 +87,7 @@ test('несколько просьб разворачиваются списк�
   expect(screen.queryByRole('list', { name: 'Просьбы' })).not.toBeInTheDocument()
 })
 
-test('просьба об исполнителе названа в шапке своими словами', async () => {
+test('переписка об исполнителе названа в шапке своими словами', async () => {
   stubRequests([
     {
       kind: 'performer',
@@ -102,7 +102,7 @@ test('просьба об исполнителе названа в шапке с
   render(<AgentBar onOpen={() => {}} />)
 
   expect(
-    await screen.findByRole('button', { name: /Чудо-Юдо заводит исполнителя Agents Kit Web/ }),
+    await screen.findByRole('button', { name: /Чудо-Юдо пишет исполнителя Agents Kit Web/ }),
   ).toBeInTheDocument()
 })
 

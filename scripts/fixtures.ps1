@@ -543,6 +543,57 @@ if ($system -and $system -match 'пишешь описание трекера п
     exit 0
 }
 
+# Переписка об исполнителе (B-320): каждая реплика несёт поля окна, а ждёт панель слов и блока «=== исполнитель»
+# с файлом субагента целиком. Подставной на первую реплику переспрашивает, на вторую предлагает исполнителя: пустое
+# окно заводит sandbox-helper, заполненное дополняет описание словами просьбы; дальше дописывает к описанию каждую
+# реплику. По слову «неполный» предлагает исполнителя без имени — панель вернёт его на доработку. Разговор идёт
+# с --add-dir базы, поэтому ветка стоит раньше разговора о бэклоге: тот пишет в backlog.md.
+if ($system -and $system -match 'пишешь исполнителя') {
+    $editing = $system -match 'правит заведённого исполнителя'
+    $turn = 0
+    $wish = ''
+    $proposed = $null
+    $broken = $false
+    while ($null -ne ($line = $stdinReader.ReadLine())) {
+        if (-not $line.Trim()) { continue }
+        $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text) -replace "`r`n", "`n" } catch { $line }
+        Write-Step 'Glob' @{ pattern = 'agents/*.md' }
+        if ($mode -eq 'truncated') { exit 0 }
+        $words = (($said -split "`n`n")[0]) -replace '^(Просьба оператора|Оператор):\n', ''
+        $window = if ($said -match '(?s)в окне сейчас:\n(.*?)(?:\n\nТвоё последнее предложение|\z)') { $Matches[1] } else { '' }
+        $pending = if ($said -match '(?s)\n\nТвоё последнее предложение[^\n]*\n[^\n]*\n(.*)$') { $Matches[1] } else { '' }
+        function Get-Key([string]$Text, [string]$Name) {
+            $m = [regex]::Match($Text, "(?m)^$([regex]::Escape($Name)):\s*(.*)$")
+            if ($m.Success) { return $m.Groups[1].Value.Trim() } else { return '' }
+        }
+        function Get-Prompt([string]$Text) {
+            $m = [regex]::Match($Text, '(?s)^---\n.*?\n---\n\n?(.*)$')
+            if ($m.Success) { return $m.Groups[1].Value.Trim() } else { return '' }
+        }
+        if ($said -match '^Панель не приняла твой ответ') {
+            $broken = $false
+        } else {
+            $turn++
+            if ($turn -eq 1) { $wish = $words.Trim() }
+            if ($words -match 'неполн') { $broken = $true }
+            if ($turn -eq 1 -and -not $broken) {
+                Write-Result "Подставной агент песочницы переспрашивает: что ещё должен уметь исполнитель по просьбе «$wish»? Ответьте что угодно — следующей репликой он предложит исполнителя."
+                continue
+            }
+        }
+        # Основа — прошлое предложение, если оно было, иначе поля окна.
+        $basis = if ($pending) { $pending } elseif ($window -notmatch '^пусто') { $window } else { '' }
+        $name = if (Get-Key $basis 'name') { Get-Key $basis 'name' } else { 'sandbox-helper' }
+        $description = if (Get-Key $basis 'description') { Get-Key $basis 'description' } else { "Помогает по просьбе «$wish»." }
+        if ($turn -ge 2 -and -not ($said -match '^Панель не приняла')) { $description = "$description Уточнено: $($words.Trim())." }
+        $prompt = if (Get-Prompt $basis) { Get-Prompt $basis } else { "Ты — исполнитель песочницы. Делаешь то, о чём просил оператор: $wish." }
+        $header = if ($broken) { "---`ndescription: $description`n---" } else { "---`nname: $name`ndescription: $description`nmodel: sonnet`n---" }
+        $lead = if ($broken) { 'Предлагаю исполнителя, имя забыл.' } elseif ($editing) { "Переписал исполнителя $name." } else { "Предлагаю исполнителя $name." }
+        Write-Result "$lead`n`n=== исполнитель`n$header`n`n$prompt`n"
+    }
+    exit 0
+}
+
 $baseDir = Get-Argument '--add-dir'
 
 # Разговор о бэклоге: реплики приходят строками stream-json. Новую запись агент дописывает и коммитит,
