@@ -120,6 +120,39 @@ public sealed class ReleaseNotesTests : IDisposable
             Notes(repository, "dev"));
     }
 
+    [Fact]
+    public void Notes_TellThePhraseToOperatorInsteadOfTheMergeTitle()
+    {
+        // Фраза оператору — строка «Оператору: …» в сообщении слияния; слияние без неё вышло раньше фраз.
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "tag", "v0.10.0-dev");
+        Task(repository, "feat/sidebar", "раздел открывается списком — подробности для разработки");
+        Task(repository, "feat/release-text", "фразы под сборками — подробности для разработки",
+            "Под каждой сборкой в карточке «Панель» — короткая фраза о том, что изменилось");
+
+        Assert.Equal(
+            [
+                "- Под каждой сборкой в карточке «Панель» — короткая фраза о том, что изменилось",
+                "- раздел открывается списком — подробности для разработки",
+            ],
+            Notes(repository, "dev"));
+    }
+
+    [Fact]
+    public void Notes_TellThePhrasesOfTheTasksInsideABatchMerge()
+    {
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "switch", "-c", "master");
+        TestGit.Run(repository, "tag", "v0.10.0");
+        TestGit.Run(repository, "switch", "dev");
+        Task(repository, "feat/one", "первая задача", "Первая фраза");
+        Task(repository, "feat/two", "вторая задача", "Вторая фраза");
+        TestGit.Run(repository, "switch", "master");
+        Git(repository, "merge", "--no-ff", "dev", "-m", "Merge dev into master");
+
+        Assert.Equal(["- Вторая фраза", "- Первая фраза"], Notes(repository, "master"));
+    }
+
     private static string[] Notes(string repository, string channel)
     {
         var startInfo = new ProcessStartInfo("pwsh")
@@ -157,13 +190,16 @@ public sealed class ReleaseNotesTests : IDisposable
         }
     }
 
-    /// <summary>Задача: своя ветка, правка и слияние в dev заголовком для оператора.</summary>
-    private static void Task(string repository, string branch, string title)
+    /// <summary>Задача: своя ветка, правка и слияние в dev заголовком, а с фразой — и строкой «Оператору: …».</summary>
+    private static void Task(string repository, string branch, string title, string? phrase = null)
     {
         TestGit.Run(repository, "switch", "-c", branch);
         Commit(repository, title, branch.Replace('/', '-') + ".txt");
         TestGit.Run(repository, "switch", "dev");
-        Git(repository, "merge", "--no-ff", branch, "-m", $"Merge {branch}: {title}");
+        string[] message = phrase is null
+            ? ["-m", $"Merge {branch}: {title}"]
+            : ["-m", $"Merge {branch}: {title}", "-m", $"Оператору: {phrase}"];
+        Git(repository, ["merge", "--no-ff", branch, .. message]);
     }
 
     private static void Commit(string repository, string title, string file)
