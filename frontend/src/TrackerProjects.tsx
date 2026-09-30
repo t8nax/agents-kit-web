@@ -9,6 +9,7 @@ import type { TrackerServer } from './TrackerServersCard'
 import { busyText, faultsText, kitFaultsText, knownTracker, type ProjectTrackerRow } from './projectTracker'
 import { useReveal, withReveal } from './reveal'
 import type { TrackerInfo } from './tracker'
+import './EmptyState.css'
 import './TrackerProjects.css'
 
 type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 'loaded'; rows: ProjectTrackerRow[] }
@@ -273,8 +274,8 @@ function ProjectDetail({ row, servers, onAddKey, onEdit, onDelete }: DetailProps
   // Проект без трекера — как пустой проект во «Флоу», без градиента на фоне (приёмка B-323).
   if (tracker === null && row.problem === null)
     return (
-      <div className="tp-empty">
-        <span className="tp-empty-mark" aria-hidden="true">
+      <div className="empty-state tp-empty">
+        <span className="empty-state-mark" aria-hidden="true">
           <TicketIcon />
         </span>
         <h3>В этом проекте нет трекера</h3>
