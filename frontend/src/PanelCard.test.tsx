@@ -118,6 +118,29 @@ test('Бета: каждая вышедшая сборка — строка, н�
   ])
 })
 
+test('Бета: сборка с пустым описанием на GitHub остаётся в списке номером', async () => {
+  stubApi(
+    api(
+      beta,
+      {
+        latest: '0.28.1.4',
+        releases: [
+          { version: '0.28.1.4', tag: 'v0.28.1.4-dev', tasks: ['Карточка «Панель» показывает, что изменилось'] },
+          { version: '0.28.1.3', tag: 'v0.28.1.3-dev', tasks: [] },
+        ],
+      },
+      idle,
+      { 'GET /api/panel/stable': () => json({ version: '0.28.1.2', stable: null, state: 'older', releases: [] }) },
+    ),
+  )
+
+  render(<PanelCard />)
+
+  await screen.findByText('Карточка «Панель» показывает, что изменилось')
+  const numbers = [...document.querySelectorAll('.build-lines .panel-release-num')].map((node) => node.textContent)
+  expect(numbers).toEqual(['0.28.1.4', '0.28.1.3'])
+})
+
 test('вышла одна сборка — под номером только её фраза, счёта нет', async () => {
   stubApi(
     api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: ['Копия удаляется из панели'] }] }),

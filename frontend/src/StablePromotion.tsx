@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PanelRelease } from './PanelCard'
+import ReleaseChanges from './ReleaseChanges'
 import './DeleteWorkspaceModal.css'
 
 /**
@@ -193,7 +194,7 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
               )}
             </div>
             <div className="panel-releases release-list">
-              <Changes changes={changes} />
+              <ReleaseChanges changes={changes} />
             </div>
           </div>
         )}
@@ -222,17 +223,6 @@ async function refusal(response: Response) {
     .then((body: { detail?: string }) => body.detail)
     .catch(() => undefined)
   return detail ?? 'GitHub не ответил'
-}
-
-/** Строки выпуска подряд: фразы оператору, у сборок до фраз — заголовки задач тем же видом (макет B-313). */
-export function Changes({ changes }: { changes: string[] }) {
-  return (
-    <ul>
-      {changes.map((change, index) => (
-        <li key={index}>{change}</li>
-      ))}
-    </ul>
-  )
 }
 
 /** «1 изменение», «2 изменения», «5 изменений». */

@@ -139,6 +139,30 @@ public sealed class ReleaseNotesTests : IDisposable
     }
 
     [Fact]
+    public void Notes_TellThePhraseWrittenAsTheMergeTitle_WithoutItsKey()
+    {
+        // Хук пускает фразу и в заголовке слияния: служебное «Оператору:» оператору не показывается.
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "tag", "v0.10.0-dev");
+        TestGit.Run(repository, "switch", "-c", "feat/short");
+        Commit(repository, "правка", "short.txt");
+        TestGit.Run(repository, "switch", "dev");
+        Git(repository, "merge", "--no-ff", "feat/short", "-m", "Оператору: Короткая фраза");
+
+        Assert.Equal(["- Короткая фраза"], Notes(repository, "dev"));
+    }
+
+    [Fact]
+    public void Notes_OfEmptyPhrase_TellTheMergeTitle()
+    {
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "tag", "v0.10.0-dev");
+        Task(repository, "feat/blank", "заголовок задачи", "   ");
+
+        Assert.Equal(["- заголовок задачи"], Notes(repository, "dev"));
+    }
+
+    [Fact]
     public void Notes_TellThePhrasesOfTheTasksInsideABatchMerge()
     {
         var repository = TestGit.Repository(Path.Combine(_root, "repo"));

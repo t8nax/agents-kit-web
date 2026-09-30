@@ -44,10 +44,11 @@ $previous = git -C $Repository tag --list 'v*' @reachable |
 
 $recordEnd = [char]0x1e
 
-# Фраза оператору — строка «Оператору: …» в теле коммита слияния: её пишет агент задачи при слиянии в dev.
-function Get-Phrase($body) {
-    foreach ($line in $body -split "`n") {
-        if ($line -match '^Оператору:\s*(.+?)\s*$') { return $Matches[1] }
+# Фраза оператору — строка «Оператору: …» в сообщении слияния: её пишет агент задачи при слиянии в dev. Ищется
+# там же, где её ищет хук .githooks/check-phrase.ps1, — во всём сообщении, заголовок тоже.
+function Get-Phrase($message) {
+    foreach ($line in $message -split "`n") {
+        if ($line -match '^Оператору:\s*(\S.*?)\s*$') { return $Matches[1] }
     }
 }
 
@@ -61,7 +62,7 @@ function Get-FirstParent($range) {
             $parts = $_ -split $separator
             [pscustomobject]@{
                 Sha = $parts[0]; Parents = @($parts[1] -split ' ' | Where-Object { $_ }); Title = $parts[2]
-                Phrase = Get-Phrase $parts[3]
+                Phrase = Get-Phrase "$($parts[2])`n$($parts[3])"
             }
         }
 }

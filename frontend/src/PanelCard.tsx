@@ -2,7 +2,8 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import './PanelCard.css'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
-import StablePromotion, { Changes } from './StablePromotion'
+import ReleaseChanges from './ReleaseChanges'
+import StablePromotion from './StablePromotion'
 
 export type PanelBuild = {
   channel: string
@@ -213,7 +214,7 @@ export default function PanelCard() {
                 </div>
                 {releases.length === 1 ? (
                   <div className="panel-releases">
-                    <Changes changes={releases[0].tasks} />
+                    <ReleaseChanges changes={releases[0].tasks} />
                   </div>
                 ) : panel.channel === 'dev' ? (
                   <BuildLines releases={releases} />
@@ -222,7 +223,7 @@ export default function PanelCard() {
                     {releases.map((release) => (
                       <div key={release.tag} className="panel-release">
                         <span className="panel-release-num">{release.version}</span>
-                        <Changes changes={release.tasks} />
+                        <ReleaseChanges changes={release.tasks} />
                       </div>
                     ))}
                   </div>
@@ -281,13 +282,14 @@ export default function PanelCard() {
 
 /**
  * Сборки Беты строками: слева номер, справа её фраза — сборка приносит одну задачу. Сборка, в которую
- * очередь GitHub сложила несколько задач, держит номер у первой строки.
+ * очередь GitHub сложила несколько задач, держит номер у первой строки; сборка с пустым описанием на GitHub —
+ * номер без строки, чтобы не пропасть из списка.
  */
 function BuildLines({ releases }: { releases: PanelRelease[] }) {
   return (
     <div className="build-lines">
       {releases.flatMap((release) =>
-        release.tasks.map((change, index) => (
+        (release.tasks.length > 0 ? release.tasks : ['']).map((change, index) => (
           <Fragment key={`${release.tag}-${index}`}>
             <span className="panel-release-num">{index === 0 ? release.version : ''}</span>
             <span className="build-line">{change}</span>
