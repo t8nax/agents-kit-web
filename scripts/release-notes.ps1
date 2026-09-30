@@ -32,7 +32,10 @@ $separator = [char]0x1f
 
 # Тег выпуска master — v<номер>, выпуска dev — v<номер>-dev. Номер — три числа до 0.25.1 и четыре с 0.25.2.0.
 $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+(?:\.\d+)?)-dev$' } else { '^v(\d+\.\d+\.\d+(?:\.\d+)?)$' }
-$previous = git -C $Repository tag --list 'v*' --merged $Head |
+# Стабильный выходит выкладкой признанной Беты, и прежние выпуски Стабильного лежали на слияниях в master,
+# которых в коде Беты нет: прошлый выпуск Стабильного — наибольший, достижимый он из кода или нет.
+$reachable = if ($Channel -eq 'dev') { '--merged', $Head } else { @() }
+$previous = git -C $Repository tag --list 'v*' @reachable |
     Where-Object { $_ -match $pattern } |
     Sort-Object { [version]($_ -replace $pattern, '$1') } |
     Select-Object -Last 1
