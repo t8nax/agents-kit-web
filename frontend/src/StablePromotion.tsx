@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PanelRelease } from './PanelCard'
+import { plural } from './plural'
 import ReleaseChanges from './ReleaseChanges'
 import './DeleteWorkspaceModal.css'
 
@@ -186,7 +187,7 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
         {stable.releases.length > 0 && (
           <div className="release-what">
             <div className="release-what-head">
-              <span className="panel-arrived">{changeCount(changes.length)}</span>
+              <span className="panel-arrived">{plural(changes.length, 'изменение', 'изменения', 'изменений')}</span>
               {stable.stable && (
                 <span className="from">
                   новее Стабильного <span className="panel-release-num">{stable.stable}</span>
@@ -223,12 +224,4 @@ async function refusal(response: Response) {
     .then((body: { detail?: string }) => body.detail)
     .catch(() => undefined)
   return detail ?? 'GitHub не ответил'
-}
-
-/** «1 изменение», «2 изменения», «5 изменений». */
-function changeCount(count: number) {
-  const tail = count % 100
-  if (tail % 10 === 1 && tail !== 11) return `${count} изменение`
-  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} изменения`
-  return `${count} изменений`
 }

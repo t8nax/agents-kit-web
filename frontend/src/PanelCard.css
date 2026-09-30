@@ -13,10 +13,6 @@
   gap: 16px;
 }
 
-.panel-row-top {
-  align-items: flex-start;
-}
-
 .panel-row-actions {
   padding-top: 4px;
 }
@@ -26,10 +22,6 @@
   flex-shrink: 0;
   color: var(--text-secondary);
   font-size: 13px;
-}
-
-.panel-row-top .panel-label {
-  padding-top: 1px;
 }
 
 .panel-divider {
@@ -124,12 +116,6 @@
   gap: 12px;
 }
 
-.panel-release {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
 .panel-release-num {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -182,6 +168,43 @@
   font-size: 13px;
   color: var(--text-secondary);
   line-height: 1.45;
+}
+
+/* Счёт изменений — сам вход в окно «Что нового»: стрелка и подчёркивание под мышью (макет окна B-313). */
+.news-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-done-text);
+  cursor: pointer;
+}
+
+.news-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.news-link:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.news-link svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
 }
 
 .panel-primary {
@@ -521,5 +544,11 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  align-items: center;
   padding-top: 4px;
+}
+
+/* Окно «Что нового»: подсказка про недоступность — слева в строке кнопок. */
+.panel-window .window-actions .panel-hint {
+  margin-right: auto;
 }
