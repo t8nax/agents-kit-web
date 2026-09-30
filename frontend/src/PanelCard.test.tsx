@@ -53,7 +53,7 @@ const api = (panel: Panel, updates: PanelUpdates, update: PanelUpdateState = idl
   ...extra,
 })
 
-test('карточка показывает номер стоящей и вышедшей сборки и задачи, которые приедут', async () => {
+test('карточка показывает номер стоящей и вышедшей сборки и изменения, которые приедут', async () => {
   stubApi(api(installed, behind))
 
   render(<PanelCard />)
@@ -61,12 +61,12 @@ test('карточка показывает номер стоящей и выш�
   expect(await screen.findByText('0.10.1')).toBeTruthy()
   expect(screen.getByText(/собрана 12 сентября/)).toBeTruthy()
   expect(await screen.findByText('0.10.2')).toBeTruthy()
-  expect(screen.getByText('2 задачи ждут обновления')).toBeTruthy()
+  expect(screen.getByText('2 изменения ждут обновления')).toBeTruthy()
   expect(screen.getByText('Исполнитель синхронизируется по копиям')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
 })
 
-test('несколько вышедших сборок — задачи под номером каждой, свежая сверху', async () => {
+test('Стабильный: несколько вышедших выпусков — изменения под номером каждого, свежий сверху', async () => {
   stubApi(
     api(installed, {
       latest: '0.10.3',
@@ -79,9 +79,54 @@ test('несколько вышедших сборок — задачи под �
 
   render(<PanelCard />)
 
-  expect(await screen.findByText('3 задачи ждут обновления')).toBeTruthy()
+  expect(await screen.findByText('3 изменения ждут обновления')).toBeTruthy()
   const numbers = [...document.querySelectorAll('.panel-release-num')].map((node) => node.textContent)
   expect(numbers).toEqual(['0.10.3', '0.10.2'])
+})
+
+const beta: Panel = {
+  installed: true,
+  channel: 'dev',
+  published: { channel: 'dev', sha: '4189d1f0000', version: '0.28.1.2', builtAt: '2026-09-27T16:20:00Z' },
+}
+
+test('Бета: каждая вышедшая сборка — строка, номер слева и её фраза справа', async () => {
+  stubApi(
+    api(
+      beta,
+      {
+        latest: '0.28.1.4',
+        releases: [
+          { version: '0.28.1.4', tag: 'v0.28.1.4-dev', tasks: ['Карточка «Панель» показывает, что изменилось'] },
+          { version: '0.28.1.3', tag: 'v0.28.1.3-dev', tasks: ['Колонка «Стадия» не обрезает названия'] },
+        ],
+      },
+      idle,
+      { 'GET /api/panel/stable': () => json({ version: '0.28.1.2', stable: null, state: 'older', releases: [] }) },
+    ),
+  )
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText('2 изменения ждут обновления')).toBeTruthy()
+  const cells = [...document.querySelectorAll('.build-lines > span')].map((node) => node.textContent)
+  expect(cells).toEqual([
+    '0.28.1.4',
+    'Карточка «Панель» показывает, что изменилось',
+    '0.28.1.3',
+    'Колонка «Стадия» не обрезает названия',
+  ])
+})
+
+test('вышла одна сборка — под номером только её фраза, счёта нет', async () => {
+  stubApi(
+    api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: ['Копия удаляется из панели'] }] }),
+  )
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText('Копия удаляется из панели')).toBeTruthy()
+  expect(screen.queryByText(/ждёт обновления|ждут обновления/)).toBeNull()
 })
 
 test('панель на последней сборке говорит, что новее нет, и кнопки не показывает', async () => {
@@ -93,12 +138,13 @@ test('панель на последней сборке говорит, что �
   expect(screen.queryByRole('button', { name: 'Обновить' })).toBeNull()
 })
 
-test('одна задача в канале посчитана по-русски', async () => {
-  stubApi(api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: ['Копия удаляется из панели'] }] }))
+test('изменения посчитаны по-русски', async () => {
+  const five = ['а', 'б', 'в', 'г', 'д']
+  stubApi(api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: five }] }))
 
   render(<PanelCard />)
 
-  expect(await screen.findByText('1 задача ждёт обновления')).toBeTruthy()
+  expect(await screen.findByText('5 изменений ждут обновления')).toBeTruthy()
 })
 
 test('GitHub не ответил — сравнить не с чем, и кнопки нет', async () => {

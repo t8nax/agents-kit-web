@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import './PanelCard.css'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
-import StablePromotion from './StablePromotion'
+import StablePromotion, { Changes } from './StablePromotion'
 
 export type PanelBuild = {
   channel: string
@@ -57,12 +57,12 @@ const built = (at: string) =>
 const megabytes = (bytes: number) =>
   (bytes / 1024 / 1024).toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
-/** «1 задача ждёт», «2 задачи ждут», «5 задач ждут» — иначе счёт читается не по-русски. */
+/** «1 изменение ждёт», «2 изменения ждут», «5 изменений ждут» — иначе счёт читается не по-русски. */
 const waiting = (count: number) => {
   const tail = count % 100
-  if (tail % 10 === 1 && tail !== 11) return `${count} задача ждёт обновления`
-  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} задачи ждут обновления`
-  return `${count} задач ждут обновления`
+  if (tail % 10 === 1 && tail !== 11) return `${count} изменение ждёт обновления`
+  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} изменения ждут обновления`
+  return `${count} изменений ждут обновления`
 }
 
 /**
@@ -159,7 +159,8 @@ export default function PanelCard() {
 
   const releases = updates?.releases ?? []
   const behind = releases.length > 0
-  const tasks = releases.reduce((count, release) => count + release.tasks.length, 0)
+  // Строка выпуска — фраза оператору, у сборок до фраз — заголовок задачи; каждая — одно изменение.
+  const changes = releases.reduce((count, release) => count + release.tasks.length, 0)
 
   return (
     <PanelShell>
@@ -207,20 +208,25 @@ export default function PanelCard() {
               <div className="panel-news">
                 <div className="panel-news-top">
                   <span className="panel-build">{updates.latest}</span>
-                  {tasks > 0 && <span className="panel-arrived">{waiting(tasks)}</span>}
+                  {/* Рядом с единственной строкой счёт ничего не добавляет (макет B-313). */}
+                  {changes > 1 && <span className="panel-arrived">{waiting(changes)}</span>}
                 </div>
-                <div className="panel-releases">
-                  {releases.length === 1 ? (
-                    <Tasks tasks={releases[0].tasks} />
-                  ) : (
-                    releases.map((release) => (
+                {releases.length === 1 ? (
+                  <div className="panel-releases">
+                    <Changes changes={releases[0].tasks} />
+                  </div>
+                ) : panel.channel === 'dev' ? (
+                  <BuildLines releases={releases} />
+                ) : (
+                  <div className="panel-releases">
+                    {releases.map((release) => (
                       <div key={release.tag} className="panel-release">
                         <span className="panel-release-num">{release.version}</span>
-                        <Tasks tasks={release.tasks} />
+                        <Changes changes={release.tasks} />
                       </div>
-                    ))
-                  )}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -273,13 +279,22 @@ export default function PanelCard() {
   )
 }
 
-function Tasks({ tasks }: { tasks: string[] }) {
+/**
+ * Сборки Беты строками: слева номер, справа её фраза — сборка приносит одну задачу. Сборка, в которую
+ * очередь GitHub сложила несколько задач, держит номер у первой строки.
+ */
+function BuildLines({ releases }: { releases: PanelRelease[] }) {
   return (
-    <ul>
-      {tasks.map((task, index) => (
-        <li key={index}>{task}</li>
-      ))}
-    </ul>
+    <div className="build-lines">
+      {releases.flatMap((release) =>
+        release.tasks.map((change, index) => (
+          <Fragment key={`${release.tag}-${index}`}>
+            <span className="panel-release-num">{index === 0 ? release.version : ''}</span>
+            <span className="build-line">{change}</span>
+          </Fragment>
+        )),
+      )}
+    </div>
   )
 }
 

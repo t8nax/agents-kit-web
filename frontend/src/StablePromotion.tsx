@@ -160,7 +160,7 @@ function End({
   }
 }
 
-/** Окно подтверждения: что уйдёт, какие задачи оно привезёт и что отменить выпуск нельзя. */
+/** Окно подтверждения: что уйдёт, какие изменения оно привезёт и что отменить выпуск нельзя. */
 function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCancel: () => void; onConfirm: () => void }) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -170,7 +170,8 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
     return () => window.removeEventListener('keydown', onKey)
   }, [onCancel])
 
-  const tasks = stable.releases.reduce((count, release) => count + release.tasks.length, 0)
+  // Строки всех сборок подряд, свежие сверху, без номеров Беты — то, что увидит Стабильный (макет B-313).
+  const changes = stable.releases.flatMap((release) => release.tasks)
 
   return (
     <div className="panel-overlay" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
@@ -184,7 +185,7 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
         {stable.releases.length > 0 && (
           <div className="release-what">
             <div className="release-what-head">
-              <span className="panel-arrived">{taskCount(tasks)}</span>
+              <span className="panel-arrived">{changeCount(changes.length)}</span>
               {stable.stable && (
                 <span className="from">
                   новее Стабильного <span className="panel-release-num">{stable.stable}</span>
@@ -192,16 +193,7 @@ function Confirm({ stable, onCancel, onConfirm }: { stable: PanelStable; onCance
               )}
             </div>
             <div className="panel-releases release-list">
-              {stable.releases.map((release) => (
-                <div key={release.tag} className="panel-release">
-                  <span className="panel-release-num">{release.version}</span>
-                  <ul>
-                    {release.tasks.map((task, index) => (
-                      <li key={index}>{task}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
+              <Changes changes={changes} />
             </div>
           </div>
         )}
@@ -232,10 +224,21 @@ async function refusal(response: Response) {
   return detail ?? 'GitHub не ответил'
 }
 
-/** «1 задача», «2 задачи», «5 задач». */
-function taskCount(count: number) {
+/** Строки выпуска подряд: фразы оператору, у сборок до фраз — заголовки задач тем же видом (макет B-313). */
+export function Changes({ changes }: { changes: string[] }) {
+  return (
+    <ul>
+      {changes.map((change, index) => (
+        <li key={index}>{change}</li>
+      ))}
+    </ul>
+  )
+}
+
+/** «1 изменение», «2 изменения», «5 изменений». */
+function changeCount(count: number) {
   const tail = count % 100
-  if (tail % 10 === 1 && tail !== 11) return `${count} задача`
-  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} задачи`
-  return `${count} задач`
+  if (tail % 10 === 1 && tail !== 11) return `${count} изменение`
+  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} изменения`
+  return `${count} изменений`
 }
