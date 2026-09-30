@@ -468,6 +468,7 @@ public static class PerformerDraftEndpoints
             model — opus, sonnet или haiku; годится модель позвавшей сессии — ключ не писать вовсе.
             Задание пиши тому, кто будет работать: что он читает, что делает и что возвращает.
             Файлы менять нельзя: исполнителя запишет панель, и только с согласия оператора.
+            {OperatorSpeech.Rule}
             """;
 
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, copyPath);
