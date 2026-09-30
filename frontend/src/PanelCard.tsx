@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import './PanelCard.css'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
+import StablePromotion from './StablePromotion'
 
 export type PanelBuild = {
   channel: string
@@ -260,6 +261,8 @@ export default function PanelCard() {
             </button>
           </div>
         )}
+        {/* Выкладка в Стабильный — у поставленной Беты, когда выбран канал «Бета» (B-312). */}
+        {panel.installed && panel.channel === 'dev' && panel.published?.channel === 'dev' && <StablePromotion />}
       </div>
 
       {running && <UpdateProgress onFailed={(state) => {
