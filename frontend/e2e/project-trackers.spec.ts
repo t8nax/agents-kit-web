@@ -161,9 +161,18 @@ test('переписка открывается поверх окна треке
   await expect(chat.getByRole('tab', { name: 'Переписка' })).toHaveAttribute('aria-selected', 'true')
   await expect(chat.getByRole('button', { name: 'Голосовой ввод' })).toBeVisible()
 
+  // Окно трекера под перепиской недоступно: Tab ходит только по переписке (decisions/tests.md — inert проверяет браузер).
+  await expect(form).toHaveAttribute('inert', '')
+  for (let press = 0; press < 12; press++) {
+    await page.keyboard.press('Tab')
+    expect(await form.evaluate((element) => element.contains(document.activeElement))).toBe(false)
+  }
+
   await page.keyboard.press('Escape')
   await expect(chat).toBeHidden()
   await expect(form).toBeVisible()
+  // Закрытая переписка возвращает фокус на свою кнопку в подвале окна трекера.
+  await expect(form.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(form).toBeHidden()
 })
