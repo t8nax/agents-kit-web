@@ -153,6 +153,74 @@ public sealed class PerformerDraftEndpointsTests : IDisposable
         Assert.Equal(["description"], events[3].Changed);
     }
 
+    /// <summary>
+    /// Непринятое предложение не теряется: окно ещё пустое, а агент получает своё предложение рядом с полями и правит его;
+    /// «В изменениях» сверяется с ним, а не с пустым окном (ревью B-320).
+    /// </summary>
+    [Fact]
+    public async Task Reply_BeforeAccept_CarriesPendingProposalAndComparesWithIt()
+    {
+        var shorter = Reviewer with { Description = "Читает дифф." };
+        _agent.Answers = [
+            [Result($"Вот.\n{PerformerDraftEndpoints.Marker}\n{Drafted}")],
+            [Result($"Короче.\n{PerformerDraftEndpoints.Marker}\n{PerformerFile.Serialize(new PerformerFields(shorter.Name, shorter.Description, shorter.Model, shorter.Tools, shorter.Prompt))}")],
+        ];
+        var client = Client();
+        var empty = new PerformerDraftFields("", "", "", "", "");
+        await Start(client, "Ревьюер ветки", empty);
+        await Read(client, 2);
+
+        await client.PostAsJsonAsync("/api/performers/draft/reply", new PerformerDraftReply("Описание короче", empty));
+        var events = await Read(client, 4);
+
+        var input = Text(_agent.Input[1]);
+        Assert.Contains("Поля нового исполнителя в окне сейчас:\nпусто — исполнитель заводится.", input);
+        Assert.Contains("Твоё последнее предложение", input);
+        Assert.Contains("description: Читает дифф ветки задачи и возвращает вердикт.", input);
+        Assert.Equal(["description"], events[3].Changed);
+    }
+
+    /// <summary>Кончившийся агент не теряет разговора целиком: новый получает флоу, поля окна и непринятое предложение.</summary>
+    [Fact]
+    public async Task Reply_AfterAgentEnded_RaisesNewAgentWithFlowFieldsAndProposal()
+    {
+        _agent.StopAfterRun[0] = 1;
+        _agent.Answers = [[Result($"Вот.\n{PerformerDraftEndpoints.Marker}\n{Drafted}")], [Result("Понял.")]];
+        var client = Client();
+        await Start(client, "Ревьюер ветки");
+        await Read(client, 2);
+
+        var reply = await client.PostAsJsonAsync("/api/performers/draft/reply", new PerformerDraftReply("Ещё раз", Reviewer with { Description = "Руками." }));
+        var events = await Read(client, 5);
+
+        Assert.Equal(HttpStatusCode.NoContent, reply.StatusCode);
+        Assert.Equal(2, _agent.Starts.Count);
+        Assert.Contains(events, e => e.Type == "note" && e.Text.Contains("отвечает заново"));
+        var input = Text(_agent.Input[1]);
+        Assert.StartsWith("Просьба оператора:\nЕщё раз", input);
+        Assert.Contains("flow/scenarios.md", input);
+        Assert.Contains("description: Руками.", input);
+        Assert.Contains("Твоё последнее предложение", input);
+    }
+
+    [Fact]
+    public async Task Stop_CutsAnswerButKeepsConversation()
+    {
+        var hold = new TaskCompletionSource();
+        _agent.BeforeLine = _ => hold.Task;
+        _agent.Answers = [[Result("не дойдёт")]];
+        var client = Client();
+        await Start(client, "Ревьюер ветки");
+
+        var stop = await client.PostAsync("/api/performers/draft/stop", null);
+        var events = await Read(client, 2);
+
+        Assert.Equal(HttpStatusCode.NoContent, stop.StatusCode);
+        Assert.Equal("stopped", events[1].Type);
+        var listed = await client.GetFromJsonAsync<List<AgentRequestSummary>>("/api/agent/requests", Json);
+        Assert.Equal(AgentRequests.Performer, Assert.Single(listed!).Kind);
+    }
+
     [Fact]
     public async Task Start_ForEditedPerformer_RemembersWhomItRewritesAndTellsAgent()
     {

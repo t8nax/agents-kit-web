@@ -58,7 +58,10 @@ public sealed class PerformerConversations(IAgentChat agent, AgentRequests reque
     /// <summary>Поля окна к последней реплике: с ними сверяется правка агента, с ними поднимается новый агент.</summary>
     private PerformerDraftFields? _screen;
 
-    /// <summary>Исполнитель, до которого договорились за переписку; null — агент ещё ничего не предлагал.</summary>
+    /// <summary>
+    /// Исполнитель, до которого договорились за переписку; null — агент ещё ничего не предлагал. В поля окна он ложится
+    /// только по «Принять правки», поэтому живёт через реплики: с каждой он уходит агенту рядом с полями окна (ревью B-320).
+    /// </summary>
     private PerformerDraftFields? _proposal;
 
     public AgentRequestSummary Start(
@@ -100,16 +103,15 @@ public sealed class PerformerConversations(IAgentChat agent, AgentRequests reque
         lock (_gate)
         {
             ended = _turn;
-            // Правкой считается то, что в окне сейчас: принятое и поправленное руками ложится поверх предложенного.
+            // Поля окна — такие, какие они сейчас: принятое и поправленное руками. Предложение остаётся рядом с ними.
             _screen = current ?? _screen;
-            _proposal = null;
 
             // Живой агент выбирается и реплика уходит в его очередь под той же блокировкой, которой его работа
             // отмечает свой конец (B-262): кончившемуся агенту она не достаётся, а поднимает нового.
             if (_turn?.Request == request && request.Working && !_turn.Ended)
             {
                 request.Reply(new PerformerDraftEvent("reply", text));
-                Send(_turn, text, PerformerDraftEndpoints.Input(text, null, _screen, _turn.Editing, first: false));
+                Send(_turn, text, PerformerDraftEndpoints.Input(text, null, _screen, _turn.Editing, _proposal, first: false));
                 return AskReplied.Sent;
             }
         }
@@ -120,7 +122,7 @@ public sealed class PerformerConversations(IAgentChat agent, AgentRequests reque
                 return AskReplied.Answering;
             var turn = Restart(request);
             request.Reply(new PerformerDraftEvent("reply", text));
-            Send(turn, text, PerformerDraftEndpoints.Input(text, turn.Flow, _screen, turn.Editing));
+            Send(turn, text, PerformerDraftEndpoints.Input(text, turn.Flow, _screen, turn.Editing, _proposal));
         }
         return AskReplied.Sent;
     }
@@ -204,7 +206,7 @@ public sealed class PerformerConversations(IAgentChat agent, AgentRequests reque
                     if (turn.Stopped)
                         drafting.Write(new PerformerDraftEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
                     else if (_turn == turn)
-                        Send(Restart(drafting), left, PerformerDraftEndpoints.Input(left, turn.Flow, _proposal ?? _screen, turn.Editing));
+                        Send(Restart(drafting), left, PerformerDraftEndpoints.Input(left, turn.Flow, _screen, turn.Editing, _proposal));
                 }
                 return;
             }
@@ -488,9 +490,11 @@ public static class PerformerDraftEndpoints
     }
 
     /// <summary>
-    /// Реплика агенту: слова оператора, флоу базы — у первой реплики агента — и поля исполнителя, какими они стоят в окне.
+    /// Реплика агенту: слова оператора, флоу базы — у первой реплики агента, — поля исполнителя, какими они стоят в окне,
+    /// и прошлое предложение агента, если оно с окном расходится: оператор мог его ещё не принять (ревью B-320).
     /// </summary>
-    public static string Input(string text, string? flow, PerformerDraftFields? current, bool editing, bool first = true)
+    public static string Input(
+        string text, string? flow, PerformerDraftFields? current, bool editing, PerformerDraftFields? proposal = null, bool first = true)
     {
         var said = new StringBuilder().Append(first ? "Просьба оператора:\n" : "Оператор:\n").Append(text);
         if (first && flow is not null)
@@ -499,10 +503,16 @@ public static class PerformerDraftEndpoints
         if (current is null || Empty(current))
             said.Append("пусто — исполнитель заводится.");
         else
-            said.Append(PerformerFile.Serialize(
-                new PerformerFields(current.Name, current.Description, current.Model, current.Tools, current.Prompt)).TrimEnd());
+            said.Append(Serialized(current));
+        if (proposal is not null && Changed(current, proposal).Count > 0)
+            said.Append("\n\nТвоё последнее предложение — в поля окна оно ложится, только когда оператор его примет, ")
+                .Append("поэтому поля выше могут быть без него. Правь его, если оператор не просит иного:\n")
+                .Append(Serialized(proposal));
         return said.ToString();
     }
+
+    private static string Serialized(PerformerDraftFields fields) => PerformerFile.Serialize(
+        new PerformerFields(fields.Name, fields.Description, fields.Model, fields.Tools, fields.Prompt)).TrimEnd();
 
     private static bool Empty(PerformerDraftFields fields) =>
         string.IsNullOrWhiteSpace(fields.Name)
