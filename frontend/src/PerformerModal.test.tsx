@@ -124,7 +124,6 @@ test('поля просьбы в окне нет: переписку откры�
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })).not.toBeInTheDocument()
   expect(screen.getByRole('dialog', { name: 'Новый исполнитель' })).not.toHaveAttribute('inert')
-  expect(screen.getByRole('button', { name: 'Завести с Чудо-Юдо' })).toHaveFocus()
 })
 
 test('у заведённого кнопка переписки называется «Переписать с Чудо-Юдо»', () => {

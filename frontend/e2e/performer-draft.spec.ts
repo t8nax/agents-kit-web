@@ -223,6 +223,8 @@ test('неудача агента сказана в переписке, поля
   await expect(chat.getByRole('alert')).toContainText('Исполнитель без имени')
   await expect(chat.getByRole('tab', { name: 'Изменения' })).toBeDisabled()
   await chat.getByRole('button', { name: 'Закрыть' }).click()
+  // Закрытая переписка возвращает фокус на свою кнопку: пока она открыта, окно исполнителя inert.
+  await expect(modal.getByRole('button', { name: 'Завести с Чудо-Юдо' })).toBeFocused()
   await expect(modal.getByLabel('Имя')).toHaveValue('')
   await expect(modal.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
