@@ -62,7 +62,6 @@ function Get-Release($parts) { , @($parts[0], $parts[1], $parts[2], 0) }
 
 function Format-Release($parts) { "$($parts[0]).$($parts[1]).$($parts[2])" }
 
-
 # Последний выпуск Стабильного — наибольший тег v<номер> без -dev; его нет — $null.
 function Get-Stable {
     $best = $null
@@ -94,17 +93,14 @@ if ($Mode -eq 'Merge') {
         Stop-Merge "В version.txt после слияния «$nowText», а нужен номер выпуска из трёх чисел."
     }
 
-    # До номера выпуска в version.txt лежал номер из четырёх чисел на каждое слияние: первый номер выпуска
-    # только больше его.
-    if ($wasText.Split('.').Count -ne 3) {
-        if ((Compare-Parts (Get-Release $now) (Get-Release $was)) -le 0) {
-            Stop-Merge "Номер выпуска $nowText не больше прежнего номера $wasText в dev."
-        }
-        exit 0
-    }
-
     $stable = Get-Stable
     $base = if ($stable) { Get-Release $stable } else { $null }
+    # До номера выпуска в version.txt лежал номер из четырёх чисел на каждое слияние: первый номер выпуска —
+    # шаг от его первых трёх чисел, как у первой задачи после выкладки.
+    if ($wasText.Split('.').Count -ne 3) {
+        $was = Get-Release $was
+        $base = $was
+    }
     # Подъём на один шаг: второе число на единицу и третье в ноль или третье на единицу.
     $breaking = @($was[0], ($was[1] + 1), 0, 0)
     $adding = @($was[0], $was[1], ($was[2] + 1), 0)

@@ -160,17 +160,21 @@ public sealed class VersionHooksTests : IDisposable
         Assert.True(exitCode == 0, errors);
     }
 
-    [Fact]
-    public void FirstReleaseNumber_NotAboveNumberOfEveryMerge_IsRefused()
+    [Theory]
+    [InlineData("0.27.4")] // не выше
+    [InlineData("0.40.0")] // не на шаг
+    [InlineData("0.27.6")]
+    public void FirstReleaseNumber_NotAStepFromNumberOfEveryMerge_IsRefused(string task)
     {
         var repository = Repository();
         Commit(repository, "version.txt", "0.27.4.0");
-        Task(repository, "feat/first", "0.27.4");
+        Task(repository, "feat/first", task);
 
         var (exitCode, errors) = Git(repository, "merge", "--no-ff", "feat/first", "-m", "Merge feat/first");
 
         Assert.NotEqual(0, exitCode);
-        Assert.Contains("Номер выпуска 0.27.4 не больше прежнего номера 0.27.4.0 в dev.", errors);
+        Assert.Contains($"в dev 0.27.4.0, выпусков Стабильного ещё нет, после слияния {task}", errors);
+        Assert.Contains("поднимает номер выпуска на один шаг: 0.28.0 или 0.27.5", errors);
     }
 
     [Fact]

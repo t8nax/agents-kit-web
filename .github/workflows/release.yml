@@ -45,6 +45,14 @@ jobs:
             Write-Output "::error::В version.txt «$release», а нужен номер выпуска из трёх чисел 0.X.Y"
             exit 1
           }
+          # Номер выпуска, уже вышедший в Стабильный, Бет больше не получает: после выкладки его поднимает первая
+          # задача, и код, попавший в dev мимо хука слияния, здесь не выходит Бетой прежнего выпуска.
+          $stable = git tag --list 'v*' | Where-Object { $_ -match '^v(\d+\.\d+\.\d+(?:\.\d+)?)$' } |
+            ForEach-Object { [version]$Matches[1] } | Sort-Object | Select-Object -Last 1
+          if ($stable -and [version]$release -le [version]"$($stable.Major).$($stable.Minor).$([Math]::Max($stable.Build, 0))") {
+            Write-Output "::error::Номер выпуска $release не выше Стабильного $($stable): после выкладки его поднимает первая задача"
+            exit 1
+          }
           $pattern = '^v' + [regex]::Escape($release) + '\.(\d+)-dev$'
           $built = @(git tag --list "v$release.*-dev" | Where-Object { $_ -match $pattern } | ForEach-Object { [int]($_ -replace $pattern, '$1') })
           $build = 1 + ($built | Measure-Object -Maximum).Maximum
