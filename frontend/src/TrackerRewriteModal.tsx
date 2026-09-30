@@ -10,6 +10,7 @@ import {
   emptyDescription,
   knownTracker,
   projectPlaceholder,
+  filterPlaceholder,
   rejectedText,
   sameField,
   sections,
@@ -120,9 +121,13 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
   const kind = knownTracker(draft.tracker)
   // Пока Чудо-Юдо отвечает, поля не правятся: его предложение легло бы поверх набранного (ревью B-293).
   const answering = running && !foreign
-  const fields: DescriptionField[] = ['tracker', 'server', 'project', 'where', 'backlog', 'take', 'closed', 'move']
+  const fields: DescriptionField[] = ['tracker', 'server', 'project', 'filter', 'where', 'backlog', 'take', 'closed', 'move']
+  // Отбор задач — только у трекеров, задачи которых панель читает; у Jira и GitLab поля нет, и строка не пишется (B-300).
+  const filtered = checked(kind)
+  // Что уйдёт в базу: скрытый у Jira и GitLab фильтр — пустым, и правкой он не считается (ревью B-300).
+  const written = filtered ? draft : { ...draft, filter: '' }
   // Имеющееся описание без правок записывать нечего.
-  const unchanged = saved !== null && fields.every((field) => sameField(field, saved, draft))
+  const unchanged = saved !== null && fields.every((field) => sameField(field, saved, written))
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -192,7 +197,7 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
       const response = await fetch('/api/trackers/projects', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: row.base, version: row.version, description: draft }),
+        body: JSON.stringify({ base: row.base, version: row.version, description: written }),
       })
       if (response.ok) {
         const answer = (await response.json()) as { pushed: boolean; message?: string | null }
@@ -237,7 +242,9 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
           {changed && <span className="rewrite-mark rewrite-mark-changed">изменено</span>}
         </div>
         {changed && (
-          <p className={`rewrite-was ${field === 'server' || field === 'project' ? 'mono' : ''}`}>{saved[field] || 'пусто'}</p>
+          <p className={`rewrite-was ${field === 'server' || field === 'project' || field === 'filter' ? 'mono' : ''}`}>
+            {saved[field] || 'пусто'}
+          </p>
         )}
       </>
     )
@@ -384,6 +391,28 @@ export default function TrackerRewriteModal({ row, onSaved, onClose }: Props) {
                     </div>
                   ))}
                 </div>
+                {filtered && (
+                  <div className={`tf-field ${changedClass('filter')}`}>
+                    {fieldHead('filter', 'Фильтр', 'tf-filter')}
+                    <input
+                      id="tf-filter"
+                      className="inp"
+                      type="text"
+                      value={draft.filter ?? ''}
+                      placeholder={kind ? filterPlaceholder[kind] : undefined}
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={applying || answering}
+                      aria-invalid={faults.filter ? true : undefined}
+                      onChange={(e) => edit('filter', e.target.value)}
+                    />
+                    {faults.filter && (
+                      <p className="bases-error" role="alert">
+                        {faults.filter}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="tf-group">
                 <p className="rewrite-group-title">Разделы</p>

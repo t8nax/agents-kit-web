@@ -160,7 +160,6 @@ const startingRow = {
   task: 'B-8 Кнопка запуска задачи',
   letters: 'B',
   status: 'starting',
-  sessionState: 'working',
   backgroundSession: true,
 }
 

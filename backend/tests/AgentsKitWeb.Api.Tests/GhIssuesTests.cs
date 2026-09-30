@@ -20,6 +20,17 @@ public class GhIssuesTests
         Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
     }
 
+    /// <summary>Строка отбора описания уходит поиском gh вдобавок к назначенному и состоянию (B-300).</summary>
+    [Fact]
+    public void StartInfo_WithFilter_AddsSearch()
+    {
+        Assert.Equal(
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--search", "(label:bug milestone:v2)",
+                "--limit", "100", "--json", "number,title,url,labels"],
+            GhIssues.StartInfo("acme/orders", " label:bug milestone:v2 ").ArgumentList);
+        Assert.DoesNotContain("--search", GhIssues.StartInfo("acme/orders", " ").ArgumentList);
+    }
+
     [Fact]
     public void Parse_NamesIssuesAsKitDoes()
     {

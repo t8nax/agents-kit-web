@@ -39,7 +39,7 @@ const rows = [
   },
 ]
 
-async function mockApi(page: Page) {
+async function mockApi(page: Page, list: unknown[] = rows) {
   const saved: unknown[] = []
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/bases', (route) => route.fulfill({ json: [] }))
@@ -51,7 +51,7 @@ async function mockApi(page: Page) {
       saved.push(route.request().postDataJSON())
       return route.fulfill({ json: { version: 'v2', checked: true, pushed: true, message: null } })
     }
-    return route.fulfill({ json: rows })
+    return route.fulfill({ json: list })
   })
   return saved
 }
@@ -121,6 +121,34 @@ for (const width of [1400, 700]) {
     await expect(dialog).toBeHidden()
   })
 }
+
+// Макет B-300: фильтр — строкой под сервером и проектом в карточке и полем под их парой в окне, во всю ширину пары.
+test('фильтр трекера — под сервером и проектом в карточке и в окне', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 })
+  const filter = 'State: {To Do}'
+  await mockApi(page, [{ ...rows[0], tracker: { ...rows[0].tracker, filter }, description: { ...description, filter } }, rows[1]])
+
+  const card = await openCard(page)
+  const row = card.getByRole('listitem').filter({ hasText: 'Логистика' })
+  await expect(row.locator('.prj-filter')).toContainText(filter)
+  const [server, project, line] = await Promise.all(
+    [row.locator('.prj-server'), row.locator('.prj-project'), row.locator('.prj-filter')].map((one) => one.boundingBox()),
+  )
+  expect(line!.y).toBeGreaterThanOrEqual(server!.y + server!.height - 0.5)
+  expect(Math.abs(line!.x - server!.x)).toBeLessThanOrEqual(1)
+  expect(line!.x + line!.width).toBeLessThanOrEqual(project!.x + project!.width + 1)
+
+  await row.getByRole('button', { name: /^Изменить трекер/ }).click()
+  const dialog = page.getByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })
+  await dialog.getByRole('tab', { name: 'Изменения' }).click()
+  await expect(dialog.getByLabel('Фильтр')).toHaveValue(filter)
+  const [address, key, field] = await Promise.all(
+    [dialog.getByLabel('Адрес сервера'), dialog.getByLabel('Проект'), dialog.getByLabel('Фильтр')].map((one) => one.boundingBox()),
+  )
+  expect(field!.y).toBeGreaterThan(address!.y + address!.height)
+  expect(Math.abs(field!.x - address!.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(field!.x + field!.width - (key!.x + key!.width))).toBeLessThanOrEqual(1)
+})
 
 // Ревью B-293: переход из «Бэклога» показывает карточку, хотя карточки выше дочитываются позже и растут.
 test('строка поломки трекера в «Бэклоге» ведёт к карточке, и она остаётся на экране', async ({ page }) => {

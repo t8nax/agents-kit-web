@@ -10,6 +10,8 @@ export type TrackerInfo = {
   project?: string | null
   /** У no-keys — каких строк нет или какие записаны не так: «трекер», «сервер», «проект». */
   faults?: string[] | null
+  /** Строка «фильтр:» у GitHub и YouTrack — отбор задач, дописанный к запросу панели (B-300); нет — задачи без отбора. */
+  filter?: string | null
 }
 
 /**

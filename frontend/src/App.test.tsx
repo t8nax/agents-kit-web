@@ -62,7 +62,6 @@ const rows: WorkspaceRow[] = [
     progress: 33,
     status: 'waiting',
     error: null,
-    sessionState: 'idle',
     backgroundSession: true,
   },
   {
@@ -75,7 +74,6 @@ const rows: WorkspaceRow[] = [
     progress: null,
     status: 'free',
     error: null,
-    sessionState: 'working',
   },
   {
     project: 'app-knowledge',
@@ -141,40 +139,37 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
 })
 
-test('точка у имени копии говорит, что делает её сессия', async () => {
-  // Копия без сессии — та, где задачу ведут, а сессию уже закрыли: её видно среди работающих
-  const abandoned: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\left', status: 'in-work', sessionState: null }
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, abandoned]), { status: 200 })))
+// Сессия задачи встала без вопроса или ждёт нажатия в терминале — B-308
+const stopped: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-stopped', status: 'stopped' }
+const terminal: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-terminal', status: 'terminal' }
+
+test('у имени копии точки сессии нет: в ячейке только имя и ветка', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 })))
 
   render(<App />)
   const tableRows = await findTableRows()
 
-  // Статус копии считается по памяти и остаётся прежним — состояние сессии читается рядом с ним
-  expect(within(tableRows[1]).getByLabelText('сессия стоит без дела')).toBeInTheDocument()
-  expect(within(tableRows[1]).getByText('Ждёт оператора')).toBeInTheDocument()
-  expect(within(tableRows[2]).getByLabelText('сессия работает')).toBeInTheDocument()
-  expect(within(tableRows[4]).getByLabelText('сессии нет')).toBeInTheDocument()
-  expect(within(tableRows[4]).getByText('В работе')).toBeInTheDocument()
-
-  // Строке с ошибкой точку ставить не о чем: копии на диске нет
-  expect(within(tableRows[3]).queryByRole('img')).not.toBeInTheDocument()
-
-  // Подпись точки — метка, а не текст: содержимое ячейки остаётся именем копии и её веткой
+  expect(within(tableRows[1]).queryByRole('img')).not.toBeInTheDocument()
   expect(within(tableRows[1]).getAllByRole('cell')[0]).toHaveTextContent(/^appfeat\/table$/)
-
-  // Слова состояния держит подсказка точки, отдельной легенды под таблицей нет
-  expect(within(tableRows[1]).getByRole('img')).toHaveAttribute('title', 'сессия стоит без дела')
-  expect(screen.queryByText('Точка у имени копии:')).not.toBeInTheDocument()
 })
 
-test('сессия, ждущая оператора в терминале, отмечена своей точкой', async () => {
-  const asking: WorkspaceRow = { ...rows[1], sessionState: 'waiting' }
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([asking]), { status: 200 })))
+test('остановившаяся сессия и диалог в терминале стоят своими плашками и зовут оператора', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([stopped, terminal]), { status: 200 })))
 
   render(<App />)
   const tableRows = await findTableRows()
 
-  expect(within(tableRows[1]).getByLabelText('сессия ждёт вас в терминале')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Сессия стоит')).toHaveClass('status-badge', 'status-stopped')
+  expect(within(tableRows[2]).getByText('Ждёт в терминале')).toHaveClass('status-badge', 'status-terminal')
+  // Отвечать не на что: вопроса в памяти нет, оператор нужен в самой сессии
+  expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument()
+  expect(document.querySelectorAll('.progress-fill.waiting')).toHaveLength(2)
+
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+  expect(sidebar.getByRole('button', { name: 'Рабочие копии, 2 ждут' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Свернуть app-knowledge' }))
+  expect(document.querySelectorAll('.group-waiting-dot')).toHaveLength(1)
 })
 
 const otherBase: WorkspaceRow = {
@@ -315,6 +310,24 @@ test('номер задачи отделяется по буквам её про
   expect(cells(tableRows[1]).slice(1, 3)).toEqual(['ORD-12', 'Выгрузка заказов за период'])
   expect(within(tableRows[1]).getByText('ORD-12')).toHaveClass('num-chip')
   expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'UTF-8 в именах файлов ломает выгрузку'])
+})
+
+test('номер задачи трекера стоит в колонке номера с именем трекера, только у проекта с этим трекером', async () => {
+  const jira: WorkspaceRow = { ...rows[0], task: 'Jira PAY-7 Выгрузка отчётов', letters: 'B', tracker: 'Jira' }
+  const backlog: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'B-24 Номер задачи отдельной колонкой', letters: 'B', tracker: 'Jira' }
+  const foreign: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-3', task: 'GitHub #37 Оплата падает', letters: 'B', tracker: 'Jira' }
+  const untracked: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-4', task: 'GitHub #37 Оплата падает', letters: 'B', tracker: null }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([jira, backlog, foreign, untracked])))
+
+  render(<App />)
+
+  const tableRows = await findTableRows()
+  const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((cell) => cell.textContent)
+  expect(cells(tableRows[1]).slice(1, 3)).toEqual(['Jira PAY-7', 'Выгрузка отчётов'])
+  expect(within(tableRows[1]).getByText('Jira PAY-7')).toHaveClass('num-chip')
+  expect(cells(tableRows[2]).slice(1, 3)).toEqual(['B-24', 'Номер задачи отдельной колонкой'])
+  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', 'GitHub #37 Оплата падает'])
+  expect(cells(tableRows[4]).slice(1, 3)).toEqual(['—', 'GitHub #37 Оплата падает'])
 })
 
 // Меню действий строки: кнопка «⋯» открывает его, пункт — действие над копией этой строки
@@ -493,7 +506,6 @@ test('запущенная задача стоит в строке копии д
     task: 'B-7 Панель показывает задачу сразу',
     letters: 'B',
     status: 'starting',
-    sessionState: 'working',
     backgroundSession: true,
   }
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([starting])))
@@ -593,6 +605,41 @@ test('сайдбар переключает разделы, среди них «
   expect(sidebar.getByRole('button', { name: 'Настройки' })).toHaveAttribute('aria-current', 'page')
   // Кнопки «Базы знаний» больше нет: базы живут в разделе «Настройки»
   expect(sidebar.queryByRole('button', { name: 'Базы знаний' })).not.toBeInTheDocument()
+
+  // Критерий 1 B-318: пункта «Руководство» в полосе нет, она кончается «Настройками»
+  expect(sidebar.queryByRole('button', { name: 'Руководство' })).not.toBeInTheDocument()
+  expect(sidebar.getAllByRole('button').at(-1)).toHaveAccessibleName('Настройки')
+})
+
+test('руководство открывается значком книги в шапке, и значок отмечен, пока руководство открыто', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 })))
+  render(<App />)
+  const header = within(screen.getByRole('banner'))
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+
+  // Критерий 2 B-318: значок книги стоит между «Спросить Чудо-Юдо» и темой, название — в подсказке
+  const buttons = header.getAllByRole('button')
+  const guide = header.getByRole('button', { name: 'Руководство' })
+  expect(buttons.at(-3)).toHaveAccessibleName('Спросить Чудо-Юдо')
+  expect(buttons.at(-2)).toBe(guide)
+  expect(buttons.at(-1)).toHaveAccessibleName('Светлая тема')
+  expect(guide).toHaveAttribute('title', 'Руководство')
+  expect(guide).toHaveTextContent('')
+  expect(guide).not.toHaveAttribute('aria-current')
+
+  fireEvent.click(guide)
+  expect(await screen.findByRole('heading', { name: 'Руководство', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Страницы руководства' })).toBeInTheDocument()
+
+  // Критерий 3 B-318: открыто руководство — отмечена книга, в полосе не выделен ни один пункт
+  expect(guide).toHaveAttribute('aria-current', 'page')
+  expect(guide).toHaveClass('active')
+  for (const item of sidebar.getAllByRole('button')) expect(item).not.toHaveAttribute('aria-current')
+
+  fireEvent.click(sidebar.getByRole('button', { name: 'Настройки' }))
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  expect(guide).not.toHaveAttribute('aria-current')
+  expect(guide).not.toHaveClass('active')
 })
 
 const checked = (baseProblems: number, problems: number): Partial<WorkspaceRow> => ({
@@ -996,7 +1043,11 @@ test('переключатель ставит тему и браузер её п
   // Без своего выбора тема тёмная по системе, атрибута на странице нет
   expect(document.documentElement.dataset.theme).toBeUndefined()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Светлая тема' }))
+  // Критерий 4 B-318: переключатель — значок без надписи, тема, на которую он переключит, — в подсказке
+  const toggle = await screen.findByRole('button', { name: 'Светлая тема' })
+  expect(toggle).toHaveTextContent('')
+  expect(toggle).toHaveAttribute('title', 'Светлая тема')
+  fireEvent.click(toggle)
   expect(document.documentElement.dataset.theme).toBe('light')
   expect(localStorage.getItem('agents-kit-web.theme')).toBe('light')
   expect(screen.getByRole('button', { name: 'Тёмная тема' })).toBeInTheDocument()
@@ -1257,7 +1308,6 @@ test('возврат к просьбе из шапки открывает раз
 const unread: WorkspaceRow = {
   ...rows[0],
   status: 'unread',
-  sessionState: null,
   backgroundSession: false,
 }
 
@@ -1293,6 +1343,36 @@ test('уведомляет, когда ответ в копии остался �
   expect(shown[0].options?.body).toBe('D:\\Projects\\app\nТаблица рабочих копий')
 })
 
+test('уведомляет, когда сессия задачи встала без вопроса', async () => {
+  fakeInterval()
+  const { shown } = stubNotification('granted')
+  const inWork: WorkspaceRow = { ...stopped, status: 'in-work' }
+  workspaceResponses([inWork, rows[1]], [stopped, rows[1]])
+
+  render(<App />)
+  expect(await screen.findByText('В работе')).toBeInTheDocument()
+
+  await tick(3000)
+  expect(await screen.findByText('Сессия стоит')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
+  expect(shown[0].title).toBe('app-knowledge: сессия стоит')
+})
+
+test('уведомляет, когда сессия задачи ждёт нажатия в терминале', async () => {
+  fakeInterval()
+  const { shown } = stubNotification('granted')
+  const inWork: WorkspaceRow = { ...terminal, status: 'in-work' }
+  workspaceResponses([inWork, rows[1]], [terminal, rows[1]])
+
+  render(<App />)
+  expect(await screen.findByText('В работе')).toBeInTheDocument()
+
+  await tick(3000)
+  expect(await screen.findByText('Ждёт в терминале')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
+  expect(shown[0].title).toBe('app-knowledge: ждёт в терминале')
+})
+
 test('«Завести сессию задачи» открыт у копии с задачей без сессии и приглушён у остальных', async () => {
   // Сессия задачи жива — фоновая или в VS Code — заводить нечего; свободной копии продолжать нечего
   const withBackground: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-bg' }
@@ -1313,7 +1393,7 @@ test('«Завести сессию задачи» открыт у копии с
   expect(start(await openRowMenu(tableRows[5]))).toBeEnabled()
 })
 
-test('заведённая сессия так и не показалась — точка перестаёт мигать, и панель говорит об этом строкой', async () => {
+test('заведённая сессия так и не показалась — «Запускается» уходит, и панель говорит об этом строкой', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
   vi.stubGlobal('fetch', vi.fn(async (url: string) =>
     url === '/api/tasks/session'
@@ -1331,18 +1411,18 @@ test('заведённая сессия так и не показалась — 
     fireEvent.click(within(tableRows[1]).getByRole('menuitem', { name: 'Завести сессию задачи' }))
     await vi.advanceTimersByTimeAsync(0)
   })
-  expect(within(tableRows[1]).getByLabelText('сессия заводится')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Запускается')).toHaveClass('status-starting')
 
   await act(async () => {
     await vi.advanceTimersByTimeAsync(15000)
   })
   expect(screen.getByText('Сессия в app заведена, но в перечне живых сессий так и не показалась')).toBeInTheDocument()
-  expect(within(tableRows[1]).getByLabelText('сессии нет')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Ответ не прочитан')).toBeInTheDocument()
 })
 
-test('«Завести сессию задачи» заводит сессию молча, и точка копии мигает, пока сессия не покажется', async () => {
+test('«Завести сессию задачи» заводит сессию молча, и копия «Запускается», пока сессия не покажется', async () => {
   fakeInterval()
-  const alive: WorkspaceRow = { ...unread, status: 'in-work', sessionState: 'working', backgroundSession: true }
+  const alive: WorkspaceRow = { ...unread, status: 'in-work', backgroundSession: true }
   let list = [unread, rows[1]]
   const fetchMock = vi.fn(async (url: string) =>
     url === '/api/tasks/session'
@@ -1365,16 +1445,19 @@ test('«Завести сессию задачи» заводит сессию �
   })
   // Окна терминала панель не открывает — решение оператора
   expect(fetchMock).not.toHaveBeenCalledWith('/api/session/terminal', expect.anything())
-  expect(within(tableRows[1]).getByLabelText('сессия заводится')).toHaveClass('session-starting')
+  expect(within(tableRows[1]).getByText('Запускается')).toHaveClass('status-starting')
+  // «Запускается» оператора не ждёт: ни полосой, ни счётом в сайдбаре
+  expect(document.querySelector('.progress-fill.waiting')).toBeNull()
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+  expect(sidebar.queryByRole('button', { name: /ждёт/ })).not.toBeInTheDocument()
 
   list = [alive, rows[1]]
   await tick(3000)
   const row = within((await findTableRows())[1])
-  expect(await row.findByLabelText('сессия работает')).toBeInTheDocument()
-  expect(row.getByText('В работе')).toBeInTheDocument()
+  expect(await row.findByText('В работе')).toBeInTheDocument()
 })
 
-test('сессия задачи не завелась — панель говорит об этом строкой, и точка не мигает', async () => {
+test('сессия задачи не завелась — панель говорит об этом строкой, и копия не «Запускается»', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) =>
     url === '/api/tasks/session'
       ? new Response(JSON.stringify({ problem: 'session-alive' }), { status: 400 })
@@ -1389,5 +1472,5 @@ test('сессия задачи не завелась — панель гово�
   })
 
   expect(await screen.findByText('В app сессия задачи уже идёт')).toBeInTheDocument()
-  expect(within(tableRows[1]).getByLabelText('сессии нет')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Ответ не прочитан')).toBeInTheDocument()
 })

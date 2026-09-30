@@ -236,10 +236,30 @@ public sealed class BacklogEndpointTests : IDisposable
         var issues = await GetTrackerIssues(basePath, basePath);
 
         Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC")], _youTrack.Read);
+        Assert.Equal([null], _youTrack.Filters);
         Assert.Equal("YouTrack ABC-12", Assert.Single(issues.Issues).Name);
         Assert.Empty(_github.Asked);
         Assert.Empty(_github.LabelsAsked);
         Assert.Null(issues.Labels);
+    }
+
+    /// <summary>Строка «фильтр:» описания уходит отбором в трекер своего вида (B-300).</summary>
+    [Fact]
+    public async Task TrackerIssues_FilterLine_GoesToTracker()
+    {
+        var youTrack = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(youTrack, "tracker.md"),
+            "## Где задачи\n\nтрекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: ABC\nфильтр: State: {To Do}\n");
+        TrackerKey("https://acme.youtrack.cloud", "perm:ключ");
+        var gitHub = CreateBase("crm-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(gitHub, "tracker.md"),
+            "## Где задачи\n\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/crm\nфильтр: label:bug\n");
+
+        await GetTrackerIssues(youTrack, youTrack);
+        await GetTrackerIssues(gitHub, gitHub);
+
+        Assert.Equal(["State: {To Do}"], _youTrack.Filters);
+        Assert.Equal(["label:bug"], _github.Filters);
     }
 
     [Fact]

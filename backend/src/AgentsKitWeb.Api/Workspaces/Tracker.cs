@@ -9,9 +9,12 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// Kind — «github» или «youtrack» (Server и Project названы), «other» — трекер, которого панель не читает
 /// (Name — как его назвал файл), «no-keys» — строк нет, какая-то пуста, повторена или не того вида (Faults — какие:
 /// «трекер», «сервер», «проект»; красная строка называет их, как на макете B-288), «unreadable» — файл не прочитан.
+/// Filter — строка «фильтр:» у GitHub и YouTrack: строка поиска трекера, которую панель дописывает к своему запросу
+/// задач на оператора (B-300); нет строки — null, задачи как прежде.
 /// </summary>
 public sealed record TrackerInfo(
-    string Kind, string? Name = null, string? Server = null, string? Project = null, IReadOnlyList<string>? Faults = null)
+    string Kind, string? Name = null, string? Server = null, string? Project = null, IReadOnlyList<string>? Faults = null,
+    string? Filter = null)
 {
     public const string GitHub = "github";
     public const string YouTrack = "youtrack";
@@ -33,6 +36,7 @@ public sealed record TrackerInfo(
 /// tracker.md кита формата 7: раздел «## Где задачи» начинается строками «ключ: значение» до первой пустой
 /// строки или прозы — трекер, сервер и проект, каждый по разу; проект — по шаблону своего трекера из таблицы
 /// трекеров раскладки кита, сервер — http(s)://хост[:порт][/путь] без логина, пароля, запроса и фрагмента.
+/// Строку «фильтр:» среди них заводит панель, а не кит (B-300): фильтр — первая такая строка, как её берёт окно описания.
 /// Разбор — как у сверки кита (Get-KitTrackerKeys в base-check.ps1): заголовок «##» вне блока кода,
 /// HTML-комментарии вырезаны. В прозе раздела панель ничего не ищет — ни у YouTrack, ни у GitHub: решение
 /// оператора на B-288, трекер без строк не читается, пока их не допишут — в карточке «Трекеры проектов» «Настроек»
@@ -63,6 +67,7 @@ public static partial class Tracker
         var keys = Keys(Comment().Replace(text, ""));
         string? Single(string key) =>
             keys.Where(k => k.Key == key).ToList() is [var only] && only.Value.Length > 0 ? only.Value : null;
+        string? First(string key) => keys.FirstOrDefault(k => k.Key == key).Value is { Length: > 0 } value ? value : null;
 
         var name = Single("трекер");
         var server = Single("сервер");
@@ -92,7 +97,8 @@ public static partial class Tracker
 
         return kind == TrackerInfo.Other
             ? new TrackerInfo(TrackerInfo.Other, name)
-            : new TrackerInfo(kind!, kind == TrackerInfo.GitHub ? "GitHub" : "YouTrack", server!.TrimEnd('/'), project);
+            : new TrackerInfo(
+                kind!, kind == TrackerInfo.GitHub ? "GitHub" : "YouTrack", server!.TrimEnd('/'), project, Filter: First("фильтр"));
     }
 
     /// <summary>Адрес сервера того вида, что принимает кит в строке «сервер:».</summary>
