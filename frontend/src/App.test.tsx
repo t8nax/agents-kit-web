@@ -1206,6 +1206,21 @@ test('возврат к просьбе о флоу открывает разде
   expect(screen.queryByRole('heading', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 
+// Первым стоит исправный проект: раздел без выбора встаёт на первый, и переход из «Бэклога» виден, только если
+// выбирает проект с поломкой сам (ревью B-323).
+const healthyRow = {
+  base: 'D:\\Projects\\alpha-knowledge',
+  project: 'alpha-knowledge',
+  problem: null,
+  tracker: { kind: 'github', name: 'GitHub', server: 'https://github.com', project: 'acme/alpha' },
+  description: {
+    tracker: 'GitHub', server: 'https://github.com', project: 'acme/alpha', where: 'gh', backlog: 'мои', take: 'метка', closed: 'ничего', move: 'туда',
+  },
+  version: 'v1',
+  busy: [],
+  newerFormat: false,
+}
+
 const trackerRows = [
   {
     base: 'D:\\Projects\\app-knowledge',
@@ -1225,7 +1240,7 @@ function stubTrackers() {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === '/api/backlog')
       return new Response(JSON.stringify([{ ...backlogs[0], tracker: trackerRows[0].tracker }]), { status: 200 })
-    if (url === '/api/trackers/projects') return new Response(JSON.stringify(trackerRows), { status: 200 })
+    if (url === '/api/trackers/projects') return new Response(JSON.stringify([healthyRow, ...trackerRows]), { status: 200 })
     if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
     if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
     return new Response(JSON.stringify([]), { status: 200 })
