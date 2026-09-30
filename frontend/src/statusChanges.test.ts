@@ -66,3 +66,11 @@ test('копия осталась с непрочитанным ответом',
     { kind: 'unread', row: next[1] },
   ])
 })
+
+test('сессия задачи встала без вопроса или ждёт нажатия в терминале', () => {
+  const next = [row('D:\\a', 'stopped'), row('D:\\b', 'terminal')]
+  expect(statusChanges([row('D:\\a', 'in-work'), row('D:\\b', 'in-work')], next)).toEqual([
+    { kind: 'stopped', row: next[0] },
+    { kind: 'terminal', row: next[1] },
+  ])
+})

@@ -1,0 +1,307 @@
+/* Раздел «Руководство» — вариант А макета B-306: оглавление колонкой слева, текст во всю остальную ширину. */
+
+.guide {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.guide-toc {
+  border-right: 1px solid var(--border-subtle);
+  padding: 12px 0 24px;
+  overflow-y: auto;
+}
+
+.guide-toc-title {
+  padding: 14px 16px 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
+
+.guide-toc-group:first-child .guide-toc-title {
+  padding-top: 4px;
+}
+
+.guide-toc-item {
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  display: block;
+  width: 100%;
+  padding: 6px 16px 6px 14px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.guide-toc-item:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.guide-toc-item.active {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+  border-left-color: var(--text-primary);
+  font-weight: 500;
+}
+
+.guide-page {
+  overflow-y: auto;
+  padding: 20px 32px 40px;
+  font-size: 14px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.guide-eyebrow {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin: 0 0 4px;
+}
+
+.guide-page h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.guide-lead {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.guide-page h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.guide-page h3 {
+  margin: 16px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.guide-page p {
+  margin: 0 0 8px;
+}
+
+.guide-page p:last-child {
+  margin-bottom: 0;
+}
+
+.guide-page ul,
+.guide-page ol {
+  margin: 0 0 8px;
+  padding-left: 1.3em;
+}
+
+.guide-page a {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.guide-page a:hover {
+  text-decoration-color: var(--text-primary);
+}
+
+/* Таблицы «что видите — что значит» */
+.guide-defs {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  margin: 0 0 8px;
+}
+
+.guide-defs th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  padding: 7px 14px;
+}
+
+/* Ячейки таблицы копий не переносятся и подчёркнуты снизу — у текста руководства наоборот */
+.guide-defs td {
+  padding: 9px 14px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: none;
+  vertical-align: top;
+  white-space: normal;
+  color: var(--text-secondary);
+}
+
+/* Первая колонка — названия; длинное название переносится, а не растягивает таблицу за край колонки текста */
+.guide-defs td:first-child {
+  color: var(--text-primary);
+  font-weight: 500;
+  width: 26%;
+}
+
+/* Действия — в два столбца, название действия над его описанием */
+.guide-acts ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-acts li {
+  color: var(--text-secondary);
+}
+
+.guide-acts li > strong:first-child {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.guide-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.guide-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  padding: 12px 14px;
+  color: var(--text-secondary);
+}
+
+.guide-card h3 {
+  margin: 0 0 4px;
+  color: var(--text-primary);
+}
+
+.guide-card ol {
+  margin: 4px 0 0;
+  display: grid;
+  gap: 2px;
+}
+
+.guide-limits ul {
+  display: grid;
+  gap: 8px;
+}
+
+.guide-limits li {
+  color: var(--text-secondary);
+}
+
+.guide-limits li::marker {
+  color: var(--text-tertiary);
+}
+
+.guide-limits strong {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Названия того, что видно в панели */
+.guide-ui {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface-hover);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.guide-reply {
+  display: inline-block;
+  background: var(--accent-waiting-fill);
+  color: var(--accent-waiting-on);
+  padding: 0 10px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+
+.guide-menu {
+  display: inline-flex;
+  vertical-align: -3px;
+  padding: 2px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.guide-menu svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  stroke: none;
+}
+
+.guide-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.guide-pager button {
+  font: inherit;
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  min-width: 180px;
+  cursor: pointer;
+}
+
+.guide-pager button:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.guide-pager .guide-pager-next {
+  text-align: right;
+  margin-left: auto;
+}
+
+.guide-pager-dir {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.guide-pager-name {
+  font-weight: 500;
+}

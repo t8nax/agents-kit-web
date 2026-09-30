@@ -87,6 +87,22 @@ test('проблемы собраны карточкой на базу: база
   expect(within(crm).getByText('сверка сломалась')).toBeInTheDocument()
 })
 
+test('база нового формата — предупреждение полосой в карточке, находки кита под ним', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  stubHealth({
+    ...checked,
+    bases: [{ ...checked.bases[0], formatWarning: warning }, checked.bases[1]],
+  })
+
+  render(<Problems onSettings={() => {}} />)
+
+  const app = await screen.findByRole('region', { name: 'Agents Kit Web — D:\\Projects\\agents-kit-web-knowledge' })
+  expect(within(app).getByRole('status')).toHaveTextContent(warning)
+  expect(within(app).getAllByRole('listitem').length).toBeGreaterThan(0)
+  const nota = screen.getByRole('region', { name: 'Nota — D:\\Projects\\nota-knowledge' })
+  expect(within(nota).queryByRole('status')).not.toBeInTheDocument()
+})
+
 test('кит не задан — раздел говорит об этом и ведёт в настройки', async () => {
   stubHealth({
     pending: false,

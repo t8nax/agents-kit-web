@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 /** Виды просьб к агенту: разом идёт по одной каждого вида — решение оператора на B-52. */
-export type AgentKind = 'ask' | 'backlog' | 'flow' | 'performer'
+export type AgentKind = 'ask' | 'backlog' | 'flow' | 'performer' | 'report' | 'tracker'
 
 export type AgentRequestSummary = {
   kind: AgentKind
@@ -188,7 +188,8 @@ export function useAgentRequest<E extends AgentEvent>(
     }
   }, [kind])
 
-  return { asked, base, request, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure }
+  // follow — подхватить просьбу, начатую без окна: разбор по расписанию, пока раздел открыт (B-270).
+  return { asked, base, request, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure, follow }
 }
 
 /** Своя просьба по умолчанию — любая просьба своего вида: разом идёт по одной каждого вида. */

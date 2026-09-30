@@ -213,3 +213,31 @@ test('сорвавшееся обновление видно в карточке
   expect(screen.getByText(/Связь с GitHub оборвалась/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy()
 })
+
+test('у поставленной Беты внизу карточки — блок выкладки в Стабильный, у Стабильного его нет', async () => {
+  const beta: Panel = {
+    installed: true,
+    channel: 'dev',
+    published: { channel: 'dev', sha: '4189d1f0000', version: '0.28.1.3', builtAt: '2026-09-28T13:42:00Z' },
+  }
+  stubApi(
+    api(beta, { latest: '0.28.1.3', releases: [] }, idle, {
+      'GET /api/panel/stable': () =>
+        json({ version: '0.28.1.3', stable: '0.27.4.0', state: 'ready', releases: [] }),
+    }),
+  )
+
+  render(<PanelCard />)
+
+  expect(await screen.findByRole('button', { name: 'Выпустить в Стабильный' })).toBeTruthy()
+})
+
+test('на канале «Стабильный» блок выкладки не спрашивается', async () => {
+  const fetchMock = stubApi(api(installed, current))
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText('Новее в канале «Стабильный» пока нет')).toBeTruthy()
+  expect(fetchMock.mock.calls.some(([input]) => input === '/api/panel/stable')).toBe(false)
+  expect(document.querySelector('.rel-block')).toBeNull()
+})

@@ -12,7 +12,8 @@ test('страница показывает таблицу рабочих коп
   for (const column of ['Копия', '№', 'Задача', 'Этап флоу', 'Прогресс', 'Статус', 'Проблемы']) {
     await expect(table.getByRole('columnheader', { name: column })).toBeVisible()
   }
-  await expect(table.locator('tbody tr:not(.group-row)')).toHaveCount(rows.length)
+  // Строка предупреждения о базе нового формата — не копия (B-281)
+  await expect(table.locator('tbody tr:not(.group-row):not(.format-row)')).toHaveCount(rows.length)
   await expect(table.locator('tbody tr.group-row')).toHaveCount(new Set(rows.map((r) => r.base)).size)
   await expect(page.getByText('pong')).toHaveCount(0)
 })
@@ -67,6 +68,74 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const free = bodyRows.nth(2).getByRole('cell')
     await expect(free.nth(1)).toHaveText('—')
     await expect(free.nth(2)).toHaveText('—')
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`база нового формата — янтарная строка во всю ширину между шапкой группы и копиями, и у свёрнутой (${colorScheme})`, async ({ page }) => {
+    const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+    await page.emulateMedia({ colorScheme })
+    await page.route('**/api/workspaces', (route) =>
+      route.fulfill({ json: rows.map((one) => ({ ...one, formatWarning: warning })) }),
+    )
+    await page.goto('/')
+
+    const table = page.getByRole('table')
+    const line = table.locator('tr.format-row')
+    await expect(line).toHaveCount(1)
+    await expect(line).toHaveText(warning)
+    // Строка стоит сразу под шапкой группы и над первой копией
+    const header = table.locator('tr.group-row')
+    const first = table.locator('tbody tr:not(.group-row):not(.format-row)').first()
+    await expect(async () => {
+      const [head, own, copy] = await Promise.all([header.boundingBox(), line.boundingBox(), first.boundingBox()])
+      expect(own!.y).toBeGreaterThanOrEqual(head!.y + head!.height - 1)
+      expect(copy!.y).toBeGreaterThanOrEqual(own!.y + own!.height - 1)
+      // Во всю ширину таблицы
+      expect(Math.abs(own!.width - head!.width)).toBeLessThan(2)
+    }).toPass()
+    // Янтарная заливка, а не прозрачная строка таблицы
+    await expect(line.locator('.format-line')).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+
+    await header.click()
+    await expect(first).toBeHidden()
+    await expect(line).toBeVisible()
+  })
+}
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`номер задачи трекера стоит в колонке номера плашкой с именем трекера, в одну строку (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme })
+    await page.route('**/api/workspaces', (route) =>
+      route.fulfill({
+        json: [
+          { ...row, tracker: 'YouTrack', task: 'YouTrack ABC-12 Выгрузка отчётов падает на длинных именах' },
+          { ...row, tracker: 'YouTrack', path: 'D:\\Projects\\agents-kit-web-2' },
+        ],
+      }),
+    )
+    await page.goto('/')
+
+    const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
+    await expect(bodyRows).toHaveCount(2)
+    const tracked = bodyRows.nth(0).getByRole('cell')
+    await expect(tracked.nth(2)).toHaveText('Выгрузка отчётов падает на длинных именах')
+    const chip = tracked.nth(1).locator('.num-chip')
+    await expect(chip).toHaveText('YouTrack ABC-12')
+    await expect(chip).toHaveCSS('border-top-width', '1px')
+    await expect(chip).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    const backlogChip = bodyRows.nth(1).getByRole('cell').nth(1).locator('.num-chip')
+    await expect(backlogChip).toHaveText('B-24')
+    // Плашка с пробелом не переносится: она той же высоты, что плашка номера бэклога, а колонка — по ней
+    await expect(async () => {
+      const [chipBox, backlogBox, cellBox] = await Promise.all([
+        chip.boundingBox(),
+        backlogChip.boundingBox(),
+        tracked.nth(1).boundingBox(),
+      ])
+      expect(Math.abs(chipBox!.height - backlogBox!.height)).toBeLessThan(2)
+      expect(cellBox!.width).toBeLessThan(chipBox!.width + 40)
+    }).toPass()
   })
 }
 
@@ -160,41 +229,43 @@ for (const colorScheme of ['light', 'dark'] as const) {
 }
 
 for (const colorScheme of ['light', 'dark'] as const) {
-  test(`точка у имени копии показывает состояние её сессии в обеих темах (${colorScheme})`, async ({ page }) => {
+  test(`сессия задачи, вставшая или ждущая в терминале, видна плашкой в обеих темах (${colorScheme})`, async ({
+    page,
+  }) => {
     await page.emulateMedia({ colorScheme })
     await page.route('**/api/workspaces', (route) =>
       route.fulfill({
         json: [
-          { ...row, sessionState: 'working' },
-          { ...row, path: 'D:\\Projects\\agents-kit-web-2', sessionState: 'waiting' },
-          { ...row, path: 'D:\\Projects\\agents-kit-web-3', sessionState: 'idle' },
-          { ...row, path: 'D:\\Projects\\agents-kit-web-4', sessionState: null },
+          { ...row, status: 'in-work' },
+          { ...row, path: 'D:\\Projects\\agents-kit-web-2', status: 'terminal' },
+          { ...row, path: 'D:\\Projects\\agents-kit-web-3', status: 'stopped' },
         ],
       }),
     )
     await page.goto('/')
 
     const bodyRows = page.getByRole('table').locator('tbody tr:not(.group-row)')
-    const states = ['сессия работает', 'сессия ждёт вас в терминале', 'сессия стоит без дела', 'сессии нет']
-    const colors: string[] = []
-    for (const [index, state] of states.entries()) {
-      const dot = bodyRows.nth(index).getByRole('img', { name: state })
-      await expect(dot).toBeVisible()
-      colors.push(await dot.evaluate((node) => getComputedStyle(node).backgroundColor))
-    }
+    // Точки сессии у имени копии больше нет — что делает сессия задачи, говорит плашка (B-308)
+    await expect(bodyRows).toHaveCount(3)
+    await expect(bodyRows.locator('td:first-child [role="img"]')).toHaveCount(0)
 
-    // Состояние читается цветом, поэтому у работающей, ждущей и стоящей сессии он разный,
-    // а у копии без сессии точка пустая и обведена рамкой
-    expect(new Set(colors.slice(0, 3)).size).toBe(3)
-    const empty = bodyRows.nth(3).getByRole('img', { name: 'сессии нет' })
-    await expect(empty).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-    await expect(empty).toHaveCSS('border-top-width', '1px')
+    const working = bodyRows.nth(0).getByText('В работе')
+    const terminal = bodyRows.nth(1).getByText('Ждёт в терминале')
+    const stopped = bodyRows.nth(2).getByText('Сессия стоит')
+    await expect(terminal).toBeVisible()
+    await expect(stopped).toBeVisible()
 
-    // Легенды под таблицей нет — слова состояния держит подсказка самой точки
-    await expect(page.locator('.session-legend')).toHaveCount(0)
-    for (const [index, state] of states.entries()) {
-      await expect(bodyRows.nth(index).getByRole('img', { name: state })).toHaveAttribute('title', state)
-    }
+    // Обе в цвете ожидания и отличны от работающей; «в терминале» залита, «стоит» — без заливки, рамка пунктиром
+    const color = (badge: typeof working) => badge.evaluate((node) => getComputedStyle(node).color)
+    expect(await color(terminal)).toBe(await color(stopped))
+    expect(await color(terminal)).not.toBe(await color(working))
+    await expect(terminal).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    // Пульсирует только «Ждёт оператора»: на вопрос отвечают из панели, а в терминал идут сами
+    await expect(terminal).toHaveCSS('animation-name', 'none')
+    await expect(stopped).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(stopped).toHaveCSS('border-top-style', 'dashed')
+
+    await expect(page.getByRole('button', { name: 'Рабочие копии, 2 ждут' })).toBeAttached()
   })
 }
 

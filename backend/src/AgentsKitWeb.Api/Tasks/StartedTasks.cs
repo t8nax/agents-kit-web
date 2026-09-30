@@ -19,16 +19,63 @@ public sealed class StartedTasks(TimeProvider time)
 
     private readonly Dictionary<string, StartedTask> _started = new(StringComparer.OrdinalIgnoreCase);
 
+    // Задачи, чью сессию панель заводит прямо сейчас, — копия, куда она уходит, по базе и номеру задачи.
+    private readonly Dictionary<string, string> _claimed = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Берёт задачу базы под запуск в копию: `claude --bg` идёт секунды, и повтор той же задачи в другую копию
+    /// за это время прошёл бы любую проверку по строкам копий — две сессии повели бы одну задачу (B-89).
+    /// Задачу уже заводят — копия, куда её заводят; взята сейчас — null, и её снимает <see cref="Release"/>.
+    /// </summary>
+    public string? Claim(string basePath, string number, string copyPath)
+    {
+        lock (_started)
+        {
+            if (_claimed.TryGetValue(ClaimKey(basePath, number), out var holder))
+                return holder;
+            _claimed[ClaimKey(basePath, number)] = copyPath;
+            return null;
+        }
+    }
+
+    public void Release(string basePath, string number)
+    {
+        lock (_started)
+            _claimed.Remove(ClaimKey(basePath, number));
+    }
+
     public string? SessionIn(string copyPath)
     {
         lock (_started)
             return _started.GetValueOrDefault(Key(copyPath))?.Session;
     }
 
-    public void Add(string copyPath, string session, string task)
+    /// <summary>Задача, которую панель запустила в копии, — «B-7 Заголовок записи»; не запускала — null.</summary>
+    public string? TaskIn(string copyPath)
     {
         lock (_started)
-            _started[Key(copyPath)] = new StartedTask(session, task, time.GetUtcNow());
+            return _started.GetValueOrDefault(Key(copyPath))?.Task;
+    }
+
+    public void Add(string copyPath, string session, string task, string? basePath = null)
+    {
+        lock (_started)
+            _started[Key(copyPath)] = new StartedTask(session, task, time.GetUtcNow(), Base: basePath);
+    }
+
+    /// <summary>
+    /// Задачи базы, которые панель запускает или запустила и памяти у которых ещё нет: копия и задача — номер или
+    /// «номер заголовок». По ним описание трекера не удаляется, пока задача из него только заводится (ревью B-293).
+    /// </summary>
+    public IReadOnlyList<(string Copy, string Task)> OfBase(string basePath)
+    {
+        var prefix = WorkspaceCollector.Normalize(basePath) + "|";
+        lock (_started)
+            return _claimed.Where(c => c.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .Select(c => (c.Value, c.Key[prefix.Length..]))
+                .Concat(_started.Where(s => s.Value.Base is { } b && WorkspaceCollector.Normalize(b).Equals(WorkspaceCollector.Normalize(basePath), StringComparison.OrdinalIgnoreCase))
+                    .Select(s => (s.Key, s.Value.Task)))
+                .ToList();
     }
 
     public void Forget(string copyPath)
@@ -80,9 +127,11 @@ public sealed class StartedTasks(TimeProvider time)
 
     private static string Key(string copyPath) => WorkspaceCollector.Normalize(copyPath);
 
+    private static string ClaimKey(string basePath, string number) => $"{WorkspaceCollector.Normalize(basePath)}|{number}";
+
     /// <summary>
     /// Запущенная задача: id её сессии, запись бэклога — «B-7 Заголовок записи», — когда панель её
-    /// запустила и видела ли она с тех пор свою сессию живой.
+    /// запустила, видела ли она с тех пор свою сессию живой и в какой базе задача.
     /// </summary>
-    private sealed record StartedTask(string Session, string Task, DateTimeOffset Since, bool Seen = false);
+    private sealed record StartedTask(string Session, string Task, DateTimeOffset Since, bool Seen = false, string? Base = null);
 }

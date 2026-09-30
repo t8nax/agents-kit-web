@@ -1,9 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import type { WorkspaceRow } from './App'
+import { AttachError } from './Attachments'
 import { ChoiceMark } from './ChoiceMark'
 import { plural } from './plural'
 import type { SessionRow } from './Sessions'
 import { splitTask } from './taskTitle'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import './Modal.css'
 import './NewSessionModal.css'
 
@@ -28,6 +31,7 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const [path, setPath] = useState<string | null>(null)
   const [prompt, setPrompt] = useState('')
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
 
@@ -165,15 +169,24 @@ export default function NewSessionModal({ sessions, onClose, onStarted }: Props)
             <label className="ns-label" htmlFor="ns-prompt">
               С чего начать — необязательно
             </label>
-            <textarea
-              id="ns-prompt"
-              className="ns-prompt"
-              rows={4}
-              placeholder="Например: посмотри, почему падает e2e на sessions.spec.ts"
-              value={prompt}
-              disabled={busy}
-              onChange={(event) => setPrompt(event.target.value)}
-            />
+            {/* Микрофон — в правом нижнем углу поля (макет B-291) */}
+            <div className="voice-field">
+              <textarea
+                id="ns-prompt"
+                className="ns-prompt"
+                rows={4}
+                placeholder="Например: посмотри, почему падает e2e на sessions.spec.ts"
+                value={prompt}
+                disabled={busy}
+                onChange={(event) => setPrompt(event.target.value)}
+              />
+              <VoiceButton
+                disabled={busy}
+                onText={(spoken) => setPrompt(appendSpoken(prompt, spoken))}
+                onError={setVoiceError}
+              />
+            </div>
+            <AttachError text={voiceError} />
           </div>
 
           {chosen?.task && (

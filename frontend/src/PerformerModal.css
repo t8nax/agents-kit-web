@@ -25,6 +25,26 @@
   color: var(--text-secondary);
 }
 
+/* «Удалить исполнителя» в покое — контурная, как «Удалить этап» во «Флоу»; красной становится под мышью (макет B-83).
+   Три класса: общий `.btn.btn-danger` (Sessions.css) иначе залил бы её красным и в покое. */
+.pf-modal .ask-footer .btn.btn-danger {
+  color: var(--text-primary);
+  background: transparent;
+  border-color: var(--border-strong);
+}
+
+.pf-modal .ask-footer .btn.btn-danger:hover:not(:disabled) {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
+}
+
+.pf-modal .btn-danger svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent-error-text);
+}
+
 .pf-mark {
   flex-shrink: 0;
   width: 26px;
@@ -143,6 +163,17 @@
   color: var(--accent-error-text);
 }
 
+/* База нового формата: причина закрытой правки — в начале окна, янтарем, как предупреждение (B-281) */
+.pf-closed {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--accent-waiting-text);
+}
+
+.pf-modal .pf-closed svg,
 .pf-modal .pf-down svg {
   width: 15px;
   height: 15px;

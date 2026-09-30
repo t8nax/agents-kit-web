@@ -6,7 +6,8 @@
 Фронт — npm ci и сборка, его dist ложится в wwwroot; API — dotnet publish под win-x64 со средой .NET
 внутри, чтобы на компьютере пользователя .NET не требовался. Рядом кладутся скрипты постановки
 и обновления и build.json — что это за сборка: канал, код, номер, время и репозиторий на GitHub,
-в котором панель потом ищет выпуски.
+в котором панель потом ищет выпуски. Номер — -Version, у Беты с номером сборки четвёртым числом; без него — номер
+выпуска из version.txt.
 
 Зовут его сборка выпуска на GitHub и publish.ps1 — одна и та же сборка в обоих случаях.
 
@@ -20,13 +21,15 @@ param(
     [string]$Channel,
     [string]$Source = (Split-Path $PSScriptRoot -Parent),
     [string]$Ref = '',
-    [string]$Releases
+    [string]$Releases,
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 $sha = git -C $Source rev-parse HEAD
+if (-not $Version) { $Version = (Get-Content (Join-Path $Source 'version.txt') -Raw).Trim() }
 if (-not $Releases) {
     # Выпуски лежат там, откуда взят код: owner/repo из адреса origin на GitHub.
     $origin = git -C $Source remote get-url origin
@@ -45,7 +48,7 @@ finally {
 if (Test-Path $Output) { Remove-Item $Output -Recurse -Force }
 # WinExe: задача Планировщика не открывает консольное окно при входе.
 dotnet publish (Join-Path $Source 'backend\src\AgentsKitWeb.Api') -c Release -o $Output `
-    -r win-x64 --self-contained -p:OutputType=WinExe
+    -r win-x64 --self-contained -p:OutputType=WinExe -p:Version=$Version
 Copy-Item (Join-Path $Source 'frontend\dist') (Join-Path $Output 'wwwroot') -Recurse
 
 # Обновление идёт этими же скриптами из самой панели: исходников рядом с ней нет.
@@ -61,7 +64,7 @@ $build = [ordered]@{
     channel = $Channel
     ref = $Ref
     sha = $sha
-    version = (Get-Content (Join-Path $Source 'version.txt') -Raw).Trim()
+    version = $Version
     builtAt = (Get-Date).ToUniversalTime().ToString('o')
     releases = $Releases
 }

@@ -3,6 +3,9 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { DescriptionEditor, type FlowStage, type NamedFlow } from './Flow'
 import { Markdown } from './Markdown'
 import { useAgentConversation } from './agentConversation'
+import { AttachError } from './Attachments'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import {
   changedText,
   fieldValue,
@@ -42,9 +45,8 @@ type Props = {
   flows: NamedFlow[]
   /** Значок этапа — тот же, что на карточке вкладки «Этапы». */
   mark: (title: string) => ReactNode
-  /** Задачи, которые держат этап или сценарий: его не записать, пока они в работе (B-226). */
-  lockedStage: (title: string) => string[] | null
-  lockedFlow: (name: string) => string[] | null
+  /** Просьба, вписанная в поле при открытии: её готовит отчёт о флоу по находке, а отправляет оператор (B-270). */
+  wish?: string | null
   /** Записать правки в базу; вернуть, почему не записались, или null. */
   onApply: (proposal: FlowProposal) => Promise<string | null>
   onClose: () => void
@@ -96,9 +98,19 @@ function stepsOfTurn(events: RewriteEvent[]) {
   return steps
 }
 
-export default function FlowRewriteModal({ base, project, stages, flows, mark, lockedStage, lockedFlow, onApply, onClose }: Props) {
+export default function FlowRewriteModal({
+  base,
+  project,
+  stages,
+  flows,
+  mark,
+  wish = null,
+  onApply,
+  onClose,
+}: Props) {
   // Поле не трогали, пока text — null: тогда в нём стоит реплика, на которой агент сорвался.
-  const [text, setText] = useState<string | null>(null)
+  const [text, setText] = useState<string | null>(wish)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('talk')
   // Сколько событий переписки было, когда оператор последний раз смотрел вкладку «Изменения»: точка на ней горит,
   // пока ответ, поменявший список, пришёл позже. Отметку помнит браузер по переписке: окно, открытое заново, не
@@ -135,18 +147,6 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
   )
   const dot = count > 0 && tab !== 'changes' && lastChange > seen
   const onChanges = tab === 'changes' && count > 0
-
-  // Занятое задачами не записать: строка над списком называет, что и кем занято.
-  const held = [
-    ...items.scenarios.flatMap((item) => {
-      const tasks = item.of === null ? null : lockedFlow(item.of)
-      return tasks ? [{ what: `сценарий «${item.of}»`, tasks }] : []
-    }),
-    ...items.stages.flatMap((item) => {
-      const tasks = item.of === null ? null : lockedStage(item.of)
-      return tasks ? [{ what: `этап «${item.of}»`, tasks }] : []
-    }),
-  ]
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -331,32 +331,12 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
 
         {onChanges && (
           <div className="ask-body rewrite-changes" aria-label="Изменения флоу">
-            {held.length > 0 && (
-              <p className="rewrite-held-line" role="status">
-                <LockIcon />
-                <span>
-                  Правки не записать: заняты задачами в работе —{' '}
-                  {held.map((one, i) => (
-                    <span key={one.what}>
-                      {i > 0 && '; '}
-                      {one.what}
-                      {one.tasks.map((task) => (
-                        <span key={task} className="flow-task-tag">
-                          {task}
-                        </span>
-                      ))}
-                    </span>
-                  ))}
-                  .
-                </span>
-              </p>
-            )}
             {items.scenarios.length > 0 && (
               <div className="rewrite-group">
                 <p className="rewrite-group-title">Сценарии</p>
                 <div className="rewrite-items">
                   {items.scenarios.map((item) => (
-                    <ScenarioRow key={`${item.kind}-${item.of}-${item.name}`} item={item} held={item.of === null ? null : lockedFlow(item.of)} />
+                    <ScenarioRow key={`${item.kind}-${item.of}-${item.name}`} item={item} />
                   ))}
                 </div>
               </div>
@@ -370,7 +350,6 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
                       key={`${item.kind}-${item.of}-${item.title}`}
                       item={item}
                       mark={mark}
-                      held={item.of === null ? null : lockedStage(item.of)}
                       onDescription={openDescription}
                     />
                   ))}
@@ -410,9 +389,18 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
                   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) void submit()
                 }}
               />
+              <AttachError text={voiceError} />
             </>
           )}
           <div className="ask-actions">
+            {/* Микрофон — слева в подвале, напротив кнопок (макет B-291); у списка изменений поля нет */}
+            {!onChanges && (
+              <VoiceButton
+                disabled={running && !foreign}
+                onText={(spoken) => setText(appendSpoken(value, spoken))}
+                onError={setVoiceError}
+              />
+            )}
             {/* Кнопки стоят на своих местах весь разговор: пока переписки нет, «Новая переписка» приглушена,
                 а «Отменить» встаёт ровно туда, где была «Отправить». */}
             <div className="footer-right">
@@ -428,7 +416,7 @@ export default function FlowRewriteModal({ base, project, stages, flows, mark, l
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={held.length > 0 || applying || running}
+                  disabled={applying || running}
                   onClick={() => void apply()}
                 >
                   {applying ? 'Запись…' : 'Принять правки'}
@@ -519,17 +507,7 @@ function Said({ event, onChanges }: { event: RewriteEvent; onChanges: () => void
   return <p className="ask-note">{event.text}</p>
 }
 
-function Held({ tasks }: { tasks: string[] | null }) {
-  if (!tasks) return null
-  return (
-    <span className="rewrite-held" title={`Занят: ${tasks.join(', ')}`}>
-      <LockIcon />
-      {tasks.join(', ')}
-    </span>
-  )
-}
-
-function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null }) {
+function ScenarioRow({ item }: { item: ScenarioItem }) {
   return (
     <details className="rewrite-item">
       <summary>
@@ -537,7 +515,6 @@ function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null
         <span className={`rewrite-mark rewrite-mark-${item.kind}`}>{kindLabels[item.kind]}</span>
         <span className="rewrite-item-name">{item.name}</span>
         <span className="rewrite-item-what" />
-        <Held tasks={held} />
       </summary>
       <div className="rewrite-item-body">
         {item.gone && (
@@ -584,12 +561,10 @@ function ScenarioRow({ item, held }: { item: ScenarioItem; held: string[] | null
 function StageRow({
   item,
   mark,
-  held,
   onDescription,
 }: {
   item: StageItem
   mark: (title: string) => ReactNode
-  held: string[] | null
   onDescription: (description: { title: string; text: string }) => void
 }) {
   const where =
@@ -618,7 +593,6 @@ function StageRow({
         {mark(item.of ?? item.title)}
         <span className="rewrite-item-name">{item.title}</span>
         <span className="rewrite-item-what">{where}</span>
-        <Held tasks={held} />
       </summary>
       <div className="rewrite-item-body">
         {item.gone && (
@@ -762,15 +736,6 @@ function FileTextIcon() {
       <polyline points="14 2 14 8 20 8" />
       <line x1="8" y1="13" x2="16" y2="13" />
       <line x1="8" y1="17" x2="14" y2="17" />
-    </svg>
-  )
-}
-
-function LockIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <rect x="3" y="11" width="18" height="11" rx="2" />
-      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   )
 }

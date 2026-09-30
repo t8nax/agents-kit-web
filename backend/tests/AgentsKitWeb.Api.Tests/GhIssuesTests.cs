@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Tests;
@@ -12,11 +13,22 @@ public class GhIssuesTests
 
         Assert.Equal("gh", startInfo.FileName);
         Assert.Equal(
-            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url"],
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"],
             startInfo.ArgumentList);
         Assert.True(startInfo.CreateNoWindow);
         Assert.False(startInfo.UseShellExecute);
         Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    /// <summary>Строка отбора описания уходит поиском gh вдобавок к назначенному и состоянию (B-300).</summary>
+    [Fact]
+    public void StartInfo_WithFilter_AddsSearch()
+    {
+        Assert.Equal(
+            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--search", "(label:bug milestone:v2)",
+                "--limit", "100", "--json", "number,title,url,labels"],
+            GhIssues.StartInfo("acme/orders", " label:bug milestone:v2 ").ArgumentList);
+        Assert.DoesNotContain("--search", GhIssues.StartInfo("acme/orders", " ").ArgumentList);
     }
 
     [Fact]
@@ -26,6 +38,40 @@ public class GhIssuesTests
 
         Assert.Null(issues.Problem);
         Assert.Equal(new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37"), Assert.Single(issues.Issues));
+    }
+
+    /// <summary>Метки задачи — их имена в порядке gh; цвет и описание метки панели не нужны (B-305).</summary>
+    [Fact]
+    public void Parse_TakesLabelNames()
+    {
+        var issues = GhIssues.Parse("""
+            [{"number":37,"title":"Оплата падает","url":"https://github.com/acme/orders/issues/37",
+              "labels":[{"id":"LA_1","name":"bug","description":"","color":"d73a4a"},{"id":"LA_2","name":"ui","description":"","color":"a2eeef"}]}]
+            """);
+
+        Assert.Equal(
+            new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", ["bug", "ui"]),
+            Assert.Single(issues.Issues));
+    }
+
+    [Fact]
+    public void LabelsStartInfo_AsksAllLabelNamesOfRepositoryByName()
+    {
+        var startInfo = GhIssues.LabelsStartInfo("acme/orders");
+
+        Assert.Equal("gh", startInfo.FileName);
+        Assert.Equal(
+            ["label", "list", "--repo", "acme/orders", "--limit", "1000", "--sort", "name", "--json", "name"],
+            startInfo.ArgumentList);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    [Fact]
+    public void ParseLabels_TakesNames_NotJsonIsNull()
+    {
+        Assert.Equal(["bug", "ui"], GhIssues.ParseLabels("""[{"name":"bug"},{"name":"ui"}]"""));
+        Assert.Null(GhIssues.ParseLabels("oops"));
     }
 
     [Fact]
@@ -62,6 +108,66 @@ public class GhIssuesTests
 
         Assert.Equal(TrackerIssues.RepoUnreachable, issues.Problem);
         Assert.Equal($"GraphQL: Could not resolve to a Repository with the name '{repo}'. (repository)", issues.Detail);
+    }
+
+    /// <summary>«Назначена на оператора» и «без меток» критерия B-286 держат ключи gh; описание идёт во ввод, а не аргументом.</summary>
+    [Fact]
+    public void CreateStartInfo_AssignsToOperatorWithoutLabelsAndReadsBodyFromInput()
+    {
+        var startInfo = GhIssues.CreateStartInfo("acme/orders", "Оплата \"падает\"");
+
+        Assert.Equal("gh", startInfo.FileName);
+        Assert.Equal(
+            ["issue", "create", "--repo", "acme/orders", "--title", "Оплата \"падает\"", "--body-file", "-", "--assignee", "@me"],
+            startInfo.ArgumentList);
+        Assert.True(startInfo.RedirectStandardInput);
+        Assert.True(startInfo.CreateNoWindow);
+        Assert.False(startInfo.UseShellExecute);
+        Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
+    }
+
+    /// <summary>
+    /// Без входа gh выходит, не прочитав описание: длинное описание не влезает в канал ввода, и его запись падает.
+    /// Панель должна прочесть отказ gh, а не упасть сама (ревью B-286).
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_ProgramExitsWithoutReadingLongInput_GivesItsExitCodeAndError()
+    {
+        var startInfo = new ProcessStartInfo("pwsh")
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in new[] { "-NoProfile", "-NonInteractive", "-Command", "[Console]::Error.WriteLine('please run gh auth login'); exit 4" })
+            startInfo.ArgumentList.Add(arg);
+
+        var run = await GhIssues.RunAsync(startInfo, new string('ж', 200_000), CancellationToken.None);
+
+        Assert.False(run.Missing);
+        Assert.False(run.TimedOut);
+        Assert.Equal(4, run.ExitCode);
+        Assert.Contains("gh auth login", run.Error);
+    }
+
+    [Fact]
+    public void ParseCreated_TakesNumberFromLastLineAddress()
+    {
+        var created = GhIssues.ParseCreated("\nCreating issue in acme/orders\n\nhttps://github.com/acme/orders/issues/58\n", "Оплата падает");
+
+        Assert.Null(created.Problem);
+        Assert.Equal(new TrackerIssue("GitHub #58", 58, "Оплата падает", "https://github.com/acme/orders/issues/58"), created.Issue);
+    }
+
+    [Fact]
+    public void ParseCreated_WithoutAddress_IsGitHubError()
+    {
+        var created = GhIssues.ParseCreated("done\n", "Оплата падает");
+
+        Assert.Null(created.Issue);
+        Assert.Equal(CreatedIssue.CreatedUnknown, created.Problem);
     }
 
     [Fact]

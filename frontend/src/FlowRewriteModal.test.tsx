@@ -5,6 +5,13 @@ import FlowRewriteModal, { type RewriteEvent } from './FlowRewriteModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 import { changedText, type FlowProposal } from './flowChanges'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('и этап ревью.')} />
+  ),
+}))
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -66,8 +73,8 @@ function stubFetch(stream: { body: ReadableStream<Uint8Array> }, running?: Retur
 function renderModal(
   options: {
     apply?: () => Promise<string | null>
-    lockedFlow?: (name: string) => string[] | null
     screen?: { stages: FlowStage[]; flows: NamedFlow[] }
+    wish?: string
   } = {},
 ) {
   const onApply = vi.fn(options.apply ?? (async () => null))
@@ -76,8 +83,7 @@ function renderModal(
     base,
     project: 'Agents Kit Web',
     mark: (title: string) => <span data-testid={`mark-${title}`} />,
-    lockedStage: () => null,
-    lockedFlow: options.lockedFlow ?? (() => null),
+    wish: options.wish,
     onApply,
     onClose,
   }
@@ -124,6 +130,34 @@ test('просьба уходит с флоу раздела целиком, «+
   expect(within(steps).getByText('читает flow/stages/review.md')).toBeInTheDocument()
   // Пока агент отвечает, на месте «Отправить» стоит «Отменить».
   expect(screen.getByRole('button', { name: 'Отменить' })).toBeInTheDocument()
+})
+
+test('микрофон стоит слева в подвале переписки: сказанное дописывается к просьбе, пока агент отвечает — погашен', async () => {
+  const stream = controlledStream<RewriteEvent>()
+  stubFetch(stream)
+  renderModal()
+  const field = await screen.findByLabelText('Просьба')
+  fireEvent.change(field, { target: { value: 'Заведи документацию' } })
+
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  expect(mic.parentElement).toHaveClass('ask-actions')
+  expect(mic.parentElement?.firstElementChild).toBe(mic)
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Заведи документацию и этап ревью.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled())
+})
+
+test('на вкладке «Изменения» поля нет — нет и микрофона', async () => {
+  await answered()
+
+  expect(screen.getByRole('button', { name: 'Голосовой ввод' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('tab', { name: /^Изменения/ }))
+
+  expect(screen.queryByRole('button', { name: 'Голосовой ввод' })).not.toBeInTheDocument()
+  // Просмотр списка браузер помнит по переписке: соседние тесты ждут непросмотренный.
+  localStorage.clear()
 })
 
 test('ответ, вернутый на доработку, остаётся строкой панели, а агент дописывает его', async () => {
@@ -347,20 +381,6 @@ test('записанное уходит из списка: раздел держ
   expect(screen.getByLabelText('Следующая реплика')).toBeInTheDocument()
 })
 
-test('занятое задачей помечено замком, строка над списком называет задачи, «Принять правки» погашена', async () => {
-  const stream = controlledStream<RewriteEvent>()
-  stubFetch(stream)
-  renderModal({ lockedFlow: (name) => (name === 'крупный' ? ['B-238'] : null) })
-  await say('Заведи документацию')
-  stream.send({ type: 'answer', text: 'Готово.', proposal, changed: { scenarios: 1, stages: 2 } })
-  fireEvent.click(await screen.findByRole('button', { name: '1 сценарий, 2 этапа' }))
-
-  const line = screen.getByRole('status')
-  expect(line).toHaveTextContent('Правки не записать: заняты задачами в работе — сценарий «крупный»B-238.')
-  expect(screen.getByTitle('Занят: B-238')).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Принять правки' })).toBeDisabled()
-})
-
 test('«Отменить» обрывает ответ, «Новая переписка» убирает разговор', async () => {
   const stream = controlledStream<RewriteEvent>()
   const { stops, deletes } = stubFetch(stream)
@@ -406,4 +426,16 @@ test('число правок — в нужной форме, ноль не на
   expect(changedText({ scenarios: 0, stages: 21 })).toBe('21 этап')
   expect(changedText({ scenarios: 11, stages: 0 })).toBe('11 сценариев')
   expect(changedText({ scenarios: 0, stages: 0 })).toBe('')
+})
+
+test('просьба, вписанная отчётом о флоу, стоит в поле и уходит, только когда её отправили', async () => {
+  const panel = stubFetch(controlledStream<RewriteEvent>())
+  renderModal({ wish: 'Прошу исправить находку отчёта.' })
+
+  expect(await screen.findByLabelText('Просьба')).toHaveValue('Прошу исправить находку отчёта.')
+  expect(panel.posts).toEqual([])
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
+  await waitFor(() => expect(panel.posts.map((post) => post.body.wish)).toEqual(['Прошу исправить находку отчёта.']))
 })

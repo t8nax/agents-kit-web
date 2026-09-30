@@ -61,9 +61,7 @@ const flows: Flow[] = [
 ]
 
 // /api подменяется: прогон работает с живыми базами оператора, и запись флоу попала бы в них.
-type FlowTask = { task: string; flow: string | null }
-
-async function mockApi(page: Page, tasks: FlowTask[] = [], own: { stages: Stage[]; flows: Flow[] } = { stages, flows }) {
+async function mockApi(page: Page, own: { stages: Stage[]; flows: Flow[] } = { stages, flows }) {
   const calls: { flow: unknown[]; open: unknown[] } = { flow: [], open: [] }
 
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
@@ -78,7 +76,6 @@ async function mockApi(page: Page, tasks: FlowTask[] = [], own: { stages: Stage[
           base: 'D:\\Projects\\app-knowledge',
           project: 'Agents Kit Web',
           ...own,
-          tasks,
           version: 'v1',
           error: null,
           icons: { Критерий: 'target' },
@@ -292,7 +289,7 @@ test('меню стадии встаёт у курсора, окна возвр�
 test('предел кругов: число на своей дуге, в окне возвратов кнопкой задаётся, крестиком убирается и уходит в запись', async ({
   page,
 }) => {
-  const calls = await mockApi(page, [], {
+  const calls = await mockApi(page, {
     stages,
     flows: [
       {
@@ -364,7 +361,7 @@ test('предел кругов: число на своей дуге, в окн�
 
 test('возвраты блока подсвечены под мышью и под курсором клавиатуры, ведущие в него — нет', async ({ page }) => {
   // У «Ревью» возврат к «Критерию», у «Приёмки» — к «Ревью» и к «Критерию»
-  await mockApi(page, [], {
+  await mockApi(page, {
     stages,
     flows: [
       {
@@ -554,34 +551,6 @@ test('блок перетаскивается мышью, и перестано�
   await expect.poll(() => calls.flow.length).toBe(1)
   const sent = calls.flow[0] as { flows: Flow[] }
   expect(sent.flows[0].entries.map((entry) => entry.stage)).toEqual(['Ревью', 'Критерий', 'Приёмка'])
-})
-
-test('сценарий, по которому идут задачи: строка с номерами над схемой, у блоков нет ручки, и они не перетаскиваются', async ({ page }) => {
-  const calls = await mockApi(page, [
-    { task: 'B-7', flow: 'полный' },
-    { task: 'B-9', flow: 'полный' },
-  ])
-  const region = await openFlow(page)
-
-  const lock = page.locator('.flow-lock')
-  await expect(lock).toHaveText('Правка сценария закрыта — по нему идут задачи B-7, B-9')
-  // Строка — между верхом раздела и холстом, во всю его ширину
-  const [lockBox, canvas] = await Promise.all([lock.boundingBox(), page.locator('.flow-canvas').boundingBox()])
-  expect(lockBox!.y + lockBox!.height).toBeLessThanOrEqual(canvas!.y + 1)
-  await expect(page.locator('.flow-task-tag')).toHaveCount(2)
-
-  const block = region.getByRole('button', { name: 'Этап 2: Ревью' })
-  await expect(block.locator('.flow-grip')).toBeHidden()
-  await expect(block).toHaveAttribute('draggable', 'false')
-  await block.dragTo(region.getByRole('button', { name: 'Этап 1: Критерий' }))
-  await expect(region.getByRole('button', { name: 'Этап 2: Ревью' })).toBeVisible()
-  expect(calls.flow).toHaveLength(0)
-
-  // На вкладке «Этапы» — замок и номера на карточках занятых стадий
-  await page.getByRole('tab', { name: 'Этапы' }).click()
-  const card = page.getByRole('list', { name: 'Этапы базы' }).getByRole('button', { name: /^Критерий/ })
-  await expect(card.locator('.flow-card-lock')).toHaveText('B-7, B-9')
-  await expect(card.locator('.flow-card-lock svg')).toBeVisible()
 })
 
 test('раздел держится в экране: прокручивается схема, шапка и сайдбар стоят на месте', async ({ page }) => {
@@ -852,7 +821,7 @@ test('описание стадии правится в окне по кнопк
 })
 
 test('исполнитель, которого нет в базе, помечен на схеме и в стадии, и флоу не сохранить', async ({ page }) => {
-  await mockApi(page, [], { stages: [stages[0], { ...stages[1], executor: 'doc-writer' }, stages[2]], flows })
+  await mockApi(page, { stages: [stages[0], { ...stages[1], executor: 'doc-writer' }, stages[2]], flows })
   const region = await openFlow(page)
 
   const review = region.getByRole('button', { name: 'Этап 2: Ревью' })
@@ -937,7 +906,7 @@ test('в сайдбаре сценария название набирается
 
 test('кнопка «Удалить» в вопросе при наведении остаётся красной заливкой', async ({ page }) => {
   // Стадия вне сценариев: её можно удалить
-  await mockApi(page, [], { stages: [...stages, { ...stages[2], title: 'Запас', slug: 'spare' }], flows })
+  await mockApi(page, { stages: [...stages, { ...stages[2], title: 'Запас', slug: 'spare' }], flows })
   await openFlow(page)
   await page.getByRole('tab', { name: 'Этапы' }).click()
   await page.getByRole('list', { name: 'Этапы базы' }).getByRole('button', { name: /^Запас/ }).click()

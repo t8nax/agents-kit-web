@@ -49,7 +49,8 @@ function Write-Session([string]$Dir, [int]$Process, [string]$Cwd, [hashtable]$Ex
 # и находки сверки заглушка не вычисляет, а берёт из таблиц, которые пишет этот скрипт.
 # $Rules — справка кита о флоу (reference/flow-stages.md установленного кита): из неё панель подаёт
 # агенту правила формы этапа. Не нашлась — заглушка кладёт короткую свою, чтобы переписывание не отвечало отказом.
-function New-Kit([string]$Path, [string]$Rules) {
+# $Layout — справка кита о раскладке базы (reference/base-layout.md): из её раздела «Трекер» — правила описания трекера.
+function New-Kit([string]$Path, [string]$Rules, [string]$Layout) {
     $scripts = Join-Path $Path 'scripts'
 
     Write-Utf8 (Join-Path $scripts 'link-state.ps1') @'
@@ -181,6 +182,53 @@ if ($LASTEXITCODE -ne 0) { throw "git не убрал копию «$tree»: $(($
 "Рабочая копия удалена: $tree"
 if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $branch" }
 '@
+
+    Write-Utf8 (Join-Path $scripts 'sync.ps1') @'
+# Заглушка кита: сведение базы с сервером (B-293). Сервера у баз песочницы нет — настоящий кит ответил бы
+# «сводить не с чем». Режим читается на каждый вызов из sync-mode.txt корня песочницы:
+#   ok         сведено (по умолчанию)
+#   push-fail  забор проходит, отдача отказывает, как при чужом коммите на сервере
+#   pull-fail  забор отказывает, как при незакоммиченной правке в базе
+#   offline    сервер недоступен: код 2
+# Вызовы пишутся в sync.log рядом со скриптами: по нему видно, что панель забрала базу до записи и отдала после.
+param([string]$Path, [string]$Repo, [string]$Action)
+
+Add-Content -LiteralPath (Join-Path $PSScriptRoot 'sync.log') -Value "$(Get-Date -Format s) $Action $Repo $Path" -Encoding utf8
+$mode = 'ok'
+$dir = $PSScriptRoot
+while ($dir) {
+    $candidate = Join-Path $dir 'sync-mode.txt'
+    if (Test-Path -LiteralPath $candidate) { $mode = (Get-Content -LiteralPath $candidate -Raw).Trim().ToLowerInvariant(); break }
+    $dir = Split-Path $dir -Parent
+}
+switch ($mode) {
+    'offline' { Write-Host 'remote базы недоступен: заглушка кита так настроена — работа идёт с локальным, отдастся при следующем сведении'; exit 2 }
+    'pull-fail' { Write-Host 'с remote базы не забрано — в базе незакоммиченная правка: product.md. Её закоммитит сессия, которая её ведёт; забрать при следующем сведении'; exit 1 }
+    'push-fail' {
+        if ($Action -eq 'Push') { Write-Host "на remote базы не отдано — git: ! [rejected] main -> main (fetch first); отдастся при следующем сведении"; exit 1 }
+    }
+}
+if ($Action -eq 'Push') { Write-Host 'на remote базы отдано коммитов: 1' } else { Write-Host 'с remote базы забирать нечего' }
+exit 0
+'@
+
+    # Правила описания трекера — раздел «Трекер» справки кита о раскладке базы: из него панель подаёт их
+    # Чудо-Юдо в окне «Трекер проекта». Берутся у установленного кита, как справка о флоу.
+    $layout = Join-Path $Path 'reference\base-layout.md'
+    if ($Layout -and (Test-Path -LiteralPath $Layout)) {
+        New-Item -ItemType Directory -Path (Split-Path $layout -Parent) -Force | Out-Null
+        Copy-Item -LiteralPath $Layout -Destination $layout -Force
+    } else {
+        Write-Utf8 $layout @'
+# Раскладка базы
+
+## Трекер
+
+Заглушка кита: настоящей справки рядом не нашлось. `tracker.md` — заголовок `# <проект> — трекер` и разделы
+`## Где задачи` (строки `трекер:`, `сервер:`, `проект:`, пустая строка и слова), `## Показ бэклога`,
+`## Взятие задачи`, `## Задача закрыта`, `## Вынос записи бэклога` — каждый непустой.
+'@
+    }
 
     $reference = Join-Path $Path 'reference\flow-stages.md'
     if ($Rules -and (Test-Path -LiteralPath $Rules)) {
@@ -441,6 +489,60 @@ if ($system -and $system -match 'правишь (его )?флоу проект�
     exit 0
 }
 
+# Переписка об описании трекера (B-293): каждая реплика несёт описание, каким оно стоит в окне, а ждёт панель слов
+# и блока «=== описание» с tracker.md целиком. Подставной на первую реплику переспрашивает, на вторую предлагает
+# описание: пустое заводит GitHub-трекером sandbox/tracker, имеющееся дополняет разделом «Взятие задачи» словами
+# просьбы. По слову «неполное» предлагает описание с пустым разделом — панель вернёт его на доработку.
+if ($system -and $system -match 'пишешь описание трекера проекта') {
+    $project = if ($system -match 'трекера проекта «([^»]*)»') { $Matches[1] } else { 'Проект' }
+    $turn = 0
+    $wish = ''
+    $broken = $false
+    while ($null -ne ($line = $stdinReader.ReadLine())) {
+        if (-not $line.Trim()) { continue }
+        $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text) -replace "`r`n", "`n" } catch { $line }
+        Write-Step 'Read' @{ file_path = 'tracker.md' }
+        if ($mode -eq 'truncated') { exit 0 }
+        $current = if ($said -match '(?s)\n\nОписание в окне сейчас:\n(.*)$') { $Matches[1] } else { '' }
+        $words = ($said -replace '(?s)\n\nОписание в окне сейчас:\n.*$', '') -replace '^(Просьба оператора|Оператор):\n', ''
+        function Get-Section([string]$Name) {
+            $m = [regex]::Match($current, "(?ms)^## $([regex]::Escape($Name))\s*\n(.*?)(?=^## |\z)")
+            if ($m.Success) { return $m.Groups[1].Value.Trim() } else { return '' }
+        }
+        function Get-Key([string]$Name) {
+            $m = [regex]::Match($current, "(?m)^$([regex]::Escape($Name)):\s*(.*)$")
+            if ($m.Success) { return $m.Groups[1].Value.Trim() } else { return '' }
+        }
+        $closedText = 'Ничего: задачу закрывает мерж.'
+        if ($said -match '^Панель не приняла твой ответ') {
+            $broken = $false
+        } else {
+            $turn++
+            if ($turn -eq 1) { $wish = $words.Trim() }
+            if ($words -match 'неполн') { $broken = $true }
+            if ($turn -eq 1 -and -not $broken) {
+                Write-Result "Подставной агент песочницы переспрашивает: что ещё записать в описание трекера по просьбе «$wish»? Ответьте что угодно — следующей репликой он предложит описание."
+                continue
+            }
+        }
+        $empty = $current -match '^пусто'
+        $tracker = if ($empty -or -not (Get-Key 'трекер')) { 'GitHub' } else { Get-Key 'трекер' }
+        $server = if ($empty -or -not (Get-Key 'сервер')) { 'https://github.com' } else { Get-Key 'сервер' }
+        $proj = if ($empty -or -not (Get-Key 'проект')) { 'sandbox/tracker' } else { Get-Key 'проект' }
+        $whereText = (Get-Section 'Где задачи') -replace '(?m)^(трекер|сервер|проект):.*\n?', ''
+        if (-not $whereText.Trim()) { $whereText = 'Ходить программой gh.' }
+        $backlogText = if (Get-Section 'Показ бэклога') { Get-Section 'Показ бэклога' } else { 'Открытые задачи, назначенные на меня.' }
+        $takeText = if (Get-Section 'Взятие задачи') { Get-Section 'Взятие задачи' } else { 'Назначить на себя.' }
+        $takeText = "$takeText Уточнено подставным агентом по просьбе «$wish»."
+        $moveText = if (Get-Section 'Вынос записи бэклога') { Get-Section 'Вынос записи бэклога' } else { "Новая задача в $proj без меток." }
+        if (-not $broken) { $closedText = if (Get-Section 'Задача закрыта') { Get-Section 'Задача закрыта' } else { $closedText } } else { $closedText = '' }
+        $file = "# $project — трекер`n`n## Где задачи`n`nтрекер: $tracker`nсервер: $server`nпроект: $proj`n`n$($whereText.Trim())`n`n## Показ бэклога`n`n$backlogText`n`n## Взятие задачи`n`n$takeText`n`n## Задача закрыта`n`n$closedText`n`n## Вынос записи бэклога`n`n$moveText`n"
+        $lead = if ($broken) { 'Предлагаю описание, раздел «Задача закрыта» забыл.' } else { "Предлагаю описание трекера по просьбе «$wish»." }
+        Write-Result "$lead`n`n=== описание`n$file"
+    }
+    exit 0
+}
+
 $baseDir = Get-Argument '--add-dir'
 
 # Разговор о бэклоге: реплики приходят строками stream-json. Новую запись агент дописывает и коммитит,
@@ -473,7 +575,7 @@ if ($baseDir) {
         else { $numbers = @([regex]::Matches($said, "\b$letters-\d+\b") | ForEach-Object Value) }
         if ($about -and $numbers.Count -eq 0) { $numbers = @($about) }
         $asked = $null
-        $verb = if ($said -match 'объедин') { 'merge' } elseif ($said -match 'удал') { 'delete' } elseif ($said -match 'измен|поправ|переимен|перепиш') { 'change' } else { $null }
+        $verb = if ($said -match 'в трекер') { 'track' } elseif ($said -match 'объедин') { 'merge' } elseif ($said -match 'удал') { 'delete' } elseif ($said -match 'измен|поправ|переимен|перепиш') { 'change' } else { $null }
 
         if ($verb -and $numbers.Count -eq 0) {
             $first = [regex]::Match($text, "(?m)^## ($letters-\d+)\s+(.+)$")
@@ -500,6 +602,10 @@ if ($baseDir) {
                 $blocks += "~~~backlog`nизменить $keep`n$($keptLines -join "`n")`n~~~"
                 $blocks += "~~~backlog`nудалить $gone в $keep`n~~~"
                 $reply = "Объединю $gone в $keep."
+            } elseif ($verb -eq 'track') {
+                # Перенос в трекер (B-286): задачу заведёт панель по «Сохранить», агент только предлагает
+                $blocks += $numbers | ForEach-Object { "~~~backlog`nв трекер $_`n~~~" }
+                $reply = "Перенесу $($numbers -join ', ') в трекер."
             } elseif ($verb -eq 'delete') {
                 $blocks += $numbers | ForEach-Object { "~~~backlog`nудалить $_`n~~~" }
                 $reply = "Удалю $($numbers -join ', ')."
@@ -605,6 +711,11 @@ public static class GhShim
     $stub = @'
 # Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» задачами из gh-issues.json
 # корня песочницы — объект «репозиторий: [задачи]»; репозитория там нет — как GitHub о чужом.
+# Метки задачи — полем labels задачи в том же файле, как их отдаёт gh ([{ name, color }]); «gh label list --repo …»
+# (перечень фильтра «Метки», B-305) отвечает метками репозитория из gh-labels.json — объект «репозиторий: [имена]».
+# «gh issue create --repo … --title …» (перенос записи бэклога, B-286) дописывает задачу в тот же файл
+# следующим номером — она назначена на оператора и видна в разделе после «Обновить», — кладёт описание,
+# пришедшее во ввод, в gh-created\<номер>.md корня песочницы и печатает адрес задачи, как gh.
 # Режим читается на каждый вызов из gh-mode.txt корня песочницы:
 #   ok      задачи из gh-issues.json
 #   login   gh не вошла в аккаунт GitHub
@@ -620,7 +731,19 @@ if (-not $mode) { $mode = 'ok' }
 
 $arguments = if ($env:AKW_GH_ARGS) { @($env:AKW_GH_ARGS -split [char]1) } else { @($args) }
 $repo = $null
-for ($i = 0; $i -lt $arguments.Count - 1; $i++) { if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] } }
+$title = $null
+$search = $null
+for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
+    if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] }
+    if ($arguments[$i] -eq '--title') { $title = $arguments[$i + 1] }
+    if ($arguments[$i] -eq '--search') { $search = $arguments[$i + 1] }
+}
+$creating = $arguments.Count -ge 2 -and $arguments[0] -eq 'issue' -and $arguments[1] -eq 'create'
+$labeling = $arguments.Count -ge 2 -and $arguments[0] -eq 'label' -and $arguments[1] -eq 'list'
+# Панель пишет описание в UTF-8, как его читает настоящая gh; скрытый pwsh иначе читал бы ввод кодировкой консоли
+[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)
+# Описание приходит во ввод и читается до всякого ответа: иначе панель ждала бы, пока его заберут.
+$body = if ($creating) { [Console]::In.ReadToEnd() } else { $null }
 
 switch ($mode) {
     'login' {
@@ -634,13 +757,154 @@ switch ($mode) {
     'slow' { Start-Sleep -Seconds 6 }
 }
 
-$issues = Get-Content -LiteralPath (Join-Path $root 'gh-issues.json') -Raw -Encoding utf8 | ConvertFrom-Json
+$issuesFile = Join-Path $root 'gh-issues.json'
+$issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
 if (-not $repo -or -not ($issues.PSObject.Properties.Name -contains $repo)) {
     [Console]::Error.WriteLine("GraphQL: Could not resolve to a Repository with the name '$repo'. (repository)")
     exit 1
 }
-[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($issues.$repo) -Depth 4 -Compress))
+if ($labeling) {
+    $labelsFile = Join-Path $root 'gh-labels.json'
+    $labels = if (Test-Path -LiteralPath $labelsFile) { Get-Content -LiteralPath $labelsFile -Raw -Encoding utf8 | ConvertFrom-Json } else { $null }
+    $names = if ($labels -and ($labels.PSObject.Properties.Name -contains $repo)) { @($labels.$repo) } else { @() }
+    $named = @($names | Sort-Object | ForEach-Object { [pscustomobject]@{ name = $_ } })
+    [Console]::Out.WriteLine((ConvertTo-Json -InputObject $named -Depth 3 -Compress))
+    exit 0
+}
+if ($creating) {
+    $known = @($issues.$repo)
+    # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
+    $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
+    $url = "https://github.com/$repo/issues/$number"
+    $issues.$repo = @($known) + [pscustomobject]@{ number = $number; title = $title; url = $url }
+    [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), [Text.UTF8Encoding]::new($false))
+    $created = Join-Path $root 'gh-created'
+    New-Item -ItemType Directory -Force -Path $created | Out-Null
+    [IO.File]::WriteAllText((Join-Path $created "$number.md"), "# $title`n`n$body", [Text.UTF8Encoding]::new($false))
+    [Console]::Out.WriteLine("`nCreating issue in $repo`n`n$url")
+    exit 0
+}
+# Фильтр описания трекера (B-300) приходит в --search: «label:метка» — по меткам задачи, «milestone:этап» —
+# по этапу, прочие слова — по заголовку. Поиск GitHub фильтр не отвергает: непонятное просто ничего не находит.
+$list = @($issues.$repo)
+# Панель передаёт фильтр в скобках.
+if ($search -match '^\((.*)\)$') { $search = $Matches[1] }
+if ($search) {
+    foreach ($token in ($search -split '\s+' | Where-Object { $_ })) {
+        $list = if ($token -like 'label:*') { @($list | Where-Object { @($_.labels | ForEach-Object { $_.name }) -contains $token.Substring(6) }) }
+                elseif ($token -like 'milestone:*') { @($list | Where-Object { $_.milestone -eq $token.Substring(10) }) }
+                else { @($list | Where-Object { $_.title -like "*$token*" }) }
+    }
+}
+[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($list | Select-Object number, title, url, labels) -Depth 4 -Compress))
 exit 0
 '@
     Write-Utf8 (Join-Path $Path 'gh-stub.ps1') $stub
+}
+
+# Задачи YouTrack панель читает сама, по REST с ключом из «Настроек» (B-288), и в песочнице ей отвечает свой
+# сервер на localhost — youtrack-stub.ps1 корня песочницы, его поднимает start-panel.ps1 рядом с API. Ключ
+# сервер принимает один — perm:sandbox: его оператор вводит в «Настройках», в карточке «Серверы трекеров».
+function New-YouTrackStub([string]$Root, [int]$Port) {
+    $stub = @'
+# Подставной YouTrack песочницы на http://localhost:__PORT__/. Ключ — «perm:sandbox», владелец ключа — sandbox.operator.
+# Проекты и их незакрытые задачи на владельце ключа — youtrack-issues.json корня песочницы: объект
+# «проект: [задачи]», у задачи — номер, заголовок, состояние state и теги tags для фильтра (B-300). Новая задача
+# (перенос записи бэклога) дописывается туда следующим номером, её описание — в youtrack-created\<номер>.md.
+# Режим читается на каждый запрос из youtrack-mode.txt корня песочницы:
+#   ok        отвечает как YouTrack
+#   rejected  отклоняет любой ключ
+#   error     отвечает ошибкой сервера
+#   slow      отвечает через двадцать секунд — панель считает, что сервер не ответил
+#   slow-create  читает как ok, а заведение задачи отвечает через семьдесят секунд — задача заводится, но панель
+#             не дожидается ответа и пишет, что задача, возможно, заведена
+$ErrorActionPreference = 'Stop'
+$root = $PSScriptRoot
+$issuesFile = Join-Path $root 'youtrack-issues.json'
+$utf8 = [Text.UTF8Encoding]::new($false)
+
+function Send($context, [int]$status, $body) {
+    $bytes = $utf8.GetBytes((ConvertTo-Json -InputObject $body -Depth 6 -Compress))
+    $context.Response.StatusCode = $status
+    $context.Response.ContentType = 'application/json; charset=utf-8'
+    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+    $context.Response.Close()
+}
+
+$listener = [Net.HttpListener]::new()
+$listener.Prefixes.Add('http://localhost:__PORT__/')
+$listener.Start()
+while ($listener.IsListening) {
+    $context = $listener.GetContext()
+    try {
+        $modeFile = Join-Path $root 'youtrack-mode.txt'
+        $mode = if (Test-Path -LiteralPath $modeFile) { (Get-Content -LiteralPath $modeFile -Raw).Trim().ToLowerInvariant() } else { 'ok' }
+        if ($mode -eq 'slow') { Start-Sleep -Seconds 20 }
+        if ($mode -eq 'error') { Send $context 503 @{ error = 'unavailable'; error_description = 'Сервер песочницы на обслуживании' }; continue }
+        if ($mode -eq 'rejected' -or $context.Request.Headers['Authorization'] -ne 'Bearer perm:sandbox') {
+            Send $context 401 @{ error = 'Unauthorized'; error_description = 'Unauthorized' }
+            continue
+        }
+        $path = $context.Request.Url.AbsolutePath
+        $issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
+        $projects = @($issues.PSObject.Properties.Name)
+        if ($path.EndsWith('/api/users/me')) { Send $context 200 @{ login = 'sandbox.operator' }; continue }
+        if ($path.EndsWith('/api/admin/projects')) {
+            $i = 0
+            Send $context 200 @($projects | ForEach-Object { $i++; @{ id = "0-$i"; shortName = $_ } })
+            continue
+        }
+        if ($path.EndsWith('/api/issues') -and $context.Request.HttpMethod -eq 'GET') {
+            $query = "$($context.Request.QueryString['query'])"
+            $project = if ($query -match 'project: \{([^}]+)\}') { $Matches[1] } else { $null }
+            $list = if ($project -and $projects -contains $project) { @($issues.$project) } else { @() }
+            # Отбор описания трекера (B-300) — хвост после «#Unresolved»: поля State и tag значением или {значениями}
+            # через запятую, прочие слова — по заголовку; другое поле YouTrack отвергает, как настоящий.
+            $tail = if ($query -match '#Unresolved\s*(.*)$') { $Matches[1].Trim() } else { '' }
+            # Панель дописывает фильтр в скобках: «… #Unresolved and (<фильтр>)».
+            if ($tail -match '^and \((.*)\)$') { $tail = $Matches[1].Trim() }
+            $pattern = '([A-Za-z]+):\s*((?:\{[^}]*\}(?:\s*,\s*\{[^}]*\})*)|\S+)'
+            $unknown = @([regex]::Matches($tail, $pattern) | Where-Object { $_.Groups[1].Value -notin 'State', 'tag' } |
+                ForEach-Object { $_.Groups[1].Value })
+            if ($unknown.Count -gt 0) {
+                Send $context 400 @{ error = 'bad_request'; error_description = "Unknown field `"$($unknown[0])`"" }
+                continue
+            }
+            foreach ($match in [regex]::Matches($tail, $pattern)) {
+                $wanted = @([regex]::Matches($match.Groups[2].Value, '\{([^}]*)\}') | ForEach-Object { $_.Groups[1].Value.Trim() })
+                if ($wanted.Count -eq 0) { $wanted = @($match.Groups[2].Value) }
+                $field = if ($match.Groups[1].Value -eq 'State') { 'state' } else { 'tags' }
+                $list = @($list | Where-Object { @($_.$field | Where-Object { $_ -in $wanted }).Count -gt 0 })
+            }
+            foreach ($word in ([regex]::Replace($tail, $pattern, '') -split '\s+' | Where-Object { $_ })) {
+                $list = @($list | Where-Object { $_.title -like "*$word*" })
+            }
+            Send $context 200 @($list | ForEach-Object { @{ idReadable = "$project-$($_.number)"; summary = $_.title } })
+            continue
+        }
+        if ($path.EndsWith('/api/issues') -and $context.Request.HttpMethod -eq 'POST') {
+            $reader = [IO.StreamReader]::new($context.Request.InputStream, $utf8)
+            $payload = $reader.ReadToEnd() | ConvertFrom-Json
+            $index = [int]($payload.project.id -replace '^0-', '') - 1
+            $project = $projects[$index]
+            $known = @($issues.$project)
+            # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
+            $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
+            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary }
+            [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), $utf8)
+            $created = Join-Path $root 'youtrack-created'
+            New-Item -ItemType Directory -Force -Path $created | Out-Null
+            [IO.File]::WriteAllText((Join-Path $created "$project-$number.md"), "# $($payload.summary)`n`n$($payload.description)", $utf8)
+            if ($mode -eq 'slow-create') { Start-Sleep -Seconds 70 }
+            Send $context 200 @{ idReadable = "$project-$number"; summary = $payload.summary }
+            continue
+        }
+        Send $context 404 @{ error = 'Not Found'; error_description = "Нет такого адреса: $path" }
+    }
+    catch {
+        try { Send $context 500 @{ error = 'stub'; error_description = $_.Exception.Message } } catch { }
+    }
+}
+'@
+    Write-Utf8 (Join-Path $Root 'youtrack-stub.ps1') ($stub -replace '__PORT__', $Port)
 }

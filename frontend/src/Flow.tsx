@@ -17,6 +17,7 @@ import './Backlog.css'
 import './PerformerModal.css'
 import './ReplyModal.css'
 import './Flow.css'
+import { AttachError } from './Attachments'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { ChoiceMark } from './ChoiceMark'
 import FlowRewriteModal, { RewriteIcon } from './FlowRewriteModal'
@@ -28,7 +29,10 @@ import PickMenu, { ChevronDownIcon, ChevronUpIcon } from './PickMenu'
 import RowMenu from './RowMenu'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
+import { appendSpoken } from './voice'
+import VoiceButton from './VoiceButton'
 import { VsCodeIcon } from './VsCodeIcon'
+import { FormatIcon, NEWER_FORMAT_REASON, NEWER_FORMAT_REFUSAL } from './NewerFormat'
 
 /**
  * Стадия флоу — файл flow/stages/ личного репозитория оператора, один на все флоу, где она стоит. slug — имя файла; у стадии,
@@ -57,13 +61,6 @@ export type FlowEntry = { stage: string; returns?: StageReturn[] }
 
 export type NamedFlow = { name: string; when: string | null; entries: FlowEntry[] }
 
-/**
- * Задача в работе: task — её номер из бэклога, а без номера — заголовок; flow — сценарий, по которому она идёт.
- * flow null — сценарий не назван или его в проекте нет: такая задача может идти по любому (B-226). named — как
- * сценарий назван в памяти задачи: по нему видно, назван ли он вовсе.
- */
-export type FlowTask = { task: string; flow: string | null; named?: string | null }
-
 export type BaseFlow = {
   base: string
   project: string
@@ -78,8 +75,8 @@ export type BaseFlow = {
    * пишется — запись стёрла бы их из базы; правят их руками.
    */
   unread?: string[]
-  /** Задачи в работе: сценарий, по которому идёт задача, и его стадии не правятся (B-226). */
-  tasks?: FlowTask[]
+  /** База нового формата кита: флоу виден, но не правится ни в чём, и новое не заводится (B-281). */
+  formatWarning?: string | null
 }
 
 type Load =
@@ -299,15 +296,13 @@ const flowName = (flow: DraftFlow) => flow.name.trim() || 'без названи
 function firstProblem(
   draft: Draft,
   known: string[] | null,
-  held: { stage: (key: number) => boolean; flow: (key: number) => boolean } = { stage: () => false, flow: () => false },
+  held = false,
 ): string | null {
-  // Занятые стадию и сценарий запись не меняет и починить их сейчас нельзя: ошибка, которую видит только панель, —
-  // незаведённый исполнитель или помощник, — остальное не запирает (ревью B-226). Ошибку формы кита проверит и API:
-  // её запись не обойдёт, и о ней лучше знать заранее.
+  // Закрытый флоу базы нового формата (B-281) запись не меняет и починить его сейчас нельзя: ошибка, которую видит
+  // только панель, — незаведённый исполнитель или помощник, — его не запирает (ревью B-226). Ошибку формы кита
+  // проверит и API: её запись не обойдёт, и о ней лучше знать заранее.
   for (const stage of draft.stages) {
-    const errors = stageErrors(stage, draft.stages, known).filter(
-      (error) => !held.stage(stage.key) || !panelOnly.includes(error),
-    )
+    const errors = stageErrors(stage, draft.stages, known).filter((error) => !held || !panelOnly.includes(error))
     if (errors.length > 0) return `этап «${stageName(stage)}» — ${errors.join(', ')}`
   }
   for (const flow of draft.flows) {
@@ -322,61 +317,14 @@ function firstProblem(
   return null
 }
 
-/** Почему правка закрыта: tasks — номера задач, которые держат, before и after — фраза вокруг них. */
-type Lock = { before: string; tasks: string[]; after?: string }
-
-/** Причина одной строкой: так её читает программа чтения экрана с карточки стадии. */
-const lockText = (lock: Lock) => [lock.before, lock.tasks.join(', '), lock.after].filter(Boolean).join(' ')
-
-const going = (count: number) => (count === 1 ? 'идёт задача' : 'идут задачи')
-
-/** Задачи, чей сценарий не узнан: они могут идти по любому и закрывают правку всего проекта. */
-function unknownLock(tasks: FlowTask[]): Lock | null {
-  const unknown = tasks.filter((one) => one.flow === null)
-  if (unknown.length === 0) return null
-  // Одну задачу могут назвать две памяти одной базы: номер в строке — один раз.
-  const labels = [...new Set(unknown.map((task) => task.task))]
-  const one = labels.length === 1
-  // Как на макете: задача называет сценарий, которого в проекте нет, — или не называет никакого.
-  const after = unknown.every((task) => task.named)
-    ? one
-      ? 'идёт по сценарию, которого в проекте нет'
-      : 'идут по сценариям, которых в проекте нет'
-    : unknown.every((task) => !task.named)
-      ? one
-        ? 'не называет своего сценария'
-        : 'не называют своих сценариев'
-      : one
-        ? 'идёт по сценарию, которого в проекте нет или который не назван'
-        : 'идут по сценариям, которых в проекте нет или которые не названы'
-  return { before: one ? 'задача' : 'задачи', tasks: labels, after }
-}
-
-/** Сценарий базы занят: по нему идёт задача. Сценарий, которого в базе ещё нет, не занят никем. */
-function flowLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
-  const flow = saved.flows.find((one) => one.key === key)
-  if (!flow) return null
-  const unknown = unknownLock(tasks)
-  if (unknown) return unknown
-  // Одну задачу могут назвать две памяти одной базы: номер в строке — один раз.
-  const held = [...new Set(tasks.filter((one) => one.flow !== null && norm(one.flow) === norm(flow.name)).map((one) => one.task))]
-  return held.length > 0 ? { before: `по нему ${going(held.length)}`, tasks: held } : null
-}
-
 /**
- * Этап базы занят, если занят хоть один сценарий, где он стоит: он один на все. Новый этап не занят
- * никем. Фраза называет занятые сценарии.
+ * Почему правка закрыта. Закрывает её только формат базы, которого панель не знает (B-281); задачи в работе правку
+ * не держат — каждая идёт по своей копии флоу (B-299).
  */
-function stageLock(tasks: FlowTask[], saved: Draft, key: number): Lock | null {
-  if (!saved.stages.some((one) => one.key === key)) return null
-  const unknown = unknownLock(tasks)
-  if (unknown) return unknown
-  const flows = saved.flows.filter((f) => f.entries.some((entry) => entry.stage === key) && flowLock(tasks, saved, f.key))
-  if (flows.length === 0) return null
-  const held = [...new Set(flows.flatMap((f) => flowLock(tasks, saved, f.key)!.tasks))]
-  const names = flows.map((f) => `«${flowName(f)}»`).join(', ')
-  return { before: `по ${flows.length === 1 ? 'сценарию' : 'сценариям'} ${names} ${going(held.length)}`, tasks: held }
-}
+type Lock = { before: string }
+
+/** Базу нового формата держит формат: закрыто всё, в том числе новое. */
+const formatLock: Lock = { before: NEWER_FORMAT_REASON }
 
 /** Ошибки стадии, которых не проверяет API: исполнитель и помощник, которых нет в базе проекта. */
 const panelOnly = ['исполнителя нет в базе', 'помощника нет в базе']
@@ -427,6 +375,9 @@ const invalidLabels: Record<string, string> = {
 export default function Flow({
   baseFor = null,
   rewriteAt = null,
+  rewriteWish = null,
+  rewriteOnly = false,
+  onRewriteClosed,
   onPerformers,
 }: {
   baseFor?: string | null
@@ -435,6 +386,14 @@ export default function Flow({
    * уже открытый, не пересоздаётся, а только открывает окно: правка в открытом окне остаётся на месте.
    */
   rewriteAt?: number | null
+  /** Просьба, которую окно переписывания получает в поле: её вписывает отчёт о флоу по находке (B-270). */
+  rewriteWish?: string | null
+  /**
+   * Раздел не рисуется — только окно переписывания поверх другого раздела: отчёт о флоу открывает его у находки,
+   * а правки пишутся тем же путём, что из раздела (B-270). Закрытое окно зовёт onRewriteClosed.
+   */
+  rewriteOnly?: boolean
+  onRewriteClosed?: () => void
   onPerformers?: () => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
@@ -559,25 +518,23 @@ export default function Flow({
     }
   }
   const unread = flow?.unread ?? []
-  // Пока по сценарию идёт задача, ни он, ни его стадии не правятся: окна открываются только для чтения (B-226).
-  const tasks = flow?.tasks ?? []
-  const lockOfFlow = (key: number) => flowLock(tasks, saved, key)
-  const lockOfStage = (key: number) => stageLock(tasks, saved, key)
-  const held = { stage: (key: number) => lockOfStage(key) !== null, flow: (key: number) => lockOfFlow(key) !== null }
+  // Базу нового формата панель не пишет вовсе: закрыто всё, в том числе новое, и окна только для чтения (B-281).
+  // Задачи в работе правку не держат: каждая идёт по своей копии флоу (B-299).
+  const newer = flow?.formatWarning ? formatLock : null
   // Строку, которую панель не воспроизведёт, стёрла бы любая запись. Ошибка формы запирает только ту запись,
   // после которой она останется во флоу: правка, которая её чинит, — окном или уборкой со схемы — проходит.
   const cannot = (next: Draft) =>
     unread.length > 0
       ? `в файлах флоу есть строка, которую панель не сохранит, — ${unread[0]}. Поправьте её в файле: «…» → «Открыть в VS Code»`
-      : firstProblem(next, known, held)
+      : firstProblem(next, known, newer !== null)
   const problem = cannot(draft)
   const blocked = problem !== null
 
   const currentFlow = draft.flows.find((f) => f.key === flowKey) ?? draft.flows[0] ?? null
   // Стадия выбрана, только пока её правят окном: оно открывается вместе с выбором карточки (B-192).
   const currentStage = draft.stages.find((s) => s.key === stageKey) ?? null
-  const currentLock = currentFlow ? lockOfFlow(currentFlow.key) : null
-  const projectLock = unknownLock(tasks)
+  // Формат держит и новый этап и сценарий: подсказка у погашенных кнопок.
+  const closed = newer ? NEWER_FORMAT_REFUSAL : null
 
   const refresh = () => {
     setNotice(null)
@@ -877,7 +834,7 @@ export default function Flow({
     stageOpen ||
     modal === 'description' ||
     modal === 'new-flow' ||
-    (modal === 'rewrite' && editable) ||
+    (modal === 'rewrite' && editable && !newer) ||
     opened?.kind === 'returns' ||
     asking !== null
   // Сайдбар с правкой: схема, выбор сценария и шапка доступны, но первое действие на них закрывает сайдбар, спросив
@@ -902,7 +859,7 @@ export default function Flow({
     draft,
     known,
     covered: modal === 'description' || asking !== null,
-    lock: lockOfStage(currentStage.key),
+    lock: newer,
     saving,
     blocked,
     changed,
@@ -914,6 +871,71 @@ export default function Flow({
     onChange: (patch: Partial<DraftStage>) => updateStage(currentStage.key, patch),
     onEditDescription: () => setModal('description'),
     onDelete: () => deleteStage(currentStage),
+  }
+
+  const closeRewrite = () => {
+    setModal(null)
+    onRewriteClosed?.()
+  }
+  const rewriteWindow = modal === 'rewrite' && flow && editable && !newer && (
+    <FlowRewriteModal
+      base={flow.base}
+      project={flow.project}
+      stages={toApi(saved).stages}
+      flows={toApi(saved).flows}
+      mark={stageMark}
+      wish={rewriteWish}
+      onApply={applyProposal}
+      onClose={closeRewrite}
+    />
+  )
+  // Правки агента ложатся только на прочитанный флоу: окно не встаёт — сказать почему.
+  const rewriteRefused = (
+    <>
+      {modal === 'rewrite' && flow?.error && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
+        </p>
+      )}
+      {/* Разговор начали до того, как кит перевёл базу: правки агента в неё не записать — окно не встаёт (B-281). */}
+      {modal === 'rewrite' && editable && newer && (
+        <p className="message warning-text" role="status">
+          Окно «Переписать с {AGENT_NAME}» не открыть: {formatLock.before} Правки флоу в этой базе закрыты, пока панель
+          не обновится.
+        </p>
+      )}
+    </>
+  )
+
+  // Поверх другого раздела окно встаёт, когда флоу прочитан: до того и при отказе — строка у края экрана, чтобы
+  // нажатие не выглядело оставшимся без ответа (ревью B-270).
+  if (rewriteOnly) {
+    const refusal =
+      load.kind === 'failed'
+        ? `Флоу проекта не прочитан: ${load.message}`
+        : modal === 'rewrite' && flow?.error
+          ? `Окно «Переписать с ${AGENT_NAME}» не открыть, пока флоу проекта не прочитан: ${flow.error}`
+          : modal === 'rewrite' && editable && newer
+            ? `Окно «Переписать с ${AGENT_NAME}» не открыть: ${formatLock.before} Правки флоу в этой базе закрыты, пока панель не обновится.`
+            : null
+    return (
+      <>
+        {rewriteWindow}
+        {load.kind === 'loading' && (
+          <div className="flow-rewrite-status" role="status">
+            Флоу проекта читается…
+          </div>
+        )}
+        {refusal && (
+          <div className="flow-rewrite-status" role="alert">
+            <span>{refusal}</span>
+            <button type="button" className="bases-btn bases-btn-small" onClick={closeRewrite}>
+              Закрыть
+            </button>
+          </div>
+        )}
+      </>
+    )
   }
 
   return (
@@ -980,6 +1002,8 @@ export default function Flow({
                     type="button"
                     role="menuitem"
                     className="row-menu-item"
+                    disabled={closed !== null}
+                    title={closed ?? undefined}
                     onClick={() => {
                       close()
                       setModal('rewrite')
@@ -1035,13 +1059,12 @@ export default function Flow({
           {notice}
         </p>
       )}
-      {/* Строка о занятом: на вкладке «Сценарии» — у занятого сценария, а задача с неузнанным сценарием закрывает
-          весь проект — о ней строка и на вкладке «Этапы» (макет B-226). */}
-      {editable && (tab === 'flow' ? currentLock : projectLock) && (
-        <LockLine
-          lock={(tab === 'flow' ? currentLock : projectLock)!}
-          what={projectLock ? 'Правка этапов и сценариев закрыта' : 'Правка сценария закрыта'}
-        />
+      {/* База нового формата — строкой над разделом полным предупреждением, на обеих вкладках (макет B-281). */}
+      {editable && flow.formatWarning && (
+        <p className="flow-lock" role="status">
+          <FormatIcon />
+          {flow.formatWarning}
+        </p>
       )}
       {/* Флоу, который уже нельзя записать, называет причину: строку, которую панель не воспроизведёт, — запись
           стёрла бы её, — или ошибку формы кита. Пока её не поправили, записи не пройдут. */}
@@ -1062,12 +1085,8 @@ export default function Flow({
       )}
 
       {flow?.error && <p className="backlog-note warning-text">{flow.error}</p>}
-      {/* Правки агента ложатся только на прочитанный флоу: с отметки в шапке окно не встаёт — сказать почему. */}
-      {modal === 'rewrite' && flow?.error && (
-        <p className="message warning-text" role="status">
-          Окно «Переписать с {AGENT_NAME}» не открыть, пока флоу проекта не прочитан: правки было бы не на что положить.
-        </p>
-      )}
+      {/* С отметки в шапке окно у непрочитанного флоу или у базы, переведённой китом новее, не встаёт — сказать почему. */}
+      {rewriteRefused}
 
       {load.kind === 'loaded' && (
         // Пока запись идёт, раздел занят: действие на схеме, начатое поверх неё, шло бы от флоу, который вот-вот сменится.
@@ -1079,7 +1098,13 @@ export default function Flow({
               </span>
               <h3>В этом проекте нет сценариев</h3>
               <p>Сценарий — цепочка этапов, по которой агент ведёт задачу. Пока его нет, задачу в этом проекте не начать.</p>
-              <button type="button" className="bases-btn bases-btn-primary" onClick={newFlow}>
+              <button
+                type="button"
+                className="bases-btn bases-btn-primary"
+                disabled={closed !== null}
+                title={closed ?? undefined}
+                onClick={newFlow}
+              >
                 <PlusIcon />
                 Создать первый сценарий
               </button>
@@ -1093,7 +1118,13 @@ export default function Flow({
               </span>
               <h3>В этом проекте нет этапов</h3>
               <p>Этап — шаг работы над задачей: кто его делает и что должно получиться. Сценарии собираются из этапов.</p>
-              <button type="button" className="bases-btn bases-btn-primary" onClick={newStage}>
+              <button
+                type="button"
+                className="bases-btn bases-btn-primary"
+                disabled={closed !== null}
+                title={closed ?? undefined}
+                onClick={newStage}
+              >
                 <PlusIcon />
                 Создать первый этап
               </button>
@@ -1106,8 +1137,9 @@ export default function Flow({
               current={currentStage}
               known={known}
               open={stageOpen}
-              lockOf={lockOfStage}
+              lock={newer}
               window={stageWindow}
+              closed={closed}
               onSelect={openStage}
               onNew={newStage}
             />
@@ -1121,11 +1153,12 @@ export default function Flow({
               known={known}
               overlaid={overlaid}
               guard={guard}
-              busy={saving || unread.length > 0 || currentLock !== null}
-              locked={currentLock !== null}
+              busy={saving || unread.length > 0 || newer !== null}
+              locked={newer !== null}
+              closed={closed}
               focus={focus}
               drawer={{
-                lock: currentLock,
+                lock: newer,
                 saving,
                 blocked,
                 changed,
@@ -1149,7 +1182,7 @@ export default function Flow({
               }}
               onChange={(change) => void act(withFlow(draft, currentFlow.key, change))}
               returns={{
-                lock: currentLock,
+                lock: newer,
                 saving,
                 blocked,
                 changed,
@@ -1189,7 +1222,7 @@ export default function Flow({
           title={currentStage.title}
           description={currentStage.description}
           warning={scope}
-          lock={lockOfStage(currentStage.key)}
+          lock={newer}
           saving={saving}
           blocked={blocked}
           covered={asking !== null}
@@ -1221,25 +1254,7 @@ export default function Flow({
         />
       )}
 
-      {modal === 'rewrite' && flow && editable && (
-        <FlowRewriteModal
-          base={flow.base}
-          project={flow.project}
-          stages={toApi(saved).stages}
-          flows={toApi(saved).flows}
-          mark={stageMark}
-          lockedStage={(title) => {
-            const stage = saved.stages.find((one) => norm(one.title) === norm(title))
-            return (stage && lockOfStage(stage.key)?.tasks) || null
-          }}
-          lockedFlow={(name) => {
-            const named = saved.flows.find((one) => norm(one.name) === norm(name))
-            return (named && lockOfFlow(named.key)?.tasks) || null
-          }}
-          onApply={applyProposal}
-          onClose={() => setModal(null)}
-        />
-      )}
+      {rewriteWindow}
 
       {modal === 'add' && currentFlow && (
         <AddStage
@@ -1344,16 +1359,11 @@ type RejectedBody = { problem?: string; flow?: string | null; stage?: string | n
 type Source = 'window' | 'action' | 'rewrite'
 
 function saveError(status: number, body: RejectedBody | null, from: Source) {
-  // Задача пошла по сценарию, пока его правили: запись отклонена, а флоу перечитан, и замок уже стоит.
   // Окно своё перечитает, когда его закроют; действие и правки агента перечитали флоу сразу.
   const reread = from === 'window' ? ' Закройте окно — раздел перечитает флоу, когда все окна будут закрыты.' : ''
-  if (status === 409 && body?.problem === 'busy') {
-    const count = (body.detail ?? '').split(',').filter((one) => one.trim()).length
-    const one = count === 1
-    return body.flow
-      ? `Флоу не сохранён: по сценарию «${body.flow}» ${going(count)} ${body.detail ?? ''}. Пока ${one ? 'она' : 'они'} в работе, сценарий и его этапы не правятся.${reread}`
-      : `Флоу не сохранён: ${one ? 'задача' : 'задачи'} ${body.detail ?? ''} ${one ? 'идёт' : 'идут'} по сценарию, которого панель не узнала. Пока ${one ? 'она' : 'они'} в работе, этапы и сценарии проекта не правятся.${reread}`
-  }
+  // Кит перевёл базу, пока правили: правка закрыта, пока панель не узнает формат (B-281).
+  if (status === 409 && body?.problem === 'newer-format')
+    return `Флоу не сохранён: кит перевёл базу на формат, которого эта версия панели не знает.${reread}`
   if (status === 409)
     return from === 'window'
       ? 'Флоу не сохранён: его изменили в базе, пока окно было открыто. Закройте окно без сохранения — раздел перечитает флоу, когда все окна будут закрыты, и правку можно будет сделать заново.'
@@ -1426,8 +1436,9 @@ function StagesTab({
   current,
   known,
   open,
-  lockOf,
+  lock,
   window,
+  closed,
   onSelect,
   onNew,
 }: {
@@ -1435,10 +1446,12 @@ function StagesTab({
   current: DraftStage | null
   known: string[] | null
   open: boolean
-  /** Почему стадию сейчас не править; null — свободна. */
-  lockOf: (key: number) => Lock | null
+  /** Почему этапы сейчас не править — формат базы (B-281); null — правятся. */
+  lock: Lock | null
   /** Окно правки выбранной стадии — всё, кроме того, куда вернуть фокус: это знает сетка. */
   window: Omit<StageWindow, 'onReturnFocus'> | null
+  /** Почему новый этап не завести; null — можно. */
+  closed: string | null
   onSelect: (key: number) => void
   onNew: () => void
 }) {
@@ -1477,11 +1490,10 @@ function StagesTab({
                     executorOf(stage) || 'субагент'
                   )}
                 </span>
-                {/* Занятая стадия: замок и задачи, которые её держат, — макет B-226. */}
-                {lockOf(stage.key) && (
-                  <span className="flow-card-lock" aria-label={`Правка закрыта: ${lockText(lockOf(stage.key)!)}`}>
+                {/* Закрытый этап базы нового формата — замком (B-281). */}
+                {lock && (
+                  <span className="flow-card-lock" aria-label={`Правка закрыта: ${lock.before}`}>
                     <LockIcon />
-                    {lockOf(stage.key)!.tasks.join(', ')}
                   </span>
                 )}
               </span>
@@ -1489,7 +1501,14 @@ function StagesTab({
           </li>
         ))}
         <li>
-          <button type="button" className="flow-stage-card flow-stage-card-add" ref={add} onClick={onNew}>
+          <button
+            type="button"
+            className="flow-stage-card flow-stage-card-add"
+            ref={add}
+            disabled={closed !== null}
+            title={closed ?? undefined}
+            onClick={onNew}
+          >
             <PlusIcon />
             Новый этап
           </button>
@@ -1514,7 +1533,7 @@ type StageWindow = {
   draft: Draft
   known: string[] | null
   covered: boolean
-  /** Стадию держат задачи в работе: окно только для чтения (B-226). */
+  /** Правку закрыл формат базы: окно только для чтения (B-281). */
   lock: Lock | null
   saving: boolean
   /** Флоу базы сейчас не записать — причина названа над разделом. */
@@ -1617,7 +1636,7 @@ function StageModal({
         </div>
 
         <div className="ask-body">
-          {/* Занятую стадию видно целиком, но поля погашены: правка закрыта, пока задачи идут по её сценарию. */}
+          {/* Стадию базы нового формата видно целиком, но поля погашены: правку закрыл формат (B-281). */}
           <fieldset className="flow-stage-rows flow-stage-set" disabled={lock !== null || saving}>
             <div className="flow-field">
               <span>Значок</span>
@@ -1781,7 +1800,7 @@ function StageModal({
 }
 
 type DrawerActions = {
-  /** Сценарий держат задачи в работе: сайдбар только для чтения. */
+  /** Правку закрыл формат базы (B-281): сайдбар только для чтения. */
   lock: Lock | null
   saving: boolean
   blocked: boolean
@@ -1826,6 +1845,7 @@ function FlowTab({
   drawer,
   returns,
   onFocus,
+  closed,
   onPick,
   onNew,
   onOpen,
@@ -1844,8 +1864,10 @@ function FlowTab({
   guard: (() => void) | null
   /** Идёт запись: перестановка, добавление и уборка стадии недоступны, пока флоу не перечитан. */
   busy: boolean
-  /** По сценарию идёт задача: схема только для чтения, у блоков нет ручки перетаскивания. */
+  /** Правку закрыл формат базы (B-281): схема только для чтения, у блоков нет ручки перетаскивания. */
   locked: boolean
+  /** Почему новый сценарий не завести; null — можно. */
+  closed: string | null
   focus: Focus
   /** Сайдбар сценария: его поля, запись и удаление сценария. */
   drawer: DrawerActions
@@ -1923,7 +1945,13 @@ function FlowTab({
             selected={String(flow.key)}
             onPick={(id) => onPick(Number(id))}
           />
-          <button type="button" className="bases-btn bases-btn-small" onClick={onNew}>
+          <button
+            type="button"
+            className="bases-btn bases-btn-small"
+            disabled={closed !== null}
+            title={closed ?? undefined}
+            onClick={onNew}
+          >
             <PlusIcon />
             Новый сценарий
           </button>
@@ -2604,7 +2632,6 @@ function FlowDrawer({
       </div>
 
       <div className="flow-drawer-body">
-        {/* Задачи, что держат сценарий, называет строка над разделом — своей строки у сайдбара нет (приёмка B-226). */}
         <fieldset className="flow-stage-set" disabled={lock !== null || saving}>
           <label className="flow-field">
             <span>Название сценария</span>
@@ -2696,7 +2723,7 @@ function NewFlowModal({
   const [name, setName] = useState('')
   const [when, setWhen] = useState('')
   // Сценарий без «когда» бывает, только пока он один: вторым кит его без «когда» не примет. Его «когда» вписывается
-  // здесь же — и когда по нему идёт задача: эту одну правку занятого оператор разрешил (ревью B-226).
+  // здесь же, тем же разом, что и новый сценарий (ревью B-226).
   const bare = draft.flows.find((f) => !f.when.trim()) ?? null
   const [earlierWhen, setEarlierWhen] = useState('')
   const [stage, setStage] = useState<number | null>(null)
@@ -3164,7 +3191,7 @@ export function DescriptionEditor({
   title: string
   description: string | null
   warning: string | null
-  /** Стадию держат задачи в работе: описание только читается. */
+  /** Правку закрыл формат базы (B-281): описание только читается. */
   lock: Lock | null
   saving: boolean
   blocked: boolean
@@ -3182,6 +3209,7 @@ export function DescriptionEditor({
   const [editing, setEditing] = useState(empty && !lock && !readOnly)
   const [text, setText] = useState(description ?? '')
   const [failure, setFailure] = useState<string | null>(null)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   // Открытое окно забирает фокус: иначе он остался бы на кнопке под подложкой.
   const close = useRef<HTMLButtonElement>(null)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -3257,31 +3285,47 @@ export function DescriptionEditor({
               {failure}
             </p>
           )}
+          {editing && <AttachError text={voiceError} />}
         </div>
         <div className="modal-footer ask-footer">
-          <div className="footer-right">
-            {editing ? (
-              <>
-                <button type="button" className="btn" onClick={cancel}>
-                  Отмена
-                </button>
-                <button type="button" className="btn btn-primary" disabled={saving || blocked || !changed} onClick={() => void save()}>
-                  {saving ? 'Сохранение…' : 'Сохранить'}
-                </button>
-              </>
-            ) : (
-              <>
-                {!lock && !readOnly && (
-                  <button type="button" className="btn" onClick={edit}>
-                    <PencilIcon />
-                    Редактировать
-                  </button>
-                )}
-                <button type="button" ref={close} className="btn" onClick={onClose}>
-                  Закрыть
-                </button>
-              </>
+          <div className="ask-actions">
+            {/* В правке описание можно надиктовать: микрофон слева в подвале, напротив кнопок (макет B-291) */}
+            {editing && (
+              <VoiceButton
+                disabled={saving}
+                onText={(spoken) => setText(appendSpoken(text, spoken))}
+                onError={setVoiceError}
+              />
             )}
+            <div className="footer-right">
+              {editing ? (
+                <>
+                  <button type="button" className="btn" onClick={cancel}>
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={saving || blocked || !changed}
+                    onClick={() => void save()}
+                  >
+                    {saving ? 'Сохранение…' : 'Сохранить'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {!lock && !readOnly && (
+                    <button type="button" className="btn" onClick={edit}>
+                      <PencilIcon />
+                      Редактировать
+                    </button>
+                  )}
+                  <button type="button" ref={close} className="btn" onClick={onClose}>
+                    Закрыть
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -3599,39 +3643,12 @@ function GripIcon() {
   )
 }
 
-/** Номера задач, которые держат правку, — плашками, как в строке над разделом на макете B-226. */
-function TaskTags({ tasks }: { tasks: string[] }) {
-  return (
-    <>
-      {tasks.map((task, i) => (
-        <span key={task}>
-          {/* Плашки стоят рядом, а текстом строки читаются через запятую. */}
-          {i > 0 && <span className="visually-hidden">, </span>}
-          <span className="flow-task-tag">{task}</span>
-        </span>
-      ))}
-    </>
-  )
-}
-
-/** Строка над разделом: правка сценария или всего проекта закрыта, пока по ним идут задачи. */
-function LockLine({ lock, what }: { lock: Lock; what: string }) {
-  return (
-    <p className="flow-lock" role="status">
-      <LockIcon />
-      {what} — {lock.before} <TaskTags tasks={lock.tasks} />
-      {lock.after && ` ${lock.after}`}
-    </p>
-  )
-}
-
-/** Та же причина в шапке окна только для чтения — на месте строки о сценариях, которые заденет правка. */
+/** Причина в шапке окна только для чтения — на месте строки о сценариях, которые заденет правка. */
 function LockNote({ lock }: { lock: Lock }) {
   return (
     <p className="flow-scope-warning flow-scope-lock" role="status">
-      <LockIcon />
-      Правка закрыта: {lock.before} <TaskTags tasks={lock.tasks} />
-      {lock.after && ` ${lock.after}`}
+      <FormatIcon />
+      Правка закрыта: {lock.before}
     </p>
   )
 }

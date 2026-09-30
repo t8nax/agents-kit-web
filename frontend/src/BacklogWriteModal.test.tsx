@@ -3,6 +3,13 @@ import { afterEach, expect, test, vi } from 'vitest'
 import BacklogWriteModal, { type Proposal, type WriteBase, type WriteEvent, type WrittenEntry } from './BacklogWriteModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, disabled }: { onText: (text: string) => void; disabled?: boolean }) => (
+    <button type="button" aria-label="Голосовой ввод" disabled={disabled} onClick={() => onText('с приоритетом.')} />
+  ),
+}))
+
 afterEach(() => {
   vi.unstubAllGlobals()
 })
@@ -54,6 +61,7 @@ function renderModal(
 ) {
   const onEntries = vi.fn()
   const onSaved = vi.fn()
+  const onTracked = vi.fn()
   const onClose = vi.fn()
   const view = render(
     <BacklogWriteModal
@@ -64,9 +72,10 @@ function renderModal(
       onClose={onClose}
       onEntries={onEntries}
       onSaved={onSaved}
+      onTracked={onTracked}
     />,
   )
-  return { onEntries, onSaved, onClose, unmount: view.unmount }
+  return { onEntries, onSaved, onTracked, onClose, unmount: view.unmount }
 }
 
 async function say(text: string) {
@@ -116,6 +125,27 @@ test('просьба из шапки уходит в выбранный прое
   expect(screen.getByText('B-60', { selector: 'strong' })).toBeInTheDocument()
   await waitFor(() => expect(onEntries).toHaveBeenCalledWith(bases[1].base, ['B-60']))
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+})
+
+test('микрофон стоит первым в ряду кнопок, перед «Приложить файл»; сказанное дописывается к просьбе', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal({ initialBase: bases[1].base })
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+  const field = screen.getByLabelText('Просьба к Чудо-Юдо')
+  fireEvent.change(field, { target: { value: 'Запиши ожидание' } })
+
+  const mic = screen.getByRole('button', { name: 'Голосовой ввод' })
+  const row = mic.parentElement as HTMLElement
+  expect(row).toHaveClass('talk-buttons')
+  expect(row.firstElementChild).toBe(mic)
+  expect(within(row).getAllByRole('button').map((button) => button.textContent || button.getAttribute('aria-label')))
+    .toEqual(['Голосовой ввод', 'Приложить файл', 'Новая переписка', 'Отправить'])
+  fireEvent.click(mic)
+  expect(field).toHaveValue('Запиши ожидание с приоритетом.')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled())
 })
 
 test('окно от записи показывает её первой, называет её в просьбе и не даёт выбрать проект', async () => {
@@ -225,7 +255,7 @@ test('снимок из буфера прикладывается с имене�
 test('изменение и удаление ждут «Сохранить», а сохранённые отмечены в прошедшем времени', async () => {
   const stream = controlledStream<WriteEvent>()
   const { calls } = stubFetch(stream)
-  const { onSaved } = renderModal()
+  const { onSaved, onTracked } = renderModal()
 
   await say('Убери B-36, в B-40 приоритет высокий')
   stream.send({ type: 'reply', text: 'Убери B-36, в B-40 приоритет высокий' })
@@ -252,6 +282,176 @@ test('изменение и удаление ждут «Сохранить», а
   expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
   expect(screen.queryByText('Ждут сохранения: изменить 1, удалить 1')).not.toBeInTheDocument()
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(bases[0].base))
+  // Задач трекера это «Сохранить» не заводило — трекер раздел не перечитывает
+  expect(onTracked).not.toHaveBeenCalled()
+})
+
+// ——— Перенос записи в трекер (B-286) ———
+
+const B281: WrittenEntry = {
+  number: 'B-281',
+  title: 'Экспорт истории задачи копии в markdown',
+  text: 'Нужна выгрузка истории.',
+  artifacts: [
+    { label: 'образец', address: 'artifacts/B-281-sample-export.md' },
+    { label: 'снимок', address: 'artifacts/B-281-reply-window.png' },
+    { label: 'формат', address: 'https://commonmark.org/help/' },
+  ],
+}
+
+// Задачу, какой её заведёт «Сохранить», собирает API: текст записи, её «Агенту» и ссылки
+const B281draft = {
+  number: 'B-281',
+  title: B281.title,
+  body: 'Нужна выгрузка истории.\n\n### Артефакты\n- формат: https://commonmark.org/help/\n\n### Агенту\n- где: ReplyModal.tsx',
+  files: [
+    { label: 'образец', address: 'artifacts/B-281-sample-export.md' },
+    { label: 'снимок', address: 'artifacts/B-281-reply-window.png' },
+  ],
+  original: '## B-281 Экспорт истории задачи копии в markdown',
+}
+
+const withTrack: Proposal = {
+  id: 'p5',
+  changes: [
+    { kind: 'track', number: 'B-281', entry: B281, draft: B281draft },
+    { kind: 'change', number: 'B-40', entry: B40 },
+  ],
+}
+
+test('перенос в трекер ждёт «Сохранить» вместе с правкой, а после — номер задачи ссылкой у отметки «перенесена»', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { calls } = stubFetch(stream)
+  const { onTracked } = renderModal()
+
+  await say('перенеси B-281 в трекер, а в B-40 приоритет высокий')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер, а в B-40 приоритет высокий' })
+  stream.send(answer({ proposal: withTrack }))
+
+  expect(await screen.findByText('Ждут сохранения: изменить 1, перенести 1 в трекер')).toBeInTheDocument()
+  const changes = within(screen.getByRole('list', { name: 'Изменения' }))
+  const card = changes.getByText('перенести').closest('li')!
+  expect(card).toHaveTextContent('Нужна выгрузка истории.')
+  // Карточка показывает то, что уйдёт в задачу: часть для агента и ссылки из артефактов тоже (ревью B-286)
+  expect(within(card as HTMLElement).getByRole('heading', { name: 'Агенту' })).toBeInTheDocument()
+  expect(within(card as HTMLElement).getByRole('link', { name: 'https://commonmark.org/help/' })).toBeInTheDocument()
+  // Файлы названы: в задачу они не попадут
+  expect(card).toHaveTextContent('Файлы B-281-sample-export.md и B-281-reply-window.png в задачу не попадут и удалятся вместе с записью.')
+  // Строки о репозитории и назначении на карточке нет — ответ оператора на макет
+  expect(card).not.toHaveTextContent('назначена на вас')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+  await waitFor(() => expect(calls).toEqual([{ url: '/api/backlog/write/save', body: { id: 'p5' } }]))
+  stream.send({
+    type: 'saved',
+    text: '',
+    commit: 'c0ffee1',
+    proposalId: 'p5',
+    issues: { 'B-281': { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' } },
+  })
+
+  const moved = (await changes.findByText('перенесена')).closest('li')!
+  expect(within(moved).getByText('перенесена')).toHaveClass('added')
+  const link = within(moved).getByRole('link', { name: '#58' })
+  expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  expect(link).toHaveAttribute('target', '_blank')
+  // После сохранения — одна строка заголовка, без описания и без вложенной рамки со строкой задачи
+  expect(moved).not.toHaveTextContent('Нужна выгрузка истории.')
+  expect(moved).not.toHaveTextContent('в задачу не попадут')
+  expect(changes.getByText('изменена')).toBeInTheDocument()
+  // Заведённую задачу раздел покажет в группе трекера, перечитав его
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
+})
+
+const issue58 = { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' }
+
+test('задача заведена, а бэклог не записан — причина и ссылка на задачу у несохранённого', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, {
+    save: () =>
+      Response.json({
+        error: 'Коммит не прошёл — backlog.md оставлен как был. Уже заведены в трекере: B-281 — #58 — «Сохранить» ещё раз их не повторит',
+        issues: { 'B-281': issue58 },
+      }),
+  })
+  const { onSaved, onTracked } = renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send(answer({ proposal: { id: 'p7', changes: [withTrack.changes[0]] } }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Уже заведены в трекере: B-281 — #58')
+  expect(within(alert).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
+  // Бэклог не записан, а задача в трекере есть — раздел её покажет
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
+  expect(onSaved).not.toHaveBeenCalled()
+})
+
+test('брошенное предложение с заведёнными задачами панель называет в ленте со ссылками', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  const { onTracked } = renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send({
+    type: 'note',
+    text: 'Задачи в трекере уже заведены, а записи остались в бэклоге: B-281 — #58. Уберите эти записи из бэклога.',
+    issues: { 'B-281': issue58 },
+  })
+
+  const note = (await screen.findByText(/Задачи в трекере уже заведены/)).closest('p')!
+  expect(within(note).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
+})
+
+const issueYouTrack = { name: 'YouTrack ABC-58', number: 58, title: B281.title, url: 'https://acme.youtrack.cloud/issue/ABC-58' }
+
+test('задача YouTrack — номером ABC-58 без решётки и у отметки «перенесена», и в ленте (B-288)', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send(answer({ proposal: { id: 'p8', changes: [withTrack.changes[0]] } }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+  stream.send({ type: 'saved', text: '', commit: 'c0ffee2', proposalId: 'p8', issues: { 'B-281': issueYouTrack } })
+
+  const changes = within(screen.getByRole('list', { name: 'Изменения' }))
+  const moved = (await changes.findByText('перенесена')).closest('li')!
+  const link = within(moved).getByRole('link', { name: 'ABC-58' })
+  expect(link).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-58')
+  expect(link).toHaveAttribute('title', 'Открыть YouTrack ABC-58 во вкладке браузера')
+
+  stream.send({
+    type: 'note',
+    text: 'Задачи в трекере уже заведены, а записи остались в бэклоге: B-281 — ABC-58. Уберите эти записи из бэклога.',
+    issues: { 'B-281': issueYouTrack },
+  })
+  const note = (await screen.findByText(/Задачи в трекере уже заведены/)).closest('p')!
+  expect(within(note).getByRole('link', { name: 'ABC-58' })).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-58')
+})
+
+test('перенос, от которого отказались, зачёркнут и задачи не показывает', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  renderModal()
+
+  await say('перенеси B-281 в трекер')
+  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
+  stream.send(answer({ proposal: { id: 'p6', changes: [withTrack.changes[0]] } }))
+  expect(await screen.findByText('Ждёт сохранения: перенести 1 в трекер')).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отказаться' }))
+  stream.send({ type: 'refused', text: '', proposalId: 'p6' })
+
+  const card = (await screen.findByText('отказались')).closest('li')!
+  expect(card).toHaveClass('is-struck')
+  expect(within(card).queryByRole('link', { name: /^#\d+$/ })).not.toBeInTheDocument()
 })
 
 test('несохранённое остаётся с кнопками, а причина видна в ответе', async () => {
@@ -595,6 +795,31 @@ test('«Новая переписка» убирает разговор, а ок
   expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled()
   expect(screen.getByRole('button', { name: 'Новая переписка' })).toBeDisabled()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
+})
+
+test('кит перевёл базу посреди разговора: плашка сразу под шапкой, просьба закрыта, а «Новая переписка» выводит из окна', async () => {
+  const refusal = 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.'
+  const stream = controlledStream<WriteEvent>()
+  const { deletes } = stubFetch(stream)
+  const modal = (list: WriteBase[]) => (
+    <BacklogWriteModal bases={list} initialBase={bases[1].base} onClose={vi.fn()} onEntries={vi.fn()} />
+  )
+  const { rerender } = render(modal(bases))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Проект: Nota' })).toBeEnabled())
+  await say('Мысль')
+  stream.send({ type: 'reply', text: 'Мысль' })
+  stream.send(answer({ text: 'Записал.' }))
+  await screen.findByText('Записал.')
+
+  rerender(modal([bases[0], { ...bases[1], closed: refusal }]))
+
+  const notice = screen.getByText(refusal).closest('.format-notice')!
+  // Плашка — сразу за шапкой окна, вне ленты
+  expect(notice.previousElementSibling).toHaveClass('reply-head')
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Новая переписка' }))
+  await waitFor(() => expect(deletes).toEqual(['/api/agent/backlog']))
 })
 
 test('при ждущем предложении «Новая переписка» переспрашивает: «Отмена» оставляет разговор, «Начать новую» его убирает', async () => {

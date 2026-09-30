@@ -168,7 +168,7 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Rewrite_GivesWholeFlowTasksAndPerformersInFirstReply()
+    public async Task Rewrite_GivesWholeFlowAndPerformersInFirstReplyButNotTasks()
     {
         Directory.CreateDirectory(TestLayout.Work(_base));
         File.WriteAllText(
@@ -188,7 +188,9 @@ public sealed class FlowRewriteEndpointsTests : IDisposable
             input);
         Assert.Contains("=== stages/review.md\n# Ревью\n\nисполнитель: reviewer\nвыход: вердикт по sha", input);
         Assert.Contains("=== stages/merge.md\n# Мерж", input);
-        Assert.Contains("- Поправить вход: идёт по сценарию «Крупные» — его и его этапы панель не запишет", input);
+        // Задача идёт по своей копии флоу и правку не держит: агенту о задачах в работе не говорят (B-299).
+        Assert.DoesNotContain("Поправить вход", input);
+        Assert.DoesNotContain("Задачи в работе", input);
         Assert.Contains("- reviewer — Вычитывает дифф ветки задачи", input);
     }
 

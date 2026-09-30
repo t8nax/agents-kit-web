@@ -1,0 +1,327 @@
+/* Карточка «Трекеры проектов» и вкладка «Изменения» окна «Трекер проекта с Чудо-Юдо» (B-293, макет в памяти задачи) */
+
+.prj-card {
+  container: prj-card / inline-size;
+}
+
+.prj-card .bases-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Строка проекта — сетка: имя, вид трекера, сервер, проект, кнопки; причина — строкой под ней */
+.bases-list.prj-list > li {
+  display: grid;
+  grid-template-columns: 130px 76px minmax(0, 1fr) minmax(0, 170px) auto;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+.prj-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prj-kind {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+
+.prj-server,
+.prj-project {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.prj-project {
+  color: var(--text-secondary);
+}
+
+.prj-none {
+  grid-column: 2 / 5;
+  color: var(--text-tertiary);
+}
+
+.prj-dash {
+  color: var(--text-tertiary);
+}
+
+.prj-actions {
+  grid-column: 5;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Отбор задач (B-300) — строкой под сервером и проектом; нет отбора — строки нет */
+.prj-filter {
+  grid-column: 3 / 5;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.prj-filter-label {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.prj-filter .mono {
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.prj-line {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  padding: 0 0 2px;
+}
+
+.prj-line svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.prj-line.err {
+  color: var(--accent-error-text);
+}
+
+.prj-line.fmt {
+  color: var(--accent-waiting-text);
+}
+
+.prj-list > li.is-closed .prj-name,
+.prj-list > li.is-closed .prj-server {
+  color: var(--text-secondary);
+}
+
+/* Узкая карточка: имя и вид трекера — первой строкой, остальное ниже, кнопки влево */
+@container prj-card (max-width: 760px) {
+  .bases-list.prj-list > li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .prj-name {
+    grid-column: 1;
+  }
+
+  .prj-kind {
+    grid-column: 2;
+    justify-self: end;
+  }
+
+  .prj-server,
+  .prj-project,
+  .prj-none,
+  .prj-filter,
+  .prj-actions {
+    grid-column: 1 / -1;
+  }
+
+  .prj-actions {
+    justify-content: flex-start;
+  }
+}
+
+/* Окно: подвал со строкой проверки слева, поля правятся на вкладке «Изменения» */
+.tf-modal {
+  container: tf-win / inline-size;
+}
+
+.tf-modal .ask-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tf-modal .footer-right {
+  margin-left: auto;
+}
+
+.foot-note {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.foot-note .mono {
+  overflow-wrap: anywhere;
+}
+
+.tf {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.tf-group {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tf-group .rewrite-group-title {
+  margin: 0;
+}
+
+.tf-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.tf-kinds {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0 -12px;
+}
+
+.tf-kinds .choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.tf-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.tf-field {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+}
+
+.tf-field .rewrite-was {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.tf-field .rewrite-was.mono {
+  font-size: 12px;
+}
+
+.tf-field .bases-error {
+  margin: 0;
+}
+
+.tf .inp {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.tf-area {
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 58px;
+  resize: vertical;
+}
+
+.tf .inp::placeholder,
+.tf-area::placeholder {
+  color: var(--text-tertiary);
+}
+
+.tf .inp:focus,
+.tf-area:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.tf-changed .tf-area,
+.tf-changed .inp {
+  border-color: var(--accent-waiting-border);
+}
+
+.tf .inp[aria-invalid='true'],
+.tf-area[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+/* Узкое окно: вид трекера в два ряда, адрес и проект — столбиком, кнопки подвала делят ширину */
+@container tf-win (max-width: 640px) {
+  .tf-kinds {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tf-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tf-modal .footer-right {
+    width: 100%;
+  }
+
+  .tf-modal .footer-right .btn {
+    flex: 1 1 140px;
+    min-width: 0;
+    padding: 0 12px;
+  }
+}

@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
+using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -87,6 +89,21 @@ public sealed class BacklogEndpointTests : IDisposable
 
         Assert.Empty(backlog.Entries);
         Assert.Null(backlog.Error);
+        Assert.Null(backlog.FormatWarning);
+    }
+
+    [Fact]
+    // Бэклог базы нового формата читается, как был, с предупреждением: записи из него берут в работу (B-281).
+    public async Task Backlog_BaseOfNewerFormat_IsReadWithWarning()
+    {
+        var basePath = CreateBase("app-knowledge", "# Проект — бэклог\n\nследующий номер: B-2\n\n## B-1 Запись\n\nТекст.\n");
+        TestLayout.NewerFormat(basePath);
+
+        var backlog = Assert.Single(await GetBacklogs(basePath));
+
+        Assert.Null(backlog.Error);
+        Assert.Equal("B-1", Assert.Single(backlog.Entries).Number);
+        Assert.Equal(BaseLayout.NewerFormatWarning, backlog.FormatWarning);
     }
 
     [Fact]
@@ -107,23 +124,23 @@ public sealed class BacklogEndpointTests : IDisposable
     public async Task Backlog_CarriesTrackerOfBase()
     {
         var withTracker = CreateBase("orders-knowledge", "## B-1 Первая\n");
-        File.WriteAllText(Path.Combine(withTracker, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders, через gh\n");
+        TestLayout.GitHubTracker(withTracker, "acme/orders");
         var withoutTracker = CreateBase("nota-knowledge", "## B-1 Первая\n");
         var withoutBacklog = TestLayout.Base(Path.Combine(_root, "empty-knowledge"));
-        File.WriteAllText(Path.Combine(withoutBacklog, "tracker.md"), "# Трекер\n\n## Где задачи\nJira PAY\n");
+        TestLayout.Tracker(withoutBacklog, "Jira", "https://acme.atlassian.net", "PAY");
 
         var backlogs = await GetBacklogs(withTracker, withoutTracker, withoutBacklog);
 
-        Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, "acme/orders"), Assert.Single(backlogs, b => b.Base == withTracker).Tracker);
+        Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, "GitHub", "https://github.com", "acme/orders"), Assert.Single(backlogs, b => b.Base == withTracker).Tracker);
         Assert.Null(Assert.Single(backlogs, b => b.Base == withoutTracker).Tracker);
-        Assert.Equal(new TrackerInfo(TrackerInfo.NotGitHub), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
+        Assert.Equal(new TrackerInfo(TrackerInfo.Other, "Jira"), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
     }
 
     [Fact]
     public async Task TrackerIssues_GitHubTracker_AsksGhForItsRepository()
     {
         var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
-        File.WriteAllText(Path.Combine(basePath, "tracker.md"), "# Трекер\n\n## Где задачи\nhttps://github.com/acme/orders\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
         _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37")]);
 
         var issues = await GetTrackerIssues(basePath, basePath);
@@ -133,11 +150,57 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Equal("GitHub #37", Assert.Single(issues.Issues).Name);
     }
 
+    /// <summary>Перечень фильтра «Метки» — все метки репозитория, а не только метки задач (B-305); метки задачи доходят до фронта.</summary>
+    [Fact]
+    public async Task TrackerIssues_GitHubTracker_CarriesRepositoryLabelsAndIssueLabels()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", ["bug"])]);
+        _github.Labels = ["bug", "docs", "ui"];
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(["acme/orders"], _github.LabelsAsked);
+        Assert.Equal(["bug", "docs", "ui"], issues.Labels);
+        Assert.Equal(["bug"], Assert.Single(issues.Issues).Labels);
+    }
+
+    /// <summary>Меток не прочли — задачи всё равно видны, а перечень фильтр соберёт из меток задач.</summary>
+    [Fact]
+    public async Task TrackerIssues_LabelsUnread_GivesIssuesWithoutLabelList()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
+        _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", ["bug"])]);
+        _github.Labels = null;
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Null(issues.Problem);
+        Assert.Null(issues.Labels);
+        Assert.Single(issues.Issues);
+    }
+
+    [Fact]
+    public async Task TrackerIssues_IssuesUnread_HasNoLabelList()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
+        _github.Answer = new TrackerIssues([], TrackerIssues.GhLogin);
+        _github.Labels = ["bug"];
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(TrackerIssues.GhLogin, issues.Problem);
+        Assert.Null(issues.Labels);
+    }
+
     [Theory]
     [InlineData(null, TrackerIssues.NoTracker)]
-    [InlineData("## Где задачи\nJira PAY\n", TrackerInfo.NotGitHub)]
-    [InlineData("## Где задачи\nGitHub Issues через gh\n", TrackerInfo.NoAddress)]
-    public async Task TrackerIssues_WithoutGitHubAddress_DoesNotRunGh(string? tracker, string problem)
+    [InlineData("## Где задачи\n\nтрекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY\n", TrackerInfo.Other)]
+    [InlineData("## Где задачи\nGitHub Issues https://github.com/acme/orders, через gh\n", TrackerInfo.NoKeys)]
+    public async Task TrackerIssues_WithoutGitHubKeys_DoesNotRunGh(string? tracker, string problem)
     {
         var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
         if (tracker is not null)
@@ -162,7 +225,83 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Empty(_github.Asked);
     }
 
+    [Fact]
+    public async Task TrackerIssues_YouTrackTracker_AsksYouTrackWithKeyOfItsServer()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.Tracker(basePath, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        TrackerKey("https://acme.youtrack.cloud/", "perm:ключ");
+        _youTrack.Answer = new TrackerIssues([new TrackerIssue("YouTrack ABC-12", 12, "Оплата падает", "https://acme.youtrack.cloud/issue/ABC-12")]);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC")], _youTrack.Read);
+        Assert.Equal([null], _youTrack.Filters);
+        Assert.Equal("YouTrack ABC-12", Assert.Single(issues.Issues).Name);
+        Assert.Empty(_github.Asked);
+        Assert.Empty(_github.LabelsAsked);
+        Assert.Null(issues.Labels);
+    }
+
+    /// <summary>Строка «фильтр:» описания уходит отбором в трекер своего вида (B-300).</summary>
+    [Fact]
+    public async Task TrackerIssues_FilterLine_GoesToTracker()
+    {
+        var youTrack = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(youTrack, "tracker.md"),
+            "## Где задачи\n\nтрекер: YouTrack\nсервер: https://acme.youtrack.cloud\nпроект: ABC\nфильтр: State: {To Do}\n");
+        TrackerKey("https://acme.youtrack.cloud", "perm:ключ");
+        var gitHub = CreateBase("crm-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(gitHub, "tracker.md"),
+            "## Где задачи\n\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/crm\nфильтр: label:bug\n");
+
+        await GetTrackerIssues(youTrack, youTrack);
+        await GetTrackerIssues(gitHub, gitHub);
+
+        Assert.Equal(["State: {To Do}"], _youTrack.Filters);
+        Assert.Equal(["label:bug"], _github.Filters);
+    }
+
+    [Fact]
+    public async Task TrackerIssues_YouTrackWithoutKey_IsNoKey()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.Tracker(basePath, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        TrackerKey("https://other.youtrack.cloud", "perm:ключ");
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(TrackerIssues.NoKey, issues.Problem);
+        Assert.Empty(_youTrack.Read);
+    }
+
+    /// <summary>
+    /// Ключ сервера в «Настройках» есть, но не прочитать — не расшифровался или файл серверов битый: причина своя,
+    /// с советом заменить ключ, а не «нет ключа» (ревью B-288).
+    /// </summary>
+    [Theory]
+    [InlineData("""{ "servers": [ { "server": "https://acme.youtrack.cloud", "login": "b", "key": "не-base64" } ] }""")]
+    [InlineData("не json")]
+    public async Task TrackerIssues_YouTrackKeyUnreadable_IsKeyUnreadable(string trackersFile)
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.Tracker(basePath, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        var file = TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, trackersFile);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(TrackerIssues.KeyUnreadable, issues.Problem);
+        Assert.Empty(_youTrack.Read);
+    }
+
     private readonly FakeGitHubIssues _github = new();
+    private readonly FakeYouTrack _youTrack = new();
+
+    /// <summary>Ключ сервера — в trackers.json рядом с bases.json панели теста.</summary>
+    private void TrackerKey(string server, string key) =>
+        new TrackerServersStore(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"))).Save(server, "boris.k", key);
 
     private HttpClient TrackerClient(string basePath) =>
         _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
@@ -176,6 +315,8 @@ public sealed class BacklogEndpointTests : IDisposable
             {
                 services.RemoveAll<IGitHubIssues>();
                 services.AddSingleton<IGitHubIssues>(_github);
+                services.RemoveAll<IYouTrack>();
+                services.AddSingleton<IYouTrack>(_youTrack);
             });
         })).CreateClient();
 
@@ -185,19 +326,6 @@ public sealed class BacklogEndpointTests : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<TrackerIssues>())!;
-    }
-
-    private sealed class FakeGitHubIssues : IGitHubIssues
-    {
-        public TrackerIssues Answer { get; set; } = new([]);
-
-        public List<string> Asked { get; } = [];
-
-        public Task<TrackerIssues> AssignedAsync(string repo, CancellationToken cancellationToken)
-        {
-            Asked.Add(repo);
-            return Task.FromResult(Answer);
-        }
     }
 
     [Fact]

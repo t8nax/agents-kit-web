@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, expect, onTestFinished, test, vi } from 'vitest'
 import App, { type WorkspaceRow } from './App'
 import { type AgentKind, type AgentRequestSummary } from './agentRequest'
 import { forgetRemembered } from './backlogView'
@@ -62,7 +62,6 @@ const rows: WorkspaceRow[] = [
     progress: 33,
     status: 'waiting',
     error: null,
-    sessionState: 'idle',
     backgroundSession: true,
   },
   {
@@ -75,7 +74,6 @@ const rows: WorkspaceRow[] = [
     progress: null,
     status: 'free',
     error: null,
-    sessionState: 'working',
   },
   {
     project: 'app-knowledge',
@@ -141,40 +139,37 @@ test('показывает рабочие копии из /api/workspaces', asyn
   expect(screen.queryByText('pong')).not.toBeInTheDocument()
 })
 
-test('точка у имени копии говорит, что делает её сессия', async () => {
-  // Копия без сессии — та, где задачу ведут, а сессию уже закрыли: её видно среди работающих
-  const abandoned: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\left', status: 'in-work', sessionState: null }
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, abandoned]), { status: 200 })))
+// Сессия задачи встала без вопроса или ждёт нажатия в терминале — B-308
+const stopped: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-stopped', status: 'stopped' }
+const terminal: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-terminal', status: 'terminal' }
+
+test('у имени копии точки сессии нет: в ячейке только имя и ветка', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 })))
 
   render(<App />)
   const tableRows = await findTableRows()
 
-  // Статус копии считается по памяти и остаётся прежним — состояние сессии читается рядом с ним
-  expect(within(tableRows[1]).getByLabelText('сессия стоит без дела')).toBeInTheDocument()
-  expect(within(tableRows[1]).getByText('Ждёт оператора')).toBeInTheDocument()
-  expect(within(tableRows[2]).getByLabelText('сессия работает')).toBeInTheDocument()
-  expect(within(tableRows[4]).getByLabelText('сессии нет')).toBeInTheDocument()
-  expect(within(tableRows[4]).getByText('В работе')).toBeInTheDocument()
-
-  // Строке с ошибкой точку ставить не о чем: копии на диске нет
-  expect(within(tableRows[3]).queryByRole('img')).not.toBeInTheDocument()
-
-  // Подпись точки — метка, а не текст: содержимое ячейки остаётся именем копии и её веткой
+  expect(within(tableRows[1]).queryByRole('img')).not.toBeInTheDocument()
   expect(within(tableRows[1]).getAllByRole('cell')[0]).toHaveTextContent(/^appfeat\/table$/)
-
-  // Слова состояния держит подсказка точки, отдельной легенды под таблицей нет
-  expect(within(tableRows[1]).getByRole('img')).toHaveAttribute('title', 'сессия стоит без дела')
-  expect(screen.queryByText('Точка у имени копии:')).not.toBeInTheDocument()
 })
 
-test('сессия, ждущая оператора в терминале, отмечена своей точкой', async () => {
-  const asking: WorkspaceRow = { ...rows[1], sessionState: 'waiting' }
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([asking]), { status: 200 })))
+test('остановившаяся сессия и диалог в терминале стоят своими плашками и зовут оператора', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([stopped, terminal]), { status: 200 })))
 
   render(<App />)
   const tableRows = await findTableRows()
 
-  expect(within(tableRows[1]).getByLabelText('сессия ждёт вас в терминале')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Сессия стоит')).toHaveClass('status-badge', 'status-stopped')
+  expect(within(tableRows[2]).getByText('Ждёт в терминале')).toHaveClass('status-badge', 'status-terminal')
+  // Отвечать не на что: вопроса в памяти нет, оператор нужен в самой сессии
+  expect(screen.queryByRole('button', { name: 'Ответить' })).not.toBeInTheDocument()
+  expect(document.querySelectorAll('.progress-fill.waiting')).toHaveLength(2)
+
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+  expect(sidebar.getByRole('button', { name: 'Рабочие копии, 2 ждут' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Свернуть app-knowledge' }))
+  expect(document.querySelectorAll('.group-waiting-dot')).toHaveLength(1)
 })
 
 const otherBase: WorkspaceRow = {
@@ -258,6 +253,29 @@ test('группа сворачивается кликом по любому м�
   expect(localStorage.getItem('agents-kit-web.collapsed-groups')).toBe('[]')
 })
 
+test('база нового формата — строки копий как обычно, под шапкой группы строка предупреждения, и у свёрнутой тоже', async () => {
+  const warning = 'Кит перевёл базу на формат, которого эта версия панели не знает.'
+  const newer = rows.map((row) => ({ ...row, formatWarning: warning }))
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([...newer, otherBase]), { status: 200 })))
+
+  render(<App />)
+
+  const line = await screen.findByText(warning)
+  expect(line).toHaveAttribute('role', 'status')
+  expect(screen.getAllByText(warning)).toHaveLength(1)
+  // Копии базы видны обычными строками, и на вопрос агента ответить можно
+  const task = screen.getByText('Таблица рабочих копий').closest('tr')!
+  expect(within(task).getByRole('button', { name: 'Ответить' })).toBeEnabled()
+  // Строка стоит сразу под шапкой своей группы
+  const all = screen.getAllByRole('row')
+  const header = all.findIndex((row) => within(row).queryByRole('rowheader')?.textContent === 'app-knowledge')
+  expect(within(all[header + 1]).getByText(warning)).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Свернуть app-knowledge' }))
+  expect(screen.queryByText('Таблица рабочих копий')).not.toBeInTheDocument()
+  expect(screen.getByText(warning)).toBeInTheDocument()
+})
+
 test('номер задачи из бэклога стоит своей колонкой, без номера и без задачи — прочерк', async () => {
   const numbered: WorkspaceRow = { ...rows[0], task: 'B-24 Номер задачи отдельной колонкой', letters: 'B' }
   const unnumbered: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'Задача не из бэклога', letters: 'B' }
@@ -292,6 +310,24 @@ test('номер задачи отделяется по буквам её про
   expect(cells(tableRows[1]).slice(1, 3)).toEqual(['ORD-12', 'Выгрузка заказов за период'])
   expect(within(tableRows[1]).getByText('ORD-12')).toHaveClass('num-chip')
   expect(cells(tableRows[2]).slice(1, 3)).toEqual(['—', 'UTF-8 в именах файлов ломает выгрузку'])
+})
+
+test('номер задачи трекера стоит в колонке номера с именем трекера, только у проекта с этим трекером', async () => {
+  const jira: WorkspaceRow = { ...rows[0], task: 'Jira PAY-7 Выгрузка отчётов', letters: 'B', tracker: 'Jira' }
+  const backlog: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-2', task: 'B-24 Номер задачи отдельной колонкой', letters: 'B', tracker: 'Jira' }
+  const foreign: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-3', task: 'GitHub #37 Оплата падает', letters: 'B', tracker: 'Jira' }
+  const untracked: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-4', task: 'GitHub #37 Оплата падает', letters: 'B', tracker: null }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([jira, backlog, foreign, untracked])))
+
+  render(<App />)
+
+  const tableRows = await findTableRows()
+  const cells = (row: HTMLElement) => within(row).getAllByRole('cell').map((cell) => cell.textContent)
+  expect(cells(tableRows[1]).slice(1, 3)).toEqual(['Jira PAY-7', 'Выгрузка отчётов'])
+  expect(within(tableRows[1]).getByText('Jira PAY-7')).toHaveClass('num-chip')
+  expect(cells(tableRows[2]).slice(1, 3)).toEqual(['B-24', 'Номер задачи отдельной колонкой'])
+  expect(cells(tableRows[3]).slice(1, 3)).toEqual(['—', 'GitHub #37 Оплата падает'])
+  expect(cells(tableRows[4]).slice(1, 3)).toEqual(['—', 'GitHub #37 Оплата падает'])
 })
 
 // Меню действий строки: кнопка «⋯» открывает его, пункт — действие над копией этой строки
@@ -470,7 +506,6 @@ test('запущенная задача стоит в строке копии д
     task: 'B-7 Панель показывает задачу сразу',
     letters: 'B',
     status: 'starting',
-    sessionState: 'working',
     backgroundSession: true,
   }
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([starting])))
@@ -537,7 +572,8 @@ test('копия не открылась — панель говорит об э
 
 test('сайдбар переключает разделы, среди них «Проблемы баз» и «Настройки»', async () => {
   const fetchMock = vi.fn(async (url: string) => {
-    if (url === '/api/backlog' || url === '/api/bases') return new Response(JSON.stringify([]), { status: 200 })
+    if (url === '/api/backlog' || url === '/api/bases' || url === '/api/trackers' || url === '/api/trackers/projects')
+      return new Response(JSON.stringify([]), { status: 200 })
     if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
     if (url === '/api/health')
       return new Response(JSON.stringify({ pending: false, kit: 'ok', bases: [], checkedAt: null }), { status: 200 })
@@ -569,6 +605,41 @@ test('сайдбар переключает разделы, среди них «
   expect(sidebar.getByRole('button', { name: 'Настройки' })).toHaveAttribute('aria-current', 'page')
   // Кнопки «Базы знаний» больше нет: базы живут в разделе «Настройки»
   expect(sidebar.queryByRole('button', { name: 'Базы знаний' })).not.toBeInTheDocument()
+
+  // Критерий 1 B-318: пункта «Руководство» в полосе нет, она кончается «Настройками»
+  expect(sidebar.queryByRole('button', { name: 'Руководство' })).not.toBeInTheDocument()
+  expect(sidebar.getAllByRole('button').at(-1)).toHaveAccessibleName('Настройки')
+})
+
+test('руководство открывается значком книги в шапке, и значок отмечен, пока руководство открыто', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 })))
+  render(<App />)
+  const header = within(screen.getByRole('banner'))
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+
+  // Критерий 2 B-318: значок книги стоит между «Спросить Чудо-Юдо» и темой, название — в подсказке
+  const buttons = header.getAllByRole('button')
+  const guide = header.getByRole('button', { name: 'Руководство' })
+  expect(buttons.at(-3)).toHaveAccessibleName('Спросить Чудо-Юдо')
+  expect(buttons.at(-2)).toBe(guide)
+  expect(buttons.at(-1)).toHaveAccessibleName('Светлая тема')
+  expect(guide).toHaveAttribute('title', 'Руководство')
+  expect(guide).toHaveTextContent('')
+  expect(guide).not.toHaveAttribute('aria-current')
+
+  fireEvent.click(guide)
+  expect(await screen.findByRole('heading', { name: 'Руководство', level: 2 })).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Страницы руководства' })).toBeInTheDocument()
+
+  // Критерий 3 B-318: открыто руководство — отмечена книга, в полосе не выделен ни один пункт
+  expect(guide).toHaveAttribute('aria-current', 'page')
+  expect(guide).toHaveClass('active')
+  for (const item of sidebar.getAllByRole('button')) expect(item).not.toHaveAttribute('aria-current')
+
+  fireEvent.click(sidebar.getByRole('button', { name: 'Настройки' }))
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  expect(guide).not.toHaveAttribute('aria-current')
+  expect(guide).not.toHaveClass('active')
 })
 
 const checked = (baseProblems: number, problems: number): Partial<WorkspaceRow> => ({
@@ -640,7 +711,8 @@ test('без пути к киту таблица говорит об этом в
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      if (url === '/api/bases') return new Response(JSON.stringify([]), { status: 200 })
+      if (url === '/api/bases' || url === '/api/trackers' || url === '/api/trackers/projects')
+        return new Response(JSON.stringify([]), { status: 200 })
       if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
       return new Response(JSON.stringify(tableRows), { status: 200 })
     }),
@@ -971,7 +1043,11 @@ test('переключатель ставит тему и браузер её п
   // Без своего выбора тема тёмная по системе, атрибута на странице нет
   expect(document.documentElement.dataset.theme).toBeUndefined()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Светлая тема' }))
+  // Критерий 4 B-318: переключатель — значок без надписи, тема, на которую он переключит, — в подсказке
+  const toggle = await screen.findByRole('button', { name: 'Светлая тема' })
+  expect(toggle).toHaveTextContent('')
+  expect(toggle).toHaveAttribute('title', 'Светлая тема')
+  fireEvent.click(toggle)
   expect(document.documentElement.dataset.theme).toBe('light')
   expect(localStorage.getItem('agents-kit-web.theme')).toBe('light')
   expect(screen.getByRole('button', { name: 'Тёмная тема' })).toBeInTheDocument()
@@ -1060,11 +1136,18 @@ function stubSections() {
     if (url === '/api/flow') return new Response(JSON.stringify(flows), { status: 200 })
     if (url === '/api/performers') return new Response(JSON.stringify(performers), { status: 200 })
     if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
+    if (url === '/api/reports/flow') return new Response(JSON.stringify(reportItems), { status: 200 })
     return new Response(JSON.stringify([]), { status: 200 })
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
 }
+
+// Отчёты двух проектов — без отчёта: разделу хватает названий, чтобы показать выбранный проект
+const reportItems = [
+  { base: 'D:\\Projects\\app-knowledge', project: 'App', schedule: { enabled: false, days: [], hour: 9 }, report: null, blocked: null },
+  { base: 'D:\\Projects\\nota-knowledge', project: 'Nota', schedule: { enabled: false, days: [], hour: 9 }, report: null, blocked: null },
+]
 
 // Оператор вернулся к просьбе отметкой в шапке: панель открывает её раздел с её окном
 function returnToRequest(kind: AgentKind, base: string) {
@@ -1114,6 +1197,68 @@ test('возврат к просьбе о флоу открывает разде
   expect(screen.queryByRole('heading', { name: 'Переписать с Чудо-Юдо' })).not.toBeInTheDocument()
 })
 
+const trackerRows = [
+  {
+    base: 'D:\\Projects\\app-knowledge',
+    project: 'app-knowledge',
+    problem: null,
+    tracker: { kind: 'no-keys', faults: ['проект'] },
+    description: {
+      tracker: 'GitHub', server: 'https://github.com', project: '', where: 'gh', backlog: 'мои', take: 'метка', closed: 'ничего', move: 'туда',
+    },
+    version: 'v1',
+    busy: [],
+    newerFormat: false,
+  },
+]
+
+function stubTrackers() {
+  const fetchMock = vi.fn(async (url: string) => {
+    if (url === '/api/backlog')
+      return new Response(JSON.stringify([{ ...backlogs[0], tracker: trackerRows[0].tracker }]), { status: 200 })
+    if (url === '/api/trackers/projects') return new Response(JSON.stringify(trackerRows), { status: 200 })
+    if (url === '/api/kit') return new Response(JSON.stringify({ path: null, found: false }), { status: 200 })
+    if (url === '/api/workspaces') return new Response(JSON.stringify(rows), { status: 200 })
+    return new Response(JSON.stringify([]), { status: 200 })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+}
+
+// Критерий 7 B-293: строка поломки описания трекера в «Бэклоге» ведёт в карточку «Трекеры проектов».
+test('строка поломки трекера в «Бэклоге» открывает «Настройки» на карточке «Трекеры проектов»', async () => {
+  stubTrackers()
+  // В jsdom прокрутки нет: тест ставит её себе и убирает за собой.
+  const scrolled = vi.fn()
+  Element.prototype.scrollIntoView = scrolled
+  onTestFinished(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+  })
+  render(<App />)
+  await screen.findByRole('table')
+
+  fireEvent.click(sidebarButtons().getByRole('button', { name: /Бэклог/ }))
+  fireEvent.click(await screen.findByRole('tab', { name: 'Задачи трекера' }))
+  fireEvent.click(await screen.findByRole('button', { name: '«Трекеры проектов»' }))
+
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  const card = await screen.findByRole('region', { name: 'Трекеры проектов' })
+  await waitFor(() => expect(scrolled).toHaveBeenCalled())
+  expect(scrolled.mock.contexts[0]).toBe(card)
+  expect(within(card).getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
+})
+
+test('возврат к переписке о трекере открывает «Настройки» с окном трекера этого проекта', async () => {
+  stubTrackers()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('tracker', 'D:\\Projects\\app-knowledge')
+
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  const dialog = await screen.findByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })
+  expect(within(dialog).getByText('app-knowledge', { selector: '.rewrite-project-name' })).toBeInTheDocument()
+})
+
 test('«Исполнители» из сайдбара открываются списком, а не окном заведения после возврата к просьбе', async () => {
   stubSections()
   render(<App />)
@@ -1128,6 +1273,18 @@ test('«Исполнители» из сайдбара открываются с
 
   expect(await screen.findByRole('heading', { name: 'Исполнители' })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: 'Новый исполнитель' })).not.toBeInTheDocument()
+})
+
+test('отметка разбора флоу открывает «Отчёты» на проекте разбора, и открытый раздел переключается на другой', async () => {
+  stubSections()
+  render(<App />)
+  await screen.findByRole('table')
+
+  returnToRequest('report', 'D:\\Projects\\nota-knowledge')
+  expect(await screen.findByRole('button', { name: 'Проект: Nota' })).toBeInTheDocument()
+
+  returnToRequest('report', 'D:\\Projects\\app-knowledge')
+  expect(await screen.findByRole('button', { name: 'Проект: App' })).toBeInTheDocument()
 })
 
 test('возврат к просьбе из шапки открывает раздел с окном на её базе сколько угодно раз', async () => {
@@ -1151,7 +1308,6 @@ test('возврат к просьбе из шапки открывает раз
 const unread: WorkspaceRow = {
   ...rows[0],
   status: 'unread',
-  sessionState: null,
   backgroundSession: false,
 }
 
@@ -1187,6 +1343,36 @@ test('уведомляет, когда ответ в копии остался �
   expect(shown[0].options?.body).toBe('D:\\Projects\\app\nТаблица рабочих копий')
 })
 
+test('уведомляет, когда сессия задачи встала без вопроса', async () => {
+  fakeInterval()
+  const { shown } = stubNotification('granted')
+  const inWork: WorkspaceRow = { ...stopped, status: 'in-work' }
+  workspaceResponses([inWork, rows[1]], [stopped, rows[1]])
+
+  render(<App />)
+  expect(await screen.findByText('В работе')).toBeInTheDocument()
+
+  await tick(3000)
+  expect(await screen.findByText('Сессия стоит')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
+  expect(shown[0].title).toBe('app-knowledge: сессия стоит')
+})
+
+test('уведомляет, когда сессия задачи ждёт нажатия в терминале', async () => {
+  fakeInterval()
+  const { shown } = stubNotification('granted')
+  const inWork: WorkspaceRow = { ...terminal, status: 'in-work' }
+  workspaceResponses([inWork, rows[1]], [terminal, rows[1]])
+
+  render(<App />)
+  expect(await screen.findByText('В работе')).toBeInTheDocument()
+
+  await tick(3000)
+  expect(await screen.findByText('Ждёт в терминале')).toBeInTheDocument()
+  expect(shown).toHaveLength(1)
+  expect(shown[0].title).toBe('app-knowledge: ждёт в терминале')
+})
+
 test('«Завести сессию задачи» открыт у копии с задачей без сессии и приглушён у остальных', async () => {
   // Сессия задачи жива — фоновая или в VS Code — заводить нечего; свободной копии продолжать нечего
   const withBackground: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-bg' }
@@ -1207,7 +1393,7 @@ test('«Завести сессию задачи» открыт у копии с
   expect(start(await openRowMenu(tableRows[5]))).toBeEnabled()
 })
 
-test('заведённая сессия так и не показалась — точка перестаёт мигать, и панель говорит об этом строкой', async () => {
+test('заведённая сессия так и не показалась — «Запускается» уходит, и панель говорит об этом строкой', async () => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'] })
   vi.stubGlobal('fetch', vi.fn(async (url: string) =>
     url === '/api/tasks/session'
@@ -1225,18 +1411,18 @@ test('заведённая сессия так и не показалась — 
     fireEvent.click(within(tableRows[1]).getByRole('menuitem', { name: 'Завести сессию задачи' }))
     await vi.advanceTimersByTimeAsync(0)
   })
-  expect(within(tableRows[1]).getByLabelText('сессия заводится')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Запускается')).toHaveClass('status-starting')
 
   await act(async () => {
     await vi.advanceTimersByTimeAsync(15000)
   })
   expect(screen.getByText('Сессия в app заведена, но в перечне живых сессий так и не показалась')).toBeInTheDocument()
-  expect(within(tableRows[1]).getByLabelText('сессии нет')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Ответ не прочитан')).toBeInTheDocument()
 })
 
-test('«Завести сессию задачи» заводит сессию молча, и точка копии мигает, пока сессия не покажется', async () => {
+test('«Завести сессию задачи» заводит сессию молча, и копия «Запускается», пока сессия не покажется', async () => {
   fakeInterval()
-  const alive: WorkspaceRow = { ...unread, status: 'in-work', sessionState: 'working', backgroundSession: true }
+  const alive: WorkspaceRow = { ...unread, status: 'in-work', backgroundSession: true }
   let list = [unread, rows[1]]
   const fetchMock = vi.fn(async (url: string) =>
     url === '/api/tasks/session'
@@ -1259,16 +1445,19 @@ test('«Завести сессию задачи» заводит сессию �
   })
   // Окна терминала панель не открывает — решение оператора
   expect(fetchMock).not.toHaveBeenCalledWith('/api/session/terminal', expect.anything())
-  expect(within(tableRows[1]).getByLabelText('сессия заводится')).toHaveClass('session-starting')
+  expect(within(tableRows[1]).getByText('Запускается')).toHaveClass('status-starting')
+  // «Запускается» оператора не ждёт: ни полосой, ни счётом в сайдбаре
+  expect(document.querySelector('.progress-fill.waiting')).toBeNull()
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+  expect(sidebar.queryByRole('button', { name: /ждёт/ })).not.toBeInTheDocument()
 
   list = [alive, rows[1]]
   await tick(3000)
   const row = within((await findTableRows())[1])
-  expect(await row.findByLabelText('сессия работает')).toBeInTheDocument()
-  expect(row.getByText('В работе')).toBeInTheDocument()
+  expect(await row.findByText('В работе')).toBeInTheDocument()
 })
 
-test('сессия задачи не завелась — панель говорит об этом строкой, и точка не мигает', async () => {
+test('сессия задачи не завелась — панель говорит об этом строкой, и копия не «Запускается»', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) =>
     url === '/api/tasks/session'
       ? new Response(JSON.stringify({ problem: 'session-alive' }), { status: 400 })
@@ -1283,5 +1472,5 @@ test('сессия задачи не завелась — панель гово�
   })
 
   expect(await screen.findByText('В app сессия задачи уже идёт')).toBeInTheDocument()
-  expect(within(tableRows[1]).getByLabelText('сессии нет')).toBeInTheDocument()
+  expect(within(tableRows[1]).getByText('Ответ не прочитан')).toBeInTheDocument()
 })

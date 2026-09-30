@@ -14,13 +14,40 @@ export type Order = { field: SortField; direction: SortDirection }
 /** Без сохранённого выбора — по числу номера от давних к новым; буквы номера порядку не важны. */
 export const defaultOrder: Order = { field: 'number', direction: 'asc' }
 
-/** Выбор оператора: пустой список значений — поле не фильтрует, пустой запрос — поиска нет. */
-export type Selection = { types: string[]; priorities: string[]; query: string }
+/** Вкладка раздела: записи бэклога базы или задачи трекера — у каждой свои фильтры (B-305, вместо фильтра источника B-302). */
+export type Tab = 'entries' | 'tracker'
 
-export const emptySelection: Selection = { types: [], priorities: [], query: '' }
+/** Метка, выбранная в фильтре «Метки», — у своего проекта: одноимённые метки двух репозиториев разные (B-305). */
+export type PickedLabel = { base: string; name: string }
 
+/**
+ * Выбор оператора: пустой список значений — поле не фильтрует, пустой запрос — поиска нет. Тип и приоритет отбирают
+ * записи бэклога, метки — задачи трекера, поиск — и то и другое.
+ */
+export type Selection = { types: string[]; priorities: string[]; labels: PickedLabel[]; query: string }
+
+export const emptySelection: Selection = { types: [], priorities: [], labels: [], query: '' }
+
+/** Отбор записей бэклога включён: выбран тип или приоритет или набран запрос. */
 export function isFiltering(selection: Selection): boolean {
   return selection.types.length > 0 || selection.priorities.length > 0 || selection.query.trim() !== ''
+}
+
+/**
+ * Метки, которые отбирают задачи сейчас, — выбранные у видимых проектов: при смене проекта метки другого остаются
+ * выбранными, но не действуют, пока их проект не виден снова.
+ */
+export function activeLabels(labels: PickedLabel[], bases: string[]): PickedLabel[] {
+  return labels.filter((label) => bases.includes(label.base))
+}
+
+/** Отбор задач трекера включён: действует метка или набран запрос. */
+export function isFilteringIssues(selection: Selection, active: PickedLabel[]): boolean {
+  return active.length > 0 || selection.query.trim() !== ''
+}
+
+export function samePicked(a: PickedLabel, b: PickedLabel): boolean {
+  return a.base === b.base && a.name === b.name
 }
 
 export function matches(entry: BacklogEntry, selection: Selection): boolean {
@@ -31,11 +58,15 @@ export function matches(entry: BacklogEntry, selection: Selection): boolean {
 }
 
 /**
- * Задача трекера полей типа и приоритета не несёт: включённый чип типа или приоритета её скрывает, как запись без
- * поля. Поиск — по имени задачи («GitHub #37») и заголовку.
+ * Задача трекера base проходит отбор своей вкладки: действуют метки active — у неё есть хоть одна из выбранных
+ * у её проекта; у проекта своих выбранных нет — ни одна (задачи прочих видимых проектов при выбранной метке скрыты).
+ * Поиск — по имени задачи («GitHub #37») и заголовку. Тип и приоритет — фильтры другой вкладки.
  */
-export function matchesIssue(issue: TrackerIssue, selection: Selection): boolean {
-  if (selection.types.length > 0 || selection.priorities.length > 0) return false
+export function matchesIssue(issue: TrackerIssue, base: string, selection: Selection, active: PickedLabel[]): boolean {
+  if (active.length > 0) {
+    const labels = issue.labels ?? []
+    if (!active.some((label) => label.base === base && labels.includes(label.name))) return false
+  }
   const query = searchable(selection.query.trim())
   return query === '' || searchable(`${issue.name} ${issue.title}`).includes(query)
 }
@@ -83,13 +114,13 @@ export function arrange(entries: BacklogEntry[], selection: Selection, order: Or
     .map(({ entry }) => entry)
 }
 
-/** Отбор, который раздел помнит между открытиями: проект (null — все) и чипы типа и приоритета. */
-export type Remembered = { project: string | null; types: string[]; priorities: string[] }
+/** Отбор, который раздел помнит между открытиями: вкладка, проект (null — все), чипы типа и приоритета и метки. */
+export type Remembered = { tab: Tab; project: string | null; types: string[]; priorities: string[]; labels: PickedLabel[] }
 
-const nothingRemembered: Remembered = { project: null, types: [], priorities: [] }
+const nothingRemembered: Remembered = { tab: 'entries', project: null, types: [], priorities: [], labels: [] }
 
 // Отбор живёт в памяти страницы, а не в браузере: уход в другой раздел его не сбрасывает,
-// перезагрузка страницы — сбрасывает. Поиск не помнится — решения оператора на B-267.
+// перезагрузка страницы — сбрасывает. Поиск не помнится — решения оператора на B-267; вкладка и метки — как чипы (B-305).
 let remembered = nothingRemembered
 
 export function readRemembered(): Remembered {
@@ -100,9 +131,22 @@ export function remember(next: Remembered) {
   remembered = next
 }
 
+// Задачи трекера, которые завёл разговор с Чудо-Юдо и под которые трекер уже перечитан, — «база|имя задачи». Они живут
+// в памяти страницы, как отбор: разговор переживает уход из раздела, и окно, открытое после возвращения, называет
+// их снова — трекер под них второй раз не перечитывается (GitHub #3).
+const tracked = new Set<string>()
+
+/** Какие из задач трекера разговор назвал впервые; они запоминаются. */
+export function newlyTracked(base: string, issues: string[]): string[] {
+  const fresh = issues.filter((issue) => !tracked.has(`${base}|${issue}`))
+  fresh.forEach((issue) => tracked.add(`${base}|${issue}`))
+  return fresh
+}
+
 /** Для тестов: каждый начинает с раздела без отбора, как после перезагрузки страницы. */
 export function forgetRemembered() {
   remembered = nothingRemembered
+  tracked.clear()
 }
 
 const orderKey = 'agents-kit-web.backlog-order'

@@ -39,7 +39,7 @@ public static class FlowRules
             : string.Join("\n\n", new[] { Section(lines, ScenarioHeading), form, Section(lines, LimitsHeading) }.OfType<string>());
     }
 
-    private static string? Section(string[] lines, string heading)
+    internal static string? Section(string[] lines, string heading)
     {
         var start = Array.FindIndex(lines, line => line.TrimEnd() == heading);
         if (start < 0)

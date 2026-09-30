@@ -27,6 +27,20 @@ vi.mock('./attachmentDrafts', async () => {
   }
 })
 
+// Кнопка микрофона проверяется своим тестом; здесь — её место в строке и куда ложится сказанное. Щелчок по
+// подменённой кнопке нарезает кусок там, где окно сейчас, а текст приходит позже, как от распознавания.
+const voice = vi.hoisted(() => ({
+  onText: null as ((text: string, target: unknown) => void) | null,
+  cut: undefined as unknown,
+}))
+vi.mock('./VoiceButton', () => ({
+  default: ({ onText, target }: { onText: (text: string, target: unknown) => void; target?: unknown }) => {
+    voice.onText = onText
+    return <button type="button" aria-label="Голосовой ввод" onClick={() => (voice.cut = target)} />
+  },
+}))
+const recognized = (text: string) => act(() => voice.onText?.(text, voice.cut))
+
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -328,25 +342,59 @@ const three: QuestionsResponse = {
   ],
 }
 
-test('стрелки ведут по вопросам и упираются в первый и последний; пометки «Пропущен» нет', async () => {
+test('стрелок перелистывания нет: по вопросам ходят Enter и щелчком по ленте; пометки «Пропущен» нет', async () => {
   stubApi(() => new Response(null, { status: 204 }), three)
   const dialog = within(await openReply())
   await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
 
-  expect(dialog.getByRole('button', { name: 'Предыдущий вопрос' })).toBeDisabled()
-  fireEvent.click(dialog.getByRole('button', { name: 'Следующий вопрос' }))
+  expect(dialog.queryByRole('button', { name: 'Предыдущий вопрос' })).not.toBeInTheDocument()
+  expect(dialog.queryByRole('button', { name: 'Следующий вопрос' })).not.toBeInTheDocument()
+  fireEvent.keyDown(dialog.getByRole('textbox', { name: 'Ответ' }), { key: 'Enter' })
 
   expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
   // мимо первого прошли без ответа, и он всё равно обычная свёрнутая строка
   expect(collapsed(dialog, 'Подтвердить критерий?')).not.toHaveTextContent('Пропущен')
   expect(document.querySelector('.q-compact.is-skipped')).toBeNull()
 
-  fireEvent.click(dialog.getByRole('button', { name: 'Следующий вопрос' }))
+  fireEvent.click(collapsed(dialog, 'Куда класть копию?'))
   expect(dialog.getByRole('heading', { name: 'Куда класть копию?' })).toBeInTheDocument()
-  expect(dialog.getByRole('button', { name: 'Следующий вопрос' })).toBeDisabled()
+  fireEvent.click(collapsed(dialog, 'Подтвердить критерий?'))
+  expect(dialog.getByRole('heading', { name: 'Подтвердить критерий?' })).toBeInTheDocument()
+})
 
-  fireEvent.click(dialog.getByRole('button', { name: 'Предыдущий вопрос' }))
+test('микрофон стоит на левом краю строки ответа, сказанное дописывается к ответу текущего вопроса', async () => {
+  stubApi(() => new Response(null, { status: 204 }), three)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  const field = dialog.getByRole('textbox', { name: 'Ответ' })
+  fireEvent.change(field, { target: { value: 'Принимаю' } })
+
+  const row = field.closest('.composer-row')!
+  expect(row.firstElementChild).toHaveAccessibleName('Голосовой ввод')
+  fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Голосовой ввод' }))
+  recognized('с оговоркой.')
+
+  expect(field).toHaveValue('Принимаю с оговоркой.')
+  // Сказанное — тот же ответ, что набранный: он в ленте и в черновике.
+  expect(document.querySelector('.op-bubble')).toHaveTextContent('Принимаю с оговоркой.')
+  expect(localStorage.getItem(draftsKey)).toContain('Принимаю с оговоркой.')
+})
+
+test('сказанное ложится в ответ того вопроса, где его записали, даже если оператор ушёл к следующему', async () => {
+  stubApi(() => new Response(null, { status: 204 }), three)
+  const dialog = within(await openReply())
+  await dialog.findByRole('heading', { name: 'Подтвердить критерий?' })
+  const field = dialog.getByRole('textbox', { name: 'Ответ' })
+
+  fireEvent.click(dialog.getByRole('button', { name: 'Голосовой ввод' }))
+  // Пока кусок распознаётся, оператор перешёл к следующему вопросу.
+  fireEvent.keyDown(field, { key: 'Enter' })
   expect(dialog.getByRole('heading', { name: 'Как быть с переносами?' })).toBeInTheDocument()
+  recognized('Принимаю.')
+
+  expect(field).toHaveValue('')
+  fireEvent.click(collapsed(dialog, 'Подтвердить критерий?'))
+  expect(dialog.getByRole('textbox', { name: 'Ответ' })).toHaveValue('Принимаю.')
 })
 
 const draftsKey = 'agents-kit-web.answer-drafts|D:\\Projects\\app-knowledge|D:\\Projects\\app'

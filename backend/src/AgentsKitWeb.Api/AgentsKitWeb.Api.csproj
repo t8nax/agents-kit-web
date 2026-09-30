@@ -6,4 +6,30 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+  </ItemGroup>
+
+  <!--
+    Страницы руководства панели (B-306) лежат рядом с exe и в запуске для разработки, и в сборке:
+    их читает Чудо-Юдо, когда оператор спрашивает о самой панели. Показывает их фронт — у него своя копия в бандле.
+  -->
+  <ItemGroup>
+    <None Include="..\..\..\frontend\src\guide\*.md" Link="guide\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!--
+    Рантайм распознавания речи пакет кладёт под все платформы — около 16 МБ; панель работает только
+    на Windows x64, и голосовой ввод — модуль по желанию (B-291): в сборке остаётся только win-x64.
+  -->
+  <Target Name="KeepOnlyWindowsWhisperRuntime" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <None Remove="@(None)"
+            Condition="$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes/')) and !$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes/win-x64/'))" />
+    </ItemGroup>
+  </Target>
+
 </Project>

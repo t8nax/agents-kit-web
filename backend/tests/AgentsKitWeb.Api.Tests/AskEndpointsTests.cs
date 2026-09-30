@@ -69,6 +69,60 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Equal(8335, answer.DurationMs);
     }
 
+    // Критерий 5 B-306: о самой панели Чудо-Юдо отвечает по её руководству, которое лежит рядом с панелью.
+    [Fact]
+    public async Task Ask_GivesTheAgentThePanelGuide()
+    {
+        var page = Path.Combine(AskEndpoints.GuideDir, "workspaces.md");
+        Assert.True(File.Exists(page));
+        _agent.Answers =
+        [
+            [
+                Tool("Grep", new { pattern = "Удалить", path = AskEndpoints.GuideDir }),
+                Tool("Read", new { file_path = page }),
+                Result("Через меню строки."),
+            ],
+        ];
+
+        var client = Client(_base);
+        await Ask(client, _base, "как удалить копию?");
+        var events = await Read(client, 4);
+
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        Assert.Contains(AskEndpoints.GuideDir, args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
+        Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains($"Руководство оператора по панели — в каталоге {AskEndpoints.GuideDir}", prompt);
+        // Названные агенту страницы есть в каталоге руководства: переименование не разойдётся с промптом молча.
+        foreach (var named in new[] { "start.md", "header.md" })
+        {
+            Assert.Contains(named, prompt);
+            Assert.True(File.Exists(Path.Combine(AskEndpoints.GuideDir, named)), named);
+        }
+        // Прочитанная страница видна у ответа под своим именем, а не путём от базы.
+        Assert.Equal(new AskEvent("step", "ищет «Удалить» в руководство"), events[1]);
+        Assert.Equal(new AskEvent("step", "читает руководство/workspaces.md"), events[2]);
+        Assert.Equal(["руководство/workspaces.md"], events[3].Files);
+    }
+
+    [Fact]
+    public async Task Ask_NamesTheGuidePageAlsoWhenACopyIsChosen()
+    {
+        var copy = WithCopies("app", "app-task")[1];
+        var page = Path.Combine(AskEndpoints.GuideDir, "settings.md").Replace('\\', '/');
+        _agent.Answers = [[Tool("Read", new { file_path = page }), Result("В «Настройках».")]];
+
+        var client = Client(_base);
+        await Ask(client, _base, "где путь к киту?", copy);
+        var events = await Read(client, 3);
+
+        var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
+        Assert.Equal(
+            [copy, AskEndpoints.GuideDir],
+            args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
+        Assert.Equal(["руководство/settings.md"], events[2].Files);
+    }
+
     [Fact]
     public async Task Ask_RunsReadOnlyClaudeInBaseWithReplyOnStdin()
     {
@@ -90,8 +144,8 @@ public sealed class AskEndpointsTests : IDisposable
         // Режим «авто» задан явно, а указание работать через оболочку погашено — B-153.
         Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
         Assert.Equal("""{"env":{"CLAUDE_CODE_THRIFTY_SONIC":"0"}}""", args[args.IndexOf("--settings") + 1]);
-        // Копия не выбрана — разговор идёт по одной базе.
-        Assert.DoesNotContain("--add-dir", args);
+        // Копия не выбрана — разговор идёт по одной базе, а вторым каталогом подано только руководство панели.
+        Assert.Equal([AskEndpoints.GuideDir], args.Where((_, i) => i > 0 && args[i - 1] == "--add-dir"));
         Assert.DoesNotContain(args, a => a.Contains("--help"));
         Assert.DoesNotContain(args, a => a.Contains("dangerously", StringComparison.OrdinalIgnoreCase));
         // Флоу базы лежит в форме кита — сценарии и этапы по файлу: так агенту и сказано, где его читать.
@@ -103,6 +157,8 @@ public sealed class AskEndpointsTests : IDisposable
         Assert.Contains($"Своё у оператора этого компьютера, {TestLayout.Operator}, — его личный репозиторий local/me/ со своим git: autonomy.md", prompt);
         Assert.Contains("agents/*.md — исполнители,\nbacklog.md — записи бэклога".ReplaceLineEndings(), prompt.ReplaceLineEndings());
         Assert.Contains("В people/<имя>/ — флоу и исполнители, которые операторы выложили для коллег: агент по ним не работает", prompt);
+        // Кит формата 8: задача идёт по копии своего сценария рядом с памятью, а не по нынешнему flow/ (B-299).
+        Assert.Contains("work/<машина>/<имя памяти>/flow/ — копия сценария задачи", prompt);
         Assert.DoesNotContain("boundaries.md", prompt);
         var sent = Assert.Single(_agent.Input);
         Assert.Contains("--help и ещё вопрос", sent);

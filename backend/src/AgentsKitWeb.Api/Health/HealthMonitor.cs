@@ -36,14 +36,18 @@ public sealed record HealthProblem(string Severity, string? File, string Message
 
 public sealed record CopyHealth(string Path, IReadOnlyList<HealthProblem> Problems);
 
-/// <summary>Проблемы одной базы. Error задан у unavailable и failed.</summary>
+/// <summary>
+/// Проблемы одной базы. Error задан у unavailable и failed. FormatWarning — база нового формата
+/// (BaseLayout.NewerFormat): её проверяет кит, как любую, а предупреждение идёт рядом с находками.
+/// </summary>
 public sealed record BaseHealth(
     string Base,
     string Project,
     string Status,
     string? Error,
     IReadOnlyList<HealthProblem> Problems,
-    IReadOnlyList<CopyHealth> Copies);
+    IReadOnlyList<CopyHealth> Copies,
+    string? FormatWarning = null);
 
 /// <summary>
 /// Снимок проблем баз. Pending — первая проверка ещё идёт, данных нет. KitUpdate — установленная новая версия
@@ -132,22 +136,24 @@ public sealed class HealthMonitor(
             return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, "База не читается", [], []);
         // Базу прежнего формата, без оператора этой машины или без личного репозитория панель не читает — причину
         // называет раскладка; сверка кита такой базе ничего не добавит, кроме того же «перевести» или «завести».
-        if (BaseLayout.Read(basePath, out var unreadable) is null)
+        // Базу нового формата кит, который её перевёл, знает — её он проверяет, как любую (B-281).
+        if (BaseLayout.Read(basePath, out var unreadable) is not { } layout)
             return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, unreadable, [], []);
+        var warning = layout.FormatWarning;
         if (kit is null)
-            return new BaseHealth(basePath, project, BaseHealthStatus.Unchecked, null, [], []);
+            return new BaseHealth(basePath, project, BaseHealthStatus.Unchecked, null, [], [], warning);
 
         // Копии, которых нет на диске, кит называет сам находкой сверки базы.
         var copies = rows.Where(r => r.Error is null && Directory.Exists(r.Path)).Select(r => r.Path).ToList();
         var (check, error) = await checks.RunAsync(kit, basePath, copies, cancellationToken);
         if (check is null)
-            return new BaseHealth(basePath, project, BaseHealthStatus.Failed, error, [], []);
+            return new BaseHealth(basePath, project, BaseHealthStatus.Failed, error, [], [], warning);
 
         var problems = check.Findings.Select(f => new HealthProblem(Severity(f.Severity), f.File, f.Message)).ToList();
         var copyHealth = copies
             .Select(copy => new CopyHealth(copy, LinkProblems(basePath, check.Links.FirstOrDefault(l => BasesStore.SamePath(l.Path, copy)))))
             .ToList();
-        return new BaseHealth(basePath, project, BaseHealthStatus.Checked, null, problems, copyHealth);
+        return new BaseHealth(basePath, project, BaseHealthStatus.Checked, null, problems, copyHealth, warning);
     }
 
     /// <summary>
