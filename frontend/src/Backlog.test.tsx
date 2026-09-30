@@ -1190,7 +1190,6 @@ test('строка поломки описания трекера ведёт в 
   expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, false)
 })
 
-
 test.each([
   [{ issues: [], problem: null }, /На вас в GitHub нет открытых задач этого репозитория/, false],
   [{ issues: [], problem: 'no-tracker' }, /Описания трекера у проекта больше нет — нажмите «Обновить»/, false],

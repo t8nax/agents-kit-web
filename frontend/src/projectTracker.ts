@@ -26,7 +26,7 @@ export type TrackerChanged = { lines: number; sections: number }
 /** Задача трекера в работе: заголовок её памяти и копия. */
 export type TrackerTask = { task: string; copy: string | null }
 
-/** Строка карточки «Трекеры проектов» — база из списка панели. */
+/** Проект раздела «Трекеры» — база из списка панели. */
 export type ProjectTrackerRow = {
   base: string
   project: string

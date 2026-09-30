@@ -15,7 +15,7 @@ public sealed record TrackerCheck(bool Checked, string? Field = null, string? Pr
 
 /// <summary>
 /// Трекер проекта, как его называет описание трекера базы: GitHub панель читает программой gh оператора (B-277),
-/// YouTrack — своим клиентом с ключом из «Настроек» (B-288). Другие трекеры панель не читает.
+/// YouTrack — своим клиентом с ключом из раздела «Трекеры» (B-288). Другие трекеры панель не читает.
 /// </summary>
 public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTrack, TrackerServersStore servers)
 {
