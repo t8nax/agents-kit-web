@@ -97,31 +97,7 @@
   color: var(--text-secondary);
 }
 
-/* Просьба: у нового до ответа — крупное поле, как вопрос к Чудо-Юдо; дальше — короче. */
-.pf-wish {
-  min-height: 110px;
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.pf-wish.pf-wish-short {
-  min-height: 76px;
-}
-
-.pf-wish:focus {
-  border-color: var(--text-secondary);
-}
-
-.pf-wish::placeholder {
-  color: var(--text-tertiary);
-}
-
-.pf-wish:disabled {
-  color: var(--text-tertiary);
-  cursor: not-allowed;
-}
-
-/* Что сделал агент — строкой под просьбой, со ссылками действий. */
+/* Правки Чудо-Юдо приняты — строкой над полями, со ссылкой «вернуть как было». */
 .pf-status {
   display: flex;
   align-items: center;
@@ -146,21 +122,11 @@
   color: var(--text-primary);
 }
 
-/* Чужая просьба того же вида: новая её остановит — предупреждение до нажатия. */
-.pf-foreign {
-  margin: 0;
-  font-size: 13px;
-  color: var(--accent-waiting-text);
-}
-
-/* Агент недоступен — одна строка цветом ошибки. */
-.pf-down {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--accent-error-text);
+/* Кнопка переписки с Чудо-Юдо в подвале — со своим значком, как в макете B-320. */
+.pf-modal .pf-chat svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
 }
 
 /* База нового формата: причина закрытой правки — в начале окна, янтарем, как предупреждение (B-281) */
@@ -173,8 +139,7 @@
   color: var(--accent-waiting-text);
 }
 
-.pf-modal .pf-closed svg,
-.pf-modal .pf-down svg {
+.pf-modal .pf-closed svg {
   width: 15px;
   height: 15px;
 }

@@ -17,6 +17,37 @@ export function controlledStream<E>() {
   }
 }
 
+/**
+ * Поток переписки, который панель отдаёт с начала при каждом чтении: окно, закрытое и открытое заново, читает её
+ * снова — как настоящая панель. Каждое чтение получает всё сказанное и дальше ждёт новых строк.
+ */
+export function replayedStream<E>() {
+  const encoder = new TextEncoder()
+  const sent: E[] = []
+  const readers: ReadableStreamDefaultController<Uint8Array>[] = []
+  const line = (event: E) => encoder.encode(JSON.stringify(event) + '\n')
+  return {
+    get body() {
+      return new ReadableStream<Uint8Array>({
+        start: (c) => {
+          sent.forEach((event) => c.enqueue(line(event)))
+          readers.push(c)
+        },
+        cancel: () => undefined,
+      })
+    },
+    send: (event: E) => {
+      sent.push(event)
+      for (const reader of readers)
+        try {
+          reader.enqueue(line(event))
+        } catch {
+          // Чтение уже брошено закрытым окном.
+        }
+    },
+  }
+}
+
 export type PanelStub = {
   /** Что панель приняла: POST просьбы, её текст и адрес. */
   posts: { url: string; body: Record<string, unknown> }[]

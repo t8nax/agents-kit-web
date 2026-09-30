@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import PerformerModal, { type DraftEvent, type DraftFields } from './PerformerModal'
-import { controlledStream, runningRequest, stubPanel, type PanelStub } from './agentPanelTesting'
+import PerformerModal from './PerformerModal'
+import type { DraftEvent, DraftFields } from './performerTalk'
+import { controlledStream, replayedStream, runningRequest, stubPanel, type PanelStub } from './agentPanelTesting'
 import type { BasePerformers, Performer } from './Performers'
 
 // Кнопка микрофона проверяется своим тестом; здесь — её место в окне и куда ложится сказанное.
@@ -68,16 +69,29 @@ function stubSave(response: () => Response) {
   return { stream, panel, fetchMock: fetch as unknown as ReturnType<typeof vi.fn> }
 }
 
-/** Новый исполнитель после ответа Чудо-Юдо: основу окну дал агент. */
+/** Открывает переписку кнопкой подвала и отправляет просьбу. */
+async function talk(wish: string) {
+  fireEvent.click(screen.getByRole('button', { name: /^(Завести|Переписать) с Чудо-Юдо$/ }))
+  const chat = await screen.findByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })
+  fireEvent.change(within(chat).getByLabelText(/^(Просьба|Следующая реплика)$/), { target: { value: wish } })
+  fireEvent.click(within(chat).getByRole('button', { name: 'Отправить' }))
+  return chat
+}
+
+/** Чудо-Юдо предложил исполнителя, оператор принял правки на вкладке «Изменения». */
+async function accepted(stream: { send: (event: DraftEvent) => void }, proposal: DraftFields, wish = 'Гоняет e2e') {
+  const chat = await talk(wish)
+  stream.send({ type: 'reply', text: wish })
+  stream.send({ type: 'answer', text: 'Готово.', proposal, changed: ['name', 'description', 'model', 'tools', 'prompt'] })
+  await within(chat).findByText('Готово.')
+  fireEvent.click(within(chat).getByRole('tab', { name: /Изменения/ }))
+  fireEvent.click(within(chat).getByRole('button', { name: 'Принять правки' }))
+  await screen.findByText('Правки Чудо-Юдо приняты')
+}
+
+/** Новый исполнитель после принятых правок Чудо-Юдо: основу окну дал агент. */
 async function drafted(stream: ReturnType<typeof controlledStream<DraftEvent>>, fields: DraftFields = runner) {
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Гоняет e2e' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
-  await screen.findByRole('status')
-  stream.send({ type: 'drafted', text: '---', fields })
-  stream.close()
-  await screen.findByText('Основу написал Чудо-Юдо')
-  // Ответ становится основой эффектом, отдельным тиком после строки о нём. Ждётся имя из ответа, а не само поле:
-  // поле в окне нового есть с первой отрисовки, и без этого тест смотрел бы на окно, в которое ответ ещё не лёг.
+  await accepted(stream, fields)
   await waitFor(() => expect(screen.getByLabelText('Имя')).toHaveValue(fields.name))
 }
 
@@ -89,30 +103,52 @@ test('у нового имя, описание и задание видны ср
   expect(screen.getByLabelText('Имя')).toHaveValue('')
   expect(screen.getByLabelText('Описание')).toHaveValue('')
   expect(screen.getByRole('button', { name: 'Написать задание' })).toBeInTheDocument()
-  // Пока поля пусты, окно подсказывает просьбы примерами.
-  expect(screen.getByText('Например')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 
   fireEvent.change(screen.getByLabelText('Имя'), { target: { value: 'release-notes' } })
-  expect(screen.queryByText('Например')).not.toBeInTheDocument()
   // Имя без задания — ещё не исполнитель.
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
-test('микрофон стоит в углу поля просьбы: сказанное дописывается, пока Чудо-Юдо пишет — погашен', async () => {
+test('поля просьбы в окне нет: переписку открывает видимая кнопка подвала поверх окна', async () => {
   stubSave(() => Response.json({ path: 'x' }))
   open()
-  const field = screen.getByLabelText(/Просьба к Чудо-Юдо/)
-  fireEvent.change(field, { target: { value: 'Гоняет e2e' } })
 
-  const mic = within(field.parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })
-  expect(field.parentElement).toHaveClass('voice-field')
-  fireEvent.click(mic)
-  expect(field).toHaveValue('Гоняет e2e и пишет отчёт.')
+  expect(screen.queryByLabelText(/Просьба/)).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с Чудо-Юдо' }))
 
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
-  await screen.findByRole('status')
-  expect(within(screen.getByLabelText(/Просьба к Чудо-Юдо/).parentElement as HTMLElement).getByRole('button', { name: 'Голосовой ввод' })).toBeDisabled()
+  const chat = await screen.findByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })
+  expect(within(chat).getByText('новый')).toBeInTheDocument()
+  // Окно исполнителя под перепиской недоступно, а Escape закрывает только переписку.
+  expect(screen.getByRole('dialog', { name: 'Новый исполнитель' })).toHaveAttribute('inert')
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })).not.toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: 'Новый исполнитель' })).not.toHaveAttribute('inert')
+  expect(screen.getByRole('button', { name: 'Завести с Чудо-Юдо' })).toHaveFocus()
+})
+
+test('у заведённого кнопка переписки называется «Переписать с Чудо-Юдо»', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+
+  expect(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' })).toBeEnabled()
+})
+
+test('открытое из шапки окно сразу показывает переписку поверх', async () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  render(
+    <PerformerModal
+      bases={bases}
+      initial={bases[0].base}
+      editing={reviewer}
+      talking
+      onClose={vi.fn()}
+      onSaved={vi.fn()}
+      onDeleted={vi.fn()}
+    />,
+  )
+
+  expect(await screen.findByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })).toBeInTheDocument()
 })
 
 test('нового можно завести целиком руками, без просьбы к Чудо-Юдо', async () => {
@@ -411,49 +447,77 @@ test('задание открывается кнопкой своим окном
   expect(screen.getByRole('button', { name: 'Показать задание' })).toHaveFocus()
 })
 
-test('просьба к Чудо-Юдо идёт из окна, а его ответ становится основой', async () => {
-  const { stream, panel } = stubSave(() => Response.json({ path: 'x' }))
+test('переписка идёт с полями окна, а в поля её предложение ложится только по «Принять правки»', async () => {
+  const stream = replayedStream<DraftEvent>()
+  const panel = stubPanel('performer', stream, { project: 'Agents Kit Web' })
   open()
 
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), {
-    target: { value: 'Читает дифф ветки и возвращает вердикт' },
-  })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
-
+  const chat = await talk('Читает дифф ветки и возвращает вердикт')
   await waitFor(() => expect(panel.posts).toHaveLength(1))
   expect(panel.posts[0]).toEqual({
     url: '/api/performers/draft',
     body: {
       base: 'D:\\Projects\\app-knowledge',
       wish: 'Читает дифф ветки и возвращает вердикт',
-      current: null,
+      current: { name: '', description: '', model: '', tools: '', prompt: '' },
+      subject: null,
     },
   })
 
-  stream.send({ type: 'step', text: 'читает scenarios.md' })
-  expect(await screen.findByText('читает scenarios.md')).toBeInTheDocument()
-  expect(screen.getByRole('status')).toHaveTextContent('заводит исполнителя')
+  const proposal = {
+    name: 'reviewer-2',
+    description: 'Читает дифф ветки задачи.',
+    model: 'opus',
+    tools: 'Read, Glob, Grep',
+    prompt: 'Ты читаешь дифф ветки целиком.',
+  }
+  stream.send({ type: 'reply', text: 'Читает дифф ветки и возвращает вердикт' })
+  stream.send({ type: 'answer', text: 'Вот ревьюер.', proposal, changed: ['name', 'description', 'model', 'tools', 'prompt'] })
+  await within(chat).findByText('Вот ревьюер.')
+  fireEvent.click(within(chat).getByRole('button', { name: 'Закрыть' }))
 
-  stream.send({
-    type: 'drafted',
-    text: '---',
-    fields: {
-      name: 'reviewer-2',
-      description: 'Читает дифф ветки задачи.',
-      model: 'opus',
-      tools: 'Read, Glob, Grep',
-      prompt: 'Ты читаешь дифф ветки целиком.',
-    },
-  })
-  stream.close()
+  // Ответ ещё не принят: поля окна прежние.
+  expect(screen.getByLabelText('Имя')).toHaveValue('')
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с Чудо-Юдо' }))
+  const again = await screen.findByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })
+  // Закрытое окно разговор не кончает: открытое заново, оно показывает ту же переписку.
+  expect(await within(again).findByText('Вот ревьюер.')).toBeInTheDocument()
+  fireEvent.click(within(again).getByRole('tab', { name: /Изменения/ }))
+  fireEvent.click(within(again).getByRole('button', { name: 'Принять правки' }))
 
-  await waitFor(() => expect(screen.getByLabelText('Имя')).toHaveValue('reviewer-2'))
+  expect(screen.queryByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })).not.toBeInTheDocument()
+  expect(screen.getByLabelText('Имя')).toHaveValue('reviewer-2')
   expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
   expect(screen.getByRole('button', { name: 'Только чтение' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
   // Файл ещё не записан: его пишет «Сохранить».
   expect(panel.posts.map((post) => post.url)).toEqual(['/api/performers/draft'])
+})
+
+test('следующая реплика несёт поля, поправленные руками после принятых правок', async () => {
+  const stream = replayedStream<DraftEvent>()
+  const replies: Record<string, unknown>[] = []
+  stubPanel('performer', stream, {
+    others: (url, init) =>
+      url === '/api/performers/draft/reply'
+        ? (replies.push(JSON.parse(String(init?.body)) as Record<string, unknown>), new Response(null, { status: 204 }))
+        : null,
+  })
+  open(reviewer)
+  await accepted(stream, { ...reviewer, description: 'Сверяет с решениями.' } as DraftFields, 'Пусть сверяет')
+
+  fireEvent.change(screen.getByLabelText('Описание'), { target: { value: 'Руками поправил.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
+  const chat = await screen.findByRole('dialog', { name: 'Исполнитель с Чудо-Юдо' })
+  fireEvent.change(within(chat).getByLabelText('Следующая реплика'), { target: { value: 'Короче' } })
+  fireEvent.click(within(chat).getByRole('button', { name: 'Отправить' }))
+
+  await waitFor(() => expect(replies).toHaveLength(1))
+  expect(replies[0]).toEqual({
+    text: 'Короче',
+    current: { name: 'reviewer', description: 'Руками поправил.', model: 'opus', tools: 'Read, Glob, Grep', prompt: 'Ты читаешь дифф ветки целиком.' },
+  })
 })
 
 test('имя нового, предложенное агентом, можно поправить до записи', async () => {
@@ -476,7 +540,7 @@ test('имя нового, предложенное агентом, можно �
   })
 })
 
-test('модель и инструменты, выбранные до ответа, ответ агента не перетирает', async () => {
+test('модель и инструменты, выбранные вручную, принятые правки не перетирают', async () => {
   const { stream } = stubSave(() => Response.json({ path: 'x' }))
   open()
 
@@ -511,32 +575,26 @@ test('имя, занятое у проекта, окно бережёт и не 
   expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
 })
 
-test('«Вернуть как было» возвращает то, что стояло до ответа агента', async () => {
+test('«Вернуть как было» возвращает то, что стояло до принятых правок', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream)
   open(reviewer)
 
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), {
-    target: { value: 'Пусть ещё сверяет с критериями' },
-  })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
-
-  stream.send({
-    type: 'drafted',
-    text: '---',
-    fields: { name: 'reviewer', description: 'Новое описание.', model: null, tools: null, prompt: 'Новое задание.' },
-  })
-  stream.close()
-
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Новое описание.'))
+  await accepted(
+    stream,
+    { name: 'reviewer', description: 'Новое описание.', model: null, tools: null, prompt: 'Новое задание.' },
+    'Пусть ещё сверяет с критериями',
+  )
+  expect(screen.getByLabelText('Описание')).toHaveValue('Новое описание.')
 
   fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
 
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Читает дифф ветки задачи.'))
+  expect(screen.getByLabelText('Описание')).toHaveValue('Читает дифф ветки задачи.')
   expect(screen.getByLabelText('Модель')).toHaveValue('opus')
+  expect(screen.queryByText('Правки Чудо-Юдо приняты')).not.toBeInTheDocument()
 })
 
-test('ответ агента заменяет поправленные руками описание и задание, а «вернуть как было» возвращает правку', async () => {
+test('принятые правки заменяют поправленные руками описание и задание, а «вернуть как было» возвращает правку', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream)
   open(reviewer)
@@ -549,64 +607,34 @@ test('ответ агента заменяет поправленные рука
   fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
   fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
 
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Перепиши короче' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
-  stream.send({
-    type: 'drafted',
-    text: '---',
-    fields: { name: 'reviewer', description: 'Описание агента.', model: null, tools: null, prompt: 'Задание агента.' },
-  })
-  stream.close()
+  await accepted(
+    stream,
+    { name: 'reviewer', description: 'Описание агента.', model: null, tools: null, prompt: 'Задание агента.' },
+    'Перепиши короче',
+  )
 
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Описание агента.'))
+  expect(screen.getByLabelText('Описание')).toHaveValue('Описание агента.')
   fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
   expect(within(screen.getByRole('dialog', { name: /Задание/ })).getByText('Задание агента.')).toBeInTheDocument()
   fireEvent.click(within(screen.getByRole('dialog', { name: /Задание/ })).getByRole('button', { name: 'Закрыть' }))
 
   fireEvent.click(screen.getByRole('button', { name: 'вернуть как было' }))
 
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveValue('Поправлено руками.'))
+  expect(screen.getByLabelText('Описание')).toHaveValue('Поправлено руками.')
   fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
   expect(within(screen.getByRole('dialog', { name: /Задание/ })).getByText('Задание руками.')).toBeInTheDocument()
-})
-
-test('ответ агента при открытом задании попадает и в правку, а не только в просмотр', async () => {
-  const stream = controlledStream<DraftEvent>()
-  stubPanel('performer', stream)
-  open(reviewer)
-
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Перепиши короче' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
-  await screen.findByRole('status')
-  // Пока агент работает, оператор открыл задание: окно висит, когда приходит ответ.
-  fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
-  const task = screen.getByRole('dialog', { name: /Задание/ })
-  stream.send({
-    type: 'drafted',
-    text: '---',
-    fields: { name: 'reviewer', description: 'Описание агента.', model: null, tools: null, prompt: 'Задание агента.' },
-  })
-  stream.close()
-
-  expect(await within(task).findByText('Задание агента.')).toBeInTheDocument()
-  fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
-  expect(within(task).getByRole('textbox', { name: 'Задание' })).toHaveValue('Задание агента.')
 })
 
 test('правка не меняет имя, даже если агент вернул другое', async () => {
   const { stream, fetchMock } = stubSave(() => Response.json({ path: 'x' }))
   const onSaved = open(reviewer)
 
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Пусть ещё сверяет' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
-  await screen.findByRole('status')
-  stream.send({
-    type: 'drafted',
-    text: '---',
-    fields: { name: 'diff-judge', description: 'Судит дифф.', model: 'opus', tools: null, prompt: 'Новое задание.' },
-  })
-  stream.close()
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Судит дифф.'))
+  await accepted(
+    stream,
+    { name: 'diff-judge', description: 'Судит дифф.', model: 'opus', tools: null, prompt: 'Новое задание.' },
+    'Пусть ещё сверяет',
+  )
+  expect(screen.getByLabelText('Описание')).toHaveTextContent('Судит дифф.')
 
   expect(screen.getByRole('heading', { name: 'reviewer' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
@@ -616,78 +644,61 @@ test('правка не меняет имя, даже если агент вер
   expect(saved(fetchMock)).toMatchObject({ name: 'reviewer', editing: 'reviewer', prompt: 'Новое задание.' })
 })
 
-test('окно правки не подхватывает просьбу о новом исполнителе', async () => {
+test('окно правки не подхватывает переписку о новом исполнителе', async () => {
   const stream = controlledStream<DraftEvent>()
   const panel = stubPanel('performer', stream, {
     running: runningRequest('performer', 'Ревьюер ветки', bases[0].base, 'Agents Kit Web'),
   })
-  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
   open(reviewer)
-  stream.send({ type: 'drafted', text: '---', fields: runner })
-  stream.close()
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
 
-  // Разом идёт одна просьба этого вида: окно предупреждает, что его просьба остановит чужую. Предупреждение ставит
-  // разбор ответа о просьбах — тот же, что забрал бы просьбу, будь она своей: дальше окно смотрится уже разобравшим его.
+  // Разом идёт одна переписка этого вида: окно предупреждает, что его реплика уберёт чужую.
   expect(
-    await screen.findByText(/сейчас занят про нового исполнителя Agents Kit Web: новая просьба отсюда остановит его/),
+    await screen.findByText(/Идёт переписка о новом исполнителе проекта Agents Kit Web: первая реплика отсюда начнёт новую/),
   ).toBeInTheDocument()
-  // Ответ про другого исполнителя в окно reviewer не лёг и просьбу не забрал: её поток окно даже не открывало.
-  expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContainEqual(expect.stringContaining('/stream'))
-  expect(screen.getByLabelText('Описание')).toHaveTextContent('Читает дифф ветки задачи.')
-  expect(screen.queryByText('Основу написал Чудо-Юдо')).not.toBeInTheDocument()
+  stream.send({ type: 'reply', text: 'Ревьюер ветки' })
+  stream.send({ type: 'answer', text: 'Чужой ответ', proposal: runner, changed: ['name'] })
+  expect(screen.queryByText('Чужой ответ')).not.toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Изменения' })).toBeDisabled()
   expect(panel.deletes).toEqual([])
 })
 
-test('открытое заново окно правки подхватывает свою просьбу и её итог', async () => {
+test('открытое заново окно правки подхватывает свою переписку', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream, {
     running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base, 'Agents Kit Web', 0, 'reviewer'),
   })
   open(reviewer)
+  fireEvent.click(screen.getByRole('button', { name: 'Переписать с Чудо-Юдо' }))
 
+  stream.send({ type: 'reply', text: 'Пусть ещё сверяет' })
   expect(await screen.findByText('Пусть ещё сверяет')).toBeInTheDocument()
-  stream.send({
-    type: 'drafted',
-    text: '---',
-    fields: { name: 'reviewer', description: 'Сверяет с критериями.', model: 'opus', tools: null, prompt: 'Новое.' },
-  })
-  stream.close()
-
-  await waitFor(() => expect(screen.getByLabelText('Описание')).toHaveTextContent('Сверяет с критериями.'))
-  expect(screen.getByRole('heading', { name: 'reviewer' })).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('Чудо-Юдо переписывает исполнителя reviewer…')
 })
 
-test('окно нового не подхватывает просьбу о правке заведённого', async () => {
+test('окно нового не подхватывает переписку о правке заведённого', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream, {
     running: runningRequest('performer', 'Пусть ещё сверяет', bases[0].base, 'Agents Kit Web', 0, 'reviewer'),
   })
-  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
   open()
+  fireEvent.click(screen.getByRole('button', { name: 'Завести с Чудо-Юдо' }))
 
-  // Предупреждение о чужой просьбе ставит разбор ответа о просьбах: дальше окно смотрится уже разобравшим его.
-  expect(await screen.findByText(/сейчас занят про исполнителя reviewer Agents Kit Web/)).toBeInTheDocument()
-  expect(fetchMock.mock.calls.map(([url]) => String(url))).not.toContainEqual(expect.stringContaining('/stream'))
+  expect(await screen.findByText(/Идёт переписка об исполнителе reviewer проекта Agents Kit Web/)).toBeInTheDocument()
+  stream.send({ type: 'reply', text: 'Пусть ещё сверяет' })
   expect(screen.queryByText('Пусть ещё сверяет')).not.toBeInTheDocument()
   expect(screen.queryByRole('status')).not.toBeInTheDocument()
-
-  // Своя просьба чужую останавливает: предупреждать больше не о чем.
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
-  await waitFor(() => expect(screen.queryByText(/сейчас занят про исполнителя/)).not.toBeInTheDocument())
 })
 
-test('нынешние поля уходят агенту, когда исполнителя правят', async () => {
+test('нынешние поля уходят агенту и имя переписываемого, когда исполнителя правят', async () => {
   const stream = controlledStream<DraftEvent>()
   const panel = stubPanel('performer', stream)
   open(reviewer)
 
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), {
-    target: { value: 'Пусть не чинит найденное сам' },
-  })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  await talk('Пусть не чинит найденное сам')
 
   await waitFor(() => expect(panel.posts).toHaveLength(1))
+  expect(panel.posts[0].body.subject).toBe('reviewer')
   expect(panel.posts[0].body.current).toEqual({
     name: 'reviewer',
     description: 'Читает дифф ветки задачи.',
@@ -697,49 +708,19 @@ test('нынешние поля уходят агенту, когда испол
   })
 })
 
-test('Чудо-Юдо недоступен — причина одной строкой, у нового сохранить нечего', async () => {
+test('Чудо-Юдо не ответил — причина в переписке, поля окна не тронуты', async () => {
   const stream = controlledStream<DraftEvent>()
   stubPanel('performer', stream)
-  open()
+  open(reviewer)
 
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
-
-  stream.send({ type: 'error', text: 'кончился лимит подписки', output: 'Готово!' })
-  stream.close()
-
-  const line = await screen.findByRole('alert')
-  expect(line).toHaveTextContent('Чудо-Юдо не ответил: кончился лимит подписки')
-  // Вывод агента читается подсказкой, а не второй строкой.
-  expect(line).toHaveAttribute('title', 'Готово!')
-  expect(screen.queryByText('Готово!')).not.toBeInTheDocument()
-  expect(screen.getByLabelText(/Просьба к Чудо-Юдо/)).toHaveValue('Ревьюер ветки')
-  expect(screen.getByRole('button', { name: 'Попросить снова' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeDisabled()
-})
-
-test('без Чудо-Юдо модель и инструменты правятся и сохраняются, основа остаётся прежней', async () => {
-  const stream = controlledStream<DraftEvent>()
-  const others: PanelStub['others'] = (url) => (url === '/api/performers' ? Response.json({ path: 'x' }) : null)
-  stubPanel('performer', stream, { others })
-  const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
-  const onSaved = open(reviewer)
-
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Пусть ещё сверяет' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Переписать с помощью Чудо-Юдо' }))
+  const chat = await talk('Пусть ещё сверяет')
+  stream.send({ type: 'reply', text: 'Пусть ещё сверяет' })
   stream.send({ type: 'error', text: 'кончился лимит подписки' })
-  stream.close()
-  await screen.findByRole('alert')
 
-  fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'sonnet' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-
-  await waitFor(() => expect(onSaved).toHaveBeenCalledWith('reviewer'))
-  expect(saved(fetchMock)).toMatchObject({
-    model: 'sonnet',
-    description: 'Читает дифф ветки задачи.',
-    prompt: 'Ты читаешь дифф ветки целиком.',
-  })
+  expect(await within(chat).findByText('кончился лимит подписки')).toBeInTheDocument()
+  fireEvent.click(within(chat).getByRole('button', { name: 'Закрыть' }))
+  expect(screen.getByLabelText('Описание')).toHaveValue('Читает дифф ветки задачи.')
+  expect(screen.queryByText('Правки Чудо-Юдо приняты')).not.toBeInTheDocument()
 })
 
 test('негодное имя объясняется словами, а набранное остаётся', async () => {
@@ -956,27 +937,16 @@ test('у базы нового формата удалить исполните�
   expect(screen.getByRole('button', { name: 'Удалить исполнителя' })).toBeDisabled()
 })
 
-test('«Отменить» убирает просьбу из панели', async () => {
+test('«Новая переписка» убирает переписку из панели', async () => {
   const stream = controlledStream<DraftEvent>()
   const panel = stubPanel('performer', stream)
   open()
 
-  fireEvent.change(screen.getByLabelText(/Просьба к Чудо-Юдо/), { target: { value: 'Ревьюер ветки' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Завести с помощью Чудо-Юдо' }))
-
-  fireEvent.click(await screen.findByRole('button', { name: 'отменить' }))
+  const chat = await talk('Ревьюер ветки')
+  stream.send({ type: 'reply', text: 'Ревьюер ветки' })
+  stream.send({ type: 'answer', text: 'Что он проверяет?' })
+  await within(chat).findByText('Что он проверяет?')
+  fireEvent.click(within(chat).getByRole('button', { name: 'Новая переписка' }))
 
   await waitFor(() => expect(panel.deletes).toEqual(['/api/agent/performer']))
-})
-
-test('идущая просьба подхватывается открытым заново окном', async () => {
-  const stream = controlledStream<DraftEvent>()
-  stubPanel('performer', stream, {
-    running: runningRequest('performer', 'Ревьюер ветки', 'D:\\Projects\\app-knowledge', 'Agents Kit Web'),
-  })
-  open()
-
-  expect(await screen.findByText('Ревьюер ветки')).toBeInTheDocument()
-  stream.send({ type: 'step', text: 'читает scenarios.md' })
-  expect(await screen.findByText('читает scenarios.md')).toBeInTheDocument()
 })
