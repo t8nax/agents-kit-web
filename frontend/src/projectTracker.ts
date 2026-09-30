@@ -59,6 +59,11 @@ export function checked(name: TrackerName | null): boolean {
   return name === 'GitHub' || name === 'YouTrack'
 }
 
+/** Описание, каким оно ляжет в базу: у Jira и GitLab поля «Фильтр» нет, и строка не пишется (B-300). */
+export function written(description: TrackerDescription): TrackerDescription {
+  return checked(knownTracker(description.tracker)) ? description : { ...description, filter: '' }
+}
+
 export const emptyDescription: TrackerDescription = {
   tracker: '',
   server: '',

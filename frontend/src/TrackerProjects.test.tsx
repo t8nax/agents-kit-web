@@ -309,8 +309,8 @@ test('«Завести» открывает окно трекера с пуст�
 
   fireEvent.click((await row('CRM')).getByRole('button', { name: 'Завести трекер CRM' }))
 
-  const dialog = within(screen.getByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' }))
-  expect(dialog.getByText('CRM')).toHaveClass('rewrite-project-name')
-  fireEvent.click(dialog.getByRole('tab', { name: 'Изменения' }))
+  const dialog = within(screen.getByRole('dialog', { name: 'Трекер проекта' }))
+  expect(dialog.getByText('CRM')).toHaveClass('pf-project')
   expect(dialog.getByLabelText('Адрес сервера')).toHaveValue(emptyDescription.server)
+  expect(dialog.getByRole('button', { name: 'Завести с Чудо-Юдо' })).toBeInTheDocument()
 })

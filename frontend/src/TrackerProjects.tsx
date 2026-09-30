@@ -3,7 +3,7 @@ import DeleteProjectTrackerModal from './DeleteProjectTrackerModal'
 import { TrashIcon } from './DeleteWorkspaceModal'
 import { WarningIcon } from './Problems'
 import { Sk, Skeleton } from './Skeleton'
-import TrackerRewriteModal from './TrackerRewriteModal'
+import TrackerModal from './TrackerModal'
 import type { TrackerServer } from './TrackerServersCard'
 import { busyText, faultsText, kitFaultsText, knownTracker, type ProjectTrackerRow } from './projectTracker'
 import { useReveal, withReveal } from './reveal'
@@ -30,7 +30,10 @@ export default function TrackerProjects({ rewriteFor = null, focus = null, serve
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const reveal = useReveal(load.kind === 'loading')
   const [selected, setSelected] = useState<string | null>(rewriteFor?.base ?? focus?.base ?? null)
-  const [open, setOpen] = useState<string | null>(rewriteFor?.base ?? null)
+  // Окно трекера; talking — возврат к переписке из шапки: она встаёт поверх окна сразу.
+  const [open, setOpen] = useState<{ base: string; talking: boolean } | null>(
+    rewriteFor ? { base: rewriteFor.base, talking: true } : null,
+  )
   const [deleting, setDeleting] = useState<string | null>(null)
   const panel = useRef<HTMLDivElement>(null)
 
@@ -67,7 +70,7 @@ export default function TrackerProjects({ rewriteFor = null, focus = null, serve
   const rows = load.kind === 'loaded' ? load.rows : []
   // Выбранного нет или он ушёл из списка баз — выбран первый проект.
   const current = rows.find((row) => row.base === selected) ?? rows[0] ?? null
-  const opened = open === null ? null : (rows.find((row) => row.base === open) ?? null)
+  const opened = open === null ? null : (rows.find((row) => row.base === open.base) ?? null)
   const deleted = deleting === null ? null : (rows.find((row) => row.base === deleting) ?? null)
 
   return (
@@ -112,13 +115,21 @@ export default function TrackerProjects({ rewriteFor = null, focus = null, serve
             <ProjectDetail
               row={current}
               servers={servers}
-              onEdit={() => setOpen(current.base)}
+              onEdit={() => setOpen({ base: current.base, talking: false })}
               onDelete={() => setDeleting(current.base)}
             />
           </section>
         </div>
       )}
-      {opened && <TrackerRewriteModal key={opened.base} row={opened} onSaved={reload} onClose={() => setOpen(null)} />}
+      {opened && (
+        <TrackerModal
+          key={opened.base}
+          row={opened}
+          talking={open?.talking}
+          onSaved={reload}
+          onClose={() => setOpen(null)}
+        />
+      )}
       {deleted && (
         <DeleteProjectTrackerModal
           row={deleted}
