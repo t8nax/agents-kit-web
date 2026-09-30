@@ -101,10 +101,8 @@ export default function TrackerProjects({
               {[0, 1, 2].map((i) => (
                 <div key={i} className="tp-item">
                   <Sk w={22} h={22} style={{ borderRadius: 6 }} />
-                  <span style={{ display: 'grid', gap: 6 }}>
-                    <Sk w="60%" h={10} />
-                    <Sk w="40%" h={8} />
-                  </span>
+                  {/* Строка списка — одно имя, без второй строки: заготовка той же формы (decisions/loading.md) */}
+                  <Sk w="60%" h={10} />
                 </div>
               ))}
             </div>
