@@ -135,16 +135,16 @@ public sealed class TrackerConversations(IAgentChat agent, AgentRequests request
         lock (_gate)
         {
             ended = _turn;
-            _screen = description ?? _proposal ?? _screen;
-            // Правкой считается то, что в окне сейчас: руками поправленное оператором ложится поверх предложенного.
-            _proposal = null;
+            // Поля окна — такие, какие они сейчас: принятое и поправленное руками. Непринятое предложение остаётся рядом
+            // с ними и уходит агенту с репликой, как у исполнителя (ревью B-323): в поля его кладёт только «Принять правки».
+            _screen = description ?? _screen;
 
             // Живой агент выбирается и реплика уходит в его очередь под той же блокировкой, которой его работа
             // отмечает свой конец (B-262): кончившемуся агенту она не достаётся, а поднимает нового.
             if (_turn?.Request == request && request.Working && !_turn.Ended)
             {
                 request.Reply(new TrackerRewriteEvent("reply", text));
-                Send(_turn, text, TrackerRewriteEndpoints.Input(text, _screen, first: false));
+                Send(_turn, text, TrackerRewriteEndpoints.Input(text, _screen, _proposal, first: false));
                 return AskReplied.Sent;
             }
         }
@@ -155,7 +155,7 @@ public sealed class TrackerConversations(IAgentChat agent, AgentRequests request
                 return AskReplied.Answering;
             var turn = Restart(request);
             request.Reply(new TrackerRewriteEvent("reply", text));
-            Send(turn, text, TrackerRewriteEndpoints.Input(text, _screen));
+            Send(turn, text, TrackerRewriteEndpoints.Input(text, _screen, _proposal));
         }
         return AskReplied.Sent;
     }
@@ -239,7 +239,7 @@ public sealed class TrackerConversations(IAgentChat agent, AgentRequests request
                     if (turn.Stopped)
                         rewriting.Write(new TrackerRewriteEvent("stopped", $"{AgentRequests.AgentName} остановлен: ответа на эту реплику не будет"));
                     else if (_turn == turn)
-                        Send(Restart(rewriting), left, TrackerRewriteEndpoints.Input(left, _proposal ?? _screen));
+                        Send(Restart(rewriting), left, TrackerRewriteEndpoints.Input(left, _screen, _proposal));
                 }
                 return;
             }
@@ -478,8 +478,11 @@ public static class TrackerRewriteEndpoints
         return startInfo;
     }
 
-    /// <summary>Реплика агенту: слова оператора и описание, каким оно стоит в окне.</summary>
-    public static string Input(string text, TrackerDescription description, bool first = true)
+    /// <summary>
+    /// Реплика агенту: слова оператора, описание, каким оно стоит в окне трекера, и прошлое предложение агента, если оно
+    /// с окном расходится: в поля оно ложится, только когда оператор его примет (ревью B-323, как у исполнителя — B-320).
+    /// </summary>
+    public static string Input(string text, TrackerDescription description, TrackerDescription? proposal = null, bool first = true)
     {
         var said = new StringBuilder().Append(first ? "Просьба оператора:\n" : "Оператор:\n").Append(text);
         said.Append("\n\nОписание в окне сейчас:\n");
@@ -487,6 +490,10 @@ public static class TrackerRewriteEndpoints
             said.Append("пусто — трекер у проекта заводится.");
         else
             said.Append(TrackerDescriptions.Serialize(description, "…").TrimEnd());
+        if (proposal is not null && TrackerDescriptions.Changed(description, proposal) != (0, 0))
+            said.Append("\n\nТвоё последнее предложение — в поля окна оно ложится, только когда оператор его примет, ")
+                .Append("поэтому описание выше может быть без него. Правь его, если оператор не просит иного:\n")
+                .Append(TrackerDescriptions.Serialize(proposal, "…").TrimEnd());
         return said.ToString();
     }
 
