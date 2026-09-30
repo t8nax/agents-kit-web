@@ -62,14 +62,16 @@ export function stubPanel(
           text: String(body.question ?? body.text ?? body.wish ?? ''),
           elapsedMs: 0,
           state: 'running',
-          // Как в API: просьба о правке исполнителя помнит, кого переписывает, разговор по базе — копию проекта,
+          // Как в API: переписка об исполнителе помнит, кого переписывает, разговор по базе — копию проекта,
           // а разговор о бэклоге — запись, от которой открыт.
           subject:
             kind === 'ask'
               ? ((body.copy as string | undefined) ?? null)
               : kind === 'backlog'
                 ? ((body.number as string | undefined) ?? null)
-                : ((body.current as { name?: string } | null | undefined)?.name ?? null),
+                : kind === 'performer'
+                  ? ((body.subject as string | null | undefined) ?? null)
+                  : null,
         }
         return Promise.resolve(Response.json(request))
       }
