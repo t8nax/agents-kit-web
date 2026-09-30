@@ -12,7 +12,7 @@ public sealed record YouTrackUser(string? Login, string? Problem = null, string?
 
 public interface IYouTrack
 {
-    /// <summary>Кому принадлежит ключ: им проверяется ключ при сохранении в «Настройках».</summary>
+    /// <summary>Кому принадлежит ключ: им проверяется ключ при сохранении в разделе «Трекеры».</summary>
     Task<YouTrackUser> WhoAsync(string server, string key, CancellationToken cancellationToken);
 
     /// <summary>

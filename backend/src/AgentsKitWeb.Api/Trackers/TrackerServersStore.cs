@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace AgentsKitWeb.Api.Trackers;
 
-/// <summary>Сервер трекера в «Настройках»: адрес и логин владельца ключа. Сам ключ наружу не отдаётся.</summary>
+/// <summary>Сервер трекера из раздела «Трекеры»: адрес и логин владельца ключа. Сам ключ наружу не отдаётся.</summary>
 public sealed record TrackerServer(string Server, string Login);
 
 /// <summary>Файл серверов трекеров не разобран: его не читают как пустой и не перезаписывают.</summary>

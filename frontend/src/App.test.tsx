@@ -1247,7 +1247,7 @@ test('строка поломки трекера в «Бэклоге» откр�
 
   fireEvent.click(sidebarButtons().getByRole('button', { name: /Бэклог/ }))
   fireEvent.click(await screen.findByRole('tab', { name: 'Задачи трекера' }))
-  fireEvent.click(await screen.findByRole('button', { name: '«Трекеры проектов»' }))
+  fireEvent.click(await screen.findByRole('button', { name: '«Трекеры»' }))
 
   expect(await screen.findByRole('heading', { name: 'Трекеры', level: 2 })).toBeInTheDocument()
   const project = await screen.findByRole('region', { name: 'Трекер проекта app-knowledge' })

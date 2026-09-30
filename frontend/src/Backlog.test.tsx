@@ -1151,17 +1151,17 @@ test.each([
   [{ kind: 'other' as const, name: 'Jira' }, /^Трекер проекта — Jira\. Панель пока читает задачи только из GitHub и YouTrack\.$/, false],
   [
     { kind: 'no-keys' as const, faults: ['трекер', 'сервер', 'проект'] },
-    /^В описании трекера проекта нет строк «трекер:», «сервер:» и «проект:» или они записаны не так\. Исправьте описание в «Настройках», в карточке «Трекеры проектов»\.$/,
+    /^В описании трекера проекта нет строк «трекер:», «сервер:» и «проект:» или они записаны не так\. Исправьте описание в разделе «Трекеры»\.$/,
     true,
   ],
   [
     { kind: 'no-keys' as const, faults: ['сервер', 'проект'] },
-    /^В описании трекера проекта нет строк «сервер:» и «проект:» или они записаны не так\. Исправьте описание в «Настройках», в карточке «Трекеры проектов»\.$/,
+    /^В описании трекера проекта нет строк «сервер:» и «проект:» или они записаны не так\. Исправьте описание в разделе «Трекеры»\.$/,
     true,
   ],
   [
     { kind: 'no-keys' as const, faults: ['проект'] },
-    /^В описании трекера проекта нет строки «проект:» или она записана не так\. Исправьте описание в «Настройках», в карточке «Трекеры проектов»\.$/,
+    /^В описании трекера проекта нет строки «проект:» или она записана не так\. Исправьте описание в разделе «Трекеры»\.$/,
     true,
   ],
 ])('трекер, которого панель не читает (%o), — строка на месте задач, трекер не зовётся', async (tracker, text, warning) => {
@@ -1177,8 +1177,8 @@ test.each([
   expect(fetchMock.trackerReads()).toBe(0)
 })
 
-// Описание трекера правится в «Настройках», а не словами киту в сессии: строка поломки ведёт в карточку (B-293).
-test('строка поломки описания трекера ведёт в карточку «Трекеры проектов»', async () => {
+// Описание трекера правится в разделе «Трекеры», а не словами киту в сессии: строка поломки ведёт к проекту (B-293, B-323).
+test('строка поломки описания трекера ведёт в раздел «Трекеры» к своему проекту', async () => {
   onTrackerTab()
   stubFetch(withTracker({ kind: 'no-keys', faults: ['проект'] }))
   const onTrackers = vi.fn()
@@ -1186,9 +1186,10 @@ test('строка поломки описания трекера ведёт в 
   render(<Backlog onTrackers={onTrackers} />)
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
-  fireEvent.click(project.getByRole('button', { name: '«Трекеры проектов»' }))
-  expect(onTrackers).toHaveBeenCalledTimes(1)
+  fireEvent.click(project.getByRole('button', { name: '«Трекеры»' }))
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base)
 })
+
 
 test.each([
   [{ issues: [], problem: null }, /На вас в GitHub нет открытых задач этого репозитория/, false],
@@ -1548,17 +1549,17 @@ test.each([
   [{ issues: [], problem: null }, /^На вас в YouTrack нет незакрытых задач этого проекта\.$/, false],
   [
     { issues: [], problem: 'no-key' },
-    /^Для сервера https:\/\/acme\.youtrack\.cloud нет ключа\. Добавьте сервер и ключ в «Настройках», в карточке «Серверы трекеров»\.$/,
+    /^Для сервера https:\/\/acme\.youtrack\.cloud нет ключа\. Добавьте сервер и ключ в разделе «Трекеры», в списке «Серверы трекеров»\.$/,
     true,
   ],
   [
     { issues: [], problem: 'key-rejected' },
-    /^Сервер https:\/\/acme\.youtrack\.cloud отклонил ключ\. Замените ключ в «Настройках», в карточке «Серверы трекеров»\.$/,
+    /^Сервер https:\/\/acme\.youtrack\.cloud отклонил ключ\. Замените ключ в разделе «Трекеры», в списке «Серверы трекеров»\.$/,
     true,
   ],
   [
     { issues: [], problem: 'key-unreadable' },
-    /^Ключ сервера https:\/\/acme\.youtrack\.cloud не прочитать на этом компьютере\. Замените ключ в «Настройках», в карточке «Серверы трекеров»\.$/,
+    /^Ключ сервера https:\/\/acme\.youtrack\.cloud не прочитать на этом компьютере\. Замените ключ в разделе «Трекеры», в списке «Серверы трекеров»\.$/,
     true,
   ],
   [
@@ -1589,14 +1590,28 @@ test.each([
   expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
 })
 
-// B-300: отбор задан — пустой список называет его, а отказ трекера на него ведёт в карточку «Трекеры проектов».
+// Критерий 4 B-323: и причина ключа ведёт в раздел «Трекеры», где стоят серверы с ключами.
+test('строка о ключе сервера ведёт в раздел «Трекеры» к своему проекту', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(youTrack))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: 'no-key' }))
+  const onTrackers = vi.fn()
+
+  render(<Backlog onTrackers={onTrackers} />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  fireEvent.click(await project.findByRole('button', { name: '«Трекеры»' }))
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base)
+})
+
+// B-300: отбор задан — пустой список называет его, а отказ трекера на него ведёт в раздел «Трекеры».
 test.each([
   [youTrack, 'State: {To Do}', { issues: [], problem: null }, /^По фильтру State: \{To Do\} на вас в YouTrack сейчас нет задач этого проекта\.$/, false],
   [
     youTrack,
     'State: {To Do}',
     { issues: [], problem: 'filter-rejected', detail: 'Unknown field "Stat"' },
-    /^YouTrack не принял фильтр State: \{To Do\}: Unknown field "Stat"\. Исправьте его в «Настройках», в карточке «Трекеры проектов»\.$/,
+    /^YouTrack не принял фильтр State: \{To Do\}: Unknown field "Stat"\. Исправьте его в разделе «Трекеры»\.$/,
     true,
   ],
   [github, 'label:bug', { issues: [], problem: null }, /^По фильтру label:bug на вас в GitHub сейчас нет открытых задач этого репозитория\.$/, false],
