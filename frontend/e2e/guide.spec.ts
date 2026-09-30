@@ -7,12 +7,10 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/workspaces', (route) => route.fulfill({ json: [] }))
   await page.setViewportSize({ width: 1280, height: 720 })
   await page.goto('/')
-  const sidebar = page.getByRole('navigation', { name: 'Разделы панели' })
-  await sidebar.getByRole('button', { name: 'Руководство' }).click()
-  // Полоса разделов раскрыта под мышью и поверх оглавления: мышь уходит к тексту, фокус — с кнопки, и полоса сворачивается
-  await page.mouse.move(900, 400)
-  await sidebar.getByRole('button', { name: 'Руководство' }).blur()
-  await expect(sidebar).not.toHaveClass(/expanded/)
+  // Руководство открывается значком книги в шапке (B-318): полоса разделов при этом не раскрывается
+  await page.getByRole('banner').getByRole('button', { name: 'Руководство' }).click()
+  await expect(page.getByRole('heading', { name: 'Руководство', level: 2 })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Разделы панели' })).not.toHaveClass(/expanded/)
 })
 
 test('оглавление стоит на месте, пока длинная страница прокручивается, а текст занимает остальную ширину', async ({

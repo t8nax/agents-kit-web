@@ -294,10 +294,13 @@ function App() {
           <AskIcon />
           Спросить {AGENT_NAME}
         </button>
-        <button type="button" className="bases-btn" onClick={theme.toggle}>
+        {/* Руководство — значком в шапке, а не пунктом полосы: в него идут не за работой, а за объяснением (B-318) */}
+        <HeaderIconButton label="Руководство" active={section === 'guide'} onClick={() => chooseSection('guide')}>
+          <BookIcon />
+        </HeaderIconButton>
+        <HeaderIconButton label={theme.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'} onClick={theme.toggle}>
           {theme.theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-          {theme.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема'}
-        </button>
+        </HeaderIconButton>
       </header>
       <div className="app-body">
         <Sidebar
@@ -558,15 +561,6 @@ function Sidebar({
         >
           <GearIcon />
         </SideItem>
-        {/* Руководство — последним, под настройками: в него идут не за работой, а за объяснением (B-306) */}
-        <SideItem
-          label="Руководство"
-          expanded={expanded}
-          active={section === 'guide'}
-          onClick={() => onSection('guide')}
-        >
-          <BookIcon />
-        </SideItem>
       </nav>
     </div>
   )
@@ -602,6 +596,32 @@ function SideItem({
       {children}
       {expanded && <span className="side-label">{label}</span>}
       {note && (expanded ? <span className="side-count">{note}</span> : <span className="side-dot" />)}
+    </button>
+  )
+}
+
+// Кнопка шапки одним значком: название держится в имени кнопки и в подсказке браузера
+function HeaderIconButton({
+  label,
+  active = false,
+  onClick,
+  children,
+}: {
+  label: string
+  active?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      className={`bases-btn header-icon-btn ${active ? 'active' : ''}`}
+      aria-label={label}
+      title={label}
+      aria-current={active ? 'page' : undefined}
+      onClick={onClick}
+    >
+      {children}
     </button>
   )
 }

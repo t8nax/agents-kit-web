@@ -606,13 +606,40 @@ test('сайдбар переключает разделы, среди них «
   // Кнопки «Базы знаний» больше нет: базы живут в разделе «Настройки»
   expect(sidebar.queryByRole('button', { name: 'Базы знаний' })).not.toBeInTheDocument()
 
-  // Критерий 1 B-306: «Руководство» — последний пункт полосы, под «Настройками»
-  const items = sidebar.getAllByRole('button')
-  expect(items.at(-1)).toHaveAccessibleName('Руководство')
-  expect(items.at(-2)).toHaveAccessibleName('Настройки')
-  fireEvent.click(sidebar.getByRole('button', { name: 'Руководство' }))
+  // Критерий 1 B-318: пункта «Руководство» в полосе нет, она кончается «Настройками»
+  expect(sidebar.queryByRole('button', { name: 'Руководство' })).not.toBeInTheDocument()
+  expect(sidebar.getAllByRole('button').at(-1)).toHaveAccessibleName('Настройки')
+})
+
+test('руководство открывается значком книги в шапке, и значок отмечен, пока руководство открыто', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(rows), { status: 200 })))
+  render(<App />)
+  const header = within(screen.getByRole('banner'))
+  const sidebar = within(screen.getByRole('navigation', { name: 'Разделы панели' }))
+
+  // Критерий 2 B-318: значок книги стоит между «Спросить Чудо-Юдо» и темой, название — в подсказке
+  const buttons = header.getAllByRole('button')
+  const guide = header.getByRole('button', { name: 'Руководство' })
+  expect(buttons.at(-3)).toHaveAccessibleName('Спросить Чудо-Юдо')
+  expect(buttons.at(-2)).toBe(guide)
+  expect(buttons.at(-1)).toHaveAccessibleName('Светлая тема')
+  expect(guide).toHaveAttribute('title', 'Руководство')
+  expect(guide).toHaveTextContent('')
+  expect(guide).not.toHaveAttribute('aria-current')
+
+  fireEvent.click(guide)
   expect(await screen.findByRole('heading', { name: 'Руководство', level: 2 })).toBeInTheDocument()
   expect(screen.getByRole('navigation', { name: 'Страницы руководства' })).toBeInTheDocument()
+
+  // Критерий 3 B-318: открыто руководство — отмечена книга, в полосе не выделен ни один пункт
+  expect(guide).toHaveAttribute('aria-current', 'page')
+  expect(guide).toHaveClass('active')
+  for (const item of sidebar.getAllByRole('button')) expect(item).not.toHaveAttribute('aria-current')
+
+  fireEvent.click(sidebar.getByRole('button', { name: 'Настройки' }))
+  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  expect(guide).not.toHaveAttribute('aria-current')
+  expect(guide).not.toHaveClass('active')
 })
 
 const checked = (baseProblems: number, problems: number): Partial<WorkspaceRow> => ({
@@ -1016,7 +1043,11 @@ test('переключатель ставит тему и браузер её п
   // Без своего выбора тема тёмная по системе, атрибута на странице нет
   expect(document.documentElement.dataset.theme).toBeUndefined()
 
-  fireEvent.click(await screen.findByRole('button', { name: 'Светлая тема' }))
+  // Критерий 4 B-318: переключатель — значок без надписи, тема, на которую он переключит, — в подсказке
+  const toggle = await screen.findByRole('button', { name: 'Светлая тема' })
+  expect(toggle).toHaveTextContent('')
+  expect(toggle).toHaveAttribute('title', 'Светлая тема')
+  fireEvent.click(toggle)
   expect(document.documentElement.dataset.theme).toBe('light')
   expect(localStorage.getItem('agents-kit-web.theme')).toBe('light')
   expect(screen.getByRole('button', { name: 'Тёмная тема' })).toBeInTheDocument()
