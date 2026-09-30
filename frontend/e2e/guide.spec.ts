@@ -10,7 +10,27 @@ test.beforeEach(async ({ page }) => {
   // Руководство открывается значком книги в шапке (B-318): полоса разделов при этом не раскрывается
   await page.getByRole('banner').getByRole('button', { name: 'Руководство' }).click()
   await expect(page.getByRole('heading', { name: 'Руководство', level: 2 })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: 'Разделы панели' })).not.toHaveClass(/expanded/)
+})
+
+// Критерии 2 и 3 B-318: заливку и размер значка задаёт CSS, который перебивается силой селектора, — jsdom его не видит
+test('значок книги ростом с соседнюю кнопку шапки и залит, как выбранный пункт полосы', async ({ page }) => {
+  const header = page.getByRole('banner')
+  const book = header.getByRole('button', { name: 'Руководство' })
+  const bookBox = (await book.boundingBox())!
+  const askBox = (await header.getByRole('button', { name: 'Спросить Чудо-Юдо' }).boundingBox())!
+  expect(bookBox.height).toBeCloseTo(askBox.height, 0)
+  expect(bookBox.width).toBeCloseTo(bookBox.height, 0)
+
+  // Мышь уходит с кнопки, чтобы видна была подсветка открытого раздела, а не наведение
+  await page.mouse.move(900, 400)
+  const background = (locator: typeof book) => locator.evaluate((el) => getComputedStyle(el).backgroundColor)
+  const lit = await background(book)
+  const sidebar = page.getByRole('navigation', { name: 'Разделы панели' })
+  await sidebar.getByRole('button', { name: 'Настройки' }).click()
+  await page.mouse.move(900, 400)
+  await expect(book).not.toHaveAttribute('aria-current')
+  expect(await background(book)).not.toBe(lit)
+  expect(await background(sidebar.getByRole('button', { name: 'Настройки' }))).toBe(lit)
 })
 
 test('оглавление стоит на месте, пока длинная страница прокручивается, а текст занимает остальную ширину', async ({
