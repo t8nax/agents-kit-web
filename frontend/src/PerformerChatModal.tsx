@@ -131,7 +131,8 @@ export default function PerformerChatModal({ base, project, subject, current, ke
 
   async function submit() {
     const said = value.trim()
-    if (!said || answering) return
+    // Пока окно не узнало о своей переписке, первая реплика начала бы новую и убрала бы её (ревью B-320).
+    if (!said || answering || restoring) return
     setText(null)
     // Реплика несёт поля, какими они стоят в окне исполнителя: правку руками агент видит, и у нового тоже.
     const sent = started ? await send(said, { current }) : await start({ base, wish: said, current, subject })
@@ -248,7 +249,8 @@ export default function PerformerChatModal({ base, project, subject, current, ke
                 ))}
               </ol>
             )}
-            {failure && (
+            {/* Сбой чужой переписки скрыт, как и она сама: в этом окне ничего не спрашивали. */}
+            {failure && !foreign && (
               <div className="ask-error" role="alert">
                 <strong>{AGENT_NAME} не ответил</strong>
                 <span>{failure}. Поля исполнителя не менялись.</span>
@@ -358,7 +360,7 @@ export default function PerformerChatModal({ base, project, subject, current, ke
                   Отменить
                 </button>
               ) : (
-                <button type="button" className="btn btn-primary" disabled={!value.trim()} onClick={() => void submit()}>
+                <button type="button" className="btn btn-primary" disabled={!value.trim() || restoring} onClick={() => void submit()}>
                   Отправить
                 </button>
               )}

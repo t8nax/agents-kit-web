@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import PerformerChatModal from './PerformerChatModal'
 import { controlledStream, runningRequest, stubPanel } from './agentPanelTesting'
@@ -217,4 +217,40 @@ test('переписка о другом исполнителе того же п
   renderChat()
 
   expect(await screen.findByText(/Идёт переписка об исполнителе tester проекта Orders/)).toBeInTheDocument()
+})
+
+test('пока окно не узнало о своей переписке, реплика не уходит и не начинает новую', async () => {
+  const stream = controlledStream<DraftEvent>()
+  let answer: (response: Response) => void = () => {}
+  const posts: string[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') posts.push(url)
+      if (url === '/api/agent/requests') return new Promise<Response>((resolve) => (answer = resolve))
+      return Promise.resolve(new Response(stream.body))
+    }),
+  )
+  renderChat()
+
+  fireEvent.change(screen.getByLabelText('Просьба'), { target: { value: 'Короче' } })
+  expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled()
+  fireEvent.keyDown(screen.getByLabelText('Просьба'), { key: 'Enter', ctrlKey: true })
+  expect(posts).toEqual([])
+
+  answer(Response.json([]))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled())
+})
+
+test('сбой чтения чужой переписки в этом окне не показан', async () => {
+  const stream = controlledStream<DraftEvent>()
+  stub(stream, runningRequest('performer', 'x', base, 'Orders', 0, 'tester'))
+  renderChat()
+
+  expect(await screen.findByText(/Идёт переписка об исполнителе tester/)).toBeInTheDocument()
+  stream.close()
+
+  await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/agent/requests'))
+  await new Promise((wake) => setTimeout(wake, 700))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 })
