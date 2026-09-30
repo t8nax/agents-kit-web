@@ -61,7 +61,7 @@ async function row(name: string) {
   return within(await screen.findByRole('region', { name: `Трекер проекта ${name}` }))
 }
 
-test('проект без трекера — «Трекера нет» и «Завести», с трекером — вид, сервер, проект, «Изменить» и «Удалить»', async () => {
+test('проект без трекера — «В этом проекте нет трекера» и «Завести трекер», с трекером — вид, сервер, проект, «Изменить» и «Удалить»', async () => {
   stubApi({ 'GET /api/trackers/projects': () => json([described, bare]) })
 
   render(<TrackerProjects />)
