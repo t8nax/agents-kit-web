@@ -570,7 +570,7 @@ test('копия не открылась — панель говорит об э
   ).toBeInTheDocument()
 })
 
-test('сайдбар переключает разделы, среди них «Проблемы баз» и «Настройки»', async () => {
+test('сайдбар переключает разделы, среди них «Проблемы баз», «Трекеры» и «Настройки»', async () => {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === '/api/backlog' || url === '/api/bases' || url === '/api/trackers' || url === '/api/trackers/projects')
       return new Response(JSON.stringify([]), { status: 200 })
@@ -600,9 +600,18 @@ test('сайдбар переключает разделы, среди них «
   expect(await screen.findByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
   expect(fetchMock).toHaveBeenCalledWith('/api/health')
 
+  // Критерий 1 B-323: трекеры — свой раздел перед «Настройками», а в «Настройках» их нет
+  fireEvent.click(sidebar.getByRole('button', { name: 'Трекеры' }))
+  expect(await screen.findByRole('heading', { name: 'Трекеры', level: 2 })).toBeInTheDocument()
+  expect(sidebar.getByRole('button', { name: 'Трекеры' })).toHaveAttribute('aria-current', 'page')
+  expect(fetchMock).toHaveBeenCalledWith('/api/trackers')
+  expect(sidebar.getAllByRole('button').at(-2)).toHaveAccessibleName('Трекеры')
+
   fireEvent.click(sidebar.getByRole('button', { name: 'Настройки' }))
   expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
   expect(sidebar.getByRole('button', { name: 'Настройки' })).toHaveAttribute('aria-current', 'page')
+  expect(screen.queryByRole('heading', { name: 'Серверы трекеров' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Трекеры проектов' })).not.toBeInTheDocument()
   // Кнопки «Базы знаний» больше нет: базы живут в разделе «Настройки»
   expect(sidebar.queryByRole('button', { name: 'Базы знаний' })).not.toBeInTheDocument()
 
@@ -1225,7 +1234,7 @@ function stubTrackers() {
 }
 
 // Критерий 7 B-293: строка поломки описания трекера в «Бэклоге» ведёт в карточку «Трекеры проектов».
-test('строка поломки трекера в «Бэклоге» открывает «Настройки» на карточке «Трекеры проектов»', async () => {
+test('строка поломки трекера в «Бэклоге» открывает раздел «Трекеры» на трекерах проектов', async () => {
   stubTrackers()
   // В jsdom прокрутки нет: тест ставит её себе и убирает за собой.
   const scrolled = vi.fn()
@@ -1240,21 +1249,21 @@ test('строка поломки трекера в «Бэклоге» откр�
   fireEvent.click(await screen.findByRole('tab', { name: 'Задачи трекера' }))
   fireEvent.click(await screen.findByRole('button', { name: '«Трекеры проектов»' }))
 
-  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Трекеры', level: 2 })).toBeInTheDocument()
   const card = await screen.findByRole('region', { name: 'Трекеры проектов' })
   await waitFor(() => expect(scrolled).toHaveBeenCalled())
   expect(scrolled.mock.contexts[0]).toBe(card)
   expect(within(card).getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
 })
 
-test('возврат к переписке о трекере открывает «Настройки» с окном трекера этого проекта', async () => {
+test('возврат к переписке о трекере открывает раздел «Трекеры» с окном трекера этого проекта', async () => {
   stubTrackers()
   render(<App />)
   await screen.findByRole('table')
 
   returnToRequest('tracker', 'D:\\Projects\\app-knowledge')
 
-  expect(await screen.findByRole('heading', { name: 'Настройки' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Трекеры', level: 2 })).toBeInTheDocument()
   const dialog = await screen.findByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })
   expect(within(dialog).getByText('app-knowledge', { selector: '.rewrite-project-name' })).toBeInTheDocument()
 })

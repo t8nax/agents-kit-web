@@ -18,6 +18,7 @@ import Reports, { ReportIcon } from './Reports'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
+import Trackers from './Trackers'
 import Guide from './Guide'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
@@ -143,6 +144,7 @@ type Section =
   | 'usage'
   | 'reports'
   | 'problems'
+  | 'trackers'
   | 'settings'
   | 'guide'
 
@@ -159,7 +161,7 @@ function App() {
     subject?: string | null
     at: number
   } | null>(null)
-  // Переход из строки «Бэклога» о поломке описания трекера: «Настройки» показывают карточку «Трекеры проектов».
+  // Переход из строки «Бэклога» о поломке описания трекера: раздел «Трекеры» показывает трекеры проектов.
   const [trackersAt, setTrackersAt] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
@@ -284,7 +286,7 @@ function App() {
                   : request.kind === 'report'
                     ? 'reports'
                     : request.kind === 'tracker'
-                      ? 'settings'
+                      ? 'trackers'
                       : 'performers',
             )
             setOpenRequest({ kind: request.kind, base: request.base, subject: request.subject, at: Date.now() })
@@ -351,7 +353,7 @@ function App() {
               key={openRequest?.kind === 'backlog' ? openRequest.at : 'backlog'}
               writeFor={openRequest?.kind === 'backlog' ? openRequest.base : null}
               onTrackers={() => {
-                setSection('settings')
+                setSection('trackers')
                 setOpenRequest(null)
                 setTrackersAt(Date.now())
               }}
@@ -390,11 +392,13 @@ function App() {
             <Problems onSettings={() => setSection('settings')} />
           ) : section === 'guide' ? (
             <Guide />
-          ) : (
-            <Settings
+          ) : section === 'trackers' ? (
+            <Trackers
               trackerFor={openRequest?.kind === 'tracker' ? { base: openRequest.base, at: openRequest.at } : null}
               trackersAt={trackersAt}
             />
+          ) : (
+            <Settings />
           )}
         </main>
       </div>
@@ -552,6 +556,15 @@ function Sidebar({
         >
           <WarningIcon />
         </SideItem>
+        {/* Трекеры стоят перед настройками: там задают, где у проектов задачи и чем панель к ним ходит (B-323) */}
+        <SideItem
+          label="Трекеры"
+          expanded={expanded}
+          active={section === 'trackers'}
+          onClick={() => onSection('trackers')}
+        >
+          <TicketIcon />
+        </SideItem>
         {/* Настройки — такой же раздел, как остальные: базы знаний и путь к киту живут на его странице */}
         <SideItem
           label="Настройки"
@@ -654,6 +667,15 @@ function ListIcon() {
       <line x1="3" y1="6" x2="3.01" y2="6" />
       <line x1="3" y1="12" x2="3.01" y2="12" />
       <line x1="3" y1="18" x2="3.01" y2="18" />
+    </svg>
+  )
+}
+
+function TicketIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 7a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4z" />
+      <path d="M14 5v2M14 11v2M14 17v2" />
     </svg>
   )
 }
