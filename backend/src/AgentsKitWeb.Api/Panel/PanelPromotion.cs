@@ -9,9 +9,10 @@ namespace AgentsKitWeb.Api.Panel;
 /// State: «ready» — стоящую Бету можно выложить; «running» — выкладка идёт; «failed» — последняя выкладка этой
 /// сборки сорвалась, её можно повторить; «already» — стоящая сборка уже в Стабильном; «older» — в Стабильном
 /// сборка новее стоящей, выкладывать нечего; «no-rights» — у вошедшего в GitHub нет права менять репозиторий
-/// выпусков, и выкладка ему не дана.
+/// выпусков, и выкладка ему не дана. Releases — выпуски Беты новее Стабильного до стоящей включительно, новые первыми:
+/// что стоящая сборка привезёт в Стабильный.
 /// </summary>
-public sealed record PanelStableResponse(string Version, string? Stable, string State);
+public sealed record PanelStableResponse(string Version, string? Stable, string State, IReadOnlyList<PanelRelease> Releases);
 
 /// <summary>Последний запуск выкладки сборки: Status — queued, in_progress или completed; Conclusion — у завершённого.</summary>
 public sealed record PromotionRun(string Status, string? Conclusion, DateTimeOffset CreatedAt)

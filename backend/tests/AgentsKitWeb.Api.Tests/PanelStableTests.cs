@@ -30,8 +30,23 @@ public sealed class PanelStableTests : IDisposable
 
         var stable = await client.GetFromJsonAsync<PanelStableResponse>("/api/panel/stable");
 
-        Assert.Equal(new PanelStableResponse("0.28.1.3", "0.27.4.0", "ready"), stable);
+        Assert.Equal(("0.28.1.3", "0.27.4.0", "ready"), (stable!.Version, stable.Stable, stable.State));
         Assert.Equal("t8nax/agents-kit-web", _promotion.AskedRights);
+    }
+
+    [Fact]
+    public async Task Stable_ListsTheBetasTheStandingBuildBrings()
+    {
+        _releases.Channel("master", Release("0.27.4.0"));
+        _releases.Channel("dev",
+            Release("0.28.1.5"), Release("0.28.1.3", "фильтр помнит выбор"), Release("0.28.0.1", "вкладки бэклога"),
+            Release("0.27.4.0", "уже в Стабильном"));
+        var client = Client(Panel("dev", "0.28.1.3"));
+
+        var stable = await client.GetFromJsonAsync<PanelStableResponse>("/api/panel/stable");
+
+        Assert.Equal(["0.28.1.3", "0.28.0.1"], stable!.Releases.Select(release => release.Version));
+        Assert.Equal(["фильтр помнит выбор"], stable.Releases[0].Tasks);
     }
 
     [Fact]
@@ -42,7 +57,7 @@ public sealed class PanelStableTests : IDisposable
 
         var stable = await client.GetFromJsonAsync<PanelStableResponse>("/api/panel/stable");
 
-        Assert.Equal(new PanelStableResponse("0.28.0.1", null, "ready"), stable);
+        Assert.Equal(("0.28.0.1", null, "ready"), (stable!.Version, stable.Stable, stable.State));
     }
 
     [Fact]
@@ -206,7 +221,7 @@ public sealed class PanelStableTests : IDisposable
         Assert.Null(PanelPromotions.ParseLastRun(json, "0.28.0.1"));
     }
 
-    private static PanelRelease Release(string version) => new(version, $"v{version}", []);
+    private static PanelRelease Release(string version, params string[] tasks) => new(version, $"v{version}", tasks);
 
     private static PublishedPanel Panel(string channel, string version) =>
         new(channel, channel, "4189d1f", version, Built, null, @"C:\panel\app", 5080, "agents-kit-web panel");

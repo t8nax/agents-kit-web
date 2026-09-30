@@ -114,7 +114,12 @@ public static class PanelEndpoints
         var stable = stableReleases.FirstOrDefault()?.Version;
         var standing = PanelUpdates.Number(published.Version);
         var latest = stable is null ? null : PanelUpdates.Number(stable);
-        PanelStableResponse Answer(string state) => new(published.Version, stable, state);
+        // Что привезёт стоящая сборка — выпуски Беты между Стабильным и ею; Бета не ответила — перечня нет.
+        var arriving = (await releases.ReadAsync(repository, PanelChannelStore.Dev, cancellationToken) ?? [])
+            .Where(release => PanelUpdates.Number(release.Version) is { } number
+                              && (latest is null || number > latest) && standing is not null && number <= standing)
+            .ToList();
+        PanelStableResponse Answer(string state) => new(published.Version, stable, state, arriving);
 
         if (latest is not null && standing is not null && standing <= latest)
             return Answer(standing == latest ? "already" : "older");
