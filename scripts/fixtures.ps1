@@ -855,7 +855,7 @@ exit 0
 
 # Задачи YouTrack панель читает сама, по REST с ключом из «Настроек» (B-288), и в песочнице ей отвечает свой
 # сервер на localhost — youtrack-stub.ps1 корня песочницы, его поднимает start-panel.ps1 рядом с API. Ключ
-# сервер принимает один — perm:sandbox: его оператор вводит в «Настройках», в карточке «Серверы трекеров».
+# сервер принимает один — perm:sandbox: его оператор вводит в разделе «Трекеры», в списке «Серверы трекеров».
 function New-YouTrackStub([string]$Root, [int]$Port) {
     $stub = @'
 # Подставной YouTrack песочницы на http://localhost:__PORT__/. Ключ — «perm:sandbox», владелец ключа — sandbox.operator.

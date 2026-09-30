@@ -724,7 +724,7 @@ if (Test-Piece 'orders') {
 # Проекты с трекером (B-277, B-288): задачи, назначенные на оператора, раздел «Бэклог» показывает группой под
 # записями. Трекер описание называет строками «трекер:», «сервер:», «проект:» (кит формата 7). Задачи GitHub отдаёт
 # подставная gh из gh-issues.json, задачи YouTrack — подставной сервер youtrack-stub.ps1 из youtrack-issues.json;
-# ключ к нему оператор вводит в «Настройках». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом,
+# ключ к нему оператор вводит в разделе «Трекеры». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом,
 # которого на сервере нет, описание без строк и Jira — задач панель не читает и называет причину.
 if (Test-Piece 'tracker') {
     $trackerCopy = Join-Path $copiesDir 'tracker'
@@ -1104,7 +1104,7 @@ if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
 `$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command',
     "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --ProjectsDir '$projectsDir' --CredentialsFile '$(Join-Path $Root 'no-credentials.json')' --PublishedFile '$(Join-Path $panelDir 'published.json')' --TrackersFile '$(Join-Path $panelDir 'trackers.json')' --VoiceDir '$(Join-Path $Root 'voice')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
-# Подставной YouTrack песочницы: ключ к нему — в «Настройках», в карточке «Серверы трекеров» (trackers.json лежит
+# Подставной YouTrack песочницы: ключ к нему — в разделе «Трекеры», в списке «Серверы трекеров» (trackers.json лежит
 # рядом с bases.json песочницы, ключи оператора панель песочницы не видит).
 `$youTrack = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-File', '$(Join-Path $Root 'youtrack-stub.ps1')')
 
