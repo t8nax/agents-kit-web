@@ -21,7 +21,7 @@ export default function Trackers({ trackerFor = null, trackersAt = null }: Track
       <div className="content-head">
         <h2>Трекеры</h2>
       </div>
-      <TrackerProjects key={trackerFor?.at ?? 'trackers'} rewriteFor={trackerFor} focus={trackersAt} servers={servers} />
+      <TrackerProjects key={trackerFor?.at ?? trackersAt?.at ?? 'trackers'} rewriteFor={trackerFor} focus={trackersAt} servers={servers} />
       <TrackerServersCard onServers={setServers} />
     </div>
   )

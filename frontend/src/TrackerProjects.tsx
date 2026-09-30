@@ -57,12 +57,11 @@ export default function TrackerProjects({ rewriteFor = null, focus = null, serve
     void reload()
   }, [reload])
 
-  // Переход из «Бэклога»: выбран проект, чьё описание сломано, и список с подробностями встаёт на экран, когда прочитан.
+  // Переход из «Бэклога»: выбран проект, чьё описание сломано (раздел для него встаёт заново), и список с подробностями
+  // встаёт на экран, когда прочитан.
   const loaded = load.kind === 'loaded'
   useEffect(() => {
-    if (focus === null) return
-    setSelected(focus.base)
-    if (loaded) panel.current?.scrollIntoView?.({ block: 'start' })
+    if (focus !== null && loaded) panel.current?.scrollIntoView?.({ block: 'start' })
   }, [focus, loaded])
 
   const rows = load.kind === 'loaded' ? load.rows : []
