@@ -66,6 +66,84 @@ a.entry {
 
 .tracker-issues .tracker-out {
   margin-left: auto;
+  align-self: center;
+}
+
+/* Строка задачи трекера — в две строки: заголовок с метками, под ним исполнитель; номер — по строке заголовка,
+   значок ссылки и «Взять задачу» — по центру (макет AKW-17, вариант А). */
+.tracker-issues .entry {
+  align-items: flex-start;
+}
+
+.tracker-issues .entry-num-slot {
+  margin-top: 2px;
+}
+
+.issue-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.issue-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.issue-line .entry-title {
+  line-height: 22px;
+}
+
+.issue-assignee {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.issue-assignee.nobody {
+  color: var(--text-tertiary);
+}
+
+/* «Мои задачи» — флажок видом галки списка «Метки», ростом с поле поиска (макет AKW-17). */
+.mine-check {
+  font: inherit;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.mine-check:hover {
+  background: var(--bg-surface-hover);
+}
+
+.mine-check:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.mine-check.on .labels-box {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--bg-base);
+}
+
+.mine-check:not(.on) .labels-box svg {
+  display: none;
 }
 
 .issue-label {
@@ -123,6 +201,15 @@ a.entry {
   text-decoration: underline;
   text-decoration-color: var(--accent-error-border);
   text-underline-offset: 3px;
+}
+
+/* В спокойной серой строке — о пределе задач — подчёркивание серое, не цвета поломки (макет AKW-17) */
+.tracker-link-quiet {
+  text-decoration-color: var(--border-strong);
+}
+
+.tracker-link-quiet:hover {
+  color: var(--text-primary);
 }
 
 /* Строка записи держит две кнопки: чтение записи и её запуск — кнопка в кнопку не вкладывается. */

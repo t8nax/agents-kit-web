@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
-import { issueLabel, type TrackerInfo, type TrackerIssue, type TrackerLoad } from './tracker'
+import { ISSUE_LIMIT, issueLabel, type TrackerInfo, type TrackerIssue, type TrackerLoad } from './tracker'
 
 /** Строка на месте задач: спокойная — серая, поломка — красная со значком и советом. */
 type State = { warning: boolean; text: ReactNode }
@@ -23,17 +23,17 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
           text:
             tracker.kind === 'youtrack' ? (
               <>
-                По фильтру <code>{tracker.filter}</code> на вас в YouTrack сейчас нет задач этого проекта.
+                По фильтру <code>{tracker.filter}</code> в YouTrack сейчас нет задач этого проекта.
               </>
             ) : (
               <>
-                По фильтру <code>{tracker.filter}</code> на вас в GitHub сейчас нет открытых задач этого репозитория.
+                По фильтру <code>{tracker.filter}</code> в GitHub сейчас нет открытых задач этого репозитория.
               </>
             ),
         }
       return tracker.kind === 'youtrack'
-        ? { warning: false, text: 'На вас в YouTrack нет незакрытых задач этого проекта.' }
-        : { warning: false, text: 'На вас в GitHub нет открытых задач этого репозитория.' }
+        ? { warning: false, text: 'В YouTrack нет незакрытых задач этого проекта.' }
+        : { warning: false, text: 'В GitHub нет открытых задач этого репозитория.' }
     case 'other':
       return {
         warning: false,
@@ -174,12 +174,14 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
 /**
  * Задачи трекера проекта на вкладке «Задачи трекера» (B-305; раньше — подписанная группа под записями, макеты B-277
  * и B-288). Строка задачи — ссылка на трекер во вкладку браузера, а не окно: описание задачи лежит в трекере.
- * «Взять задачу» — то же окно запуска.
+ * «Взять задачу» — то же окно запуска. Исполнитель — второй строкой под заголовком, у ничьей задачи — «никому»;
+ * задач больше, чем панель показывает за раз, — строка под списком, а не молчаливая обрезка (макет AKW-17, вариант А).
  */
 export default function TrackerGroup({
   tracker,
   load,
   issues,
+  mine = false,
   onTrackers,
   children,
 }: {
@@ -187,13 +189,19 @@ export default function TrackerGroup({
   load: TrackerLoad
   /** Задачи, прошедшие отбор раздела; при отборе без подошедших задач раздел группу не показывает вовсе. */
   issues: TrackerIssue[]
-  /** Переход в «Настройки» к карточке «Трекеры проектов» — из строки о поломке описания. */
+  /** Включён флажок «Мои задачи»: проект без своих задач не прячется, а говорит это строкой. */
+  mine?: boolean
+  /** Переход к описанию трекера проекта — из строки о поломке описания и из строки о пределе задач. */
   onTrackers?: () => void
   /** Кнопка запуска задачи — её держит раздел: окно запуска у него. */
   children: (issue: TrackerIssue) => ReactNode
 }) {
   const reveal = useReveal(load.kind === 'loading')
-  const state = trackerState(load, tracker, onTrackers)
+  const state =
+    trackerState(load, tracker, onTrackers) ??
+    (mine && issues.length === 0 && load.kind === 'loaded'
+      ? { warning: false, text: 'Ваших задач в этом проекте нет.' }
+      : null)
   const width = Math.max(0, ...issues.map((issue) => issueLabel(issue).length))
   return (
     <>
@@ -223,24 +231,44 @@ export default function TrackerGroup({
                 <span className="entry-num-slot">
                   <span className="tracker-num">{issueLabel(issue)}</span>
                 </span>{' '}
-                <span className="entry-title">{issue.title}</span>
-                {/* Метки — серыми плашками сразу за заголовком, не цветами GitHub: цвет в строке несёт только
-                    приоритет записи (B-305) */}
-                {issue.labels && issue.labels.length > 0 && (
-                  <span className="issue-labels">
-                    {issue.labels.map((label) => (
-                      <span key={label} className="issue-label">
-                        {label}
+                <span className="issue-main">
+                  <span className="issue-line">
+                    <span className="entry-title">{issue.title}</span>
+                    {/* Метки — серыми плашками сразу за заголовком, не цветами GitHub: цвет в строке несёт только
+                        приоритет записи (B-305) */}
+                    {issue.labels && issue.labels.length > 0 && (
+                      <span className="issue-labels">
+                        {issue.labels.map((label) => (
+                          <span key={label} className="issue-label">
+                            {label}
+                          </span>
+                        ))}
                       </span>
-                    ))}
-                  </span>
-                )}
+                    )}
+                  </span>{' '}
+                  {issue.assignee ? (
+                    <span className="issue-assignee">{issue.assignee}</span>
+                  ) : (
+                    <span className="issue-assignee nobody">никому</span>
+                  )}
+                </span>
                 <OutIcon />
               </a>
               {children(issue)}
             </div>
           ))}
         </div>
+      )}
+      {load.kind === 'loaded' && load.problem === null && load.truncated && (
+        <p className="tracker-state text-sec">
+          <span>
+            Показаны первые {ISSUE_LIMIT} задач — сузьте список фильтром{' '}
+            <button type="button" className="tracker-link tracker-link-quiet" onClick={onTrackers}>
+              в разделе «Трекеры»
+            </button>
+            .
+          </span>
+        </p>
       )}
     </>
   )

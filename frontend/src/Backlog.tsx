@@ -35,7 +35,7 @@ import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { normalizeNumber, numberLetters } from './taskTitle'
 import TrackerGroup from './TrackerGroup'
 import TrackerMoveModal, { SendIcon } from './TrackerMoveModal'
-import LabelsPick from './LabelsPick'
+import LabelsPick, { TickIcon } from './LabelsPick'
 import { initialTrackerLoad, labelChoices, loadTrackerIssues, readable, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
@@ -92,8 +92,8 @@ export default function Backlog({
   // Отбор и порядок записей внутри каждого проекта: порядок помнит браузер, чипы — страница,
   // а поиск каждое открытие раздела пуст
   const [selection, setSelection] = useState<Selection>(() => {
-    const { types, priorities, labels } = readRemembered()
-    return { ...emptySelection, types, priorities, labels }
+    const { types, priorities, labels, mine } = readRemembered()
+    return { ...emptySelection, types, priorities, labels, mine: mine ?? false }
   })
   const [order, setOrder] = useState<Order>(readOrder)
   // Записи бэклога базы и задачи трекера — на своих вкладках, у каждой свои фильтры (B-305). Просьба к Чудо-Юдо —
@@ -101,8 +101,15 @@ export default function Backlog({
   const [tab, setTab] = useState<Tab>(() => (writeFor !== null ? 'entries' : readRemembered().tab))
 
   useEffect(() => {
-    remember({ tab, project: filter, types: selection.types, priorities: selection.priorities, labels: selection.labels })
-  }, [tab, filter, selection.types, selection.priorities, selection.labels])
+    remember({
+      tab,
+      project: filter,
+      types: selection.types,
+      priorities: selection.priorities,
+      labels: selection.labels,
+      mine: selection.mine,
+    })
+  }, [tab, filter, selection.types, selection.priorities, selection.labels, selection.mine])
 
   const changeOrder = useCallback((next: Order) => {
     setOrder(next)
@@ -516,6 +523,21 @@ export default function Backlog({
 
               <div className="filter-bar" role="group" aria-label="Отбор задач трекера">
                 <SearchBox value={selection.query} onChange={(query) => setSelection((prev) => ({ ...prev, query }))} />
+                <span className="tool-sep" />
+                {/* Флажок — видом галки списка «Метки», макет AKW-17 (вариант А): проект без своих задач при нём не
+                    прячется, а говорит это строкой */}
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={selection.mine ?? false}
+                  className={`mine-check ${selection.mine ? 'on' : ''}`}
+                  onClick={() => setSelection((prev) => ({ ...prev, mine: !prev.mine }))}
+                >
+                  <span className="labels-box" aria-hidden="true">
+                    <TickIcon />
+                  </span>
+                  Мои задачи
+                </button>
                 {/* Метки — только у GitHub; теги YouTrack — запись B-307 */}
                 {labelGroups.length > 0 && (
                   <>
@@ -548,6 +570,7 @@ export default function Backlog({
                       tracker={tracker}
                       load={trackers[backlog.base] ?? initialTrackerLoad(tracker)}
                       issues={issues}
+                      mine={selection.mine ?? false}
                       onTrackers={onTrackers}
                     >
                       {(issue) => (
