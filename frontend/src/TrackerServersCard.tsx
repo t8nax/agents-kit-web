@@ -4,7 +4,7 @@ import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
 import './TrackerServersCard.css'
 
-/** Сервер трекера в «Настройках»: адрес и логин владельца ключа; сам ключ страница не получает. */
+/** Сервер трекера: адрес и логин владельца ключа; сам ключ страница не получает. */
 export type TrackerServer = { server: string; login: string }
 
 type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 'loaded'; value: TrackerServer[] }
@@ -65,8 +65,11 @@ async function refusalFrom(response: Response): Promise<Refusal> {
   return { text: `Ключ не сохранён: HTTP ${response.status}.`, field: null }
 }
 
-/** Карточка «Серверы трекеров»: адреса серверов и ключи оператора к ним (B-288, макет в памяти задачи). */
-export default function TrackerServersCard() {
+/**
+ * Карточка «Серверы трекеров» раздела «Трекеры»: адреса серверов и ключи оператора к ним (B-288, макет в памяти задачи).
+ * onServers — список, как он сейчас на экране: по нему подробности проекта называют ключ к его серверу (B-323).
+ */
+export default function TrackerServersCard({ onServers }: { onServers?: (servers: TrackerServer[] | null) => void }) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const reveal = useReveal(load.kind === 'loading')
   const [server, setServer] = useState('')
@@ -96,6 +99,10 @@ export default function TrackerServersCard() {
   }, [])
 
   const servers = load.kind === 'loaded' ? load.value : []
+
+  useEffect(() => {
+    onServers?.(load.kind === 'loaded' ? load.value : null)
+  }, [load, onServers])
 
   function saved(entry: TrackerServer) {
     setLoad((prev) => {

@@ -26,7 +26,7 @@ import './Modal.css'
 import './AskModal.css'
 import './Tabs.css'
 import './FlowRewriteModal.css'
-import './TrackerProjectsCard.css'
+import './TrackerRewriteModal.css'
 
 /**
  * Событие переписки о трекере — как у переписки о флоу: у ответа proposal — описание целиком, до которого

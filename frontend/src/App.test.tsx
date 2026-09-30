@@ -1233,8 +1233,8 @@ function stubTrackers() {
   vi.stubGlobal('fetch', fetchMock)
 }
 
-// Критерий 7 B-293: строка поломки описания трекера в «Бэклоге» ведёт в карточку «Трекеры проектов».
-test('строка поломки трекера в «Бэклоге» открывает раздел «Трекеры» на трекерах проектов', async () => {
+// Критерий 7 B-293, критерий 4 B-323: строка поломки описания трекера в «Бэклоге» ведёт в раздел «Трекеры» к проекту.
+test('строка поломки трекера в «Бэклоге» открывает раздел «Трекеры» на проекте с поломкой', async () => {
   stubTrackers()
   // В jsdom прокрутки нет: тест ставит её себе и убирает за собой.
   const scrolled = vi.fn()
@@ -1250,10 +1250,10 @@ test('строка поломки трекера в «Бэклоге» откр�
   fireEvent.click(await screen.findByRole('button', { name: '«Трекеры проектов»' }))
 
   expect(await screen.findByRole('heading', { name: 'Трекеры', level: 2 })).toBeInTheDocument()
-  const card = await screen.findByRole('region', { name: 'Трекеры проектов' })
+  const project = await screen.findByRole('region', { name: 'Трекер проекта app-knowledge' })
   await waitFor(() => expect(scrolled).toHaveBeenCalled())
-  expect(scrolled.mock.contexts[0]).toBe(card)
-  expect(within(card).getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
+  expect(scrolled.mock.contexts[0]).toContainElement(project)
+  expect(within(project).getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
 })
 
 test('возврат к переписке о трекере открывает раздел «Трекеры» с окном трекера этого проекта', async () => {

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import TrackerProjectsCard from './TrackerProjectsCard'
+import TrackerProjects from './TrackerProjects'
 import { emptyDescription, type ProjectTrackerRow, type TrackerDescription } from './projectTracker'
 
 afterEach(() => {
@@ -54,30 +54,87 @@ const bare: ProjectTrackerRow = {
   version: '',
 }
 
+// Проект выбирается строкой слева, а его трекер — в подробностях справа.
 async function row(name: string) {
-  const list = await screen.findByRole('list', { name: 'Трекеры проектов' })
-  return within(within(list).getByText(name).closest('li')!)
+  const list = await screen.findByRole('navigation', { name: 'Трекеры проектов' })
+  fireEvent.click(within(list).getByRole('button', { name: new RegExp(`^${name}`) }))
+  return within(await screen.findByRole('region', { name: `Трекер проекта ${name}` }))
 }
 
 test('проект без трекера — «Трекера нет» и «Завести», с трекером — вид, сервер, проект, «Изменить» и «Удалить»', async () => {
   stubApi({ 'GET /api/trackers/projects': () => json([described, bare]) })
 
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
+
+  const list = within(await screen.findByRole('navigation', { name: 'Трекеры проектов' }))
+  expect(list.getByRole('button', { name: /^Orders/ })).toHaveTextContent('GitHub · acme/orders')
+  expect(list.getByRole('button', { name: /^CRM/ })).toHaveTextContent('Трекера нет')
 
   const orders = await row('Orders')
-  expect(orders.getByText('GitHub')).toHaveClass('prj-kind')
+  expect(orders.getByText('GitHub', { selector: 'dd' })).toBeInTheDocument()
   expect(orders.getByText('https://github.com')).toBeInTheDocument()
   expect(orders.getByText('acme/orders')).toBeInTheDocument()
   expect(orders.getByRole('button', { name: 'Изменить трекер Orders' })).toBeEnabled()
   expect(orders.getByRole('button', { name: 'Удалить трекер Orders' })).toBeEnabled()
   const crm = await row('CRM')
-  expect(crm.getByText('Трекера нет')).toBeInTheDocument()
+  expect(crm.getByText('У проекта нет трекера, его задачи живут только в бэклоге.')).toBeInTheDocument()
   expect(crm.getByRole('button', { name: 'Завести трекер CRM' })).toBeEnabled()
   expect(crm.queryByRole('button', { name: /Удалить/ })).not.toBeInTheDocument()
 })
 
+// Критерий 2 B-323: выбранный проект отмечен, как пункт сайдбара; сначала выбран первый.
+test('выбран первый проект, щелчок выбирает другой и отмечает его', async () => {
+  stubApi({ 'GET /api/trackers/projects': () => json([described, bare]) })
+
+  render(<TrackerProjects />)
+
+  const list = within(await screen.findByRole('navigation', { name: 'Трекеры проектов' }))
+  expect(list.getByRole('button', { name: /^Orders/ })).toHaveAttribute('aria-current', 'true')
+  expect(list.getByRole('button', { name: /^Orders/ })).toHaveClass('active')
+  expect(screen.getByRole('region', { name: 'Трекер проекта Orders' })).toBeInTheDocument()
+
+  fireEvent.click(list.getByRole('button', { name: /^CRM/ }))
+
+  expect(list.getByRole('button', { name: /^CRM/ })).toHaveAttribute('aria-current', 'true')
+  expect(list.getByRole('button', { name: /^Orders/ })).not.toHaveAttribute('aria-current')
+  expect(screen.queryByRole('region', { name: 'Трекер проекта Orders' })).not.toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Трекер проекта CRM' })).toBeInTheDocument()
+})
+
+test('переход из «Бэклога» выбирает проект своей базы', async () => {
+  stubApi({ 'GET /api/trackers/projects': () => json([described, bare]) })
+
+  render(<TrackerProjects focus={{ base: bare.base, at: 1 }} />)
+
+  expect(await screen.findByRole('region', { name: 'Трекер проекта CRM' })).toBeInTheDocument()
+})
+
+// Ключ к серверу — по списку «Серверов трекеров»: у GitHub вход программы gh, у YouTrack — владелец ключа.
+test('ключ к серверу: вход через gh, владелец ключа YouTrack, а без ключа — красная плашка', async () => {
+  const youtrack: ProjectTrackerRow = {
+    ...described,
+    base: 'D:\\Projects\\billing-knowledge',
+    project: 'Billing',
+    tracker: { kind: 'youtrack', name: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'BILL' },
+    description: { ...github, tracker: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'BILL' },
+  }
+  const legacy: ProjectTrackerRow = {
+    ...youtrack,
+    base: 'D:\\Projects\\legacy-knowledge',
+    project: 'Legacy',
+    tracker: { ...youtrack.tracker!, server: 'https://yt.legacy.ru' },
+  }
+  stubApi({ 'GET /api/trackers/projects': () => json([described, youtrack, legacy]) })
+
+  render(<TrackerProjects servers={[{ server: 'https://ACME.youtrack.cloud/', login: 'b.petrov' }]} />)
+
+  expect((await row('Orders')).getByText('вход через gh')).toBeInTheDocument()
+  expect((await row('Billing')).getByText(/ключ пользователя/)).toHaveTextContent('ключ пользователя b.petrov')
+  expect((await row('Legacy')).getByText(/нет ключа/)).toHaveClass('bad')
+})
+
 // B-300: заданный отбор виден строкой под сервером и проектом; без отбора строки нет.
-test('фильтр трекера — строкой «Фильтр» в строке проекта, без фильтра её нет', async () => {
+test('фильтр трекера — строкой «Фильтр» в подробностях проекта, без фильтра — «нет»', async () => {
   stubApi({
     'GET /api/trackers/projects': () =>
       json([
@@ -86,12 +143,12 @@ test('фильтр трекера — строкой «Фильтр» в стр�
       ]),
   })
 
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   const orders = await row('Orders')
-  expect(orders.getByText('Фильтр')).toHaveClass('prj-filter-label')
-  expect(orders.getByText('label:bug milestone:v2')).toHaveAttribute('title', 'label:bug milestone:v2')
-  expect((await row('CRM')).queryByText('Фильтр')).not.toBeInTheDocument()
+  expect(orders.getByText('Фильтр')).toBeInTheDocument()
+  expect(orders.getByText('label:bug milestone:v2')).toBeInTheDocument()
+  expect((await row('CRM')).getByText('нет, берутся все задачи проекта')).toBeInTheDocument()
 })
 
 // Удалить нельзя, пока идёт задача из трекера: подсказка называет копии и задачи — ответ оператора на B-293.
@@ -109,7 +166,7 @@ test('задачи трекера в работе гасят «Удалить»,
       ]),
   })
 
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   const orders = await row('Orders')
   const remove = orders.getByRole('button', { name: 'Удалить трекер Orders' })
@@ -127,7 +184,7 @@ test('сломанное описание — красная строка о с�
       json([{ ...described, tracker: { kind: 'no-keys', faults: ['проект'] }, description: { ...github, project: '' } }]),
   })
 
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   const orders = await row('Orders')
   expect(orders.getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
@@ -149,7 +206,7 @@ test('проект не по шаблону и пустой раздел — к�
       ]),
   })
 
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   expect(
     (await row('Orders')).getByText(
@@ -161,7 +218,7 @@ test('проект не по шаблону и пустой раздел — к�
 test('база нового формата кита — правка закрыта, строка говорит почему', async () => {
   stubApi({ 'GET /api/trackers/projects': () => json([{ ...described, newerFormat: true }]) })
 
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   const orders = await row('Orders')
   expect(orders.getByText('Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.')).toBeInTheDocument()
@@ -169,19 +226,18 @@ test('база нового формата кита — правка закры�
   expect(orders.getByRole('button', { name: 'Удалить трекер Orders' })).toBeDisabled()
 })
 
-test('описание, которое не прочитать, — прочерки, кнопки погашены', async () => {
+test('описание, которое не прочитать, — строка причины, кнопки погашены', async () => {
   stubApi({ 'GET /api/trackers/projects': () => json([{ ...described, tracker: { kind: 'unreadable' }, description: null }]) })
 
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   const orders = await row('Orders')
   expect(orders.getByText('Описание трекера не прочитано: нет доступа к файлу tracker.md.')).toBeInTheDocument()
-  expect(orders.getAllByText('—')).toHaveLength(3)
   expect(orders.getByRole('button', { name: 'Изменить трекер Orders' })).toBeDisabled()
   expect(orders.getByRole('button', { name: 'Удалить трекер Orders' })).toBeDisabled()
 })
 
-test('«Удалить» спрашивает окном, удаляет поверх увиденного и перечитывает карточку', async () => {
+test('«Удалить» спрашивает окном, удаляет поверх увиденного и перечитывает проекты', async () => {
   let listed = [described]
   const fetchMock = stubApi({
     'GET /api/trackers/projects': () => json(listed),
@@ -190,7 +246,7 @@ test('«Удалить» спрашивает окном, удаляет пов�
       return json({ version: '', checked: false, pushed: true, message: null })
     },
   })
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   fireEvent.click((await row('Orders')).getByRole('button', { name: 'Удалить трекер Orders' }))
   const dialog = within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' }))
@@ -199,13 +255,13 @@ test('«Удалить» спрашивает окном, удаляет пов�
   )
   fireEvent.click(dialog.getByRole('button', { name: 'Удалить трекер' }))
 
-  expect(await (await row('Orders')).findByText('Трекера нет')).toBeInTheDocument()
+  expect(await (await row('Orders')).findByText('У проекта нет трекера, его задачи живут только в бэклоге.')).toBeInTheDocument()
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   const deleted = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')![0]
   expect(new URLSearchParams(deleted.split('?')[1])).toEqual(new URLSearchParams({ base: described.base, version: 'v1' }))
 })
 
-test('база не ушла на сервер после удаления — окно говорит это словами кита, «Закрыть» перечитывает карточку', async () => {
+test('база не ушла на сервер после удаления — окно говорит это словами кита, «Закрыть» перечитывает проекты', async () => {
   let listed = [described]
   stubApi({
     'GET /api/trackers/projects': () => json(listed),
@@ -214,7 +270,7 @@ test('база не ушла на сервер после удаления — �
       return json({ version: '', checked: false, pushed: false, message: 'на remote базы не отдано — git: rejected' })
     },
   })
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   fireEvent.click((await row('Orders')).getByRole('button', { name: 'Удалить трекер Orders' }))
   fireEvent.click(screen.getByRole('button', { name: 'Удалить трекер' }))
@@ -226,16 +282,16 @@ test('база не ушла на сервер после удаления — �
   // Кнопка внизу окна, а не крестик: у обоих имя «Закрыть».
   fireEvent.click(screen.getByText('Закрыть', { selector: '.dw-footer button' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-  expect(await (await row('Orders')).findByText('Трекера нет')).toBeInTheDocument()
+  expect(await (await row('Orders')).findByText('У проекта нет трекера, его задачи живут только в бэклоге.')).toBeInTheDocument()
 })
 
-test('пришла задача трекера — окно удаления называет её, карточка перечитывается', async () => {
+test('пришла задача трекера — окно удаления называет её, проекты перечитываются', async () => {
   const busy = [{ task: 'GitHub #37 Выгрузка', copy: 'D:\\Projects\\orders-2' }]
   const fetchMock = stubApi({
     'GET /api/trackers/projects': () => json([described]),
     'DELETE /api/trackers/projects': () => json({ problem: 'busy', busy }, 409),
   })
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   fireEvent.click((await row('Orders')).getByRole('button', { name: 'Удалить трекер Orders' }))
   fireEvent.click(screen.getByRole('button', { name: 'Удалить трекер' }))
@@ -249,7 +305,7 @@ test('«Завести» открывает окно трекера с пуст�
     'GET /api/trackers/projects': () => json([bare]),
     'GET /api/agent/requests': () => json([]),
   })
-  render(<TrackerProjectsCard />)
+  render(<TrackerProjects />)
 
   fireEvent.click((await row('CRM')).getByRole('button', { name: 'Завести трекер CRM' }))
 

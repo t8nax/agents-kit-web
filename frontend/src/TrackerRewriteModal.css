@@ -1,0 +1,173 @@
+/* Окно «Трекер проекта с Чудо-Юдо»: подвал со строкой проверки слева, поля правятся на вкладке «Изменения» (B-293) */
+
+.tf-modal {
+  container: tf-win / inline-size;
+}
+
+.tf-modal .ask-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tf-modal .footer-right {
+  margin-left: auto;
+}
+
+.foot-note {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.foot-note .mono {
+  overflow-wrap: anywhere;
+}
+
+.tf {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.tf-group {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tf-group .rewrite-group-title {
+  margin: 0;
+}
+
+.tf-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.tf-kinds {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0 -12px;
+}
+
+.tf-kinds .choice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.tf-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.tf-field {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+}
+
+.tf-field .rewrite-was {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.tf-field .rewrite-was.mono {
+  font-size: 12px;
+}
+
+.tf-field .bases-error {
+  margin: 0;
+}
+
+.tf .inp {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.tf-area {
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 58px;
+  resize: vertical;
+}
+
+.tf .inp::placeholder,
+.tf-area::placeholder {
+  color: var(--text-tertiary);
+}
+
+.tf .inp:focus,
+.tf-area:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.tf-changed .tf-area,
+.tf-changed .inp {
+  border-color: var(--accent-waiting-border);
+}
+
+.tf .inp[aria-invalid='true'],
+.tf-area[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+/* Узкое окно: вид трекера в два ряда, адрес и проект — столбиком, кнопки подвала делят ширину */
+@container tf-win (max-width: 640px) {
+  .tf-kinds {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tf-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tf-modal .footer-right {
+    width: 100%;
+  }
+
+  .tf-modal .footer-right .btn {
+    flex: 1 1 140px;
+    min-width: 0;
+    padding: 0 12px;
+  }
+}
