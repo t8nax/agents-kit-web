@@ -222,7 +222,8 @@ public sealed partial class GhIssues : IGitHubIssues
         return startInfo;
     }
 
-    private static ProcessStartInfo GhStartInfo(params string[] args)
+    /// <summary>Запуск gh без окна и без вопросов; им же выкладка панели в Стабильный зовёт gh.</summary>
+    public static ProcessStartInfo GhStartInfo(params string[] args)
     {
         var startInfo = new ProcessStartInfo(Gh)
         {
