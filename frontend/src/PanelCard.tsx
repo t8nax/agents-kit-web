@@ -119,6 +119,8 @@ export default function PanelCard() {
     if (!panel || panel.channel === channel) return
     setPanel({ ...panel, channel })
     setUpdates(null)
+    // Окно «Что нового» — о прежнем канале: выпуски нового не открывают его сами.
+    setNews(false)
     // Пока канал сохраняется, карточка уже смотрит, что вышло, а не говорит, что GitHub молчит.
     setChecking(true)
     fetch('/api/panel/channel', {
@@ -160,8 +162,13 @@ export default function PanelCard() {
   const releases = updates?.releases ?? []
   const behind = releases.length > 0
   // Строка выпуска — фраза оператору, у сборок до фраз — заголовок задачи; каждая — одно изменение.
-  // Сборка с пустым описанием на GitHub — тоже изменение: в окне она стоит номером.
-  const changes = releases.reduce((count, release) => count + Math.max(release.tasks.length, 1), 0)
+  // На Бете сборка с пустым описанием на GitHub — тоже изменение: в окне она стоит номером. На Стабильном
+  // окно показывает только строки, и счёт с ним сходится.
+  const beta = panel.channel === 'dev'
+  const changes = releases.reduce(
+    (count, release) => count + (beta ? Math.max(release.tasks.length, 1) : release.tasks.length),
+    0,
+  )
 
   return (
     <PanelShell>
@@ -263,7 +270,7 @@ export default function PanelCard() {
 
       {news && behind && panel.published && updates?.latest && (
         <NewsWindow
-          beta={panel.channel === 'dev'}
+          beta={beta}
           installed={panel.published.version}
           latest={updates.latest}
           releases={releases}

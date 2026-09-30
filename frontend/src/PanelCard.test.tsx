@@ -94,6 +94,34 @@ test('Стабильный: в окне «Что нового» фразы вс�
   expect(dialog.querySelector('.panel-release-num')).toBeNull()
 })
 
+test('Стабильный: выпуск с пустым описанием не прибавляет к счёту, которого нет в окне', async () => {
+  stubApi(
+    api(installed, {
+      latest: '0.10.3',
+      releases: [
+        { version: '0.10.3', tag: 'v0.10.3', tasks: ['Сессии задачи видны в окне ответа'] },
+        { version: '0.10.2', tag: 'v0.10.2', tasks: [] },
+      ],
+    }),
+  )
+
+  render(<PanelCard />)
+
+  const dialog = await openNews('1 изменение ждёт обновления')
+  expect(dialog.querySelectorAll('.panel-releases li')).toHaveLength(1)
+})
+
+test('смена канала закрывает окно «Что нового», и выпуски нового канала его сами не открывают', async () => {
+  stubApi(api(installed, behind, idle, { 'PUT /api/panel/channel': () => new Response(null, { status: 204 }) }))
+  render(<PanelCard />)
+
+  await openNews('2 изменения ждут обновления')
+  fireEvent.click(screen.getByRole('button', { name: 'Бета' }))
+
+  expect(await screen.findByRole('button', { name: '2 изменения ждут обновления' })).toBeTruthy()
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
 const beta: Panel = {
   installed: true,
   channel: 'dev',
