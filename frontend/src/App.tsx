@@ -161,8 +161,8 @@ function App() {
     subject?: string | null
     at: number
   } | null>(null)
-  // Переход из строки «Бэклога» о поломке описания трекера: раздел «Трекеры» встаёт на проекте этой базы.
-  const [trackersAt, setTrackersAt] = useState<{ base: string; at: number } | null>(null)
+  // Переход из строки «Бэклога» о поломке трекера: раздел «Трекеры» встаёт на проекте этой базы, о ключе — на серверах.
+  const [trackersAt, setTrackersAt] = useState<{ base: string; at: number; servers: boolean } | null>(null)
   const [creating, setCreating] = useState(false)
   // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
   const [started, setStarted] = useState<string | null>(null)
@@ -352,10 +352,10 @@ function App() {
             <Backlog
               key={openRequest?.kind === 'backlog' ? openRequest.at : 'backlog'}
               writeFor={openRequest?.kind === 'backlog' ? openRequest.base : null}
-              onTrackers={(base) => {
+              onTrackers={(base, servers) => {
                 setSection('trackers')
                 setOpenRequest(null)
-                setTrackersAt({ base, at: Date.now() })
+                setTrackersAt({ base, at: Date.now(), servers })
               }}
               onStarted={(copy) => {
                 setStarted(copy)

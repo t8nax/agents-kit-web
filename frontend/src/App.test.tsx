@@ -1256,6 +1256,37 @@ test('строка поломки трекера в «Бэклоге» откр�
   expect(within(project).getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
 })
 
+// Ревью B-323: строка о ключе сервера ведёт не к проекту, а к «Серверам трекеров», где ключ добавляют и меняют.
+test('строка о ключе сервера в «Бэклоге» открывает раздел «Трекеры» на серверах трекеров', async () => {
+  const youtrack = { kind: 'youtrack', name: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'ABC' }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url === '/api/backlog') return Response.json([{ ...backlogs[0], tracker: youtrack }])
+      if (url.startsWith('/api/backlog/tracker')) return Response.json({ issues: [], problem: 'no-key' })
+      if (url === '/api/trackers/projects') return Response.json([{ ...trackerRows[0], tracker: youtrack }])
+      if (url === '/api/kit') return Response.json({ path: null, found: false })
+      if (url === '/api/workspaces') return Response.json(rows)
+      return Response.json([])
+    }),
+  )
+  const scrolled = vi.fn()
+  Element.prototype.scrollIntoView = scrolled
+  onTestFinished(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+  })
+  render(<App />)
+  await screen.findByRole('table')
+
+  fireEvent.click(sidebarButtons().getByRole('button', { name: /Бэклог/ }))
+  fireEvent.click(await screen.findByRole('tab', { name: 'Задачи трекера' }))
+  fireEvent.click(await screen.findByRole('button', { name: '«Трекеры»' }))
+
+  const servers = await screen.findByRole('region', { name: 'Серверы трекеров' })
+  await waitFor(() => expect(scrolled).toHaveBeenCalled())
+  expect(scrolled.mock.contexts.at(-1)).toContainElement(servers)
+})
+
 test('возврат к переписке о трекере открывает раздел «Трекеры» с окном трекера этого проекта', async () => {
   stubTrackers()
   render(<App />)

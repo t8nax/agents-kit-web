@@ -15,8 +15,10 @@ type Load = { kind: 'loading' } | { kind: 'failed'; message: string } | { kind: 
 type Props = {
   /** Окно трекера этой базы открывается само — возврат к просьбе из шапки панели. */
   rewriteFor?: { base: string; at: number } | null
-  /** Выбрать проект этой базы — переход из строки «Бэклога» о поломке описания трекера. */
+  /** Показать проект этой базы — переход из строки «Бэклога» о поломке описания трекера. */
   focus?: { base: string; at: number } | null
+  /** Проект, выбранный при открытии раздела; нет — выбран первый. */
+  selected?: string | null
   /** Серверы трекеров с владельцами ключей; null — список ещё не прочитан или не прочитался. */
   servers?: TrackerServer[] | null
 }
@@ -26,10 +28,10 @@ type Props = {
  * трекер выбранного — вид, сервер, проект, фильтр, ключ к серверу и поломки описания. Описание заводится,
  * правится и удаляется отсюда, а не словами киту в сессии (B-293).
  */
-export default function TrackerProjects({ rewriteFor = null, focus = null, servers = null }: Props) {
+export default function TrackerProjects({ rewriteFor = null, focus = null, selected: initial = null, servers = null }: Props) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   const reveal = useReveal(load.kind === 'loading')
-  const [selected, setSelected] = useState<string | null>(rewriteFor?.base ?? focus?.base ?? null)
+  const [selected, setSelected] = useState<string | null>(rewriteFor?.base ?? focus?.base ?? initial)
   // Окно трекера; talking — возврат к переписке из шапки: она встаёт поверх окна сразу.
   const [open, setOpen] = useState<{ base: string; talking: boolean } | null>(
     rewriteFor ? { base: rewriteFor.base, talking: true } : null,

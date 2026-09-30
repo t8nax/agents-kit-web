@@ -1187,7 +1187,7 @@ test('строка поломки описания трекера ведёт в 
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   fireEvent.click(project.getByRole('button', { name: '«Трекеры»' }))
-  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base)
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, false)
 })
 
 
@@ -1591,7 +1591,7 @@ test.each([
 })
 
 // Критерий 4 B-323: и причина ключа ведёт в раздел «Трекеры», где стоят серверы с ключами.
-test('строка о ключе сервера ведёт в раздел «Трекеры» к своему проекту', async () => {
+test('строка о ключе сервера ведёт в раздел «Трекеры» к серверам трекеров', async () => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker(youTrack))
   fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: 'no-key' }))
@@ -1601,7 +1601,7 @@ test('строка о ключе сервера ведёт в раздел «Т�
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   fireEvent.click(await project.findByRole('button', { name: '«Трекеры»' }))
-  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base)
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, true)
 })
 
 // B-300: отбор задан — пустой список называет его, а отказ трекера на него ведёт в раздел «Трекеры».

@@ -6,16 +6,24 @@ import { issueLabel, type TrackerInfo, type TrackerIssue, type TrackerLoad } fro
 /** Строка на месте задач: спокойная — серая, поломка — красная со значком и советом. */
 type State = { warning: boolean; text: ReactNode }
 
-function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () => void): State | null {
+function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (servers: boolean) => void): State | null {
   if (load.kind === 'loading') return null
   // Трекеры — свой раздел панели (B-323): ссылка ведёт в него, к проекту этой группы.
   const section = (
-    <button type="button" className="tracker-link" onClick={onTrackers}>
+    <button type="button" className="tracker-link" onClick={() => onTrackers?.(false)}>
       «Трекеры»
     </button>
   )
-  // Где на это посмотреть — одними словами у всех причин ключа.
-  const servers = <>в разделе {section}, в списке «Серверы трекеров»</>
+  // Где на это посмотреть — одними словами у всех причин ключа; ссылка ведёт к списку серверов (ревью B-323).
+  const servers = (
+    <>
+      в разделе{' '}
+      <button type="button" className="tracker-link" onClick={() => onTrackers?.(true)}>
+        «Трекеры»
+      </button>
+      , в списке «Серверы трекеров»
+    </>
+  )
   if (load.kind === 'failed') return { warning: true, text: `Задачи трекера не загрузились: ${load.message}.` }
   const server = <code>{tracker.server}</code>
   switch (load.problem) {
@@ -184,8 +192,8 @@ export default function TrackerGroup({
   load: TrackerLoad
   /** Задачи, прошедшие отбор раздела; при отборе без подошедших задач раздел группу не показывает вовсе. */
   issues: TrackerIssue[]
-  /** Переход в раздел «Трекеры» к трекеру проекта — из строки о поломке описания или ключа. */
-  onTrackers?: () => void
+  /** Переход в раздел «Трекеры»: к трекеру проекта — из строки о поломке описания, к серверам — из строки о ключе. */
+  onTrackers?: (servers: boolean) => void
   /** Кнопка запуска задачи — её держит раздел: окно запуска у него. */
   children: (issue: TrackerIssue) => ReactNode
 }) {
