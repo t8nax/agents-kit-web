@@ -226,25 +226,21 @@ test('«Изменить» открывает разговор про запис
   await expect(page.getByRole('button', { name: /B-1 .*сводкой/ })).toBeVisible()
 })
 
-test('перенос в трекер: карточка со строкой о файлах, после «Сохранить» — номер задачи ссылкой (B-286)', async ({ page }) => {
+test('«В трекер» открывает окно Чудо-Юдо с готовой просьбой; задача ждёт файлов, а по «перенёс» запись уходит (AKW-15)', async ({ page }) => {
   const panel = await mockApi(page)
-  // «Сохранить» переноса возвращает заведённую задачу — событием переписки, как API
+  const files = [{ label: 'снимок', address: 'artifacts/B-2-снимок.png' }]
   const issue = { name: 'GitHub #58', number: 58, title: B2.title, url: 'https://github.com/acme/orders/issues/58' }
-  await page.route('**/api/backlog/write/save', async (route) => {
-    const { id } = route.request().postDataJSON() as { id: string }
-    panel.saves.push(id)
-    panel.say({ type: 'saved', text: '', commit: 'c0ffee1', proposalId: id, issues: { 'B-2': issue } })
-    await route.fulfill({ json: { commit: 'c0ffee1', issues: { 'B-2': issue } } })
-  })
+  // Запись уходит из бэклога, когда Чудо-Юдо её перенёс; трекер отдаёт задачу, как только её завели (GitHub #3)
+  let moved = false
+  let created = false
   await page.context().route('https://github.com/**', (route) => route.fulfill({ body: '<title>GitHub</title>', contentType: 'text/html' }))
-  // У проекта трекер GitHub: заведённую задачу он отдаёт после «Сохранить», и раздел её показывает сразу (GitHub #3)
   await page.route('**/api/backlog', (route) =>
     route.fulfill({
       json: [
         {
           base: akwBase,
           project: 'Agents Kit Web',
-          entries: panel.saves.length > 0 ? [B1] : [B1, B2],
+          entries: moved ? [B1] : [B1, { ...B2, artifacts: files }],
           error: null,
           letters: 'B',
           tracker: { kind: 'github', name: 'GitHub', server: 'https://github.com', project: 'acme/orders' },
@@ -252,47 +248,61 @@ test('перенос в трекер: карточка со строкой о ф
       ],
     }),
   )
-  await page.route('**/api/backlog/tracker?**', (route) =>
-    route.fulfill({ json: { issues: panel.saves.length > 0 ? [issue] : [], problem: null } }),
-  )
+  await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues: created ? [issue] : [], problem: null } }))
 
-  const dialog = await openFromHead(page)
-  await say(dialog, 'перенеси B-2 в трекер')
-  const files = [{ label: 'снимок', address: 'artifacts/B-2-снимок.png' }]
-  panel.answer({
-    type: 'answer',
-    text: 'Перенесу B-2 в трекер.',
-    proposal: {
-      id: 'p9',
-      changes: [
-        {
-          kind: 'track',
-          number: 'B-2',
-          entry: { ...B2, artifacts: files },
-          draft: { number: 'B-2', title: B2.title, body: 'Нужна выгрузка.\n\n### Агенту\n- где: Backlog.tsx', files, original: '## B-2 Выгрузка бэклога в CSV' },
-        },
-      ],
-    },
-  })
+  await openBacklog(page)
+  const row = page.locator('.entry-row').filter({ has: page.getByText('B-2', { exact: true }) })
+  // Кнопка — между «Изменить» и «Взять задачу», значком того же размера, что у соседей
+  await expect(row.getByRole('button')).toHaveText([/B-2/, 'Изменить', 'В трекер', 'Взять задачу'])
+  const iconOf = (name: string) => row.getByRole('button', { name }).locator('svg').boundingBox()
+  await expect(async () => expect((await iconOf('В трекер'))!.width).toBe((await iconOf('Изменить'))!.width)).toPass()
+  await row.getByRole('button', { name: 'В трекер' }).click()
 
-  await expect(dialog.getByText('Ждёт сохранения: перенести 1 в трекер')).toBeVisible()
-  const card = dialog.locator('.write-entry').filter({ hasText: 'перенести' })
-  await expect(card.getByRole('heading', { name: 'Агенту' })).toBeVisible()
-  const warn = card.locator('.write-entry-warn')
-  await expect(warn).toContainText('Файл B-2-снимок.png в задачу не попадёт и удалится вместе с записью.')
+  const dialog = page.getByRole('dialog', { name: 'Чудо-Юдо' })
+  await expect(dialog.getByText('Запись', { exact: true })).toBeVisible()
+  const request = 'Перенеси запись B-2 в трекер проекта. Сначала проверь, нет ли в трекере похожей задачи. Файлы записи я прикреплю к задаче сам.'
+  await expect(dialog.getByLabel('Просьба к Чудо-Юдо')).toHaveValue(request)
+  const warn = dialog.locator('.talk-subject .write-entry-warn')
+  await expect(warn).toHaveText('Файл B-2-снимок.png в задачу сам не попадёт — Чудо-Юдо попросит прикрепить его вручную.')
   // Значок строки о файлах — своего размера, а не общего правила значков окна (decisions/tests.md, B-80)
   await expect(async () => expect((await warn.locator('svg').boundingBox())!.width).toBe(14)).toPass()
+  // Просьба не ушла сама
+  expect(panel.posts).toEqual([])
 
-  await dialog.getByRole('button', { name: 'Сохранить' }).click()
-  const moved = dialog.locator('.write-entry').filter({ hasText: 'перенесена' })
-  const link = moved.getByRole('link', { name: '#58' })
+  await dialog.getByRole('button', { name: 'Отправить' }).click()
+  await expect(dialog.getByLabel('Прошло времени')).toBeVisible()
+  expect(panel.posts).toEqual([{ base: akwBase, text: request, number: 'B-2' }])
+  created = true
+  panel.answer({
+    type: 'answer',
+    text: 'Похожих задач нет. Завёл #58 — прикрепите к ней снимок и напишите, когда готово.',
+    moves: [{ number: 'B-2', entry: { ...B2, artifacts: files }, issue, waiting: true, files: ['artifacts/B-2-снимок.png'] }],
+  })
+
+  const waiting = dialog.locator('.write-entry').filter({ hasText: 'задача заведена, ждёт файлов' })
+  const link = waiting.getByRole('link', { name: '#58' })
   await expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
   await expect(async () => expect((await link.locator('svg').boundingBox())!.width).toBe(12)).toPass()
-  await expect(moved).not.toContainText('Нужна выгрузка.')
-  expect(panel.saves).toEqual(['p9'])
+  await expect(waiting.getByRole('button', { name: 'artifacts/B-2-снимок.png' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Сохранить' })).toHaveCount(0)
 
-  // Раздел перечитал трекер: задача на вкладке задач трекера без «Обновить» (вкладки — B-305)
+  await say(dialog, 'Перенёс снимок в #58.')
+  moved = true
+  panel.answer({
+    type: 'answer',
+    text: 'Запись B-2 вырезана вместе с файлом.',
+    commit: 'c0ffee1',
+    moves: [{ number: 'B-2', entry: { ...B2, artifacts: files }, issue, waiting: false, files: ['artifacts/B-2-снимок.png'] }],
+  })
+  const result = dialog.getByRole('list', { name: 'Перенос в трекер' }).last()
+  await expect(result.locator('.write-entry').filter({ hasText: 'удалена' })).toContainText('B-2')
+  await expect(result.locator('.write-entry').filter({ hasText: 'заведена' }).getByRole('link', { name: '#58' })).toBeVisible()
+  await expect(dialog.locator('.talk-subject').getByText('перенесена')).toBeVisible()
+  expect(panel.replies).toEqual(['Перенёс снимок в #58.'])
+
+  // Раздел перечитал бэклог и трекер: записи нет, задача на вкладке задач трекера без «Обновить» (вкладки — B-305)
   await dialog.getByRole('button', { name: 'Закрыть' }).click()
+  await expect(page.getByText('B-2', { exact: true })).toHaveCount(0)
   await page.getByRole('tab', { name: 'Задачи трекера' }).click()
   await expect(page.getByRole('main').getByRole('link', { name: /#58 Выгрузка бэклога в CSV/ })).toBeVisible()
 })
