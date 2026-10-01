@@ -75,14 +75,21 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     public static bool IsOutdated(string basePath) => ReadFormat(basePath) < Format;
 
     /// <summary>
-    /// Копии этой машины из local\me.json — какого бы формата база ни была: файл машины кит ведёт одинаково во всех
-    /// форматах, а перевод базы прежнего формата идёт от её копии.
+    /// Копии этой машины в базе любого формата — от копии идёт перевод базы прежнего формата (B-314). Список копий кит
+    /// с форматами переносил: с формата 3 он в local\me.json, в формате 2 — в local\workspaces.json
+    /// (migrations/003-personal.ps1 кита), в формате 1 — в самом agents-kit.json (migrations/002-per-machine.ps1).
     /// </summary>
-    public static IReadOnlyList<string> MachineCopies(string basePath) => ReadMachineFile(basePath)?.Workspaces ?? [];
+    public static IReadOnlyList<string> MachineCopies(string basePath) =>
+        new[] { Path.Combine("local", "me.json"), Path.Combine("local", "workspaces.json"), MarkerFile }
+            .Select(file => ReadWorkspacesFile(Path.Combine(basePath, file))?.Workspaces ?? [])
+            .FirstOrDefault(copies => copies.Count > 0) ?? [];
 
-    /// <summary>Оператор этой машины из local\me.json по форме кита; null — не назван или не по форме.</summary>
-    public static string? MachineOperator(string basePath) =>
-        ReadMachineFile(basePath)?.Operator is { } name && IsOperatorName(name) ? name : null;
+    /// <summary>
+    /// Имя оператора этой машины в local\me.json записано — какое бы ни было: поверх записанного имени кит другого
+    /// не пишет (Set-KitOperatorName), и спрашивать его у оператора незачем.
+    /// </summary>
+    public static bool MachineOperatorNamed(string basePath) =>
+        !string.IsNullOrWhiteSpace(ReadMachineFile(basePath)?.Operator);
 
     /// <summary>Имя оператора по форме кита (Test-KitOperatorName).</summary>
     public static bool IsOperatorName(string name) => OperatorName().IsMatch(name);
@@ -176,9 +183,12 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     private sealed record MachineFile(string? Operator, IReadOnlyList<string> Workspaces);
 
     /// <summary>local\me.json: файла нет — пусто, как у кита; не разбирается — null.</summary>
-    private static MachineFile? ReadMachineFile(string basePath)
+    private static MachineFile? ReadMachineFile(string basePath) =>
+        ReadWorkspacesFile(Path.Combine(basePath, "local", "me.json"));
+
+    /// <summary>JSON-объект с полями operator и workspaces: файла нет — пусто; не разбирается — null.</summary>
+    private static MachineFile? ReadWorkspacesFile(string path)
     {
-        var path = Path.Combine(basePath, "local", "me.json");
         if (!File.Exists(path))
             return new MachineFile(null, []);
         try

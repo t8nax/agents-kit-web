@@ -184,6 +184,17 @@ public sealed class BaseMigrateTests : IDisposable
     }
 
     [Fact]
+    // Записанное не по форме имя кит переписать не даст — панель имени не спрашивает, а зовёт кит как есть.
+    public async Task Migrate_OperatorWrittenNotByForm_RunsKitWithoutAskingName()
+    {
+        TestLayout.Machine(_base, "Boris", _copy);
+        await SetKit(Translates);
+
+        Assert.Equal(BaseMigrateOutcome.Migrated, await Migrate());
+        Assert.Equal($"{_copy}|", Called("migrate.txt"));
+    }
+
+    [Fact]
     public async Task Migrate_WithName_PassesOperatorToKit()
     {
         TestLayout.Machine(_base, null, _copy);

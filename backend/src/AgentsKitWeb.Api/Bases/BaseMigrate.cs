@@ -161,7 +161,7 @@ public static class KitBaseMigrate
             var name = string.IsNullOrWhiteSpace(operatorName) ? null : operatorName.Trim();
             if (name is not null && !BaseLayout.IsOperatorName(name))
                 return BaseMigrateOutcome.InvalidName;
-            if (name is null && BaseLayout.MachineOperator(basePath) is null)
+            if (name is null && !BaseLayout.MachineOperatorNamed(basePath))
                 return BaseMigrateOutcome.NeedName;
 
             var environment = new Dictionary<string, string>

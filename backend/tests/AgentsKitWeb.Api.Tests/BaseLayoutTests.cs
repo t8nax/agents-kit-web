@@ -48,18 +48,34 @@ public sealed class BaseLayoutTests : IDisposable
             JsonSerializer.Serialize(new { kit = "agents-kit", version = BaseLayout.Format - 1 }));
 
         Assert.Equal([Path.Combine(_root, "app")], BaseLayout.MachineCopies(basePath));
-        Assert.Equal(TestLayout.Operator, BaseLayout.MachineOperator(basePath));
+        Assert.True(BaseLayout.MachineOperatorNamed(basePath));
     }
 
     [Theory]
-    [InlineData(null)]
-    [InlineData("Tester")]
-    public void MachineOperator_NotNamedOrNotByForm_IsNull(string? name)
+    // Формат 2 — список копий в local\workspaces.json, формат 1 — в самом agents-kit.json (миграции кита 003 и 002).
+    [InlineData(@"local\workspaces.json")]
+    [InlineData(BaseLayout.MarkerFile)]
+    public void MachineCopies_OfEarliestFormats_AreReadFromTheirLists(string file)
+    {
+        var basePath = Directory.CreateDirectory(Path.Combine(_root, "kb")).FullName;
+        Directory.CreateDirectory(Path.Combine(basePath, "local"));
+        File.WriteAllText(Path.Combine(basePath, file),
+            JsonSerializer.Serialize(new { kit = "agents-kit", version = 1, workspaces = new[] { Path.Combine(_root, "app") } }));
+
+        Assert.Equal([Path.Combine(_root, "app")], BaseLayout.MachineCopies(basePath));
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("", false)]
+    // Имя не по форме всё равно записано: другое кит поверх него не пишет.
+    [InlineData("Tester", true)]
+    public void MachineOperatorNamed_IsWhetherAnyNameIsWritten(string? name, bool named)
     {
         var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
         TestLayout.Machine(basePath, name);
 
-        Assert.Null(BaseLayout.MachineOperator(basePath));
+        Assert.Equal(named, BaseLayout.MachineOperatorNamed(basePath));
     }
 
     [Fact]
