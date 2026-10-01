@@ -752,6 +752,8 @@ public sealed class OperatorEndpointsTests : IDisposable
             Attached.Add((copyPath, sessionId));
             return Task.FromResult(Result);
         }
+
+        public Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken) => Task.FromResult(Result);
     }
 
     private sealed class FakeEditorWindows : IEditorWindows

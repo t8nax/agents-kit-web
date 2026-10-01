@@ -82,6 +82,8 @@ export type WorkspaceRow = {
   tracker?: string | null
   /** База нового формата кита: строки видны, но панель предупреждает, что знает её не всю, — B-281. */
   formatWarning?: string | null
+  /** База прежнего формата: надпись строки ведёт в «Проблемы баз», где её переводят, — B-314. */
+  baseOutdated?: boolean
 }
 
 /** Сколько строка стоит «Запускается», если заведённая сессия так и не показалась в опросе. */
@@ -1005,7 +1007,18 @@ function WorkspacesTable({
                 <td className="task-col" colSpan={5}>
                   <span className="warning-text">
                     <WarningIcon />
-                    {row.error}
+                    {row.baseOutdated ? (
+                      // Базу прежнего формата переводят в «Проблемах баз» — надпись ведёт туда (B-314).
+                      <span>
+                        База хранится в прежнем формате. Перевести её можно в разделе{' '}
+                        <button type="button" className="tracker-link" onClick={onProblems}>
+                          «Проблемы баз»
+                        </button>
+                        .
+                      </span>
+                    ) : (
+                      row.error
+                    )}
                   </span>
                 </td>
               ) : (

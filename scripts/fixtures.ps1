@@ -50,10 +50,11 @@ function Write-Session([string]$Dir, [int]$Process, [string]$Cwd, [hashtable]$Ex
 # $Rules — справка кита о флоу (reference/flow-stages.md установленного кита): из неё панель подаёт
 # агенту правила формы этапа. Не нашлась — заглушка кладёт короткую свою, чтобы переписывание не отвечало отказом.
 # $Layout — справка кита о раскладке базы (reference/base-layout.md): из её раздела «Трекер» — правила описания трекера.
-function New-Kit([string]$Path, [string]$Rules, [string]$Layout) {
+# $Format — формат базы, который знает заглушка: формат панели, чтобы переведённая база читалась.
+function New-Kit([string]$Path, [string]$Rules, [string]$Layout, [int]$Format) {
     $scripts = Join-Path $Path 'scripts'
 
-    Write-Utf8 (Join-Path $scripts 'link-state.ps1') @'
+    Write-Utf8 (Join-Path $scripts 'link-state.ps1') (@'
 # Заглушка кита. Состояние связи копии — строка таблицы links.json рядом со скриптами;
 # пути в таблице нет — копия под китом не числится.
 function Get-KitLinkState([string]$Dir) {
@@ -65,6 +66,78 @@ function Get-KitLinkState([string]$Dir) {
     }
     return [pscustomobject]@{ status = 'NoPointer'; base = $null }
 }
+
+# Режим перевода базы — migrate-mode.txt корня песочницы, читается на каждый вызов.
+function Get-KitMigrateMode {
+    $dir = $PSScriptRoot
+    while ($dir) {
+        $candidate = Join-Path $dir 'migrate-mode.txt'
+        if (Test-Path -LiteralPath $candidate) { return (Get-Content -LiteralPath $candidate -Raw).Trim().ToLowerInvariant() }
+        $dir = Split-Path $dir -Parent
+    }
+    return 'ok'
+}
+
+# Формат, который знает кит; в режиме kit-old — на единицу старше того, что ждёт панель.
+function Get-KitFormat {
+    if ((Get-KitMigrateMode) -eq 'kit-old') { return __FORMAT__ - 1 }
+    return __FORMAT__
+}
+'@).Replace('__FORMAT__', "$Format")
+
+    Write-Utf8 (Join-Path $scripts 'base-migrate.ps1') @'
+# Заглушка кита: перевод базы на формат кита (B-314). Шагов у заглушки нет: удачный перевод ставит номер формата
+# в agents-kit.json, коммитит его в базе и отмечает связь копии в links.json как обычную. Режим — migrate-mode.txt
+# корня песочницы:
+#   ok        база переведена (по умолчанию)
+#   operator  без -Operator отказ «имя оператора не названо», с ним — как ok
+#   fail      шаг перевода сорвался
+#   slow      как ok, но через восемь секунд
+#   kit-old   кит знает формат старше, чем ждёт панель
+# Вызовы пишутся в migrate.log рядом со скриптами.
+param([string]$Path = (Get-Location).Path, [string]$Operator)
+
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'link-state.ps1')
+Add-Content -LiteralPath (Join-Path $PSScriptRoot 'migrate.log') -Value "$(Get-Date -Format s) $Path $Operator" -Encoding utf8
+$mode = Get-KitMigrateMode
+$state = Get-KitLinkState $Path
+if ($state.status -ne 'Outdated') {
+    Write-Host "База «$($state.base)» уже формата $(Get-KitFormat) — переводить нечего."
+    exit 0
+}
+$base = $state.base
+$machine = Join-Path $base 'local\me.json'
+switch ($mode) {
+    'slow' { Start-Sleep -Seconds 8 }
+    'fail' { throw 'шаг перевода на формат 6 (flow-to-personal) не прошёл: заглушка кита так настроена — его правки в базе откачены, база осталась формата 5' }
+    'operator' {
+        if (-not $Operator) { throw 'имя оператора на этой машине не названо — перевести с -Operator <имя>: латиница в нижнем регистре, цифры и дефис между ними' }
+    }
+}
+if ($Operator) {
+    $list = Get-Content -LiteralPath $machine -Raw | ConvertFrom-Json
+    $list | Add-Member -NotePropertyName 'operator' -NotePropertyValue $Operator -Force
+    $list | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $machine -Encoding utf8
+}
+
+$format = Get-KitFormat
+$markerPath = Join-Path $base 'agents-kit.json'
+$marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+$was = $marker.version
+$marker | Add-Member -NotePropertyName 'version' -NotePropertyValue $format -Force
+$marker | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $markerPath -Encoding utf8
+git -C $base commit -q -m "agents-kit: перевод базы на формат $format — заглушка" -- agents-kit.json
+if ($LASTEXITCODE -ne 0) { throw "git не закоммитил перевод в «$base»" }
+
+$table = Join-Path $PSScriptRoot 'links.json'
+$rows = @(Get-Content -LiteralPath $table -Raw | ConvertFrom-Json)
+foreach ($row in $rows) { if ($row.base -ieq $base) { $row.status = 'Linked' } }
+ConvertTo-Json -InputObject $rows -Depth 6 | Set-Content -LiteralPath $table -Encoding utf8
+
+Write-Host "База «$base»: формат $was → $format"
+Write-Host "  формат ${format}: заглушка — коммит $(git -C $base rev-parse --short HEAD)"
+Write-Host "База переведена на формат $format. Работа со знанием — с новой сессии: /clear."
 '@
 
     Write-Utf8 (Join-Path $scripts 'base-check.ps1') @'
@@ -190,6 +263,7 @@ if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $bra
 #   push-fail  забор проходит, отдача отказывает, как при чужом коммите на сервере
 #   pull-fail  забор отказывает, как при незакоммиченной правке в базе
 #   offline    сервер недоступен: код 2
+#   push-offline  забор проходит, а к отдаче сервер пропал: код 2 у отдачи
 # Вызовы пишутся в sync.log рядом со скриптами: по нему видно, что панель забрала базу до записи и отдала после.
 param([string]$Path, [string]$Repo, [string]$Action)
 
@@ -204,6 +278,9 @@ while ($dir) {
 switch ($mode) {
     'offline' { Write-Host 'remote базы недоступен: заглушка кита так настроена — работа идёт с локальным, отдастся при следующем сведении'; exit 2 }
     'pull-fail' { Write-Host 'с remote базы не забрано — в базе незакоммиченная правка: product.md. Её закоммитит сессия, которая её ведёт; забрать при следующем сведении'; exit 1 }
+    'push-offline' {
+        if ($Action -eq 'Push') { Write-Host 'remote базы недоступен: заглушка кита так настроена — отдастся при следующем сведении'; exit 2 }
+    }
     'push-fail' {
         if ($Action -eq 'Push') { Write-Host "на remote базы не отдано — git: ! [rejected] main -> main (fetch first); отдастся при следующем сведении"; exit 1 }
     }

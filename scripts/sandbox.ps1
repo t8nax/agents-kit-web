@@ -585,7 +585,7 @@ $pieceList = [ordered]@{
     'tracker'     = 'проекты с трекером: GitHub с задачами на оператора, GitHub без адреса репозитория и Jira'
     'no-product'  = 'база без описания проекта: название берётся из имени папки'
     'broken-json' = 'база с битым agents-kit.json: базу не прочитать'
-    'old-format'  = 'база прежнего формата кита: панель её не читает и называет причину'
+    'old-format'  = 'база прежнего формата кита: панель её не читает, называет причину и переводит кнопкой в «Проблемах баз»'
     'new-format'  = 'база нового формата кита: панель её показывает с предупреждением, а флоу, исполнителей и бэклог не правит'
     'stages-only' = 'база с этапами без сценариев: пустое состояние вкладки «Сценарии»'
     'no-flow'     = 'база без этапов и сценариев: пустые состояния раздела «Флоу»'
@@ -642,7 +642,11 @@ $kitDir = Join-Path $claudeDir "plugins\cache\agents-kit\agents-kit\$kitVersion"
 # этапы как в жизни. Путь к киту — из списка баз оператора, только на чтение; нет его — место по умолчанию.
 $installedKit = try { (Get-Content -LiteralPath (Join-Path $env:APPDATA 'agents-kit-web\bases.json') -Raw | ConvertFrom-Json).kit } catch { $null }
 if (-not $installedKit) { $installedKit = Join-Path $HOME '.claude\skills\agents-kit' }
-New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md') -Layout (Join-Path $installedKit 'reference\base-layout.md')
+# Формат, который знает заглушка, — формат панели из BaseLayout.cs: переведённая заглушкой база должна читаться.
+$panelLayout = Get-Content -LiteralPath (Join-Path $repo 'backend\src\AgentsKitWeb.Api\Bases\BaseLayout.cs') -Raw
+if ($panelLayout -notmatch 'public const int Format = (\d+);') { throw 'в BaseLayout.cs не найден формат панели — заглушку кита не собрать' }
+$panelFormat = [int]$Matches[1]
+New-Kit $kitDir -Rules (Join-Path $installedKit 'reference\flow-stages.md') -Layout (Join-Path $installedKit 'reference\base-layout.md') -Format $panelFormat
 Write-KitPlugin $claudeDir $kitDir $kitVersion
 New-ClaudeStub $binDir
 New-GhStub $ghDir
@@ -650,6 +654,7 @@ Write-Utf8 (Join-Path $Root 'kit-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'claude-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'gh-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'sync-mode.txt') "ok`n"
+Write-Utf8 (Join-Path $Root 'migrate-mode.txt') "ok`n"
 # Задачи GitHub по репозиториям; кусок с трекером кладёт свои.
 $ghIssues = [ordered]@{}
 $ghLabels = [ordered]@{}
@@ -885,7 +890,8 @@ if (Test-Piece 'broken-json') {
 }
 
 # База прежнего формата кита — 5, как до перевода на 6, флоу и исполнители в папке оператора: таблица, «Флоу», «Исполнители», «Бэклог» и «Проблемы баз» называют
-# причину — перевести её китом, — а связь копии кит отдаёт состоянием «прежний формат».
+# причину — перевести её китом, — а связь копии кит отдаёт состоянием «прежний формат». «Проблемы баз» переводят её кнопкой
+# заглушкой кита base-migrate.ps1, режим — migrate-mode.txt.
 if (Test-Piece 'old-format') {
     $oldCopy = Join-Path $copiesDir 'old-format'
     New-Repo $oldCopy
@@ -910,9 +916,7 @@ if (Test-Piece 'new-format') {
     $newTask = Join-Path $copiesDir 'new-format-task'
     git -C $newCopy worktree add -b feat/new-format $newTask --quiet
     $newBase = Join-Path $basesDir 'new-format'
-    $layoutSource = Get-Content -LiteralPath (Join-Path $repo 'backend\src\AgentsKitWeb.Api\Bases\BaseLayout.cs') -Raw
-    if ($layoutSource -notmatch 'public const int Format = (\d+);') { throw 'в BaseLayout.cs не найден формат панели — кусок new-format не собрать' }
-    New-Base $newBase 'Новый формат' @($newCopy) -Format ([int]$Matches[1] + 1)
+    New-Base $newBase 'Новый формат' @($newCopy) -Format ($panelFormat + 1)
     New-Memory (Join-Path (Get-MemoryDir $newBase) 'new-format-task.md') $newTask 'feat/new-format'
     Add-Commit (Get-Personal $newBase) 'Память задачи'
     $bases.Add($newBase)
@@ -1139,7 +1143,8 @@ else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
 Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, many, login, error, slow); задачи — gh-issues.json, метки репозиториев — gh-labels.json"
-Write-Host "  сведение базы:  $(Join-Path $Root 'sync-mode.txt')    (ok, push-fail, pull-fail, offline); вызовы — sync.log у скриптов кита"
+Write-Host "  сведение базы:  $(Join-Path $Root 'sync-mode.txt')    (ok, push-fail, pull-fail, offline, push-offline); вызовы — sync.log у скриптов кита"
+Write-Host "  перевод базы:   $(Join-Path $Root 'migrate-mode.txt') (ok, operator, fail, slow, kit-old); вызовы — migrate.log у скриптов кита"
 Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
 $self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""

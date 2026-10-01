@@ -133,7 +133,7 @@ app.MapGet("/api/workspaces", async (
         HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot),
         tasks.SessionIn)));
 
-app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
+app.MapGet("/api/health", (HealthMonitor health) => KitBaseMigrate.Annotate(health.Snapshot));
 app.MapPost("/api/health/check", (HealthMonitor health) =>
 {
     health.RequestCheck();
@@ -145,6 +145,7 @@ app.MapAskEndpoints();
 app.MapBacklogEndpoints();
 app.MapBacklogWriteEndpoints();
 app.MapBacklogTrackerEndpoints();
+app.MapBaseMigrateEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
 app.MapFlowRewriteEndpoints();
