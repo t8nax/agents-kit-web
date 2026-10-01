@@ -131,12 +131,14 @@ test('пока задачи трекера читаются, записи бэк
 // ——— YouTrack (B-288) ———
 
 const youTrackIssues = [
-  { name: 'YouTrack ABC-7', number: 7, title: 'Письмо о сбросе пароля уходит без ссылки', url: 'https://acme.youtrack.cloud/issue/ABC-7' },
+  { name: 'YouTrack ABC-7', number: 7, title: 'Письмо о сбросе пароля уходит без ссылки', url: 'https://acme.youtrack.cloud/issue/ABC-7', assignee: 'Анна Смирнова', mine: true },
   {
     name: 'YouTrack ABC-104',
     number: 104,
     title: 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой',
     url: 'https://acme.youtrack.cloud/issue/ABC-104',
+    assignee: 'Константин Константинопольский-Задунайский, Анна Смирнова, Борис Ким',
+    mine: false,
   },
   { name: 'YouTrack ABC-1287', number: 1287, title: 'Перевести отчёты на новую схему налогов', url: 'https://acme.youtrack.cloud/issue/ABC-1287' },
 ]
@@ -172,6 +174,30 @@ for (const [width, colorScheme] of [
       expect(button!.x + button!.width).toBeLessThanOrEqual(list!.x + list!.width + 0.5)
     }).toPass()
     await expect(row.getByRole('link')).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-104')
+    // Исполнитель — второй строкой под заголовком и в пределах строки задачи, у ничьей — «никому» (макет AKW-17)
+    await expect(project.locator('.tracker-issues .issue-assignee')).toHaveText(['Анна Смирнова', /^Константин/, 'никому'])
+    await expect(async () => {
+      const [title, assignee, link] = await Promise.all([
+        row.locator('.entry-title').boundingBox(),
+        row.locator('.issue-assignee').boundingBox(),
+        row.getByRole('link').boundingBox(),
+      ])
+      expect(assignee!.y).toBeGreaterThanOrEqual(title!.y + title!.height - 0.5)
+      expect(Math.round(assignee!.x)).toBe(Math.round(title!.x))
+      expect(assignee!.y + assignee!.height).toBeLessThanOrEqual(link!.y + link!.height + 0.5)
+      expect(assignee!.x + assignee!.width).toBeLessThanOrEqual(link!.x + link!.width + 0.5)
+    }).toPass()
+    // Флажок «Мои задачи» — в строке отбора, за поиском (макет AKW-17, вариант А)
+    const bar = page.getByRole('group', { name: 'Отбор задач трекера' })
+    const mine = bar.getByRole('checkbox', { name: 'Мои задачи' })
+    await expect(async () => {
+      const [search, check, box] = await Promise.all([bar.locator('.backlog-search').boundingBox(), mine.boundingBox(), bar.boundingBox()])
+      expect(check!.x).toBeGreaterThan(search!.x + search!.width)
+      expect(check!.y).toBeGreaterThanOrEqual(box!.y - 0.5)
+      expect(check!.y + check!.height).toBeLessThanOrEqual(box!.y + box!.height + 0.5)
+    }).toPass()
+    await mine.click()
+    await expect(numbers).toHaveText(['ABC-7'])
   })
 }
 
