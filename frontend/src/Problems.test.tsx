@@ -432,3 +432,13 @@ test('отдача не прошла не из-за сервера — стро�
     /^База переведена на новый формат, но не отправлена на сервер\.$/,
   )
 })
+
+test('перевод идёт, а карточку открыли заново — полоса держит перевод идущим', async () => {
+  stubHealth({ ...outdated, bases: [{ ...outdated.bases[0], migrating: true }] })
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+
+  expect(within(card).getByText('Выполняется перевод базы на новый формат.')).toBeInTheDocument()
+  expect(within(card).getByRole('button', { name: 'Перевести базу' })).toBeDisabled()
+})

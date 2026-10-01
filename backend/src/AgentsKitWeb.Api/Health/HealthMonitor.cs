@@ -39,7 +39,8 @@ public sealed record CopyHealth(string Path, IReadOnlyList<HealthProblem> Proble
 /// <summary>
 /// Проблемы одной базы. Error задан у unavailable и failed. FormatWarning — база нового формата
 /// (BaseLayout.NewerFormat): её проверяет кит, как любую, а предупреждение идёт рядом с находками. Outdated — база прежнего
-/// формата: панель её не читает, а переводит китом по кнопке в карточке (B-314).
+/// формата: панель её не читает, а переводит китом по кнопке в карточке (B-314). Migrating — её перевод идёт сейчас
+/// (KitBaseMigrate.Annotate): ставится при ответе /api/health, а не кругом проверки.
 /// </summary>
 public sealed record BaseHealth(
     string Base,
@@ -49,7 +50,8 @@ public sealed record BaseHealth(
     IReadOnlyList<HealthProblem> Problems,
     IReadOnlyList<CopyHealth> Copies,
     string? FormatWarning = null,
-    bool Outdated = false);
+    bool Outdated = false,
+    bool Migrating = false);
 
 /// <summary>
 /// Снимок проблем баз. Pending — первая проверка ещё идёт, данных нет. KitUpdate — установленная новая версия

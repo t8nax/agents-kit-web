@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Health;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -254,6 +255,34 @@ public sealed class BaseMigrateTests : IDisposable
 
         Assert.All(outcomes, o => Assert.Equal(BaseMigrateOutcome.Migrated, o));
         Assert.Single(File.ReadAllLines(Path.Combine(_kit, "scripts", "runs.txt")));
+    }
+
+    [Fact]
+    // Пока перевод идёт, снимок проверки помечает базу: карточка держит перевод идущим и после ухода из раздела.
+    public async Task Health_WhileMigrating_MarksBase()
+    {
+        var gate = Path.Combine(_root, "go.txt");
+        await SetKit($$"""
+            param([string]$Path, [string]$Operator)
+            while (-not (Test-Path -LiteralPath '{{gate}}')) { Start-Sleep -Milliseconds 100 }
+            Set-Content -LiteralPath '{{Path.Combine(_base, BaseLayout.MarkerFile)}}' -Value '{"kit":"agents-kit","version":{{BaseLayout.Format}}}' -Encoding utf8
+            """);
+
+        var migrating = Migrate();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        HealthSnapshot? snapshot = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            snapshot = await Client.GetFromJsonAsync<HealthSnapshot>("/api/health");
+            if (snapshot!.Bases.Any(b => b.Migrating))
+                break;
+            await Task.Delay(100);
+        }
+        Assert.True(Assert.Single(snapshot!.Bases).Migrating);
+
+        File.WriteAllText(gate, "");
+        Assert.Equal(BaseMigrateOutcome.Migrated, await migrating);
+        Assert.False(Assert.Single((await Client.GetFromJsonAsync<HealthSnapshot>("/api/health"))!.Bases).Migrating);
     }
 
     [Fact]

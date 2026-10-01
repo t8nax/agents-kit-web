@@ -39,6 +39,9 @@ public static class BaseMigrateOutcome
     public const string KitMissing = "kit-missing";
 
     public const string Failed = "failed";
+
+    /// <summary>Перевод ещё идёт: панель перестала ждать его по сроку, а скрипт доходит сам.</summary>
+    public const string Running = "running";
 }
 
 public static class BaseMigrateEndpoints
@@ -109,6 +112,20 @@ public static class KitBaseMigrate
     /// <summary>Начало отказа кита, когда он просит имя оператора (base-migrate.ps1): других признаков у отказа нет.</summary>
     public const string NoOperatorRefusal = "имя оператора на этой машине не названо";
 
+    /// <summary>Перевод базы идёт — его запустила эта панель и он ещё не кончился, даже брошенный по сроку.</summary>
+    public static bool IsRunning(string basePath)
+    {
+        lock (Running)
+            return Running.ContainsKey(WorkspaceCollector.Normalize(basePath));
+    }
+
+    /// <summary>
+    /// Снимок проверки с пометкой идущих переводов: снимок обновляется кругом проверки, а идёт ли перевод, панель знает
+    /// сразу, — карточка по пометке держит перевод идущим и тогда, когда оператор уходил из раздела.
+    /// </summary>
+    public static HealthSnapshot Annotate(HealthSnapshot snapshot) =>
+        snapshot with { Bases = snapshot.Bases.Select(b => IsRunning(b.Base) ? b with { Migrating = true } : b).ToList() };
+
     public static Task<string> MigrateAsync(string? kit, string basePath, string? operatorName)
     {
         var key = WorkspaceCollector.Normalize(basePath);
@@ -160,6 +177,8 @@ public static class KitBaseMigrate
             {
                 case KitRunOutcome.Refused when run.Error.StartsWith(NoOperatorRefusal, StringComparison.Ordinal):
                     return BaseMigrateOutcome.NeedName;
+                case KitRunOutcome.TimedOut:
+                    return BaseMigrateOutcome.Running;
                 case not KitRunOutcome.Ok:
                     return BaseMigrateOutcome.Failed;
             }

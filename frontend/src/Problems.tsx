@@ -22,6 +22,8 @@ export type BaseHealth = {
   formatWarning?: string | null
   /** База прежнего формата: панель её не читает, а переводит китом по кнопке в карточке — B-314. */
   outdated?: boolean
+  /** Перевод базы идёт сейчас — и тогда, когда карточку открыли заново посреди перевода. */
+  migrating?: boolean
 }
 
 /** Каталог кита и номер его версии; null — номер не прочитан. */
@@ -272,9 +274,10 @@ type MigrateOutcome =
   | 'kit-old'
   | 'kit-missing'
   | 'failed'
+  | 'running'
 
 /** Перевод в карточке: running — идёт; name — имя оператора, с которым переводят, пустое — без имени. */
-type Migration = { phase: 'idle' | 'running' | MigrateOutcome; name: string; terminalFailed?: boolean }
+type Migration = { phase: 'idle' | MigrateOutcome; name: string; terminalFailed?: boolean }
 
 function BaseCard({
   base,
@@ -303,7 +306,8 @@ function BaseCard({
     } catch {
       // Нет связи с API — перевод не прошёл, как и при любом другом сбое.
     }
-    setMigration({ phase, name })
+    // Брошенный по сроку перевод ещё идёт: его держит пометка migrating снимка, а не ответ запроса.
+    setMigration({ phase: phase === 'running' ? 'idle' : phase, name })
     onMigrated()
   }
 
@@ -338,7 +342,7 @@ function BaseCard({
       )}
       {base.outdated ? (
         <MigrateBlock
-          migration={migration}
+          migration={base.migrating ? { ...migration, phase: 'running' } : migration}
           onName={(name) => setMigration((m) => ({ ...m, name }))}
           onMigrate={(name) => void migrate(name)}
           onTerminal={() => void openTerminal()}
