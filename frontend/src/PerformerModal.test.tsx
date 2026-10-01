@@ -61,6 +61,11 @@ function saved(fetchMock: ReturnType<typeof vi.fn>) {
   return JSON.parse(String((call[1] as RequestInit).body))
 }
 
+/** Правит описание заведённого: без правки его «Сохранить» погашена (B-333). */
+function editDescription() {
+  fireEvent.change(screen.getByLabelText('Описание'), { target: { value: 'Читает дифф ветки задачи целиком.' } })
+}
+
 /** Запись исполнителя отвечает заданным ответом; остальное — стенд панели с просьбой к агенту. */
 function stubSave(response: () => Response) {
   const stream = controlledStream<DraftEvent>()
@@ -238,10 +243,33 @@ test('описание правится полем прямо в окне, а с
   await waitFor(() => expect(saved(fetchMock).description).toBe('Читает дифф. Возвращает вердикт.'))
 })
 
+test('у заведённого «Сохранить» горит только после правки, а возвращённое как было снова её гасит', () => {
+  stubSave(() => Response.json({ path: 'x' }))
+  open(reviewer)
+  const save = screen.getByRole('button', { name: 'Сохранить' })
+
+  // Сохранять поля, какими их открыли, нечего (B-333)
+  expect(save).toBeDisabled()
+  expect(save).toHaveAttribute('title', 'Изменений нет')
+
+  editDescription()
+  expect(save).toBeEnabled()
+  expect(save).not.toHaveAttribute('title')
+
+  fireEvent.change(screen.getByLabelText('Описание'), { target: { value: reviewer.description } })
+  expect(save).toBeDisabled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Только чтение' }))
+  expect(save).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Только чтение' }))
+  expect(save).toBeDisabled()
+})
+
 test('отказ API описанию назван своей строкой, а не ошибкой имени', async () => {
   stubSave(() => Response.json({ problem: 'invalid-description' }, { status: 400 }))
   open(reviewer)
 
+  editDescription()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Описание не годится')
@@ -739,6 +767,7 @@ test('занятое имя, о котором сказал API, объясне�
   open(reviewer)
 
   // Имя заняли, пока окно было открыто: список раздела о нём ещё не знает, а API уже знает.
+  editDescription()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   expect(await screen.findByRole('alert')).toHaveTextContent('уже есть')
@@ -749,6 +778,7 @@ test('имя, занятое файлом самого проекта, назв�
   open(reviewer)
 
   // Такой файл ведёт команда проекта, кит его не трогает — исполнитель в эту копию не приедет
+  editDescription()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   const alert = await screen.findByRole('alert')
@@ -761,6 +791,7 @@ test('кит перевёл базу, пока окно было открыто:
   stubSave(() => Response.json({ problem: 'newer-format', detail: refusal }, { status: 409 }))
   open(reviewer)
 
+  editDescription()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   const alert = await screen.findByRole('alert')
@@ -772,6 +803,7 @@ test('отказ базы принять коммит показан её сло
   stubSave(() => Response.json({ problem: 'not-committed', detail: 'сверка: база не приняла' }, { status: 409 }))
   const onSaved = open(reviewer)
 
+  editDescription()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   // Что сказала база, оператор читает дословно, а окно остаётся открытым
@@ -785,6 +817,7 @@ test('незнакомый отказ API назван своим именем, 
   stubSave(() => Response.json({ problem: 'что-то-новое' }, { status: 409 }))
   open(reviewer)
 
+  editDescription()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   // Иначе новый отказ API показывался бы прежним текстом, и причина была бы неверной
@@ -795,6 +828,7 @@ test('без связи с API окно говорит об этом и не з�
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('failed to fetch')))
   const onSaved = open(reviewer)
 
+  editDescription()
   fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
   expect(await screen.findByText(/нет связи с API/)).toBeInTheDocument()
