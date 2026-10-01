@@ -459,7 +459,7 @@ test('«Откатить задачу» открыт у копии с задач
 test('«Откатить задачу» открывает окно отката, и оно спрашивает API, что откатывать', async () => {
   const fetchMock = vi.fn(async (url: string) =>
     url.startsWith('/api/tasks/rollback')
-      ? Response.json({ task: rows[0].task, source: 'none', dirty: false, blockers: [] })
+      ? Response.json({ task: rows[0].task, source: 'none', dirty: false, blockers: [], unpushed: false, onGitHub: true })
       : new Response(JSON.stringify(rows), { status: 200 }),
   )
   vi.stubGlobal('fetch', fetchMock)

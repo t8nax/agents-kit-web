@@ -34,7 +34,7 @@ async function routeApi(page: Page, plan: Record<string, unknown>) {
   )
   await page.route('**/api/tasks/rollback**', async (route) => {
     if (route.request().method() === 'GET') {
-      await route.fulfill({ json: { task: busy.task, source: 'backlog', dirty: false, blockers: [], ...plan } })
+      await route.fulfill({ json: { task: busy.task, source: 'backlog', dirty: false, blockers: [], unpushed: false, onGitHub: true, ...plan } })
       return
     }
     const step = (route.request().postDataJSON() as { step: string }).step

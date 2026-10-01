@@ -20,9 +20,16 @@ const row: WorkspaceRow = {
   letters: 'B',
 }
 
-type Plan = { task: string; source: string; dirty: boolean; blockers: { kind: string; name: string | null }[] }
+type Plan = {
+  task: string
+  source: string
+  dirty: boolean
+  blockers: { kind: string; name: string | null }[]
+  unpushed: boolean
+  onGitHub: boolean
+}
 
-const plan: Plan = { task: row.task!, source: 'backlog', dirty: false, blockers: [] }
+const plan: Plan = { task: row.task!, source: 'backlog', dirty: false, blockers: [], unpushed: false, onGitHub: true }
 
 /** API отката: план на GET, ответы шагов по очереди на POST; каждый шаг, о котором спросили, — в steps. */
 function stubApi(planned: Plan, answer: (step: string) => Response | Promise<Response> = () => new Response(null, { status: 204 })) {
@@ -174,6 +181,39 @@ test('сессия, открытая уже при открытом окне, о
 
   expect(await screen.findByRole('alert')).toHaveTextContent('открыта сессия задачи в VS Code')
   expect(screen.getByRole('button', { name: 'Откатить задачу' })).toBeDisabled()
+})
+
+test('ветка задачи не отправлена на GitHub — предупреждение о коммитах, и строка о ветке без GitHub', async () => {
+  stubApi({ ...plan, unpushed: true, onGitHub: false })
+  renderModal()
+
+  expect(await stepTexts()).toContain('Копия вернётся на прежнюю ветку, а ветка задачи будет удалена на компьютере.')
+  expect(screen.getByText('Коммиты задачи не отправлены на GitHub')).toBeInTheDocument()
+  expect(screen.getByText('В ветке задачи есть коммиты, которых нет на GitHub. После отката вернуть их не получится.')).toBeInTheDocument()
+  expect(screen.getByRole('dialog')).not.toHaveTextContent('На GitHub ветка задачи останется')
+  expect(screen.getByRole('button', { name: 'Откатить задачу' })).toBeEnabled()
+})
+
+test('ещё одна фоновая сессия в копии — отказ: откат гасит только сессию задачи', async () => {
+  stubApi({ ...plan, blockers: [{ kind: 'background', name: 'соседняя' }] })
+  renderModal()
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'В копии house-2 идёт ещё одна сессия в фоне — откат гасит только сессию задачи. Погасите её в разделе «Сессии» и повторите откат.',
+  )
+  expect(screen.getByRole('button', { name: 'Откатить задачу' })).toBeDisabled()
+})
+
+test('отказ шага без тела — слова по коду ответа, а не «нет связи»', async () => {
+  stubApi(plan, () => new Response(null, { status: 400 }))
+  renderModal()
+  await stepTexts()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Откатить задачу' }))
+
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Панель ответила HTTP 400.')
+  expect(alert).not.toHaveTextContent('Нет связи')
 })
 
 test('«Отмена» закрывает окно, ничего не откатив', async () => {

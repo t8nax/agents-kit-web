@@ -7,8 +7,8 @@ import './DeleteWorkspaceModal.css'
 import './RollbackTaskModal.css'
 
 type Source = 'backlog' | 'tracker' | 'none'
-type Blocker = { kind: 'vscode' | 'terminal'; name: string | null }
-type Plan = { task: string; source: Source; dirty: boolean; blockers: Blocker[] }
+type Blocker = { kind: 'vscode' | 'terminal' | 'background'; name: string | null }
+type Plan = { task: string; source: Source; dirty: boolean; blockers: Blocker[]; unpushed: boolean; onGitHub: boolean }
 
 type Step = 'session' | 'backlog' | 'copy' | 'memory'
 type StepState = 'pending' | 'running' | 'done' | 'failed'
@@ -99,9 +99,11 @@ export default function RollbackTaskModal({ row, onClose, onRolledBack }: Props)
       })
       if (response.ok) return null
       if (response.status === 400 || response.status === 409) {
-        const body = (await response.json()) as { problem: string; message: string | null }
+        // Отказ без тела — запрос не понят: слов у него нет, кроме кода
+        const body = (await response.json().catch(() => null)) as { problem: string; message: string | null } | null
+        if (!body) return { text: missingText(response.status) }
         if (body.problem === 'blocked') {
-          const kinds = (body.message ?? '').split(', ').filter((k): k is Blocker['kind'] => k === 'vscode' || k === 'terminal')
+          const kinds = (body.message ?? '').split(', ').filter((k): k is Blocker['kind'] => k in blockerTexts)
           return { text: '', blocked: kinds.map((kind) => ({ kind, name: null })) }
         }
         if (body.problem === 'no-task') return { text: noTaskText }
@@ -146,7 +148,7 @@ export default function RollbackTaskModal({ row, onClose, onRolledBack }: Props)
                     <span className="rb-mark" aria-hidden="true">
                       <StepMark state={states[step]} started={busy || Object.keys(states).length > 0} />
                     </span>
-                    <span>{stepText(step, number)}</span>
+                    <span>{stepText(step, number, plan.onGitHub)}</span>
                   </li>
                 ))}
               </ul>
@@ -171,6 +173,18 @@ export default function RollbackTaskModal({ row, onClose, onRolledBack }: Props)
             </div>
           )}
 
+          {plan?.unpushed && (
+            <div className="rb-warning">
+              <span className="rb-warning-title">
+                <WarningIcon />
+                Коммиты задачи не отправлены на GitHub
+              </span>
+              <p className="dw-error-text">
+                В ветке задачи есть коммиты, которых нет на GitHub. После отката вернуть их не получится.
+              </p>
+            </div>
+          )}
+
           {blocked && (
             <div className="dw-error" role="alert">
               <span className="dw-error-title">
@@ -179,9 +193,7 @@ export default function RollbackTaskModal({ row, onClose, onRolledBack }: Props)
               </span>
               {kinds.map((kind) => (
                 <p key={kind} className="dw-error-text">
-                  {kind === 'vscode'
-                    ? `В копии ${copy} открыта сессия задачи в VS Code — панель не может её погасить. Закройте её в VS Code и повторите откат.`
-                    : `В копии ${copy} идёт сессия задачи в терминале — панель не может её погасить. Завершите её в терминале и повторите откат.`}
+                  {blockerTexts[kind](copy)}
                 </p>
               ))}
             </div>
@@ -225,14 +237,26 @@ function missingText(status: number) {
   return status === 404 ? 'Этой копии больше нет в таблице.' : `Панель ответила HTTP ${status}.`
 }
 
-function stepText(step: Step, number: string | null) {
+const blockerTexts: Record<Blocker['kind'], (copy: string) => string> = {
+  vscode: (copy) =>
+    `В копии ${copy} открыта сессия задачи в VS Code — панель не может её погасить. Закройте её в VS Code и повторите откат.`,
+  terminal: (copy) =>
+    `В копии ${copy} идёт сессия задачи в терминале — панель не может её погасить. Завершите её в терминале и повторите откат.`,
+  // Чужую фоновую сессию откат молча не гасит: её завёл оператор, и окно о ней не предупреждало
+  background: (copy) =>
+    `В копии ${copy} идёт ещё одна сессия в фоне — откат гасит только сессию задачи. Погасите её в разделе «Сессии» и повторите откат.`,
+}
+
+function stepText(step: Step, number: string | null, onGitHub: boolean) {
   switch (step) {
     case 'session':
       return 'Сессия задачи будет погашена.'
     case 'backlog':
       return `Запись ${number} вернётся в конец бэклога тем же номером и текстом.`
     case 'copy':
-      return 'Копия вернётся на прежнюю ветку, а ветка задачи будет удалена на компьютере. На GitHub ветка задачи останется.'
+      return onGitHub
+        ? 'Копия вернётся на прежнюю ветку, а ветка задачи будет удалена на компьютере. На GitHub ветка задачи останется.'
+        : 'Копия вернётся на прежнюю ветку, а ветка задачи будет удалена на компьютере.'
     default:
       return 'Память задачи будет снята с базы.'
   }
