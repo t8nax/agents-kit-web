@@ -360,6 +360,8 @@ public sealed class BacklogTrackerTests : IDisposable
                 services.AddSingleton<IGitHubIssues>(_github);
                 services.RemoveAll<IYouTrack>();
                 services.AddSingleton<IYouTrack>(_youTrack);
+                services.RemoveAll<IJira>();
+                services.AddSingleton<IJira>(_jira);
             });
         })).CreateClient();
 
@@ -413,5 +415,56 @@ public sealed class BacklogTrackerTests : IDisposable
         Assert.Equal(error, moved.Error);
         Assert.Equal(file, File.ReadAllText(BacklogPath));
         Assert.Equal(withKey ? 1 : 0, _youTrack.Creates.Count);
+    }
+
+    // ——— Перенос в Jira (B-285) ———
+
+    private readonly FakeJira _jira = new();
+
+    private void JiraTracker(bool withKey = true)
+    {
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+        if (withKey)
+            new TrackerServersStore(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")))
+                .Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+    }
+
+    [Fact]
+    public async Task Move_ToJira_CreatesIssueWithEmailAndKeyAndCutsEntry()
+    {
+        JiraTracker();
+        _jira.Created = new CreatedIssue(new TrackerIssue("Jira PAY-58", 58, "Вторая запись", "https://acme.atlassian.net/browse/PAY-58"));
+        var client = Client();
+        var draft = await GetDraft(client, "B-2");
+
+        var moved = await Move(client, draft);
+
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ", "PAY", "Вторая запись", "Текст второй записи.")], _jira.Creates);
+        Assert.Empty(_youTrack.Creates);
+        Assert.Equal("Jira PAY-58", moved.Issue?.Name);
+        Assert.Null(moved.Error);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+    }
+
+    [Theory]
+    [InlineData(false, null, "Задача не заведена: для сервера https://acme.atlassian.net нет ключа — введите его в разделе «Трекеры», кнопкой «Изменить» у трекера проекта")]
+    [InlineData(true, TrackerIssues.KeyForbidden, "Задача не заведена: у владельца ключа нет прав заводить задачи в проекте PAY — проверьте его права в Jira")]
+    [InlineData(true, TrackerIssues.JiraError, "Задача не заведена: Jira ответила ошибкой: jira-error")]
+    [InlineData(true, CreatedIssue.JiraSilent, "Задача, возможно, заведена: Jira не ответила за минуту. Проверьте трекер, прежде чем пробовать снова")]
+    [InlineData(true, CreatedIssue.CreatedUnknown, "Задача, возможно, заведена: Jira не назвала номер задачи. Проверьте трекер, прежде чем пробовать снова")]
+    public async Task Move_ToJiraRefused_SaysWhyAndLeavesBacklog(bool withKey, string? problem, string error)
+    {
+        JiraTracker(withKey);
+        _jira.Created = new CreatedIssue(null, problem);
+        var client = Client();
+        var draft = await GetDraft(client, "B-2");
+        var file = File.ReadAllText(BacklogPath);
+
+        var moved = await Move(client, draft);
+
+        Assert.Null(moved.Issue);
+        Assert.Equal(error, moved.Error);
+        Assert.Equal(file, File.ReadAllText(BacklogPath));
+        Assert.Equal(withKey ? 1 : 0, _jira.Creates.Count);
     }
 }

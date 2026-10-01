@@ -689,6 +689,33 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
         Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
         Assert.Contains("YouTrack ABC", Prompt());
+
+        // И в Jira — B-285
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+
+        Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
+        Assert.Contains("Jira PAY", Prompt());
+    }
+
+    /// <summary>«Сохранить» с переносом у проекта с Jira заводит задачу в Jira почтой и ключом её сервера (B-285).</summary>
+    [Fact]
+    public async Task Save_TrackToJira_CreatesIssueWithEmailAndKey()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+        new TrackerServersStore(TrackerServersStore.FileBeside(TestBasesFile))
+            .Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+        _jira.Created = new CreatedIssue(new TrackerIssue("Jira PAY-58", 58, "Вторая запись", "https://acme.atlassian.net/browse/PAY-58"));
+        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        var client = Client(_base);
+        await Start(client, "перенеси B-2 в трекер");
+        var answer = (await Read(client, 2))[1];
+
+        var saved = await Save(client, answer.Proposal!.Id);
+
+        Assert.Null(saved.Error);
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ", "PAY", "Вторая запись", "Текст второй записи.")], _jira.Creates);
+        Assert.Equal("Jira PAY-58", saved.Issues!["B-2"].Name);
+        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
     }
 
     /// <summary>«Сохранить» с переносом у проекта с YouTrack заводит задачу в YouTrack ключом его сервера (B-288).</summary>
@@ -1377,10 +1404,13 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
                 services.AddSingleton<IGitHubIssues>(_github);
                 services.RemoveAll<IYouTrack>();
                 services.AddSingleton<IYouTrack>(_youTrack);
+                services.RemoveAll<IJira>();
+                services.AddSingleton<IJira>(_jira);
             });
         })).CreateClient();
 
     private readonly FakeYouTrack _youTrack = new();
+    private readonly FakeJira _jira = new();
 
     /// <summary>bases.json панели теста — рядом с ним лежат её серверы трекеров.</summary>
     private string TestBasesFile => Path.Combine(_root, "panel", "bases.json");
