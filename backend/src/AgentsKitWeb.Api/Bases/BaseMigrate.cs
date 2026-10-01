@@ -40,6 +40,9 @@ public static class BaseMigrateOutcome
 
     public const string Failed = "failed";
 
+    /// <summary>Базу не забрать с сервера, он недоступен, — перевод не запускался.</summary>
+    public const string Offline = "offline";
+
     /// <summary>Перевод ещё идёт: панель перестала ждать его по сроку, а скрипт доходит сам.</summary>
     public const string Running = "running";
 }
@@ -77,8 +80,8 @@ public static class BaseMigrateEndpoints
 /// <summary>Перевод базы прежнего формата скриптом кита base-migrate.ps1 — от копии базы этой машины.</summary>
 public static class KitBaseMigrate
 {
-    // Перевод коммитит шаг за шагом: по сроку панель только перестаёт его ждать, а скрипт доходит сам.
-    private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(10);
+    // Перевод коммитит шаг за шагом: по сроку панель только перестаёт его ждать, а скрипт доходит сам. Тесты сокращают срок.
+    public static TimeSpan Timeout { get; set; } = TimeSpan.FromMinutes(10);
 
     // Переводы по базе: второй запрос, пока идёт первый, ждёт его итога, а не запускает кит второй раз поверх.
     private static readonly ConcurrentDictionary<string, Task<string>> Running = new(StringComparer.OrdinalIgnoreCase);
@@ -152,17 +155,24 @@ public static class KitBaseMigrate
 
             // Сначала базу забирают с сервера, как велит кит (skills/onboard): её могли перевести с другой машины, и второй
             // перевод поверх устаревшей истории встал бы на конфликте при отдаче. Не забрана — перевод не запускается.
-            if (!(await KitSync.RunAsync(KitSync.ScriptFile(kit), copy, KitSync.Pull)).Done)
-                return BaseMigrateOutcome.Failed;
-            // Базу уже перевели — с другой машины, соседней сессией или прошлым переводом, которого панель не дождалась.
+            // Сервер недоступен — так и сказать: кит велит тогда показать это оператору (skills/onboard).
+            var pull = await KitSync.RunAsync(KitSync.ScriptFile(kit), copy, KitSync.Pull);
+            if (!pull.Done)
+                return pull.Code == 2 ? BaseMigrateOutcome.Offline : BaseMigrateOutcome.Failed;
+            // Базу уже перевели — с другой машины, соседней сессией или прошлым переводом, которого панель не дождалась:
+            // отдать её всё равно, переведённая здесь могла на сервер не уйти.
             if (!BaseLayout.IsOutdated(basePath))
-                return BaseMigrateOutcome.Migrated;
+                return await PushAsync(kit, copy);
 
             var name = string.IsNullOrWhiteSpace(operatorName) ? null : operatorName.Trim();
             if (name is not null && !BaseLayout.IsOperatorName(name))
                 return BaseMigrateOutcome.InvalidName;
             if (name is null && !BaseLayout.MachineOperatorNamed(basePath))
                 return BaseMigrateOutcome.NeedName;
+            // Имя записано не по форме: кит его не признаёт, а другое поверх записанного не пишет (Set-KitOperatorName) —
+            // из панели не поправить, чинят в терминале копии.
+            if (name is null && BaseLayout.MachineOperator(basePath) is null)
+                return BaseMigrateOutcome.Failed;
 
             var environment = new Dictionary<string, string>
             {
@@ -178,6 +188,8 @@ public static class KitBaseMigrate
                 case KitRunOutcome.Refused when run.Error.StartsWith(NoOperatorRefusal, StringComparison.Ordinal):
                     return BaseMigrateOutcome.NeedName;
                 case KitRunOutcome.TimedOut:
+                    // Дошедший сам перевод панель отдаёт на сервер так же, как дождавшийся.
+                    rest = PushWhenDoneAsync(run.Rest, kit, basePath, copy);
                     return BaseMigrateOutcome.Running;
                 case not KitRunOutcome.Ok:
                     return BaseMigrateOutcome.Failed;
@@ -188,14 +200,7 @@ public static class KitBaseMigrate
             if (BaseLayout.IsOutdated(basePath))
                 return BaseMigrateOutcome.KitOld;
 
-            // Переведённую базу панель отдаёт на сервер, как после записи описания трекера (B-293) — решение оператора.
-            var push = await KitSync.RunAsync(KitSync.ScriptFile(kit), copy, KitSync.Push);
-            return push.Code switch
-            {
-                0 => BaseMigrateOutcome.Migrated,
-                2 => BaseMigrateOutcome.NotPushed,
-                _ => BaseMigrateOutcome.NotSynced,
-            };
+            return await PushAsync(kit, copy);
         }
         finally
         {
@@ -206,6 +211,23 @@ public static class KitBaseMigrate
             else
                 _ = rest.ContinueWith(_ => Forget(key), TaskScheduler.Default);
         }
+    }
+
+    /// <summary>Переведённую базу панель отдаёт на сервер, как после записи описания трекера (B-293) — решение оператора.</summary>
+    private static async Task<string> PushAsync(string kit, string copy) =>
+        (await KitSync.RunAsync(KitSync.ScriptFile(kit), copy, KitSync.Push)).Code switch
+        {
+            0 => BaseMigrateOutcome.Migrated,
+            2 => BaseMigrateOutcome.NotPushed,
+            _ => BaseMigrateOutcome.NotSynced,
+        };
+
+    private static async Task PushWhenDoneAsync(Task? rest, string kit, string basePath, string copy)
+    {
+        if (rest is not null)
+            await rest;
+        if (!BaseLayout.IsOutdated(basePath))
+            await PushAsync(kit, copy);
     }
 
     private static void Forget(string key)

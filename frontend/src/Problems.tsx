@@ -274,6 +274,7 @@ type MigrateOutcome =
   | 'kit-old'
   | 'kit-missing'
   | 'failed'
+  | 'offline'
   | 'running'
 
 /** Перевод в карточке: running — идёт; name — имя оператора, с которым переводят, пустое — без имени. */
@@ -444,12 +445,14 @@ function MigrateBlock({
         </form>
       </>
     )
-  if (phase === 'failed')
+  if (phase === 'failed' || phase === 'offline')
     return (
       <div className="problems-format problems-format-error" role="alert">
         <WarningIcon />
         <span className="problems-format-text">
-          Не удалось перевести базу на новый формат.
+          {phase === 'offline'
+            ? 'Не удалось перевести базу на новый формат: сервер недоступен.'
+            : 'Не удалось перевести базу на новый формат.'}
           {migration.terminalFailed && ' Терминал не открылся.'}
         </span>
         <div className="problems-format-actions">

@@ -108,8 +108,8 @@ public sealed class BaseMigrateTests : IDisposable
     {
         await SetKit(Translates, sync: """
             param([string]$Path, [string]$Repo, [string]$Action)
-            Write-Host 'remote базы недоступен'
-            exit 2
+            Write-Host 'с remote базы не забрано'
+            exit 1
             """);
 
         Assert.Equal(BaseMigrateOutcome.Failed, await Migrate());
@@ -184,14 +184,69 @@ public sealed class BaseMigrateTests : IDisposable
     }
 
     [Fact]
-    // Записанное не по форме имя кит переписать не даст — панель имени не спрашивает, а зовёт кит как есть.
-    public async Task Migrate_OperatorWrittenNotByForm_RunsKitWithoutAskingName()
+    // Записанное не по форме имя кит не признаёт, а другое поверх него не пишет: из панели не поправить — сразу сбой,
+    // без формы имени и без кита.
+    public async Task Migrate_OperatorWrittenNotByForm_IsFailedWithoutKit()
     {
         TestLayout.Machine(_base, "Boris", _copy);
         await SetKit(Translates);
 
+        Assert.Equal(BaseMigrateOutcome.Failed, await Migrate());
+        Assert.Equal("", Called("migrate.txt"));
+    }
+
+    [Fact]
+    public async Task Migrate_PullServerUnavailable_IsOffline()
+    {
+        await SetKit(Translates, sync: """
+            param([string]$Path, [string]$Repo, [string]$Action)
+            exit 2
+            """);
+
+        Assert.Equal(BaseMigrateOutcome.Offline, await Migrate());
+        Assert.Equal("", Called("migrate.txt"));
+    }
+
+    [Fact]
+    // Перевод дольше срока: панель перестаёт ждать и говорит, что он идёт, а дошедший сам — отдаёт на сервер.
+    public async Task Migrate_PastTimeout_IsRunningAndPushedWhenDone()
+    {
+        var saved = KitBaseMigrate.Timeout;
+        KitBaseMigrate.Timeout = TimeSpan.FromSeconds(1);
+        try
+        {
+            await SetKit($$"""
+                param([string]$Path, [string]$Operator)
+                Start-Sleep -Seconds 4
+                Set-Content -LiteralPath '{{Path.Combine(_base, BaseLayout.MarkerFile)}}' -Value '{"kit":"agents-kit","version":{{BaseLayout.Format}}}' -Encoding utf8
+                """);
+
+            Assert.Equal(BaseMigrateOutcome.Running, await Migrate());
+            Assert.True(KitBaseMigrate.IsRunning(_base));
+
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (DateTime.UtcNow < deadline && KitBaseMigrate.IsRunning(_base))
+                await Task.Delay(100);
+            Assert.False(KitBaseMigrate.IsRunning(_base));
+            Assert.Contains("Push", Called("sync.txt"));
+        }
+        finally
+        {
+            KitBaseMigrate.Timeout = saved;
+        }
+    }
+
+    [Fact]
+    // Повторное нажатие на уже переведённую базу отдаёт её на сервер: прошлый перевод мог не дойти до отдачи.
+    public async Task Migrate_AlreadyTranslated_IsPushed()
+    {
+        File.WriteAllText(Path.Combine(_base, BaseLayout.MarkerFile),
+            JsonSerializer.Serialize(new { kit = "agents-kit", version = BaseLayout.Format }));
+        await SetKit(Translates);
+
         Assert.Equal(BaseMigrateOutcome.Migrated, await Migrate());
-        Assert.Equal($"{_copy}|", Called("migrate.txt"));
+        Assert.Equal("", Called("migrate.txt"));
+        Assert.Contains("Push", Called("sync.txt"));
     }
 
     [Fact]
@@ -275,7 +330,8 @@ public sealed class BaseMigrateTests : IDisposable
         var gate = Path.Combine(_root, "go.txt");
         await SetKit($$"""
             param([string]$Path, [string]$Operator)
-            while (-not (Test-Path -LiteralPath '{{gate}}')) { Start-Sleep -Milliseconds 100 }
+            $until = (Get-Date).AddSeconds(30)
+            while (-not (Test-Path -LiteralPath '{{gate}}') -and (Get-Date) -lt $until) { Start-Sleep -Milliseconds 100 }
             Set-Content -LiteralPath '{{Path.Combine(_base, BaseLayout.MarkerFile)}}' -Value '{"kit":"agents-kit","version":{{BaseLayout.Format}}}' -Encoding utf8
             """);
 

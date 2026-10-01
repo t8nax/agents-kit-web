@@ -88,6 +88,10 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     /// Имя оператора этой машины в local\me.json записано — какое бы ни было: поверх записанного имени кит другого
     /// не пишет (Set-KitOperatorName), и спрашивать его у оператора незачем.
     /// </summary>
+    /// <summary>Оператор этой машины из local\me.json по форме кита; null — не назван или записан не по форме.</summary>
+    public static string? MachineOperator(string basePath) =>
+        ReadMachineFile(basePath)?.Operator is { } name && IsOperatorName(name) ? name : null;
+
     public static bool MachineOperatorNamed(string basePath) =>
         !string.IsNullOrWhiteSpace(ReadMachineFile(basePath)?.Operator);
 

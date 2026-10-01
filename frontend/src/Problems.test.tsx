@@ -474,3 +474,41 @@ test('пути к киту нет — карточка ведёт задать �
   fireEvent.click(within(card).getByRole('button', { name: 'Открыть настройки' }))
   expect(onSettings).toHaveBeenCalled()
 })
+
+test('сервер недоступен при заборе базы — сбой называет причину', async () => {
+  const api = stubMigrate('offline')
+  api.release()
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  expect(await within(card).findByRole('alert')).toHaveTextContent(
+    /^Не удалось перевести базу на новый формат: сервер недоступен\.Повторить/,
+  )
+})
+
+test('панель перестала ждать перевод — карточку держит пометка идущего перевода', async () => {
+  let migrating = false
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) => {
+      if (url === '/api/bases/migrate') {
+        migrating = true
+        return new Response(JSON.stringify({ outcome: 'running' }), { status: 200 })
+      }
+      if (url === '/api/health/check') return new Response(null, { status: 202 })
+      return new Response(JSON.stringify({ ...outdated, bases: [{ ...outdated.bases[0], migrating }] }), {
+        status: 200,
+      })
+    }),
+  )
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  await vi.waitFor(() => expect(within(card).getByRole('button', { name: 'Перевести базу' })).toBeDisabled())
+  expect(within(card).getByText('Выполняется перевод базы на новый формат.')).toBeInTheDocument()
+  expect(within(card).queryByRole('alert')).not.toBeInTheDocument()
+})
