@@ -95,6 +95,13 @@ builder.Services.AddHttpClient(YouTrackApi.Client, client =>
     client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
 });
 builder.Services.AddSingleton<IYouTrack, YouTrackApi>();
+// У Jira так же: сроки — у клиента.
+builder.Services.AddHttpClient(JiraApi.Client, client =>
+{
+    client.Timeout = Timeout.InfiniteTimeSpan;
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("agents-kit-web");
+});
+builder.Services.AddSingleton<IJira, JiraApi>();
 builder.Services.AddSingleton<ProjectTracker>();
 builder.Services.AddSingleton<IAgentChat, AgentChat>();
 builder.Services.AddSingleton<AgentRequests>();

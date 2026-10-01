@@ -41,7 +41,8 @@ public sealed record TrackerIssue(
 /// сервер ключ отклонил, «key-forbidden» — ключ принят, но у его владельца нет прав
 /// на это действие, «server-silent» — сервер не ответил, «project-missing» —
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
-/// «filter-rejected» — YouTrack не принял строку «фильтр:» описания (B-300), Detail — его строка; поиск GitHub
+/// У Jira — те же причины ключа, сервера и проекта, что у YouTrack, и «jira-error» — Jira отказала иначе.
+/// «filter-rejected» — YouTrack или Jira не приняли строку фильтра (B-300), Detail — их строка; поиск GitHub
 /// фильтр не отвергает.
 /// Labels — все метки репозитория GitHub, перечень фильтра «Метки» (B-305); null — трекер не GitHub или меток
 /// прочитать не вышло, и фильтр предлагает метки прочитанных задач.
@@ -71,22 +72,24 @@ public sealed record TrackerIssues(
     public const string ServerSilent = "server-silent";
     public const string ProjectMissing = "project-missing";
     public const string YouTrackError = "youtrack-error";
+    public const string JiraError = "jira-error";
     public const string FilterRejected = "filter-rejected";
 }
 
 /// <summary>
 /// Задача, заведённая в трекере. Problem задан — задача не заведена, значения те же, что у TrackerIssues;
 /// «github-silent» и «youtrack-silent» — трекер не ответил в срок, «created-unknown» — трекер не назвал номер
-/// задачи: во всех трёх случаях задача могла завестись.
+/// задачи, «jira-silent» — то же у Jira: во всех этих случаях задача могла завестись.
 /// </summary>
 public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, string? Detail = null)
 {
     public const string GitHubSilent = "github-silent";
     public const string YouTrackSilent = "youtrack-silent";
+    public const string JiraSilent = "jira-silent";
     public const string CreatedUnknown = "created-unknown";
 
     /// <summary>Задача могла завестись, хотя её адреса нет: повторять заведение вслепую — завести дубль.</summary>
-    public bool MaybeCreated => Problem is GitHubSilent or YouTrackSilent or CreatedUnknown;
+    public bool MaybeCreated => Problem is GitHubSilent or YouTrackSilent or JiraSilent or CreatedUnknown;
 }
 
 public interface IGitHubIssues
