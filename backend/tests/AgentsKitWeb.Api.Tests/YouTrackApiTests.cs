@@ -123,6 +123,7 @@ public sealed class YouTrackApiTests
 
     /// <summary>
     /// Исполнитель — поле Assignee: полное имя, без него логин; своя задача — логин владельца ключа, без регистра.
+    /// Многозначное поле — массивом: имена через запятую, своя — если среди них владелец (ревью AKW-17).
     /// Владельца не узнали — своих не отмечено, а задачи видны.
     /// </summary>
     [Fact]
@@ -133,7 +134,9 @@ public sealed class YouTrackApiTests
                {"name":"Assignee","value":{"login":"Boris.K","fullName":"Борис Ким"}}]},
              {"idReadable":"ABC-2","summary":"Б","customFields":[{"name":"Assignee","value":{"login":"anna","fullName":""}}]},
              {"idReadable":"ABC-3","summary":"В","customFields":[{"name":"Assignee","value":null}]},
-             {"idReadable":"ABC-4","summary":"Г"}]
+             {"idReadable":"ABC-4","summary":"Г"},
+             {"idReadable":"ABC-5","summary":"Д","customFields":[{"name":"Assignee","value":[{"login":"anna","fullName":"Анна"},{"login":"BORIS.K","fullName":""}]}]},
+             {"idReadable":"ABC-6","summary":"Е","customFields":[{"name":"Assignee","value":[]}]}]
             """;
         HttpResponseMessage Answer(HttpRequestMessage request, string me) => request.RequestUri!.AbsolutePath switch
         {
@@ -147,7 +150,7 @@ public sealed class YouTrackApiTests
         var unknown = await Api(r => Answer(r, "{}")).OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
 
         Assert.Equal(
-            [("Борис Ким", true), ("anna", false), (null, false), (null, false)],
+            [("Борис Ким", true), ("anna", false), (null, false), (null, false), ("Анна, BORIS.K", true), (null, false)],
             issues.Issues.Select(i => (i.Assignee, i.Mine)));
         Assert.All(unknown.Issues, i => Assert.False(i.Mine));
         Assert.Equal("Борис Ким", unknown.Issues[0].Assignee);

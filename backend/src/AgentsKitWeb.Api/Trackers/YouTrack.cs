@@ -95,18 +95,29 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
 
     /// <summary>
     /// Исполнитель — поле «Assignee» задачи, тем же именем панель назначает заведённую задачу: полное имя, а без
-    /// него логин; поля нет или оно пусто — задача ничья. Своя — логин исполнителя совпал с владельцем ключа.
+    /// него логин; поля нет или оно пусто — задача ничья. Поле с несколькими исполнителями приходит массивом — имена
+    /// через запятую (ревью AKW-17). Своя — логин одного из исполнителей совпал с владельцем ключа.
     /// </summary>
     private static TrackerIssue Assigned(TrackerIssue issue, JsonObject json, string? me)
     {
         var value = (json["customFields"] as JsonArray)?.OfType<JsonObject>()
-            .FirstOrDefault(f => Text(f, "name") == "Assignee")?["value"] as JsonObject;
-        var login = Text(value, "login");
-        var name = Text(value, "fullName") is { Length: > 0 } full ? full : login;
+            .FirstOrDefault(f => Text(f, "name") == "Assignee")?["value"];
+        JsonObject[] users = value switch
+        {
+            JsonObject one => [one],
+            JsonArray many => [.. many.OfType<JsonObject>()],
+            _ => [],
+        };
+        var names = users
+            .Select(u => Text(u, "fullName") is { Length: > 0 } full ? full : Text(u, "login"))
+            .OfType<string>()
+            .Where(name => name.Length > 0)
+            .ToArray();
         return issue with
         {
-            Assignee = name,
-            Mine = me is { Length: > 0 } && string.Equals(login, me, StringComparison.OrdinalIgnoreCase),
+            Assignee = names.Length > 0 ? string.Join(", ", names) : null,
+            Mine = me is { Length: > 0 }
+                && users.Any(u => string.Equals(Text(u, "login"), me, StringComparison.OrdinalIgnoreCase)),
         };
     }
 
