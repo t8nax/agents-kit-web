@@ -110,6 +110,209 @@ public sealed class TaskRollbackTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Session_StopsBackgroundSessionsOfCopyAndForgetsTaskSession()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
+        TestBases.TaskSession(_root, copy, "7339dced");
+
+        var response = await Step(copy, TaskRollback.Session);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(["stop", "7339dced"], Assert.Single(_agent.Started).ArgumentList);
+        Assert.Null(new TaskSessions(TaskSessions.FileBeside(TestBases.File(_root, _base))).SessionIn(copy));
+    }
+
+    [Fact]
+    public async Task Session_ClaudeDidNotStopIt_IsFailureWithItsWords()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
+        _agent.Exit = new AgentExit(1, "no such session");
+
+        var response = await Step(copy, TaskRollback.Session);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("no such session", (await response.Content.ReadFromJsonAsync<RollbackProblem>())!.Message);
+    }
+
+    [Fact]
+    public async Task AnyStep_SessionInVsCode_RefusesAndTouchesNothing()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        WriteSession(copy, 100, entrypoint: "claude-vscode");
+        File.WriteAllText(Path.Combine(copy, "draft.txt"), "черновик");
+
+        foreach (var step in TaskRollback.Steps)
+        {
+            var response = await Step(copy, step);
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Equal("blocked", (await response.Content.ReadFromJsonAsync<RollbackProblem>())!.Problem);
+        }
+
+        Assert.True(File.Exists(Path.Combine(copy, "draft.txt")));
+        Assert.True(File.Exists(Memory(copy)));
+        Assert.DoesNotContain("## B-7 ", File.ReadAllText(TestLayout.Backlog(_base)));
+        Assert.Empty(_agent.Started);
+    }
+
+    [Fact]
+    public async Task Backlog_EntryReturnsAtTheEndAsItWasTaken_CounterUntouched()
+    {
+        File.WriteAllText(TestLayout.Backlog(_base), Backlog("## B-7 Кнопка мигает\n\nКнопка мигает при наведении.\n\n### Агенту\n- место: App.tsx\n\n## B-8 Другая\n\nТекст.\n"));
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-q", "-am", "ещё запись");
+        var copy = TakeTask("B-7 Кнопка мигает");
+
+        var response = await Step(copy, TaskRollback.Backlog);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(
+            Backlog("## B-8 Другая\n\nТекст.\n\n## B-7 Кнопка мигает\n\nКнопка мигает при наведении.\n\n### Агенту\n- место: App.tsx\n"),
+            File.ReadAllText(TestLayout.Backlog(_base)));
+        Assert.Empty(Status(TestLayout.Personal(_base)));
+    }
+
+    [Fact]
+    public async Task Backlog_Repeated_DoesNotReturnEntryTwice()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        var client = Client();
+
+        await Step(copy, TaskRollback.Backlog, client);
+        var response = await Step(copy, TaskRollback.Backlog, client);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Single(Workspaces.Backlog.Parse(File.ReadAllText(TestLayout.Backlog(_base))), e => e.Number == "B-7");
+    }
+
+    [Fact]
+    public async Task Backlog_EntryNeverWasInBacklog_IsFailure()
+    {
+        var copy = TakeTask("B-12 Не из бэклога");
+
+        var response = await Step(copy, TaskRollback.Backlog);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("B-12", (await response.Content.ReadFromJsonAsync<RollbackProblem>())!.Message);
+    }
+
+    [Fact]
+    public async Task Backlog_TaskFromTracker_LeavesBacklogAlone()
+    {
+        var copy = TakeTask("GitHub #37 Падает вход");
+        var before = File.ReadAllText(TestLayout.Backlog(_base));
+
+        var response = await Step(copy, TaskRollback.Backlog);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(before, File.ReadAllText(TestLayout.Backlog(_base)));
+    }
+
+    [Fact]
+    public async Task Copy_ReturnsToItsOwnBranchErasesChangesAndDeletesTaskBranch()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        File.WriteAllText(Path.Combine(copy, "draft.txt"), "черновик");
+        File.WriteAllText(Path.Combine(copy, "code.txt"), "правка поверх");
+
+        var response = await Step(copy, TaskRollback.Copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("quiet-cedar", Output(copy, "branch", "--show-current"));
+        Assert.Empty(Status(copy));
+        Assert.False(File.Exists(Path.Combine(copy, "draft.txt")));
+        Assert.Empty(Output(_main, "branch", "--list", "b-7-blink"));
+    }
+
+    [Fact]
+    public async Task Copy_MainCopy_ReturnsToMaster()
+    {
+        Git(_main, "checkout", "-q", "-b", "b-7-blink");
+        WriteMemory(_main, "B-7 Кнопка мигает", "b-7-blink");
+
+        var response = await Step(_main, TaskRollback.Copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("master", Output(_main, "branch", "--show-current"));
+        Assert.Empty(Output(_main, "branch", "--list", "b-7-blink"));
+    }
+
+    [Fact]
+    public async Task Copy_TaskWentStraightToDev_KeepsDev()
+    {
+        Git(_main, "checkout", "-q", "master");
+        Git(_main, "checkout", "-q", "dev");
+        WriteMemory(_main, "B-7 Кнопка мигает", "dev");
+
+        var response = await Step(_main, TaskRollback.Copy);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("master", Output(_main, "branch", "--show-current"));
+        Assert.NotEmpty(Output(_main, "branch", "--list", "dev"));
+    }
+
+    [Fact]
+    public async Task Copy_PreviousBranchIsGone_IsFailure()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        Git(_main, "branch", "-D", "quiet-cedar");
+
+        var response = await Step(copy, TaskRollback.Copy);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("quiet-cedar", (await response.Content.ReadFromJsonAsync<RollbackProblem>())!.Message);
+        Assert.Equal("b-7-blink", Output(copy, "branch", "--show-current"));
+    }
+
+    [Fact]
+    public async Task Memory_RemovesMemoryWithItsFlowAndOrphanArtifactInOneCommit()
+    {
+        var personal = TestLayout.Personal(_base);
+        Directory.CreateDirectory(Path.Combine(personal, "artifacts"));
+        File.WriteAllText(Path.Combine(personal, "artifacts", "B-7-log.txt"), "лог");
+        File.WriteAllText(Path.Combine(personal, "artifacts", "B-3-shared.txt"), "общий");
+        File.WriteAllText(Path.Combine(personal, "notes.md"), "см. artifacts/B-3-shared.txt\n");
+        var copy = TakeTask("B-7 Кнопка мигает");
+        File.AppendAllText(Memory(copy), "\n## Артефакты\n- лог: artifacts/B-7-log.txt\n- общий: artifacts/B-3-shared.txt\n");
+        TestGit.Run(personal, "commit", "-q", "-am", "артефакты");
+        var commits = Output(personal, "rev-list", "--count", "HEAD");
+
+        var response = await Step(copy, TaskRollback.Memory);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.False(File.Exists(Memory(copy)));
+        Assert.False(Directory.Exists(Path.Combine(TestLayout.Work(_base), "quiet-cedar")));
+        Assert.False(File.Exists(Path.Combine(personal, "artifacts", "B-7-log.txt")));
+        Assert.True(File.Exists(Path.Combine(personal, "artifacts", "B-3-shared.txt")));
+        Assert.Empty(Status(personal));
+        Assert.Equal(int.Parse(commits) + 1, int.Parse(Output(personal, "rev-list", "--count", "HEAD")));
+
+        var rows = await Client().GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
+        Assert.Equal(WorkspaceStatus.Free, rows!.Single(r => string.Equals(r.Path, copy, StringComparison.OrdinalIgnoreCase)).Status);
+    }
+
+    [Fact]
+    public async Task Memory_AfterIt_StepsHaveNothingToRollBack()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        var client = Client();
+        await Step(copy, TaskRollback.Memory, client);
+
+        var response = await Step(copy, TaskRollback.Session, client);
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task UnknownStep_IsRejected()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await Step(copy, "everything")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Step(copy, null)).StatusCode);
+    }
+
     public void Dispose()
     {
         _hosts.Dispose();
@@ -141,10 +344,29 @@ public sealed class TaskRollbackTests : IDisposable
         return copy;
     }
 
+    private string Memory(string copy) => Path.Combine(TestLayout.Work(_base), $"{Path.GetFileName(copy)}.md");
+
+    private async Task<HttpResponseMessage> Step(string copy, string? step, HttpClient? client = null) =>
+        await (client ?? Client()).PostAsJsonAsync("/api/tasks/rollback", new RollbackStepRequest(_base, copy, step));
+
+    private static string Output(string directory, params string[] args)
+    {
+        var startInfo = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var arg in args)
+            startInfo.ArgumentList.Add(arg);
+        using var process = TestProcess.Start(startInfo);
+        var output = process.StandardOutput.ReadToEnd();
+        process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return output.Trim();
+    }
+
+    private static string Status(string directory) => Output(directory, "status", "--porcelain");
+
     private void WriteMemory(string copy, string task, string branch)
     {
         var personal = TestLayout.Personal(_base);
-        var memory = Path.Combine(TestLayout.Work(_base), $"{Path.GetFileName(copy)}.md");
+        var memory = Memory(copy);
         File.WriteAllText(memory, $"""
             # {task}
             рабочая копия: {copy}
@@ -159,8 +381,10 @@ public sealed class TaskRollbackTests : IDisposable
         Directory.CreateDirectory(Path.Combine(flow, "stages"));
         File.WriteAllText(Path.Combine(flow, "scenarios.md"), "# Сценарии\n");
         File.WriteAllText(Path.Combine(flow, "stages", "implementation.md"), "# Реализация\n");
-        if (task.StartsWith("B-7 "))
-            File.WriteAllText(TestLayout.Backlog(_base), Backlog(""));
+        // Взятую запись кит вырезает из бэклога тем же коммитом, что заводит память.
+        var backlog = File.ReadAllText(TestLayout.Backlog(_base));
+        if (Workspaces.Backlog.Blocks(backlog).FirstOrDefault(b => task.StartsWith(b.Number + " ")) is { } taken)
+            File.WriteAllText(TestLayout.Backlog(_base), backlog.Remove(taken.Start, taken.End - taken.Start));
         TestGit.Run(personal, "add", "-A");
         TestGit.Run(personal, "commit", "-q", "-m", "задача взята");
     }
