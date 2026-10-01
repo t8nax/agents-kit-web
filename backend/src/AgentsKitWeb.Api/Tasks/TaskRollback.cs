@@ -56,8 +56,9 @@ public static partial class TaskRollback
     private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(60);
 
     // Строка `git status --porcelain`: два знака состояния и пробел. GitRunner обрезает края вывода, и у первой
-    // строки « M file» пропадает ведущий пробел — поэтому знаков один или два. Предупреждения git, которые GitRunner
-    // кладёт в тот же вывод, начинаются словом и правками не считаются.
+    // строки « M file» пропадает ведущий пробел — поэтому знаков один или два; строка из двух пробелов и слова тоже
+    // сойдёт за правку, и ошибка тогда в безопасную сторону — лишнее предупреждение. Предупреждения git, которые
+    // GitRunner кладёт в тот же вывод, начинаются словом с двоеточием и правками не считаются.
     [GeneratedRegex(@"^[ MTADRCU?!]{1,2} \S")]
     private static partial Regex StatusLine { get; }
 

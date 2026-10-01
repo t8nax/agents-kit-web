@@ -152,6 +152,32 @@ public sealed class TaskRollbackTests : IDisposable
     }
 
     [Fact]
+    public async Task Memory_CommitRefusedWhileTaskSessionStillGoing_KeepsItsSessionAndRepeatPasses()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
+        TestBases.TaskSession(_root, copy, "7339dced");
+        var hook = Path.Combine(TestLayout.Personal(_base), ".git", "hooks", "pre-commit");
+        File.WriteAllText(hook, "#!/bin/sh\necho отказ хука >&2\nexit 1\n");
+        var client = Client();
+        var taskSessions = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+
+        var refused = await Step(copy, TaskRollback.Memory, client);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.True(File.Exists(Memory(copy)));
+        // Память на месте — и сессия задачи всё ещё своя: повтор не принимает её за чужую фоновую
+        Assert.Equal("7339dced", taskSessions.SessionIn(copy));
+
+        File.Delete(hook);
+        var repeated = await Step(copy, TaskRollback.Memory, client);
+
+        Assert.Equal(HttpStatusCode.NoContent, repeated.StatusCode);
+        Assert.False(File.Exists(Memory(copy)));
+        Assert.Null(taskSessions.SessionIn(copy));
+    }
+
+    [Fact]
     public async Task Session_ClaudeDidNotStopIt_IsFailureWithItsWords()
     {
         var copy = TakeTask("B-7 Кнопка мигает");
