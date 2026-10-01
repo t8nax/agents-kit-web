@@ -4,6 +4,8 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading.Channels;
 using AgentsKitWeb.Api.Ask;
+using AgentsKitWeb.Api.Bases;
+using AgentsKitWeb.Api.Trackers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -671,6 +673,79 @@ public sealed class AskEndpointsTests : IDisposable
 
         Assert.Null(exit.ExitCode);
         Assert.NotEmpty(exit.Error);
+    }
+
+    // ——— Трекер проекта в «Спросить Чудо-Юдо» (AKW-15) ———
+
+    private List<string> AskArgs() =>
+        AskConversations.StartInfo(_base, null, new AgentTrackers(Path.Combine(_root, ".claude")).For(BaseLayout.Read(_base), _base))
+            .ArgumentList.ToList();
+
+    private static string AskPrompt(List<string> args) => args[args.IndexOf("--append-system-prompt") + 1];
+
+    [Fact]
+    public void StartInfo_NoTracker_OnlyReadsInAutoMode()
+    {
+        var args = AskArgs();
+
+        Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
+        Assert.Equal("auto", args[args.IndexOf("--permission-mode") + 1]);
+        Assert.DoesNotContain("--mcp-config", args);
+        Assert.DoesNotContain("--allowedTools", args);
+    }
+
+    /// <summary>YouTrack — одним подключением Claude Code к его серверу; режим «авто» остаётся, оболочки нет.</summary>
+    [Fact]
+    public void StartInfo_YouTrack_GetsOnlyTrackerConnection()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        File.WriteAllText(Path.Combine(_root, ".claude.json"), JsonSerializer.Serialize(new
+        {
+            mcpServers = new
+            {
+                slack = new { type = "http", url = "https://mcp.slack.com/mcp" },
+                yt = new { type = "http", url = "https://acme.youtrack.cloud/mcp" },
+            },
+        }));
+
+        var args = AskArgs();
+
+        Assert.Equal("Read,Grep,Glob", args[args.IndexOf("--tools") + 1]);
+        Assert.Contains("--strict-mcp-config", args);
+        var config = args[args.IndexOf("--mcp-config") + 1];
+        Assert.Contains("acme.youtrack.cloud", config);
+        Assert.DoesNotContain("slack", config);
+        Assert.Equal("mcp__yt", args[args.IndexOf("--allowedTools") + 1]);
+        Assert.Contains("mcp__yt__", AskPrompt(args));
+        Assert.Contains("менять можно лишь задачи трекера", AskPrompt(args));
+    }
+
+    /// <summary>GitHub — gh одним правилом; режим «авто» пустил бы оболочку в любые команды, поэтому dontAsk.</summary>
+    [Fact]
+    public void StartInfo_GitHub_AllowsOnlyGhInDontAsk()
+    {
+        TestLayout.GitHubTracker(_base, "acme/orders");
+
+        var args = AskArgs();
+
+        Assert.Equal("Read,Grep,Glob,PowerShell", args[args.IndexOf("--tools") + 1]);
+        Assert.Equal("dontAsk", args[args.IndexOf("--permission-mode") + 1]);
+        Assert.DoesNotContain("auto", args);
+        var allowed = args.Skip(args.IndexOf("--allowedTools") + 1).TakeWhile(a => !a.StartsWith("--")).ToList();
+        Assert.Equal(["Read", "Grep", "Glob", AgentTracker.GhRule], allowed);
+        Assert.Contains("--repo acme/orders", AskPrompt(args));
+    }
+
+    [Fact]
+    public void StartInfo_YouTrackWithoutConnection_SaysUnreachable()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+
+        var args = AskArgs();
+
+        Assert.DoesNotContain("--mcp-config", args);
+        Assert.DoesNotContain("--allowedTools", args);
+        Assert.Contains("в трекер тебе не пройти", AskPrompt(args));
     }
 
     public void Dispose()

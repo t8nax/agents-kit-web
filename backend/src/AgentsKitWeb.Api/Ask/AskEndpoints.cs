@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Performers;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Ask;
@@ -26,7 +27,7 @@ public enum AskReplied
 /// процесс агента: реплики уходят ему в stdin по одной, и сессия на диск не ложится — решения оператора
 /// на B-79. Разом идёт один разговор: новый останавливает прежний.
 /// </summary>
-public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
+public sealed class AskConversations(IAgentChat agent, AgentRequests requests, AgentTrackers trackers)
 {
     /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
     private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
@@ -151,7 +152,7 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
         try
         {
             var exit = await agent.RunAsync(
-                StartInfo(basePath, turn.Copy),
+                StartInfo(basePath, turn.Copy, trackers.For(BaseLayout.Read(basePath), basePath, turn.Copy)),
                 replies,
                 line =>
                 {
@@ -211,10 +212,14 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
     /// в stdin, а не в аргументы: текст оператора не должен стать флагом или командой. Копия проекта подана
     /// вторым каталогом: агент остаётся в базе, а код читает рядом с ней — тоже только чтением. Руководство
     /// панели — ещё одним каталогом: об устройстве самой панели оператор спрашивает здесь же (B-306).
+    /// Трекер проекта — так, как его описывает tracker.md (AKW-15): у YouTrack — одно подключение Claude Code к его
+    /// серверу, прочие закрыты; у GitHub — gh одним правилом PowerShell. Оболочку режим «авто» пустил бы в любые
+    /// команды, поэтому с gh разговор идёт в dontAsk: разрешено только перечисленное.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string basePath, string? copyPath = null)
+    public static ProcessStartInfo StartInfo(string basePath, string? copyPath = null, AgentTracker? tracker = null)
     {
         var guide = Directory.Exists(AskEndpoints.GuideDir) ? AskEndpoints.GuideDir : null;
+        var gh = tracker is { GitHub: true };
         var startInfo = AgentProcess.StartInfo(AskEndpoints.Claude, basePath);
         foreach (var arg in new[]
                  {
@@ -222,13 +227,24 @@ public sealed class AskConversations(IAgentChat agent, AgentRequests requests)
                      "--input-format", "stream-json",
                      "--output-format", "stream-json",
                      "--verbose",
-                     "--tools", "Read,Grep,Glob",
+                     "--tools", gh ? "Read,Grep,Glob,PowerShell" : "Read,Grep,Glob",
                      "--no-session-persistence",
                      "--strict-mcp-config",
-                     "--append-system-prompt", AskEndpoints.Prompt(BaseLayout.Read(basePath)?.Operator, copyPath, guide),
+                     "--append-system-prompt", AskEndpoints.Prompt(BaseLayout.Read(basePath)?.Operator, copyPath, guide, tracker),
                  })
             startInfo.ArgumentList.Add(arg);
-        AgentProcess.AddAutoMode(startInfo);
+        tracker?.AddMcp(startInfo);
+        if (gh)
+            foreach (var arg in new[] { "--permission-mode", "dontAsk", "--settings", AgentProcess.AutoSettings })
+                startInfo.ArgumentList.Add(arg);
+        else
+            AgentProcess.AddAutoMode(startInfo);
+        if (tracker is { Reachable: true })
+        {
+            startInfo.ArgumentList.Add("--allowedTools");
+            foreach (var rule in (gh ? ["Read", "Grep", "Glob"] : Array.Empty<string>()).Concat(tracker.AllowedTools))
+                startInfo.ArgumentList.Add(rule);
+        }
         if (copyPath is not null)
         {
             startInfo.ArgumentList.Add("--add-dir");
@@ -319,9 +335,9 @@ public static class AskEndpoints
 
     /// <summary>
     /// Без копии агент знает только базу; с копией ему названо, где код проекта; с руководством — где страницы
-    /// о самой панели.
+    /// о самой панели; с трекером — чем в него ходить и что в нём можно менять (AKW-15).
     /// </summary>
-    internal static string Prompt(string? operatorName, string? copyPath, string? guidePath = null)
+    internal static string Prompt(string? operatorName, string? copyPath, string? guidePath = null, AgentTracker? tracker = null)
     {
         var prompt = SystemPrompt(operatorName);
         if (copyPath is not null)
@@ -338,6 +354,12 @@ public static class AskEndpoints
                 start.md — с чего начать и словарь, header.md — шапка панели и разговор с тобой, остальные страницы —
                 по странице на раздел панели, заголовок страницы — название раздела. На вопросы о панели отвечай
                 по этим страницам, тоже только читая.
+                """;
+        if (tracker is not null)
+            prompt = $"""
+                {prompt}
+                {tracker.Prompt}
+                {(tracker.Reachable ? AgentTracker.Rules + "\nБазу и код по-прежнему только читай: менять можно лишь задачи трекера." : "")}
                 """;
         return prompt;
     }
