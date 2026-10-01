@@ -139,6 +139,31 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+test('в невысоком окне блоки окна запуска не ложатся друг на друга, а тело прокручивается', async ({ page }) => {
+  // На такой высоте блок копий сжимался, и список копий ложился на «Начальные слова» (B-332)
+  await page.setViewportSize({ width: 1280, height: 560 })
+  await routeApi(page, { status: 200, json: { session: '7339dced' } }, [freeRow, secondFreeRow])
+  const entries = await openBacklog(page)
+  await entries.filter({ hasText: 'B-7' }).getByRole('button', { name: 'Взять задачу' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
+  const copies = dialog.getByRole('group', { name: 'Рабочая копия' })
+  await expect(copies.locator('label').filter({ hasText: 'brave-quiet-otter' })).toBeVisible()
+  await expect(async () => {
+    const group = (await copies.boundingBox())!
+    const list = (await copies.getByRole('list').boundingBox())!
+    const label = (await dialog.getByText('Начальные слова', { exact: true }).boundingBox())!
+    // Список целиком в своём блоке, подпись поля — ниже него
+    expect(list.y + list.height).toBeLessThanOrEqual(group.y + group.height + 0.5)
+    expect(group.y + group.height).toBeLessThanOrEqual(label.y)
+  }).toPass()
+
+  // Высоты не хватает — прокручивается тело, а кнопки окна видны
+  const body = dialog.locator('.st-body')
+  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect(dialog.getByRole('button', { name: 'Взять в работу' })).toBeInViewport()
+})
+
 for (const colorScheme of ['light', 'dark'] as const) {
   test(`без свободной копии кнопка записи погашена (${colorScheme})`, async ({ page }) => {
     await page.emulateMedia({ colorScheme })
