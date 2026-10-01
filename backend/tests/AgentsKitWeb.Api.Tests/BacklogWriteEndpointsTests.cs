@@ -664,11 +664,9 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal("D\tartifacts/B-2-снимок.png\nM\tbacklog.md", Git("-c", "core.quotepath=false", "show", "--name-status", "--format=", "HEAD"));
     }
 
-    // ——— Перенос записи в трекер (B-286) ———
+    // ——— Трекер у агента бэклога (AKW-15) ———
 
     private void GitHubTracker() => TestLayout.GitHubTracker(_base, "acme/orders");
-
-    // ——— Трекер у агента бэклога (AKW-15) ———
 
     private List<string> Args() =>
         BacklogWriteEndpoints.StartInfo(_base, _copy, new AgentTrackers(Path.Combine(_root, ".claude")).For(BaseLayout.Read(_base), _copy, _base))
@@ -741,171 +739,139 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Contains("Перенести запись в трекер поэтому нельзя", PromptOf(args));
     }
 
-    /// <summary>«Сохранить» с переносом у проекта с YouTrack заводит задачу в YouTrack ключом его сервера (B-288).</summary>
+    private const string SecondEntry = "## B-2 Вторая запись\n\nТекст второй записи.\n";
+
+    /// <summary>Агент перед ответом вырезает B-2 и коммитит бэклог — как велит навык кита после переноса.</summary>
+    private void AgentCutsSecondEntry() =>
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(SecondEntry, "").TrimEnd() + "\n");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md");
+            return Task.CompletedTask;
+        };
+
     [Fact]
-    public async Task Save_TrackToYouTrack_CreatesIssueWithServerKey()
+    public async Task Answer_MovedEntryCutByAgent_IsMoveNotOwnEdit()
     {
         TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
-        new TrackerServersStore(TrackerServersStore.FileBeside(TestBasesFile)).Save("https://acme.youtrack.cloud", "boris.k", "perm:ключ");
-        _youTrack.Created = new CreatedIssue(new TrackerIssue("YouTrack ABC-58", 58, "Вторая запись", "https://acme.youtrack.cloud/issue/ABC-58"));
-        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        _agent.Answers = [[Result("Перенёс.\n\n~~~backlog\nперенесена B-2 в YouTrack ABC-20 https://acme.youtrack.cloud/issue/ABC-20\n~~~")]];
+        AgentCutsSecondEntry();
         var client = Client(_base);
+
         await Start(client, "перенеси B-2 в трекер");
         var answer = (await Read(client, 2))[1];
 
-        var saved = await Save(client, answer.Proposal!.Id);
-
-        Assert.Null(saved.Error);
-        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC", "Вторая запись", "Текст второй записи.")], _youTrack.Creates);
-        Assert.Empty(_github.Creates);
-        Assert.Equal("YouTrack ABC-58", saved.Issues!["B-2"].Name);
+        Assert.Equal("answer", answer.Type);
+        Assert.Equal("Перенёс.", answer.Text);
+        Assert.Null(answer.Proposal);
+        var move = Assert.Single(answer.Moves!);
+        Assert.Equal("B-2", move.Number);
+        Assert.False(move.Waiting);
+        Assert.Equal(new TrackerIssue("YouTrack ABC-20", 20, "Вторая запись", "https://acme.youtrack.cloud/issue/ABC-20"), move.Issue);
+        Assert.Equal("Вторая запись", move.Entry.Title);
+        Assert.Empty(move.Files);
+        Assert.Equal(Git("log", "-1", "--format=%h"), answer.Commit);
         Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
     }
 
     [Fact]
-    public async Task Save_TrackToYouTrackWithoutKey_DoesNotTouchBacklog()
-    {
-        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
-        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
-        var client = Client(_base);
-        await Start(client, "перенеси B-2 в трекер");
-        var answer = (await Read(client, 2))[1];
-        var before = File.ReadAllText(BacklogPath);
-
-        var saved = await Save(client, answer.Proposal!.Id);
-
-        Assert.Equal(
-            "Задача для B-2 не заведена: для сервера https://acme.youtrack.cloud нет ключа — добавьте его в разделе «Трекеры», в списке «Серверы трекеров» — бэклог не записан",
-            saved.Error);
-        Assert.Empty(_youTrack.Creates);
-        Assert.Equal(before, File.ReadAllText(BacklogPath));
-    }
-
-    [Fact]
-    public async Task Save_TrackCreatesIssueThenCutsEntryTogetherWithChange()
+    public async Task Answer_EntryWaitingForFiles_StaysAndNamesItsFiles()
     {
         GitHubTracker();
-        _agent.Answers = [[Result("Так.\n\n~~~backlog\nв трекер B-2\n~~~\n~~~backlog\nизменить B-1\n## B-1 Старая запись\nтип: фича\nприоритет: средний\n\nНовый текст.\n\n### Агенту\n- где: App.tsx\n~~~\n")]];
-        var client = Client(_base);
-        await Start(client, "перенеси B-2 в трекер, а B-1 перепиши");
-        var answer = (await Read(client, 2))[1];
-        Assert.Equal([BacklogChange.Track, BacklogChange.Change], answer.Proposal!.Changes.Select(c => c.Kind));
-        Assert.Empty(_github.Creates);
-
-        var saved = await Save(client, answer.Proposal.Id);
-
-        Assert.Null(saved.Error);
-        Assert.Equal(("acme/orders", "Вторая запись", "Текст второй записи."), Assert.Single(_github.Creates));
-        Assert.Equal(58, saved.Issues!["B-2"].Number);
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(
+            "Текст второй записи.\n",
+            "Текст второй записи.\n\n### Артефакты\n- снимок: artifacts/B-2-снимок.png\n- макет: https://claude.ai/artifact/AbC\n"));
+        Directory.CreateDirectory(Path.Combine(_personal, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_personal, "artifacts", "B-2-снимок.png"), [1, 2, 3]);
+        TestGit.Run(_personal, "add", ".");
+        TestGit.Run(_personal, "commit", "-m", "артефакты");
         var file = File.ReadAllText(BacklogPath);
-        Assert.DoesNotContain("## B-2", file);
-        Assert.Contains("Новый текст.", file);
-        Assert.Equal("", Git("status", "--porcelain"));
-        var savedEvent = (await Read(client, 3))[2];
-        Assert.Equal("saved", savedEvent.Type);
-        Assert.Equal("https://github.com/acme/orders/issues/58", savedEvent.Issues!["B-2"].Url);
-    }
-
-    [Fact]
-    public async Task Save_TrackGitHubRefuses_WritesNothingAndProposalWaits()
-    {
-        GitHubTracker();
-        _github.Created = new CreatedIssue(null, TrackerIssues.GhLogin);
-        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        _agent.Answers = [[Result("Задача заведена, приложите снимок.\n\n~~~backlog\nждёт файлов B-2 в GitHub #37 https://github.com/acme/orders/issues/37\n~~~")]];
         var client = Client(_base);
+
         await Start(client, "перенеси B-2 в трекер");
         var answer = (await Read(client, 2))[1];
-        var file = File.ReadAllText(BacklogPath);
 
-        var saved = await Save(client, answer.Proposal!.Id);
-
-        Assert.Equal(
-            "Задача для B-2 не заведена: программа gh не вошла в аккаунт GitHub — войдите командой gh auth login — бэклог не записан",
-            saved.Error);
-        Assert.Null(saved.Issues);
+        Assert.Equal("answer", answer.Type);
+        var move = Assert.Single(answer.Moves!);
+        Assert.Equal("B-2", move.Number);
+        Assert.True(move.Waiting);
+        Assert.Equal(new TrackerIssue("GitHub #37", 37, "Вторая запись", "https://github.com/acme/orders/issues/37"), move.Issue);
+        Assert.Equal(["artifacts/B-2-снимок.png"], move.Files);
+        Assert.Null(answer.Commit);
         Assert.Equal(file, File.ReadAllText(BacklogPath));
-
-        // Предложение ждёт: вошли в gh — «Сохранить» ещё раз
-        _github.Created = null;
-        Assert.Null((await Save(client, answer.Proposal.Id)).Error);
-        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
     }
 
     [Fact]
-    public async Task Save_TrackAfterRefusedCommit_DoesNotCreateIssueTwice()
+    public async Task Answer_EntryCutWithoutMoveBlock_IsOwnEdit()
     {
         GitHubTracker();
-        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        _agent.Answers = [[Result("Перенёс.")]];
+        AgentCutsSecondEntry();
         var client = Client(_base);
+
         await Start(client, "перенеси B-2 в трекер");
-        var answer = (await Read(client, 2))[1];
-        var hook = Path.Combine(_personal, ".git", "hooks", "pre-commit");
-        File.WriteAllText(hook, "#!/bin/sh\necho сверка не прошла\nexit 1\n");
+        var error = (await Read(client, 2))[1];
 
-        var refused = await Save(client, answer.Proposal!.Id);
-
-        Assert.Equal(
-            "Коммит не прошёл — backlog.md оставлен как был. Уже заведены в трекере: B-2 — #58 — «Сохранить» ещё раз их не повторит",
-            refused.Error);
-        Assert.Equal(58, refused.Issues!["B-2"].Number);
-        Assert.Contains("## B-2", File.ReadAllText(BacklogPath));
-
-        File.Delete(hook);
-        var saved = await Save(client, answer.Proposal.Id);
-
-        Assert.Null(saved.Error);
-        Assert.Single(_github.Creates);
-        Assert.Equal(58, saved.Issues!["B-2"].Number);
-        Assert.DoesNotContain("## B-2", File.ReadAllText(BacklogPath));
+        Assert.Equal("error", error.Type);
+        Assert.Equal($"Чудо-Юдо сам изменил записи B-2 вместо предложения: правка уже в истории личного репозитория, коммит {Git("log", "-1", "--format=%h")}", error.Text);
     }
 
-    /// <summary>Заведённые задачи не пропадают молча вместе с брошенным предложением (ревью B-286).</summary>
     [Fact]
-    public async Task Refuse_AfterIssueCreated_TellsFeedWhichIssuesStayed()
+    public async Task Answer_MovedEntryLeftInBacklog_IsMismatch()
     {
         GitHubTracker();
-        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        _agent.Answers = [[Result("~~~backlog\nперенесена B-2 в GitHub #37 https://github.com/acme/orders/issues/37\n~~~")]];
         var client = Client(_base);
+
         await Start(client, "перенеси B-2 в трекер");
-        var answer = (await Read(client, 2))[1];
-        File.WriteAllText(Path.Combine(_personal, ".git", "hooks", "pre-commit"), "#!/bin/sh\nexit 1\n");
-        Assert.NotNull((await Save(client, answer.Proposal!.Id)).Error);
+        var error = (await Read(client, 2))[1];
 
-        using var refused = await client.PostAsJsonAsync("/api/backlog/write/refuse", new BacklogProposalRequest(answer.Proposal.Id));
-        Assert.Equal(HttpStatusCode.NoContent, refused.StatusCode);
-
-        var note = (await Read(client, 4))[3];
-        Assert.Equal("note", note.Type);
-        Assert.Equal("Задачи в трекере уже заведены, а записи остались в бэклоге: B-2 — #58. Уберите эти записи из бэклога.", note.Text);
-        Assert.Equal(58, note.Issues!["B-2"].Number);
+        Assert.Equal("error", error.Type);
+        Assert.Equal("Чудо-Юдо назвал итог переноса, который не сходится с бэклогом: запись B-2 перенесена, а осталась в бэклоге", error.Text);
+        Assert.Null(error.Moves);
     }
 
-    /// <summary>Кит перевёл базу на новый формат посреди разговора — перенос не заводит задачу (B-281).</summary>
     [Fact]
-    public async Task Save_TrackInBaseTurnedToNewerFormat_CreatesNoIssue()
+    public async Task Answer_WaitingEntryCutFromBacklog_IsMismatch()
     {
         GitHubTracker();
-        _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
+        _agent.Answers = [[Result("~~~backlog\nждёт файлов B-2 в GitHub #37 https://github.com/acme/orders/issues/37\n~~~")]];
+        AgentCutsSecondEntry();
         var client = Client(_base);
-        await Start(client, "перенеси B-2 в трекер");
-        var answer = (await Read(client, 2))[1];
-        TestLayout.NewerFormat(_base);
 
-        Assert.Equal(AgentsKitWeb.Api.Bases.BaseLayout.NewerFormatRefusal, (await Save(client, answer.Proposal!.Id)).Error);
-        Assert.Empty(_github.Creates);
+        await Start(client, "перенеси B-2 в трекер");
+        var error = (await Read(client, 2))[1];
+
+        Assert.Equal("error", error.Type);
+        Assert.Equal("Чудо-Юдо назвал итог переноса, который не сходится с бэклогом: запись B-2 ждёт файлов, а её в бэклоге нет", error.Text);
     }
 
     [Fact]
-    public async Task Answer_TrackWithoutGitHubTracker_IsError()
+    public async Task Answer_MoveBlockNotByForm_IsNotUnderstood()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nперенесена B-2 куда-то\n~~~")]];
+        var client = Client(_base);
+
+        await Start(client, "перенеси B-2 в трекер");
+        var error = (await Read(client, 2))[1];
+
+        Assert.Equal("error", error.Type);
+        Assert.Equal("Чудо-Юдо назвал итог переноса, который панель не поняла: Непонятная строка итога переноса: «перенесена B-2 куда-то»", error.Text);
+    }
+
+    [Fact]
+    public async Task Answer_TrackCommandIsNoLongerProposal()
     {
         _agent.Answers = [[Result("~~~backlog\nв трекер B-2\n~~~")]];
         var client = Client(_base);
+
         await Start(client, "перенеси B-2 в трекер");
+        var error = (await Read(client, 2))[1];
 
-        var answer = (await Read(client, 2))[1];
-
-        Assert.Equal("error", answer.Type);
-        Assert.Equal($"Чудо-Юдо предложил перенос в трекер, а {ProjectTracker.NotMovable}", answer.Text);
+        Assert.Equal("error", error.Type);
+        Assert.Equal("Чудо-Юдо предложил правку, которую панель не поняла: Непонятная строка предложения: «в трекер B-2»", error.Text);
     }
 
     [Fact]

@@ -9,11 +9,6 @@ public sealed class FakeGitHubIssues : IGitHubIssues
 
     public List<string> Asked { get; } = [];
 
-    /// <summary>Ответ на заведение задачи; не задан — задача заводится под следующим номером.</summary>
-    public CreatedIssue? Created { get; set; }
-
-    public List<(string Repo, string Title, string Body)> Creates { get; } = [];
-
     /// <summary>Ход, пока gh «читает» задачи: им тест меняет базу посреди проверки трекера.</summary>
     public Action BeforeOpen { get; set; } = () => { };
 
@@ -37,21 +32,5 @@ public sealed class FakeGitHubIssues : IGitHubIssues
     {
         LabelsAsked.Add(repo);
         return Task.FromResult(Labels);
-    }
-
-    /// <summary>Ход перед ответом на заведение: им тест держит gh «в GitHub», пока проверяет, что делает второй перенос.</summary>
-    public Func<Task> BeforeCreate { get; set; } = () => Task.CompletedTask;
-
-    public async Task<CreatedIssue> CreateAsync(string repo, string title, string body)
-    {
-        int number;
-        lock (Creates)
-        {
-            Creates.Add((repo, title, body));
-            number = 57 + Creates.Count;
-        }
-        await BeforeCreate();
-        return Created
-            ?? new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, $"https://github.com/{repo}/issues/{number}"));
     }
 }
