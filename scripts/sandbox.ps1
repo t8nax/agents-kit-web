@@ -655,7 +655,7 @@ Write-Utf8 (Join-Path $Root 'claude-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'gh-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'sync-mode.txt') "ok`n"
 Write-Utf8 (Join-Path $Root 'migrate-mode.txt') "ok`n"
-# Задачи GitHub, назначенные на оператора, по репозиториям; кусок с трекером кладёт свои.
+# Задачи GitHub по репозиториям; кусок с трекером кладёт свои.
 $ghIssues = [ordered]@{}
 $ghLabels = [ordered]@{}
 # Подставной YouTrack — на своём порту, в стороне от портов песочниц (они идут парами от 5100): у каждой
@@ -724,8 +724,8 @@ if (Test-Piece 'orders') {
         [pscustomobject]@{ severity = 'FAIL'; file = 'backlog.md'; message = 'номер чужими буквами: B-7' }) })
 }
 
-# Проекты с трекером (B-277, B-288): задачи, назначенные на оператора, раздел «Бэклог» показывает группой под
-# записями. Трекер описание называет строками «трекер:», «сервер:», «проект:» (кит формата 7). Задачи GitHub отдаёт
+# Проекты с трекером (B-277, B-288): открытые задачи проекта — свои, чужие и ничьи (AKW-17) — раздел «Бэклог»
+# показывает на вкладке «Задачи трекера». Трекер описание называет строками «трекер:», «сервер:», «проект:» (кит формата 7). Задачи GitHub отдаёт
 # подставная gh из gh-issues.json, задачи YouTrack — подставной сервер youtrack-stub.ps1 из youtrack-issues.json;
 # ключ к нему оператор вводит в разделе «Трекеры». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом,
 # которого на сервере нет, описание без строк и Jira — задач панель не читает и называет причину.
@@ -789,12 +789,15 @@ if (Test-Piece 'tracker') {
     Add-Commit $trackerPersonal 'Задача из трекера'
     $links.Add([pscustomobject]@{ path = $trackerTask; status = 'Linked'; base = $trackerBase })
     # Метки задач — как их отдаёт gh; у #7 меток нет. Перечень фильтра «Метки» — все метки репозитория, и среди них
-    # есть метки, которых нет ни у одной задачи (B-305).
+    # есть метки, которых нет ни у одной задачи (B-305). Исполнители — логины: gh вошла как sandbox-operator, #61 —
+    # чужая, #7 — ничья, #63 закрыта и не видна (AKW-17).
     $label = { param($name, $color) [pscustomobject]@{ name = $name; color = $color } }
     $ghIssues['sandbox/tracker'] = @(
-        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52'; labels = @((& $label 'bug' 'd73a4a'), (& $label 'windows' '1d76db')); milestone = 'v2' }
-        [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48'; labels = @((& $label 'enhancement' 'a2eeef'), (& $label 'frontend' 'fbca04')) }
+        [pscustomobject]@{ number = 52; title = 'Панель не стартует, если путь к киту содержит пробел'; url = 'https://github.com/sandbox/tracker/issues/52'; labels = @((& $label 'bug' 'd73a4a'), (& $label 'windows' '1d76db')); milestone = 'v2'; assignees = @('sandbox-operator') }
+        [pscustomobject]@{ number = 48; title = 'Показывать версию кита в «Настройках»'; url = 'https://github.com/sandbox/tracker/issues/48'; labels = @((& $label 'enhancement' 'a2eeef'), (& $label 'frontend' 'fbca04')); assignees = @('sandbox-operator', 'anna-k') }
+        [pscustomobject]@{ number = 61; title = 'Кнопка «Обновить» мигает, пока трекер отвечает'; url = 'https://github.com/sandbox/tracker/issues/61'; labels = @((& $label 'bug' 'd73a4a')); assignees = @('anna-k') }
         [pscustomobject]@{ number = 7; title = 'Установщик проверяет вход в Claude Code до скачивания сборки'; url = 'https://github.com/sandbox/tracker/issues/7'; labels = @() }
+        [pscustomobject]@{ number = 63; title = 'Закрытая задача — на вкладке её нет'; url = 'https://github.com/sandbox/tracker/issues/63'; labels = @(); assignees = @('sandbox-operator'); closed = $true }
     )
     $ghLabels['sandbox/tracker'] = @('bug', 'documentation', 'enhancement', 'frontend', 'good first issue', 'windows')
     $bases.Add($trackerBase)
@@ -832,11 +835,13 @@ if (Test-Piece 'tracker') {
 Новая задача в том же проекте, назначенная на меня.
 "@
     Add-Commit $ytBase 'Трекер проекта'
+    # Исполнитель — владелец ключа sandbox.operator, чужой или никто (AKW-17).
+    $operator = [pscustomobject]@{ login = 'sandbox.operator'; fullName = 'Оператор песочницы' }
     $youTrackIssues['ABC'] = @(
-        [pscustomobject]@{ number = 7; title = 'Письмо о сбросе пароля уходит без ссылки'; state = 'To Do'; tags = @('почта') }
-        [pscustomobject]@{ number = 12; title = 'Добавить роль «Бухгалтер» с доступом только к счетам'; state = 'In Progress'; tags = @() }
+        [pscustomobject]@{ number = 7; title = 'Письмо о сбросе пароля уходит без ссылки'; state = 'To Do'; tags = @('почта'); assignee = $operator }
+        [pscustomobject]@{ number = 12; title = 'Добавить роль «Бухгалтер» с доступом только к счетам'; state = 'In Progress'; tags = @(); assignee = [pscustomobject]@{ login = 'anna.kim'; fullName = 'Анна Ким' } }
         [pscustomobject]@{ number = 104; title = 'Импорт клиентов из CSV пропускает строки с кавычками в названии компании и в адресе доставки, если адрес набран через точку с запятой'; state = 'To Do'; tags = @() }
-        [pscustomobject]@{ number = 1287; title = 'Перевести отчёты на новую схему налогов'; state = 'In Progress'; tags = @('отчёты') }
+        [pscustomobject]@{ number = 1287; title = 'Перевести отчёты на новую схему налогов'; state = 'In Progress'; tags = @('отчёты'); assignee = $operator }
     )
     $bases.Add($ytBase)
     $links.Add([pscustomobject]@{ path = $ytCopy; status = 'Linked'; base = $ytBase })
@@ -1137,7 +1142,7 @@ if ($RealAgent) {
 else {
     Write-Host "  режим агента:   $(Join-Path $Root 'claude-mode.txt')  (ok, garbage, truncated, slow, fail)"
 }
-Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, login, error, slow); задачи — gh-issues.json, метки репозиториев — gh-labels.json"
+Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, many, login, error, slow); задачи — gh-issues.json, метки репозиториев — gh-labels.json"
 Write-Host "  сведение базы:  $(Join-Path $Root 'sync-mode.txt')    (ok, push-fail, pull-fail, offline, push-offline); вызовы — sync.log у скриптов кита"
 Write-Host "  перевод базы:   $(Join-Path $Root 'migrate-mode.txt') (ok, operator, fail, slow, kit-old); вызовы — migrate.log у скриптов кита"
 Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"

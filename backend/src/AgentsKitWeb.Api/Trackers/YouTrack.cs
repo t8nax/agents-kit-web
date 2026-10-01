@@ -16,10 +16,10 @@ public interface IYouTrack
     Task<YouTrackUser> WhoAsync(string server, string key, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Незакрытые задачи проекта, назначенные на владельца ключа; filter — строка поиска YouTrack из описания трекера,
-    /// дописанная к запросу (B-300), null — без отбора.
+    /// Незакрытые задачи проекта, все, чьи бы ни были (AKW-17); filter — строка поиска YouTrack из описания трекера,
+    /// дописанная к запросу (B-300), null — без отбора. Mine — у задач, назначенных на владельца ключа.
     /// </summary>
-    Task<TrackerIssues> AssignedAsync(string server, string key, string project, string? filter, CancellationToken cancellationToken);
+    Task<TrackerIssues> OpenAsync(string server, string key, string project, string? filter, CancellationToken cancellationToken);
 
     /// <summary>Новая задача проекта, назначенная на владельца ключа, без других полей.</summary>
     Task<CreatedIssue> CreateAsync(string server, string key, string project, string title, string body);
@@ -35,6 +35,7 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
 {
     public const string Client = "youtrack";
 
+    // Страница поиска проекта; задач за раз панель показывает TrackerIssues.Limit.
     private const int Limit = 100;
 
     // Чтение ждёт недолго: раздел не должен висеть на открытии. Заведение — дольше: оборванное,
@@ -52,20 +53,28 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
             : new YouTrackUser(null, TrackerIssues.YouTrackError, NotYouTrack);
     }
 
-    public async Task<TrackerIssues> AssignedAsync(
+    /// <summary>
+    /// Отбора по исполнителю в запросе нет — AKW-17: прежний «for: me» облачный YouTrack читал не как «назначено
+    /// на меня», а как слова для поиска в тексте задач, и вкладка показывала одну задачу, где они процитированы.
+    /// Владелец ключа спрашивается рядом с проектом: по нему отмечаются свои задачи; не узнали — своих не отмечено.
+    /// </summary>
+    public async Task<TrackerIssues> OpenAsync(
         string server, string key, string project, string? filter, CancellationToken cancellationToken)
     {
+        var me = WhoAsync(server, key, cancellationToken);
         var found = await ProjectAsync(server, key, project, cancellationToken);
+        var who = await me;
         if (found.Problem is not null)
             return new TrackerIssues([], found.Problem, found.Detail);
 
-        var search = $"project: {{{found.ShortName}}} for: me #Unresolved";
+        var search = $"project: {{{found.ShortName}}} #Unresolved";
         // Фильтр — в скобках: «and» в поиске YouTrack связывает сильнее «or», и «State: A or State: B» без скобок
         // вернул бы чужие задачи других проектов (ревью B-300).
         if (!string.IsNullOrWhiteSpace(filter))
             search += $" and ({filter.Trim()})";
         var reply = await SendAsync(
-            Get(server, key, $"api/issues?query={Uri.EscapeDataString(search)}&fields=idReadable,summary&$top={Limit}"),
+            Get(server, key,
+                $"api/issues?query={Uri.EscapeDataString(search)}&fields=idReadable,summary,{AssigneeFields}&$top={TrackerIssues.Limit + 1}"),
             ReadTimeout, cancellationToken);
         // Проект найден и ключ принят — поиск с фильтром, отвергнутый как неверный запрос (400), значит, что YouTrack
         // не принял строку фильтра; сбой сервера (5xx) фильтр не винит.
@@ -75,9 +84,41 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
             return new TrackerIssues([], reply.Problem, reply.Detail);
         if (reply.Json is not JsonArray issues)
             return new TrackerIssues([], TrackerIssues.YouTrackError, NotYouTrack);
-        return new TrackerIssues([.. issues.OfType<JsonObject>()
-            .Select(i => Issue(server, Text(i, "idReadable"), Text(i, "summary") ?? ""))
+        return TrackerIssues.Read([.. issues.OfType<JsonObject>()
+            .Select(i => Issue(server, Text(i, "idReadable"), Text(i, "summary") ?? "") is { } issue
+                ? Assigned(issue, i, who.Login)
+                : null)
             .OfType<TrackerIssue>()]);
+    }
+
+    private const string AssigneeFields = "customFields(name,value(login,fullName))";
+
+    /// <summary>
+    /// Исполнитель — поле «Assignee» задачи, тем же именем панель назначает заведённую задачу: полное имя, а без
+    /// него логин; поля нет или оно пусто — задача ничья. Поле с несколькими исполнителями приходит массивом — имена
+    /// через запятую (ревью AKW-17). Своя — логин одного из исполнителей совпал с владельцем ключа.
+    /// </summary>
+    private static TrackerIssue Assigned(TrackerIssue issue, JsonObject json, string? me)
+    {
+        var value = (json["customFields"] as JsonArray)?.OfType<JsonObject>()
+            .FirstOrDefault(f => Text(f, "name") == "Assignee")?["value"];
+        JsonObject[] users = value switch
+        {
+            JsonObject one => [one],
+            JsonArray many => [.. many.OfType<JsonObject>()],
+            _ => [],
+        };
+        var names = users
+            .Select(u => Text(u, "fullName") is { Length: > 0 } full ? full : Text(u, "login"))
+            .OfType<string>()
+            .Where(name => name.Length > 0)
+            .ToArray();
+        return issue with
+        {
+            Assignee = names.Length > 0 ? string.Join(", ", names) : null,
+            Mine = me is { Length: > 0 }
+                && users.Any(u => string.Equals(Text(u, "login"), me, StringComparison.OrdinalIgnoreCase)),
+        };
     }
 
     /// <summary>

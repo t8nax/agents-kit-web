@@ -241,9 +241,34 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Equal("GitHub #37 Оплата падает", Assert.Single(rows!, r => r.Path == _copy).Task);
     }
 
-    /// <summary>Закрытую или назначенную не на оператора задачу панель не запускает — критерий B-277.</summary>
+    /// <summary>
+    /// Чужую и ничью открытую задачу панель запускает, как свою, — AKW-17; раньше, на B-277, запускала только
+    /// назначенную на оператора. Перепроверка идёт с фильтром описания: запускается видное на вкладке.
+    /// Подделка gh отвечает списком как есть, поэтому тест держит только то, что эндпоинт не смотрит на исполнителя
+    /// и передаёт фильтр; что сам запрос к трекеру — без отбора «на меня», держат тесты GhIssues.StartInfo
+    /// и запроса YouTrack (ревью AKW-17).
+    /// </summary>
+    [Theory]
+    [InlineData("anna")]
+    [InlineData(null)]
+    public async Task Start_TakesOpenTrackerIssueOfAnyone(string? assignee)
+    {
+        File.WriteAllText(Path.Combine(_base, "tracker.md"),
+            "## Где задачи\n\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nфильтр: label:bug\n");
+        _github.Answer = new TrackerIssues(
+            [new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", Assignee: assignee)]);
+        _agent.Lines = ["backgrounded · abc123"];
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "GitHub #37"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(["label:bug"], _github.Filters);
+        Assert.Equal("/agents-kit:drive GitHub #37", _agent.StartInfo!.ArgumentList[^1]);
+    }
+
+    /// <summary>Закрытую задачу — её нет среди открытых — панель не запускает: критерий B-277 и AKW-17.</summary>
     [Fact]
-    public async Task Start_RejectsTrackerIssueNotAssignedAndOpen()
+    public async Task Start_RejectsTrackerIssueNotOpen()
     {
         WriteGitHubTracker();
         _github.Answer = new TrackerIssues([new TrackerIssue("GitHub #36", 36, "Другая", "https://github.com/acme/orders/issues/36")]);
@@ -302,7 +327,7 @@ public sealed class TaskEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task Start_RejectsYouTrackIssueNotAssignedAndUnresolved()
+    public async Task Start_RejectsYouTrackIssueNotUnresolved()
     {
         WriteYouTrackTracker();
         _youTrack.Answer = new TrackerIssues([new TrackerIssue("YouTrack ABC-11", 11, "Другая", "https://acme.youtrack.cloud/issue/ABC-11")]);

@@ -40,7 +40,7 @@ export type TrackerEvent =
 type Tab = 'talk' | 'changes'
 
 const examples = [
-  'Задачи в GitHub, в репозитории этого проекта; показывать назначенные на меня',
+  'Задачи в GitHub, в репозитории этого проекта; показывать только мои задачи',
   'Трекер — YouTrack на acme.youtrack.cloud, проект PAY',
   'Задачи в Jira, проект BILL; при взятии ставить статус In Progress',
 ]

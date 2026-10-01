@@ -10,7 +10,7 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// (Name — как его назвал файл), «no-keys» — строк нет, какая-то пуста, повторена или не того вида (Faults — какие:
 /// «трекер», «сервер», «проект»; красная строка называет их, как на макете B-288), «unreadable» — файл не прочитан.
 /// Filter — строка «фильтр:» у GitHub и YouTrack: строка поиска трекера, которую панель дописывает к своему запросу
-/// задач на оператора (B-300); нет строки — null, задачи как прежде.
+/// открытых задач проекта (B-300); нет строки — null, видны все открытые задачи.
 /// </summary>
 public sealed record TrackerInfo(
     string Kind, string? Name = null, string? Server = null, string? Project = null, IReadOnlyList<string>? Faults = null,

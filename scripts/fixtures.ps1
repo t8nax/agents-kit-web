@@ -837,15 +837,18 @@ public static class GhShim
     if (-not (Test-Path -LiteralPath $exe)) { throw "не собралась подмена gh: $exe" }
 
     $stub = @'
-# Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» задачами из gh-issues.json
+# Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» открытыми задачами из gh-issues.json
 # корня песочницы — объект «репозиторий: [задачи]»; репозитория там нет — как GitHub о чужом.
-# Метки задачи — полем labels задачи в том же файле, как их отдаёт gh ([{ name, color }]); «gh label list --repo …»
-# (перечень фильтра «Метки», B-305) отвечает метками репозитория из gh-labels.json — объект «репозиторий: [имена]».
+# Метки задачи — полем labels задачи в том же файле, как их отдаёт gh ([{ name, color }]); исполнители — полем
+# assignees, логинами ([«логин»]), нет поля — задача ничья; closed = true — задача закрыта и в список не попадает.
+# «gh label list --repo …» (перечень фильтра «Метки», B-305) отвечает метками репозитория из gh-labels.json —
+# объект «репозиторий: [имена]». «gh api user --jq .login» называет, кем gh вошла, — sandbox-operator (AKW-17).
 # «gh issue create --repo … --title …» (перенос записи бэклога, B-286) дописывает задачу в тот же файл
 # следующим номером — она назначена на оператора и видна в разделе после «Обновить», — кладёт описание,
 # пришедшее во ввод, в gh-created\<номер>.md корня песочницы и печатает адрес задачи, как gh.
 # Режим читается на каждый вызов из gh-mode.txt корня песочницы:
 #   ok      задачи из gh-issues.json
+#   many    к задачам репозитория добавлено полторы сотни ничьих — вкладка говорит, что показаны первые сто
 #   login   gh не вошла в аккаунт GitHub
 #   error   GitHub отвечает ошибкой сервера
 #   slow    те же задачи через несколько секунд
@@ -861,11 +864,14 @@ $arguments = if ($env:AKW_GH_ARGS) { @($env:AKW_GH_ARGS -split [char]1) } else {
 $repo = $null
 $title = $null
 $search = $null
+$limit = 30
 for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
     if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] }
     if ($arguments[$i] -eq '--title') { $title = $arguments[$i + 1] }
     if ($arguments[$i] -eq '--search') { $search = $arguments[$i + 1] }
+    if ($arguments[$i] -eq '--limit') { $limit = [int]$arguments[$i + 1] }
 }
+$operator = 'sandbox-operator'
 $creating = $arguments.Count -ge 2 -and $arguments[0] -eq 'issue' -and $arguments[1] -eq 'create'
 $labeling = $arguments.Count -ge 2 -and $arguments[0] -eq 'label' -and $arguments[1] -eq 'list'
 # Панель пишет описание в UTF-8, как его читает настоящая gh; скрытый pwsh иначе читал бы ввод кодировкой консоли
@@ -883,6 +889,11 @@ switch ($mode) {
         exit 1
     }
     'slow' { Start-Sleep -Seconds 6 }
+}
+
+if ($arguments.Count -ge 2 -and $arguments[0] -eq 'api' -and $arguments[1] -eq 'user') {
+    [Console]::Out.WriteLine($operator)
+    exit 0
 }
 
 $issuesFile = Join-Path $root 'gh-issues.json'
@@ -904,7 +915,7 @@ if ($creating) {
     # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
     $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
     $url = "https://github.com/$repo/issues/$number"
-    $issues.$repo = @($known) + [pscustomobject]@{ number = $number; title = $title; url = $url }
+    $issues.$repo = @($known) + [pscustomobject]@{ number = $number; title = $title; url = $url; assignees = @($operator) }
     [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), [Text.UTF8Encoding]::new($false))
     $created = Join-Path $root 'gh-created'
     New-Item -ItemType Directory -Force -Path $created | Out-Null
@@ -913,18 +924,30 @@ if ($creating) {
     exit 0
 }
 # Фильтр описания трекера (B-300) приходит в --search: «label:метка» — по меткам задачи, «milestone:этап» —
-# по этапу, прочие слова — по заголовку. Поиск GitHub фильтр не отвергает: непонятное просто ничего не находит.
-$list = @($issues.$repo)
+# по этапу, «assignee:логин» и «assignee:@me» — по исполнителю, прочие слова — по заголовку. Поиск GitHub фильтр
+# не отвергает: непонятное просто ничего не находит.
+$list = @($issues.$repo | Where-Object { -not $_.closed })
+if ($mode -eq 'many') {
+    $list += @(1000..1149 | ForEach-Object { [pscustomobject]@{ number = $_; title = "Задача из большого списка $_"; url = "https://github.com/$repo/issues/$_" } })
+}
 # Панель передаёт фильтр в скобках.
 if ($search -match '^\((.*)\)$') { $search = $Matches[1] }
 if ($search) {
     foreach ($token in ($search -split '\s+' | Where-Object { $_ })) {
         $list = if ($token -like 'label:*') { @($list | Where-Object { @($_.labels | ForEach-Object { $_.name }) -contains $token.Substring(6) }) }
                 elseif ($token -like 'milestone:*') { @($list | Where-Object { $_.milestone -eq $token.Substring(10) }) }
+                elseif ($token -like 'assignee:*') {
+                    $who = $token.Substring(9); if ($who -eq '@me') { $who = $operator }
+                    @($list | Where-Object { @($_.assignees) -contains $who })
+                }
                 else { @($list | Where-Object { $_.title -like "*$token*" }) }
     }
 }
-[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($list | Select-Object number, title, url, labels) -Depth 4 -Compress))
+$answer = @($list | Select-Object -First $limit | ForEach-Object {
+    [pscustomobject]@{ number = $_.number; title = $_.title; url = $_.url; labels = @($_.labels | Where-Object { $_ })
+        assignees = @($_.assignees | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ login = $_ } }) }
+})
+[Console]::Out.WriteLine((ConvertTo-Json -InputObject $answer -Depth 4 -Compress))
 exit 0
 '@
     Write-Utf8 (Join-Path $Path 'gh-stub.ps1') $stub
@@ -936,9 +959,10 @@ exit 0
 function New-YouTrackStub([string]$Root, [int]$Port) {
     $stub = @'
 # Подставной YouTrack песочницы на http://localhost:__PORT__/. Ключ — «perm:sandbox», владелец ключа — sandbox.operator.
-# Проекты и их незакрытые задачи на владельце ключа — youtrack-issues.json корня песочницы: объект
-# «проект: [задачи]», у задачи — номер, заголовок, состояние state и теги tags для фильтра (B-300). Новая задача
-# (перенос записи бэклога) дописывается туда следующим номером, её описание — в youtrack-created\<номер>.md.
+# Проекты и их незакрытые задачи — youtrack-issues.json корня песочницы: объект «проект: [задачи]», у задачи —
+# номер, заголовок, состояние state и теги tags для фильтра (B-300), исполнитель assignee — { login, fullName },
+# нет его — задача ничья (AKW-17). Новая задача (перенос записи бэклога) дописывается туда следующим номером,
+# назначенная на владельца ключа, её описание — в youtrack-created\<номер>.md.
 # Режим читается на каждый запрос из youtrack-mode.txt корня песочницы:
 #   ok        отвечает как YouTrack
 #   rejected  отклоняет любой ключ
@@ -976,7 +1000,7 @@ while ($listener.IsListening) {
         $path = $context.Request.Url.AbsolutePath
         $issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
         $projects = @($issues.PSObject.Properties.Name)
-        if ($path.EndsWith('/api/users/me')) { Send $context 200 @{ login = 'sandbox.operator' }; continue }
+        if ($path.EndsWith('/api/users/me')) { Send $context 200 @{ login = 'sandbox.operator'; fullName = 'Оператор песочницы' }; continue }
         if ($path.EndsWith('/api/admin/projects')) {
             $i = 0
             Send $context 200 @($projects | ForEach-Object { $i++; @{ id = "0-$i"; shortName = $_ } })
@@ -987,12 +1011,13 @@ while ($listener.IsListening) {
             $project = if ($query -match 'project: \{([^}]+)\}') { $Matches[1] } else { $null }
             $list = if ($project -and $projects -contains $project) { @($issues.$project) } else { @() }
             # Отбор описания трекера (B-300) — хвост после «#Unresolved»: поля State и tag значением или {значениями}
-            # через запятую, прочие слова — по заголовку; другое поле YouTrack отвергает, как настоящий.
+            # через запятую, Assignee — логином, «me» — владелец ключа (AKW-17), прочие слова — по заголовку; другое
+            # поле YouTrack отвергает, как настоящий.
             $tail = if ($query -match '#Unresolved\s*(.*)$') { $Matches[1].Trim() } else { '' }
             # Панель дописывает фильтр в скобках: «… #Unresolved and (<фильтр>)».
             if ($tail -match '^and \((.*)\)$') { $tail = $Matches[1].Trim() }
             $pattern = '([A-Za-z]+):\s*((?:\{[^}]*\}(?:\s*,\s*\{[^}]*\})*)|\S+)'
-            $unknown = @([regex]::Matches($tail, $pattern) | Where-Object { $_.Groups[1].Value -notin 'State', 'tag' } |
+            $unknown = @([regex]::Matches($tail, $pattern) | Where-Object { $_.Groups[1].Value -notin 'State', 'tag', 'Assignee' } |
                 ForEach-Object { $_.Groups[1].Value })
             if ($unknown.Count -gt 0) {
                 Send $context 400 @{ error = 'bad_request'; error_description = "Unknown field `"$($unknown[0])`"" }
@@ -1001,13 +1026,22 @@ while ($listener.IsListening) {
             foreach ($match in [regex]::Matches($tail, $pattern)) {
                 $wanted = @([regex]::Matches($match.Groups[2].Value, '\{([^}]*)\}') | ForEach-Object { $_.Groups[1].Value.Trim() })
                 if ($wanted.Count -eq 0) { $wanted = @($match.Groups[2].Value) }
+                if ($match.Groups[1].Value -eq 'Assignee') {
+                    $wanted = @($wanted | ForEach-Object { if ($_ -eq 'me') { 'sandbox.operator' } else { $_ } })
+                    $list = @($list | Where-Object { $_.assignee -and $_.assignee.login -in $wanted })
+                    continue
+                }
                 $field = if ($match.Groups[1].Value -eq 'State') { 'state' } else { 'tags' }
                 $list = @($list | Where-Object { @($_.$field | Where-Object { $_ -in $wanted }).Count -gt 0 })
             }
             foreach ($word in ([regex]::Replace($tail, $pattern, '') -split '\s+' | Where-Object { $_ })) {
                 $list = @($list | Where-Object { $_.title -like "*$word*" })
             }
-            Send $context 200 @($list | ForEach-Object { @{ idReadable = "$project-$($_.number)"; summary = $_.title } })
+            $top = if ($context.Request.QueryString['$top']) { [int]$context.Request.QueryString['$top'] } else { 42 }
+            Send $context 200 @($list | Select-Object -First $top | ForEach-Object {
+                $assignee = if ($_.assignee) { @{ login = $_.assignee.login; fullName = $_.assignee.fullName } } else { $null }
+                @{ idReadable = "$project-$($_.number)"; summary = $_.title; customFields = @(@{ name = 'Assignee'; value = $assignee }) }
+            })
             continue
         }
         if ($path.EndsWith('/api/issues') -and $context.Request.HttpMethod -eq 'POST') {
@@ -1018,7 +1052,8 @@ while ($listener.IsListening) {
             $known = @($issues.$project)
             # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
             $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
-            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary }
+            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary
+                assignee = [pscustomobject]@{ login = 'sandbox.operator'; fullName = 'Оператор песочницы' } }
             [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), $utf8)
             $created = Join-Path $root 'youtrack-created'
             New-Item -ItemType Directory -Force -Path $created | Out-Null
