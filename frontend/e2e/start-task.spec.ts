@@ -148,7 +148,9 @@ test('в невысоком окне блоки окна запуска не л�
 
   const dialog = page.getByRole('dialog', { name: 'Взять задачу в работу' })
   const copies = dialog.getByRole('group', { name: 'Рабочая копия' })
+  // Замер — когда пришли и копии, и флоу: со строкой «Флоу читаются…» тело ниже
   await expect(copies.locator('label').filter({ hasText: 'brave-quiet-otter' })).toBeVisible()
+  await expect(dialog.getByRole('group', { name: 'Флоу' }).getByRole('radio', { name: /полный/ })).toBeChecked()
   await expect(async () => {
     const group = (await copies.boundingBox())!
     const list = (await copies.getByRole('list').boundingBox())!
@@ -160,7 +162,7 @@ test('в невысоком окне блоки окна запуска не л�
 
   // Высоты не хватает — прокручивается тело, а кнопки окна видны
   const body = dialog.locator('.st-body')
-  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await expect.poll(() => body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
   await expect(dialog.getByRole('button', { name: 'Взять в работу' })).toBeInViewport()
 })
 
