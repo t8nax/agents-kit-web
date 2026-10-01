@@ -135,9 +135,7 @@ public sealed class DeployScriptTests : IDisposable
         {
             BasesFile = Path.Combine(profile, "bases.json"),
             SessionsDir = Path.Combine(profile, "sessions"),
-            ProjectsDir = Path.Combine(profile, "projects"),
             ClaudeDir = Path.Combine(profile, "claude"),
-            CredentialsFile = Path.Combine(profile, "credentials.json"),
         }));
         return build;
     }

@@ -5,30 +5,78 @@ namespace AgentsKitWeb.Api.Tests;
 
 public class GhIssuesTests
 {
-    /// <summary>«Назначенные на оператора» и «открытые» критерия B-277 держат ключи gh — без них видны чужие и закрытые.</summary>
+    /// <summary>
+    /// «Открытые» держит ключ gh, а отбора по исполнителю нет — видны и чужие, и ничьи задачи (AKW-17). Задач
+    /// спрашивается на одну больше сотни: так видно, что есть ещё.
+    /// </summary>
     [Fact]
-    public void StartInfo_AsksOpenIssuesAssignedToOperatorWithoutWindow()
+    public void StartInfo_AsksAllOpenIssuesWithAssigneesWithoutWindow()
     {
         var startInfo = GhIssues.StartInfo("acme/orders");
 
         Assert.Equal("gh", startInfo.FileName);
         Assert.Equal(
-            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--limit", "100", "--json", "number,title,url,labels"],
+            ["issue", "list", "--repo", "acme/orders", "--state", "open", "--limit", "101", "--json", "number,title,url,labels,assignees"],
             startInfo.ArgumentList);
         Assert.True(startInfo.CreateNoWindow);
         Assert.False(startInfo.UseShellExecute);
         Assert.Equal("1", startInfo.Environment["GH_PROMPT_DISABLED"]);
     }
 
-    /// <summary>Строка отбора описания уходит поиском gh вдобавок к назначенному и состоянию (B-300).</summary>
+    /// <summary>Строка отбора описания уходит поиском gh вдобавок к состоянию (B-300).</summary>
     [Fact]
     public void StartInfo_WithFilter_AddsSearch()
     {
         Assert.Equal(
-            ["issue", "list", "--repo", "acme/orders", "--assignee", "@me", "--state", "open", "--search", "(label:bug milestone:v2)",
-                "--limit", "100", "--json", "number,title,url,labels"],
-            GhIssues.StartInfo("acme/orders", " label:bug milestone:v2 ").ArgumentList);
+            ["issue", "list", "--repo", "acme/orders", "--state", "open", "--search", "(assignee:@me label:bug)",
+                "--limit", "101", "--json", "number,title,url,labels,assignees"],
+            GhIssues.StartInfo("acme/orders", " assignee:@me label:bug ").ArgumentList);
         Assert.DoesNotContain("--search", GhIssues.StartInfo("acme/orders", " ").ArgumentList);
+    }
+
+    /// <summary>Кем вошла gh, спрашивается на сервере репозитория: у GitHub Enterprise вход у неё свой.</summary>
+    [Fact]
+    public void UserStartInfo_AsksLoginOnServerOfRepository()
+    {
+        Assert.Equal(["api", "user", "--jq", ".login"], GhIssues.UserStartInfo("acme/orders").ArgumentList);
+        Assert.Equal(
+            ["api", "user", "--jq", ".login", "--hostname", "git.acme.local:8443"],
+            GhIssues.UserStartInfo("git.acme.local:8443/acme/orders").ArgumentList);
+    }
+
+    /// <summary>Исполнители — логины через запятую, ничья задача — без исполнителя; своя — среди них вход gh.</summary>
+    [Fact]
+    public void Parse_TakesAssigneesAndMarksOwn()
+    {
+        var issues = GhIssues.Parse("""
+            [{"number":1,"title":"А","url":"u1","assignees":[{"login":"Boris","name":"Борис"}]},
+             {"number":2,"title":"Б","url":"u2","assignees":[{"login":"anna"},{"login":"boris"}]},
+             {"number":3,"title":"В","url":"u3","assignees":[{"login":"anna"}]},
+             {"number":4,"title":"Г","url":"u4","assignees":[]}]
+            """, "boris");
+
+        Assert.Equal(
+            [("Boris", true), ("anna, boris", true), ("anna", false), (null, false)],
+            issues.Issues.Select(i => (i.Assignee, i.Mine)));
+        Assert.All(GhIssues.Parse("""[{"number":1,"title":"А","url":"u1","assignees":[{"login":"boris"}]}]""").Issues,
+            i => Assert.False(i.Mine));
+    }
+
+    /// <summary>Сто первая задача значит «есть ещё»: показываются первые сто, и вкладка говорит это строкой.</summary>
+    [Fact]
+    public void Parse_MoreThanHundred_KeepsHundredAndIsTruncated()
+    {
+        string List(int count) =>
+            "[" + string.Join(",", Enumerable.Range(1, count).Select(n => $$"""{"number":{{n}},"title":"Т","url":"u"}""")) + "]";
+
+        var full = GhIssues.Parse(List(101));
+        var exact = GhIssues.Parse(List(100));
+
+        Assert.True(full.Truncated);
+        Assert.Equal(100, full.Issues.Count);
+        Assert.Equal(100, full.Issues[^1].Number);
+        Assert.False(exact.Truncated);
+        Assert.Equal(100, exact.Issues.Count);
     }
 
     [Fact]

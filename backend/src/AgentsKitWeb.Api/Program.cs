@@ -7,7 +7,6 @@ using AgentsKitWeb.Api.Performers;
 using AgentsKitWeb.Api.Reports;
 using AgentsKitWeb.Api.Tasks;
 using AgentsKitWeb.Api.Trackers;
-using AgentsKitWeb.Api.Usage;
 using AgentsKitWeb.Api.Voice;
 using AgentsKitWeb.Api.Workspaces;
 
@@ -32,14 +31,6 @@ builder.Services.AddSingleton(services =>
     return new TaskSessions(config["TaskSessionsFile"] ?? TaskSessions.FileBeside(config["BasesFile"] ?? BasesStore.DefaultFile));
 });
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton(services =>
-    new UsageScanner(services.GetRequiredService<IConfiguration>()["ProjectsDir"] ?? UsageScanner.DefaultDirectory,
-        services.GetRequiredService<TimeProvider>()));
-builder.Services.AddSingleton(services =>
-    new ClaudeCredentials(services.GetRequiredService<IConfiguration>()["CredentialsFile"] ?? ClaudeCredentials.DefaultFile));
-// Запрос о лимитах идёт к Anthropic, и ждать его дольше нескольких секунд разделу незачем:
-// лучше строка «не ответил вовремя», чем раздел, который висит на открытии.
-builder.Services.AddHttpClient<ILimits, AnthropicLimits>(client => client.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddSingleton(services =>
     new InstalledPanel(services.GetRequiredService<IConfiguration>()["PublishedFile"] ?? InstalledPanel.DefaultFile));
 builder.Services.AddSingleton(services =>
@@ -142,7 +133,7 @@ app.MapGet("/api/workspaces", async (
         HealthMonitor.Annotate(await WorkspaceCollector.CollectAsync(bases.List(), cancellationToken), health.Snapshot),
         tasks.SessionIn)));
 
-app.MapGet("/api/health", (HealthMonitor health) => health.Snapshot);
+app.MapGet("/api/health", (HealthMonitor health) => KitBaseMigrate.Annotate(health.Snapshot));
 app.MapPost("/api/health/check", (HealthMonitor health) =>
 {
     health.RequestCheck();
@@ -154,6 +145,7 @@ app.MapAskEndpoints();
 app.MapBacklogEndpoints();
 app.MapBacklogWriteEndpoints();
 app.MapBacklogTrackerEndpoints();
+app.MapBaseMigrateEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();
 app.MapFlowRewriteEndpoints();
@@ -171,7 +163,6 @@ app.MapTaskRollbackEndpoints();
 app.MapTrackerServersEndpoints();
 app.MapProjectTrackersEndpoints();
 app.MapTrackerRewriteEndpoints();
-app.MapUsageEndpoints();
 app.MapVoiceEndpoints();
 
 // Неизвестный /api — ошибка клиента, а не страница фронта; прочие пути — маршруты фронта.

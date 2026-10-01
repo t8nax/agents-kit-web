@@ -1,0 +1,233 @@
+/*
+ * Окно «Трекер проекта» и переписка о трекере поверх него (B-293, B-323) — в рамке окна исполнителя
+ * (PerformerModal.css). Поля — как в других окнах панели: подпись над полем и однострочное поле — как в окне
+ * новой копии, многострочное — как поле ответа, причина под полем — как в окне ответа.
+ */
+
+.tf-modal {
+  container: tf-win / inline-size;
+}
+
+.tf-modal .ask-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tf-modal .footer-right {
+  margin-left: auto;
+}
+
+.ask-title h2.tf-title {
+  flex: 0 1 auto;
+}
+
+.foot-note {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.foot-note .mono {
+  overflow-wrap: anywhere;
+}
+
+.tf {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+}
+
+.tf-group {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.tf-group .rewrite-group-title {
+  margin: 0;
+}
+
+.tf-field {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+
+.tf-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tf-label {
+  display: block;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.tf-field .rewrite-was {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.tf-field .rewrite-was.mono {
+  font-size: 12px;
+}
+
+/* Вид трекера — строки с кружками, как выбор проекта в окне новой копии */
+.tf-kinds {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0 -12px;
+}
+
+.tf-kinds .choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.tf-kinds .choice.is-on .choice-name {
+  font-weight: 500;
+}
+
+.tf-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* Однострочное поле — как .nw-input окна новой копии */
+.tf-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.tf-input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.tf-input:disabled {
+  color: var(--text-tertiary);
+}
+
+/* Многострочное поле — как поле ответа окна ответа и записи в бэклог */
+.tf-area {
+  width: 100%;
+  box-sizing: border-box;
+  display: block;
+  min-width: 0;
+  background: var(--bg-base);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 64px;
+  resize: vertical;
+  outline: none;
+}
+
+.tf-area:focus {
+  border-color: var(--accent-waiting-text);
+}
+
+.tf-area:disabled {
+  opacity: 0.55;
+}
+
+.tf-input::placeholder,
+.tf-area::placeholder {
+  color: var(--text-tertiary);
+}
+
+.tf-changed .tf-area,
+.tf-changed .tf-input {
+  border-color: var(--accent-waiting-border);
+}
+
+.tf-input[aria-invalid='true'],
+.tf-area[aria-invalid='true'] {
+  border-color: var(--accent-error-border);
+}
+
+/* Причина под полем — красной строкой с треугольником, как в окне ответа */
+.tf-error {
+  margin: 0;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent-error-text);
+}
+
+.tf-modal .tf-error svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  flex: none;
+}
+
+/* Разделы описания на «Изменениях» переписки: текст с переводами строк, как в поле */
+.tf-changes .pc-row {
+  grid-template-columns: 150px minmax(0, 1fr);
+}
+
+.tf-changes-text {
+  white-space: pre-wrap;
+}
+
+.tf-modal .ask-body > .rewrite-group-title {
+  margin: 0;
+}
+
+/* Узкое окно: вид трекера в два ряда, адрес и проект — столбиком, кнопки подвала делят ширину */
+@container tf-win (max-width: 640px) {
+  .tf-kinds {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tf-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tf-modal .footer-right {
+    width: 100%;
+  }
+
+  .tf-modal .footer-right .btn {
+    flex: 1 1 140px;
+    min-width: 0;
+    padding: 0 12px;
+  }
+}

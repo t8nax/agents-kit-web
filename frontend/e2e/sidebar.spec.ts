@@ -82,14 +82,17 @@ test('«Настройки» — раздел в ряду остальных, д
 
   const sidebar = page.getByRole('navigation', { name: 'Разделы панели' })
   const problems = sidebar.getByRole('button', { name: 'Проблемы баз' })
+  const trackers = sidebar.getByRole('button', { name: 'Трекеры' })
   const settings = sidebar.getByRole('button', { name: 'Настройки' })
 
-  // Кнопки «Базы знаний» внизу больше нет; «Настройки» стоит строкой сразу за «Проблемами баз»
+  // Кнопки «Базы знаний» внизу больше нет; за «Проблемами баз» строкой стоят «Трекеры» (B-323), за ними — «Настройки»
   await expect(sidebar.getByRole('button', { name: 'Базы знаний' })).toHaveCount(0)
   await expect(settings).toBeVisible()
   const problemsBox = await problems.boundingBox()
+  const trackersBox = await trackers.boundingBox()
   const settingsBox = await settings.boundingBox()
-  expect(settingsBox?.y).toBe((problemsBox?.y ?? 0) + (problemsBox?.height ?? 0))
+  expect(trackersBox?.y).toBe((problemsBox?.y ?? 0) + (problemsBox?.height ?? 0))
+  expect(settingsBox?.y).toBe((trackersBox?.y ?? 0) + (trackersBox?.height ?? 0))
   expect(await settings.evaluate((element) => getComputedStyle(element).borderTopWidth)).toBe('0px')
 
   // Tab доходит до раздела: фокус разворачивает сайдбар, Enter открывает раздел. Нажатий не больше, чем кнопок

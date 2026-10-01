@@ -66,6 +66,38 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     /// <summary>Базой кита считается каталог с agents-kit.json — какого бы формата она ни была.</summary>
     public static bool IsBase(string path) => File.Exists(Path.Combine(path, MarkerFile));
 
+    /// <summary>
+    /// Причина, по которой панель не читает базу прежнего формата: перевести её можно кнопкой в «Проблемах баз» (B-314).
+    /// </summary>
+    public const string OutdatedProblem = "База хранится в прежнем формате. Перевести её можно в разделе «Проблемы баз».";
+
+    /// <summary>База прежнего формата — её переводит кит (B-314).</summary>
+    public static bool IsOutdated(string basePath) => ReadFormat(basePath) < Format;
+
+    /// <summary>
+    /// Копии этой машины в базе любого формата — от копии идёт перевод базы прежнего формата (B-314). Список копий кит
+    /// с форматами переносил: с формата 3 он в local\me.json, в формате 2 — в local\workspaces.json
+    /// (migrations/003-personal.ps1 кита), в формате 1 — в самом agents-kit.json (migrations/002-per-machine.ps1).
+    /// </summary>
+    public static IReadOnlyList<string> MachineCopies(string basePath) =>
+        new[] { Path.Combine("local", "me.json"), Path.Combine("local", "workspaces.json"), MarkerFile }
+            .Select(file => ReadWorkspacesFile(Path.Combine(basePath, file))?.Workspaces ?? [])
+            .FirstOrDefault(copies => copies.Count > 0) ?? [];
+
+    /// <summary>
+    /// Имя оператора этой машины в local\me.json записано — какое бы ни было: поверх записанного имени кит другого
+    /// не пишет (Set-KitOperatorName), и спрашивать его у оператора незачем.
+    /// </summary>
+    /// <summary>Оператор этой машины из local\me.json по форме кита; null — не назван или записан не по форме.</summary>
+    public static string? MachineOperator(string basePath) =>
+        ReadMachineFile(basePath)?.Operator is { } name && IsOperatorName(name) ? name : null;
+
+    public static bool MachineOperatorNamed(string basePath) =>
+        !string.IsNullOrWhiteSpace(ReadMachineFile(basePath)?.Operator);
+
+    /// <summary>Имя оператора по форме кита (Test-KitOperatorName).</summary>
+    public static bool IsOperatorName(string name) => OperatorName().IsMatch(name);
+
     /// <summary>Раскладка базы этой машины; null — читать нечего, почему — problem.</summary>
     public static BaseLayout? Read(string basePath) => Read(basePath, out _);
 
@@ -84,7 +116,7 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
                 problem = "Не прочитан agents-kit.json базы";
                 return null;
             case < Format:
-                problem = "База прежнего формата — переведите её китом";
+                problem = OutdatedProblem;
                 return null;
         }
 
@@ -94,7 +126,7 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
             problem = @"Не прочитан local\me.json базы";
             return null;
         }
-        if (machine.Operator is not { } name || !OperatorName().IsMatch(name))
+        if (machine.Operator is not { } name || !IsOperatorName(name))
         {
             problem = "На этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard";
             return null;
@@ -155,9 +187,12 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     private sealed record MachineFile(string? Operator, IReadOnlyList<string> Workspaces);
 
     /// <summary>local\me.json: файла нет — пусто, как у кита; не разбирается — null.</summary>
-    private static MachineFile? ReadMachineFile(string basePath)
+    private static MachineFile? ReadMachineFile(string basePath) =>
+        ReadWorkspacesFile(Path.Combine(basePath, "local", "me.json"));
+
+    /// <summary>JSON-объект с полями operator и workspaces: файла нет — пусто; не разбирается — null.</summary>
+    private static MachineFile? ReadWorkspacesFile(string path)
     {
-        var path = Path.Combine(basePath, "local", "me.json");
         if (!File.Exists(path))
             return new MachineFile(null, []);
         try

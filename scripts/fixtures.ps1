@@ -50,10 +50,11 @@ function Write-Session([string]$Dir, [int]$Process, [string]$Cwd, [hashtable]$Ex
 # $Rules — справка кита о флоу (reference/flow-stages.md установленного кита): из неё панель подаёт
 # агенту правила формы этапа. Не нашлась — заглушка кладёт короткую свою, чтобы переписывание не отвечало отказом.
 # $Layout — справка кита о раскладке базы (reference/base-layout.md): из её раздела «Трекер» — правила описания трекера.
-function New-Kit([string]$Path, [string]$Rules, [string]$Layout) {
+# $Format — формат базы, который знает заглушка: формат панели, чтобы переведённая база читалась.
+function New-Kit([string]$Path, [string]$Rules, [string]$Layout, [int]$Format) {
     $scripts = Join-Path $Path 'scripts'
 
-    Write-Utf8 (Join-Path $scripts 'link-state.ps1') @'
+    Write-Utf8 (Join-Path $scripts 'link-state.ps1') (@'
 # Заглушка кита. Состояние связи копии — строка таблицы links.json рядом со скриптами;
 # пути в таблице нет — копия под китом не числится.
 function Get-KitLinkState([string]$Dir) {
@@ -65,6 +66,78 @@ function Get-KitLinkState([string]$Dir) {
     }
     return [pscustomobject]@{ status = 'NoPointer'; base = $null }
 }
+
+# Режим перевода базы — migrate-mode.txt корня песочницы, читается на каждый вызов.
+function Get-KitMigrateMode {
+    $dir = $PSScriptRoot
+    while ($dir) {
+        $candidate = Join-Path $dir 'migrate-mode.txt'
+        if (Test-Path -LiteralPath $candidate) { return (Get-Content -LiteralPath $candidate -Raw).Trim().ToLowerInvariant() }
+        $dir = Split-Path $dir -Parent
+    }
+    return 'ok'
+}
+
+# Формат, который знает кит; в режиме kit-old — на единицу старше того, что ждёт панель.
+function Get-KitFormat {
+    if ((Get-KitMigrateMode) -eq 'kit-old') { return __FORMAT__ - 1 }
+    return __FORMAT__
+}
+'@).Replace('__FORMAT__', "$Format")
+
+    Write-Utf8 (Join-Path $scripts 'base-migrate.ps1') @'
+# Заглушка кита: перевод базы на формат кита (B-314). Шагов у заглушки нет: удачный перевод ставит номер формата
+# в agents-kit.json, коммитит его в базе и отмечает связь копии в links.json как обычную. Режим — migrate-mode.txt
+# корня песочницы:
+#   ok        база переведена (по умолчанию)
+#   operator  без -Operator отказ «имя оператора не названо», с ним — как ok
+#   fail      шаг перевода сорвался
+#   slow      как ok, но через восемь секунд
+#   kit-old   кит знает формат старше, чем ждёт панель
+# Вызовы пишутся в migrate.log рядом со скриптами.
+param([string]$Path = (Get-Location).Path, [string]$Operator)
+
+$ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'link-state.ps1')
+Add-Content -LiteralPath (Join-Path $PSScriptRoot 'migrate.log') -Value "$(Get-Date -Format s) $Path $Operator" -Encoding utf8
+$mode = Get-KitMigrateMode
+$state = Get-KitLinkState $Path
+if ($state.status -ne 'Outdated') {
+    Write-Host "База «$($state.base)» уже формата $(Get-KitFormat) — переводить нечего."
+    exit 0
+}
+$base = $state.base
+$machine = Join-Path $base 'local\me.json'
+switch ($mode) {
+    'slow' { Start-Sleep -Seconds 8 }
+    'fail' { throw 'шаг перевода на формат 6 (flow-to-personal) не прошёл: заглушка кита так настроена — его правки в базе откачены, база осталась формата 5' }
+    'operator' {
+        if (-not $Operator) { throw 'имя оператора на этой машине не названо — перевести с -Operator <имя>: латиница в нижнем регистре, цифры и дефис между ними' }
+    }
+}
+if ($Operator) {
+    $list = Get-Content -LiteralPath $machine -Raw | ConvertFrom-Json
+    $list | Add-Member -NotePropertyName 'operator' -NotePropertyValue $Operator -Force
+    $list | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $machine -Encoding utf8
+}
+
+$format = Get-KitFormat
+$markerPath = Join-Path $base 'agents-kit.json'
+$marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+$was = $marker.version
+$marker | Add-Member -NotePropertyName 'version' -NotePropertyValue $format -Force
+$marker | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $markerPath -Encoding utf8
+git -C $base commit -q -m "agents-kit: перевод базы на формат $format — заглушка" -- agents-kit.json
+if ($LASTEXITCODE -ne 0) { throw "git не закоммитил перевод в «$base»" }
+
+$table = Join-Path $PSScriptRoot 'links.json'
+$rows = @(Get-Content -LiteralPath $table -Raw | ConvertFrom-Json)
+foreach ($row in $rows) { if ($row.base -ieq $base) { $row.status = 'Linked' } }
+ConvertTo-Json -InputObject $rows -Depth 6 | Set-Content -LiteralPath $table -Encoding utf8
+
+Write-Host "База «$base»: формат $was → $format"
+Write-Host "  формат ${format}: заглушка — коммит $(git -C $base rev-parse --short HEAD)"
+Write-Host "База переведена на формат $format. Работа со знанием — с новой сессии: /clear."
 '@
 
     Write-Utf8 (Join-Path $scripts 'base-check.ps1') @'
@@ -190,6 +263,7 @@ if ($branch -and $branch -ne 'HEAD') { "Ветка осталась:        $bra
 #   push-fail  забор проходит, отдача отказывает, как при чужом коммите на сервере
 #   pull-fail  забор отказывает, как при незакоммиченной правке в базе
 #   offline    сервер недоступен: код 2
+#   push-offline  забор проходит, а к отдаче сервер пропал: код 2 у отдачи
 # Вызовы пишутся в sync.log рядом со скриптами: по нему видно, что панель забрала базу до записи и отдала после.
 param([string]$Path, [string]$Repo, [string]$Action)
 
@@ -204,6 +278,9 @@ while ($dir) {
 switch ($mode) {
     'offline' { Write-Host 'remote базы недоступен: заглушка кита так настроена — работа идёт с локальным, отдастся при следующем сведении'; exit 2 }
     'pull-fail' { Write-Host 'с remote базы не забрано — в базе незакоммиченная правка: product.md. Её закоммитит сессия, которая её ведёт; забрать при следующем сведении'; exit 1 }
+    'push-offline' {
+        if ($Action -eq 'Push') { Write-Host 'remote базы недоступен: заглушка кита так настроена — отдастся при следующем сведении'; exit 2 }
+    }
     'push-fail' {
         if ($Action -eq 'Push') { Write-Host "на remote базы не отдано — git: ! [rejected] main -> main (fetch first); отдастся при следующем сведении"; exit 1 }
     }
@@ -760,15 +837,18 @@ public static class GhShim
     if (-not (Test-Path -LiteralPath $exe)) { throw "не собралась подмена gh: $exe" }
 
     $stub = @'
-# Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» задачами из gh-issues.json
+# Подставная gh: отвечает на «gh issue list --repo <репозиторий> …» открытыми задачами из gh-issues.json
 # корня песочницы — объект «репозиторий: [задачи]»; репозитория там нет — как GitHub о чужом.
-# Метки задачи — полем labels задачи в том же файле, как их отдаёт gh ([{ name, color }]); «gh label list --repo …»
-# (перечень фильтра «Метки», B-305) отвечает метками репозитория из gh-labels.json — объект «репозиторий: [имена]».
+# Метки задачи — полем labels задачи в том же файле, как их отдаёт gh ([{ name, color }]); исполнители — полем
+# assignees, логинами ([«логин»]), нет поля — задача ничья; closed = true — задача закрыта и в список не попадает.
+# «gh label list --repo …» (перечень фильтра «Метки», B-305) отвечает метками репозитория из gh-labels.json —
+# объект «репозиторий: [имена]». «gh api user --jq .login» называет, кем gh вошла, — sandbox-operator (AKW-17).
 # «gh issue create --repo … --title …» (перенос записи бэклога, B-286) дописывает задачу в тот же файл
 # следующим номером — она назначена на оператора и видна в разделе после «Обновить», — кладёт описание,
 # пришедшее во ввод, в gh-created\<номер>.md корня песочницы и печатает адрес задачи, как gh.
 # Режим читается на каждый вызов из gh-mode.txt корня песочницы:
 #   ok      задачи из gh-issues.json
+#   many    к задачам репозитория добавлено полторы сотни ничьих — вкладка говорит, что показаны первые сто
 #   login   gh не вошла в аккаунт GitHub
 #   error   GitHub отвечает ошибкой сервера
 #   slow    те же задачи через несколько секунд
@@ -784,11 +864,14 @@ $arguments = if ($env:AKW_GH_ARGS) { @($env:AKW_GH_ARGS -split [char]1) } else {
 $repo = $null
 $title = $null
 $search = $null
+$limit = 30
 for ($i = 0; $i -lt $arguments.Count - 1; $i++) {
     if ($arguments[$i] -eq '--repo') { $repo = $arguments[$i + 1] }
     if ($arguments[$i] -eq '--title') { $title = $arguments[$i + 1] }
     if ($arguments[$i] -eq '--search') { $search = $arguments[$i + 1] }
+    if ($arguments[$i] -eq '--limit') { $limit = [int]$arguments[$i + 1] }
 }
+$operator = 'sandbox-operator'
 $creating = $arguments.Count -ge 2 -and $arguments[0] -eq 'issue' -and $arguments[1] -eq 'create'
 $labeling = $arguments.Count -ge 2 -and $arguments[0] -eq 'label' -and $arguments[1] -eq 'list'
 # Панель пишет описание в UTF-8, как его читает настоящая gh; скрытый pwsh иначе читал бы ввод кодировкой консоли
@@ -806,6 +889,11 @@ switch ($mode) {
         exit 1
     }
     'slow' { Start-Sleep -Seconds 6 }
+}
+
+if ($arguments.Count -ge 2 -and $arguments[0] -eq 'api' -and $arguments[1] -eq 'user') {
+    [Console]::Out.WriteLine($operator)
+    exit 0
 }
 
 $issuesFile = Join-Path $root 'gh-issues.json'
@@ -827,7 +915,7 @@ if ($creating) {
     # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
     $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
     $url = "https://github.com/$repo/issues/$number"
-    $issues.$repo = @($known) + [pscustomobject]@{ number = $number; title = $title; url = $url }
+    $issues.$repo = @($known) + [pscustomobject]@{ number = $number; title = $title; url = $url; assignees = @($operator) }
     [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), [Text.UTF8Encoding]::new($false))
     $created = Join-Path $root 'gh-created'
     New-Item -ItemType Directory -Force -Path $created | Out-Null
@@ -836,32 +924,45 @@ if ($creating) {
     exit 0
 }
 # Фильтр описания трекера (B-300) приходит в --search: «label:метка» — по меткам задачи, «milestone:этап» —
-# по этапу, прочие слова — по заголовку. Поиск GitHub фильтр не отвергает: непонятное просто ничего не находит.
-$list = @($issues.$repo)
+# по этапу, «assignee:логин» и «assignee:@me» — по исполнителю, прочие слова — по заголовку. Поиск GitHub фильтр
+# не отвергает: непонятное просто ничего не находит.
+$list = @($issues.$repo | Where-Object { -not $_.closed })
+if ($mode -eq 'many') {
+    $list += @(1000..1149 | ForEach-Object { [pscustomobject]@{ number = $_; title = "Задача из большого списка $_"; url = "https://github.com/$repo/issues/$_" } })
+}
 # Панель передаёт фильтр в скобках.
 if ($search -match '^\((.*)\)$') { $search = $Matches[1] }
 if ($search) {
     foreach ($token in ($search -split '\s+' | Where-Object { $_ })) {
         $list = if ($token -like 'label:*') { @($list | Where-Object { @($_.labels | ForEach-Object { $_.name }) -contains $token.Substring(6) }) }
                 elseif ($token -like 'milestone:*') { @($list | Where-Object { $_.milestone -eq $token.Substring(10) }) }
+                elseif ($token -like 'assignee:*') {
+                    $who = $token.Substring(9); if ($who -eq '@me') { $who = $operator }
+                    @($list | Where-Object { @($_.assignees) -contains $who })
+                }
                 else { @($list | Where-Object { $_.title -like "*$token*" }) }
     }
 }
-[Console]::Out.WriteLine((ConvertTo-Json -InputObject @($list | Select-Object number, title, url, labels) -Depth 4 -Compress))
+$answer = @($list | Select-Object -First $limit | ForEach-Object {
+    [pscustomobject]@{ number = $_.number; title = $_.title; url = $_.url; labels = @($_.labels | Where-Object { $_ })
+        assignees = @($_.assignees | Where-Object { $_ } | ForEach-Object { [pscustomobject]@{ login = $_ } }) }
+})
+[Console]::Out.WriteLine((ConvertTo-Json -InputObject $answer -Depth 4 -Compress))
 exit 0
 '@
     Write-Utf8 (Join-Path $Path 'gh-stub.ps1') $stub
 }
 
-# Задачи YouTrack панель читает сама, по REST с ключом из «Настроек» (B-288), и в песочнице ей отвечает свой
+# Задачи YouTrack панель читает сама, по REST с ключом из раздела «Трекеры» (B-288), и в песочнице ей отвечает свой
 # сервер на localhost — youtrack-stub.ps1 корня песочницы, его поднимает start-panel.ps1 рядом с API. Ключ
-# сервер принимает один — perm:sandbox: его оператор вводит в «Настройках», в карточке «Серверы трекеров».
+# сервер принимает один — perm:sandbox: его оператор вводит в разделе «Трекеры», в списке «Серверы трекеров».
 function New-YouTrackStub([string]$Root, [int]$Port) {
     $stub = @'
 # Подставной YouTrack песочницы на http://localhost:__PORT__/. Ключ — «perm:sandbox», владелец ключа — sandbox.operator.
-# Проекты и их незакрытые задачи на владельце ключа — youtrack-issues.json корня песочницы: объект
-# «проект: [задачи]», у задачи — номер, заголовок, состояние state и теги tags для фильтра (B-300). Новая задача
-# (перенос записи бэклога) дописывается туда следующим номером, её описание — в youtrack-created\<номер>.md.
+# Проекты и их незакрытые задачи — youtrack-issues.json корня песочницы: объект «проект: [задачи]», у задачи —
+# номер, заголовок, состояние state и теги tags для фильтра (B-300), исполнитель assignee — { login, fullName },
+# нет его — задача ничья (AKW-17). Новая задача (перенос записи бэклога) дописывается туда следующим номером,
+# назначенная на владельца ключа, её описание — в youtrack-created\<номер>.md.
 # Режим читается на каждый запрос из youtrack-mode.txt корня песочницы:
 #   ok        отвечает как YouTrack
 #   rejected  отклоняет любой ключ
@@ -899,7 +1000,7 @@ while ($listener.IsListening) {
         $path = $context.Request.Url.AbsolutePath
         $issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
         $projects = @($issues.PSObject.Properties.Name)
-        if ($path.EndsWith('/api/users/me')) { Send $context 200 @{ login = 'sandbox.operator' }; continue }
+        if ($path.EndsWith('/api/users/me')) { Send $context 200 @{ login = 'sandbox.operator'; fullName = 'Оператор песочницы' }; continue }
         if ($path.EndsWith('/api/admin/projects')) {
             $i = 0
             Send $context 200 @($projects | ForEach-Object { $i++; @{ id = "0-$i"; shortName = $_ } })
@@ -910,12 +1011,13 @@ while ($listener.IsListening) {
             $project = if ($query -match 'project: \{([^}]+)\}') { $Matches[1] } else { $null }
             $list = if ($project -and $projects -contains $project) { @($issues.$project) } else { @() }
             # Отбор описания трекера (B-300) — хвост после «#Unresolved»: поля State и tag значением или {значениями}
-            # через запятую, прочие слова — по заголовку; другое поле YouTrack отвергает, как настоящий.
+            # через запятую, Assignee — логином, «me» — владелец ключа (AKW-17), прочие слова — по заголовку; другое
+            # поле YouTrack отвергает, как настоящий.
             $tail = if ($query -match '#Unresolved\s*(.*)$') { $Matches[1].Trim() } else { '' }
             # Панель дописывает фильтр в скобках: «… #Unresolved and (<фильтр>)».
             if ($tail -match '^and \((.*)\)$') { $tail = $Matches[1].Trim() }
             $pattern = '([A-Za-z]+):\s*((?:\{[^}]*\}(?:\s*,\s*\{[^}]*\})*)|\S+)'
-            $unknown = @([regex]::Matches($tail, $pattern) | Where-Object { $_.Groups[1].Value -notin 'State', 'tag' } |
+            $unknown = @([regex]::Matches($tail, $pattern) | Where-Object { $_.Groups[1].Value -notin 'State', 'tag', 'Assignee' } |
                 ForEach-Object { $_.Groups[1].Value })
             if ($unknown.Count -gt 0) {
                 Send $context 400 @{ error = 'bad_request'; error_description = "Unknown field `"$($unknown[0])`"" }
@@ -924,13 +1026,22 @@ while ($listener.IsListening) {
             foreach ($match in [regex]::Matches($tail, $pattern)) {
                 $wanted = @([regex]::Matches($match.Groups[2].Value, '\{([^}]*)\}') | ForEach-Object { $_.Groups[1].Value.Trim() })
                 if ($wanted.Count -eq 0) { $wanted = @($match.Groups[2].Value) }
+                if ($match.Groups[1].Value -eq 'Assignee') {
+                    $wanted = @($wanted | ForEach-Object { if ($_ -eq 'me') { 'sandbox.operator' } else { $_ } })
+                    $list = @($list | Where-Object { $_.assignee -and $_.assignee.login -in $wanted })
+                    continue
+                }
                 $field = if ($match.Groups[1].Value -eq 'State') { 'state' } else { 'tags' }
                 $list = @($list | Where-Object { @($_.$field | Where-Object { $_ -in $wanted }).Count -gt 0 })
             }
             foreach ($word in ([regex]::Replace($tail, $pattern, '') -split '\s+' | Where-Object { $_ })) {
                 $list = @($list | Where-Object { $_.title -like "*$word*" })
             }
-            Send $context 200 @($list | ForEach-Object { @{ idReadable = "$project-$($_.number)"; summary = $_.title } })
+            $top = if ($context.Request.QueryString['$top']) { [int]$context.Request.QueryString['$top'] } else { 42 }
+            Send $context 200 @($list | Select-Object -First $top | ForEach-Object {
+                $assignee = if ($_.assignee) { @{ login = $_.assignee.login; fullName = $_.assignee.fullName } } else { $null }
+                @{ idReadable = "$project-$($_.number)"; summary = $_.title; customFields = @(@{ name = 'Assignee'; value = $assignee }) }
+            })
             continue
         }
         if ($path.EndsWith('/api/issues') -and $context.Request.HttpMethod -eq 'POST') {
@@ -941,7 +1052,8 @@ while ($listener.IsListening) {
             $known = @($issues.$project)
             # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
             $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
-            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary }
+            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary
+                assignee = [pscustomobject]@{ login = 'sandbox.operator'; fullName = 'Оператор песочницы' } }
             [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), $utf8)
             $created = Join-Path $root 'youtrack-created'
             New-Item -ItemType Directory -Force -Path $created | Out-Null

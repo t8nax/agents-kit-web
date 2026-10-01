@@ -1,0 +1,64 @@
+/*
+ * Пустой раздел или проект: круг пунктиром со значком, заголовок, пояснение и крупная кнопка по центру. Один вид
+ * у «Флоу» и у «Трекеров» (приёмка B-323): две копии разошлись бы при первой правке одной из них.
+ */
+.empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.empty-state-mark {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 24px;
+  color: var(--text-tertiary);
+  background: var(--bg-surface);
+  border: 1.5px dashed var(--border-strong);
+}
+
+.empty-state-mark svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.empty-state h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.empty-state > p:not([class]) {
+  margin: 0 0 28px;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-wrap: balance;
+}
+
+.empty-state .bases-btn {
+  padding: 10px 20px;
+  font-size: 14px;
+  box-shadow: 0 8px 20px -10px var(--shadow-color);
+}
+
+.empty-state .bases-btn svg {
+  width: 16px;
+  height: 16px;
+}

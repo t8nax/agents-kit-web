@@ -16,6 +16,7 @@ import './AskModal.css'
 import './Backlog.css'
 import './PerformerModal.css'
 import './ReplyModal.css'
+import './EmptyState.css'
 import './Flow.css'
 import { AttachError } from './Attachments'
 import { AGENT_NAME } from './BacklogWriteModal'
@@ -1092,8 +1093,8 @@ export default function Flow({
         // Пока запись идёт, раздел занят: действие на схеме, начатое поверх неё, шло бы от флоу, который вот-вот сменится.
         <div className={withReveal('flow-body', reveal)} aria-busy={saving} onAnimationEnd={reveal.onAnimationEnd}>
           {noFlows && tab === 'flow' && (
-            <div className="flow-empty">
-              <span className="flow-empty-mark" aria-hidden="true">
+            <div className="flow-empty empty-state">
+              <span className="empty-state-mark" aria-hidden="true">
                 <FlowIcon />
               </span>
               <h3>В этом проекте нет сценариев</h3>
@@ -1112,8 +1113,8 @@ export default function Flow({
           )}
 
           {noStages && tab === 'stages' && (
-            <div className="flow-empty">
-              <span className="flow-empty-mark" aria-hidden="true">
+            <div className="flow-empty empty-state">
+              <span className="empty-state-mark" aria-hidden="true">
                 <FlowIcon />
               </span>
               <h3>В этом проекте нет этапов</h3>

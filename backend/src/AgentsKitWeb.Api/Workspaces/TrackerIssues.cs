@@ -8,10 +8,15 @@ using System.Text.RegularExpressions;
 namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>
-/// Задача трекера, назначенная на оператора. Name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
+/// Открытая задача трекера. Name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
 /// Number — число номера. Labels — метки задачи GitHub (B-305); у YouTrack и у заведённой панелью задачи их нет.
+/// Assignee — исполнитель, как его пишет трекер: логин GitHub (несколько — через запятую), полное имя YouTrack;
+/// null — задача ничья. Mine — среди исполнителей тот, кем трекер знает оператора: вход gh, владелец ключа YouTrack
+/// (AKW-17).
 /// </summary>
-public sealed record TrackerIssue(string Name, int Number, string Title, string Url, IReadOnlyList<string>? Labels = null)
+public sealed record TrackerIssue(
+    string Name, int Number, string Title, string Url, IReadOnlyList<string>? Labels = null,
+    string? Assignee = null, bool Mine = false)
 {
     public IReadOnlyList<string>? Labels { get; init; } = Labels ?? [];
 
@@ -22,7 +27,7 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
     // Метки сравниваются по значению: задача, прочитанная дважды, — та же задача.
     public bool Equals(TrackerIssue? other) =>
         other is not null && Name == other.Name && Number == other.Number && Title == other.Title && Url == other.Url
-        && (Labels ?? []).SequenceEqual(other.Labels ?? []);
+        && (Labels ?? []).SequenceEqual(other.Labels ?? []) && Assignee == other.Assignee && Mine == other.Mine;
 
     public override int GetHashCode() => HashCode.Combine(Name, Number, Title, Url);
 }
@@ -32,7 +37,7 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// «no-keys», «unreadable»), «no-tracker». У GitHub: «gh-missing» — нет программы gh, «gh-login» — gh не вошла
 /// в аккаунт GitHub, «repo-unreachable» — репозитория нет или к нему нет доступа (GitHub их не различает),
 /// «github-error» — GitHub отказал иначе, Detail — его строка. У YouTrack: «no-key» — ключа к серверу нет
-/// в «Настройках», «key-unreadable» — ключ в «Настройках» есть, но на этом компьютере его не прочитать, «key-rejected» —
+/// в разделе «Трекеры», «key-unreadable» — ключ в разделе «Трекеры» есть, но на этом компьютере его не прочитать, «key-rejected» —
 /// сервер ключ отклонил, «key-forbidden» — ключ принят, но у его владельца нет прав
 /// на это действие, «server-silent» — сервер не ответил, «project-missing» —
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
@@ -40,10 +45,20 @@ public sealed record TrackerIssue(string Name, int Number, string Title, string 
 /// фильтр не отвергает.
 /// Labels — все метки репозитория GitHub, перечень фильтра «Метки» (B-305); null — трекер не GitHub или меток
 /// прочитать не вышло, и фильтр предлагает метки прочитанных задач.
+/// Truncated — задач больше предела Limit, и Issues — только первые из них: вкладка говорит это строкой, а не
+/// обрезает список молча (AKW-17).
 /// </summary>
 public sealed record TrackerIssues(
-    IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null, IReadOnlyList<string>? Labels = null)
+    IReadOnlyList<TrackerIssue> Issues, string? Problem = null, string? Detail = null, IReadOnlyList<string>? Labels = null,
+    bool Truncated = false)
 {
+    /// <summary>Сколько задач трекера панель показывает за раз; трекер спрашивается на одну больше — понять, есть ли ещё.</summary>
+    public const int Limit = 100;
+
+    /// <summary>Первые Limit задач прочитанного и признак, что их было больше.</summary>
+    public static TrackerIssues Read(IReadOnlyList<TrackerIssue> issues) =>
+        issues.Count > Limit ? new TrackerIssues([.. issues.Take(Limit)], Truncated: true) : new TrackerIssues(issues);
+
     public const string NoTracker = "no-tracker";
     public const string GhMissing = "gh-missing";
     public const string GhLogin = "gh-login";
@@ -77,10 +92,10 @@ public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, s
 public interface IGitHubIssues
 {
     /// <summary>
-    /// Открытые задачи репозитория «владелец/репозиторий», назначенные на того, кем gh вошла в GitHub; filter — строка
-    /// поиска GitHub из описания трекера (B-300), null — без отбора.
+    /// Открытые задачи репозитория «владелец/репозиторий», все, чьи бы ни были (AKW-17); filter — строка поиска GitHub
+    /// из описания трекера (B-300), null — без отбора. Mine — у задач, назначенных на того, кем gh вошла в GitHub.
     /// </summary>
-    Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken);
+    Task<TrackerIssues> OpenAsync(string repo, string? filter, CancellationToken cancellationToken);
 
     /// <summary>Новая задача репозитория, назначенная на того, кем gh вошла в GitHub, без меток.</summary>
     Task<CreatedIssue> CreateAsync(string repo, string title, string body);
@@ -98,21 +113,25 @@ public sealed partial class GhIssues : IGitHubIssues
 {
     public const string Gh = "gh";
 
-    private const int Limit = 100;
-
     private const int LabelLimit = 1000;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(1);
 
-    public async Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken)
+    /// <summary>
+    /// Кем gh вошла, спрашивается рядом с задачами, а не после них: по нему отмечаются свои задачи. Не узнали —
+    /// своих не отмечено, а задачи показываются: причину отказа gh назовёт чтение задач.
+    /// </summary>
+    public async Task<TrackerIssues> OpenAsync(string repo, string? filter, CancellationToken cancellationToken)
     {
+        var me = RunAsync(UserStartInfo(repo), null, cancellationToken);
         var run = await RunAsync(StartInfo(repo, filter), null, cancellationToken);
+        var who = await me;
         if (run.Missing)
             return new TrackerIssues([], TrackerIssues.GhMissing);
         if (run.TimedOut)
             return new TrackerIssues([], TrackerIssues.GitHubError, "GitHub не ответил за минуту");
         if (run.ExitCode == 0)
-            return Parse(run.Output);
+            return Parse(run.Output, who is { Missing: false, TimedOut: false, ExitCode: 0 } ? who.Output.Trim() : null);
         return Failed(run.ExitCode, run.Error);
     }
 
@@ -205,21 +224,32 @@ public sealed partial class GhIssues : IGitHubIssues
     }
 
     /// <summary>
-    /// Запуск gh: открытые задачи репозитория, назначенные на того, кем gh вошла, — «назначенные на оператора»
-    /// критерия B-277 держат именно эти ключи. Строка «фильтр:» описания трекера уходит в --search (B-300): gh
-    /// сочетает её с назначенным и состоянием. Поиск GitHub фильтр не отвергает — непонятное в нём просто ничего
-    /// не находит (проверено настоящей gh на ревью B-300: «label:», неизвестный квалификатор, 280 знаков — пустой
-    /// список с кодом 0), поэтому отказа фильтра у GitHub нет, и ошибка gh с фильтром — та же, что без него.
-    /// Фильтр — в скобках: gh склеивает его с назначенным и состоянием в одну строку поиска, и «OR» без скобок
-    /// вывел бы поиск за открытые задачи оператора — настоящая gh с «is:closed OR is:open» вернула закрытую
-    /// (ревью B-300).
+    /// Запуск gh: все открытые задачи репозитория, чьи бы ни были, — AKW-17; раньше отбор «на оператора» (B-277)
+    /// держал ключ --assignee @me, теперь «только свои» оператор пишет фильтром assignee:@me. Строка «фильтр:»
+    /// описания трекера уходит в --search (B-300): gh сочетает её с состоянием. Поиск GitHub фильтр не отвергает —
+    /// непонятное в нём просто ничего не находит (проверено настоящей gh на ревью B-300: «label:», неизвестный
+    /// квалификатор, 280 знаков — пустой список с кодом 0), поэтому отказа фильтра у GitHub нет, и ошибка gh
+    /// с фильтром — та же, что без него. Фильтр — в скобках: gh склеивает его с состоянием в одну строку поиска,
+    /// и «OR» без скобок вывел бы поиск за открытые задачи — настоящая gh с «is:closed OR is:open» вернула закрытую
+    /// (ревью B-300). Задач спрашивается на одну больше предела: так видно, что есть ещё.
     /// </summary>
     public static ProcessStartInfo StartInfo(string repo, string? filter = null) =>
         GhStartInfo(
         [
-            "issue", "list", "--repo", repo, "--assignee", "@me", "--state", "open",
+            "issue", "list", "--repo", repo, "--state", "open",
             .. string.IsNullOrWhiteSpace(filter) ? Array.Empty<string>() : ["--search", $"({filter.Trim()})"],
-            "--limit", Limit.ToString(), "--json", "number,title,url,labels",
+            "--limit", (TrackerIssues.Limit + 1).ToString(), "--json", "number,title,url,labels,assignees",
+        ]);
+
+    /// <summary>
+    /// Запуск gh: логин того, кем она вошла, на сервере репозитория — у GitHub Enterprise репозиторий начат хостом
+    /// («хост[:порт]/владелец/репозиторий»), и вход у gh на нём свой.
+    /// </summary>
+    public static ProcessStartInfo UserStartInfo(string repo) =>
+        GhStartInfo(
+        [
+            "api", "user", "--jq", ".login",
+            .. repo.Split('/') is { Length: 3 } parts ? ["--hostname", parts[0]] : Array.Empty<string>(),
         ]);
 
     /// <summary>Запуск gh: все метки репозитория по имени — перечень фильтра «Метки» (B-305).</summary>
@@ -296,13 +326,20 @@ public sealed partial class GhIssues : IGitHubIssues
         return new TrackerIssues([], TrackerIssues.GitHubError, line ?? $"gh вышла с кодом {exitCode}");
     }
 
-    public static TrackerIssues Parse(string output)
+    /// <summary>Задачи ответа gh; me — логин, которым gh вошла, по нему отмечаются свои задачи; null — не узнали.</summary>
+    public static TrackerIssues Parse(string output, string? me = null)
     {
         try
         {
             var issues = JsonSerializer.Deserialize<List<GhIssue>>(output) ?? [];
-            return new TrackerIssues(issues.Select(i => new TrackerIssue(
-                $"GitHub #{i.Number}", i.Number, i.Title, i.Url, (i.Labels ?? []).Select(l => l.Name).ToList())).ToList());
+            return TrackerIssues.Read([.. issues.Select(i =>
+            {
+                var logins = (i.Assignees ?? []).Select(a => a.Login).Where(l => !string.IsNullOrEmpty(l)).ToList();
+                return new TrackerIssue(
+                    $"GitHub #{i.Number}", i.Number, i.Title, i.Url, (i.Labels ?? []).Select(l => l.Name).ToList(),
+                    logins.Count > 0 ? string.Join(", ", logins) : null,
+                    me is { Length: > 0 } && logins.Contains(me, StringComparer.OrdinalIgnoreCase));
+            })]);
         }
         catch (JsonException)
         {
@@ -314,7 +351,10 @@ public sealed partial class GhIssues : IGitHubIssues
         [property: JsonPropertyName("number")] int Number,
         [property: JsonPropertyName("title")] string Title,
         [property: JsonPropertyName("url")] string Url,
-        [property: JsonPropertyName("labels")] List<GhLabel>? Labels = null);
+        [property: JsonPropertyName("labels")] List<GhLabel>? Labels = null,
+        [property: JsonPropertyName("assignees")] List<GhUser>? Assignees = null);
+
+    private sealed record GhUser([property: JsonPropertyName("login")] string Login);
 
     public static IReadOnlyList<string>? ParseLabels(string output)
     {

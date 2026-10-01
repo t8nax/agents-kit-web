@@ -63,14 +63,15 @@ public static partial class TaskEndpoints
                     return Results.BadRequest(new TaskStartProblem("flow-unknown"));
             }
 
-            // Задачу трекера панель перепроверяет по трекеру: закрытую или назначенную не на оператора не запускает
-            // — критерии B-277 и B-288. До проверки копии: иначе между нею и запуском вставало бы ожидание трекера.
+            // Задачу трекера панель перепроверяет по трекеру: закрытую или не подходящую под фильтр описания трекера
+            // не запускает — чью бы то ни было открытую запускает (AKW-17; раньше, на B-277 и B-288, — только
+            // назначенную на оператора). До проверки копии: иначе между нею и запуском вставало бы ожидание трекера.
             string? issueTitle = null;
             if (issue is not null)
             {
                 if (BaseLayout.Read(basePath) is not { } layout)
                     return Results.NotFound();
-                var issues = await tracker.AssignedAsync(layout, cancellationToken);
+                var issues = await tracker.OpenAsync(layout, cancellationToken);
                 if (issues.Problem is not null)
                     // Окну — код причины, его оно называет словами; строку трекера — только когда кода у причины нет
                     return Results.BadRequest(new TaskStartProblem("tracker-unavailable",
