@@ -262,3 +262,159 @@ test('падеж числа проблем', () => {
   expect(plural(21, 'ошибка', 'ошибки', 'ошибок')).toBe('21 ошибка')
   expect(plural(14, 'ошибка', 'ошибки', 'ошибок')).toBe('14 ошибок')
 })
+
+const oldBase = 'D:\\Projects\\orders-knowledge'
+const outdated: HealthSnapshot = {
+  ...checked,
+  bases: [
+    {
+      base: oldBase,
+      project: 'Orders',
+      status: 'unavailable',
+      error: 'База хранится в прежнем формате. Перевести её можно в разделе «Проблемы баз».',
+      problems: [],
+      copies: [],
+      outdated: true,
+    },
+  ],
+}
+const translated: HealthSnapshot = {
+  ...checked,
+  checkedAt: '2026-09-17T12:05:00+03:00',
+  bases: [{ base: oldBase, project: 'Orders', status: 'checked', error: null, problems: [], copies: [] }],
+}
+
+/**
+ * API раздела с переводом: migrate отвечает итогами по очереди, после удачного перевода снимок — переведённая база.
+ * Пока ответ перевода не отпущен (release), перевод идёт.
+ */
+function stubMigrate(...outcomes: string[]) {
+  let done = false
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const calls: { url: string; body: unknown }[] = []
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') calls.push({ url, body: init.body ? JSON.parse(init.body as string) : null })
+    if (url === '/api/bases/migrate') {
+      await gate
+      const outcome = outcomes.shift() ?? 'failed'
+      if (outcome === 'migrated' || outcome === 'not-pushed') done = true
+      return new Response(JSON.stringify({ outcome }), { status: 200 })
+    }
+    if (url === '/api/bases/terminal') return new Response(null, { status: 200 })
+    if (url === '/api/health/check') return new Response(null, { status: 202 })
+    return new Response(JSON.stringify(done ? translated : outdated), { status: 200 })
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return { calls, release: () => release() }
+}
+
+async function orders() {
+  return screen.findByRole('region', { name: `Orders — ${oldBase}` })
+}
+
+test('база прежнего формата — полоса с кнопкой «Перевести базу», перевод идёт сразу, кнопка недоступна', async () => {
+  const api = stubMigrate('migrated')
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  expect(within(card).getByText('база не читается')).toBeInTheDocument()
+  expect(
+    within(card).getByText(
+      'База хранится в прежнем формате, поэтому панель не может её прочитать. Переведите базу на новый формат.',
+    ),
+  ).toBeInTheDocument()
+
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  expect(await within(card).findByText('Выполняется перевод базы на новый формат.')).toBeInTheDocument()
+  expect(within(card).getByRole('button', { name: 'Перевести базу' })).toBeDisabled()
+  expect(api.calls[0]).toEqual({ url: '/api/bases/migrate', body: { base: oldBase, operator: null } })
+
+  api.release()
+  // Удачный перевод итогом не показывается: карточка просто становится обычной.
+  expect(await within(card).findByText('проблем нет')).toBeInTheDocument()
+  expect(within(card).queryByRole('status')).not.toBeInTheDocument()
+  expect(api.calls.some((c) => c.url === '/api/health/check')).toBe(true)
+})
+
+test('переведённая база не ушла на сервер — строка в обычной карточке, без кнопок', async () => {
+  const api = stubMigrate('not-pushed')
+  api.release()
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  expect(await within(card).findByText('проблем нет')).toBeInTheDocument()
+  expect(within(card).getByRole('status')).toHaveTextContent(
+    'База переведена на новый формат, но не отправлена на сервер: сервер недоступен.',
+  )
+  expect(within(card).queryByRole('button')).not.toBeInTheDocument()
+})
+
+test('кит попросил имя — поле в карточке, перевод повторяется с именем; неверное имя отвергнуто', async () => {
+  const api = stubMigrate('need-name', 'invalid-name', 'migrated')
+  api.release()
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  expect(
+    await within(card).findByText('Для перевода базы необходимо указать имя оператора этого компьютера.'),
+  ).toBeInTheDocument()
+  expect(within(card).queryByRole('button', { name: 'Перевести базу' })).not.toBeInTheDocument()
+  expect(within(card).getByText(/Имя состоит из строчных латинских букв и цифр/)).toBeInTheDocument()
+  expect(within(card).getByRole('button', { name: 'Перевести с указанным именем' })).toBeDisabled()
+
+  const name = () => within(card).getByRole('textbox', { name: 'Имя оператора этого компьютера' })
+  fireEvent.change(name(), { target: { value: 'Борис' } })
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести с указанным именем' }))
+  expect(await within(card).findByRole('alert')).toHaveTextContent('Указанное имя не соответствует требованиям.')
+  expect(name()).toHaveAttribute('aria-invalid', 'true')
+
+  fireEvent.change(name(), { target: { value: 'b-ignatyev' } })
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести с указанным именем' }))
+  expect(await within(card).findByText('проблем нет')).toBeInTheDocument()
+  expect(api.calls.filter((c) => c.url === '/api/bases/migrate').map((c) => c.body)).toEqual([
+    { base: oldBase, operator: null },
+    { base: oldBase, operator: 'Борис' },
+    { base: oldBase, operator: 'b-ignatyev' },
+  ])
+})
+
+test('перевод сорвался — одна строка без слов кита, «Повторить» и «Открыть терминал в копии»', async () => {
+  const api = stubMigrate('failed', 'migrated')
+  api.release()
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  const alert = await within(card).findByRole('alert')
+  expect(alert).toHaveTextContent(/^Не удалось перевести базу на новый формат\.ПовторитьОткрыть терминал в копии$/)
+
+  fireEvent.click(within(alert).getByRole('button', { name: 'Открыть терминал в копии' }))
+  await vi.waitFor(() => expect(api.calls.some((c) => c.url === '/api/bases/terminal')).toBe(true))
+  expect(api.calls.find((c) => c.url === '/api/bases/terminal')!.body).toEqual({ base: oldBase })
+
+  fireEvent.click(within(alert).getByRole('button', { name: 'Повторить' }))
+  expect(await within(card).findByText('проблем нет')).toBeInTheDocument()
+})
+
+test('кит старше панели — карточка ведёт обновить кит в «Настройки»', async () => {
+  const api = stubMigrate('kit-old')
+  api.release()
+  const onSettings = vi.fn()
+
+  render(<Problems onSettings={onSettings} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  expect(await within(card).findByText(/Установленная версия кита не может перевести базу/)).toBeInTheDocument()
+  fireEvent.click(within(card).getByRole('button', { name: 'Открыть настройки' }))
+  expect(onSettings).toHaveBeenCalled()
+})

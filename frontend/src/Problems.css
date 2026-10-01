@@ -205,3 +205,59 @@
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
 }
+
+/* Перевод базы прежнего формата — полосой в карточке, по макету B-314 */
+.problems-format:has(button) {
+  padding: 8px 8px 8px 16px;
+}
+
+.problems-format-text {
+  flex: 1;
+}
+
+.problems-format-error {
+  border-top-color: var(--accent-error-border);
+  background: var(--accent-error-bg);
+  color: var(--accent-error-text);
+}
+
+.problems-format-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.problems-format .kit-notice-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.kit-notice-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+  background: none;
+}
+
+.problems-migrate-name {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.problems-migrate-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.problems-migrate-row .nw-input {
+  width: 280px;
+  max-width: 100%;
+}
+
+.problems-migrate-error {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--accent-error-text);
+}

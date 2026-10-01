@@ -20,6 +20,8 @@ export type BaseHealth = {
   copies: { path: string; problems: HealthProblem[] }[]
   /** База нового формата кита: её проверяет кит, как любую, а предупреждение идёт над находками — B-281. */
   formatWarning?: string | null
+  /** База прежнего формата: панель её не читает, а переводит китом по кнопке в карточке — B-314. */
+  outdated?: boolean
 }
 
 /** Каталог кита и номер его версии; null — номер не прочитан. */
@@ -142,7 +144,7 @@ export default function Problems({ onSettings }: { onSettings: () => void }) {
             <p className="empty-message">Нет отслеживаемых баз. Базы добавляются в разделе «Настройки».</p>
           )}
           {snapshot.bases.map((base) => (
-            <BaseCard key={base.base} base={base} />
+            <BaseCard key={base.base} base={base} onMigrated={() => void check()} onSettings={onSettings} />
           ))}
         </div>
       )}
@@ -257,9 +259,61 @@ export function KitUpdateNotice({
   )
 }
 
-function BaseCard({ base }: { base: BaseHealth }) {
+/**
+ * Итог перевода базы прежнего формата — как его отдаёт POST /api/bases/migrate. Слов кита карточка не показывает:
+ * «это технические детали» — решение оператора на B-314.
+ */
+type MigrateOutcome = 'migrated' | 'not-pushed' | 'need-name' | 'invalid-name' | 'kit-old' | 'kit-missing' | 'failed'
+
+/** Перевод в карточке: running — идёт; name — имя оператора, с которым переводят, пустое — без имени. */
+type Migration = { phase: 'idle' | 'running' | MigrateOutcome; name: string; terminalFailed?: boolean }
+
+function BaseCard({
+  base,
+  onMigrated,
+  onSettings,
+}: {
+  base: BaseHealth
+  onMigrated: () => void
+  onSettings: () => void
+}) {
   const copies = base.copies.filter((copy) => copy.problems.length > 0)
   const all = [...base.problems, ...copies.flatMap((copy) => copy.problems)]
+  const [migration, setMigration] = useState<Migration>({ phase: 'idle', name: '' })
+
+  // Переводится сразу по кнопке, без подтверждения и без окна — решение оператора на B-314.
+  async function migrate(name: string) {
+    setMigration({ phase: 'running', name })
+    let phase: MigrateOutcome = 'failed'
+    try {
+      const response = await fetch('/api/bases/migrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base: base.base, operator: name.trim() || null }),
+      })
+      if (response.ok) phase = ((await response.json()) as { outcome: MigrateOutcome }).outcome
+    } catch {
+      // Нет связи с API — перевод не прошёл, как и при любом другом сбое.
+    }
+    setMigration({ phase, name })
+    onMigrated()
+  }
+
+  async function openTerminal() {
+    setMigration((m) => ({ ...m, terminalFailed: false }))
+    let opened = false
+    try {
+      const response = await fetch('/api/bases/terminal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base: base.base }),
+      })
+      opened = response.ok
+    } catch {
+      opened = false
+    }
+    if (!opened) setMigration((m) => ({ ...m, terminalFailed: true }))
+  }
 
   return (
     <section className="problems-card" aria-label={`${base.project} — ${base.base}`}>
@@ -274,6 +328,22 @@ function BaseCard({ base }: { base: BaseHealth }) {
           {base.formatWarning}
         </p>
       )}
+      {base.outdated ? (
+        <MigrateBlock
+          migration={migration}
+          onName={(name) => setMigration((m) => ({ ...m, name }))}
+          onMigrate={(name) => void migrate(name)}
+          onTerminal={() => void openTerminal()}
+          onSettings={onSettings}
+        />
+      ) : (
+        migration.phase === 'not-pushed' && (
+          <p className="problems-format" role="status">
+            <WarningIcon />
+            База переведена на новый формат, но не отправлена на сервер: сервер недоступен.
+          </p>
+        )
+      )}
       {base.status === 'failed' && (
         <p className="problems-reason">
           Скрипт кита завершился с ошибкой — число проблем этой базы неизвестно.
@@ -287,6 +357,121 @@ function BaseCard({ base }: { base: BaseHealth }) {
         <ProblemGroup key={copy.path} title={`Копия ${copy.path}`} problems={copy.problems} />
       ))}
     </section>
+  )
+}
+
+const nameHint =
+  'Имя состоит из строчных латинских букв и цифр; части имени можно разделять одиночным дефисом, например b-ignatyev.'
+
+/** Полоса перевода в карточке базы прежнего формата — по макету B-314. */
+function MigrateBlock({
+  migration,
+  onName,
+  onMigrate,
+  onTerminal,
+  onSettings,
+}: {
+  migration: Migration
+  onName: (name: string) => void
+  onMigrate: (name: string) => void
+  onTerminal: () => void
+  onSettings: () => void
+}) {
+  const { phase, name } = migration
+  // Удачный перевод итогом не показывается: пока снимок проверки не прочёл переведённую базу, полоса говорит, что
+  // перевод идёт, а потом карточка просто становится обычной.
+  if (phase === 'running' || phase === 'migrated' || phase === 'not-pushed')
+    return (
+      <div className="problems-format" role="status">
+        <WarningIcon />
+        <span className="problems-format-text">Выполняется перевод базы на новый формат.</span>
+        <button type="button" className="kit-notice-btn" disabled>
+          <span className="dw-spinner" aria-hidden="true" />
+          Перевести базу
+        </button>
+      </div>
+    )
+  if (phase === 'need-name' || phase === 'invalid-name')
+    return (
+      <>
+        <div className="problems-format" role="status">
+          <WarningIcon />
+          <span className="problems-format-text">
+            Для перевода базы необходимо указать имя оператора этого компьютера.
+          </span>
+        </div>
+        <form
+          className="problems-migrate-name"
+          onSubmit={(e) => {
+            e.preventDefault()
+            onMigrate(name)
+          }}
+        >
+          <div className="problems-migrate-row">
+            <input
+              className="nw-input"
+              type="text"
+              aria-label="Имя оператора этого компьютера"
+              aria-invalid={phase === 'invalid-name'}
+              spellCheck={false}
+              value={name}
+              onChange={(e) => onName(e.target.value)}
+            />
+            <button type="submit" className="bases-btn" disabled={name.trim() === ''}>
+              Перевести с указанным именем
+            </button>
+          </div>
+          {phase === 'invalid-name' && (
+            <p className="problems-migrate-error" role="alert">
+              Указанное имя не соответствует требованиям.
+            </p>
+          )}
+          <p className="nw-hint">{nameHint}</p>
+        </form>
+      </>
+    )
+  if (phase === 'failed')
+    return (
+      <div className="problems-format problems-format-error" role="alert">
+        <WarningIcon />
+        <span className="problems-format-text">
+          Не удалось перевести базу на новый формат.
+          {migration.terminalFailed && ' Терминал не открылся.'}
+        </span>
+        <div className="problems-format-actions">
+          <button type="button" className="bases-btn bases-btn-small" onClick={() => onMigrate(name)}>
+            Повторить
+          </button>
+          <button type="button" className="bases-btn bases-btn-small" onClick={onTerminal}>
+            Открыть терминал в копии
+          </button>
+        </div>
+      </div>
+    )
+  if (phase === 'kit-old' || phase === 'kit-missing')
+    return (
+      <div className="problems-format" role="status">
+        <WarningIcon />
+        <span className="problems-format-text">
+          {phase === 'kit-old'
+            ? 'Установленная версия кита не может перевести базу на формат, который поддерживает панель. Обновите кит в разделе «Настройки».'
+            : 'Для перевода базы необходимо указать путь к киту в разделе «Настройки».'}
+        </span>
+        <button type="button" className="kit-notice-btn" onClick={onSettings}>
+          Открыть настройки
+        </button>
+      </div>
+    )
+  return (
+    <div className="problems-format" role="status">
+      <WarningIcon />
+      <span className="problems-format-text">
+        База хранится в прежнем формате, поэтому панель не может её прочитать. Переведите базу на новый формат.
+      </span>
+      <button type="button" className="kit-notice-btn" onClick={() => onMigrate(name)}>
+        Перевести базу
+      </button>
+    </div>
   )
 }
 
