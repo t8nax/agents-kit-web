@@ -68,12 +68,12 @@ public sealed class TrackerCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task YouTrack_NoKey_BlamesServer()
+    public async Task YouTrack_NoKey_BlamesKey()
     {
         var check = await Tracker().CheckAsync(
             Described with { Tracker = "YouTrack", Server = "https://acme.youtrack.cloud", Project = "PAY" }, CancellationToken.None);
 
-        Assert.Equal(new TrackerCheck(true, "server", TrackerIssues.NoKey), check);
+        Assert.Equal(new TrackerCheck(true, "key", TrackerIssues.NoKey), check);
         Assert.Empty(_youTrack.Read);
     }
 
@@ -111,7 +111,7 @@ public sealed class TrackerCheckTests : IDisposable
         var check = await Tracker().CheckAsync(
             Described with { Tracker = "Jira", Server = "https://acme.atlassian.net", Project = "PAY" }, CancellationToken.None);
 
-        Assert.Equal(new TrackerCheck(true, "server", TrackerIssues.NoKey), check);
+        Assert.Equal(new TrackerCheck(true, "key", TrackerIssues.NoKey), check);
         Assert.Empty(_jira.Read);
     }
 

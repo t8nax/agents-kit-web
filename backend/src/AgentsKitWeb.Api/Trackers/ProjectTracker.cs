@@ -13,6 +13,9 @@ public sealed record TrackerCheck(bool Checked, string? Field = null, string? Pr
     public bool Passed => Problem is null;
 }
 
+/// <summary>Ключ к серверу трекера и почта, с которой он входит в Jira (у YouTrack — null).</summary>
+public sealed record ServerKey(string Key, string? Email);
+
 /// <summary>
 /// Трекер проекта, как его называет описание трекера базы: GitHub панель читает программой gh оператора (B-277),
 /// YouTrack — своим клиентом с ключом из раздела «Трекеры» (B-288), облачную Jira — своим клиентом с почтой
@@ -43,50 +46,78 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
     /// Проверка описания перед записью — решение оператора на B-293: у GitHub, YouTrack и Jira панель читает
     /// открытые задачи названных трекера и проекта — тем же разбором, которым прочтёт записанный файл;
     /// у GitLab проверить нечем, и Checked — false. Не прочитала — Problem, как у задач «Бэклога», и Field —
-    /// поле окна, к которому причина относится: server, project или filter — трекер не принял строку фильтра (B-300);
-    /// причина вне полей (нет gh) — null. Отбор, который сейчас ничего не нашёл, проверку проходит: задач по нему
-    /// может просто не быть, и «Бэклог» скажет это сам — ответ оператора на B-300.
+    /// поле окна, к которому причина относится: server, project, key — ключ к серверу (B-285) — или filter — трекер не
+    /// принял строку фильтра (B-300); причина вне полей (нет gh) — null. Отбор, который сейчас ничего не нашёл, проверку
+    /// проходит: задач по нему может просто не быть, и «Бэклог» скажет это сам — ответ оператора на B-300.
+    /// key — ключ и почта, которые оператор ввёл в окне: проверяется ими, а не сохранёнными (B-285); null — сохранёнными.
     /// </summary>
-    public async Task<TrackerCheck> CheckAsync(TrackerDescription description, CancellationToken cancellationToken)
+    public async Task<TrackerCheck> CheckAsync(
+        TrackerDescription description, CancellationToken cancellationToken, ServerKey? key = null)
     {
         var tracker = Tracker.Parse(TrackerDescriptions.Serialize(description, "Проверка"));
         if (!Readable(tracker))
             return new TrackerCheck(false);
 
-        var issues = await OpenAsync(tracker, cancellationToken);
+        var issues = await OpenAsync(tracker, cancellationToken, key);
         return issues.Problem switch
         {
             null => new TrackerCheck(true),
             TrackerIssues.RepoUnreachable or TrackerIssues.ProjectMissing =>
                 new TrackerCheck(true, "project", issues.Problem, issues.Detail),
             TrackerIssues.FilterRejected => new TrackerCheck(true, "filter", issues.Problem, issues.Detail),
+            TrackerIssues.NoKey or TrackerIssues.KeyRejected or TrackerIssues.KeyUnreadable or TrackerIssues.KeyForbidden =>
+                new TrackerCheck(true, "key", issues.Problem, issues.Detail),
             TrackerIssues.GhMissing or TrackerIssues.GhLogin =>
                 new TrackerCheck(true, null, issues.Problem, issues.Detail),
             _ => new TrackerCheck(true, "server", issues.Problem, issues.Detail),
         };
     }
 
-    private async Task<TrackerIssues> OpenAsync(TrackerInfo? tracker, CancellationToken cancellationToken) =>
+    private async Task<TrackerIssues> OpenAsync(TrackerInfo? tracker, CancellationToken cancellationToken, ServerKey? given = null) =>
         tracker switch
         {
             null => new TrackerIssues([], TrackerIssues.NoTracker),
             { GitHubRepo: { } repo } => await github.OpenAsync(repo, tracker.Filter, cancellationToken),
             { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
-                KeyOf(server, out var problem) is { } key
+                KeyOf(server, given, out var problem) is { } key
                     ? await youTrack.OpenAsync(server, key.Key, project, tracker.Filter, cancellationToken)
                     : new TrackerIssues([], problem),
             { Kind: TrackerInfo.Jira, Server: { } server, Project: { } project } =>
-                KeyOf(server, out var problem, email: true) is { } key
+                KeyOf(server, given, out var problem, email: true) is { } key
                     ? await jira.OpenAsync(server, key.Email!, key.Key, project, tracker.Filter, cancellationToken)
                     : new TrackerIssues([], problem),
             var other => new TrackerIssues([], other.Kind),
         };
 
+    /// <summary>Ключ, введённый в окне трекера, а без него — сохранённый.</summary>
+    private ServerKey? KeyOf(string server, ServerKey? given, out string? problem, bool email = false)
+    {
+        problem = null;
+        return given ?? KeyOf(server, out problem, email);
+    }
+
     /// <summary>Трекер, задачи которого панель читает своим кодом.</summary>
     private static bool Readable(TrackerInfo tracker) =>
         tracker.Kind is TrackerInfo.GitHub or TrackerInfo.YouTrack or TrackerInfo.Jira;
 
-    private sealed record ServerKey(string Key, string? Email);
+    /// <summary>Трекер, к серверу которого нужен ключ из панели: YouTrack и Jira; у GitHub вход — у программы gh.</summary>
+    public static bool NeedsKey(string kind) => kind is TrackerInfo.YouTrack or TrackerInfo.Jira;
+
+    /// <summary>
+    /// Кому принадлежит ключ к серверу трекера — им проверяется ключ, введённый в окне трекера проекта, прежде чем
+    /// его сохранить (решение оператора на B-288). У Jira владелец назван почтой, у YouTrack — логином.
+    /// </summary>
+    public async Task<(string? Login, string? Problem, string? Detail)> OwnerAsync(
+        string kind, string server, ServerKey key, CancellationToken cancellationToken)
+    {
+        if (kind == TrackerInfo.Jira)
+        {
+            var who = await jira.WhoAsync(server, key.Email ?? "", key.Key, cancellationToken);
+            return (who.Name, who.Problem, who.Detail);
+        }
+        var user = await youTrack.WhoAsync(server, key.Key, cancellationToken);
+        return (user.Login, user.Problem, user.Detail);
+    }
 
     /// <summary>
     /// Ключ сервера YouTrack или Jira. Нет его — почему: сервера нет среди сохранённых (no-key) или ключ не прочитать —
