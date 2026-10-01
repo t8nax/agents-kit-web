@@ -114,9 +114,9 @@ export default function BacklogWriteModal({
   const [chosen, setChosen] = useState<string | null>(
     subject?.base ?? writable(initialBase) ?? bases.find((b) => !b.closed)?.base ?? bases[0]?.base ?? null,
   )
-  // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть. У окна от «В трекер» —
-  // готовая просьба о переносе.
-  const [text, setText] = useState<string | null>(request)
+  // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть. Готовую просьбу окна от
+  // «В трекер» поле получает, когда окно решило, что разговор — про эту запись (ниже, у решения о разговоре).
+  const [text, setText] = useState<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
@@ -302,6 +302,10 @@ export default function BacklogWriteModal({
           ? 'ask'
           : 'other'
     setVerdict(next)
+    // Просьба о переносе — только в разговоре про запись кнопки и только пока перенос по ней не начат: в разговоре,
+    // где задача уже ждёт файлов, она завела бы задачу второй раз (ревью AKW-15)
+    if (next === 'none' || next === 'other' || (next === 'same' && !moveStarted(events, subject.entry.number)))
+      setText(request)
     if (next === 'ask') {
       setOwn(null)
       setAsking({
@@ -440,7 +444,7 @@ export default function BacklogWriteModal({
                   <EntryCard entry={about} badge={moved ? 'перенесена' : 'удалена'} tone="added" removed />
                 ) : (
                   // Окно от «В трекер»: файлы записи в задачу сами не попадут — макет AKW-15, вариант 1А
-                  <EntryCard entry={about} base={base} warn={request !== null ? filesWarning(about) : null} />
+                  <EntryCard entry={about} base={base} warn={request !== null && own === subject && !moveStarted(events, about.number) ? filesWarning(about) : null} />
                 )}
               </ul>
             </div>
@@ -844,6 +848,11 @@ function filesWarning(entry: WrittenEntry): string | null {
   return files.length === 1
     ? `Файл ${list} в задачу сам не попадёт — ${AGENT_NAME} попросит прикрепить его вручную.`
     : `Файлы ${list} в задачу сами не попадут — ${AGENT_NAME} попросит прикрепить их вручную.`
+}
+
+/** Чудо-Юдо уже переносил эту запись в трекер: задача заведена — ждёт файлов или запись вырезана. */
+function moveStarted(events: WriteEvent[], number: string | null): boolean {
+  return events.some((e) => e.type === 'answer' && (e.moves ?? []).some((m) => m.number === number))
 }
 
 /** Последний перенос записи в трекер, уже вырезавший её из бэклога. */

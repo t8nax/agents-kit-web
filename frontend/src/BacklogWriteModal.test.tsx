@@ -667,6 +667,40 @@ test('«Изменить» у другой записи при ждущем пр
   expect(deletes).toEqual([])
 })
 
+test('«В трекер» при ждущем предложении о другой записи: «Отмена» оставляет прежний разговор без чужой просьбы и предупреждения', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, { running: runningRequest('backlog', 'убери', bases[0].base, 'Agents Kit Web') })
+  renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
+
+  stream.send({ type: 'reply', text: 'убери' })
+  stream.send(answer({ text: 'Сохраню, когда скажете.', proposal }))
+  const asking = await screen.findByRole('alertdialog', { name: 'Начать переписку про B-281?' })
+  fireEvent.click(within(asking).getByRole('button', { name: 'Отмена' }))
+
+  expect(await screen.findByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
+  expect(screen.queryByText(/в задачу сами не попадут/)).not.toBeInTheDocument()
+})
+
+test('«В трекер» у записи, задача по которой уже ждёт файлов, просьбу о переносе в поле не кладёт', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, { running: runningRequest('backlog', moveRequest, bases[0].base, 'Agents Kit Web', 0, 'B-281') })
+  renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
+
+  stream.send({ type: 'reply', text: moveRequest, number: 'B-281' })
+  stream.send(
+    answer({
+      text: 'Прикрепите файлы.',
+      moves: [{ number: 'B-281', entry: B281, issue: { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' }, waiting: true, files: [] }],
+    }),
+  )
+
+  expect(await screen.findByText('задача заведена, ждёт файлов')).toBeInTheDocument()
+  const field = screen.getByLabelText('Просьба к Чудо-Юдо')
+  await waitFor(() => expect(field).toBeEnabled())
+  expect(field).toHaveValue('')
+  expect(screen.queryByText(/в задачу сами не попадут/)).not.toBeInTheDocument()
+})
+
 test('«Начать про …» выбрасывает ждущее предложение и начинает разговор про запись', async () => {
   const stream = controlledStream<WriteEvent>()
   const { deletes, posts } = stubFetch(stream, {
