@@ -93,6 +93,25 @@ public static class BaseGit
         return run.ExitCode == 0 && run.Output.Split('\n').Any(line => line.Trim().Equals(file, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>Отслеживаемые файлы, удалённые с диска или из индекса и не закоммиченные; пути от корня через «/». null — git не ответил.</summary>
+    public static async Task<IReadOnlyList<string>?> DeletedAsync(string basePath, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(
+            basePath, Timeout, cancellationToken, "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=D", "HEAD");
+        return run.ExitCode == 0
+            ? run.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(line => !line.StartsWith("warning:", StringComparison.OrdinalIgnoreCase))
+                .ToList()
+            : null;
+    }
+
+    /// <summary>Возвращает удалённые файлы, как они лежат в последнем коммите: и на диск, и в индекс.</summary>
+    public static async Task<string?> RestoreAsync(string basePath, IReadOnlyList<string> files, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(basePath, Timeout, cancellationToken, ["restore", "--staged", "--worktree", "--source=HEAD", "--", .. files]);
+        return run.ExitCode == 0 ? null : run.Output;
+    }
+
     /// <summary>Файл базы изменён и не закоммичен. null — git не ответил.</summary>
     public static async Task<bool?> IsDirtyAsync(string basePath, string file, CancellationToken cancellationToken)
     {

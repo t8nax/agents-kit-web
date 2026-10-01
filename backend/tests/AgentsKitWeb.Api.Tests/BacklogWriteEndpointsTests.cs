@@ -882,6 +882,34 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.DoesNotContain("сам изменил", error.Text);
     }
 
+    /// <summary>
+    /// Правило удаления файлов пускает и лишний путь в той же команде: удалённое мимо коммита панель возвращает
+    /// и говорит об этом, а не принимает ответ (проба AKW-15).
+    /// </summary>
+    [Fact]
+    public async Task Answer_FileDeletedWithoutCommit_IsRestoredAndReported()
+    {
+        GitHubTracker();
+        File.WriteAllText(Path.Combine(_personal, "autonomy.md"), "# Рамки\n");
+        TestGit.Run(_personal, "add", "autonomy.md");
+        TestGit.Run(_personal, "commit", "-m", "рамки");
+        _agent.Answers = [[Result("Готово.")]];
+        _agent.BeforeLine = _ =>
+        {
+            TestGit.Run(_personal, "rm", "-q", "--", "autonomy.md");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "перенёс");
+        var error = (await Read(client, 2))[1];
+
+        Assert.Equal("error", error.Type);
+        Assert.Equal("Чудо-Юдо удалил файлы личного репозитория, не закоммитив: autonomy.md — панель вернула их", error.Text);
+        Assert.Equal("# Рамки\n", File.ReadAllText(Path.Combine(_personal, "autonomy.md")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
     /// <summary>Запись с файлом агент вырезает вместе с файлом: git rm и коммит с artifacts — итог «перенесена» с её файлами.</summary>
     [Fact]
     public async Task Answer_MovedEntryWithFileCutWithIt_IsMoveWithFiles()

@@ -800,6 +800,17 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return new BacklogWriteEvent("error", answer?.Text ?? "", entries, Output: answer?.Output);
 
         var output = said.Length > 0 ? said : null;
+        // Правило удаления файлов перенесённой записи пускает и лишний путь в той же команде (проба AKW-15), а коммит
+        // агенту разрешён только с backlog.md и artifacts: удалённое мимо коммита панель возвращает и говорит об этом.
+        if (await BaseGit.DeletedAsync(basePath, CancellationToken.None) is { Count: > 0 } deleted)
+        {
+            var back = await BaseGit.RestoreAsync(basePath, deleted, CancellationToken.None);
+            return new BacklogWriteEvent(
+                "error",
+                $"{AgentRequests.AgentName} удалил файлы личного репозитория, не закоммитив: {string.Join(", ", deleted)} — "
+                + (back is null ? "панель вернула их" : $"вернуть их не вышло: {back}"),
+                entries, Output: output);
+        }
         // Итог переноса не по форме — раньше самовольной правки: запись, вырезанная переносом, иначе выглядела бы
         // правкой без «Сохранить», и оператор перенёс бы её снова — дублем задачи (ревью AKW-15).
         if (unclear is not null)
@@ -1048,7 +1059,7 @@ public static class BacklogWriteEndpoints
         var personal = BaseLayout.PersonalOf(basePath);
         var backlog = Path.Combine(personal, BacklogFile);
         // Команда коммита — одна строка и для правила, и для промпта: правило PowerShell со звёздочкой
-        // не совпадает с командой git ни в каком виде, совпадает только записанная целиком. Поэтому
+        // с командой git commit не совпало ни в каком виде, совпадает только записанная целиком. Поэтому
         // сообщение коммита пишет панель, а не агент: его текст — часть разрешённой команды. Коммит — в git
         // личного репозитория: у него свой git, а local\ общая база не видит.
         var commit = $"git -C \"{personal}\" commit -m \"{CommitMessage}\" -- {BacklogFile}";
@@ -1056,7 +1067,9 @@ public static class BacklogWriteEndpoints
         // а правило пускает только команду целиком — поэтому вторая команда берёт каталог.
         var withFiles = $"{commit} {ArtifactFiles.Folder}";
         // Файлы записи, ушедшей в трекер, агент удаляет тем же коммитом, что и запись: файл без ссылки кит не пропустит.
-        // Имя файла правилом не угадать, поэтому оно со звёздочкой — у git rm она совпадает (проба AKW-15).
+        // Имя файла правилом не угадать, поэтому оно со звёздочкой — у git rm она совпадает (проба AKW-15). Цепочку
+        // команд режим dontAsk и с ней не пускает, а лишний путь в той же команде пускает: удалённое мимо коммита
+        // панель возвращает после хода (ReadOutcomeAsync).
         var remove = $"git -C \"{personal}\" rm -q -- {ArtifactFiles.Folder}/";
         var reachable = tracker is { Reachable: true };
         var track = tracker is null
