@@ -35,6 +35,18 @@ public sealed class TaskSessions(string file)
         }
     }
 
+    /// <summary>Забывает сессию задачи копии: задачу откатили, и сессией задачи копии она больше не числится.</summary>
+    public void Forget(string copyPath)
+    {
+        lock (_lock)
+        {
+            var all = Read();
+            var left = all.Where(s => !Same(s.Copy, copyPath)).ToList();
+            if (left.Count != all.Count)
+                Write(left);
+        }
+    }
+
     private static bool Same(string a, string b) =>
         string.Equals(WorkspaceCollector.Normalize(a), WorkspaceCollector.Normalize(b), StringComparison.OrdinalIgnoreCase);
 

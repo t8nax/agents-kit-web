@@ -167,6 +167,7 @@ app.MapRemoveWorkspaceEndpoints();
 app.MapReportEndpoints();
 app.MapSessionsEndpoints();
 app.MapTaskEndpoints();
+app.MapTaskRollbackEndpoints();
 app.MapTrackerServersEndpoints();
 app.MapProjectTrackersEndpoints();
 app.MapTrackerRewriteEndpoints();
