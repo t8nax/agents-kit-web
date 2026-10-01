@@ -143,6 +143,13 @@ export default function PerformerModal({ bases, initial, editing, talking = fals
   // Нового без задания не записать: исполнитель без задания ничего не умеет. У заведённого модель
   // и инструменты правятся, даже если задание в его файле пустое.
   const hasBasis = editing !== null || prompt.trim().length > 0
+  // У заведённого «Сохранить» горит только после правки: сохранять поля, какими их открыли, нечего (B-333).
+  const unchanged =
+    editing !== null &&
+    description.trim() === (editing.description ?? '').trim() &&
+    model === (editing.model ?? '') &&
+    chosenTools.trim() === (editing.tools ?? '').trim() &&
+    prompt.trim() === (editing.prompt ?? '').trim()
   function revert() {
     if (before) {
       setName(before.name ?? '')
@@ -158,7 +165,7 @@ export default function PerformerModal({ bases, initial, editing, talking = fals
 
   async function save(event: FormEvent) {
     event.preventDefault()
-    if (busy || !trimmed || occupied || !hasBasis) return
+    if (busy || !trimmed || occupied || !hasBasis || unchanged) return
     setBusy(true)
     setFailure(null)
     try {
@@ -489,8 +496,8 @@ export default function PerformerModal({ bases, initial, editing, talking = fals
               <button
                 type="submit"
                 className="btn btn-primary"
-                disabled={frozen || !trimmed || occupied || !hasBasis}
-                title={closed ?? undefined}
+                disabled={frozen || !trimmed || occupied || !hasBasis || unchanged}
+                title={closed ?? (unchanged ? 'Изменений нет' : undefined)}
               >
                 {busy ? 'Сохраняется…' : 'Сохранить'}
               </button>
