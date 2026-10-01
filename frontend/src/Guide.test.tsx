@@ -36,7 +36,7 @@ test('частые случаи стоят карточками, а «Назад
   openPage('Рабочие копии')
 
   const cases = screen.getByRole('heading', { name: 'Частые случаи', level: 2 }).closest('section')!
-  expect(cases.querySelectorAll('.guide-card')).toHaveLength(5)
+  expect(cases.querySelectorAll('.guide-card')).toHaveLength(6)
 
   const pager = within(screen.getByRole('navigation', { name: 'Соседние страницы' }))
   expect(pager.getByRole('button', { name: /Назад/ })).toBeInTheDocument()
