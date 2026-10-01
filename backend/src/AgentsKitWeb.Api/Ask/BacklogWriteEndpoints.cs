@@ -800,6 +800,17 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return new BacklogWriteEvent("error", answer?.Text ?? "", entries, Output: answer?.Output);
 
         var output = said.Length > 0 ? said : null;
+        // Итог переноса не по форме — раньше самовольной правки: запись, вырезанная переносом, иначе выглядела бы
+        // правкой без «Сохранить», и оператор перенёс бы её снова — дублем задачи (ревью AKW-15).
+        if (unclear is not null)
+        {
+            var gone = before.Where(b => b.Number is not null && after.All(a => a.Number != b.Number)).Select(b => b.Number!).ToList();
+            return new BacklogWriteEvent(
+                "error",
+                $"{AgentRequests.AgentName} назвал итог переноса, который панель не поняла: {unclear}"
+                + (gone.Count > 0 ? $". Из бэклога ушли записи {string.Join(", ", gone)} — проверьте трекер, прежде чем переносить их снова" : ""),
+                entries, Output: output);
+        }
         var dirty = await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
         if (touched.Count > 0)
         {
@@ -820,8 +831,6 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         if (dirty == true)
             return new BacklogWriteEvent("error", "Бэклог изменён, но backlog.md не закоммичен", entries, Output: output);
 
-        if (unclear is not null)
-            return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} назвал итог переноса, который панель не поняла: {unclear}", entries, Output: output);
         var (moves, wrongMove) = Moves(moved, before, after, text);
         if (wrongMove is not null)
             return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} назвал итог переноса, который не сходится с бэклогом: {wrongMove}", entries, Output: output);

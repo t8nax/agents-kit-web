@@ -861,6 +861,60 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Equal("Чудо-Юдо назвал итог переноса, который панель не поняла: Непонятная строка итога переноса: «перенесена B-2 куда-то»", error.Text);
     }
 
+    /// <summary>
+    /// Агент вырезал перенесённую запись, а итог написал не по форме — адрес в угловых скобках, как в шаблоне промпта:
+    /// это непонятый итог, а не самовольная правка, и оператору названа ушедшая запись (ревью AKW-15).
+    /// </summary>
+    [Fact]
+    public async Task Answer_MoveBlockNotByFormAfterCut_IsNotUnderstoodAndNamesGoneEntry()
+    {
+        GitHubTracker();
+        _agent.Answers = [[Result("~~~backlog\nперенесена B-2 в GitHub #37 <https://github.com/acme/orders/issues/37>\n~~~")]];
+        AgentCutsSecondEntry();
+        var client = Client(_base);
+
+        await Start(client, "перенеси B-2 в трекер");
+        var error = (await Read(client, 2))[1];
+
+        Assert.Equal("error", error.Type);
+        Assert.StartsWith("Чудо-Юдо назвал итог переноса, который панель не поняла: Непонятная строка итога переноса:", error.Text);
+        Assert.EndsWith("Из бэклога ушли записи B-2 — проверьте трекер, прежде чем переносить их снова", error.Text);
+        Assert.DoesNotContain("сам изменил", error.Text);
+    }
+
+    /// <summary>Запись с файлом агент вырезает вместе с файлом: git rm и коммит с artifacts — итог «перенесена» с её файлами.</summary>
+    [Fact]
+    public async Task Answer_MovedEntryWithFileCutWithIt_IsMoveWithFiles()
+    {
+        GitHubTracker();
+        var withFile = "## B-2 Вторая запись\n\nТекст второй записи.\n\n### Артефакты\n- снимок: artifacts/B-2-снимок.png\n";
+        File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(SecondEntry, withFile));
+        Directory.CreateDirectory(Path.Combine(_personal, "artifacts"));
+        File.WriteAllBytes(Path.Combine(_personal, "artifacts", "B-2-снимок.png"), [1, 2, 3]);
+        TestGit.Run(_personal, "add", ".");
+        TestGit.Run(_personal, "commit", "-m", "артефакты");
+        _agent.Answers = [[Result("~~~backlog\nперенесена B-2 в GitHub #37 https://github.com/acme/orders/issues/37\n~~~")]];
+        _agent.BeforeLine = _ =>
+        {
+            File.WriteAllText(BacklogPath, File.ReadAllText(BacklogPath).Replace(withFile, "").TrimEnd() + "\n");
+            TestGit.Run(_personal, "rm", "-q", "--", "artifacts/B-2-снимок.png");
+            TestGit.Run(_personal, "commit", "-m", BacklogWriteEndpoints.CommitMessage, "--", "backlog.md", "artifacts");
+            return Task.CompletedTask;
+        };
+        var client = Client(_base);
+
+        await Start(client, "перенёс снимок");
+        var answer = (await Read(client, 2))[1];
+
+        Assert.Equal("answer", answer.Type);
+        var move = Assert.Single(answer.Moves!);
+        Assert.False(move.Waiting);
+        Assert.Equal(["artifacts/B-2-снимок.png"], move.Files);
+        Assert.Equal(Git("log", "-1", "--format=%h"), answer.Commit);
+        Assert.False(File.Exists(Path.Combine(_personal, "artifacts", "B-2-снимок.png")));
+        Assert.Equal("", Git("status", "--porcelain"));
+    }
+
     [Fact]
     public async Task Answer_TrackCommandIsNoLongerProposal()
     {
