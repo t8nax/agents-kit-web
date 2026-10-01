@@ -190,6 +190,60 @@ public sealed class TrackerRewriteTests : IDisposable
         var input = Text(_agent.Input[1]);
         Assert.StartsWith("Оператор:\nacme/orders", input);
         Assert.Contains("Руками: gh.", input);
+        Assert.DoesNotContain("Твоё последнее предложение", input);
+    }
+
+    /// <summary>
+    /// Непринятое предложение не теряется: окно трекера осталось прежним, а агент получает своё предложение рядом с ним
+    /// и правит его; «В изменениях» сверяется с ним, а не с окном — как у исполнителя (ревью B-323).
+    /// </summary>
+    [Fact]
+    public async Task Reply_BeforeAccept_CarriesPendingProposalAndComparesWithIt()
+    {
+        var proposed = GitHub with { Project = "acme/crm" };
+        var filtered = proposed with { Filter = "label:bug" };
+        _agent.Answers = [
+            [Result("Поменял проект.\n=== описание\n" + TrackerDescriptions.Serialize(proposed, "Order Service"))],
+            [Result("Добавил фильтр.\n=== описание\n" + TrackerDescriptions.Serialize(filtered, "Order Service"))],
+        ];
+        var client = await Client();
+        await Start(client, "Проект теперь acme/crm", GitHub);
+        await Read(client, 2);
+
+        await client.PostAsJsonAsync("/api/trackers/rewrite/reply", new TrackerRewriteReply("Поставь ещё фильтр label:bug", GitHub));
+        var events = await Read(client, 4);
+
+        var input = Text(_agent.Input[1]);
+        Assert.Contains("Описание в окне сейчас:", input);
+        Assert.Contains("проект: acme/orders", input);
+        Assert.Contains("Твоё последнее предложение", input);
+        Assert.Contains("проект: acme/crm", input);
+        Assert.Equal(filtered, events[3].Proposal);
+        // Сверка с прошлым предложением: поменялась одна строка — фильтр, а не проект вместе с ним.
+        Assert.Equal(new TrackerChanged(1, 0), events[3].Changed);
+    }
+
+    /// <summary>Кончившийся агент не теряет разговора целиком: новый получает окно и непринятое предложение (ревью B-323).</summary>
+    [Fact]
+    public async Task Reply_AfterAgentEnded_RaisesNewAgentWithWindowAndProposal()
+    {
+        _agent.StopAfterRun[0] = 1;
+        var proposed = GitHub with { Project = "acme/crm" };
+        _agent.Answers = [[Result("Вот.\n=== описание\n" + TrackerDescriptions.Serialize(proposed, "Order Service"))], [Result("Понял.")]];
+        var client = await Client();
+        await Start(client, "Проект теперь acme/crm", GitHub);
+        await Read(client, 2);
+
+        var reply = await client.PostAsJsonAsync("/api/trackers/rewrite/reply", new TrackerRewriteReply("Ещё раз", GitHub with { Where = "Руками." }));
+        await Read(client, 5);
+
+        Assert.Equal(HttpStatusCode.NoContent, reply.StatusCode);
+        Assert.Equal(2, _agent.Starts.Count);
+        var input = Text(_agent.Input[1]);
+        Assert.StartsWith("Просьба оператора:\nЕщё раз", input);
+        Assert.Contains("Руками.", input);
+        Assert.Contains("Твоё последнее предложение", input);
+        Assert.Contains("проект: acme/crm", input);
     }
 
     [Fact]

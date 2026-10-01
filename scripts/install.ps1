@@ -68,11 +68,12 @@ function Install-AgentsKitPanel {
         } | Select-Object -First 1
     }
 
-    # Вход в аккаунт — ключ доступа в профиле Claude Code, тот же, по которому панель читает лимиты.
+    # О входе в аккаунт спрашивается сам Claude Code: ключ входа подписки Anthropic разрешает читать только
+    # своим приложениям (B-329). Без входа команда отвечает loggedIn: false с кодом 1.
     function Test-ClaudeLogin {
-        $file = Join-Path $env:USERPROFILE '.claude\.credentials.json'
-        if (-not (Test-Path $file)) { return $false }
-        try { return [bool](Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json).claudeAiOauth.accessToken }
+        # С Stop Windows PowerShell 5.1 бросает на любую строку stderr внешней программы.
+        $ErrorActionPreference = 'Continue'
+        try { return [bool]((claude auth status 2>$null | Out-String) | ConvertFrom-Json).loggedIn }
         catch { return $false }
     }
 

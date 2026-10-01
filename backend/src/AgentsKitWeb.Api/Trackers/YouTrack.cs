@@ -12,7 +12,7 @@ public sealed record YouTrackUser(string? Login, string? Problem = null, string?
 
 public interface IYouTrack
 {
-    /// <summary>Кому принадлежит ключ: им проверяется ключ при сохранении в «Настройках».</summary>
+    /// <summary>Кому принадлежит ключ: им проверяется ключ при сохранении в разделе «Трекеры».</summary>
     Task<YouTrackUser> WhoAsync(string server, string key, CancellationToken cancellationToken);
 
     /// <summary>
@@ -26,7 +26,7 @@ public interface IYouTrack
 }
 
 /// <summary>
-/// YouTrack панель читает сама, по REST с постоянным токеном оператора из «Настроек»: программы, в которую
+/// YouTrack панель читает сама, по REST с постоянным токеном оператора из раздела «Трекеры»: программы, в которую
 /// оператор вошёл бы, как в gh, у YouTrack нет — решение оператора на B-288. Проект описание трекера называет
 /// коротким именем (ID проекта), а заводит задачу REST по внутреннему id — его панель ищет среди проектов,
 /// видимых владельцу ключа; не нашла — проекта нет или к нему нет доступа.
@@ -37,7 +37,7 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
 
     private const int Limit = 100;
 
-    // Чтение ждёт недолго, как у лимитов: раздел не должен висеть на открытии. Заведение — дольше: оборванное,
+    // Чтение ждёт недолго: раздел не должен висеть на открытии. Заведение — дольше: оборванное,
     // оно могло завести задачу, и оператору пришлось бы её искать.
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CreateTimeout = TimeSpan.FromMinutes(1);

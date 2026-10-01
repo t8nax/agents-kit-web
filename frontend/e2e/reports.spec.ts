@@ -64,7 +64,7 @@ async function openReports(page: Page) {
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Отчёты' }).click()
 }
 
-test('«Отчёты» стоят в сайдбаре сразу за «Расходом»', async ({ page }) => {
+test('«Отчёты» стоят в сайдбаре сразу за «Сессиями», а «Расхода» в нём нет', async ({ page }) => {
   await mockReports(page, { report })
   await page.goto('/')
 
@@ -78,7 +78,9 @@ test('«Отчёты» стоят в сайдбаре сразу за «Расх
     .getByRole('button')
     .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')))
   expect(names).toContain('Отчёты')
-  expect(names.indexOf('Отчёты')).toBe(names.indexOf('Расход') + 1)
+  expect(names).toContain('Сессии')
+  expect(names.indexOf('Отчёты')).toBe(names.indexOf('Сессии') + 1)
+  expect(names).not.toContain('Расход')
 })
 
 for (const colorScheme of ['light', 'dark'] as const) {
@@ -198,7 +200,7 @@ test('первый отчёт строится кнопкой: идёт разб
   state.report = report
   panel.reply(ndjson({ type: 'reported', text: 'Отчёт построен.' }))
   // Поток просьбы подхватывается заново, когда итог готов: раздел открывают снова.
-  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Расход' }).click()
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Сессии' }).click()
   await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Отчёты' }).click()
 
   await expect(page.getByRole('button', { name: 'Проходимость: 70 из 100.' })).toBeVisible()

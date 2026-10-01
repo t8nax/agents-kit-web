@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-// Карточка «Серверы трекеров» в «Настройках» (B-288). /api подменяется: dev-API хранит ключи в профиле оператора
+// Карточка «Серверы трекеров» раздела «Трекеры» (B-288, B-323). /api подменяется: dev-API хранит ключи в профиле оператора
 // и проверяет их на настоящем сервере YouTrack.
 
 const long = 'https://tracker.severo-zapadnaya-logisticheskaya-kompaniya.corp.northwind-group.ru/youtrack'
@@ -28,13 +28,13 @@ async function mockApi(page: Page, list: { server: string; login: string }[]) {
     current = current.filter((s) => s.server !== server)
     return route.fulfill({ status: 204 })
   })
-  // Карточка «Трекеры проектов» стоит рядом и читает свой адрес: подмена серверов его не отдаёт (B-293).
+  // Трекеры проектов стоят рядом и читают свой адрес: подмена серверов его не отдаёт (B-293).
   await page.route('**/api/trackers/projects', (route) => route.fulfill({ json: [] }))
 }
 
-async function openSettings(page: Page) {
+async function openTrackers(page: Page) {
   await page.goto('/')
-  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Настройки' }).click()
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Трекеры' }).click()
   return page.getByRole('region', { name: 'Серверы трекеров' })
 }
 
@@ -55,7 +55,7 @@ for (const [width, cut] of [
     await page.setViewportSize({ width, height: 900 })
     await mockApi(page, servers)
 
-    const card = await openSettings(page)
+    const card = await openTrackers(page)
     const row = card.getByRole('listitem').filter({ hasText: 'kuznetsov.b' })
     const address = row.locator('.trk-url')
     await expect(address).toHaveAttribute('title', long)
@@ -79,7 +79,7 @@ for (const [width, cut] of [
 test('ключ, который сервер отклонил, не сохраняется; удаление сервера — через окно', async ({ page }) => {
   await mockApi(page, [])
 
-  const card = await openSettings(page)
+  const card = await openTrackers(page)
   await expect(card.getByText('Список пуст.')).toBeVisible()
   await card.getByLabel('Адрес сервера').fill('https://acme.youtrack.cloud')
   await card.getByLabel('Ключ', { exact: true }).fill('perm:bad')

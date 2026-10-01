@@ -632,9 +632,7 @@ $binDir = Join-Path $Root 'bin'
 $ghDir = Join-Path $Root 'gh-bin'
 $basesDir = Join-Path $Root 'bases'
 $copiesDir = Join-Path $Root 'copies'
-# Журналы расхода: каталог пуст, и «Расход» песочницы не показывает расход оператора с этой машины.
-$projectsDir = Join-Path $Root 'projects'
-foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $ghDir, $basesDir, $copiesDir, $projectsDir)) {
+foreach ($dir in @($panelDir, $sessionsDir, $claudeDir, $binDir, $ghDir, $basesDir, $copiesDir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
 
@@ -729,7 +727,7 @@ if (Test-Piece 'orders') {
 # Проекты с трекером (B-277, B-288): задачи, назначенные на оператора, раздел «Бэклог» показывает группой под
 # записями. Трекер описание называет строками «трекер:», «сервер:», «проект:» (кит формата 7). Задачи GitHub отдаёт
 # подставная gh из gh-issues.json, задачи YouTrack — подставной сервер youtrack-stub.ps1 из youtrack-issues.json;
-# ключ к нему оператор вводит в «Настройках». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом,
+# ключ к нему оператор вводит в разделе «Трекеры». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом,
 # которого на сервере нет, описание без строк и Jira — задач панель не читает и называет причину.
 if (Test-Piece 'tracker') {
     $trackerCopy = Join-Path $copiesDir 'tracker'
@@ -1094,7 +1092,7 @@ else {
 # проксирует на API.
 Write-Utf8 (Join-Path $Root 'start-panel.ps1') @"
 # Поднимает панель на песочнице: API и dev-сервер фронта. Живых баз панель не видит — список баз,
-# реестр сессий, профиль Claude Code, журналы расхода, ключ доступа и отметка о поставленной панели
+# реестр сессий, профиль Claude Code и отметка о поставленной панели
 # взяты из песочницы, а не из профиля оператора. Новая настройка API с путём в профиле по умолчанию
 # должна появиться и в этой строке, иначе песочница молча покажет живое.
 # Гасится Ctrl+C: API останавливается вместе с фронтом.
@@ -1107,8 +1105,8 @@ if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
 
 `$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command',
-    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --ProjectsDir '$projectsDir' --CredentialsFile '$(Join-Path $Root 'no-credentials.json')' --PublishedFile '$(Join-Path $panelDir 'published.json')' --TrackersFile '$(Join-Path $panelDir 'trackers.json')' --VoiceDir '$(Join-Path $Root 'voice')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
-# Подставной YouTrack песочницы: ключ к нему — в «Настройках», в карточке «Серверы трекеров» (trackers.json лежит
+    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --PublishedFile '$(Join-Path $panelDir 'published.json')' --TrackersFile '$(Join-Path $panelDir 'trackers.json')' --VoiceDir '$(Join-Path $Root 'voice')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
+# Подставной YouTrack песочницы: ключ к нему — в разделе «Трекеры», в списке «Серверы трекеров» (trackers.json лежит
 # рядом с bases.json песочницы, ключи оператора панель песочницы не видит).
 `$youTrack = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-File', '$(Join-Path $Root 'youtrack-stub.ps1')')
 

@@ -26,7 +26,7 @@ export type TrackerChanged = { lines: number; sections: number }
 /** Задача трекера в работе: заголовок её памяти и копия. */
 export type TrackerTask = { task: string; copy: string | null }
 
-/** Строка карточки «Трекеры проектов» — база из списка панели. */
+/** Проект раздела «Трекеры» — база из списка панели. */
 export type ProjectTrackerRow = {
   base: string
   project: string
@@ -57,6 +57,11 @@ export function knownTracker(name: string | null | undefined): TrackerName | nul
 /** Трекеры, задачи которых панель читает и проверяет перед записью описания. */
 export function checked(name: TrackerName | null): boolean {
   return name === 'GitHub' || name === 'YouTrack'
+}
+
+/** Описание, каким оно ляжет в базу: у Jira и GitLab поля «Фильтр» нет, и строка не пишется (B-300). */
+export function written(description: TrackerDescription): TrackerDescription {
+  return checked(knownTracker(description.tracker)) ? description : { ...description, filter: '' }
 }
 
 export const emptyDescription: TrackerDescription = {
@@ -174,7 +179,7 @@ export function faultsText(faults: string[] | null | undefined): string {
 export function checkText(code: string, detail: string | null | undefined, description: TrackerDescription): string {
   const server = description.server.trim()
   const project = description.project.trim()
-  const card = 'в карточке «Серверы трекеров»'
+  const card = 'в разделе «Трекеры», в списке «Серверы трекеров»'
   const said = (() => {
     switch (code) {
       case 'project-missing':
@@ -228,9 +233,9 @@ export function rejectedText(rejected: TrackerRejected): { text: string; output?
     case 'newer-format':
       return { text: rejected.detail ?? 'Правка закрыта: кит перевёл базу на формат, которого эта версия панели не знает.' }
     case 'kit-not-set':
-      return { text: 'Путь к киту не задан, а базу с сервером сводит скрипт кита. Задайте его в карточке «Кит».' }
+      return { text: 'Путь к киту не задан, а базу с сервером сводит скрипт кита. Задайте его в «Настройках», в карточке «Кит».' }
     case 'kit-not-found':
-      return { text: `У кита нет скрипта ${rejected.detail ?? 'sync.ps1'}, а базу с сервером сводит он. Проверьте путь к киту в карточке «Кит».` }
+      return { text: `У кита нет скрипта ${rejected.detail ?? 'sync.ps1'}, а базу с сервером сводит он. Проверьте путь к киту в «Настройках», в карточке «Кит».` }
     case 'no-copy':
       return { text: 'На этом компьютере нет копии проекта, а без неё скрипт кита не сведёт базу с сервером.' }
     case 'pull':
