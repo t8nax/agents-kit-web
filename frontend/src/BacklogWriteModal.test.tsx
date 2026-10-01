@@ -327,6 +327,18 @@ test('окно от «В трекер»: готовая просьба в пол
   await waitFor(() => expect(posts[0].body).toEqual({ base: bases[0].base, text: moveRequest, number: 'B-281' }))
 })
 
+test('предупреждение о файлах держится, когда раздел перерисован и отдал запись новым объектом', async () => {
+  stubFetch(controlledStream<WriteEvent>())
+  const props = { bases, initialBase: null, request: moveRequest, onClose: vi.fn(), onEntries: vi.fn() }
+  const view = render(<BacklogWriteModal {...props} subject={{ base: bases[0].base, entry: B281 }} />)
+  await waitFor(() => expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled())
+
+  view.rerender(<BacklogWriteModal {...props} subject={{ base: bases[0].base, entry: { ...B281 } }} />)
+
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue(moveRequest)
+  expect(screen.getByText(/в задачу сами не попадут/)).toBeInTheDocument()
+})
+
 test('окно от «Изменить» предупреждения о файлах не показывает и поле оставляет пустым', async () => {
   stubFetch(controlledStream<WriteEvent>())
   renderModal({ subject: { base: bases[0].base, entry: B281 } })

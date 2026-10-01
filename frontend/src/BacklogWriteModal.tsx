@@ -284,7 +284,7 @@ export default function BacklogWriteModal({
     // Проект нового разговора — тот, о котором шёл прежний, даже если окно подхватило его из шапки.
     setChosen(to?.base ?? conversation.base ?? chosen)
     // Переписка про запись окна от «В трекер» начинается с его готовой просьбы
-    setText(to && to === subject ? request : null)
+    setText(sameSubject(to ?? null, subject) ? request : null)
     setSaveError(null)
     attach.clear()
     inFlight.current = null
@@ -444,7 +444,7 @@ export default function BacklogWriteModal({
                   <EntryCard entry={about} badge={moved ? 'перенесена' : 'удалена'} tone="added" removed />
                 ) : (
                   // Окно от «В трекер»: файлы записи в задачу сами не попадут — макет AKW-15, вариант 1А
-                  <EntryCard entry={about} base={base} warn={request !== null && own === subject && !moveStarted(events, about.number) ? filesWarning(about) : null} />
+                  <EntryCard entry={about} base={base} warn={request !== null && sameSubject(own, subject) && !moveStarted(events, about.number) ? filesWarning(about) : null} />
                 )}
               </ul>
             </div>
@@ -848,6 +848,14 @@ function filesWarning(entry: WrittenEntry): string | null {
   return files.length === 1
     ? `Файл ${list} в задачу сам не попадёт — ${AGENT_NAME} попросит прикрепить его вручную.`
     : `Файлы ${list} в задачу сами не попадут — ${AGENT_NAME} попросит прикрепить их вручную.`
+}
+
+/**
+ * Разговор про запись кнопки: та же база и тот же номер. Раздел отдаёт запись новым объектом на каждой перерисовке,
+ * поэтому сравнивать объекты нельзя.
+ */
+function sameSubject(a: Props['subject'], b: Props['subject']): boolean {
+  return !!a && !!b && a.base === b.base && a.entry.number === b.entry.number
 }
 
 /** Чудо-Юдо уже переносил эту запись в трекер: задача заведена — ждёт файлов или запись вырезана. */
