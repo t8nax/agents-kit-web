@@ -42,8 +42,9 @@ type Load =
 /**
  * Раздел «Исполнители»: субагенты проектов панели. Карточка — файл базы, поэтому в сетке видны и те,
  * кого завели в базе помимо панели; проект выбирается выпадающим списком, где первым стоит «Все».
- * draftFor — база просьбы, к которой вернулся оператор: окно исполнителя открывается сразу на ней.
- * draftSubject — кого просьба переписывает: тогда открывается правка этого исполнителя, а не окно нового.
+ * draftFor — база переписки, к которой вернулся оператор: окно исполнителя открывается сразу на ней, а переписка
+ * с Чудо-Юдо — поверх него. draftSubject — кого переписка переписывает: тогда открывается правка этого исполнителя,
+ * а не окно нового.
  */
 export default function Performers({
   draftFor = null,
@@ -53,12 +54,17 @@ export default function Performers({
   const reveal = useReveal(load.kind === 'loading')
   const [project, setProject] = useState<string | null>(draftFor)
   // Окно открыто: заводится новый (performer null) или правится заведённый; base — чей он проект.
-  const [editing, setEditing] = useState<{ performer: Performer | null; base: BasePerformers | undefined } | null>(null)
+  // talking — окно открыто из шапки, и переписка встаёт поверх сразу.
+  const [editing, setEditing] = useState<{
+    performer: Performer | null
+    base: BasePerformers | undefined
+    talking?: boolean
+  } | null>(null)
   // Только что записанные, именем: отмечены в списке до следующего чтения раздела.
   const [fresh, setFresh] = useState<Set<string>>(() => new Set())
   // Последний записанный: о нём раздел говорит строкой — звать его можно со следующей сессии.
   const [saved, setSaved] = useState<string | null>(null)
-  // Окно просьбы открывается само один раз: оператор вернулся к ней из шапки, а не открыл раздел.
+  // Окно переписки открывается само один раз: оператор вернулся к ней из шапки, а не открыл раздел.
   const opened = useRef(false)
 
   const loadPerformers = useCallback(() => {
@@ -90,7 +96,7 @@ export default function Performers({
     const base = load.bases.find((b) => b.base === draftFor)
     const performer = draftSubject ? (base?.performers.find((p) => p.name === draftSubject) ?? null) : null
     // Переписывали заведённого, а его уже нет: окно нового его просьбу не подхватит и встало бы пустым.
-    setEditing(draftSubject && !performer ? null : { performer, base })
+    setEditing(draftSubject && !performer ? null : { performer, base, talking: true })
   }, [draftFor, draftSubject, load])
 
   const bases = load.kind === 'loaded' ? load.bases : []
@@ -198,6 +204,7 @@ export default function Performers({
           bases={bases}
           initial={editing.base.base}
           editing={editing.performer}
+          talking={editing.talking}
           onClose={() => setEditing(null)}
           onSaved={(name) => {
             setEditing(null)

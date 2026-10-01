@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import './PanelCard.css'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal, withReveal } from './reveal'
+import { plural } from './plural'
+import ReleaseChanges from './ReleaseChanges'
+import StablePromotion from './StablePromotion'
 
 export type PanelBuild = {
   channel: string
@@ -56,13 +59,9 @@ const built = (at: string) =>
 const megabytes = (bytes: number) =>
   (bytes / 1024 / 1024).toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
-/** «1 задача ждёт», «2 задачи ждут», «5 задач ждут» — иначе счёт читается не по-русски. */
-const waiting = (count: number) => {
-  const tail = count % 100
-  if (tail % 10 === 1 && tail !== 11) return `${count} задача ждёт обновления`
-  if (tail % 10 >= 2 && tail % 10 <= 4 && (tail < 12 || tail > 14)) return `${count} задачи ждут обновления`
-  return `${count} задач ждут обновления`
-}
+/** «1 изменение ждёт», «2 изменения ждут», «5 изменений ждут» — иначе счёт читается не по-русски. */
+const waiting = (count: number) =>
+  `${plural(count, 'изменение ждёт', 'изменения ждут', 'изменений ждут')} обновления`
 
 /**
  * Карточка «Панель» в «Настройках»: какой номер стоит, какой вышел в канале, что приехало с каждым
@@ -78,6 +77,8 @@ export default function PanelCard() {
   const [error, setError] = useState<string | null>(null)
   const reveal = useReveal(panel === null && !error)
   const [copied, setCopied] = useState(false)
+  const [news, setNews] = useState(false)
+  const closeNews = useCallback(() => setNews(false), [])
 
   const loadUpdates = useCallback((installed: boolean) => {
     if (!installed) return
@@ -118,6 +119,8 @@ export default function PanelCard() {
     if (!panel || panel.channel === channel) return
     setPanel({ ...panel, channel })
     setUpdates(null)
+    // Окно «Что нового» — о прежнем канале: выпуски нового не открывают его сами.
+    setNews(false)
     // Пока канал сохраняется, карточка уже смотрит, что вышло, а не говорит, что GitHub молчит.
     setChecking(true)
     fetch('/api/panel/channel', {
@@ -158,7 +161,14 @@ export default function PanelCard() {
 
   const releases = updates?.releases ?? []
   const behind = releases.length > 0
-  const tasks = releases.reduce((count, release) => count + release.tasks.length, 0)
+  // Строка выпуска — фраза оператору, у сборок до фраз — заголовок задачи; каждая — одно изменение.
+  // На Бете сборка с пустым описанием на GitHub — тоже изменение: в окне она стоит номером. На Стабильном
+  // окно показывает только строки, и счёт с ним сходится.
+  const beta = panel.channel === 'dev'
+  const changes = releases.reduce(
+    (count, release) => count + (beta ? Math.max(release.tasks.length, 1) : release.tasks.length),
+    0,
+  )
 
   return (
     <PanelShell>
@@ -189,7 +199,7 @@ export default function PanelCard() {
         </div>
 
         {panel.installed && (
-          <div className={behind ? 'panel-row panel-row-top' : 'panel-row'}>
+          <div className="panel-row">
             <span className="panel-label">Вышла</span>
             {checking && <span className="panel-hint">Смотрим, что вышло…</span>}
             {!checking && !updates && <span className="panel-hint">GitHub не ответил — сравнить сейчас не с чем.</span>}
@@ -206,19 +216,13 @@ export default function PanelCard() {
               <div className="panel-news">
                 <div className="panel-news-top">
                   <span className="panel-build">{updates.latest}</span>
-                  {tasks > 0 && <span className="panel-arrived">{waiting(tasks)}</span>}
-                </div>
-                <div className="panel-releases">
-                  {releases.length === 1 ? (
-                    <Tasks tasks={releases[0].tasks} />
-                  ) : (
-                    releases.map((release) => (
-                      <div key={release.tag} className="panel-release">
-                        <span className="panel-release-num">{release.version}</span>
-                        <Tasks tasks={release.tasks} />
-                      </div>
-                    ))
-                  )}
+                  {/* Сам счёт открывает окно «Что нового» — и при одной сборке (макет окна B-313, вариант 2). */}
+                  <button type="button" className="news-link" aria-haspopup="dialog" onClick={() => setNews(true)}>
+                    {waiting(changes)}
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <polyline points="9 6 15 12 9 18" />
+                    </svg>
+                  </button>
                 </div>
               </div>
             )}
@@ -260,7 +264,24 @@ export default function PanelCard() {
             </button>
           </div>
         )}
+        {/* Выкладка в Стабильный — у поставленной Беты, когда выбран канал «Бета» (B-312). */}
+        {panel.installed && panel.channel === 'dev' && panel.published?.channel === 'dev' && <StablePromotion />}
       </div>
+
+      {news && behind && panel.published && updates?.latest && (
+        <NewsWindow
+          beta={beta}
+          installed={panel.published.version}
+          latest={updates.latest}
+          releases={releases}
+          changes={changes}
+          onClose={closeNews}
+          onUpdate={() => {
+            setNews(false)
+            start()
+          }}
+        />
+      )}
 
       {running && <UpdateProgress onFailed={(state) => {
         setRunning(false)
@@ -270,13 +291,95 @@ export default function PanelCard() {
   )
 }
 
-function Tasks({ tasks }: { tasks: string[] }) {
+/**
+ * Сборки Беты строками: слева номер, справа её фраза — сборка приносит одну задачу. Сборка, в которую
+ * очередь GitHub сложила несколько задач, держит номер у первой строки; сборка с пустым описанием на GitHub —
+ * номер без строки, чтобы не пропасть из списка.
+ */
+function BuildLines({ releases }: { releases: PanelRelease[] }) {
   return (
-    <ul>
-      {tasks.map((task, index) => (
-        <li key={index}>{task}</li>
-      ))}
-    </ul>
+    <div className="build-lines release-list">
+      {releases.flatMap((release) =>
+        (release.tasks.length > 0 ? release.tasks : ['']).map((change, index) => (
+          <Fragment key={`${release.tag}-${index}`}>
+            <span className="panel-release-num">{index === 0 ? release.version : ''}</span>
+            <span className="build-line">{change}</span>
+          </Fragment>
+        )),
+      )}
+    </div>
+  )
+}
+
+/**
+ * Окно «Что нового»: изменения вышедших сборок. На Бете — сборки строками «номер | фраза», на Стабильном —
+ * фразы всех сборок выпуска подряд, свежие сверху. Прочитал — можно сразу обновиться (макет окна B-313).
+ */
+function NewsWindow({
+  beta,
+  installed,
+  latest,
+  releases,
+  changes,
+  onClose,
+  onUpdate,
+}: {
+  beta: boolean
+  installed: string
+  latest: string
+  releases: PanelRelease[]
+  changes: number
+  onClose: () => void
+  onUpdate: () => void
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="panel-overlay" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="panel-window" role="dialog" aria-modal="true" aria-labelledby="panel-news-title">
+        <h3 id="panel-news-title">Что нового в {latest}</h3>
+        <p className="release-lead">
+          {beta ? (
+            <>
+              Сборки Беты новее стоящей <span className="mono">{installed}</span>, свежие сверху. Обновление поставит
+              последнюю — <span className="mono">{latest}</span>.
+            </>
+          ) : (
+            <>
+              Выпуск <span className="mono">{latest}</span> в Стабильном, новее стоящей{' '}
+              <span className="mono">{installed}</span>.
+            </>
+          )}
+        </p>
+        <div className="release-what">
+          <div className="release-what-head">
+            <span className="panel-arrived">{plural(changes, 'изменение', 'изменения', 'изменений')}</span>
+          </div>
+          {beta ? (
+            <BuildLines releases={releases} />
+          ) : (
+            <div className="panel-releases release-list">
+              <ReleaseChanges changes={releases.flatMap((release) => release.tasks)} />
+            </div>
+          )}
+        </div>
+        <div className="window-actions">
+          <span className="panel-hint">На время обновления панель станет недоступна.</span>
+          <button type="button" className="bases-btn" onClick={onClose}>
+            Закрыть
+          </button>
+          <button type="button" className="bases-btn panel-primary" onClick={onUpdate}>
+            Обновить
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

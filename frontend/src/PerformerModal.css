@@ -97,31 +97,7 @@
   color: var(--text-secondary);
 }
 
-/* Просьба: у нового до ответа — крупное поле, как вопрос к Чудо-Юдо; дальше — короче. */
-.pf-wish {
-  min-height: 110px;
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-.pf-wish.pf-wish-short {
-  min-height: 76px;
-}
-
-.pf-wish:focus {
-  border-color: var(--text-secondary);
-}
-
-.pf-wish::placeholder {
-  color: var(--text-tertiary);
-}
-
-.pf-wish:disabled {
-  color: var(--text-tertiary);
-  cursor: not-allowed;
-}
-
-/* Что сделал агент — строкой под просьбой, со ссылками действий. */
+/* Правки Чудо-Юдо приняты — строкой над полями, со ссылкой «вернуть как было». */
 .pf-status {
   display: flex;
   align-items: center;
@@ -146,21 +122,11 @@
   color: var(--text-primary);
 }
 
-/* Чужая просьба того же вида: новая её остановит — предупреждение до нажатия. */
-.pf-foreign {
-  margin: 0;
-  font-size: 13px;
-  color: var(--accent-waiting-text);
-}
-
-/* Агент недоступен — одна строка цветом ошибки. */
-.pf-down {
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--accent-error-text);
+/* Кнопка переписки с Чудо-Юдо в подвале — со своим значком, как в макете B-320. */
+.pf-modal .pf-chat svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
 }
 
 /* База нового формата: причина закрытой правки — в начале окна, янтарем, как предупреждение (B-281) */
@@ -173,8 +139,7 @@
   color: var(--accent-waiting-text);
 }
 
-.pf-modal .pf-closed svg,
-.pf-modal .pf-down svg {
+.pf-modal .pf-closed svg {
   width: 15px;
   height: 15px;
 }
@@ -510,4 +475,73 @@
   font-size: 13px;
   line-height: 1.6;
   border-color: var(--text-secondary);
+}
+
+/* Окно «Исполнитель с Чудо-Юдо» (макет B-320): имя переписываемого — моноширинным, как в заголовке его окна. */
+.pc-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.pc-sep {
+  width: 12px;
+}
+
+/* Вкладка «Изменения»: поле на строку, подпись слева, изменённое помечено, прежнее зачёркнуто. */
+.pc-list {
+  margin: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-base);
+}
+
+.pc-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 16px;
+  padding: 14px 16px;
+  align-items: start;
+}
+
+.pc-row + .pc-row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.pc-row dt {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  padding-top: 1px;
+}
+
+.pc-row dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.pc-row dd .rewrite-mark {
+  align-self: flex-start;
+}
+
+.pc-row-btn dt {
+  padding-top: 7px;
+}
+
+.pc-row dd.pc-same {
+  color: var(--text-secondary);
+}
+
+.pc-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.pc-kept {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
 }

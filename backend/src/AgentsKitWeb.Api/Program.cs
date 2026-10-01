@@ -63,6 +63,8 @@ builder.Services.AddHttpClient(GitHubReleases.Client, client =>
     client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
 });
 builder.Services.AddSingleton<IPanelReleases, GitHubReleases>();
+builder.Services.AddSingleton<IPanelPromotion, GhPromotion>();
+builder.Services.AddSingleton<PanelPromotionStarts>();
 // Сотни мегабайт идут минутами: модель читается потоком (ResponseHeadersRead), и срок клиента стережёт
 // только заголовки — замолчавший до них сервер не держит «Скачивается» вечно; порции — свой срок в VoiceModel.
 builder.Services.AddHttpClient(VoiceModel.Client, client =>
@@ -111,6 +113,7 @@ builder.Services.AddSingleton<BacklogConversations>();
 builder.Services.AddSingleton<FlowConversations>();
 builder.Services.AddSingleton<FlowReports>();
 builder.Services.AddSingleton<TrackerConversations>();
+builder.Services.AddSingleton<PerformerConversations>();
 builder.Services.AddSingleton<StartedTasks>();
 builder.Services.AddSingleton<ResumedSessions>();
 builder.Services.AddSingleton<HealthMonitor>();

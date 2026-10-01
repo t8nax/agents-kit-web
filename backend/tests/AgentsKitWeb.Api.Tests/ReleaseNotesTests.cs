@@ -81,6 +81,26 @@ public sealed class ReleaseNotesTests : IDisposable
     }
 
     [Fact]
+    public void Notes_OfPromotedBeta_CountFromPreviousStableOnTheMasterMerge()
+    {
+        // Стабильный выходит выкладкой кода Беты, а прежний выпуск Стабильного стоит на слиянии в master,
+        // которого в коде Беты нет: перечень всё равно считается от него, а не от начала истории.
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        Task(repository, "feat/first", "первая задача");
+        TestGit.Run(repository, "switch", "-c", "master");
+        TestGit.Run(repository, "switch", "dev");
+        Task(repository, "feat/second", "вторая задача");
+        TestGit.Run(repository, "switch", "master");
+        Git(repository, "merge", "--no-ff", "dev", "-m", "Merge dev into master");
+        TestGit.Run(repository, "tag", "v0.25.1");
+        TestGit.Run(repository, "switch", "dev");
+        Task(repository, "feat/third", "третья задача");
+        Task(repository, "feat/fourth", "четвёртая задача");
+
+        Assert.Equal(["- четвёртая задача", "- третья задача"], Notes(repository, "master"));
+    }
+
+    [Fact]
     public void Notes_SkipTheMergeATaskMadeIntoItself()
     {
         // Задача перед мержем подтянула канал к себе: это слияние ничего в канал не привезло.
@@ -98,6 +118,63 @@ public sealed class ReleaseNotesTests : IDisposable
         Assert.Equal(
             ["- разговор продолжается", "- раздел открывается списком"],
             Notes(repository, "dev"));
+    }
+
+    [Fact]
+    public void Notes_TellThePhraseToOperatorInsteadOfTheMergeTitle()
+    {
+        // Фраза оператору — строка «Оператору: …» в сообщении слияния; слияние без неё вышло раньше фраз.
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "tag", "v0.10.0-dev");
+        Task(repository, "feat/sidebar", "раздел открывается списком — подробности для разработки");
+        Task(repository, "feat/release-text", "фразы под сборками — подробности для разработки",
+            "Под каждой сборкой в карточке «Панель» — короткая фраза о том, что изменилось");
+
+        Assert.Equal(
+            [
+                "- Под каждой сборкой в карточке «Панель» — короткая фраза о том, что изменилось",
+                "- раздел открывается списком — подробности для разработки",
+            ],
+            Notes(repository, "dev"));
+    }
+
+    [Fact]
+    public void Notes_TellThePhraseWrittenAsTheMergeTitle_WithoutItsKey()
+    {
+        // Хук пускает фразу и в заголовке слияния: служебное «Оператору:» оператору не показывается.
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "tag", "v0.10.0-dev");
+        TestGit.Run(repository, "switch", "-c", "feat/short");
+        Commit(repository, "правка", "short.txt");
+        TestGit.Run(repository, "switch", "dev");
+        Git(repository, "merge", "--no-ff", "feat/short", "-m", "Оператору: Короткая фраза");
+
+        Assert.Equal(["- Короткая фраза"], Notes(repository, "dev"));
+    }
+
+    [Fact]
+    public void Notes_OfEmptyPhrase_TellTheMergeTitle()
+    {
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "tag", "v0.10.0-dev");
+        Task(repository, "feat/blank", "заголовок задачи", "   ");
+
+        Assert.Equal(["- заголовок задачи"], Notes(repository, "dev"));
+    }
+
+    [Fact]
+    public void Notes_TellThePhrasesOfTheTasksInsideABatchMerge()
+    {
+        var repository = TestGit.Repository(Path.Combine(_root, "repo"));
+        TestGit.Run(repository, "switch", "-c", "master");
+        TestGit.Run(repository, "tag", "v0.10.0");
+        TestGit.Run(repository, "switch", "dev");
+        Task(repository, "feat/one", "первая задача", "Первая фраза");
+        Task(repository, "feat/two", "вторая задача", "Вторая фраза");
+        TestGit.Run(repository, "switch", "master");
+        Git(repository, "merge", "--no-ff", "dev", "-m", "Merge dev into master");
+
+        Assert.Equal(["- Вторая фраза", "- Первая фраза"], Notes(repository, "master"));
     }
 
     private static string[] Notes(string repository, string channel)
@@ -137,13 +214,16 @@ public sealed class ReleaseNotesTests : IDisposable
         }
     }
 
-    /// <summary>Задача: своя ветка, правка и слияние в dev заголовком для оператора.</summary>
-    private static void Task(string repository, string branch, string title)
+    /// <summary>Задача: своя ветка, правка и слияние в dev заголовком, а с фразой — и строкой «Оператору: …».</summary>
+    private static void Task(string repository, string branch, string title, string? phrase = null)
     {
         TestGit.Run(repository, "switch", "-c", branch);
         Commit(repository, title, branch.Replace('/', '-') + ".txt");
         TestGit.Run(repository, "switch", "dev");
-        Git(repository, "merge", "--no-ff", branch, "-m", $"Merge {branch}: {title}");
+        string[] message = phrase is null
+            ? ["-m", $"Merge {branch}: {title}"]
+            : ["-m", $"Merge {branch}: {title}", "-m", $"Оператору: {phrase}"];
+        Git(repository, ["merge", "--no-ff", branch, .. message]);
     }
 
     private static void Commit(string repository, string title, string file)

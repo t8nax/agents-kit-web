@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import PanelCard, { type Panel, type PanelUpdateState, type PanelUpdates } from './PanelCard'
 
@@ -53,7 +53,7 @@ const api = (panel: Panel, updates: PanelUpdates, update: PanelUpdateState = idl
   ...extra,
 })
 
-test('карточка показывает номер стоящей и вышедшей сборки и задачи, которые приедут', async () => {
+test('карточка показывает номер стоящей и вышедшей сборки и счёт изменений, которые приедут', async () => {
   stubApi(api(installed, behind))
 
   render(<PanelCard />)
@@ -61,12 +61,19 @@ test('карточка показывает номер стоящей и выш�
   expect(await screen.findByText('0.10.1')).toBeTruthy()
   expect(screen.getByText(/собрана 12 сентября/)).toBeTruthy()
   expect(await screen.findByText('0.10.2')).toBeTruthy()
-  expect(screen.getByText('2 задачи ждут обновления')).toBeTruthy()
-  expect(screen.getByText('Исполнитель синхронизируется по копиям')).toBeTruthy()
+  expect(screen.getByRole('button', { name: '2 изменения ждут обновления' })).toBeTruthy()
+  // Сами изменения — в окне «Что нового», а не в карточке (макет окна B-313).
+  expect(screen.queryByText('Исполнитель синхронизируется по копиям')).toBeNull()
   expect(screen.getByRole('button', { name: 'Обновить' })).toBeTruthy()
 })
 
-test('несколько вышедших сборок — задачи под номером каждой, свежая сверху', async () => {
+/** Открыть окно «Что нового» нажатием на счёт изменений. */
+async function openNews(count: string) {
+  fireEvent.click(await screen.findByRole('button', { name: count }))
+  return screen.getByRole('dialog')
+}
+
+test('Стабильный: в окне «Что нового» фразы всех выпусков подряд, без номеров', async () => {
   stubApi(
     api(installed, {
       latest: '0.10.3',
@@ -79,9 +86,129 @@ test('несколько вышедших сборок — задачи под �
 
   render(<PanelCard />)
 
-  expect(await screen.findByText('3 задачи ждут обновления')).toBeTruthy()
-  const numbers = [...document.querySelectorAll('.panel-release-num')].map((node) => node.textContent)
-  expect(numbers).toEqual(['0.10.3', '0.10.2'])
+  const dialog = await openNews('3 изменения ждут обновления')
+  expect(within(dialog).getByText('Что нового в 0.10.3')).toBeTruthy()
+  expect(within(dialog).getByText('3 изменения')).toBeTruthy()
+  const lines = [...dialog.querySelectorAll('.panel-releases li')].map((node) => node.textContent)
+  expect(lines).toEqual(['Сессии задачи видны в окне ответа', 'Бэклог держит порядок записей', 'Поиск находит записи по номеру'])
+  expect(dialog.querySelector('.panel-release-num')).toBeNull()
+})
+
+test('Стабильный: выпуск с пустым описанием не прибавляет к счёту, которого нет в окне', async () => {
+  stubApi(
+    api(installed, {
+      latest: '0.10.3',
+      releases: [
+        { version: '0.10.3', tag: 'v0.10.3', tasks: ['Сессии задачи видны в окне ответа'] },
+        { version: '0.10.2', tag: 'v0.10.2', tasks: [] },
+      ],
+    }),
+  )
+
+  render(<PanelCard />)
+
+  const dialog = await openNews('1 изменение ждёт обновления')
+  expect(dialog.querySelectorAll('.panel-releases li')).toHaveLength(1)
+})
+
+test('смена канала закрывает окно «Что нового», и выпуски нового канала его сами не открывают', async () => {
+  stubApi(api(installed, behind, idle, { 'PUT /api/panel/channel': () => new Response(null, { status: 204 }) }))
+  render(<PanelCard />)
+
+  await openNews('2 изменения ждут обновления')
+  fireEvent.click(screen.getByRole('button', { name: 'Бета' }))
+
+  expect(await screen.findByRole('button', { name: '2 изменения ждут обновления' })).toBeTruthy()
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+const beta: Panel = {
+  installed: true,
+  channel: 'dev',
+  published: { channel: 'dev', sha: '4189d1f0000', version: '0.28.1.2', builtAt: '2026-09-27T16:20:00Z' },
+}
+
+const betaApi = (releases: PanelUpdates['releases'], extra: Record<string, Handler> = {}) =>
+  api(beta, { latest: releases[0].version, releases }, idle, {
+    'GET /api/panel/stable': () => json({ version: '0.28.1.2', stable: null, state: 'older', releases: [] }),
+    ...extra,
+  })
+
+test('Бета: в окне каждая вышедшая сборка — строка, номер слева и её фраза справа', async () => {
+  stubApi(
+    betaApi([
+      { version: '0.28.1.4', tag: 'v0.28.1.4-dev', tasks: ['Карточка «Панель» показывает, что изменилось'] },
+      { version: '0.28.1.3', tag: 'v0.28.1.3-dev', tasks: ['Колонка «Стадия» не обрезает названия'] },
+    ]),
+  )
+
+  render(<PanelCard />)
+
+  const dialog = await openNews('2 изменения ждут обновления')
+  const cells = [...dialog.querySelectorAll('.build-lines > span')].map((node) => node.textContent)
+  expect(cells).toEqual([
+    '0.28.1.4',
+    'Карточка «Панель» показывает, что изменилось',
+    '0.28.1.3',
+    'Колонка «Стадия» не обрезает названия',
+  ])
+})
+
+test('Бета: сборка с пустым описанием на GitHub остаётся в окне номером', async () => {
+  stubApi(
+    betaApi([
+      { version: '0.28.1.4', tag: 'v0.28.1.4-dev', tasks: ['Карточка «Панель» показывает, что изменилось'] },
+      { version: '0.28.1.3', tag: 'v0.28.1.3-dev', tasks: [] },
+    ]),
+  )
+
+  render(<PanelCard />)
+
+  const dialog = await openNews('2 изменения ждут обновления')
+  const numbers = [...dialog.querySelectorAll('.build-lines .panel-release-num')].map((node) => node.textContent)
+  expect(numbers).toEqual(['0.28.1.4', '0.28.1.3'])
+})
+
+test('вышла одна сборка — в карточке тоже только счёт, фраза в окне', async () => {
+  stubApi(
+    api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: ['Копия удаляется из панели'] }] }),
+  )
+
+  render(<PanelCard />)
+
+  expect(await screen.findByRole('button', { name: '1 изменение ждёт обновления' })).toBeTruthy()
+  expect(screen.queryByText('Копия удаляется из панели')).toBeNull()
+  const dialog = await openNews('1 изменение ждёт обновления')
+  expect(within(dialog).getByText('Копия удаляется из панели')).toBeTruthy()
+})
+
+test('окно «Что нового» закрывают «Закрыть», Esc и щелчок мимо', async () => {
+  stubApi(api(installed, behind))
+  render(<PanelCard />)
+
+  fireEvent.click(within(await openNews('2 изменения ждут обновления')).getByRole('button', { name: 'Закрыть' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+
+  await openNews('2 изменения ждут обновления')
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).toBeNull()
+
+  await openNews('2 изменения ждут обновления')
+  fireEvent.mouseDown(document.querySelector('.panel-overlay') as HTMLElement)
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('«Обновить» в окне «Что нового» закрывает его и запускает обновление', async () => {
+  const fetchMock = stubApi(
+    api(installed, behind, idle, { 'POST /api/panel/update': () => new Response(null, { status: 202 }) }),
+  )
+  render(<PanelCard />)
+
+  const dialog = await openNews('2 изменения ждут обновления')
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Обновить' }))
+
+  await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true))
+  expect(screen.queryByRole('dialog', { name: /Что нового/ })).toBeNull()
 })
 
 test('панель на последней сборке говорит, что новее нет, и кнопки не показывает', async () => {
@@ -93,12 +220,13 @@ test('панель на последней сборке говорит, что �
   expect(screen.queryByRole('button', { name: 'Обновить' })).toBeNull()
 })
 
-test('одна задача в канале посчитана по-русски', async () => {
-  stubApi(api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: ['Копия удаляется из панели'] }] }))
+test('изменения посчитаны по-русски', async () => {
+  const five = ['а', 'б', 'в', 'г', 'д']
+  stubApi(api(installed, { latest: '0.10.2', releases: [{ version: '0.10.2', tag: 'v0.10.2', tasks: five }] }))
 
   render(<PanelCard />)
 
-  expect(await screen.findByText('1 задача ждёт обновления')).toBeTruthy()
+  expect(await screen.findByText('5 изменений ждут обновления')).toBeTruthy()
 })
 
 test('GitHub не ответил — сравнить не с чем, и кнопки нет', async () => {
@@ -212,4 +340,32 @@ test('сорвавшееся обновление видно в карточке
   expect(await screen.findByText('Обновление не удалось — панель осталась прежней')).toBeTruthy()
   expect(screen.getByText(/Связь с GitHub оборвалась/)).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy()
+})
+
+test('у поставленной Беты внизу карточки — блок выкладки в Стабильный, у Стабильного его нет', async () => {
+  const beta: Panel = {
+    installed: true,
+    channel: 'dev',
+    published: { channel: 'dev', sha: '4189d1f0000', version: '0.28.1.3', builtAt: '2026-09-28T13:42:00Z' },
+  }
+  stubApi(
+    api(beta, { latest: '0.28.1.3', releases: [] }, idle, {
+      'GET /api/panel/stable': () =>
+        json({ version: '0.28.1.3', stable: '0.27.4.0', state: 'ready', releases: [] }),
+    }),
+  )
+
+  render(<PanelCard />)
+
+  expect(await screen.findByRole('button', { name: 'Выпустить в Стабильный' })).toBeTruthy()
+})
+
+test('на канале «Стабильный» блок выкладки не спрашивается', async () => {
+  const fetchMock = stubApi(api(installed, current))
+
+  render(<PanelCard />)
+
+  expect(await screen.findByText('Новее в канале «Стабильный» пока нет')).toBeTruthy()
+  expect(fetchMock.mock.calls.some(([input]) => input === '/api/panel/stable')).toBe(false)
+  expect(document.querySelector('.rel-block')).toBeNull()
 })

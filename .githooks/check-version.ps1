@@ -1,17 +1,19 @@
 <#
 .SYNOPSIS
-Не пускает в dev и master код, у которого не вырос номер версии панели в version.txt.
+Не пускает в dev код, у которого номер выпуска панели в version.txt поднят не по правилу, а в dev и master — код
+с номером ниже, чем на сервере.
 
 .DESCRIPTION
 Зовут хуки git из этого каталога; включает их `git config core.hooksPath .githooks` — один раз на репозиторий,
 и хуки действуют во всех его рабочих копиях.
 
-Сборка выпуска на GitHub не выпускает номер, уже вышедший в канале, — забытый номер валил выпуск уже после
-отправки. Здесь он ловится раньше:
-- Merge — слияние в dev на компьютере: номер в результате слияния должен быть больше, чем в dev до него,
-  ровно на один шаг — одно число на единицу, правее него нули.
-- Push — отправка dev или master: номер в отправляемом должен быть больше, чем уже лежит в этой ветке на сервере.
-  Так ловится и то, что попало в dev мимо слияния. Ветки задач отправляются без проверки.
+В version.txt лежит номер выпуска 0.X.Y, четвёртое число — номер сборки Беты — ставит сборка на GitHub.
+Номер выпуска поднимает первая задача после выкладки в Стабильный; следующие задачи его не трогают, если
+не привозят то, что старше уже набранного, — поломку привычного после одних новинок и починок.
+- Merge — слияние в dev на компьютере: номер в результате слияния сверяется с номером в dev до него
+  и с последним выпуском Стабильного — наибольшим тегом v<номер> без -dev.
+- Push — отправка dev или master: номер в отправляемом не ниже, чем уже лежит в этой ветке на сервере.
+  Ветки задач отправляются без проверки.
 
 .EXAMPLE
 pwsh -NoProfile -File .githooks/check-version.ps1 -Mode Merge
@@ -28,8 +30,10 @@ $ErrorActionPreference = 'Stop'
 
 $Channels = 'dev', 'master'
 
-# Какое число за что — в каждом отказе: сессия, привыкшая к номеру из трёх чисел, иначе поднимет не то.
-$Rule = 'Номер — 0.X.Y.Z: сломано привычное — поднимается второе число, добавлено новое — третье, починено — четвёртое; числа правее поднятого — нули.'
+# Какое число за что — в каждом отказе: сессия, привыкшая к прежней записи, иначе поднимет не то.
+$Rule = 'В version.txt — номер выпуска 0.X.Y: сломано привычное — поднимается второе число, добавлено новое или починено — третье; ' +
+    'третье после поднятого второго — ноль. Четвёртое число, номер сборки Беты, ставит сборка на GitHub. ' +
+    'Номер выпуска поднимает первая задача после выкладки в Стабильный, следующие — только если привозят поломку привычного, когда поднято одно третье число.'
 
 # Содержимое version.txt указанного состояния (коммит или «:» — индекс); файла нет — $null.
 function Get-Text($revision) {
@@ -38,57 +42,51 @@ function Get-Text($revision) {
     ($text | Out-String).Trim()
 }
 
-# Номер — четыре числа 0.X.Y.Z; до 0.25.0 он был из трёх. Числа номера — четыре, недостающие — нули:
-# иначе «0.11» вышло бы меньше «0.11.0». Не номер — $null.
+# Числа номера — всегда четыре, недостающие — нули: иначе «0.11» вышло бы меньше «0.11.0». Не номер — $null.
 function ConvertTo-Parts($text) {
     $version = $null
     if (-not [version]::TryParse($text, [ref]$version)) { return $null }
     , @($version.Major, $version.Minor, [Math]::Max($version.Build, 0), [Math]::Max($version.Revision, 0))
 }
 
-# Номер поднят верно: одно число выросло на единицу, а правее него — нули. Слияние задачи поднимает номер
-# на один шаг; отправка канала несёт сразу несколько слияний, и там номер только растёт.
-function Test-OneStep($was, $now) {
+# Сравнение номеров по числам: -1, 0 или 1.
+function Compare-Parts($a, $b) {
     for ($i = 0; $i -lt 4; $i++) {
-        if ($now[$i] -eq $was[$i]) { continue }
-        if ($now[$i] -ne $was[$i] + 1) { return $false }
-        for ($j = $i + 1; $j -lt 4; $j++) {
-            if ($now[$j] -ne 0) { return $false }
-        }
-        return $true
+        if ($a[$i] -ne $b[$i]) { return [Math]::Sign($a[$i] - $b[$i]) }
     }
-    $false
+    0
 }
 
-# Отказ, если номер не вырос или, с -OneStep, поднят не на один шаг. Прежнего номера нет или он не номер —
-# сравнивать не с чем.
-function Assert-Grown($where, $wasText, $what, $nowText, $advice, [switch]$OneStep) {
-    if (-not $wasText -or -not $nowText) { return }
-    $was = ConvertTo-Parts $wasText
-    $now = ConvertTo-Parts $nowText
-    if (-not $was) { return }
-    if (-not $now) {
-        [Console]::Error.WriteLine("В version.txt $what не номер версии: «$nowText». $Rule Например, 0.25.1.0.")
-        exit 1
+# Номер выпуска — первые три числа; номер сборки Беты отбрасывается.
+function Get-Release($parts) { , @($parts[0], $parts[1], $parts[2], 0) }
+
+function Format-Release($parts) { "$($parts[0]).$($parts[1]).$($parts[2])" }
+
+# Последний выпуск Стабильного — наибольший тег v<номер> без -dev; его нет — $null. New — выпуск нынешней записи:
+# номер сборки Беты в нём от единицы, а у выпусков прежней записи четвёртого числа нет или оно ноль.
+function Get-Stable {
+    $best = $null
+    foreach ($tag in git tag --list 'v*') {
+        if ($tag -notmatch '^v(\d+\.\d+\.\d+(?:\.\d+)?)$') { continue }
+        $parts = ConvertTo-Parts $Matches[1]
+        if (-not $best -or (Compare-Parts $parts $best.Parts) -gt 0) { $best = @{ Parts = $parts; New = $parts[3] -gt 0 } }
     }
-    # Номер из четырёх чисел сменил номер из трёх — назад запись не возвращается.
-    if ($wasText.Split('.').Count -eq 4 -and $nowText.Split('.').Count -lt 4) {
-        [Console]::Error.WriteLine("В version.txt $what номер прежней записи: «$nowText», а $where уже $wasText. $Rule Например, 0.25.1.0.")
-        exit 1
+    $best
+}
+
+# Последний номер прежней записи — из четырёх чисел, на каждое слияние — в истории version.txt dev; нет — $null.
+# Пока в Стабильном нет выпуска нынешней записи, номер выпуска считается поднятым от него, а не от старого Стабильного.
+function Get-Legacy {
+    foreach ($sha in git log --format=%H -n 200 HEAD -- version.txt) {
+        $text = Get-Text "${sha}:"
+        if ($text -and $text.Split('.').Count -eq 4 -and (ConvertTo-Parts $text)) { return $text }
     }
-    $grown = $false
-    for ($i = 0; $i -lt 4; $i++) {
-        if ($now[$i] -ne $was[$i]) { $grown = $now[$i] -gt $was[$i]; break }
-    }
-    if (-not $grown) {
-        [Console]::Error.WriteLine("Номер версии панели не вырос: $where $wasText, $what $nowText. $Rule`n$advice")
-        exit 1
-    }
-    if ($OneStep -and -not (Test-OneStep $was $now)) {
-        [Console]::Error.WriteLine("Номер версии панели поднят не на один шаг: $where $wasText, $what $nowText. " +
-            "Поднимается одно число на единицу. $Rule`n$advice")
-        exit 1
-    }
+    $null
+}
+
+function Stop-Merge($message) {
+    [Console]::Error.WriteLine("$message $Rule`nПоправь version.txt своим коммитом в ветке задачи — как, сказано в CLAUDE.md.")
+    exit 1
 }
 
 if ($Mode -eq 'Merge') {
@@ -96,9 +94,57 @@ if ($Mode -eq 'Merge') {
     $branch = git symbolic-ref --quiet --short HEAD
     if ($branch -ne 'dev') { exit 0 }
 
-    Assert-Grown 'в dev' (Get-Text 'HEAD:') 'после слияния' (Get-Text ':') `
-        'Подними номер в version.txt своим коммитом в ветке задачи — как, сказано в CLAUDE.md.' -OneStep
-    exit 0
+    $wasText = Get-Text 'HEAD:'
+    $nowText = Get-Text ':'
+    if (-not $wasText -or -not $nowText) { exit 0 }
+    $was = ConvertTo-Parts $wasText
+    if (-not $was) { exit 0 }
+    $now = ConvertTo-Parts $nowText
+    if (-not $now -or $nowText.Split('.').Count -ne 3) {
+        Stop-Merge "В version.txt после слияния «$nowText», а нужен номер выпуска из трёх чисел."
+    }
+
+    # От чего считается подъём номера выпуска: от последнего Стабильного, а пока выпуска нынешней записи нет —
+    # от последнего номера прежней записи в dev, и первый номер выпуска — шаг от его первых трёх чисел.
+    $stable = Get-Stable
+    $legacy = if ($stable -and $stable.New) { $null } else { Get-Legacy }
+    if ($wasText.Split('.').Count -ne 3) {
+        $was = Get-Release $was
+        $base = $was
+        $since = 'это номер прежней записи'
+    }
+    elseif ($legacy) {
+        $base = Get-Release (ConvertTo-Parts $legacy)
+        $since = "до номера выпуска в dev был $legacy"
+    }
+    elseif ($stable) {
+        $base = Get-Release $stable.Parts
+        $since = "в Стабильном последним вышел $(Format-Release $stable.Parts)"
+    }
+    else {
+        $base = $null
+        $since = 'выпусков Стабильного ещё нет'
+    }
+    # Подъём на один шаг: второе число на единицу и третье в ноль или третье на единицу.
+    $breaking = @($was[0], ($was[1] + 1), 0, 0)
+    $adding = @($was[0], $was[1], ($was[2] + 1), 0)
+    $raised = $base -and (Compare-Parts $was $base) -gt 0
+
+    if (-not $raised) {
+        # С последней выкладки номер выпуска ещё не поднимали: поднимает эта задача.
+        if ((Compare-Parts $now $breaking) -eq 0 -or (Compare-Parts $now $adding) -eq 0) { exit 0 }
+        Stop-Merge ("Номер выпуска поднят не так: в dev $wasText, $since, после слияния $nowText. " +
+            "Номер выпуска поднимается на один шаг: $(Format-Release $breaking) или $(Format-Release $adding).")
+    }
+
+    # Номер выпуска уже поднят: остаётся как есть, а поломка привычного после одного поднятого третьего
+    # числа поднимает второе.
+    if ((Compare-Parts $now $was) -eq 0) { exit 0 }
+    $onlyThird = $was[1] -eq $base[1]
+    if ($onlyThird -and (Compare-Parts $now $breaking) -eq 0) { exit 0 }
+    $allowed = if ($onlyThird) { "оставить $wasText или, если задача ломает привычное, $(Format-Release $breaking)" } else { "оставить $wasText" }
+    Stop-Merge ("Номер выпуска поднят не так: в dev уже $wasText, $since, после слияния $nowText. " +
+        "Нужно $allowed.")
 }
 
 # Push: git подаёт строки «<локальная ссылка> <локальный sha> <удалённая ссылка> <удалённый sha>».
@@ -113,7 +159,19 @@ foreach ($line in [Console]::In.ReadToEnd() -split "`r?`n" | Where-Object { $_ }
     git cat-file -e "$remoteSha^{commit}" 2>$null
     if ($LASTEXITCODE -ne 0) { continue }
 
-    Assert-Grown "на сервере в $branch" (Get-Text "${remoteSha}:") 'в отправляемом' (Get-Text "${localSha}:") `
-        "Подними номер в version.txt своим коммитом и отправь $branch снова — как, сказано в CLAUDE.md."
+    $wasText = Get-Text "${remoteSha}:"
+    $nowText = Get-Text "${localSha}:"
+    if (-not $wasText -or -not $nowText) { continue }
+    $was = ConvertTo-Parts $wasText
+    if (-not $was) { continue }
+    $now = ConvertTo-Parts $nowText
+    if (-not $now) {
+        [Console]::Error.WriteLine("В version.txt в отправляемом не номер версии: «$nowText». $Rule")
+        exit 1
+    }
+    if ((Compare-Parts (Get-Release $now) (Get-Release $was)) -lt 0) {
+        [Console]::Error.WriteLine("Номер выпуска панели ниже, чем на сервере: в $branch там $wasText, в отправляемом $nowText. $Rule")
+        exit 1
+    }
 }
 exit 0

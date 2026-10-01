@@ -1,15 +1,17 @@
 <#
 .SYNOPSIS
-Перечень задач, приехавших в канал с выпуском: строка «- <задача>» на задачу, новые первыми.
+Что приехало в канал с выпуском: строка «- <фраза оператору>» на задачу, новые первыми.
 
 .DESCRIPTION
-Зовёт сборка выпуска на GitHub. Выпуск считается от прошлого выпуска того же канала — наибольшего
-тега канала, достижимого из выпускаемого кода, — а первого выпуска канала — от начала истории,
-но не больше полусотни задач. Этот перечень карточка «Панель» показывает под номером выпуска.
+Зовут сборка Беты и выкладка в Стабильный на GitHub. Выпуск считается от прошлого выпуска
+того же канала: у Беты — от наибольшего её тега, достижимого из выпускаемого кода, у Стабильного —
+от наибольшего его тега вообще, а первого выпуска канала — от начала истории, но не больше
+полусотни задач. Этот перечень карточка «Панель» показывает под номером выпуска.
 
 Идут первые родители: так работа приезжает в канал, а слияние, которым задача подтянула канал
 к себе перед мержем, лежит в стороне от этой череды. Пачку «Merge dev into master» скрипт
-разворачивает в задачи, которые она привезла, а приставку «Merge <ветка>: » срезает.
+разворачивает в задачи, которые она привезла. У задачи берётся её фраза оператору — строка
+«Оператору: …» в сообщении слияния; у слияний, вышедших до фраз, — заголовок без приставки «Merge <ветка>: ».
 
 .EXAMPLE
 pwsh -NoProfile -File scripts/release-notes.ps1 -Channel dev
@@ -32,17 +34,36 @@ $separator = [char]0x1f
 
 # Тег выпуска master — v<номер>, выпуска dev — v<номер>-dev. Номер — три числа до 0.25.1 и четыре с 0.25.2.0.
 $pattern = if ($Channel -eq 'dev') { '^v(\d+\.\d+\.\d+(?:\.\d+)?)-dev$' } else { '^v(\d+\.\d+\.\d+(?:\.\d+)?)$' }
-$previous = git -C $Repository tag --list 'v*' --merged $Head |
+# Стабильный выходит выкладкой признанной Беты, и прежние выпуски Стабильного лежали на слияниях в master,
+# которых в коде Беты нет: прошлый выпуск Стабильного — наибольший, достижимый он из кода или нет.
+$reachable = if ($Channel -eq 'dev') { '--merged', $Head } else { @() }
+$previous = git -C $Repository tag --list 'v*' @reachable |
     Where-Object { $_ -match $pattern } |
     Sort-Object { [version]($_ -replace $pattern, '$1') } |
     Select-Object -Last 1
 
+$recordEnd = [char]0x1e
+
+# Фраза оператору — строка «Оператору: …» в сообщении слияния: её пишет агент задачи при слиянии в dev. Ищется
+# там же, где её ищет хук .githooks/check-phrase.ps1, — во всём сообщении, заголовок тоже.
+function Get-Phrase($message) {
+    foreach ($line in $message -split "`n") {
+        if ($line -match '^Оператору:\s*(\S.*?)\s*$') { return $Matches[1] }
+    }
+}
+
 function Get-FirstParent($range) {
-    git -C $Repository log --first-parent -n $Limit "--format=%H$separator%P$separator%s" $range |
+    # Тело коммита многострочное: записи разделяет свой знак, а не перевод строки.
+    $log = (git -C $Repository log --first-parent -n $Limit "--format=%H$separator%P$separator%s$separator%b$recordEnd" $range) -join "`n"
+    $log -split $recordEnd |
+        ForEach-Object { $_.Trim() } |
         Where-Object { $_ } |
         ForEach-Object {
             $parts = $_ -split $separator
-            [pscustomobject]@{ Sha = $parts[0]; Parents = @($parts[1] -split ' ' | Where-Object { $_ }); Title = $parts[2] }
+            [pscustomobject]@{
+                Sha = $parts[0]; Parents = @($parts[1] -split ' ' | Where-Object { $_ }); Title = $parts[2]
+                Phrase = Get-Phrase "$($parts[2])`n$($parts[3])"
+            }
         }
 }
 
@@ -52,8 +73,11 @@ function Test-Mechanical($title) {
         ($title.StartsWith('Merge ') -and $title.Contains(' into ') -and -not $title.Contains(': '))
 }
 
-# «Merge fix/some-task: что сделано» — остаётся только фраза о правке. Имя ветки — одно слово.
-function Get-Arrived($title) {
+# Есть фраза оператору — она. Нет — слияние вышло раньше фраз: «Merge fix/some-task: что сделано» — остаётся
+# заголовок без приставки. Имя ветки — одно слово.
+function Get-Arrived($commit) {
+    if ($commit.Phrase) { return $commit.Phrase }
+    $title = $commit.Title
     if (-not $title.StartsWith('Merge ')) { return $title }
     $colon = $title.IndexOf(': ')
     if ($colon -gt 6 -and -not $title.Substring(6, $colon - 6).Contains(' ')) { return $title.Substring($colon + 2) }
@@ -63,13 +87,13 @@ function Get-Arrived($title) {
 $range = if ($previous) { "$previous..$Head" } else { $Head }
 $arrived = foreach ($commit in Get-FirstParent $range) {
     if (-not (Test-Mechanical $commit.Title)) {
-        Get-Arrived $commit.Title
+        Get-Arrived $commit
         continue
     }
     if ($commit.Parents.Count -lt 2) { continue }
     Get-FirstParent "$($commit.Parents[0])..$($commit.Parents[1])" |
         Where-Object { -not (Test-Mechanical $_.Title) } |
-        ForEach-Object { Get-Arrived $_.Title }
+        ForEach-Object { Get-Arrived $_ }
 }
 
 $arrived | Select-Object -First $Limit | ForEach-Object { "- $_" }

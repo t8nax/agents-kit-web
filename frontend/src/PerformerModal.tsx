@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { AGENT_NAME } from './BacklogWriteModal'
 import { Markdown } from './Markdown'
-import { useAgentRequest } from './agentRequest'
 import { AttachError } from './Attachments'
 import { appendSpoken } from './voice'
 import VoiceButton from './VoiceButton'
@@ -9,6 +8,8 @@ import { PerformerIcon, type BasePerformers, type Performer } from './Performers
 import { NEWER_FORMAT_REFUSAL } from './NewerFormat'
 import DeletePerformerModal from './DeletePerformerModal'
 import { TrashIcon } from './DeleteWorkspaceModal'
+import PerformerChatModal from './PerformerChatModal'
+import type { DraftFields } from './performerTalk'
 import './Modal.css'
 import './AskModal.css'
 import './PerformerModal.css'
@@ -30,32 +31,14 @@ function splitTools(tools: string | null) {
   return { readOnly, custom: readOnly ? '' : (tools ?? '') }
 }
 
-/** Поля исполнителя, как их возвращает Чудо-Юдо: те же, что в окне, кроме копии. */
-export type DraftFields = {
-  name: string | null
-  description: string | null
-  model: string | null
-  tools: string | null
-  prompt: string
-}
-
-export type DraftEvent =
-  | { type: 'step'; text: string }
-  | { type: 'drafted'; text: string; fields: DraftFields; durationMs?: number }
-  | { type: 'error'; text: string; output?: string }
-
-const examples = [
-  'Читает дифф ветки задачи и возвращает вердикт с замечаниями по критериям',
-  'Гоняет проверки фронта и бэкенда и объясняет, что покраснело',
-  'Отвечает на вопрос по коду копии файлом и строкой, ничего не правя',
-]
-
 type Props = {
   /** Проекты панели: из них выбирают, в чью базу ляжет исполнитель. */
   bases: BasePerformers[]
   initial: string
   /** Правится заведённый — поля заполнены им, а имя уже задано; null — заводится новый. */
   editing: Performer | null
+  /** Окно открыто отметкой переписки в шапке панели: переписка с Чудо-Юдо встаёт поверх сразу. */
+  talking?: boolean
   onClose: () => void
   onSaved: (name: string) => void
   onDeleted: (name: string) => void
@@ -65,10 +48,10 @@ type Failure = { text: string; git: boolean }
 
 /**
  * Окно исполнителя — в рамке окон ответа и записи в бэклог. Имя нового, описание, задание, модель и инструменты
- * правятся руками, а Чудо-Юдо пишет их по просьбе; нового можно завести и вовсе без него — решения оператора
- * на B-198, прежнее «пишет только агент» (B-80) ими отменено. Имя заведённого не меняется.
+ * правятся руками, а с Чудо-Юдо их пишут перепиской в окне поверх этого — видимой кнопкой в подвале (B-320);
+ * нового можно завести и вовсе без него — решения оператора на B-198. Имя заведённого не меняется.
  */
-export default function PerformerModal({ bases, initial, editing, onClose, onSaved, onDeleted }: Props) {
+export default function PerformerModal({ bases, initial, editing, talking = false, onClose, onSaved, onDeleted }: Props) {
   const [base, setBase] = useState(initial)
   const [name, setName] = useState(editing?.name ?? '')
   const [description, setDescription] = useState(editing?.description ?? '')
@@ -80,11 +63,12 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   const [prompt, setPrompt] = useState(editing?.prompt ?? '')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<Failure | null>(null)
+  // Переписка с Чудо-Юдо открыта своим окном поверх этого.
+  const [chatting, setChatting] = useState(talking)
   // Задание открыто для чтения своим окном поверх этого.
   const [reading, setReading] = useState(false)
   // Удаление подтверждается своим окном поверх этого, как удаление рабочей копии (B-83).
   const [deleting, setDeleting] = useState(false)
-  const field = useRef<HTMLTextAreaElement>(null)
   // Закрытое окно задания возвращает фокус на кнопку, которой его открыли, — после перерисовки:
   // пока окно задания открыто, окно исполнителя inert, и фокус в него не встаёт.
   const taskButton = useRef<HTMLButtonElement>(null)
@@ -99,6 +83,13 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     if (wasReading.current && !reading) taskButton.current?.focus()
     wasReading.current = reading
   }, [reading])
+  // Закрытая переписка возвращает фокус на свою кнопку в подвале.
+  const chatButton = useRef<HTMLButtonElement>(null)
+  const wasChatting = useRef(chatting)
+  useEffect(() => {
+    if (wasChatting.current && !chatting) chatButton.current?.focus()
+    wasChatting.current = chatting
+  }, [chatting])
   // То же с окном удаления: после «Отмены» фокус возвращается на «Удалить исполнителя».
   const deleteButton = useRef<HTMLButtonElement>(null)
   const wasDeleting = useRef(false)
@@ -107,25 +98,15 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     wasDeleting.current = deleting
   }, [deleting])
 
-  // Просьба к Чудо-Юдо живёт в панели: закрытое окно агента не трогает, а открытое заново видит его работу.
-  // Окно подхватывает только свою просьбу: правка — просьбу об этом исполнителе этого проекта, новое — просьбу
-  // о новом. Ответ про другого переписал бы этого, а переписанный заведённый лёг бы в окно нового (B-80).
-  const draft = useAgentRequest<DraftEvent>('performer', {
-    mine: (request) =>
-      editing ? request.subject === editing.name && request.base === initial : !request.subject,
-  })
-  const [wish, setWish] = useState('')
-  const [voiceError, setVoiceError] = useState<string | null>(null)
-  // Поля, какими они были до ответа агента: «Вернуть как было» ставит их обратно.
+  // Поля, какими они были до принятых правок Чудо-Юдо: «вернуть как было» ставит их обратно.
   const [before, setBefore] = useState<DraftFields | null>(null)
-  const taken = useRef(false)
-  // Модель и инструменты, которые оператор выбрал сам: ответ агента их не перетирает.
-  const chose = useRef({ model: false, tools: false })
+  // Модель и инструменты, которые оператор выбрал сам: правки Чудо-Юдо их не перетирают.
+  const [chose, setChose] = useState({ model: false, tools: false })
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      // Окно удаления закрывает Escape само: окно исполнителя под ним остаётся.
-      if (event.key !== 'Escape' || busy || deleting) return
+      // Окна удаления и переписки закрывает Escape само: окно исполнителя под ними остаётся.
+      if (event.key !== 'Escape' || busy || deleting || chatting) return
       // Escape закрывает верхнее окно: сначала задание, потом само окно исполнителя.
       if (reading) {
         if (!taskEditing.current) closeTask()
@@ -133,27 +114,25 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, deleting, onClose, reading, closeTask])
+  }, [busy, deleting, chatting, onClose, reading, closeTask])
 
-  // Итог просьбы становится основой исполнителя — один раз: ответ не перетирает поправленное оператором.
-  const outcome = draft.outcome
-  useEffect(() => {
-    if (outcome?.type !== 'drafted' || taken.current) return
-    taken.current = true
-    setBefore({ name, description, model, tools: chosenTools, prompt })
+  const fields: DraftFields = { name, description, model, tools: chosenTools, prompt }
+
+  /** «Принять правки» переписки: предложение ложится в поля, кроме выбранных вручную модели и инструментов. */
+  function accept(proposal: DraftFields) {
+    setBefore(fields)
     // Имя заведённого не меняется: по нему его зовут шаги флоу, а другое имя бэкенд счёл бы переименованием.
-    if (!editing) setName(outcome.fields.name ?? '')
-    setDescription(outcome.fields.description ?? '')
-    if (!chose.current.model) setModel(outcome.fields.model ?? '')
-    if (!chose.current.tools) {
-      const drafted = splitTools(outcome.fields.tools)
-      setReadOnly(drafted.readOnly)
-      setTools(drafted.custom)
+    if (!editing) setName(proposal.name ?? '')
+    setDescription(oneLine(proposal.description ?? ''))
+    if (!chose.model) setModel(proposal.model ?? '')
+    if (!chose.tools) {
+      const offered = splitTools(proposal.tools)
+      setReadOnly(offered.readOnly)
+      setTools(offered.custom)
     }
-    setPrompt(outcome.fields.prompt)
-    // Основа берётся из ответа: оператор же и попросил её написать. Модель и инструменты — только невыбранные.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outcome])
+    setPrompt(proposal.prompt)
+    setChatting(false)
+  }
 
   // В правке имя — всегда прежнее: поля имени в ней нет, и записывается тот, кого открыли.
   const trimmed = editing ? editing.name : name.trim()
@@ -161,52 +140,10 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
   // Имя занято другим исполнителем проекта: сохранение переписало бы его.
   const occupied =
     trimmed.length > 0 && trimmed !== editing?.name && (chosen?.performers ?? []).some((p) => p.name === trimmed)
-  const draftError = draft.failure ?? (draft.outcome?.type === 'error' ? draft.outcome.text : null)
-  const draftOutput = draft.outcome?.type === 'error' ? (draft.outcome.output ?? null) : null
-  const phase: 'idle' | 'running' | 'taken' | 'failed' = draft.running
-    ? 'running'
-    : draftError
-      ? 'failed'
-      : outcome?.type === 'drafted'
-        ? 'taken'
-        : 'idle'
-  const asked = draft.asked || wish.trim()
   // Нового без задания не записать: исполнитель без задания ничего не умеет. У заведённого модель
   // и инструменты правятся, даже если задание в его файле пустое.
   const hasBasis = editing !== null || prompt.trim().length > 0
-  // Поля нового ещё пусты: окно показывает примеры просьб, а поле просьбы стоит в полный рост.
-  const blank = !editing && !name.trim() && !description.trim() && !prompt.trim()
-
-  const ask = useCallback(
-    async (text: string) => {
-      if (!text.trim()) return
-      taken.current = false
-      const current = editing ? { name, description, model, tools: chosenTools, prompt } : null
-      const started = await draft.start('/api/performers/draft', {
-        base,
-        wish: text.trim(),
-        current,
-      })
-      if (started.ok) return
-      draft.setFailure(
-        started.status === 404
-          ? 'Панель не нашла базу или её основную копию'
-          : started.status === null
-            ? 'Нет связи с API'
-            : 'Панель не приняла просьбу',
-      )
-    },
-    [base, draft, editing, name, description, model, chosenTools, prompt],
-  )
-
-  /** Забывает просьбу и возвращает поле к набору: текст просьбы остаётся, чтобы переспросить. */
-  async function again() {
-    setWish(asked)
-    taken.current = false
-    await draft.forget()
-  }
-
-  async function revert() {
+  function revert() {
     if (before) {
       setName(before.name ?? '')
       setDescription(before.description ?? '')
@@ -217,7 +154,6 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
       setPrompt(before.prompt)
     }
     setBefore(null)
-    await again()
   }
 
   async function save(event: FormEvent) {
@@ -285,29 +221,30 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
     } finally {
       setBusy(false)
     }
-    field.current?.focus()
   }
 
-  const locked = busy || phase === 'running'
-  // База нового формата кита: исполнитель читается, а ни правка, ни просьба к агенту его не запишут (B-281).
+  const locked = busy
+  // База нового формата кита: исполнитель читается, а ни правка, ни переписка с агентом его не запишут (B-281).
   const closed = chosen?.formatWarning ? NEWER_FORMAT_REFUSAL : null
   const frozen = locked || closed !== null
-  const askLabel = editing ? `Переписать с помощью ${AGENT_NAME}` : `Завести с помощью ${AGENT_NAME}`
+  const chatLabel = editing ? `Переписать с ${AGENT_NAME}` : `Завести с ${AGENT_NAME}`
+  const over = reading || deleting || chatting
   const project = chosen?.project ?? ''
   const calledBy = editing?.calledBy ?? []
 
   return (
     <div
       className="modal-overlay"
-      onMouseDown={(event) => event.target === event.currentTarget && !locked && !reading && !deleting && onClose()}
+      onMouseDown={(event) => event.target === event.currentTarget && !locked && !over && onClose()}
     >
       <form
         className="modal-wizard pf-modal"
         role="dialog"
-        aria-modal={!reading && !deleting}
+        aria-modal={!over}
         aria-labelledby="pf-title"
-        // Пока открыто задание или удаление, окно исполнителя под ним недоступно: Tab и программа чтения — только в верхнем.
-        inert={reading || deleting}
+        // Пока открыто задание, удаление или переписка, окно исполнителя под ними недоступно: Tab и программа
+        // чтения — только в верхнем.
+        inert={over}
         onSubmit={save}
         noValidate
       >
@@ -362,87 +299,13 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               {closed}
             </p>
           )}
-          {/* Просьба — первое поле окна: отдельного окна у исполнителя нет — решение оператора на B-69. */}
-          <label htmlFor="pf-wish" className="visually-hidden">
-            Просьба к {AGENT_NAME}
-          </label>
-          {/* Микрофон — в правом нижнем углу поля (макет B-291) */}
-          <div className="voice-field">
-            <textarea
-              id="pf-wish"
-              ref={field}
-              className={`custom-textarea pf-wish ${blank ? '' : 'pf-wish-short'}`}
-              value={phase === 'running' ? asked : wish}
-              placeholder={
-                editing
-                  ? 'Что переписать: например, пусть ещё сверяет работу с решениями базы'
-                  : 'Расскажите своими словами, что исполнитель делает и что возвращает'
-              }
-              disabled={busy || phase === 'running' || closed !== null}
-              onChange={(event) => setWish(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void ask(wish)
-              }}
-            />
-            <VoiceButton
-              disabled={busy || phase === 'running' || closed !== null}
-              onText={(spoken) => setWish(appendSpoken(wish, spoken))}
-              onError={setVoiceError}
-            />
-          </div>
-          <AttachError text={voiceError} />
-
-          {phase === 'idle' && blank && !wish && (
-            <div className="ask-examples">
-              <span className="ask-examples-title">Например</span>
-              {examples.map((example) => (
-                <button key={example} type="button" className="ask-example" onClick={() => setWish(example)}>
-                  {example}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {phase === 'running' && (
-            <>
-              <div className="ask-waiting" role="status">
-                <span className="ask-spinner" aria-hidden="true" />
-                <span className="ask-waiting-text">
-                  {AGENT_NAME} {editing ? 'переписывает исполнителя' : 'заводит исполнителя'}…
-                </span>
-                {draft.startedAt !== null && <Elapsed since={draft.startedAt} />}
-                <button type="button" className="pf-link" onClick={() => void draft.forget()}>
-                  отменить
-                </button>
-              </div>
-              {draft.steps.length > 0 && (
-                <ol className="ask-steps" aria-label={`Ход работы ${AGENT_NAME}`}>
-                  {draft.steps.map((step, i) => (
-                    <li key={i}>{step}</li>
-                  ))}
-                </ol>
-              )}
-            </>
-          )}
-
-          {phase === 'taken' && (
+          {before && (
             <div className="pf-status">
-              <span>Основу написал {AGENT_NAME}</span>
-              <button type="button" className="pf-link" disabled={busy} onClick={() => void revert()}>
+              <span>Правки {AGENT_NAME} приняты</span>
+              <button type="button" className="pf-link" disabled={busy} onClick={revert}>
                 вернуть как было
               </button>
-              <button type="button" className="pf-link" disabled={busy} onClick={() => void again()}>
-                переспросить
-              </button>
             </div>
-          )}
-
-          {/* Агент недоступен или не справился — одной строкой; его вывод, если был, читается подсказкой. */}
-          {phase === 'failed' && (
-            <p className="pf-down" role="alert" title={draftOutput ?? undefined}>
-              <WarnIcon />
-              {AGENT_NAME} не ответил: {draftError}
-            </p>
           )}
 
           {/* Основа — список терминов: подпись и значение связаны так, что их читает и программа для незрячих.
@@ -530,7 +393,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                 value={model}
                 disabled={frozen}
                 onChange={(value) => {
-                  chose.current.model = true
+                  setChose((prev) => ({ ...prev, model: true }))
                   setModel(value)
                 }}
               >
@@ -551,7 +414,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                   aria-pressed={readOnly}
                   disabled={frozen}
                   onClick={() => {
-                    chose.current.tools = true
+                    setChose((prev) => ({ ...prev, tools: true }))
                     setReadOnly(!readOnly)
                   }}
                 >
@@ -575,7 +438,7 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
                     spellCheck={false}
                     disabled={frozen}
                     onChange={(event) => {
-                      chose.current.tools = true
+                      setChose((prev) => ({ ...prev, tools: true }))
                       setTools(event.target.value)
                     }}
                   />
@@ -583,15 +446,6 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               </div>
             </div>
           </div>
-
-          {/* Разом идёт одна просьба этого вида: просьба отсюда остановит ту, что идёт про другого. */}
-          {draft.foreign && phase !== 'running' && (
-            <p className="pf-foreign">
-              {AGENT_NAME} {draft.foreign.state === 'running' ? 'сейчас занят' : 'уже ответил'}{' '}
-              {draft.foreign.subject ? `про исполнителя ${draft.foreign.subject}` : 'про нового исполнителя'}{' '}
-              {draft.foreign.project}: новая просьба отсюда {draft.foreign.state === 'running' ? 'остановит его' : 'уберёт этот ответ'}.
-            </p>
-          )}
 
           {failure && (
             <div className="ask-error" role="alert">
@@ -619,18 +473,19 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
               </button>
             )}
             <div className="footer-right">
-              {/* Просьба уходит из подвала, рядом с «Сохранить»: она такое же действие окна — выбор оператора на B-69. */}
-              {phase !== 'running' && (
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={busy || !wish.trim() || closed !== null}
-                  title={closed ?? undefined}
-                  onClick={() => void ask(wish)}
-                >
-                  {phase === 'failed' ? 'Попросить снова' : askLabel}
-                </button>
-              )}
+              {/* Переписку открывает видимая кнопка подвала рядом с «Сохранить», а не пункт меню — решение оператора
+                  на B-320; сама переписка идёт своим окном поверх этого. */}
+              <button
+                type="button"
+                ref={chatButton}
+                className="btn pf-chat"
+                disabled={busy || closed !== null}
+                title={closed ?? undefined}
+                onClick={() => setChatting(true)}
+              >
+                <ChatIcon />
+                {chatLabel}
+              </button>
               <button
                 type="submit"
                 className="btn btn-primary"
@@ -651,6 +506,18 @@ export default function PerformerModal({ bases, initial, editing, onClose, onSav
           name={editing.name}
           onClose={() => setDeleting(false)}
           onRemoved={() => onDeleted(editing.name)}
+        />
+      )}
+
+      {chatting && (
+        <PerformerChatModal
+          base={base}
+          project={project}
+          subject={editing?.name ?? null}
+          current={fields}
+          kept={chose}
+          onAccept={accept}
+          onClose={() => setChatting(false)}
         />
       )}
 
@@ -847,6 +714,17 @@ function FileIcon() {
   )
 }
 
+function ChatIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="2.5" width="16" height="6" rx="1.5" />
+      <rect x="4" y="15.5" width="16" height="6" rx="1.5" />
+      <path d="M12 8.5v7" />
+      <path d="M9.5 13l2.5 2.5 2.5-2.5" />
+    </svg>
+  )
+}
+
 function PencilIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -863,20 +741,5 @@ function WarnIcon() {
       <line x1="12" y1="9" x2="12" y2="13" />
       <line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
-  )
-}
-
-/** Сколько идёт просьба: время считает панель, окно только показывает. */
-function Elapsed({ since }: { since: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-  const seconds = Math.max(0, Math.floor((now - since) / 1000))
-  return (
-    <span className="ask-elapsed" aria-label="Прошло времени">
-      {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
-    </span>
   )
 }

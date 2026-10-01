@@ -27,13 +27,8 @@ export type Started = { ok: true } | { ok: false; status: number | null }
  * Просьба живёт в панели, а не в окне: окно её только показывает. Открытое заново, оно читает ход просьбы
  * с начала — вместе с тем, что пришло без него, — и ждёт продолжения. Закрытие окна агента не трогает:
  * останавливает его «Отменить», то есть cancel.
- * mine — какую просьбу этого вида окно считает своей: окно правки исполнителя подхватывает только просьбу
- * о нём, а окно нового — только о новом (B-80). Без него своя — любая просьба этого вида.
  */
-export function useAgentRequest<E extends AgentEvent>(
-  kind: AgentKind,
-  { mine = anyRequest }: { mine?: (request: AgentRequestSummary) => boolean } = {},
-) {
+export function useAgentRequest<E extends AgentEvent>(kind: AgentKind) {
   const [asked, setAsked] = useState('')
   const [base, setBase] = useState<string | null>(null)
   // Просьба, которую окно показывает, — такой, какой её держит панель.
@@ -44,8 +39,6 @@ export function useAgentRequest<E extends AgentEvent>(
   const [startedAt, setStartedAt] = useState<number | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [restoring, setRestoring] = useState(true)
-  // Просьба того же вида, которую окно своей не считает: новая просьба окна её остановит (B-80).
-  const [foreign, setForeign] = useState<AgentRequestSummary | null>(null)
   const reading = useRef<AbortController | null>(null)
 
   const follow = useCallback(
@@ -133,9 +126,8 @@ export function useAgentRequest<E extends AgentEvent>(
         (list) => {
           if (!alive) return
           setRestoring(false)
-          const own = list.find((request) => request.kind === kind && mine(request))
+          const own = list.find((request) => request.kind === kind)
           if (own) void follow(own)
-          setForeign(list.find((request) => request.kind === kind && !mine(request)) ?? null)
         },
         () => alive && setRestoring(false),
       )
@@ -144,8 +136,6 @@ export function useAgentRequest<E extends AgentEvent>(
       // Закрытое окно перестаёт читать поток, но просьбу не трогает: агент работает дальше.
       reading.current?.abort()
     }
-    // Отбор своей просьбы читается один раз, при открытии окна: окно и спрашивает о ней один раз.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, follow])
 
   const start = useCallback(
@@ -158,8 +148,6 @@ export function useAgentRequest<E extends AgentEvent>(
         })
         if (!response.ok) return { ok: false, status: response.status }
         const summary = (await response.json()) as AgentRequestSummary
-        // Чужую просьбу панель этой остановила: предупреждать больше не о чем.
-        setForeign(null)
         void follow(summary)
         return { ok: true }
       } catch {
@@ -189,10 +177,5 @@ export function useAgentRequest<E extends AgentEvent>(
   }, [kind])
 
   // follow — подхватить просьбу, начатую без окна: разбор по расписанию, пока раздел открыт (B-270).
-  return { asked, base, request, steps, outcome, running, startedAt, failure, restoring, foreign, start, forget, setFailure, follow }
-}
-
-/** Своя просьба по умолчанию — любая просьба своего вида: разом идёт по одной каждого вида. */
-function anyRequest() {
-  return true
+  return { asked, base, request, steps, outcome, running, startedAt, failure, restoring, start, forget, setFailure, follow }
 }

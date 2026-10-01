@@ -11,7 +11,7 @@ const running: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} читает базу ${project}`,
   backlog: (project) => `${AGENT_NAME} разбирает бэклог ${project}`,
   flow: (project) => `${AGENT_NAME} разбирает флоу ${project}`,
-  performer: (project) => `${AGENT_NAME} заводит исполнителя ${project}`,
+  performer: (project) => `${AGENT_NAME} пишет исполнителя ${project}`,
   report: (project) => `${AGENT_NAME} строит отчёт о флоу ${project}`,
   tracker: (project) => `${AGENT_NAME} разбирает трекер ${project}`,
 }
@@ -20,7 +20,7 @@ const done: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} ответил по базе ${project}`,
   backlog: (project) => `${AGENT_NAME} ответил по бэклогу ${project}`,
   flow: (project) => `${AGENT_NAME} ответил по флоу ${project}`,
-  performer: (project) => `${AGENT_NAME} завёл исполнителя ${project}`,
+  performer: (project) => `${AGENT_NAME} ответил об исполнителе ${project}`,
   report: (project) => `${AGENT_NAME} построил отчёт о флоу ${project}`,
   tracker: (project) => `${AGENT_NAME} ответил по трекеру ${project}`,
 }
@@ -29,16 +29,16 @@ const failed: Record<AgentKind, (project: string) => string> = {
   ask: (project) => `${AGENT_NAME} не ответил по базе ${project}`,
   backlog: (project) => `${AGENT_NAME} не ответил по бэклогу ${project}`,
   flow: (project) => `${AGENT_NAME} не ответил по флоу ${project}`,
-  performer: (project) => `${AGENT_NAME} не завёл исполнителя ${project}`,
+  performer: (project) => `${AGENT_NAME} не ответил об исполнителе ${project}`,
   report: (project) => `${AGENT_NAME} не построил отчёт о флоу ${project}`,
   tracker: (project) => `${AGENT_NAME} не ответил по трекеру ${project}`,
 }
 
-// Просьба о правке заведённого исполнителя называет его: по ней отметка ведёт в его правку, а не в нового (B-80).
+// Переписка о заведённом исполнителе называет его: по ней отметка ведёт в его правку, а не в нового (B-80).
 const rewriting = {
   running: (name: string, project: string) => `${AGENT_NAME} переписывает исполнителя ${name} ${project}`,
-  done: (name: string, project: string) => `${AGENT_NAME} переписал исполнителя ${name} ${project}`,
-  failed: (name: string, project: string) => `${AGENT_NAME} не переписал исполнителя ${name} ${project}`,
+  done: (name: string, project: string) => `${AGENT_NAME} ответил об исполнителе ${name} ${project}`,
+  failed: (name: string, project: string) => `${AGENT_NAME} не ответил об исполнителе ${name} ${project}`,
 }
 
 function title(request: AgentRequestSummary) {
