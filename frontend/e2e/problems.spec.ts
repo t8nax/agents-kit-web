@@ -137,3 +137,57 @@ test('о новой версии кита раздел проблем говор
   await notice.getByRole('button', { name: 'Открыть настройки' }).click()
   await expect(page.getByRole('heading', { name: 'Настройки' })).toBeVisible()
 })
+
+test('база прежнего формата: из таблицы — в «Проблемы баз», перевод кнопкой, база становится обычной', async ({ page }) => {
+  const base = 'D:\\Projects\\orders-knowledge'
+  const outdatedRow = {
+    ...row,
+    project: 'Orders',
+    base,
+    path: base,
+    branch: null,
+    status: null,
+    error: 'База хранится в прежнем формате. Перевести её можно в разделе «Проблемы баз».',
+    baseOutdated: true,
+  }
+  const outdated = {
+    ...health,
+    bases: [{ base, project: 'Orders', status: 'unavailable', error: outdatedRow.error, problems: [], copies: [], outdated: true }],
+  }
+  const translated = {
+    ...health,
+    checkedAt: '2026-09-17T12:05:00+03:00',
+    bases: [{ base, project: 'Orders', status: 'checked', error: null, problems: [], copies: [] }],
+  }
+  let migrated = false
+  let release = () => {}
+  const answered = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const requests: unknown[] = []
+  await mockApi(page, [outdatedRow], outdated)
+  await page.route('**/api/health', (route) => route.fulfill({ json: migrated ? translated : outdated }))
+  await page.route('**/api/health/check', (route) => route.fulfill({ status: 202 }))
+  await page.route('**/api/bases/migrate', async (route) => {
+    requests.push(route.request().postDataJSON())
+    await answered
+    migrated = true
+    await route.fulfill({ json: { outcome: 'migrated' } })
+  })
+
+  await page.goto('/')
+  const copy = page.getByRole('table').locator('tbody tr:not(.group-row)').first()
+  await expect(copy).toContainText('База хранится в прежнем формате. Перевести её можно в разделе «Проблемы баз».')
+  await copy.getByRole('button', { name: '«Проблемы баз»' }).click()
+
+  const card = page.getByRole('region', { name: `Orders — ${base}` })
+  await expect(card.getByText('база не читается')).toBeVisible()
+  await card.getByRole('button', { name: 'Перевести базу' }).click()
+  await expect(card.getByText('Выполняется перевод базы на новый формат.')).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Перевести базу' })).toBeDisabled()
+  await expect.poll(() => requests).toEqual([{ base, operator: null }])
+
+  release()
+  await expect(card.getByText('проблем нет')).toBeVisible()
+  await expect(card.getByRole('status')).toHaveCount(0)
+})

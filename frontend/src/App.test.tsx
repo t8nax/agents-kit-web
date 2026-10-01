@@ -706,6 +706,35 @@ test('проблемы базы стоят в заголовке группы, �
   expect(await screen.findByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
 })
 
+test('строка базы прежнего формата ведёт ссылкой в «Проблемы баз», где базу переводят', async () => {
+  const outdated: WorkspaceRow = {
+    ...rows[0],
+    path: rows[0].base,
+    branch: null,
+    task: null,
+    flowStep: null,
+    progress: null,
+    status: null,
+    error: 'База хранится в прежнем формате. Перевести её можно в разделе «Проблемы баз».',
+    baseOutdated: true,
+  }
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      url === '/api/health'
+        ? new Response(JSON.stringify({ pending: false, kit: 'ok', bases: [], checkedAt: null }), { status: 200 })
+        : new Response(JSON.stringify([outdated]), { status: 200 }),
+    ),
+  )
+
+  render(<App />)
+  const [, row] = await findTableRows()
+
+  expect(row).toHaveTextContent('База хранится в прежнем формате. Перевести её можно в разделе «Проблемы баз».')
+  fireEvent.click(within(row).getByRole('button', { name: '«Проблемы баз»' }))
+  expect(await screen.findByRole('heading', { name: 'Проблемы баз' })).toBeInTheDocument()
+})
+
 test('без пути к киту таблица говорит об этом в заголовке группы и плашкой, плашка ведёт в «Настройки»', async () => {
   const tableRows: WorkspaceRow[] = [{ ...rows[0], problemsState: 'kit-not-set', problems: null }]
   vi.stubGlobal(
