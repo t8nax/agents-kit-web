@@ -27,7 +27,6 @@ import { PlayIcon } from './StartTaskModal'
 import { rowKey, statusChanges } from './statusChanges'
 import { splitTask, splitTrackerTask } from './taskTitle'
 import { TerminalIcon } from './TerminalIcon'
-import Usage, { UsageIcon } from './Usage'
 import { VsCodeIcon } from './VsCodeIcon'
 import { useTheme } from './theme'
 import { useVoiceModuleSource, VoiceContext } from './voice'
@@ -142,7 +141,6 @@ type Section =
   | 'flow'
   | 'performers'
   | 'sessions'
-  | 'usage'
   | 'reports'
   | 'problems'
   | 'trackers'
@@ -380,8 +378,6 @@ function App() {
             />
           ) : section === 'sessions' ? (
             <Sessions />
-          ) : section === 'usage' ? (
-            <Usage />
           ) : section === 'reports' ? (
             // Возврат к просьбе открывает раздел заново: он встаёт на проекте просьбы.
             <Reports
@@ -536,11 +532,7 @@ function Sidebar({
         >
           <SessionsIcon />
         </SideItem>
-        {/* Расход стоит за сессиями: это тоже про происходящее сейчас, только про его цену */}
-        <SideItem label="Расход" expanded={expanded} active={section === 'usage'} onClick={() => onSection('usage')}>
-          <UsageIcon />
-        </SideItem>
-        {/* Отчёты стоят за расходом: это оценка того, как устроена работа, а не сама работа */}
+        {/* Отчёты стоят за сессиями: это оценка того, как устроена работа, а не сама работа */}
         <SideItem
           label="Отчёты"
           expanded={expanded}
