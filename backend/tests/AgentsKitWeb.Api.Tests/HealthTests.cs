@@ -67,7 +67,8 @@ public sealed class HealthTests : IDisposable
 
         var baseHealth = Assert.Single(snapshot.Bases);
         Assert.Equal(BaseHealthStatus.Unavailable, baseHealth.Status);
-        Assert.Equal("База прежнего формата — переведите её китом", baseHealth.Error);
+        Assert.Equal(BaseLayout.OutdatedProblem, baseHealth.Error);
+        Assert.True(baseHealth.Outdated);
     }
 
     [Fact]

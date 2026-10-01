@@ -222,7 +222,8 @@ public sealed class WorkspacesEndpointTests : IDisposable
 
         var row = Assert.Single(await GetRows(basePath));
         Assert.Equal(basePath, row.Path);
-        Assert.Equal("База прежнего формата — переведите её китом", row.Error);
+        Assert.Equal(BaseLayout.OutdatedProblem, row.Error);
+        Assert.True(row.BaseOutdated);
     }
 
     [Fact]

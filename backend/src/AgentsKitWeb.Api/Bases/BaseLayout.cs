@@ -66,6 +66,27 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
     /// <summary>Базой кита считается каталог с agents-kit.json — какого бы формата она ни была.</summary>
     public static bool IsBase(string path) => File.Exists(Path.Combine(path, MarkerFile));
 
+    /// <summary>
+    /// Причина, по которой панель не читает базу прежнего формата: перевести её можно кнопкой в «Проблемах баз» (B-314).
+    /// </summary>
+    public const string OutdatedProblem = "База хранится в прежнем формате. Перевести её можно в разделе «Проблемы баз».";
+
+    /// <summary>База прежнего формата — её переводит кит (B-314).</summary>
+    public static bool IsOutdated(string basePath) => ReadFormat(basePath) < Format;
+
+    /// <summary>
+    /// Копии этой машины из local\me.json — какого бы формата база ни была: файл машины кит ведёт одинаково во всех
+    /// форматах, а перевод базы прежнего формата идёт от её копии.
+    /// </summary>
+    public static IReadOnlyList<string> MachineCopies(string basePath) => ReadMachineFile(basePath)?.Workspaces ?? [];
+
+    /// <summary>Оператор этой машины из local\me.json по форме кита; null — не назван или не по форме.</summary>
+    public static string? MachineOperator(string basePath) =>
+        ReadMachineFile(basePath)?.Operator is { } name && IsOperatorName(name) ? name : null;
+
+    /// <summary>Имя оператора по форме кита (Test-KitOperatorName).</summary>
+    public static bool IsOperatorName(string name) => OperatorName().IsMatch(name);
+
     /// <summary>Раскладка базы этой машины; null — читать нечего, почему — problem.</summary>
     public static BaseLayout? Read(string basePath) => Read(basePath, out _);
 
@@ -84,7 +105,7 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
                 problem = "Не прочитан agents-kit.json базы";
                 return null;
             case < Format:
-                problem = "База прежнего формата — переведите её китом";
+                problem = OutdatedProblem;
                 return null;
         }
 
@@ -94,7 +115,7 @@ public sealed partial record BaseLayout(string Base, string Operator, IReadOnlyL
             problem = @"Не прочитан local\me.json базы";
             return null;
         }
-        if (machine.Operator is not { } name || !OperatorName().IsMatch(name))
+        if (machine.Operator is not { } name || !IsOperatorName(name))
         {
             problem = "На этом компьютере не назван оператор базы — возьмите проект под кит скиллом /onboard";
             return null;

@@ -35,7 +35,31 @@ public sealed class BaseLayoutTests : IDisposable
             JsonSerializer.Serialize(new { kit = "agents-kit", version = format }));
 
         Assert.Null(BaseLayout.Read(basePath, out var problem));
-        Assert.Equal("База прежнего формата — переведите её китом", problem);
+        Assert.Equal(BaseLayout.OutdatedProblem, problem);
+        Assert.True(BaseLayout.IsOutdated(basePath));
+    }
+
+    [Fact]
+    // Копии и оператора базы прежнего формата панель знает: от копии её переводит кит (B-314).
+    public void MachineFile_OfOlderFormat_IsRead()
+    {
+        var basePath = TestLayout.Base(Path.Combine(_root, "kb"), Path.Combine(_root, "app"));
+        File.WriteAllText(Path.Combine(basePath, BaseLayout.MarkerFile),
+            JsonSerializer.Serialize(new { kit = "agents-kit", version = BaseLayout.Format - 1 }));
+
+        Assert.Equal([Path.Combine(_root, "app")], BaseLayout.MachineCopies(basePath));
+        Assert.Equal(TestLayout.Operator, BaseLayout.MachineOperator(basePath));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Tester")]
+    public void MachineOperator_NotNamedOrNotByForm_IsNull(string? name)
+    {
+        var basePath = TestLayout.Base(Path.Combine(_root, "kb"));
+        TestLayout.Machine(basePath, name);
+
+        Assert.Null(BaseLayout.MachineOperator(basePath));
     }
 
     [Fact]

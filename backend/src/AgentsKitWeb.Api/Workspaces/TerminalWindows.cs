@@ -3,10 +3,13 @@ using System.Diagnostics;
 
 namespace AgentsKitWeb.Api.Workspaces;
 
-/// <summary>Окно терминала, подключённое к фоновой сессии копии.</summary>
+/// <summary>Окно терминала в копии: подключённое к фоновой сессии копии или пустое — с командной строкой.</summary>
 public interface ITerminalWindows
 {
     Task<bool> AttachAsync(string copyPath, string sessionId, CancellationToken cancellationToken);
+
+    /// <summary>Окно с командной строкой в копии — чинить руками то, что не вышло у кита (B-314).</summary>
+    Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -25,6 +28,24 @@ public sealed class WindowsTerminals : ITerminalWindows
     public async Task<bool> AttachAsync(string copyPath, string sessionId, CancellationToken cancellationToken) =>
         await RunAsync(WindowsTerminal(copyPath, sessionId), cancellationToken)
         || await RunAsync(PowerShellWindow(copyPath, sessionId), cancellationToken);
+
+    public async Task<bool> OpenAsync(string copyPath, CancellationToken cancellationToken) =>
+        await RunAsync(WindowsTerminal(copyPath), cancellationToken)
+        || await RunAsync(PowerShellWindow(copyPath), cancellationToken);
+
+    /// <summary>`wt -d &lt;копия&gt; pwsh` — вкладка Windows Terminal на копии с командной строкой.</summary>
+    public static ProcessStartInfo WindowsTerminal(string copyPath)
+    {
+        var startInfo = new ProcessStartInfo("wt.exe") { UseShellExecute = false, WorkingDirectory = copyPath };
+        startInfo.ArgumentList.Add("-d");
+        startInfo.ArgumentList.Add(copyPath);
+        startInfo.ArgumentList.Add("pwsh");
+        return startInfo;
+    }
+
+    /// <summary>Окно самого pwsh на копии — когда Windows Terminal на машине нет.</summary>
+    public static ProcessStartInfo PowerShellWindow(string copyPath) =>
+        new("pwsh.exe") { UseShellExecute = false, WorkingDirectory = copyPath };
 
     /// <summary>`wt -d &lt;копия&gt; pwsh -NoExit -Command &lt;команда окна&gt;` — вкладка Windows Terminal на копии.</summary>
     public static ProcessStartInfo WindowsTerminal(string copyPath, string sessionId)

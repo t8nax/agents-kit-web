@@ -45,6 +45,7 @@ public static class WorkspaceStatus
 /// Tracker — имя трекера проекта (TrackerDescriptions.NameOf): по нему фронт отделяет номер задачи трекера — B-303.
 /// VsCodeSession — в копии идёт сессия VS Code: она, как и фоновая сессия задачи, прочтёт ответ оператора.
 /// FormatWarning — у всех строк базы нового формата (BaseLayout.NewerFormat): фронт ставит его под заголовком группы.
+/// BaseOutdated — строка базы прежнего формата: фронт ведёт из её надписи в «Проблемы баз», где базу переводят (B-314).
 /// AnswerUnread — в памяти лежит ответ оператора, который сессия ещё не вобрала; наружу не отдаётся,
 /// из него AgentSessions.Annotate ставит статус Unread.
 /// </summary>
@@ -68,7 +69,8 @@ public sealed record WorkspaceRow(
     bool VsCodeSession = false,
     [property: JsonIgnore] bool AnswerUnread = false,
     string? FormatWarning = null,
-    string? Tracker = null);
+    string? Tracker = null,
+    bool BaseOutdated = false);
 
 public static class WorkspaceCollector
 {
@@ -90,7 +92,7 @@ public static class WorkspaceCollector
             return [Unavailable(project, basePath, basePath, "База не найдена на диске")];
 
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
-            return [Unavailable(project, basePath, basePath, problem)];
+            return [Unavailable(project, basePath, basePath, problem) with { BaseOutdated = BaseLayout.IsOutdated(basePath) }];
 
         var copies = layout.Workspaces;
         var memories = ReadMemories(layout);

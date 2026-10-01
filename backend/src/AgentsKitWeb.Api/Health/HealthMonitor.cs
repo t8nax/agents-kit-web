@@ -38,7 +38,8 @@ public sealed record CopyHealth(string Path, IReadOnlyList<HealthProblem> Proble
 
 /// <summary>
 /// Проблемы одной базы. Error задан у unavailable и failed. FormatWarning — база нового формата
-/// (BaseLayout.NewerFormat): её проверяет кит, как любую, а предупреждение идёт рядом с находками.
+/// (BaseLayout.NewerFormat): её проверяет кит, как любую, а предупреждение идёт рядом с находками. Outdated — база прежнего
+/// формата: панель её не читает, а переводит китом по кнопке в карточке (B-314).
 /// </summary>
 public sealed record BaseHealth(
     string Base,
@@ -47,7 +48,8 @@ public sealed record BaseHealth(
     string? Error,
     IReadOnlyList<HealthProblem> Problems,
     IReadOnlyList<CopyHealth> Copies,
-    string? FormatWarning = null);
+    string? FormatWarning = null,
+    bool Outdated = false);
 
 /// <summary>
 /// Снимок проблем баз. Pending — первая проверка ещё идёт, данных нет. KitUpdate — установленная новая версия
@@ -138,7 +140,8 @@ public sealed class HealthMonitor(
         // называет раскладка; сверка кита такой базе ничего не добавит, кроме того же «перевести» или «завести».
         // Базу нового формата кит, который её перевёл, знает — её он проверяет, как любую (B-281).
         if (BaseLayout.Read(basePath, out var unreadable) is not { } layout)
-            return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, unreadable, [], []);
+            return new BaseHealth(basePath, project, BaseHealthStatus.Unavailable, unreadable, [], [],
+                Outdated: BaseLayout.IsOutdated(basePath));
         var warning = layout.FormatWarning;
         if (kit is null)
             return new BaseHealth(basePath, project, BaseHealthStatus.Unchecked, null, [], [], warning);
