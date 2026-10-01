@@ -1,0 +1,5 @@
+#!/bin/sh
+# Слияние в dev несёт фразу оператору — строку «Оператору: …»: .githooks/check-phrase.ps1.
+# Обычный коммит не проверяется; слияние, доведённое после конфликта, git проверяет здесь же — MERGE_HEAD есть и тогда.
+git rev-parse --quiet --verify MERGE_HEAD >/dev/null || exit 0
+exec pwsh -NoProfile -File "$(dirname "$0")/check-phrase.ps1" -Message "$1"

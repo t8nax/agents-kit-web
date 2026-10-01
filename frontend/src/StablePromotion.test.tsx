@@ -49,21 +49,22 @@ test('есть что выложить — номера Стабильного �
   expect(screen.getByText('Выкладка в Стабильный')).toBeTruthy()
   expect(within(block()).getByText('0.27.4.0')).toBeTruthy()
   expect(within(block()).getByText('0.28.1.3')).toBeTruthy()
-  // Число задач в блоке не пишется — только в окне подтверждения.
-  expect(block().textContent).not.toMatch(/задач/)
+  // Число изменений в блоке не пишется — только в окне подтверждения.
+  expect(block().textContent).not.toMatch(/изменени/)
 })
 
-test('кнопка открывает окно подтверждения с задачами по номерам Беты, «Отмена» его закрывает', async () => {
+test('кнопка открывает окно подтверждения со строками всех сборок подряд, «Отмена» его закрывает', async () => {
   const fetchMock = stubApi([stable('ready')])
   render(<StablePromotion />)
 
   fireEvent.click(await screen.findByRole('button', { name: 'Выпустить в Стабильный' }))
 
   const dialog = screen.getByRole('dialog', { name: 'Выпустить 0.28.1.3 в Стабильный?' })
-  expect(within(dialog).getByText('3 задачи')).toBeTruthy()
-  expect(within(dialog).getByText('Окно запуска показывает флоу')).toBeTruthy()
-  const numbers = [...dialog.querySelectorAll('.panel-releases .panel-release-num')].map((node) => node.textContent)
-  expect(numbers).toEqual(['0.28.1.3', '0.28.0.1'])
+  expect(within(dialog).getByText('3 изменения')).toBeTruthy()
+  // Строки всех сборок одним списком, свежие сверху, без номеров Беты (макет B-313).
+  const lines = [...dialog.querySelectorAll('.panel-releases li')].map((node) => node.textContent)
+  expect(lines).toEqual(['Фильтр «Метки» помнит выбор', 'Бэклог разделён на вкладки', 'Окно запуска показывает флоу'])
+  expect(dialog.querySelector('.panel-releases .panel-release-num')).toBeNull()
   expect(within(dialog).getByText('Отменить выпуск нельзя.')).toBeTruthy()
 
   fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }))
