@@ -1272,7 +1272,7 @@ test('флажок «Мои задачи» оставляет свои зада�
 })
 
 // Больше сотни задач — строка, а не молчаливая обрезка; её ссылка ведёт к описанию трекера, где задают фильтр (AKW-17)
-test('задач больше сотни — серая строка под списком со ссылкой к описанию трекера', async () => {
+test('задач больше сотни — серая строка под списком со ссылкой к трекеру проекта в разделе «Трекеры»', async () => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker(github))
   fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null, truncated: true }))
@@ -1286,7 +1286,7 @@ test('задач больше сотни — серая строка под сп
   )
   expect(line.closest('p')).toHaveClass('text-sec')
   fireEvent.click(project.getByRole('button', { name: 'в разделе «Трекеры»' }))
-  expect(onTrackers).toHaveBeenCalledTimes(1)
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, false)
 })
 
 test('задач не больше сотни — строки о пределе нет', async () => {

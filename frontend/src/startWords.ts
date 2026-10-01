@@ -44,7 +44,7 @@ export function forgetGoneStartWords(backlogs: { base: string; entries: { number
   })
 }
 
-// Черновики задач трекера базы, которых среди прочитанных открытых и назначенных на оператора больше нет, забываются;
+// Черновики задач трекера базы, которых среди прочитанных открытых больше нет, забываются;
 // трекер не прочитан — остаются.
 export function forgetGoneIssueWords(base: string, names: string[]) {
   const kept = new Set(names)

@@ -96,8 +96,8 @@ export function sameField(field: DescriptionField, a: TrackerDescription, b: Tra
 
 /** Подсказка в пустом поле «Фильтр» — только у трекеров, задачи которых панель читает (B-300). */
 export const filterPlaceholder: Partial<Record<TrackerName, string>> = {
-  GitHub: 'Строка поиска GitHub, например label:bug milestone:v2',
-  YouTrack: 'Строка поиска YouTrack, например State: {To Do}',
+  GitHub: 'Строка поиска GitHub, например assignee:@me — только ваши задачи',
+  YouTrack: 'Строка поиска YouTrack, например Assignee: me — только ваши задачи',
 }
 
 export const serverPlaceholder: Record<TrackerName, string> = {
