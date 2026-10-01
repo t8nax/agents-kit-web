@@ -205,7 +205,8 @@ export default function TrackerGroup({
   const state =
     trackerState(load, tracker, onTrackers) ??
     (mine && issues.length === 0 && load.kind === 'loaded'
-      ? { warning: false, text: 'Ваших задач в этом проекте нет.' }
+      ? // Задач больше сотни — свои могут быть за ней: строка не говорит, что их нет вовсе (ревью AKW-17)
+        { warning: false, text: load.truncated ? `Среди первых ${ISSUE_LIMIT} задач проекта ваших нет.` : 'Ваших задач в этом проекте нет.' }
       : null)
   const width = Math.max(0, ...issues.map((issue) => issueLabel(issue).length))
   return (

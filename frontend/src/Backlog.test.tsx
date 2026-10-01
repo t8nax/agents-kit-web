@@ -1271,6 +1271,22 @@ test('флажок «Мои задачи» оставляет свои зада�
   expect(readRemembered().mine).toBe(true)
 })
 
+// Задач больше сотни — свои могут быть за ней: строка не утверждает, что их нет вовсе (ревью AKW-17)
+test('флажок «Мои задачи» при задачах больше сотни — «Среди первых 100 задач проекта ваших нет.»', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: issues.map((i) => ({ ...i, mine: false })), problem: null, truncated: true }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /#52/ })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Мои задачи' }))
+
+  expect(project.getByText('Среди первых 100 задач проекта ваших нет.')).toBeInTheDocument()
+  expect(project.queryByText('Ваших задач в этом проекте нет.')).not.toBeInTheDocument()
+})
+
 // Больше сотни задач — строка, а не молчаливая обрезка; её ссылка ведёт к описанию трекера, где задают фильтр (AKW-17)
 test('задач больше сотни — серая строка под списком со ссылкой к трекеру проекта в разделе «Трекеры»', async () => {
   onTrackerTab()
