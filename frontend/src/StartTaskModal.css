@@ -41,6 +41,12 @@
   gap: 18px;
 }
 
+/* Блоки тела окна запуска не сжимаются: окну не хватает высоты — тело прокручивается, а список копий
+   не ложится на «Начальные слова» (B-332). Окно переноса в трекер берёт .st-body, но не этот класс. */
+.st-start-body > * {
+  flex-shrink: 0;
+}
+
 .st-failure {
   margin: 0;
   padding: 12px 14px;
@@ -68,10 +74,6 @@
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-}
-
-.st-copies {
-  min-height: 0;
 }
 
 .st-message {
