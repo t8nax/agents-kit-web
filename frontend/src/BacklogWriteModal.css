@@ -267,15 +267,14 @@
   border-color: var(--accent-error-border);
 }
 
-/* Перенос в трекер (B-286): описание задачи несёт разделы записи — «Артефакты» ссылками и «Агенту» */
-.write-entry-text h3 {
-  margin: 12px 0 4px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
+/* Задача заведена и ждёт файлов от оператора — янтарным, как ожидание оператора в панели (макет AKW-15) */
+.change-badge.waiting {
+  color: var(--accent-waiting-text);
+  background: var(--accent-waiting-bg);
+  border-color: var(--accent-waiting-border);
 }
 
-/* Файлы, которые в задачу не попадут, — красной строкой под описанием */
+/* Файлы, которые в задачу сами не попадут, — красной строкой под артефактами записи */
 .write-entry-warn {
   display: flex;
   align-items: flex-start;
@@ -292,11 +291,7 @@
   margin-top: 2px;
 }
 
-.write-entry-warn .mono {
-  color: var(--text-primary);
-}
-
-/* Заведённая задача — номером плашкой номера трекера в строке заголовка, перед отметкой; плашка — ссылка на GitHub */
+/* Задача трекера — номером плашкой номера трекера в строке заголовка, перед отметкой; плашка — ссылка на задачу */
 .wc-issue {
   display: inline-flex;
   align-items: center;
@@ -330,20 +325,6 @@
 .wc-issue:focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
-}
-
-/* Задачи, заведённые несохранённым переносом, — строкой пар «запись — задача» под причиной */
-.talk-issues {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin-top: 6px;
-}
-
-.talk-issue {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .modal-overlay .talk-pending svg {

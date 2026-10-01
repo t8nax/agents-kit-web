@@ -12,18 +12,21 @@ const isLink = (address: string) => /^https?:\/\//i.test(address)
 /**
  * Артефакты записи бэклога блоком под её описанием — как вкладка «Артефакты» окна ответа (макет B-260): подпись,
  * под ней адрес. Файл из artifacts/ личного репозитория открывается в VS Code; у записи без номера адресовать его нечем, и путь
- * остаётся строкой. `compact` — тот же блок плотнее, внутри карточки записи в окне Чудо-Юдо.
+ * остаётся строкой. `compact` — тот же блок плотнее, внутри карточки записи в окне Чудо-Юдо. `files` — только
+ * файлы, без ссылок на сайты: так карточка переноса называет файлы, которые оператор прикрепит к задаче (AKW-15).
  */
 export default function EntryArtifacts({
   base,
   number,
   artifacts,
   compact = false,
+  files = false,
 }: {
   base: string
   number: string | null
   artifacts: Artifact[]
   compact?: boolean
+  files?: boolean
 }) {
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -60,9 +63,10 @@ export default function EntryArtifacts({
 
   return (
     <section className={`entry-artifacts ${compact ? 'is-compact' : ''}`} aria-label="Артефакты">
-      <div className="entry-artifacts-label">Артефакты</div>
+      <div className="entry-artifacts-label">{files ? 'Файлы' : 'Артефакты'}</div>
       <ul>
-        {artifacts.map((artifact, i) => (
+        {/* Номер строки — место в записи: по нему API открывает файл, поэтому отбор его не сдвигает */}
+        {artifacts.map((artifact, i) => (files && isLink(artifact.address) ? null : (
           <li key={i}>
             <div className="entry-artifact-label">
               <InlineMarkdown text={artifact.label} />
@@ -85,7 +89,7 @@ export default function EntryArtifacts({
               <span className="entry-artifact-address">{artifact.address}</span>
             )}
           </li>
-        ))}
+        )))}
       </ul>
       {error && (
         <p className="entry-artifacts-error" role="alert">
