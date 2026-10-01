@@ -131,17 +131,23 @@ public sealed class TaskRollbackTests : IDisposable
     }
 
     [Fact]
-    public async Task Session_StopsTaskSessionAndForgetsIt()
+    public async Task Session_StopsTaskSession_AndStillGoingItDoesNotBlockNextSteps_UntilMemoryForgetsIt()
     {
         var copy = TakeTask("B-7 Кнопка мигает");
+        // Процесс сессии не уходит: `claude stop` только просит её завершиться
         WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
         TestBases.TaskSession(_root, copy, "7339dced");
+        var client = Client();
+        var taskSessions = new TaskSessions(TaskSessions.FileBeside(TestBases.File(_root, _base)));
 
-        var response = await Step(copy, TaskRollback.Session);
-
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, TaskRollback.Session, client)).StatusCode);
         Assert.Equal(["stop", "7339dced"], Assert.Single(_agent.Started).ArgumentList);
-        Assert.Null(new TaskSessions(TaskSessions.FileBeside(TestBases.File(_root, _base))).SessionIn(copy));
+        Assert.Equal("7339dced", taskSessions.SessionIn(copy));
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, TaskRollback.Backlog, client)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, TaskRollback.Copy, client)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, TaskRollback.Memory, client)).StatusCode);
+        Assert.Null(taskSessions.SessionIn(copy));
     }
 
     [Fact]

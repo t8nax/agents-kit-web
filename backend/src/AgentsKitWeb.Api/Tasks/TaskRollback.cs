@@ -112,10 +112,10 @@ public static partial class TaskRollback
             // Начавшись, шаг отменой запроса не рвётся: оборванный git оставил бы базу или копию на полпути.
             var failure = step switch
             {
-                Session => await StopTaskSessionAsync(target, sessions, taskSessions, started, agent),
+                Session => await StopTaskSessionAsync(target, sessions, taskSessions, agent),
                 Backlog => await ReturnEntryAsync(target),
                 Copy => branches is null ? "git не прочитал копию" : await ResetCopyAsync(branches),
-                _ => await RemoveMemoryAsync(target),
+                _ => await RemoveMemoryAsync(target, taskSessions, started),
             };
             return failure is null
                 ? Results.NoContent()
@@ -177,19 +177,16 @@ public static partial class TaskRollback
     }
 
     /// <summary>
-    /// Гасит сессию задачи — ту, что панель завела в копии под задачу, — и забывает свой запуск: иначе копия
-    /// числилась бы запускаемой. Сессии задачи нет в живых — гасить нечего.
+    /// Гасит сессию задачи — ту, что панель завела в копии под задачу. Сессии задачи нет в живых — гасить нечего.
+    /// Сессией задачи панель помнит её до шага памяти: `claude stop` только просит сессию завершиться, и гаснущая,
+    /// забытая раньше времени, следующим шагам мешала бы как чужая фоновая.
     /// </summary>
     private static async Task<string?> StopTaskSessionAsync(
-        Target target, AgentSessions sessions, TaskSessions taskSessions, StartedTasks started, IAgentProcess agent)
-    {
-        if (sessions.BackgroundIn(target.Row.Path, taskSessions.SessionIn(target.Row.Path)) is { } session
-            && await SessionStop.StopAsync(agent, session, CancellationToken.None) is { } failure)
-            return $"Сессия задачи не погасла: {failure}";
-        started.Forget(target.Row.Path);
-        taskSessions.Forget(target.Row.Path);
-        return null;
-    }
+        Target target, AgentSessions sessions, TaskSessions taskSessions, IAgentProcess agent) =>
+        sessions.BackgroundIn(target.Row.Path, taskSessions.SessionIn(target.Row.Path)) is { } session
+            && await SessionStop.StopAsync(agent, session, CancellationToken.None) is { } failure
+            ? $"Сессия задачи не погасла: {failure}"
+            : null;
 
     /// <summary>
     /// Возвращает запись бэклога тем же номером и тем же текстом, какой она была, когда её взяли, — в конец
@@ -378,9 +375,19 @@ public static partial class TaskRollback
     /// <summary>
     /// Снимает память задачи вместе с её флоу и артефактами, на которые больше никто не ссылается, — одним коммитом
     /// личного репозитория, как кит закрывает задачу. Отказ коммита возвращает файлы как были: удаление без коммита
-    /// уехало бы с чужим коммитом соседней сессии.
+    /// уехало бы с чужим коммитом соседней сессии. Снята память — панель забывает сессию задачи и свой запуск
+    /// в копии: иначе копия числилась бы запускаемой.
     /// </summary>
-    private static async Task<string?> RemoveMemoryAsync(Target target)
+    private static async Task<string?> RemoveMemoryAsync(Target target, TaskSessions taskSessions, StartedTasks started)
+    {
+        if (await RemoveMemoryFilesAsync(target) is { } failure)
+            return failure;
+        started.Forget(target.Row.Path);
+        taskSessions.Forget(target.Row.Path);
+        return null;
+    }
+
+    private static async Task<string?> RemoveMemoryFilesAsync(Target target)
     {
         var personal = target.Layout.Personal;
         string Relative(string file) => Path.GetRelativePath(personal, file).Replace('\\', '/');
