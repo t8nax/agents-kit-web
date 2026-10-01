@@ -20,8 +20,11 @@ public static class BaseMigrateOutcome
     /// <summary>Переведена и отдана на сервер — база просто становится обычной.</summary>
     public const string Migrated = "migrated";
 
-    /// <summary>Переведена, а на сервер не ушла — уйдёт при следующей отдаче агентом.</summary>
+    /// <summary>Переведена, а на сервер не ушла: сервер недоступен — уйдёт при следующей отдаче агентом.</summary>
     public const string NotPushed = "not-pushed";
+
+    /// <summary>Переведена, а на сервер не ушла по другой причине — её слова кита оператору не показываются.</summary>
+    public const string NotSynced = "not-synced";
 
     /// <summary>Киту нужно имя оператора этой машины.</summary>
     public const string NeedName = "need-name";
@@ -127,11 +130,16 @@ public static class KitBaseMigrate
         {
             if (kit is null || !File.Exists(ScriptFile(kit)))
                 return BaseMigrateOutcome.KitMissing;
-            // Базу уже перевели — соседняя сессия или прошлый перевод, которого панель не дождалась.
-            if (!BaseLayout.IsOutdated(basePath))
-                return BaseMigrateOutcome.Migrated;
             if (Copy(basePath) is not { } copy)
                 return BaseMigrateOutcome.Failed;
+
+            // Сначала базу забирают с сервера, как велит кит (skills/onboard): её могли перевести с другой машины, и второй
+            // перевод поверх устаревшей истории встал бы на конфликте при отдаче. Не забрана — перевод не запускается.
+            if (!(await KitSync.RunAsync(KitSync.ScriptFile(kit), copy, KitSync.Pull)).Done)
+                return BaseMigrateOutcome.Failed;
+            // Базу уже перевели — с другой машины, соседней сессией или прошлым переводом, которого панель не дождалась.
+            if (!BaseLayout.IsOutdated(basePath))
+                return BaseMigrateOutcome.Migrated;
 
             var name = string.IsNullOrWhiteSpace(operatorName) ? null : operatorName.Trim();
             if (name is not null && !BaseLayout.IsOperatorName(name))
@@ -163,7 +171,12 @@ public static class KitBaseMigrate
 
             // Переведённую базу панель отдаёт на сервер, как после записи описания трекера (B-293) — решение оператора.
             var push = await KitSync.RunAsync(KitSync.ScriptFile(kit), copy, KitSync.Push);
-            return push.Done ? BaseMigrateOutcome.Migrated : BaseMigrateOutcome.NotPushed;
+            return push.Code switch
+            {
+                0 => BaseMigrateOutcome.Migrated,
+                2 => BaseMigrateOutcome.NotPushed,
+                _ => BaseMigrateOutcome.NotSynced,
+            };
         }
         finally
         {

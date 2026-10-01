@@ -300,7 +300,7 @@ function stubMigrate(...outcomes: string[]) {
     if (url === '/api/bases/migrate') {
       await gate
       const outcome = outcomes.shift() ?? 'failed'
-      if (outcome === 'migrated' || outcome === 'not-pushed') done = true
+      if (outcome === 'migrated' || outcome === 'not-pushed' || outcome === 'not-synced') done = true
       return new Response(JSON.stringify({ outcome }), { status: 200 })
     }
     if (url === '/api/bases/terminal') return new Response(null, { status: 200 })
@@ -417,4 +417,18 @@ test('кит старше панели — карточка ведёт обно�
   expect(await within(card).findByText(/Установленная версия кита не может перевести базу/)).toBeInTheDocument()
   fireEvent.click(within(card).getByRole('button', { name: 'Открыть настройки' }))
   expect(onSettings).toHaveBeenCalled()
+})
+
+test('отдача не прошла не из-за сервера — строка без причины', async () => {
+  const api = stubMigrate('not-synced')
+  api.release()
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  expect(await within(card).findByText('проблем нет')).toBeInTheDocument()
+  expect(within(card).getByRole('status')).toHaveTextContent(
+    /^База переведена на новый формат, но не отправлена на сервер\.$/,
+  )
 })

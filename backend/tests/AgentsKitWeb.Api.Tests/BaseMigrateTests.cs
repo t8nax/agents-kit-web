@@ -30,10 +30,18 @@ public sealed class BaseMigrateTests : IDisposable
         Write-Host 'База переведена на формат {{BaseLayout.Format}}.'
         """;
 
+    // Сведение пишет каждое действие строкой: видно, что базу забрали до перевода и отдали после.
     private const string Pushes = """
         param([string]$Path, [string]$Repo, [string]$Action)
-        Set-Content -LiteralPath (Join-Path $PSScriptRoot 'sync.txt') -Value "$Action $Repo $Path" -Encoding utf8
-        Write-Host 'на remote базы отдано коммитов: 1'
+        Add-Content -LiteralPath (Join-Path $PSScriptRoot 'sync.txt') -Value "$Action $Repo $Path" -Encoding utf8
+        Write-Host 'сведено'
+        exit 0
+        """;
+
+    /// <summary>Сведение, у которого отдача отвечает кодом <paramref name="code"/>, а забор проходит.</summary>
+    private static string PushExits(int code) => $$"""
+        param([string]$Path, [string]$Repo, [string]$Action)
+        if ($Action -eq 'Push') { Write-Host 'на remote базы не отдано'; exit {{code}} }
         exit 0
         """;
 
@@ -89,13 +97,13 @@ public sealed class BaseMigrateTests : IDisposable
         Assert.Equal(BaseMigrateOutcome.Migrated, await Migrate());
 
         Assert.Equal($"{_copy}|", Called("migrate.txt"));
-        Assert.Equal($"Push Base {_copy}", Called("sync.txt"));
+        Assert.Equal($"Pull Base {_copy}\nPush Base {_copy}", Called("sync.txt").ReplaceLineEndings("\n"));
         Assert.False(BaseLayout.IsOutdated(_base));
     }
 
     [Fact]
-    // Сервер недоступен — база уже переведена, а на сервер уйдёт при следующей отдаче агентом.
-    public async Task Migrate_PushFails_IsNotPushed()
+    // Базу не забрать с сервера — переводить нельзя: её могли перевести с другой машины (кит, skills/onboard).
+    public async Task Migrate_PullFails_IsFailedWithoutKit()
     {
         await SetKit(Translates, sync: """
             param([string]$Path, [string]$Repo, [string]$Action)
@@ -103,8 +111,41 @@ public sealed class BaseMigrateTests : IDisposable
             exit 2
             """);
 
+        Assert.Equal(BaseMigrateOutcome.Failed, await Migrate());
+        Assert.Equal("", Called("migrate.txt"));
+    }
+
+    [Fact]
+    // Забор принёс базу, уже переведённую с другой машины, — кит второй раз не зовётся.
+    public async Task Migrate_PullBringsTranslatedBase_IsMigratedWithoutKit()
+    {
+        await SetKit(Translates, sync: $$"""
+            param([string]$Path, [string]$Repo, [string]$Action)
+            Set-Content -LiteralPath '{{Path.Combine(_base, BaseLayout.MarkerFile)}}' -Value '{"kit":"agents-kit","version":{{BaseLayout.Format}}}' -Encoding utf8
+            exit 0
+            """);
+
+        Assert.Equal(BaseMigrateOutcome.Migrated, await Migrate());
+        Assert.Equal("", Called("migrate.txt"));
+    }
+
+    [Fact]
+    // Сервер недоступен — база уже переведена, а на сервер уйдёт при следующей отдаче агентом.
+    public async Task Migrate_ServerUnavailable_IsNotPushed()
+    {
+        await SetKit(Translates, sync: PushExits(2));
+
         Assert.Equal(BaseMigrateOutcome.NotPushed, await Migrate());
         Assert.False(BaseLayout.IsOutdated(_base));
+    }
+
+    [Fact]
+    // Отдача не прошла не из-за сервера — причина «сервер недоступен» была бы неправдой.
+    public async Task Migrate_PushRefused_IsNotSynced()
+    {
+        await SetKit(Translates, sync: PushExits(1));
+
+        Assert.Equal(BaseMigrateOutcome.NotSynced, await Migrate());
     }
 
     [Fact]
@@ -116,7 +157,7 @@ public sealed class BaseMigrateTests : IDisposable
             """);
 
         Assert.Equal(BaseMigrateOutcome.Failed, await Migrate());
-        Assert.Equal("", Called("sync.txt"));
+        Assert.DoesNotContain("Push", Called("sync.txt"));
     }
 
     [Fact]

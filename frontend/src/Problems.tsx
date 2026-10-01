@@ -263,7 +263,15 @@ export function KitUpdateNotice({
  * Итог перевода базы прежнего формата — как его отдаёт POST /api/bases/migrate. Слов кита карточка не показывает:
  * «это технические детали» — решение оператора на B-314.
  */
-type MigrateOutcome = 'migrated' | 'not-pushed' | 'need-name' | 'invalid-name' | 'kit-old' | 'kit-missing' | 'failed'
+type MigrateOutcome =
+  | 'migrated'
+  | 'not-pushed'
+  | 'not-synced'
+  | 'need-name'
+  | 'invalid-name'
+  | 'kit-old'
+  | 'kit-missing'
+  | 'failed'
 
 /** Перевод в карточке: running — идёт; name — имя оператора, с которым переводят, пустое — без имени. */
 type Migration = { phase: 'idle' | 'running' | MigrateOutcome; name: string; terminalFailed?: boolean }
@@ -337,10 +345,12 @@ function BaseCard({
           onSettings={onSettings}
         />
       ) : (
-        migration.phase === 'not-pushed' && (
+        (migration.phase === 'not-pushed' || migration.phase === 'not-synced') && (
           <p className="problems-format" role="status">
             <WarningIcon />
-            База переведена на новый формат, но не отправлена на сервер: сервер недоступен.
+            {migration.phase === 'not-pushed'
+              ? 'База переведена на новый формат, но не отправлена на сервер: сервер недоступен.'
+              : 'База переведена на новый формат, но не отправлена на сервер.'}
           </p>
         )
       )}
@@ -380,7 +390,7 @@ function MigrateBlock({
   const { phase, name } = migration
   // Удачный перевод итогом не показывается: пока снимок проверки не прочёл переведённую базу, полоса говорит, что
   // перевод идёт, а потом карточка просто становится обычной.
-  if (phase === 'running' || phase === 'migrated' || phase === 'not-pushed')
+  if (phase === 'running' || phase === 'migrated' || phase === 'not-pushed' || phase === 'not-synced')
     return (
       <div className="problems-format" role="status">
         <WarningIcon />
