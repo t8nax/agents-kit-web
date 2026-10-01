@@ -263,6 +263,24 @@ test('у заведённого «Сохранить» горит только �
   expect(save).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: 'Только чтение' }))
   expect(save).toBeDisabled()
+
+  fireEvent.change(screen.getByLabelText('Модель'), { target: { value: 'haiku' } })
+  expect(save).toBeEnabled()
+  fireEvent.change(screen.getByLabelText('Модель'), { target: { value: reviewer.model } })
+  expect(save).toBeDisabled()
+
+  const editTask = (value: string) => {
+    fireEvent.click(screen.getByRole('button', { name: 'Показать задание' }))
+    const task = screen.getByRole('dialog', { name: /Задание/ })
+    fireEvent.click(within(task).getByRole('button', { name: 'Редактировать' }))
+    fireEvent.change(within(task).getByRole('textbox', { name: 'Задание' }), { target: { value } })
+    fireEvent.click(within(task).getByRole('button', { name: 'Готово' }))
+    fireEvent.click(within(task).getByRole('button', { name: 'Закрыть' }))
+  }
+  editTask('Ты читаешь только дифф.')
+  expect(save).toBeEnabled()
+  editTask(reviewer.prompt)
+  expect(save).toBeDisabled()
 })
 
 test('отказ API описанию назван своей строкой, а не ошибкой имени', async () => {

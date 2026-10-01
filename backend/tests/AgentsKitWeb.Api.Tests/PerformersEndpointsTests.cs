@@ -188,6 +188,30 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Исходный случай — база под Windows: файл с CRLF, сохранённый ещё раз теми же полями, тоже обходится без коммита.
+    public async Task Performers_SavingTheSameCrlfPerformerAgainSucceedsWithoutACommit()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var request = new SavePerformerRequest(basePath, "reviewer", "Описание", "opus", "Read, Grep", "Тело", null);
+        await Save(basePath, request);
+        var personal = TestLayout.Personal(basePath);
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
+        // Как в базе под Windows: git хранит LF, на диске CRLF, и git status, не тронув индекс, зовёт файл изменённым,
+        // хотя коммитить нечего — на этом и падало сохранение.
+        Run(personal, "config", "core.autocrlf", "true");
+        File.WriteAllText(file, File.ReadAllText(file).ReplaceLineEndings("\r\n"));
+        var before = Run(personal, "rev-list", "--count", "HEAD").Trim();
+        var bytes = File.ReadAllBytes(file);
+
+        var again = await Save(basePath, request with { Editing = "reviewer" });
+
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal(before, Run(personal, "rev-list", "--count", "HEAD").Trim());
+        Assert.Equal(bytes, File.ReadAllBytes(file));
+        Assert.Empty(Run(personal, "diff", "--name-only", "HEAD").Trim());
+    }
+
+    [Fact]
     // Тот же текст, но не закоммиченный — его всё-таки коммитят: иначе он ушёл бы в чужой коммит соседней сессии.
     public async Task Performers_SavingTheSameButUncommittedPerformerCommitsIt()
     {
