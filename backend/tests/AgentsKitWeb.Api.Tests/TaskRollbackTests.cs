@@ -65,6 +65,23 @@ public sealed class TaskRollbackTests : IDisposable
     }
 
     [Theory]
+    [InlineData("code.txt", false)]
+    [InlineData("code.txt", true)]
+    public async Task Plan_ChangedOrDeletedTrackedFile_IsUnsavedChange(string file, bool delete)
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        if (delete)
+            File.Delete(Path.Combine(copy, file));
+        else
+            File.WriteAllText(Path.Combine(copy, file), "правка поверх");
+
+        var plan = await Client().GetFromJsonAsync<RollbackPlan>(PlanUrl(copy));
+
+        // Единственная правка — первая строка вывода git, « M» или « D»: её ведущий пробел обрезается
+        Assert.True(plan!.Dirty);
+    }
+
+    [Theory]
     [InlineData("GitHub #37 Падает вход", RollbackSource.Tracker)]
     [InlineData("Починить вход", RollbackSource.None)]
     public async Task Plan_TaskNotFromBacklog_IsNamedByItsSource(string task, string source)

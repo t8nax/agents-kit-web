@@ -55,9 +55,10 @@ public static partial class TaskRollback
     // Сброс копии и коммит базы могут идти долго на большой копии или с хуком сверки кита.
     private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(60);
 
-    // Строка `git status --porcelain`: два знака состояния и пробел. Предупреждения git, которые GitRunner кладёт
-    // в тот же вывод, правками не считаются.
-    [GeneratedRegex(@"^[ MTADRCU?!]{2} ")]
+    // Строка `git status --porcelain`: два знака состояния и пробел. GitRunner обрезает края вывода, и у первой
+    // строки « M file» пропадает ведущий пробел — поэтому знаков один или два. Предупреждения git, которые GitRunner
+    // кладёт в тот же вывод, начинаются словом и правками не считаются.
+    [GeneratedRegex(@"^[ MTADRCU?!]{1,2} \S")]
     private static partial Regex StatusLine { get; }
 
     public static void MapTaskRollbackEndpoints(this IEndpointRouteBuilder app)
