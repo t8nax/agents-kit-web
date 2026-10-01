@@ -100,6 +100,18 @@ public static class BaseGit
         return run.ExitCode == 0 ? run.Output.Length > 0 : null;
     }
 
+    /// <summary>
+    /// Файл базы на диске отличается от последнего коммита — так, как его увидел бы `git commit -- путь`, с переводом
+    /// строк по настройкам репозитория. Не `git status`: при core.autocrlf тот зовёт изменённым файл, у которого
+    /// сменились только концы строк, пока индекс не обновлён, хотя коммитить нечего. null — git не ответил.
+    /// Неотслеживаемый файл git diff не видит — что он в коммите, проверяют отдельно (CommittedAsync).
+    /// </summary>
+    public static async Task<bool?> DiffersFromHeadAsync(string basePath, string file, CancellationToken cancellationToken)
+    {
+        var run = await GitRunner.RunAsync(basePath, Timeout, cancellationToken, "diff", "--quiet", "HEAD", "--", file);
+        return run.ExitCode switch { 0 => false, 1 => true, _ => null };
+    }
+
     /// <summary>Короткий sha последнего коммита, менявшего файл базы. null — git не ответил.</summary>
     public static async Task<string?> LastCommitAsync(string basePath, string file, CancellationToken cancellationToken)
     {
