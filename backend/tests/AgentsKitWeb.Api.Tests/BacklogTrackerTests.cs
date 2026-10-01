@@ -113,7 +113,7 @@ public sealed class BacklogTrackerTests : IDisposable
     }
 
     [Theory]
-    [InlineData("# Трекер\n\n## Где задачи\n\nтрекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY\n")]
+    [InlineData("# Трекер\n\n## Где задачи\n\nтрекер: GitLab\nсервер: https://gitlab.com\nпроект: acme/orders\n")]
     [InlineData("# Трекер\n\n## Где задачи\nGitHub Issues https://github.com/acme/orders, строк нет.\n")]
     public async Task DraftEndpoint_TrackerNotGitHubWithKeys_IsConflict(string tracker)
     {
@@ -394,8 +394,8 @@ public sealed class BacklogTrackerTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false, null, "Задача не заведена: для сервера https://acme.youtrack.cloud нет ключа — добавьте его в разделе «Трекеры», в списке «Серверы трекеров»")]
-    [InlineData(true, TrackerIssues.KeyRejected, "Задача не заведена: сервер https://acme.youtrack.cloud отклонил ключ — замените его в разделе «Трекеры», в списке «Серверы трекеров»")]
+    [InlineData(false, null, "Задача не заведена: для сервера https://acme.youtrack.cloud нет ключа — введите его в разделе «Трекеры», кнопкой «Изменить» у трекера проекта")]
+    [InlineData(true, TrackerIssues.KeyRejected, "Задача не заведена: сервер https://acme.youtrack.cloud отклонил ключ — замените его в разделе «Трекеры», кнопкой «Изменить» у трекера проекта")]
     [InlineData(true, TrackerIssues.ProjectMissing, "Задача не заведена: на сервере https://acme.youtrack.cloud нет проекта ABC или у вашего ключа нет к нему доступа")]
     [InlineData(true, CreatedIssue.YouTrackSilent, "Задача, возможно, заведена: YouTrack не ответил за минуту. Проверьте трекер, прежде чем пробовать снова")]
     [InlineData(true, CreatedIssue.CreatedUnknown, "Задача, возможно, заведена: YouTrack не назвал номер задачи. Проверьте трекер, прежде чем пробовать снова")]

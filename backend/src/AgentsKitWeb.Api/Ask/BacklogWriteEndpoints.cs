@@ -871,7 +871,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var (proposal, wrong) = text is null ? (null, null) : BacklogProposal.Build(blocks, text);
         if (wrong is not null)
             return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} предложил правку, которую панель не поняла: {wrong}", entries, Output: output);
-        // Переносить есть куда, только если трекер проекта — GitHub или YouTrack: агенту без них перенос не предлагается.
+        // Переносить есть куда, только если трекер проекта — GitHub, YouTrack или Jira: агенту без них перенос не предлагается.
         if (proposal is { Tracks: true } && (BaseLayout.Read(writing.Base) is not { } layout || ProjectTracker.Movable(layout) is null))
             return new BacklogWriteEvent(
                 "error", $"{AgentRequests.AgentName} предложил перенос в трекер, а {ProjectTracker.NotMovable}", entries, Output: output);
@@ -1070,7 +1070,7 @@ public static class BacklogWriteEndpoints
         // а правило пускает только команду целиком — поэтому вторая команда берёт каталог.
         var withFiles = $"{commit} {ArtifactFiles.Folder}";
         // Перенос записи в трекер заводит панель по «Сохранить», а не агент: трекер и программу gh он не трогает.
-        // Трекер проекта не GitHub и не YouTrack со строками описания — переносить некуда, и агент об этом знает (B-286, B-288).
+        // Трекер проекта не GitHub, не YouTrack и не Jira со строками описания — переносить некуда, и агент об этом знает (B-286, B-288, B-285).
         var track = BaseLayout.Read(basePath) is { } layout && ProjectTracker.Movable(layout) is { } tracker
             ? $"""
               Перенос записи в трекер проекта ({tracker.Name} {tracker.Project}) — тоже предложение, блоком «в трекер B-14»; задачу заведёт панель, сам трекер и gh не трогай:

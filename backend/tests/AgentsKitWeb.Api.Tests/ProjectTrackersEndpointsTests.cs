@@ -455,16 +455,16 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("label:bug", TrackerDescriptions.Parse(File.ReadAllText(TrackerFile)).Filter);
     }
 
-    /// <summary>Jira панель не читает — описание пишется без проверки, и окно говорит об этом.</summary>
+    /// <summary>GitLab панель не читает — описание пишется без проверки, и окно говорит об этом.</summary>
     [Fact]
-    public async Task Save_Jira_WrittenUnchecked()
+    public async Task Save_GitLab_WrittenUnchecked()
     {
         var client = await Client();
 
-        var response = await Save(client, _base, "", GitHub with { Tracker = "Jira", Server = "https://acme.atlassian.net", Project = "PAY" });
+        var response = await Save(client, _base, "", GitHub with { Tracker = "GitLab", Server = "https://gitlab.com", Project = "acme/team/orders" });
 
         Assert.False((await response.Content.ReadFromJsonAsync<ProjectTrackerSaved>())!.Checked);
-        Assert.Contains("трекер: Jira", File.ReadAllText(TrackerFile));
+        Assert.Contains("трекер: GitLab", File.ReadAllText(TrackerFile));
         Assert.Empty(_github.Asked);
     }
 

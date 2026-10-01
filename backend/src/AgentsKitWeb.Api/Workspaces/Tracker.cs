@@ -6,10 +6,10 @@ namespace AgentsKitWeb.Api.Workspaces;
 
 /// <summary>
 /// Трекер проекта по строкам «трекер:», «сервер:», «проект:» раздела «## Где задачи» tracker.md корня базы.
-/// Kind — «github» или «youtrack» (Server и Project названы), «other» — трекер, которого панель не читает
+/// Kind — «github», «youtrack» или «jira» (Server и Project названы), «other» — трекер, которого панель не читает
 /// (Name — как его назвал файл), «no-keys» — строк нет, какая-то пуста, повторена или не того вида (Faults — какие:
 /// «трекер», «сервер», «проект»; красная строка называет их, как на макете B-288), «unreadable» — файл не прочитан.
-/// Filter — строка «фильтр:» у GitHub и YouTrack: строка поиска трекера, которую панель дописывает к своему запросу
+/// Filter — строка «фильтр:» у GitHub, YouTrack и Jira: строка поиска трекера, которую панель дописывает к своему запросу
 /// открытых задач проекта (B-300); нет строки — null, видны все открытые задачи.
 /// </summary>
 public sealed record TrackerInfo(
@@ -18,6 +18,7 @@ public sealed record TrackerInfo(
 {
     public const string GitHub = "github";
     public const string YouTrack = "youtrack";
+    public const string Jira = "jira";
     public const string Other = "other";
     public const string NoKeys = "no-keys";
     public const string Unreadable = "unreadable";
@@ -76,6 +77,7 @@ public static partial class Tracker
         {
             "github" => TrackerInfo.GitHub,
             "youtrack" => TrackerInfo.YouTrack,
+            "jira" => TrackerInfo.Jira,
             null => null,
             _ => TrackerInfo.Other,
         };
@@ -83,6 +85,7 @@ public static partial class Tracker
         {
             TrackerInfo.GitHub => GitHubProject().IsMatch(project),
             TrackerInfo.YouTrack => YouTrackProject().IsMatch(project),
+            TrackerInfo.Jira => JiraProject().IsMatch(project),
             _ => true,
         };
         List<string> faults = [];
@@ -98,8 +101,16 @@ public static partial class Tracker
         return kind == TrackerInfo.Other
             ? new TrackerInfo(TrackerInfo.Other, name)
             : new TrackerInfo(
-                kind!, kind == TrackerInfo.GitHub ? "GitHub" : "YouTrack", server!.TrimEnd('/'), project, Filter: First("фильтр"));
+                kind!, NameOf(kind!), server!.TrimEnd('/'), project, Filter: First("фильтр"));
     }
+
+    /// <summary>Имя трекера, как его пишет кит в имени задачи: «GitHub #37», «YouTrack ABC-12», «Jira PAY-7».</summary>
+    private static string NameOf(string kind) => kind switch
+    {
+        TrackerInfo.GitHub => "GitHub",
+        TrackerInfo.YouTrack => "YouTrack",
+        _ => "Jira",
+    };
 
     /// <summary>Адрес сервера того вида, что принимает кит в строке «сервер:».</summary>
     public static bool IsServerAddress(string server) => ServerAddress().IsMatch(server);
@@ -153,4 +164,8 @@ public static partial class Tracker
 
     [GeneratedRegex(@"^[A-Za-z][A-Za-z0-9_]*$")]
     private static partial Regex YouTrackProject();
+
+    // Ключ проекта Jira — как в таблице трекеров кита: прописные латинские буквы, цифры и «_», первая — буква.
+    [GeneratedRegex(@"^[A-Z][A-Z0-9_]+$")]
+    private static partial Regex JiraProject();
 }

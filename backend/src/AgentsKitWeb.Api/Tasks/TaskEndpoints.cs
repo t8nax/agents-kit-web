@@ -75,7 +75,8 @@ public static partial class TaskEndpoints
                 if (issues.Problem is not null)
                     // Окну — код причины, его оно называет словами; строку трекера — только когда кода у причины нет
                     return Results.BadRequest(new TaskStartProblem("tracker-unavailable",
-                        issues.Problem is TrackerIssues.GitHubError or TrackerIssues.YouTrackError ? issues.Detail : issues.Problem));
+                        issues.Problem is TrackerIssues.GitHubError or TrackerIssues.YouTrackError or TrackerIssues.JiraError
+                            ? issues.Detail : issues.Problem));
                 issueTitle = issues.Issues.FirstOrDefault(i => string.Equals(i.Name, issue, StringComparison.OrdinalIgnoreCase))?.Title;
                 if (issueTitle is null)
                     return Results.BadRequest(new TaskStartProblem("issue-unknown"));

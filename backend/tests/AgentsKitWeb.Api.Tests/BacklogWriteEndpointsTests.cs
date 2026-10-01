@@ -725,7 +725,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         var saved = await Save(client, answer.Proposal!.Id);
 
         Assert.Equal(
-            "Задача для B-2 не заведена: для сервера https://acme.youtrack.cloud нет ключа — добавьте его в разделе «Трекеры», в списке «Серверы трекеров» — бэклог не записан",
+            "Задача для B-2 не заведена: для сервера https://acme.youtrack.cloud нет ключа — введите его в разделе «Трекеры», кнопкой «Изменить» у трекера проекта — бэклог не записан",
             saved.Error);
         Assert.Empty(_youTrack.Creates);
         Assert.Equal(before, File.ReadAllText(BacklogPath));

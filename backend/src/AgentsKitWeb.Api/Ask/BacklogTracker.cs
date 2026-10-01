@@ -103,8 +103,13 @@ public static partial class BacklogTracker
     /// </summary>
     public static string NotCreated(CreatedIssue created, string whose, TrackerInfo tracker)
     {
-        const string settings = "в разделе «Трекеры», в списке «Серверы трекеров»";
-        var youTrack = tracker.Kind == TrackerInfo.YouTrack;
+        const string settings = "в разделе «Трекеры», кнопкой «Изменить» у трекера проекта";
+        var name = tracker.Kind switch
+        {
+            TrackerInfo.YouTrack => "YouTrack",
+            TrackerInfo.Jira => "Jira",
+            _ => "GitHub",
+        };
         var reason = created.Problem switch
         {
             TrackerIssues.GhMissing => "программа gh не установлена — установите GitHub CLI и войдите командой gh auth login",
@@ -112,17 +117,23 @@ public static partial class BacklogTracker
             TrackerIssues.RepoUnreachable =>
                 "GitHub не нашёл репозиторий или у вашего аккаунта нет к нему доступа" + (created.Detail is null ? "" : $": {created.Detail}"),
             CreatedIssue.GitHubSilent => "GitHub не ответил за минуту",
-            TrackerIssues.NoKey => $"для сервера {tracker.Server} нет ключа — добавьте его {settings}",
+            TrackerIssues.NoKey => $"для сервера {tracker.Server} нет ключа — введите его {settings}",
             TrackerIssues.KeyRejected => $"сервер {tracker.Server} отклонил ключ — замените его {settings}",
             TrackerIssues.KeyUnreadable => $"ключ сервера {tracker.Server} не прочитать на этом компьютере — замените его {settings}",
             TrackerIssues.KeyForbidden =>
-                $"у владельца ключа нет прав заводить задачи в проекте {tracker.Project} — проверьте его права в YouTrack"
+                $"у владельца ключа нет прав заводить задачи в проекте {tracker.Project} — проверьте его права в {name}"
                 + (created.Detail is null ? "" : $" ({created.Detail})"),
             TrackerIssues.ServerSilent => $"сервер {tracker.Server} не ответил: {created.Detail ?? "нет связи"}",
             TrackerIssues.ProjectMissing => $"на сервере {tracker.Server} нет проекта {tracker.Project} или у вашего ключа нет к нему доступа",
             CreatedIssue.YouTrackSilent => $"YouTrack не ответил за минуту{(created.Detail is null ? "" : $" ({created.Detail})")}",
-            CreatedIssue.CreatedUnknown => youTrack ? "YouTrack не назвал номер задачи" : "gh не назвала адрес задачи",
-            var other => $"{(youTrack ? "YouTrack" : "GitHub")} ответил ошибкой: {created.Detail ?? other}",
+            CreatedIssue.JiraSilent => $"Jira не ответила за минуту{(created.Detail is null ? "" : $" ({created.Detail})")}",
+            CreatedIssue.CreatedUnknown => tracker.Kind switch
+            {
+                TrackerInfo.YouTrack => "YouTrack не назвал номер задачи",
+                TrackerInfo.Jira => "Jira не назвала номер задачи",
+                _ => "gh не назвала адрес задачи",
+            },
+            var other => $"{name} {(tracker.Kind == TrackerInfo.Jira ? "ответила" : "ответил")} ошибкой: {created.Detail ?? other}",
         };
         // Задача могла завестись: «не заведена» подтолкнуло бы завести её снова и получить дубль.
         return created.MaybeCreated

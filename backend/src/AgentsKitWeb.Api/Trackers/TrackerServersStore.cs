@@ -4,8 +4,11 @@ using System.Text.Json;
 
 namespace AgentsKitWeb.Api.Trackers;
 
-/// <summary>Сервер трекера из раздела «Трекеры»: адрес и логин владельца ключа. Сам ключ наружу не отдаётся.</summary>
-public sealed record TrackerServer(string Server, string Login);
+/// <summary>
+/// Сервер трекера: адрес, логин владельца ключа и почта, с которой ключ входит в Jira (у YouTrack её нет).
+/// Сам ключ наружу не отдаётся.
+/// </summary>
+public sealed record TrackerServer(string Server, string Login, string? Email = null);
 
 /// <summary>Файл серверов трекеров не разобран: его не читают как пустой и не перезаписывают.</summary>
 public sealed class TrackersFileBroken(string file) : Exception($"Файл серверов трекеров не разобран: {file}")
@@ -54,7 +57,7 @@ public sealed class TrackerServersStore(string file)
     public IReadOnlyList<TrackerServer> List()
     {
         lock (_lock)
-            return [.. Read().Select(s => new TrackerServer(s.Server, s.Login))];
+            return [.. Read().Select(s => new TrackerServer(s.Server, s.Login, s.Email))];
     }
 
     public bool Contains(string server)
@@ -67,30 +70,34 @@ public sealed class TrackerServersStore(string file)
     public string? KeyOf(string server) => Find(server).Key;
 
     /// <summary>
-    /// Сервер в списке и его ключ. Known без Key — ключ не расшифровать: пароль Windows сброшен или профиль
+    /// Сервер в списке, его ключ и почта. Known без Key — ключ не расшифровать: пароль Windows сброшен или профиль
     /// перенесён с другого компьютера; совет тогда — «Заменить ключ», а не добавить сервер (ревью B-288).
     /// </summary>
-    public (bool Known, string? Key) Find(string server)
+    public (bool Known, string? Key, string? Email) Find(string server)
     {
         lock (_lock)
         {
             var stored = Read().FirstOrDefault(s => SameServer(s.Server, server));
             if (stored is null)
-                return (false, null);
+                return (false, null, null);
             try
             {
                 return (true, Encoding.UTF8.GetString(
-                    ProtectedData.Unprotect(Convert.FromBase64String(stored.Key), Entropy, DataProtectionScope.CurrentUser)));
+                    ProtectedData.Unprotect(Convert.FromBase64String(stored.Key), Entropy, DataProtectionScope.CurrentUser)),
+                    stored.Email);
             }
             catch (Exception e) when (e is CryptographicException or FormatException)
             {
-                return (true, null);
+                return (true, null, stored.Email);
             }
         }
     }
 
-    /// <summary>Сохраняет сервер с ключом: новый — в конец списка, известный — на своём месте с новым ключом.</summary>
-    public void Save(string server, string login, string key)
+    /// <summary>
+    /// Сохраняет сервер с ключом и почтой (у Jira; у YouTrack — null): новый — в конец списка, известный — на своём
+    /// месте с новым ключом.
+    /// </summary>
+    public void Save(string server, string login, string key, string? email = null)
     {
         var sealedKey = Convert.ToBase64String(
             ProtectedData.Protect(Encoding.UTF8.GetBytes(key), Entropy, DataProtectionScope.CurrentUser));
@@ -98,7 +105,7 @@ public sealed class TrackerServersStore(string file)
         {
             var servers = Read();
             var index = servers.FindIndex(s => SameServer(s.Server, server));
-            var stored = new StoredServer(index >= 0 ? servers[index].Server : server, login, sealedKey);
+            var stored = new StoredServer(index >= 0 ? servers[index].Server : server, login, sealedKey, email);
             if (index >= 0)
                 servers[index] = stored;
             else
@@ -148,7 +155,8 @@ public sealed class TrackerServersStore(string file)
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
 
-    private sealed record StoredServer(string Server, string Login, string Key);
+    // Почты в файлах, записанных до Jira (B-285), нет — она null, и такие серверы читаются как прежде.
+    private sealed record StoredServer(string Server, string Login, string Key, string? Email = null);
 
     private sealed record StoredFile(List<StoredServer> Servers);
 }
