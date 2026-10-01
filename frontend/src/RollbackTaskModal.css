@@ -1,0 +1,102 @@
+/* Окно отката задачи по макету B-108, вариант Б; шапка, тело и кнопки — окна удаления копии */
+
+.rb-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rb-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rb-step {
+  display: flex;
+  gap: 10px;
+  line-height: 1.5;
+}
+
+.rb-step-done {
+  color: var(--text-secondary);
+}
+
+.rb-mark {
+  flex: none;
+  width: 14px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rb-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.rb-ring {
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+}
+
+.rb-step:has(.rb-ring) {
+  color: var(--text-tertiary);
+}
+
+.rb-check,
+.rb-cross {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rb-check {
+  stroke: var(--accent-active-text);
+}
+
+.rb-cross {
+  stroke: var(--accent-error-text);
+}
+
+.dw-spinner.rb-spinner {
+  width: 12px;
+  height: 12px;
+}
+
+.rb-note {
+  margin: 0;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+/* Предупреждение, а не отказ: раскладка блока отказа, цвет ожидания */
+.rb-warning {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--accent-waiting-bg);
+  border-radius: 6px;
+}
+
+.rb-warning-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-waiting-text);
+  font-weight: 500;
+}

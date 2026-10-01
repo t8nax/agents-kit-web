@@ -15,6 +15,7 @@ import { plural } from './plural'
 import Problems, { KitNotice, WarningIcon } from './Problems'
 import ReplyModal from './ReplyModal'
 import Reports, { ReportIcon } from './Reports'
+import RollbackTaskModal, { RollbackIcon } from './RollbackTaskModal'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
@@ -170,6 +171,9 @@ function App() {
   // Копия, которую оператор убирает, и сообщение об убранной
   const [removing, setRemoving] = useState<WorkspaceRow | null>(null)
   const [removed, setRemoved] = useState<string | null>(null)
+  // Копия, чью задачу оператор откатывает, и сообщение об откаченной
+  const [rollingBack, setRollingBack] = useState<WorkspaceRow | null>(null)
+  const [rolledBack, setRolledBack] = useState<string | null>(null)
   const [fresh, setFresh] = useState<Fresh | null>(null)
   // Копии, где панель заводит сессию задачи: плашка «Запускается», пока сессия не покажется в опросе, а отметка
   // живёт до ответа об ошибке или до конца выдержки. Держит её раздел, а не таблица: по ней же считает сайдбар
@@ -266,6 +270,12 @@ function App() {
     return () => clearTimeout(timer)
   }, [removed])
 
+  useEffect(() => {
+    if (!rolledBack) return
+    const timer = setTimeout(() => setRolledBack(null), startedMs)
+    return () => clearTimeout(timer)
+  }, [rolledBack])
+
   return (
     <VoiceContext value={voice}>
       <header className="app-header">
@@ -336,6 +346,7 @@ function App() {
                     launching={launching}
                     setLaunching={setLaunching}
                     onReply={setReplyTo}
+                    onRollback={setRollingBack}
                     onRemove={setRemoving}
                     onProblems={() => setSection('problems')}
                     onSettings={() => setSection('settings')}
@@ -430,6 +441,29 @@ function App() {
           <TrashIcon />
           <span>
             Копия <span className="mono">{removed}</span> удалена
+          </span>
+        </div>
+      )}
+      {rollingBack && (
+        <RollbackTaskModal
+          row={rollingBack}
+          onClose={() => {
+            setRollingBack(null)
+            // Упавший откат мог сделать часть шагов: таблица показывает, что стало с копией
+            loadRows()
+          }}
+          onRolledBack={() => {
+            setRolledBack(copyName(rollingBack.path))
+            setRollingBack(null)
+            loadRows()
+          }}
+        />
+      )}
+      {rolledBack && (
+        <div className="nw-toast nw-toast-plain" role="status">
+          <RollbackIcon />
+          <span>
+            Задача в копии <span className="mono">{rolledBack}</span> откачена
           </span>
         </div>
       )}
@@ -804,6 +838,7 @@ function WorkspacesTable({
   launching,
   setLaunching,
   onReply,
+  onRollback,
   onRemove,
   onProblems,
   onSettings,
@@ -813,6 +848,7 @@ function WorkspacesTable({
   launching: ReadonlySet<string>
   setLaunching: Dispatch<SetStateAction<ReadonlySet<string>>>
   onReply: (row: WorkspaceRow) => void
+  onRollback: (row: WorkspaceRow) => void
   onRemove: (row: WorkspaceRow) => void
   onProblems: () => void
   onSettings: () => void
@@ -1054,6 +1090,7 @@ function WorkspacesTable({
                       onStartSession={() => void startTaskSession(row)}
                       onTerminal={() => void openInTerminal(row)}
                       onVsCode={() => void openInVsCode(row)}
+                      onRollback={() => onRollback(row)}
                       onRemove={() => onRemove(row)}
                     />
                   )}
@@ -1076,6 +1113,8 @@ function WorkspacesTable({
  * макета B-106: у всех копий одним пунктом меню, без кнопки в строке.
  * Удаление копии стоит там же, за разделителем: у основной копии проекта его нет вовсе — её кит
  * не удаляет и от неё заводит новые, — а у копии с задачей пункт приглушён.
+ * Перед удалением — «Откатить задачу», красный, как удаление, по макету B-108: открыт у копии с задачей,
+ * у свободной приглушён, и есть у основной копии — задачи идут и в ней.
  */
 function RowActionsMenu({
   row,
@@ -1084,6 +1123,7 @@ function RowActionsMenu({
   onStartSession,
   onTerminal,
   onVsCode,
+  onRollback,
   onRemove,
 }: {
   row: WorkspaceRow
@@ -1092,6 +1132,7 @@ function RowActionsMenu({
   onStartSession: () => void
   onTerminal: () => void
   onVsCode: () => void
+  onRollback: () => void
   onRemove: () => void
 }) {
   return (
@@ -1136,9 +1177,22 @@ function RowActionsMenu({
             <VsCodeIcon />
             Открыть в VS Code
           </button>
+          <div className="row-menu-sep" />
+          <button
+            type="button"
+            role="menuitem"
+            className="row-menu-item row-menu-item-danger"
+            disabled={!hasTask(row)}
+            onClick={() => {
+              close()
+              onRollback()
+            }}
+          >
+            <RollbackIcon />
+            Откатить задачу
+          </button>
           {!row.copiesDir && (
             <>
-              <div className="row-menu-sep" />
               <button
                 type="button"
                 role="menuitem"
@@ -1160,17 +1214,21 @@ function RowActionsMenu({
   )
 }
 
-/** Задача в копии идёт, а ответ оператора прочесть и работу продолжить некому. */
-function needsTaskSession(row: WorkspaceRow) {
-  const inWork =
+/** В копии идёт задача: память её заведена, и откатить есть что. */
+function hasTask(row: WorkspaceRow) {
+  return (
     row.status === 'in-work' ||
     row.status === 'waiting' ||
     row.status === 'unread' ||
     row.status === 'stopped' ||
     row.status === 'terminal'
-  return inWork && !row.backgroundSession && !row.vsCodeSession
+  )
 }
 
+/** Задача в копии идёт, а ответ оператора прочесть и работу продолжить некому. */
+function needsTaskSession(row: WorkspaceRow) {
+  return hasTask(row) && !row.backgroundSession && !row.vsCodeSession
+}
 function isFresh(row: WorkspaceRow, fresh: Fresh | null) {
   return fresh?.name != null && row.base === fresh.base && row.branch === fresh.name
 }
