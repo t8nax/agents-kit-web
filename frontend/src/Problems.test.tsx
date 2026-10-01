@@ -288,7 +288,10 @@ const translated: HealthSnapshot = {
  * API раздела с переводом: migrate отвечает итогами по очереди, после удачного перевода снимок — переведённая база.
  * Пока ответ перевода не отпущен (release), перевод идёт.
  */
+let terminalStatus = 200
+
 function stubMigrate(...outcomes: string[]) {
+  terminalStatus = 200
   let done = false
   let release = () => {}
   const gate = new Promise<void>((resolve) => {
@@ -303,7 +306,7 @@ function stubMigrate(...outcomes: string[]) {
       if (outcome === 'migrated' || outcome === 'not-pushed' || outcome === 'not-synced') done = true
       return new Response(JSON.stringify({ outcome }), { status: 200 })
     }
-    if (url === '/api/bases/terminal') return new Response(null, { status: 200 })
+    if (url === '/api/bases/terminal') return new Response(null, { status: terminalStatus })
     if (url === '/api/health/check') return new Response(null, { status: 202 })
     return new Response(JSON.stringify(done ? translated : outdated), { status: 200 })
   })
@@ -441,4 +444,33 @@ test('перевод идёт, а карточку открыли заново �
 
   expect(within(card).getByText('Выполняется перевод базы на новый формат.')).toBeInTheDocument()
   expect(within(card).getByRole('button', { name: 'Перевести базу' })).toBeDisabled()
+})
+
+test('терминал не открылся — полоса сорванного перевода так и говорит', async () => {
+  const api = stubMigrate('failed')
+  api.release()
+  terminalStatus = 404
+
+  render(<Problems onSettings={() => {}} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+  fireEvent.click(await within(card).findByRole('button', { name: 'Открыть терминал в копии' }))
+
+  expect(await within(card).findByText(/Терминал не открылся\./)).toBeInTheDocument()
+})
+
+test('пути к киту нет — карточка ведёт задать его в «Настройках»', async () => {
+  const api = stubMigrate('kit-missing')
+  api.release()
+  const onSettings = vi.fn()
+
+  render(<Problems onSettings={onSettings} />)
+  const card = await orders()
+  fireEvent.click(within(card).getByRole('button', { name: 'Перевести базу' }))
+
+  expect(
+    await within(card).findByText('Для перевода базы необходимо указать путь к киту в разделе «Настройки».'),
+  ).toBeInTheDocument()
+  fireEvent.click(within(card).getByRole('button', { name: 'Открыть настройки' }))
+  expect(onSettings).toHaveBeenCalled()
 })

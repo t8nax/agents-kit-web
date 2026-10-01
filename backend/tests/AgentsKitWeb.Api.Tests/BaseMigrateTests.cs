@@ -305,17 +305,27 @@ public sealed class BaseMigrateTests : IDisposable
         Assert.Equal([_copy], _terminals.Opened);
     }
 
+    [Fact]
+    // Копии базы на диске нет — открывать терминал негде.
+    public async Task Terminal_NoCopyOnDisk_IsNotFound()
+    {
+        TestLayout.Machine(_base, TestLayout.Operator, Path.Combine(_root, "gone"));
+
+        var response = await Client.PostAsJsonAsync("/api/bases/terminal", new BaseTerminalRequest(_base));
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Empty(_terminals.Opened);
+    }
+
     public void Dispose()
     {
         TestHost.Stop(_factory);
-        try
+        // Объекты git лежат «только для чтения»: без снятия пометки каталог копии не удалить.
+        TestDirs.Delete(_root, () =>
         {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // git оставляет файлы только для чтения в .git — их хвост во временном каталоге не мешает прогону.
-        }
+            foreach (var file in Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories))
+                File.SetAttributes(file, FileAttributes.Normal);
+        });
     }
 
     private sealed class FakeTerminals : ITerminalWindows
