@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentsKitWeb.Api.Ask;
+using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -667,28 +668,77 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
 
     private void GitHubTracker() => TestLayout.GitHubTracker(_base, "acme/orders");
 
+    // ——— Трекер у агента бэклога (AKW-15) ———
+
+    private List<string> Args() =>
+        BacklogWriteEndpoints.StartInfo(_base, _copy, new AgentTrackers(Path.Combine(_root, ".claude")).For(BaseLayout.Read(_base), _copy, _base))
+            .ArgumentList.ToList();
+
+    private static string PromptOf(List<string> args) => args[args.IndexOf("--append-system-prompt") + 1];
+
+    private string RemoveRule => $"PowerShell(git -C \"{_personal}\" rm -q -- artifacts/*)";
+
     [Fact]
-    public void StartInfo_TellsAgentTrackBlockOnlyForGitHubTracker()
+    public void StartInfo_NoTracker_NoTrackerTools()
     {
-        string Prompt()
-        {
-            var args = BacklogWriteEndpoints.StartInfo(_base, _copy).ArgumentList.ToList();
-            return args[args.IndexOf("--append-system-prompt") + 1];
-        }
+        var args = Args();
 
-        Assert.DoesNotContain("в трекер B-14", Prompt());
-        Assert.Contains("Переноса записей в трекер у этого проекта нет", Prompt());
+        Assert.Contains("--strict-mcp-config", args);
+        Assert.DoesNotContain("--mcp-config", args);
+        Assert.DoesNotContain(RemoveRule, args);
+        Assert.Contains("Трекера у этого проекта нет", PromptOf(args));
+    }
 
+    /// <summary>GitHub — программой gh одним правилом; прочие команды оболочки не пускаются.</summary>
+    [Fact]
+    public void StartInfo_GitHub_AllowsGhAndArtifactRemoval()
+    {
         GitHubTracker();
 
-        Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
-        Assert.Contains("GitHub acme/orders", Prompt());
+        var args = Args();
 
-        // В YouTrack перенос тоже предлагается — B-288
+        Assert.Contains(AgentTracker.GhRule, args);
+        Assert.Contains(RemoveRule, args);
+        Assert.DoesNotContain("--mcp-config", args);
+        Assert.Contains("--repo acme/orders", PromptOf(args));
+        Assert.Contains("«Вынести в трекер»", PromptOf(args));
+    }
+
+    /// <summary>YouTrack — одним подключением Claude Code к его серверу; все прочие подключения закрыты.</summary>
+    [Fact]
+    public void StartInfo_YouTrack_PassesOnlyTrackerConnection()
+    {
+        TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
+        File.WriteAllText(Path.Combine(_root, ".claude.json"), JsonSerializer.Serialize(new
+        {
+            mcpServers = new
+            {
+                slack = new { type = "http", url = "https://mcp.slack.com/mcp" },
+                yt = new { type = "http", url = "https://acme.youtrack.cloud/mcp" },
+            },
+        }));
+
+        var args = Args();
+
+        Assert.Contains("mcp__yt", args);
+        Assert.Contains("--strict-mcp-config", args);
+        var config = args[args.IndexOf("--mcp-config") + 1];
+        Assert.Contains("acme.youtrack.cloud", config);
+        Assert.DoesNotContain("slack", config);
+        Assert.Contains("mcp__yt__", PromptOf(args));
+    }
+
+    [Fact]
+    public void StartInfo_YouTrackWithoutConnection_SaysUnreachable()
+    {
         TestLayout.Tracker(_base, "YouTrack", "https://acme.youtrack.cloud", "ABC");
 
-        Assert.Contains("~~~backlog\nв трекер B-14\n~~~", Prompt().ReplaceLineEndings("\n"));
-        Assert.Contains("YouTrack ABC", Prompt());
+        var args = Args();
+
+        Assert.DoesNotContain("--mcp-config", args);
+        Assert.DoesNotContain(RemoveRule, args);
+        Assert.Contains("в трекер тебе не пройти", PromptOf(args));
+        Assert.Contains("Перенести запись в трекер поэтому нельзя", PromptOf(args));
     }
 
     /// <summary>«Сохранить» с переносом у проекта с YouTrack заводит задачу в YouTrack ключом его сервера (B-288).</summary>
@@ -1364,7 +1414,7 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases))]);
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases)), new("ClaudeDir", Path.Combine(_root, ".claude"))]);
             });
             // Настоящий claude в прогоне не запускается: проверяется, как панель его зовёт и что выводит из базы.
             builder.ConfigureServices(services =>

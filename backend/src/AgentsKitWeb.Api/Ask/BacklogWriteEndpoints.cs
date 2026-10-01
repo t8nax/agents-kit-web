@@ -74,7 +74,8 @@ public sealed record BacklogSaved(
 /// коммитит сам; изменение, удаление и объединение он только предлагает, а записывает их панель по «Сохранить».
 /// Память разговора — живой процесс агента, как у вопроса по базе (B-79).
 /// </summary>
-public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate, ProjectTracker trackers)
+public sealed class BacklogConversations(
+    IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate, ProjectTracker trackers, AgentTrackers agentTrackers)
 {
     /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
     private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
@@ -746,7 +747,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         try
         {
             var exit = await agent.RunAsync(
-                BacklogWriteEndpoints.StartInfo(basePath, copy),
+                BacklogWriteEndpoints.StartInfo(basePath, copy, agentTrackers.For(BaseLayout.Read(basePath), copy, basePath)),
                 replies,
                 async line =>
                 {
@@ -1057,7 +1058,7 @@ public static class BacklogWriteEndpoints
     /// туда же: остальные инструменты отключены, а режим dontAsk отказывает всему, что не разрешено правилом. Реплики
     /// оператора уходят в stdin — не в аргументы.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string basePath, string copyPath)
+    public static ProcessStartInfo StartInfo(string basePath, string copyPath, AgentTracker? tracker = null)
     {
         var personal = BaseLayout.PersonalOf(basePath);
         var backlog = Path.Combine(personal, BacklogFile);
@@ -1069,16 +1070,26 @@ public static class BacklogWriteEndpoints
         // Приложенные файлы панель уже положила в artifacts/ и в индекс; их имена меняются от реплики к реплике,
         // а правило пускает только команду целиком — поэтому вторая команда берёт каталог.
         var withFiles = $"{commit} {ArtifactFiles.Folder}";
-        // Перенос записи в трекер заводит панель по «Сохранить», а не агент: трекер и программу gh он не трогает.
-        // Трекер проекта не GitHub и не YouTrack со строками описания — переносить некуда, и агент об этом знает (B-286, B-288).
-        var track = BaseLayout.Read(basePath) is { } layout && ProjectTracker.Movable(layout) is { } tracker
-            ? $"""
-              Перенос записи в трекер проекта ({tracker.Name} {tracker.Project}) — тоже предложение, блоком «в трекер B-14»; задачу заведёт панель, сам трекер и gh не трогай:
-              ~~~backlog
-              в трекер B-14
-              ~~~
-              """
-            : $"Переноса записей в трекер у этого проекта нет: {ProjectTracker.NotMovable}. Попросят перенести — скажи это.";
+        // Файлы записи, ушедшей в трекер, агент удаляет тем же коммитом, что и запись: файл без ссылки кит не пропустит.
+        // Имя файла правилом не угадать, поэтому оно со звёздочкой — у git rm она совпадает (проба AKW-15).
+        var remove = $"git -C \"{personal}\" rm -q -- {ArtifactFiles.Folder}/";
+        var reachable = tracker is { Reachable: true };
+        var track = tracker is null
+            ? $"Трекера у этого проекта нет или он не GitHub и не YouTrack: {ProjectTracker.NotMovable}. Спросят о трекере или попросят перенести запись — скажи это."
+            : reachable
+                ? $"""
+                  {tracker!.Prompt}
+                  {AgentTracker.Rules}
+                  Перенос записи в трекер ты делаешь сам, навыком: /agents-kit:backlog, «Вынести в трекер» — сначала ищешь похожую задачу и говоришь, что нашёл,
+                  заводишь задачу по разделу «Вынос записи бэклога» tracker.md базы, потом вырезаешь запись из бэклога. Это единственная правка прежней записи, которую ты делаешь сам.
+                  У записи есть файлы artifacts/ в «### Артефакты» — сами в задачу они не попадут: заведя задачу, дай ссылку на неё, назови файлы полными путями,
+                  попроси оператора прикрепить их к задаче и жди; запись до его слова не трогай. Файлов нет или оператор сказал, что перенёс, —
+                  вырежи запись, удали файлы, на которые больше ничего не ссылается, командой «{remove}<имя файла>» по файлу и закоммить командой {withFiles}
+                  """
+                : $"""
+                  {tracker!.Prompt}
+                  Перенести запись в трекер поэтому нельзя: скажи это, а запись не трогай.
+                  """;
         var systemPrompt = $"""
             Ты ведёшь с оператором разговор о его бэклоге в веб-панели: он просит и уточняет в том же разговоре.
             Бэклог лежит в личном репозитории оператора внутри базы знаний, у этого репозитория свой git.
@@ -1120,11 +1131,17 @@ public static class BacklogWriteEndpoints
                      $"Edit({backlog})",
                      $"PowerShell({commit})",
                      $"PowerShell({withFiles})",
-                     "--no-session-persistence",
-                     "--strict-mcp-config",
-                     "--append-system-prompt", systemPrompt,
                  })
             startInfo.ArgumentList.Add(arg);
+        // Трекер — так, как его описывает tracker.md (AKW-15): правила его инструмента и удаление файлов перенесённой записи.
+        if (reachable)
+            foreach (var rule in tracker!.AllowedTools.Append($"PowerShell({remove}*)"))
+                startInfo.ArgumentList.Add(rule);
+        foreach (var arg in new[] { "--no-session-persistence", "--strict-mcp-config" })
+            startInfo.ArgumentList.Add(arg);
+        tracker?.AddMcp(startInfo);
+        startInfo.ArgumentList.Add("--append-system-prompt");
+        startInfo.ArgumentList.Add(systemPrompt);
         return startInfo;
     }
 }

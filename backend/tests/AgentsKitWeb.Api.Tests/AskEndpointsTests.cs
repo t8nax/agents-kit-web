@@ -753,7 +753,7 @@ public sealed class AskEndpointsTests : IDisposable
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases))]);
+                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, bases)), new("ClaudeDir", Path.Combine(_root, ".claude"))]);
             });
             // Настоящий claude в прогоне не запускается: проверяется, как панель его зовёт и читает вывод.
             builder.ConfigureServices(services =>
