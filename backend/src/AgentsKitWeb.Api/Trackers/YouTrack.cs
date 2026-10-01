@@ -20,9 +20,6 @@ public interface IYouTrack
     /// дописанная к запросу (B-300), null — без отбора. Mine — у задач, назначенных на владельца ключа.
     /// </summary>
     Task<TrackerIssues> OpenAsync(string server, string key, string project, string? filter, CancellationToken cancellationToken);
-
-    /// <summary>Новая задача проекта, назначенная на владельца ключа, без других полей.</summary>
-    Task<CreatedIssue> CreateAsync(string server, string key, string project, string title, string body);
 }
 
 /// <summary>
@@ -38,10 +35,8 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
     // Страница поиска проекта; задач за раз панель показывает TrackerIssues.Limit.
     private const int Limit = 100;
 
-    // Чтение ждёт недолго: раздел не должен висеть на открытии. Заведение — дольше: оборванное,
-    // оно могло завести задачу, и оператору пришлось бы её искать.
+    // Чтение ждёт недолго: раздел не должен висеть на открытии.
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan CreateTimeout = TimeSpan.FromMinutes(1);
 
     public async Task<YouTrackUser> WhoAsync(string server, string key, CancellationToken cancellationToken)
     {
@@ -119,43 +114,6 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
             Mine = me is { Length: > 0 }
                 && users.Any(u => string.Equals(Text(u, "login"), me, StringComparison.OrdinalIgnoreCase)),
         };
-    }
-
-    /// <summary>
-    /// Отмены у заведения нет, как у gh (B-286): оборванный запрос мог завести задачу. Задача назначается на
-    /// владельца ключа полем «Assignee» того же запроса — задача без исполнителя не заводится вовсе.
-    /// </summary>
-    public async Task<CreatedIssue> CreateAsync(string server, string key, string project, string title, string body)
-    {
-        var who = await WhoAsync(server, key, CancellationToken.None);
-        if (who.Problem is not null)
-            return new CreatedIssue(null, who.Problem, who.Detail);
-        var found = await ProjectAsync(server, key, project, CancellationToken.None);
-        if (found.Problem is not null)
-            return new CreatedIssue(null, found.Problem, found.Detail);
-
-        var payload = new JsonObject
-        {
-            ["project"] = new JsonObject { ["id"] = found.Id },
-            ["summary"] = title,
-            ["description"] = body,
-            ["customFields"] = new JsonArray(new JsonObject
-            {
-                ["name"] = "Assignee",
-                ["$type"] = "SingleUserIssueCustomField",
-                ["value"] = new JsonObject { ["login"] = who.Login },
-            }),
-        };
-        var request = Request(HttpMethod.Post, server, key, "api/issues?fields=idReadable,summary");
-        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        var reply = await SendAsync(request, CreateTimeout, CancellationToken.None);
-        if (reply.Problem == TrackerIssues.ServerSilent)
-            return new CreatedIssue(null, CreatedIssue.YouTrackSilent, reply.Detail);
-        if (reply.Problem is not null)
-            return new CreatedIssue(null, reply.Problem, reply.Detail);
-        return Issue(server, Text(reply.Json, "idReadable"), title) is { } issue
-            ? new CreatedIssue(issue)
-            : new CreatedIssue(null, CreatedIssue.CreatedUnknown);
     }
 
     /// <summary>Задача по её номеру «ABC-12»: имя — как у кита, «YouTrack ABC-12», адрес — страница задачи.</summary>

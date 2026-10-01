@@ -1,26 +1,70 @@
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using AgentsKitWeb.Api.Trackers;
 using AgentsKitWeb.Api.Workspaces;
 
 namespace AgentsKitWeb.Api.Ask;
 
 /// <summary>
-/// Одна правка предложения. Kind — change (запись станет Entry), delete (запись Entry уходит; Into — в какую
-/// запись она влита при объединении) или track (запись уходит задачей в трекер проекта, B-286; Draft — задача, какой
-/// её заведёт «Сохранить»: карточка показывает её, а не текст записи). Text — новый текст записи в файле, Original —
-/// её текст, каким его видел агент: по нему «Сохранить» узнаёт, что запись успели поменять.
+/// Одна правка предложения. Kind — change (запись станет Entry) или delete (запись Entry уходит; Into — в какую
+/// запись она влита при объединении). Перенос в трекер предложением больше не бывает: его делает агент сам (AKW-15).
+/// Text — новый текст записи в файле, Original — её текст, каким его видел агент: по нему «Сохранить» узнаёт,
+/// что запись успели поменять.
 /// </summary>
-public sealed record BacklogChange(string Kind, string Number, BacklogEntry Entry, string? Into = null, TrackerDraft? Draft = null)
+public sealed record BacklogChange(string Kind, string Number, BacklogEntry Entry, string? Into = null)
 {
     public const string Change = "change";
     public const string Delete = "delete";
-    public const string Track = "track";
 
     [JsonIgnore]
     public string? Text { get; init; }
 
     [JsonIgnore]
     public string Original { get; init; } = "";
+}
+
+/// <summary>
+/// Запись, которую агент сам перенёс в трекер проекта (AKW-15). Waiting — задача заведена, а запись ждёт, пока
+/// оператор прикрепит к задаче её файлы; иначе запись уже вырезана из бэклога. Entry — запись, какой она была до
+/// хода; Files — её файлы artifacts/, которые в задачу сами не попали.
+/// </summary>
+public sealed record BacklogMove(string Number, BacklogEntry Entry, TrackerIssue Issue, bool Waiting, IReadOnlyList<string> Files);
+
+/// <summary>Блоки итога переноса в ответе агента: «перенесена B-14 в YouTrack ABC-20 &lt;адрес&gt;», «ждёт файлов …».</summary>
+public static partial class BacklogMoves
+{
+    public const string Moved = "перенесена";
+    public const string Waiting = "ждёт файлов";
+
+    public sealed record Said(string Number, bool Waiting, string Issue, string Url);
+
+    /// <summary>Блоки итога переноса и остальные блоки — предложение; Error — блок итога не по форме.</summary>
+    public static (IReadOnlyList<Said> Moves, IReadOnlyList<string> Others, string? Error) Take(IReadOnlyList<string> blocks)
+    {
+        var moves = new List<Said>();
+        var rest = new List<string>();
+        foreach (var block in blocks)
+        {
+            var command = block.TrimEnd('\n').Split('\n')[0].Trim();
+            if (!command.StartsWith(Moved, StringComparison.OrdinalIgnoreCase) && !StartsWaiting(command))
+            {
+                rest.Add(block);
+                continue;
+            }
+            if (MoveCommand().Match(command) is not { Success: true } match
+                || BacklogNumber.Normalize(match.Groups["number"].Value) is not { } number
+                || ProjectTracker.IssueName(match.Groups["issue"].Value) is not { } issue)
+                return ([], [], $"Непонятная строка итога переноса: «{command}»");
+            moves.Add(new Said(number, !match.Groups["moved"].Success, issue, match.Groups["url"].Value));
+        }
+        return (moves, rest, null);
+    }
+
+    private static bool StartsWaiting(string command) =>
+        command.Replace('ё', 'е').StartsWith(Waiting.Replace('ё', 'е'), StringComparison.OrdinalIgnoreCase);
+
+    [GeneratedRegex(@"^(?:(?<moved>перенесена)|жд[её]т\s+файлов)\s+(?<number>\S+)\s+в\s+(?<issue>github\s*#\d+|youtrack\s+\S+)\s+(?<url>https?://\S+)$", RegexOptions.IgnoreCase)]
+    private static partial Regex MoveCommand();
 }
 
 /// <summary>
@@ -37,12 +81,6 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
     private static readonly Regex DeleteCommand = new(@"^удалить\s+(?<number>\S+)(?:\s+в\s+(?<into>\S+))?$");
 
     private static readonly Regex ChangeCommand = new(@"^изменить\s+(?<number>\S+)$");
-
-    private static readonly Regex TrackCommand = new(@"^в\s+трекер\s+(?<number>\S+)$");
-
-    /// <summary>В предложении есть перенос записи в трекер: «Сохранить» заводит задачу до записи файла.</summary>
-    [JsonIgnore]
-    public bool Tracks => Changes.Any(c => c.Kind == BacklogChange.Track);
 
     /// <summary>Ответ агента без блоков предложения и сами блоки по порядку.</summary>
     public static (string Text, IReadOnlyList<string> Blocks) Split(string answer)
@@ -88,18 +126,6 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
                 continue;
             }
 
-            if (TrackCommand.Match(command) is { Success: true } track)
-            {
-                var number = BacklogNumber.Normalize(track.Groups["number"].Value);
-                if (Find(entries, number) is not { } original)
-                    return (null, $"Записи {track.Groups["number"].Value} в бэклоге нет");
-                changes.Add(new BacklogChange(BacklogChange.Track, number!, Entry(header, original.Text), Draft: BacklogTracker.Draft(number!, original.Text, Backlog.Declared(file)))
-                {
-                    Original = original.Text,
-                });
-                continue;
-            }
-
             if (ChangeCommand.Match(command) is { Success: true } change)
             {
                 var number = BacklogNumber.Normalize(change.Groups["number"].Value);
@@ -128,7 +154,6 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
 
         if (changes.GroupBy(c => c.Number).FirstOrDefault(g => g.Count() > 1) is { } twice)
             return (null, $"Запись {twice.Key} названа в предложении дважды");
-        // Уходит из бэклога и запись, перенесённая в трекер: влить в неё другую нельзя так же, как в удалённую.
         var deleted = changes.Where(c => c.Kind != BacklogChange.Change).Select(c => c.Number).ToHashSet();
         if (changes.FirstOrDefault(c => c.Into is not null && deleted.Contains(c.Into)) is { } lost)
             return (null, $"Запись {lost.Number} уходит в {lost.Into}, а {lost.Into} удаляется в том же предложении");
@@ -136,7 +161,7 @@ public sealed record BacklogProposal(string Id, IReadOnlyList<BacklogChange> Cha
     }
 
     /// <summary>
-    /// Файл с правками предложения: запись меняется на месте, удалённая и ушедшая в трекер вырезается вместе
+    /// Файл с правками предложения: запись меняется на месте, удалённая вырезается вместе
     /// с пустыми строками после неё, остальное остаётся байт в байт. null и номер — запись в файле уже не та, что видел агент.
     /// </summary>
     public (string? Text, string? Diverged) Apply(string file)

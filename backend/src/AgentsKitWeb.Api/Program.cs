@@ -78,6 +78,9 @@ builder.Services.AddSingleton<IEditorWindows, VsCodeWindows>();
 builder.Services.AddSingleton<ITerminalWindows, WindowsTerminals>();
 builder.Services.AddSingleton(services =>
     new KitLocator(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
+// Подключения трекера агенту — из настроек Claude Code рядом с тем же профилем, что и кит (AKW-15).
+builder.Services.AddSingleton(services =>
+    new AgentTrackers(services.GetRequiredService<IConfiguration>()["ClaudeDir"] ?? KitLocator.DefaultClaudeDir));
 builder.Services.AddSingleton<IKitChecks, PwshKitChecks>();
 builder.Services.AddSingleton<IAgentProcess, AgentProcess>();
 builder.Services.AddSingleton<IGitHubIssues, GhIssues>();
@@ -144,7 +147,6 @@ app.MapAgentRequestEndpoints();
 app.MapAskEndpoints();
 app.MapBacklogEndpoints();
 app.MapBacklogWriteEndpoints();
-app.MapBacklogTrackerEndpoints();
 app.MapBaseMigrateEndpoints();
 app.MapBasesEndpoints();
 app.MapFlowEndpoints();

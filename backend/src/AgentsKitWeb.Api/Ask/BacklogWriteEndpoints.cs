@@ -27,7 +27,8 @@ public sealed record BacklogProposalRequest(string? Id);
 /// Entries — новые записи, уже закоммиченные, Commit, Proposal — что ждёт «Сохранить»); error — ход не удался
 /// (Text — почему, Output — что вывел агент, Entries — появившиеся записи, если они есть); stopped — ответ оборвал
 /// оператор; saved и refused — предложение ProposalId сохранено коммитом Commit или отклонено. Files у реплики —
-/// адреса artifacts/ приложенных к ней файлов. Issues у saved — задачи трекера, в которые ушли записи (B-286).
+/// адреса artifacts/ приложенных к ней файлов. Moves у answer — записи, которые агент сам перенёс в трекер или
+/// по которым завёл задачу и ждёт файлов (AKW-15).
 /// </summary>
 public sealed record BacklogWriteEvent(
     string Type,
@@ -40,7 +41,7 @@ public sealed record BacklogWriteEvent(
     string? ProposalId = null,
     string? Number = null,
     IReadOnlyList<string>? Files = null,
-    IReadOnlyDictionary<string, TrackerIssue>? Issues = null) : IAgentEvent;
+    IReadOnlyList<BacklogMove>? Moves = null) : IAgentEvent;
 
 /// <summary>
 /// Ход перед проверкой базы у каждой реплики разговора о бэклоге. У панели он пустой; тест держит им проверку
@@ -57,15 +58,13 @@ public sealed class OpenBacklogCheckGate : IBacklogCheckGate
 }
 
 /// <summary>
-/// Чем кончилось «Сохранить»: Error — почему не записано, Commit — чем записано. Issues — задачи трекера, заведённые
-/// переносом записей (номер записи → задача); бывают и при Error: задача заведена, а бэклог не записан. Removed — файлы
+/// Чем кончилось «Сохранить»: Error — почему не записано, Commit — чем записано. Removed — файлы
 /// artifacts/, удалённые тем же коммитом: на них больше ничего не ссылалось.
 /// </summary>
 public sealed record BacklogSaved(
     string? Commit,
     string? Error,
     string? Output = null,
-    IReadOnlyDictionary<string, TrackerIssue>? Issues = null,
     IReadOnlyList<string>? Removed = null);
 
 /// <summary>
@@ -74,12 +73,18 @@ public sealed record BacklogSaved(
 /// коммитит сам; изменение, удаление и объединение он только предлагает, а записывает их панель по «Сохранить».
 /// Память разговора — живой процесс агента, как у вопроса по базе (B-79).
 /// </summary>
-public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate, ProjectTracker trackers)
+public sealed class BacklogConversations(IAgentChat agent, AgentRequests requests, IBacklogCheckGate checkGate, AgentTrackers trackers)
 {
     /// <summary>Сколько ждать ответа на одну реплику. Между репликами процесс стоит сколько угодно.</summary>
     private static readonly TimeSpan Answer = TimeSpan.FromMinutes(5);
 
     public const string SaveMessage = "Изменить бэклог из панели";
+
+    /// <summary>
+    /// Запись бэклога из панели — «Сохранить» разговора и откат задачи — идёт по одной: обе вырезают и вставляют
+    /// записи и коммитят backlog.md.
+    /// </summary>
+    internal static readonly SemaphoreSlim Writing = new(1, 1);
 
     private readonly object _gate = new();
     private Turn? _turn;
@@ -107,16 +112,12 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             subject: number);
 
         turn.Request = request;
-        Pending? dropped;
         lock (_gate)
         {
             _turn = turn;
-            dropped = _pending;
             _pending = null;
             _about = number;
         }
-        if (Abandoned(dropped) is { } note)
-            request.Write(note);
         // Навык кита зовётся первой репликой: дальше разговор идёт в нём же. Агент, кончившийся до неё, не
         // поднялся вовсе, и нового ради неё не поднимают: сбой запуска работа уже записала в переписку.
         await SayAsync(request, turn, text, Skill(number, text), number, files, retried: true);
@@ -131,7 +132,6 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             return AskReplied.Answering;
 
         Turn? turn;
-        Pending? dropped;
         lock (_gate)
         {
             // Пока панель пишет предложение, реплика не уходит: агент застал бы бэклог посреди записи.
@@ -141,11 +141,8 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             // Пока идёт проверка перед отправкой, кончившийся агент не пишет провал: реплику получит новый.
             turn?.Coming = true;
             // Новая просьба заменяет несохранённое предложение: сохранять его больше нечего.
-            dropped = _pending;
             _pending = null;
         }
-        if (Abandoned(dropped) is { } note)
-            request.Write(note);
 
         turn ??= Restart(request);
         await SayAsync(request, turn, text, text, null, files, retried: false);
@@ -180,22 +177,8 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
             _pending = null;
         }
         dropped.Request.Write(new BacklogWriteEvent("refused", "", ProposalId: id));
-        if (Abandoned(dropped) is { } note)
-            dropped.Request.Write(note);
         return true;
     }
-
-    /// <summary>
-    /// Брошенное предложение, под которое «Сохранить» уже завело задачи трекера, а бэклог не записало: задачи в трекере
-    /// остались, записи — в бэклоге. Молча это не уходит — иначе перенос завели бы снова дублем (ревью B-286).
-    /// </summary>
-    private static BacklogWriteEvent? Abandoned(Pending? dropped) =>
-        dropped is { Created.Count: > 0 }
-            ? new BacklogWriteEvent(
-                "note",
-                $"Задачи в трекере уже заведены, а записи остались в бэклоге: {string.Join(", ", dropped.Created.Select(c => $"{c.Key} — {c.Value.Label}"))}. Уберите эти записи из бэклога.",
-                Issues: new Dictionary<string, TrackerIssue>(dropped.Created))
-            : null;
 
     /// <summary>
     /// «Сохранить»: панель сама меняет и вырезает ровно записи предложения и коммитит только backlog.md. Запись
@@ -219,14 +202,13 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         lock (_gate)
             attached = [.. _attached];
         BacklogSaved saved;
-        await BacklogTracker.Writing.WaitAsync();
+        await Writing.WaitAsync();
         try
         {
-            // Кит мог перевести базу на новый формат посреди разговора: писать по прежним правилам панель не станет
-            // (B-281) — и задачу в трекере под такую запись не заводит.
+            // Кит мог перевести базу на новый формат посреди разговора: писать по прежним правилам панель не станет (B-281).
             saved = BaseLayout.Read(pending.Request.Base)?.NewerFormat == true
                 ? new BacklogSaved(null, BaseLayout.NewerFormatRefusal)
-                : await TrackAsync(pending) ?? await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
+                : await WriteAsync(BaseLayout.PersonalOf(pending.Request.Base), pending.Proposal, attached);
         }
         catch
         {
@@ -237,17 +219,8 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         }
         finally
         {
-            BacklogTracker.Writing.Release();
+            Writing.Release();
         }
-        if (pending.Created.Count > 0)
-            saved = saved with
-            {
-                Issues = new Dictionary<string, TrackerIssue>(pending.Created),
-                // Задачи уже заведены, а записи остались в бэклоге: повторное «Сохранить» задач не заводит, а пишет бэклог.
-                Error = saved.Error is { } error
-                    ? $"{error}. Уже заведены в трекере: {string.Join(", ", pending.Created.Select(c => $"{c.Key} — {c.Value.Label}"))} — «Сохранить» ещё раз их не повторит"
-                    : null,
-            };
         lock (_gate)
         {
             pending.Saving = false;
@@ -255,35 +228,8 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
                 _pending = null;
         }
         if (saved.Error is null)
-            pending.Request.Write(new BacklogWriteEvent("saved", "", Commit: saved.Commit, ProposalId: id, Issues: saved.Issues));
+            pending.Request.Write(new BacklogWriteEvent("saved", "", Commit: saved.Commit, ProposalId: id));
         return saved;
-    }
-
-    /// <summary>
-    /// Перенос записей в трекер: сначала проверка, что бэклог можно записать, потом задача на каждую переносимую
-    /// запись, которой ещё нет, — до записи файла: задача, заведённая под запись, которую потом не вырезать, осталась
-    /// бы дублем. Заведённые помнит предложение, и повторное «Сохранить» их не заводит снова. null — можно писать файл.
-    /// </summary>
-    private async Task<BacklogSaved?> TrackAsync(Pending pending)
-    {
-        if (!pending.Proposal.Tracks)
-            return null;
-        var personal = BaseLayout.PersonalOf(pending.Request.Base);
-        if (await UnwritableAsync(personal, pending.Proposal, $"ответа {AgentRequests.AgentName}") is { } refusal)
-            return new BacklogSaved(null, refusal.Text);
-        if (BaseLayout.Read(pending.Request.Base) is not { } layout || ProjectTracker.Movable(layout) is not { } tracker)
-            return new BacklogSaved(null, $"Переносить некуда: {ProjectTracker.NotMovable} — ничего не записано");
-
-        foreach (var change in pending.Proposal.Changes.Where(c => c.Kind == BacklogChange.Track && !pending.Created.ContainsKey(c.Number)))
-        {
-            // Заводится ровно та задача, что показала карточка
-            var draft = change.Draft!;
-            var created = await trackers.CreateAsync(tracker, draft.Title, draft.Body);
-            if (created.Issue is not { } issue)
-                return new BacklogSaved(null, $"{BacklogTracker.NotCreated(created, $"Задача для {change.Number}", tracker)} — бэклог не записан");
-            pending.Created[change.Number] = issue;
-        }
-        return null;
     }
 
     /// <summary>
@@ -746,7 +692,7 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         try
         {
             var exit = await agent.RunAsync(
-                BacklogWriteEndpoints.StartInfo(basePath, copy),
+                BacklogWriteEndpoints.StartInfo(basePath, copy, trackers.For(BaseLayout.Read(basePath), copy, basePath)),
                 replies,
                 async line =>
                 {
@@ -832,11 +778,18 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         var added = text is null
             ? []
             : Backlog.Parse(text).Where(e => e.Number is { } n && !known.Contains(n) && !renumbered.Contains(n)).ToList();
+        var (said, blocks) = answer is { Type: "answer" } ? BacklogProposal.Split(answer.Text) : ("", []);
+        var (moved, rest, unclear) = BacklogMoves.Take(blocks);
+        // Запись, которую агент сам перенёс в трекер, он и вырезал — так велит навык кита (AKW-15); остальные — правка.
+        var cut = moved.Where(m => !m.Waiting).Select(m => m.Number).ToHashSet();
+        // Запись, названная в итоге переноса, сверяется с ним ниже: вырезанная «ждёт файлов» — итог, который не
+        // сходится с бэклогом, а не самовольная правка.
+        var named = moved.Select(m => m.Number).ToHashSet();
         // Навык кита, дописывая, сам дополняет записи: строкой в «Агенту» найденной записи, недостающим полем,
         // номером записи чужими буквами. Это не правка — правкой считается то, что убрало или переписало строку.
         var touched = before
             .Where(b => b.Number is not null && BacklogNumber.Letters(b.Number) == letters
-                && (after.FirstOrDefault(a => a.Number == b.Number) is not { } now || !Extends(now.Text, b.Text)))
+                && (after.FirstOrDefault(a => a.Number == b.Number) is not { } now ? !named.Contains(b.Number) : !Extends(now.Text, b.Text)))
             .Select(b => b.Number!)
             .ToList();
         var entries = added.Count > 0 ? added : null;
@@ -846,8 +799,29 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         if (answer is not { Type: "answer" })
             return new BacklogWriteEvent("error", answer?.Text ?? "", entries, Output: answer?.Output);
 
-        var (said, blocks) = BacklogProposal.Split(answer.Text);
         var output = said.Length > 0 ? said : null;
+        // Правило удаления файлов перенесённой записи пускает и лишний путь в той же команде (проба AKW-15), а коммит
+        // агенту разрешён только с backlog.md и artifacts: удалённое мимо коммита панель возвращает и говорит об этом.
+        if (await BaseGit.DeletedAsync(basePath, CancellationToken.None) is { Count: > 0 } deleted)
+        {
+            var back = await BaseGit.RestoreAsync(basePath, deleted, CancellationToken.None);
+            return new BacklogWriteEvent(
+                "error",
+                $"{AgentRequests.AgentName} удалил файлы личного репозитория, не закоммитив: {string.Join(", ", deleted)} — "
+                + (back is null ? "панель вернула их" : $"вернуть их не вышло: {back}"),
+                entries, Output: output);
+        }
+        // Итог переноса не по форме — раньше самовольной правки: запись, вырезанная переносом, иначе выглядела бы
+        // правкой без «Сохранить», и оператор перенёс бы её снова — дублем задачи (ревью AKW-15).
+        if (unclear is not null)
+        {
+            var gone = before.Where(b => b.Number is not null && after.All(a => a.Number != b.Number)).Select(b => b.Number!).ToList();
+            return new BacklogWriteEvent(
+                "error",
+                $"{AgentRequests.AgentName} назвал итог переноса, который панель не поняла: {unclear}"
+                + (gone.Count > 0 ? $". Из бэклога ушли записи {string.Join(", ", gone)} — проверьте трекер, прежде чем переносить их снова" : ""),
+                entries, Output: output);
+        }
         var dirty = await BaseGit.IsDirtyAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
         if (touched.Count > 0)
         {
@@ -868,19 +842,45 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         if (dirty == true)
             return new BacklogWriteEvent("error", "Бэклог изменён, но backlog.md не закоммичен", entries, Output: output);
 
-        var (proposal, wrong) = text is null ? (null, null) : BacklogProposal.Build(blocks, text);
+        var (moves, wrongMove) = Moves(moved, before, after, text);
+        if (wrongMove is not null)
+            return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} назвал итог переноса, который не сходится с бэклогом: {wrongMove}", entries, Output: output);
+
+        var (proposal, wrong) = text is null ? (null, null) : BacklogProposal.Build(rest, text);
         if (wrong is not null)
             return new BacklogWriteEvent("error", $"{AgentRequests.AgentName} предложил правку, которую панель не поняла: {wrong}", entries, Output: output);
-        // Переносить есть куда, только если трекер проекта — GitHub или YouTrack: агенту без них перенос не предлагается.
-        if (proposal is { Tracks: true } && (BaseLayout.Read(writing.Base) is not { } layout || ProjectTracker.Movable(layout) is null))
-            return new BacklogWriteEvent(
-                "error", $"{AgentRequests.AgentName} предложил перенос в трекер, а {ProjectTracker.NotMovable}", entries, Output: output);
 
-        var commit = entries is null ? null : await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
+        var commit = entries is null && cut.Count == 0
+            ? null
+            : await BaseGit.LastCommitAsync(basePath, BacklogWriteEndpoints.BacklogFile, CancellationToken.None);
         if (proposal is not null)
             lock (_gate)
                 _pending = new Pending(writing, proposal);
-        return new BacklogWriteEvent("answer", said, entries, commit, answer.DurationMs, Proposal: proposal);
+        return new BacklogWriteEvent("answer", said, entries, commit, answer.DurationMs, Proposal: proposal, Moves: moves);
+    }
+
+    /// <summary>
+    /// Итог переноса, сверенный с бэклогом: перенесённая запись была до хода и вырезана, ждущая файлов — на месте
+    /// и не тронута. Не сошлось — Error со словами, что не так; итога нет — пустой список.
+    /// </summary>
+    private static (IReadOnlyList<BacklogMove>? Moves, string? Error) Moves(
+        IReadOnlyList<BacklogMoves.Said> said, IReadOnlyList<BacklogBlock> before, IReadOnlyList<BacklogBlock> after, string? text)
+    {
+        var header = text is null ? "" : Backlog.Blocks(text) is [var first, ..] ? text[..first.Start] : text;
+        var moves = new List<BacklogMove>();
+        foreach (var move in said)
+        {
+            if (before.FirstOrDefault(b => b.Number == move.Number) is not { } was)
+                return (null, $"записи {move.Number} в бэклоге не было");
+            var still = after.Any(a => a.Number == move.Number);
+            if (move.Waiting != still)
+                return (null, move.Waiting ? $"запись {move.Number} ждёт файлов, а её в бэклоге нет" : $"запись {move.Number} перенесена, а осталась в бэклоге");
+            var entry = Backlog.Parse(header + "\n" + was.Text)[0];
+            var files = (entry.Artifacts ?? []).Select(a => a.Address).Where(a => !a.Contains("://")).ToList();
+            var number = int.TryParse(move.Issue[(move.Issue.LastIndexOfAny(['#', '-']) + 1)..], out var n) ? n : 0;
+            moves.Add(new BacklogMove(move.Number, entry, new TrackerIssue(move.Issue, number, entry.Title, move.Url), move.Waiting, files));
+        }
+        return (moves.Count > 0 ? moves : null, null);
     }
 
     /// <summary>Запись только дополнена: все её прежние строки стоят в новой по порядку, а новые лишь вставлены.</summary>
@@ -993,9 +993,6 @@ public sealed class BacklogConversations(IAgentChat agent, AgentRequests request
         public BacklogProposal Proposal { get; } = proposal;
 
         public bool Saving { get; set; }
-
-        /// <summary>Задачи трекера, уже заведённые переносом записей предложения: номер записи → задача.</summary>
-        public Dictionary<string, TrackerIssue> Created { get; } = [];
     }
 }
 
@@ -1057,28 +1054,50 @@ public static class BacklogWriteEndpoints
     /// туда же: остальные инструменты отключены, а режим dontAsk отказывает всему, что не разрешено правилом. Реплики
     /// оператора уходят в stdin — не в аргументы.
     /// </summary>
-    public static ProcessStartInfo StartInfo(string basePath, string copyPath)
+    public static ProcessStartInfo StartInfo(string basePath, string copyPath, AgentTracker? tracker = null)
     {
         var personal = BaseLayout.PersonalOf(basePath);
         var backlog = Path.Combine(personal, BacklogFile);
         // Команда коммита — одна строка и для правила, и для промпта: правило PowerShell со звёздочкой
-        // не совпадает с командой git ни в каком виде, совпадает только записанная целиком. Поэтому
+        // с командой git commit не совпало ни в каком виде, совпадает только записанная целиком. Поэтому
         // сообщение коммита пишет панель, а не агент: его текст — часть разрешённой команды. Коммит — в git
         // личного репозитория: у него свой git, а local\ общая база не видит.
         var commit = $"git -C \"{personal}\" commit -m \"{CommitMessage}\" -- {BacklogFile}";
         // Приложенные файлы панель уже положила в artifacts/ и в индекс; их имена меняются от реплики к реплике,
         // а правило пускает только команду целиком — поэтому вторая команда берёт каталог.
         var withFiles = $"{commit} {ArtifactFiles.Folder}";
-        // Перенос записи в трекер заводит панель по «Сохранить», а не агент: трекер и программу gh он не трогает.
-        // Трекер проекта не GitHub и не YouTrack со строками описания — переносить некуда, и агент об этом знает (B-286, B-288).
-        var track = BaseLayout.Read(basePath) is { } layout && ProjectTracker.Movable(layout) is { } tracker
-            ? $"""
-              Перенос записи в трекер проекта ({tracker.Name} {tracker.Project}) — тоже предложение, блоком «в трекер B-14»; задачу заведёт панель, сам трекер и gh не трогай:
-              ~~~backlog
-              в трекер B-14
-              ~~~
-              """
-            : $"Переноса записей в трекер у этого проекта нет: {ProjectTracker.NotMovable}. Попросят перенести — скажи это.";
+        // Файлы записи, ушедшей в трекер, агент удаляет тем же коммитом, что и запись: файл без ссылки кит не пропустит.
+        // Имя файла правилом не угадать, поэтому оно со звёздочкой — у git rm она совпадает (проба AKW-15). Цепочку
+        // команд режим dontAsk и с ней не пускает, а лишний путь в той же команде пускает: удалённое мимо коммита
+        // панель возвращает после хода (ReadOutcomeAsync).
+        var remove = $"git -C \"{personal}\" rm -q -- {ArtifactFiles.Folder}/";
+        var reachable = tracker is { Reachable: true };
+        var track = tracker is null
+            ? $"Трекера у этого проекта нет или он не GitHub и не YouTrack: {ProjectTracker.NotMovable}. Спросят о трекере или попросят перенести запись — скажи это."
+            : reachable
+                ? $"""
+                  {tracker!.Prompt}
+                  {AgentTracker.Rules}
+                  Перенос записи в трекер ты делаешь сам, навыком: /agents-kit:backlog, «Вынести в трекер» — сначала ищешь похожую задачу и говоришь, что нашёл,
+                  заводишь задачу по разделу «Вынос записи бэклога» tracker.md базы, потом вырезаешь запись из бэклога. Это единственная правка прежней записи, которую ты делаешь сам.
+                  У записи есть файлы artifacts/ в «### Артефакты» — сами в задачу они не попадут: заведя задачу, дай ссылку на неё, назови файлы полными путями,
+                  попроси оператора прикрепить их к задаче и жди; запись до его слова не трогай. Файлов нет или оператор сказал, что перенёс, —
+                  вырежи запись, удали файлы, на которые больше ничего не ссылается, командой «{remove}<имя файла>» по файлу и закоммить ровно этой командой, слово в слово, без точки на конце:
+                  {withFiles}
+                  Итог переноса назови в конце ответа блоком — задача заведена, запись ждёт файлов:
+                  ~~~backlog
+                  {BacklogMoves.Waiting} B-14 в {tracker.Tracker.Name} <номер задачи> <адрес задачи>
+                  ~~~
+                  или запись вырезана и закоммичена:
+                  ~~~backlog
+                  {BacklogMoves.Moved} B-14 в {tracker.Tracker.Name} <номер задачи> <адрес задачи>
+                  ~~~
+                  Номер задачи — как в трекере: «ABC-20» у YouTrack, «#37» у GitHub.
+                  """
+                : $"""
+                  {tracker!.Prompt}
+                  Перенести запись в трекер поэтому нельзя: скажи это, а запись не трогай.
+                  """;
         var systemPrompt = $"""
             Ты ведёшь с оператором разговор о его бэклоге в веб-панели: он просит и уточняет в том же разговоре.
             Бэклог лежит в личном репозитории оператора внутри базы знаний, у этого репозитория свой git.
@@ -1120,11 +1139,17 @@ public static class BacklogWriteEndpoints
                      $"Edit({backlog})",
                      $"PowerShell({commit})",
                      $"PowerShell({withFiles})",
-                     "--no-session-persistence",
-                     "--strict-mcp-config",
-                     "--append-system-prompt", systemPrompt,
                  })
             startInfo.ArgumentList.Add(arg);
+        // Трекер — так, как его описывает tracker.md (AKW-15): правила его инструмента и удаление файлов перенесённой записи.
+        if (reachable)
+            foreach (var rule in tracker!.AllowedTools.Append($"PowerShell({remove}*)"))
+                startInfo.ArgumentList.Add(rule);
+        foreach (var arg in new[] { "--no-session-persistence", "--strict-mcp-config" })
+            startInfo.ArgumentList.Add(arg);
+        tracker?.AddMcp(startInfo);
+        startInfo.ArgumentList.Add("--append-system-prompt");
+        startInfo.ArgumentList.Add(systemPrompt);
         return startInfo;
     }
 }

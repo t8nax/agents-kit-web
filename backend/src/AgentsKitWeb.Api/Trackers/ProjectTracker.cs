@@ -96,24 +96,12 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         }
     }
 
-    /// <summary>Почему записи бэклога проекта переносить некуда — продолжением фразы.</summary>
+    /// <summary>Почему агенту в трекер проекта не пройти — продолжением фразы.</summary>
     public const string NotMovable = "трекер проекта — не GitHub и не YouTrack со строками «трекер:», «сервер:», «проект:»";
 
-    /// <summary>Трекер, в который запись бэклога переносится: GitHub или YouTrack; иначе null.</summary>
+    /// <summary>Трекер, в который агент ходит и переносит записи бэклога: GitHub или YouTrack; иначе null.</summary>
     public static TrackerInfo? Movable(BaseLayout layout) =>
         Tracker.Read(layout) is { Kind: TrackerInfo.GitHub or TrackerInfo.YouTrack } tracker ? tracker : null;
-
-    /// <summary>Новая задача трекера на оператора — перенос записи бэклога (B-286, B-288).</summary>
-    public async Task<CreatedIssue> CreateAsync(TrackerInfo tracker, string title, string body) =>
-        tracker switch
-        {
-            { GitHubRepo: { } repo } => await github.CreateAsync(repo, title, body),
-            { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
-                KeyOf(server, out var problem) is { } key
-                    ? await youTrack.CreateAsync(server, key, project, title, body)
-                    : new CreatedIssue(null, problem),
-            _ => new CreatedIssue(null, tracker.Kind),
-        };
 
     /// <summary>
     /// Имя задачи трекера, как его пишет кит: «GitHub #37», «YouTrack ABC-12». Регистр и пробел перед «#» ничего

@@ -48,16 +48,16 @@ public sealed class YouTrackApiTests
 
     /// <summary>403 — ключ действует, но у владельца нет прав: «замените ключ» тут советовать незачем (ревью B-288).</summary>
     [Fact]
-    public async Task Create_Forbidden_IsKeyForbiddenNotRejected()
+    public async Task Open_Forbidden_IsKeyForbiddenNotRejected()
     {
-        var api = Api(request => request.Method == HttpMethod.Post
-            ? Json("""{"error":"Forbidden","error_description":"Нет прав на создание задач"}""", HttpStatusCode.Forbidden)
-            : request.RequestUri!.AbsolutePath.EndsWith("/users/me") ? Json("""{"login":"b"}""") : Json("""[{"id":"0-1","shortName":"ABC"}]"""));
+        var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/admin/projects")
+            ? Json("""[{"id":"0-1","shortName":"ABC"}]""")
+            : request.RequestUri!.AbsolutePath.EndsWith("/users/me") ? Json("""{"login":"b"}""")
+            : Json("""{"error":"Forbidden","error_description":"Нет прав на чтение задач"}""", HttpStatusCode.Forbidden));
 
-        var created = await api.CreateAsync(Server, Key, "ABC", "Т", "О");
+        var issues = await api.OpenAsync(Server, Key, "ABC", null, CancellationToken.None);
 
-        Assert.Equal(new CreatedIssue(null, TrackerIssues.KeyForbidden, "Нет прав на создание задач"), created);
-        Assert.False(created.MaybeCreated);
+        Assert.Equal((TrackerIssues.KeyForbidden, "Нет прав на чтение задач"), (issues.Problem, issues.Detail));
     }
 
     [Fact]
@@ -248,69 +248,6 @@ public sealed class YouTrackApiTests
 
         Assert.Equal(TrackerIssues.KeyRejected, issues.Problem);
         Assert.Empty(issues.Issues);
-    }
-
-    [Fact]
-    public async Task Create_AssignsIssueToKeyOwnerInProject()
-    {
-        var api = Api(request => request.RequestUri!.AbsolutePath switch
-        {
-            var p when p.EndsWith("/users/me") => Json("""{"login":"boris.k"}"""),
-            var p when p.EndsWith("/admin/projects") => Json("""[{"id":"0-1","shortName":"ABC"}]"""),
-            _ => Json("""{"idReadable":"ABC-58","summary":"Экспорт"}"""),
-        });
-
-        var created = await api.CreateAsync(Server, Key, "ABC", "Экспорт истории", "Текст записи.\n\n### Агенту\n- где: App.tsx");
-
-        Assert.Equal(new TrackerIssue("YouTrack ABC-58", 58, "Экспорт истории", "https://yt.acme.local/youtrack/issue/ABC-58"), created.Issue);
-        var post = Assert.Single(_asked, a => a.Method == HttpMethod.Post);
-        Assert.StartsWith("https://yt.acme.local/youtrack/api/issues?", post.Url);
-        var body = JsonNode.Parse(post.Body!)!;
-        Assert.Equal("0-1", body["project"]!["id"]!.GetValue<string>());
-        Assert.Equal("Экспорт истории", body["summary"]!.GetValue<string>());
-        Assert.Equal("Текст записи.\n\n### Агенту\n- где: App.tsx", body["description"]!.GetValue<string>());
-        var assignee = Assert.Single(body["customFields"]!.AsArray())!;
-        Assert.Equal("Assignee", assignee["name"]!.GetValue<string>());
-        Assert.Equal("boris.k", assignee["value"]!["login"]!.GetValue<string>());
-    }
-
-    [Fact]
-    public async Task Create_ProjectMissing_DoesNotPost()
-    {
-        var api = Api(request => request.RequestUri!.AbsolutePath.EndsWith("/users/me") ? Json("""{"login":"b"}""") : Json("[]"));
-
-        var created = await api.CreateAsync(Server, Key, "ABC", "Т", "О");
-
-        Assert.Equal(new CreatedIssue(null, TrackerIssues.ProjectMissing), created);
-        Assert.DoesNotContain(_asked, a => a.Method == HttpMethod.Post);
-        Assert.False(created.MaybeCreated);
-    }
-
-    /// <summary>Оборванное заведение могло завести задачу: оператору говорится «возможно, заведена».</summary>
-    [Fact]
-    public async Task Create_ConnectionLostOnPost_MayHaveCreated()
-    {
-        var api = Api(request => request.Method == HttpMethod.Post
-            ? throw new HttpRequestException(HttpRequestError.ResponseEnded, "обрыв")
-            : request.RequestUri!.AbsolutePath.EndsWith("/users/me") ? Json("""{"login":"b"}""") : Json("""[{"id":"0-1","shortName":"ABC"}]"""));
-
-        var created = await api.CreateAsync(Server, Key, "ABC", "Т", "О");
-
-        Assert.Equal(CreatedIssue.YouTrackSilent, created.Problem);
-        Assert.True(created.MaybeCreated);
-    }
-
-    [Fact]
-    public async Task Create_Refused_IsNotCreated()
-    {
-        var api = Api(request => request.Method == HttpMethod.Post
-            ? Json("""{"error":"bad","error_description":"Поле Assignee не найдено"}""", HttpStatusCode.BadRequest)
-            : request.RequestUri!.AbsolutePath.EndsWith("/users/me") ? Json("""{"login":"b"}""") : Json("""[{"id":"0-1","shortName":"ABC"}]"""));
-
-        var created = await api.CreateAsync(Server, Key, "ABC", "Т", "О");
-
-        Assert.Equal(new CreatedIssue(null, TrackerIssues.YouTrackError, "Поле Assignee не найдено"), created);
-        Assert.False(created.MaybeCreated);
     }
 
     [Theory]
