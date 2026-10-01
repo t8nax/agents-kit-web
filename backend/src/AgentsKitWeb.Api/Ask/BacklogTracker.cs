@@ -103,7 +103,7 @@ public static partial class BacklogTracker
     /// </summary>
     public static string NotCreated(CreatedIssue created, string whose, TrackerInfo tracker)
     {
-        const string settings = "в «Настройках», в карточке «Серверы трекеров»";
+        const string settings = "в разделе «Трекеры», в списке «Серверы трекеров»";
         var youTrack = tracker.Kind == TrackerInfo.YouTrack;
         var reason = created.Problem switch
         {

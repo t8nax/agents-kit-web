@@ -18,6 +18,7 @@ export const guidePages: GuidePage[] = [
   { file: 'usage.md', group: 'Разделы' },
   { file: 'reports.md', group: 'Разделы' },
   { file: 'problems.md', group: 'Разделы' },
+  { file: 'trackers.md', group: 'Разделы' },
   { file: 'settings.md', group: 'Разделы' },
 ]
 

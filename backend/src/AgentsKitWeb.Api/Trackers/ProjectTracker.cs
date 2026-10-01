@@ -15,7 +15,7 @@ public sealed record TrackerCheck(bool Checked, string? Field = null, string? Pr
 
 /// <summary>
 /// Трекер проекта, как его называет описание трекера базы: GitHub панель читает программой gh оператора (B-277),
-/// YouTrack — своим клиентом с ключом из «Настроек» (B-288). Другие трекеры панель не читает.
+/// YouTrack — своим клиентом с ключом из раздела «Трекеры» (B-288). Другие трекеры панель не читает.
 /// </summary>
 public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTrack, TrackerServersStore servers)
 {
@@ -78,7 +78,7 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         };
 
     /// <summary>
-    /// Ключ сервера YouTrack. Нет его — почему: сервера нет в «Настройках» (no-key) или ключ не прочитать —
+    /// Ключ сервера YouTrack. Нет его — почему: сервера нет в разделе «Трекеры» (no-key) или ключ не прочитать —
     /// не расшифровался на этом компьютере или файл серверов битый (key-unreadable, совет — «Заменить ключ»).
     /// </summary>
     private string? KeyOf(string server, out string? problem)

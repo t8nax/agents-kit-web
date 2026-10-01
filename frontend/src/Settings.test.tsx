@@ -48,8 +48,6 @@ const api = (extra: Record<string, Handler> = {}) => ({
   'GET /api/workspaces': () => json([]),
   'GET /api/bases': () => json([existing]),
   'GET /api/kit': () => json(noKit),
-  'GET /api/trackers': () => json([]),
-  'GET /api/trackers/projects': () => json([]),
   'GET /api/panel': () => json(panel),
   'GET /api/panel/update': () => json(noUpdate),
   'GET /api/voice': () => json({ state: 'absent', downloaded: 0, total: null, error: null }),

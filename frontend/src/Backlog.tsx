@@ -75,7 +75,8 @@ type Load =
  * writeFor — база просьбы, к которой вернулся оператор: окно записи открывается сразу на ней.
  * onStarted — запущенная задача: сообщение о ней показывает App, потому что раздел оператор
  * тут же покидает, чтобы посмотреть строку копии.
- * onTrackers — переход в «Настройки» к карточке «Трекеры проектов» из строки о поломке описания трекера.
+ * onTrackers — переход в раздел «Трекеры» к трекеру проекта из строки о поломке описания трекера, а из строки о ключе —
+ * к «Серверам трекеров» (servers).
  */
 export default function Backlog({
   writeFor = null,
@@ -84,7 +85,7 @@ export default function Backlog({
 }: {
   writeFor?: string | null
   onStarted?: (copy: string) => void
-  onTrackers?: () => void
+  onTrackers?: (base: string, servers: boolean) => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   // Проект просьбы главнее запомненного и дальше запоминается сам — решение оператора на B-267
@@ -571,7 +572,7 @@ export default function Backlog({
                       load={trackers[backlog.base] ?? initialTrackerLoad(tracker)}
                       issues={issues}
                       mine={selection.mine ?? false}
-                      onTrackers={onTrackers}
+                      onTrackers={onTrackers && ((servers) => onTrackers(backlog.base, servers))}
                     >
                       {(issue) => (
                         <button

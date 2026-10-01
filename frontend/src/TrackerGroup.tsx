@@ -6,11 +6,24 @@ import { ISSUE_LIMIT, issueLabel, type TrackerInfo, type TrackerIssue, type Trac
 /** Строка на месте задач: спокойная — серая, поломка — красная со значком и советом. */
 type State = { warning: boolean; text: ReactNode }
 
-/** Где на это посмотреть в «Настройках» — одними словами у всех причин ключа. */
-const settingsCard = '«Настройках», в карточке «Серверы трекеров»'
-
-function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () => void): State | null {
+function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (servers: boolean) => void): State | null {
   if (load.kind === 'loading') return null
+  // Трекеры — свой раздел панели (B-323): ссылка ведёт в него, к проекту этой группы.
+  const section = (
+    <button type="button" className="tracker-link" onClick={() => onTrackers?.(false)}>
+      «Трекеры»
+    </button>
+  )
+  // Где на это посмотреть — одними словами у всех причин ключа; ссылка ведёт к списку серверов (ревью B-323).
+  const servers = (
+    <>
+      в разделе{' '}
+      <button type="button" className="tracker-link" onClick={() => onTrackers?.(true)}>
+        «Трекеры»
+      </button>
+      , в списке «Серверы трекеров»
+    </>
+  )
   if (load.kind === 'failed') return { warning: true, text: `Задачи трекера не загрузились: ${load.message}.` }
   const server = <code>{tracker.server}</code>
   switch (load.problem) {
@@ -41,7 +54,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
       }
     case 'no-keys': {
       // Называются именно те строки, которых нет или что записаны не так, — как на макете B-288; описание
-      // исправляется в «Настройках», а не словами киту в сессии (макет B-293)
+      // исправляется в разделе «Трекеры», а не словами киту в сессии (макет B-293, B-323)
       const faults = (tracker.faults?.length ? tracker.faults : ['трекер', 'сервер', 'проект']).map((key) => `«${key}:»`)
       const named = faults.length === 1 ? faults[0] : `${faults.slice(0, -1).join(', ')} и ${faults[faults.length - 1]}`
       return {
@@ -51,11 +64,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
             {faults.length === 1
               ? `В описании трекера проекта нет строки ${named} или она записана не так. `
               : `В описании трекера проекта нет строк ${named} или они записаны не так. `}
-            Исправьте описание в «Настройках», в карточке{' '}
-            <button type="button" className="tracker-link" onClick={onTrackers}>
-              «Трекеры проектов»
-            </button>
-            .
+            Исправьте описание в разделе {section}.
           </>
         ),
       }
@@ -65,7 +74,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
         warning: true,
         text: (
           <>
-            Для сервера {server} нет ключа. Добавьте сервер и ключ в {settingsCard}.
+            Для сервера {server} нет ключа. Добавьте сервер и ключ {servers}.
           </>
         ),
       }
@@ -74,7 +83,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
         warning: true,
         text: (
           <>
-            Сервер {server} отклонил ключ. Замените ключ в {settingsCard}.
+            Сервер {server} отклонил ключ. Замените ключ {servers}.
           </>
         ),
       }
@@ -83,7 +92,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
         warning: true,
         text: (
           <>
-            Ключ сервера {server} не прочитать на этом компьютере. Замените ключ в {settingsCard}.
+            Ключ сервера {server} не прочитать на этом компьютере. Замените ключ {servers}.
           </>
         ),
       }
@@ -125,11 +134,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: () =
         text: (
           <>
             {tracker.kind === 'youtrack' ? 'YouTrack' : 'GitHub'} не принял фильтр <code>{tracker.filter}</code>
-            {load.detail ? <>: {load.detail}</> : ''}. Исправьте его в «Настройках», в карточке{' '}
-            <button type="button" className="tracker-link" onClick={onTrackers}>
-              «Трекеры проектов»
-            </button>
-            .
+            {load.detail ? <>: {load.detail}</> : ''}. Исправьте его в разделе {section}.
           </>
         ),
       }
@@ -191,8 +196,8 @@ export default function TrackerGroup({
   issues: TrackerIssue[]
   /** Включён флажок «Мои задачи»: проект без своих задач не прячется, а говорит это строкой. */
   mine?: boolean
-  /** Переход к описанию трекера проекта — из строки о поломке описания и из строки о пределе задач. */
-  onTrackers?: () => void
+  /** Переход в раздел «Трекеры»: к трекеру проекта — из строки о поломке описания и из строки о пределе задач, к серверам — из строки о ключе. */
+  onTrackers?: (servers: boolean) => void
   /** Кнопка запуска задачи — её держит раздел: окно запуска у него. */
   children: (issue: TrackerIssue) => ReactNode
 }) {
@@ -263,7 +268,7 @@ export default function TrackerGroup({
         <p className="tracker-state text-sec">
           <span>
             Показаны первые {ISSUE_LIMIT} задач — сузьте список фильтром{' '}
-            <button type="button" className="tracker-link tracker-link-quiet" onClick={onTrackers}>
+            <button type="button" className="tracker-link tracker-link-quiet" onClick={() => onTrackers?.(false)}>
               в разделе «Трекеры»
             </button>
             .
