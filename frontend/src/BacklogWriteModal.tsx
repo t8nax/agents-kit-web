@@ -212,6 +212,13 @@ export default function BacklogWriteModal({
     if (base && savedCount > 0 && !hidden) onSaved?.(base)
   }, [base, savedCount, hidden, onSaved])
 
+  // Чудо-Юдо вырезал записи, перенеся их в трекер, — список бэклога перечитывается, как после «Сохранить». Задачу
+  // он мог назвать ещё ходом «ждёт файлов», и перечитывание трекера под неё тогда уже прошло (AKW-15).
+  const movedOut = events.filter((e) => e.type === 'answer' && (e.moves ?? []).some((m) => !m.waiting)).length
+  useEffect(() => {
+    if (base && movedOut > 0 && !hidden) onSaved?.(base)
+  }, [base, movedOut, hidden, onSaved])
+
   // Задачи трекера, которые Чудо-Юдо завёл, перенося записи, — и те, что ждут файлов
   const tracked = events
     .flatMap((e) => (e.type === 'answer' ? (e.moves ?? []) : []))

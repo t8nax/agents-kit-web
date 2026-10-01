@@ -369,7 +369,7 @@ test('задача заведена и ждёт файлов — карточк�
 test('запись перенесена — карточки «удалена» и «заведена», запись вверху ленты «перенесена»', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream)
-  const { onTracked } = renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
+  const { onTracked, onSaved } = renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
 
   await say('Перенёс оба файла в ABC-58.')
   stream.send({ type: 'reply', text: 'Перенёс оба файла в ABC-58.', number: 'B-281' })
@@ -391,6 +391,8 @@ test('запись перенесена — карточки «удалена» 
   expect(within(subject as HTMLElement).getByText('перенесена')).toBeInTheDocument()
   expect(subject).not.toHaveTextContent('в задачу сами не попадут')
   await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['YouTrack ABC-58']))
+  // Запись ушла из бэклога — список раздела перечитывается
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith(bases[0].base))
 })
 
 test('несохранённое остаётся с кнопками, а причина видна в ответе', async () => {
