@@ -122,21 +122,21 @@ public sealed class TrackerRewriteTests : IDisposable
         Assert.Contains("проект: acme/orders", Text(_agent.Input[0]));
     }
 
-    /// <summary>Чудо-Юдо знает строку отбора и предлагает её в поле «Фильтр» (B-300).</summary>
+    /// <summary>Отбор задач оператор задаёт в «Бэклоге» (B-285): Чудо-Юдо строку «фильтр:» не пишет и знает, куда отправить.</summary>
     [Fact]
-    public async Task Answer_WithFilterLine_ProposesFilter()
+    public async Task Prompt_SendsFilterToBacklog()
     {
-        var proposed = GitHub with { Filter = "label:bug" };
-        _agent.Answers = [[Result("Добавил отбор.\n=== описание\n" + TrackerDescriptions.Serialize(proposed, "Order Service"))]];
+        _agent.Answers = [[Result("Отбор задают в «Бэклоге».")]];
         var client = await Client();
 
         await Start(client, "Показывай только баги", GitHub);
-        var answer = (await Read(client, 2))[1];
+        await Read(client, 2);
 
-        Assert.Equal(proposed, answer.Proposal);
-        Assert.Equal(new TrackerChanged(1, 0), answer.Changed);
         var args = Assert.Single(_agent.Starts).ArgumentList.ToList();
-        Assert.Contains("«фильтр: State: {To Do}»", args[args.IndexOf("--append-system-prompt") + 1]);
+        var prompt = args[args.IndexOf("--append-system-prompt") + 1];
+        Assert.Contains("Строки «фильтр:» в описании нет", prompt);
+        Assert.Contains("«Задачи трекера» раздела «Бэклог»", prompt.ReplaceLineEndings(" "));
+        Assert.DoesNotContain("фильтр: State", prompt);
     }
 
     /// <summary>Описание не в форме кита панель один раз возвращает агенту на доработку, как переписка о флоу.</summary>

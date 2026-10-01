@@ -21,11 +21,21 @@ public sealed record ServerKey(string Key, string? Email);
 /// YouTrack — своим клиентом с ключом из раздела «Трекеры» (B-288), облачную Jira — своим клиентом с почтой
 /// и ключом оттуда же (B-285). Другие трекеры панель не читает.
 /// </summary>
-public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTrack, IJira jira, TrackerServersStore servers)
+public sealed partial class ProjectTracker(
+    IGitHubIssues github, IYouTrack youTrack, IJira jira, TrackerServersStore servers, TrackerFiltersStore filters)
 {
-    /// <summary>Незакрытые задачи трекера базы, все, с фильтром описания; не прочитали — Problem.</summary>
+    /// <summary>Незакрытые задачи трекера базы, все, с фильтром проекта; не прочитали — Problem.</summary>
     public Task<TrackerIssues> OpenAsync(BaseLayout layout, CancellationToken cancellationToken) =>
-        OpenAsync(Tracker.Read(layout), cancellationToken);
+        OpenAsync(Read(layout), cancellationToken);
+
+    /// <summary>
+    /// Трекер базы с фильтром проекта, заданным в панели на этом компьютере (B-285); не задан — со строкой «фильтр:»
+    /// описания, как было до переезда.
+    /// </summary>
+    public TrackerInfo? Read(BaseLayout layout) =>
+        Tracker.Read(layout) is { } tracker && Readable(tracker)
+            ? tracker with { Filter = filters.Of(layout.Base, tracker.Filter) }
+            : Tracker.Read(layout);
 
     /// <summary>
     /// Задачи для раздела «Бэклог» — с метками репозитория GitHub для фильтра «Метки» (B-305); метки читаются
@@ -33,7 +43,7 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
     /// </summary>
     public async Task<TrackerIssues> ForBacklogAsync(BaseLayout layout, CancellationToken cancellationToken)
     {
-        var tracker = Tracker.Read(layout);
+        var tracker = Read(layout);
         var labels = tracker?.GitHubRepo is { } repo
             ? github.LabelsAsync(repo, cancellationToken)
             : Task.FromResult<IReadOnlyList<string>?>(null);
@@ -54,7 +64,8 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
     public async Task<TrackerCheck> CheckAsync(
         TrackerDescription description, CancellationToken cancellationToken, ServerKey? key = null)
     {
-        var tracker = Tracker.Parse(TrackerDescriptions.Serialize(description, "Проверка"));
+        // Фильтр — уже не часть описания (B-285): проверяется, читаются ли задачи проекта, а не отбор.
+        var tracker = Tracker.Parse(TrackerDescriptions.Serialize(description with { Filter = "" }, "Проверка"));
         if (!Readable(tracker))
             return new TrackerCheck(false);
 

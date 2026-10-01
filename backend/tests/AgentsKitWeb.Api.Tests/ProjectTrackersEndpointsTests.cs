@@ -430,33 +430,50 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal([$"Pull|Base|{_main}"], File.ReadAllLines(SyncLog));
     }
 
-    /// <summary>Трекер не принял строку отбора — причина под полем «Фильтр», описание не записано (B-300).</summary>
+    private TrackerFiltersStore Filters => new(TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+
+    /// <summary>
+    /// Фильтр — настройка панели, а не строка описания (B-285): в базу он не пишется, и описание проверяется без отбора.
+    /// </summary>
     [Fact]
-    public async Task Save_FilterRejected_NamesFilterFieldAndDoesNotWrite()
+    public async Task Save_FilterInDescription_IsNotWrittenNorChecked()
     {
-        _github.Answer = new TrackerIssues([], TrackerIssues.FilterRejected, "Invalid search query");
         var client = await Client();
 
         var response = await Save(client, _base, "", GitHub with { Filter = "label:" });
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal(
-            new ProjectTrackerRejected("check", "Invalid search query", Field: "filter", Code: TrackerIssues.FilterRejected),
-            await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
-        Assert.Equal(["label:"], _github.Filters);
-        Assert.False(File.Exists(TrackerFile));
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal([null], _github.Filters);
+        Assert.DoesNotContain("фильтр", File.ReadAllText(TrackerFile));
     }
 
-    /// <summary>Отбор, по которому сейчас задач нет, записывается: пустой список — не ошибка (ответ оператора на B-300).</summary>
+    /// <summary>Строка «фильтр:», которую запись убирает из описания, переезжает в фильтр проекта (B-285).</summary>
     [Fact]
-    public async Task Save_FilterFindingNothing_IsWritten()
+    public async Task Save_FilterLineOfDescription_MovesToPanel()
     {
+        Committed(TrackerDescriptions.Serialize(GitHub with { Filter = "label:bug" }, "Order Service"));
         var client = await Client();
+        var row = await Row(client);
 
-        var response = await Save(client, _base, "", GitHub with { Filter = "label:bug" });
+        var response = await Save(client, _base, row.Version, GitHub);
 
         Assert.True(response.IsSuccessStatusCode);
-        Assert.Equal("label:bug", TrackerDescriptions.Parse(File.ReadAllText(TrackerFile)).Filter);
+        Assert.DoesNotContain("фильтр", File.ReadAllText(TrackerFile));
+        Assert.Equal("label:bug", Filters.Of(_base, null));
+    }
+
+    /// <summary>Фильтр, уже заданный в панели, переезд строки описания не перезаписывает — даже пустой.</summary>
+    [Fact]
+    public async Task Save_FilterAlreadySetInPanel_IsKept()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub with { Filter = "label:bug" }, "Order Service"));
+        Filters.Set(_base, "");
+        var client = await Client();
+        var row = await Row(client);
+
+        await Save(client, _base, row.Version, GitHub);
+
+        Assert.Null(Filters.Of(_base, "label:bug"));
     }
 
     /// <summary>GitLab панель не читает — описание пишется без проверки, и окно говорит об этом.</summary>

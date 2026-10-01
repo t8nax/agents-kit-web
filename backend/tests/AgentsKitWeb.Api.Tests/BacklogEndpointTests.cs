@@ -343,6 +343,51 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ", "PAY")], _jira.Read);
     }
 
+    /// <summary>
+    /// Фильтр, заданный на вкладке, хранится в панели и идёт в запрос к трекеру вместо строки описания; список бэклога
+    /// называет его у трекера (B-285).
+    /// </summary>
+    [Fact]
+    public async Task TrackerFilter_SetInPanel_GoesToTrackerAndBacklogList()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(basePath, "tracker.md"),
+            "## Где задачи\n\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nфильтр: label:bug\n");
+        var client = TrackerClient(basePath);
+
+        using var set = await client.PutAsJsonAsync("/api/backlog/tracker/filter", new SetTrackerFilterRequest(basePath, " assignee:@me "));
+        await client.GetAsync($"/api/backlog/tracker?base={Uri.EscapeDataString(basePath)}");
+        var backlogs = await client.GetFromJsonAsync<List<BaseBacklog>>("/api/backlog");
+
+        Assert.Equal(HttpStatusCode.NoContent, set.StatusCode);
+        Assert.Equal(["assignee:@me"], _github.Filters);
+        Assert.Equal("assignee:@me", Assert.Single(backlogs!).Tracker!.Filter);
+    }
+
+    /// <summary>Пока в панели фильтр не задан, действует строка «фильтр:» описания — как до переезда.</summary>
+    [Fact]
+    public async Task TrackerFilter_NotSet_DescribedFilterStillWorks()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(basePath, "tracker.md"),
+            "## Где задачи\n\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nфильтр: label:bug\n");
+
+        await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(["label:bug"], _github.Filters);
+    }
+
+    [Fact]
+    public async Task TrackerFilter_BaseNotInList_IsNotFound()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+
+        using var set = await TrackerClient(basePath).PutAsJsonAsync(
+            "/api/backlog/tracker/filter", new SetTrackerFilterRequest(Path.Combine(_root, "чужая"), "x"));
+
+        Assert.Equal(HttpStatusCode.NotFound, set.StatusCode);
+    }
+
     private readonly FakeGitHubIssues _github = new();
     private readonly FakeYouTrack _youTrack = new();
     private readonly FakeJira _jira = new();

@@ -6,7 +6,7 @@ namespace AgentsKitWeb.Api.Workspaces;
 /// <summary>
 /// Бэклог одной базы. Error задан — записей панель не прочитала. Letters — буквы номеров проекта
 /// (Backlog.Letters): запись с другими буквами задачей не запускается; null — букв панель не знает.
-/// Tracker — трекер проекта из tracker.md базы; null — трекера у проекта нет. Задачи трекера приходят
+/// Tracker — трекер проекта из tracker.md базы, с фильтром проекта из панели (B-285); null — трекера у проекта нет. Задачи трекера приходят
 /// отдельным запросом: их чтение идёт в GitHub и дольше чтения файла. FormatWarning — база нового формата
 /// (BaseLayout.NewerFormat): записи показываются и берутся в работу, но не правятся.
 /// </summary>
@@ -19,6 +19,9 @@ public sealed record BaseBacklog(
     TrackerInfo? Tracker = null,
     string? FormatWarning = null);
 
+/// <summary>Фильтр задач трекера проекта — строка поиска самого трекера; пустая — отбора нет (B-285).</summary>
+public sealed record SetTrackerFilterRequest(string? Base, string? Filter);
+
 /// <summary>Артефакт записи бэклога — номером записи и номером строки в её «Артефактах», с адресом, который видело окно.</summary>
 public sealed record OpenBacklogArtifactRequest(string Base, string Number, int Index, string Address);
 
@@ -27,7 +30,8 @@ public static class BacklogEndpoints
     public static void MapBacklogEndpoints(this IEndpointRouteBuilder app)
     {
         // Файл читается на каждый запрос: соседние сессии правят backlog.md прямо сейчас.
-        app.MapGet("/api/backlog", (BasesStore bases) => bases.List().Select(Read).ToList());
+        app.MapGet("/api/backlog", (BasesStore bases, ProjectTracker tracker) =>
+            bases.List().Select(basePath => Read(basePath, tracker)).ToList());
 
         // Задачи трекера — своим запросом на базу: их читают из GitHub или YouTrack, и записи бэклога их не ждут.
         app.MapGet("/api/backlog/tracker", async (string @base, BasesStore bases, ProjectTracker tracker, CancellationToken cancellationToken) =>
@@ -36,6 +40,24 @@ public static class BacklogEndpoints
             if (basePath is null || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
             return Results.Ok(await tracker.ForBacklogAsync(layout, cancellationToken));
+        });
+
+        // Фильтр задач трекера задаётся на вкладке «Задачи трекера» и хранится в панели на этом компьютере, а не в базе:
+        // применяется сразу, без коммита и отдачи базы — ответ оператора на B-285.
+        app.MapPut("/api/backlog/tracker/filter", (SetTrackerFilterRequest request, BasesStore bases, TrackerFiltersStore filters) =>
+        {
+            var basePath = request.Base is null ? null : bases.List().FirstOrDefault(b => BasesStore.SamePath(b, request.Base));
+            if (basePath is null)
+                return Results.NotFound();
+            try
+            {
+                filters.Set(basePath, request.Filter);
+            }
+            catch (FiltersFileBroken broken)
+            {
+                return Results.Json(new TrackerServerProblem(TrackerServersEndpoints.FileBroken, broken.File), statusCode: StatusCodes.Status500InternalServerError);
+            }
+            return Results.NoContent();
         });
 
         // Файл-артефакт записи открывается в VS Code окном на каталоге базы: копии у записи нет, а файл лежит
@@ -73,7 +95,7 @@ public static class BacklogEndpoints
         });
     }
 
-    private static BaseBacklog Read(string basePath)
+    private static BaseBacklog Read(string basePath, ProjectTracker trackers)
     {
         var project = ProjectName.Of(basePath);
 
@@ -83,7 +105,7 @@ public static class BacklogEndpoints
         if (BaseLayout.Read(basePath, out var problem) is not { } layout)
             return new BaseBacklog(basePath, project, [], problem);
 
-        var tracker = Tracker.Read(layout);
+        var tracker = trackers.Read(layout);
         var warning = layout.FormatWarning;
         var file = layout.BacklogFile;
         if (!File.Exists(file))

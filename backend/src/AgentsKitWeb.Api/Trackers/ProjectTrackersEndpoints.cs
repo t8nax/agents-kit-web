@@ -73,11 +73,13 @@ public static partial class ProjectTrackersEndpoints
 
         app.MapPut("/api/trackers/projects", async (
             SaveProjectTrackerRequest request, BasesStore bases, ProjectTracker tracker, TrackerServersStore servers,
-            CancellationToken cancellationToken) =>
+            TrackerFiltersStore filters, CancellationToken cancellationToken) =>
         {
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout
-                || request.Description is not { } description)
+                || request.Description is not { } asked)
                 return Results.NotFound();
+            // Фильтр задач — уже не строка описания, а настройка панели на этом компьютере (B-285): в базу он не пишется.
+            var description = asked with { Filter = "" };
             if (layout.NewerFormat)
                 return Results.Conflict(new ProjectTrackerRejected("newer-format", BaseLayout.NewerFormatRefusal));
 
@@ -130,6 +132,8 @@ public static partial class ProjectTrackersEndpoints
                 return Results.Conflict(new ProjectTrackerRejected("changed"));
 
             var before = File.Exists(layout.TrackerFile) ? await File.ReadAllBytesAsync(layout.TrackerFile, CancellationToken.None) : null;
+            // Строка «фильтр:», которую запись уберёт из описания, переезжает в фильтр проекта, если он ещё не задан.
+            var described = Workspaces.Tracker.Read(layout)?.Filter;
             var bytes = Bytes(description, ProjectName.Of(basePath), before);
             // То же описание байт в байт — коммитить нечего, оно уже записано; базу панель всё равно отдаёт.
             if (before is null || !bytes.AsSpan().SequenceEqual(before))
@@ -139,6 +143,14 @@ public static partial class ProjectTrackersEndpoints
             // Ключ — только когда описание записано: иначе отвергнутая правка оставила бы новый ключ общим проектам сервера.
             if (typed is not null)
                 servers.Save(parsed.Server!, owner!, typed.Key, typed.Email);
+            try
+            {
+                filters.Keep(basePath, described);
+            }
+            catch (FiltersFileBroken)
+            {
+                // Битый файл фильтров не перезаписывается; описание уже записано, а фильтр оператор задаст на вкладке.
+            }
 
             var pushed = await KitSync.RunAsync(sync.Script, sync.Copy, KitSync.Push);
             return Results.Ok(new ProjectTrackerSaved(

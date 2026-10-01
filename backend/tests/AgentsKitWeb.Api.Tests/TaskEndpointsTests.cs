@@ -395,6 +395,21 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    /// <summary>Перепроверка перед запуском идёт с фильтром проекта, заданным в панели (B-285).</summary>
+    [Fact]
+    public async Task Start_RechecksWithFilterSetInPanel()
+    {
+        WriteJiraTracker();
+        new TrackerFiltersStore(TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")))
+            .Set(_base, "assignee = currentUser()");
+        _jira.Answer = new TrackerIssues([]);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "Jira PAY-7"));
+
+        Assert.Equal("issue-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Equal(["assignee = currentUser()"], _jira.Filters);
+    }
+
     [Fact]
     public async Task Start_JiraRefusal_CarriesJiraMessage()
     {

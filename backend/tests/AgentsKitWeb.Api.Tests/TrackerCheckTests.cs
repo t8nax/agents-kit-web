@@ -23,7 +23,7 @@ public sealed class TrackerCheckTests : IDisposable
 
     public void Dispose() => TestDirs.Delete(_root);
 
-    private ProjectTracker Tracker() => new(_github, _youTrack, _jira, _servers);
+    private ProjectTracker Tracker() => new(_github, _youTrack, _jira, _servers, new TrackerFiltersStore(Path.Combine(_root, "filters.json")));
 
     [Fact]
     public async Task GitHub_IssuesRead_PassesAndAsksTheRepo()
