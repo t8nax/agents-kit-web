@@ -435,6 +435,50 @@ test('«Удалить копию» стоит у свободной копии,
   expect(within(mainMenu).queryByRole('menuitem', { name: 'Удалить копию' })).not.toBeInTheDocument()
 })
 
+test('«Откатить задачу» открыт у копии с задачей, в том числе основной, и приглушён у свободной', async () => {
+  // Задачи идут и в основной копии: откат там есть, хотя удаления нет — B-108
+  const main: WorkspaceRow = { ...rows[0], path: 'D:\\Projects\\app-main', copiesDir: 'D:\\Projects' }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify([...rows, main]), { status: 200 })))
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  const busy = await openRowMenu(tableRows[1])
+  const rollback = within(busy).getByRole('menuitem', { name: 'Откатить задачу' })
+  expect(rollback).toBeEnabled()
+  // Красным горит доступный из двух: у копии с задачей — откат, у свободной — удаление
+  expect(rollback).toHaveClass('row-menu-item-danger')
+
+  const free = await openRowMenu(tableRows[2])
+  expect(within(free).getByRole('menuitem', { name: 'Откатить задачу' })).toBeDisabled()
+
+  const mainMenu = await openRowMenu(tableRows[4])
+  expect(within(mainMenu).getByRole('menuitem', { name: 'Откатить задачу' })).toBeEnabled()
+})
+
+test('«Откатить задачу» открывает окно отката, и оно спрашивает API, что откатывать', async () => {
+  const fetchMock = vi.fn(async (url: string) =>
+    url.startsWith('/api/tasks/rollback')
+      ? Response.json({ task: rows[0].task, source: 'none', dirty: false, blockers: [] })
+      : new Response(JSON.stringify(rows), { status: 200 }),
+  )
+  vi.stubGlobal('fetch', fetchMock)
+
+  render(<App />)
+  const tableRows = await findTableRows()
+
+  const menu = await openRowMenu(tableRows[1])
+  await act(async () => {
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Откатить задачу' }))
+  })
+
+  const dialog = await screen.findByRole('dialog', { name: 'Откатить задачу' })
+  expect(await within(dialog).findByText('Сессия задачи будет погашена.')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith(
+    `/api/tasks/rollback?base=${encodeURIComponent('D:\\Projects\\app-knowledge')}&copy=${encodeURIComponent('D:\\Projects\\app')}`,
+  )
+})
+
 test('плашка «Основная» стоит у основной копии проекта и только у неё', async () => {
   const main: WorkspaceRow = { ...rows[1], path: 'D:\\Projects\\app-main', status: 'free', copiesDir: 'D:\\Projects' }
   // У второго проекта копия одна, и она же основная: плашка стоит и там — решение оператора на B-133
