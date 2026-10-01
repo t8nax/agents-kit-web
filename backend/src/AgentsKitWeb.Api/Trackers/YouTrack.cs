@@ -37,7 +37,7 @@ public sealed class YouTrackApi(IHttpClientFactory clients) : IYouTrack
 
     private const int Limit = 100;
 
-    // Чтение ждёт недолго, как у лимитов: раздел не должен висеть на открытии. Заведение — дольше: оборванное,
+    // Чтение ждёт недолго: раздел не должен висеть на открытии. Заведение — дольше: оборванное,
     // оно могло завести задачу, и оператору пришлось бы её искать.
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CreateTimeout = TimeSpan.FromMinutes(1);
