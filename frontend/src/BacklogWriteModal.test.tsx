@@ -643,8 +643,18 @@ test('«Изменить» у записи, про которую идёт ра�
 
 test('«Изменить» у другой записи заменяет идущий разговор новым про неё', async () => {
   const stream = controlledStream<WriteEvent>()
-  const { deletes } = stubFetch(stream, {
+  // Новый разговор читает свой поток: поток заменённого окно оборвало
+  const next = controlledStream<WriteEvent>()
+  let replaced = false
+  const { deletes } = stubPanel('backlog', stream, {
     running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web', 0, 'B-36'),
+    project: 'Agents Kit Web',
+    others: (url, init) => {
+      if ((init?.method ?? 'GET') === 'DELETE') replaced = true
+      return replaced && url.startsWith('/api/agent/backlog/stream')
+        ? new Response(next.body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+        : null
+    },
   })
   renderModal({ subject: { base: bases[0].base, entry: B40 } })
 
@@ -659,8 +669,8 @@ test('«Изменить» у другой записи заменяет иду�
 
   // Новый разговор — уже окна: его реплика и ответ видны, а не прячутся за «Загрузка…» (приёмка AKW-15)
   await say('Поставь высокий')
-  stream.send({ type: 'reply', text: 'Поставь высокий', number: 'B-40' })
-  stream.send(answer({ text: 'Сделаю.' }))
+  next.send({ type: 'reply', text: 'Поставь высокий', number: 'B-40' })
+  next.send(answer({ text: 'Сделаю.' }))
   expect(await screen.findByText('Сделаю.')).toBeInTheDocument()
   expect(screen.queryByText('Загрузка…')).not.toBeInTheDocument()
 })
