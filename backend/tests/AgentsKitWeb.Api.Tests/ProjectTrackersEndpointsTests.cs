@@ -270,7 +270,7 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
         var client = await Client();
         var version = ProjectTrackersEndpoints.Version(TrackerFile);
-        _github.BeforeAssigned = () =>
+        _github.BeforeOpen = () =>
         {
             File.AppendAllText(TrackerFile, "Правка сессии.\n");
             TestGit.Run(_base, "commit", "-q", "-m", "сессия", "--", "tracker.md");

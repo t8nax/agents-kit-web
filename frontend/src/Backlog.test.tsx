@@ -1191,7 +1191,7 @@ test('строка поломки описания трекера ведёт в 
 })
 
 test.each([
-  [{ issues: [], problem: null }, /На вас в GitHub нет открытых задач этого репозитория/, false],
+  [{ issues: [], problem: null }, /^В GitHub нет открытых задач этого репозитория\.$/, false],
   [{ issues: [], problem: 'no-tracker' }, /Описания трекера у проекта больше нет — нажмите «Обновить»/, false],
   [{ issues: [], problem: 'gh-missing' }, /Программа gh не установлена\. Установите GitHub CLI и войдите в аккаунт командой gh auth login/, true],
   [{ issues: [], problem: 'gh-login' }, /Программа gh не вошла в аккаунт GitHub\. Войдите командой gh auth login/, true],
@@ -1223,6 +1223,98 @@ test('задачи трекера не загрузились — красная
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   expect((await project.findByText('Задачи трекера не загрузились: HTTP 500.')).closest('p')).toHaveClass('warning-text')
+})
+
+// Видны все открытые задачи проекта, поэтому у каждой — исполнитель второй строкой, у ничьей — «никому» (AKW-17)
+test('исполнитель задачи трекера — второй строкой под заголовком, у ничьей — «никому»', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(
+    backlogs[0].base,
+    answer({ issues: [{ ...issues[0], assignee: 'anna-k, boris' }, { ...issues[1], assignee: null }], problem: null }),
+  )
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const taken = await project.findByRole('link', { name: /#52/ })
+  expect(within(taken).getByText('anna-k, boris')).toHaveClass('issue-assignee')
+  const nobody = within(project.getByRole('link', { name: /#7/ })).getByText('никому')
+  expect(nobody).toHaveClass('issue-assignee', 'nobody')
+})
+
+// «Мои задачи» оставляет задачи, где исполнитель — оператор; проект без своих не прячется, а говорит это (макет AKW-17)
+test('флажок «Мои задачи» оставляет свои задачи, проект без своих — со строкой «Ваших задач в этом проекте нет.»', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch([
+    { ...backlogs[0], tracker: github },
+    { ...backlogs[1], tracker: { ...github, project: 'acme/nota' } },
+  ])
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [{ ...issues[0], mine: true }, { ...issues[1], mine: false }], problem: null }))
+  fetchMock.setTracker(backlogs[1].base, answer({ issues: [{ ...issues[1], url: 'https://github.com/acme/nota/issues/7' }], problem: null }))
+
+  render(<Backlog />)
+
+  const own = within(await screen.findByRole('region', { name: backlogs[0].project }))
+  const other = within(screen.getByRole('region', { name: backlogs[1].project }))
+  await own.findByRole('link', { name: /#52/ })
+  const check = screen.getByRole('checkbox', { name: 'Мои задачи' })
+  expect(check).not.toBeChecked()
+
+  fireEvent.click(check)
+
+  expect(check).toBeChecked()
+  expect(own.getByRole('link', { name: /#52/ })).toBeInTheDocument()
+  expect(own.queryByRole('link', { name: /#7/ })).not.toBeInTheDocument()
+  expect(other.queryByRole('link')).not.toBeInTheDocument()
+  expect(other.getByText('Ваших задач в этом проекте нет.').closest('p')).toHaveClass('text-sec')
+  expect(readRemembered().mine).toBe(true)
+})
+
+// Задач больше сотни — свои могут быть за ней: строка не утверждает, что их нет вовсе (ревью AKW-17)
+test('флажок «Мои задачи» при задачах больше сотни — «Среди первых 100 задач проекта ваших нет.»', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: issues.map((i) => ({ ...i, mine: false })), problem: null, truncated: true }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /#52/ })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Мои задачи' }))
+
+  expect(project.getByText('Среди первых 100 задач проекта ваших нет.')).toBeInTheDocument()
+  expect(project.queryByText('Ваших задач в этом проекте нет.')).not.toBeInTheDocument()
+})
+
+// Больше сотни задач — строка, а не молчаливая обрезка; её ссылка ведёт к описанию трекера, где задают фильтр (AKW-17)
+test('задач больше сотни — серая строка под списком со ссылкой к трекеру проекта в разделе «Трекеры»', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null, truncated: true }))
+  const onTrackers = vi.fn()
+
+  render(<Backlog onTrackers={onTrackers} />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const line = await project.findByText(
+    (_, el) => el?.matches('p.tracker-state > span') === true && el.textContent === 'Показаны первые 100 задач — сузьте список фильтром в разделе «Трекеры».',
+  )
+  expect(line.closest('p')).toHaveClass('text-sec')
+  fireEvent.click(project.getByRole('button', { name: 'в разделе «Трекеры»' }))
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, false)
+})
+
+test('задач не больше сотни — строки о пределе нет', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /#52/ })
+  expect(project.queryByText(/Показаны первые/)).not.toBeInTheDocument()
 })
 
 test('поиск находит задачи трекера по номеру и заголовку; выбранные на вкладке записей тип и приоритет их не скрывают', async () => {
@@ -1545,7 +1637,7 @@ test('поиск находит задачи YouTrack по номеру без �
 })
 
 test.each([
-  [{ issues: [], problem: null }, /^На вас в YouTrack нет незакрытых задач этого проекта\.$/, false],
+  [{ issues: [], problem: null }, /^В YouTrack нет незакрытых задач этого проекта\.$/, false],
   [
     { issues: [], problem: 'no-key' },
     /^Для сервера https:\/\/acme\.youtrack\.cloud нет ключа\. Добавьте сервер и ключ в разделе «Трекеры», в списке «Серверы трекеров»\.$/,
@@ -1605,7 +1697,7 @@ test('строка о ключе сервера ведёт в раздел «Т�
 
 // B-300: отбор задан — пустой список называет его, а отказ трекера на него ведёт в раздел «Трекеры».
 test.each([
-  [youTrack, 'State: {To Do}', { issues: [], problem: null }, /^По фильтру State: \{To Do\} на вас в YouTrack сейчас нет задач этого проекта\.$/, false],
+  [youTrack, 'State: {To Do}', { issues: [], problem: null }, /^По фильтру State: \{To Do\} в YouTrack сейчас нет задач этого проекта\.$/, false],
   [
     youTrack,
     'State: {To Do}',
@@ -1613,7 +1705,7 @@ test.each([
     /^YouTrack не принял фильтр State: \{To Do\}: Unknown field "Stat"\. Исправьте его в разделе «Трекеры»\.$/,
     true,
   ],
-  [github, 'label:bug', { issues: [], problem: null }, /^По фильтру label:bug на вас в GitHub сейчас нет открытых задач этого репозитория\.$/, false],
+  [github, 'label:bug', { issues: [], problem: null }, /^По фильтру label:bug в GitHub сейчас нет открытых задач этого репозитория\.$/, false],
 ])('отбор задан, трекер %o, фильтр %s, ответ %o — своей строкой на месте задач', async (tracker, filter, reply, text, warning) => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker({ ...tracker, filter }))

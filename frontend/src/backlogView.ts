@@ -22,11 +22,11 @@ export type PickedLabel = { base: string; name: string }
 
 /**
  * Выбор оператора: пустой список значений — поле не фильтрует, пустой запрос — поиска нет. Тип и приоритет отбирают
- * записи бэклога, метки — задачи трекера, поиск — и то и другое.
+ * записи бэклога, метки и флажок «Мои задачи» (mine, AKW-17) — задачи трекера, поиск — и то и другое.
  */
-export type Selection = { types: string[]; priorities: string[]; labels: PickedLabel[]; query: string }
+export type Selection = { types: string[]; priorities: string[]; labels: PickedLabel[]; query: string; mine?: boolean }
 
-export const emptySelection: Selection = { types: [], priorities: [], labels: [], query: '' }
+export const emptySelection: Selection = { types: [], priorities: [], labels: [], query: '', mine: false }
 
 /** Отбор записей бэклога включён: выбран тип или приоритет или набран запрос. */
 export function isFiltering(selection: Selection): boolean {
@@ -60,9 +60,11 @@ export function matches(entry: BacklogEntry, selection: Selection): boolean {
 /**
  * Задача трекера base проходит отбор своей вкладки: действуют метки active — у неё есть хоть одна из выбранных
  * у её проекта; у проекта своих выбранных нет — ни одна (задачи прочих видимых проектов при выбранной метке скрыты).
- * Поиск — по имени задачи («GitHub #37») и заголовку. Тип и приоритет — фильтры другой вкладки.
+ * Поиск — по имени задачи («GitHub #37») и заголовку. «Мои задачи» — только задачи, где исполнитель — оператор.
+ * Тип и приоритет — фильтры другой вкладки.
  */
 export function matchesIssue(issue: TrackerIssue, base: string, selection: Selection, active: PickedLabel[]): boolean {
+  if (selection.mine && !issue.mine) return false
   if (active.length > 0) {
     const labels = issue.labels ?? []
     if (!active.some((label) => label.base === base && labels.includes(label.name))) return false
@@ -114,13 +116,24 @@ export function arrange(entries: BacklogEntry[], selection: Selection, order: Or
     .map(({ entry }) => entry)
 }
 
-/** Отбор, который раздел помнит между открытиями: вкладка, проект (null — все), чипы типа и приоритета и метки. */
-export type Remembered = { tab: Tab; project: string | null; types: string[]; priorities: string[]; labels: PickedLabel[] }
+/**
+ * Отбор, который раздел помнит между открытиями: вкладка, проект (null — все), чипы типа и приоритета, метки
+ * и флажок «Мои задачи».
+ */
+export type Remembered = {
+  tab: Tab
+  project: string | null
+  types: string[]
+  priorities: string[]
+  labels: PickedLabel[]
+  mine?: boolean
+}
 
-const nothingRemembered: Remembered = { tab: 'entries', project: null, types: [], priorities: [], labels: [] }
+const nothingRemembered: Remembered = { tab: 'entries', project: null, types: [], priorities: [], labels: [], mine: false }
 
 // Отбор живёт в памяти страницы, а не в браузере: уход в другой раздел его не сбрасывает,
-// перезагрузка страницы — сбрасывает. Поиск не помнится — решения оператора на B-267; вкладка и метки — как чипы (B-305).
+// перезагрузка страницы — сбрасывает. Поиск не помнится — решения оператора на B-267; вкладка и метки — как чипы (B-305),
+// «Мои задачи» — так же (AKW-17).
 let remembered = nothingRemembered
 
 export function readRemembered(): Remembered {

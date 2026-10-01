@@ -15,18 +15,38 @@ export type TrackerInfo = {
 }
 
 /**
- * Незакрытая задача трекера, назначенная на оператора. name — как её называет кит: «GitHub #37», «YouTrack ABC-12»;
- * labels — метки задачи GitHub, у YouTrack их нет (B-305).
+ * Незакрытая задача трекера — своя, чужая или ничья (AKW-17). name — как её называет кит: «GitHub #37», «YouTrack
+ * ABC-12»; labels — метки задачи GitHub, у YouTrack их нет (B-305); assignee — исполнитель, как его пишет трекер,
+ * null — задача ничья; mine — среди исполнителей оператор.
  */
-export type TrackerIssue = { name: string; number: number; title: string; url: string; labels?: string[] | null }
+export type TrackerIssue = {
+  name: string
+  number: number
+  title: string
+  url: string
+  labels?: string[] | null
+  assignee?: string | null
+  mine?: boolean
+}
+
+/** Сколько задач трекера панель показывает за раз; больше — строка под списком проекта (AKW-17). */
+export const ISSUE_LIMIT = 100
 
 /**
  * Задачи трекера базы: problem задан — задач панель не прочитала, detail — строка трекера. labels — все метки
- * репозитория GitHub для фильтра «Метки»; null — не GitHub или метки не прочитаны.
+ * репозитория GitHub для фильтра «Метки»; null — не GitHub или метки не прочитаны. truncated — задач больше
+ * ISSUE_LIMIT, и issues — только первые из них.
  */
 export type TrackerLoad =
   | { kind: 'loading' }
-  | { kind: 'loaded'; issues: TrackerIssue[]; problem: string | null; detail: string | null; labels?: string[] | null }
+  | {
+      kind: 'loaded'
+      issues: TrackerIssue[]
+      problem: string | null
+      detail: string | null
+      labels?: string[] | null
+      truncated?: boolean
+    }
   | { kind: 'failed'; message: string }
 
 /**
@@ -111,6 +131,7 @@ export function loadTrackerIssues(base: string): Promise<TrackerLoad> {
         problem: string | null
         detail?: string | null
         labels?: string[] | null
+        truncated?: boolean
       }>
     })
     .then(
@@ -120,6 +141,7 @@ export function loadTrackerIssues(base: string): Promise<TrackerLoad> {
         problem: answer.problem,
         detail: answer.detail ?? null,
         labels: answer.labels ?? null,
+        truncated: answer.truncated ?? false,
       }),
       (e: unknown): TrackerLoad => ({
         kind: 'failed',

@@ -217,7 +217,7 @@ test('задача уже идёт в другой копии: окно назы
 })
 
 test.each([
-  [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди незакрытых и назначенных на вас в трекере'],
+  [{ problem: 'issue-unknown', message: null }, 'Этой задачи больше нет среди открытых задач трекера'],
   [{ problem: 'tracker-unavailable', message: 'gh-login' }, 'панель не перепроверила её по трекеру — программа gh не вошла в аккаунт GitHub'],
   [{ problem: 'tracker-unavailable', message: 'HTTP 502: Bad Gateway' }, 'панель не перепроверила её по трекеру — HTTP 502: Bad Gateway'],
   [{ problem: 'tracker-unavailable', message: 'key-rejected' }, 'панель не перепроверила её по трекеру — сервер трекера отклонил ключ'],

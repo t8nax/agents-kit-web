@@ -183,9 +183,9 @@ test('поле «Фильтр» есть у YouTrack и GitHub, нет у Jira, 
   renderModal()
 
   const dialog = form()
-  expect(dialog.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска YouTrack, например State: {To Do}')
+  expect(dialog.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска YouTrack, например Assignee: me — только ваши задачи')
   fireEvent.click(dialog.getByRole('radio', { name: 'GitHub' }))
-  expect(dialog.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска GitHub, например label:bug milestone:v2')
+  expect(dialog.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска GitHub, например assignee:@me — только ваши задачи')
   fireEvent.click(dialog.getByRole('radio', { name: 'Jira' }))
   expect(dialog.queryByLabelText('Фильтр')).not.toBeInTheDocument()
   fireEvent.click(dialog.getByRole('radio', { name: 'YouTrack' }))

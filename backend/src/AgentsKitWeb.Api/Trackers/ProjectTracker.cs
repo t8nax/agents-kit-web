@@ -19,9 +19,9 @@ public sealed record TrackerCheck(bool Checked, string? Field = null, string? Pr
 /// </summary>
 public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTrack, TrackerServersStore servers)
 {
-    /// <summary>Незакрытые задачи трекера базы, назначенные на оператора; не прочитали — Problem.</summary>
-    public Task<TrackerIssues> AssignedAsync(BaseLayout layout, CancellationToken cancellationToken) =>
-        AssignedAsync(Tracker.Read(layout), cancellationToken);
+    /// <summary>Незакрытые задачи трекера базы, все, с фильтром описания; не прочитали — Problem.</summary>
+    public Task<TrackerIssues> OpenAsync(BaseLayout layout, CancellationToken cancellationToken) =>
+        OpenAsync(Tracker.Read(layout), cancellationToken);
 
     /// <summary>
     /// Задачи для раздела «Бэклог» — с метками репозитория GitHub для фильтра «Метки» (B-305); метки читаются
@@ -33,14 +33,14 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         var labels = tracker?.GitHubRepo is { } repo
             ? github.LabelsAsync(repo, cancellationToken)
             : Task.FromResult<IReadOnlyList<string>?>(null);
-        var issues = await AssignedAsync(tracker, cancellationToken);
+        var issues = await OpenAsync(tracker, cancellationToken);
         var names = await labels;
         return issues.Problem is null && names is not null ? issues with { Labels = names } : issues;
     }
 
     /// <summary>
     /// Проверка описания перед записью — решение оператора на B-293: у GitHub и YouTrack панель читает задачи,
-    /// назначенные на оператора, из названных трекера и проекта — тем же разбором, которым прочтёт записанный файл;
+    /// открытые задачи названных трекера и проекта — тем же разбором, которым прочтёт записанный файл;
     /// у Jira и GitLab проверить нечем, и Checked — false. Не прочитала — Problem, как у задач «Бэклога», и Field —
     /// поле окна, к которому причина относится: server, project или filter — трекер не принял строку фильтра (B-300);
     /// причина вне полей (нет gh) — null. Отбор, который сейчас ничего не нашёл, проверку проходит: задач по нему
@@ -52,7 +52,7 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         if (tracker.Kind is not (TrackerInfo.GitHub or TrackerInfo.YouTrack))
             return new TrackerCheck(false);
 
-        var issues = await AssignedAsync(tracker, cancellationToken);
+        var issues = await OpenAsync(tracker, cancellationToken);
         return issues.Problem switch
         {
             null => new TrackerCheck(true),
@@ -65,14 +65,14 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         };
     }
 
-    private async Task<TrackerIssues> AssignedAsync(TrackerInfo? tracker, CancellationToken cancellationToken) =>
+    private async Task<TrackerIssues> OpenAsync(TrackerInfo? tracker, CancellationToken cancellationToken) =>
         tracker switch
         {
             null => new TrackerIssues([], TrackerIssues.NoTracker),
-            { GitHubRepo: { } repo } => await github.AssignedAsync(repo, tracker.Filter, cancellationToken),
+            { GitHubRepo: { } repo } => await github.OpenAsync(repo, tracker.Filter, cancellationToken),
             { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
                 KeyOf(server, out var problem) is { } key
-                    ? await youTrack.AssignedAsync(server, key, project, tracker.Filter, cancellationToken)
+                    ? await youTrack.OpenAsync(server, key, project, tracker.Filter, cancellationToken)
                     : new TrackerIssues([], problem),
             var other => new TrackerIssues([], other.Kind),
         };

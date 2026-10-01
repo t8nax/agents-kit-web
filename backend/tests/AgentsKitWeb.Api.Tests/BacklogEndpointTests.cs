@@ -166,6 +166,34 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Equal(["bug"], Assert.Single(issues.Issues).Labels);
     }
 
+    /// <summary>
+    /// Исполнитель, признак своей задачи и признак «задач больше сотни» доходят до фронта теми именами, которые он
+    /// читает (AKW-17), — и вместе с метками репозитория.
+    /// </summary>
+    [Fact]
+    public async Task TrackerIssues_CarryAssigneeMineAndTruncated()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.GitHubTracker(basePath, "acme/orders");
+        _github.Answer = new TrackerIssues(
+            [
+                new TrackerIssue("GitHub #37", 37, "Оплата падает", "https://github.com/acme/orders/issues/37", Assignee: "boris", Mine: true),
+                new TrackerIssue("GitHub #38", 38, "Отчёты", "https://github.com/acme/orders/issues/38"),
+            ],
+            Truncated: true);
+        _github.Labels = ["bug"];
+
+        var response = await TrackerClient(basePath).GetAsync($"/api/backlog/tracker?base={Uri.EscapeDataString(basePath)}");
+        var json = System.Text.Json.Nodes.JsonNode.Parse(await response.Content.ReadAsStringAsync())!;
+
+        Assert.True(json["truncated"]!.GetValue<bool>());
+        Assert.Equal("boris", json["issues"]![0]!["assignee"]!.GetValue<string>());
+        Assert.True(json["issues"]![0]!["mine"]!.GetValue<bool>());
+        Assert.Null(json["issues"]![1]!["assignee"]);
+        Assert.False(json["issues"]![1]!["mine"]!.GetValue<bool>());
+        Assert.Equal("bug", json["labels"]![0]!.GetValue<string>());
+    }
+
     /// <summary>Меток не прочли — задачи всё равно видны, а перечень фильтр соберёт из меток задач.</summary>
     [Fact]
     public async Task TrackerIssues_LabelsUnread_GivesIssuesWithoutLabelList()

@@ -15,14 +15,14 @@ public sealed class FakeGitHubIssues : IGitHubIssues
     public List<(string Repo, string Title, string Body)> Creates { get; } = [];
 
     /// <summary>Ход, пока gh «читает» задачи: им тест меняет базу посреди проверки трекера.</summary>
-    public Action BeforeAssigned { get; set; } = () => { };
+    public Action BeforeOpen { get; set; } = () => { };
 
     /// <summary>Строка отбора каждого чтения задач: null — без отбора.</summary>
     public List<string?> Filters { get; } = [];
 
-    public Task<TrackerIssues> AssignedAsync(string repo, string? filter, CancellationToken cancellationToken)
+    public Task<TrackerIssues> OpenAsync(string repo, string? filter, CancellationToken cancellationToken)
     {
-        BeforeAssigned();
+        BeforeOpen();
         Asked.Add(repo);
         Filters.Add(filter);
         return Task.FromResult(Answer);
