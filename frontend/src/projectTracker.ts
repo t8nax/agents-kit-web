@@ -3,8 +3,8 @@ import type { TrackerInfo } from './tracker'
 /**
  * Описание трекера проекта полями окна (B-293): три строки раздела «Где задачи» и слова пяти разделов кита —
  * where — «Где задачи» под строками, backlog — «Показ бэклога», take — «Взятие задачи», closed — «Задача закрыта»,
- * move — «Вынос записи бэклога». filter — необязательная строка «фильтр:» у GitHub и YouTrack: строка поиска трекера,
- * которой панель отбирает задачи «Бэклога» (B-300).
+ * move — «Вынос записи бэклога». filter — прежняя строка «фильтр:» (B-300): в окне её нет, фильтр задаётся на вкладке
+ * «Задачи трекера» (B-285), и API её больше не пишет.
  */
 export type TrackerDescription = {
   tracker: string
@@ -19,6 +19,9 @@ export type TrackerDescription = {
 }
 
 export type DescriptionField = keyof TrackerDescription
+
+/** Поле окна трекера: поля описания и почта с ключом к серверу, которые в базу не пишутся (B-285). */
+export type WindowField = DescriptionField | 'email' | 'key'
 
 /** Сколько строк и разделов описания тронул ответ агента. */
 export type TrackerChanged = { lines: number; sections: number }
@@ -56,12 +59,17 @@ export function knownTracker(name: string | null | undefined): TrackerName | nul
 
 /** Трекеры, задачи которых панель читает и проверяет перед записью описания. */
 export function checked(name: TrackerName | null): boolean {
-  return name === 'GitHub' || name === 'YouTrack'
+  return name === 'GitHub' || name === 'YouTrack' || name === 'Jira'
 }
 
-/** Описание, каким оно ляжет в базу: у Jira и GitLab поля «Фильтр» нет, и строка не пишется (B-300). */
+/** Трекеры, к серверу которых нужен ключ из окна трекера (B-285); у Jira — ещё почта. */
+export function keyed(name: TrackerName | null): boolean {
+  return name === 'YouTrack' || name === 'Jira'
+}
+
+/** Описание, каким оно ляжет в базу: строки «фильтр:» больше нет — фильтр живёт на вкладке «Задачи трекера» (B-285). */
 export function written(description: TrackerDescription): TrackerDescription {
-  return checked(knownTracker(description.tracker)) ? description : { ...description, filter: '' }
+  return { ...description, filter: '' }
 }
 
 export const emptyDescription: TrackerDescription = {
@@ -94,10 +102,10 @@ export function sameField(field: DescriptionField, a: TrackerDescription, b: Tra
     : sameValue(a[field] ?? '', b[field] ?? '')
 }
 
-/** Подсказка в пустом поле «Фильтр» — только у трекеров, задачи которых панель читает (B-300). */
-export const filterPlaceholder: Partial<Record<TrackerName, string>> = {
-  GitHub: 'Строка поиска GitHub, например assignee:@me — только ваши задачи',
-  YouTrack: 'Строка поиска YouTrack, например Assignee: me — только ваши задачи',
+/** Подсказка в пустом поле «Ключ»: что за ключ нужен этому трекеру. */
+export const keyPlaceholder: Partial<Record<TrackerName, string>> = {
+  Jira: 'API-токен Atlassian',
+  YouTrack: 'Постоянный токен YouTrack',
 }
 
 export const serverPlaceholder: Record<TrackerName, string> = {
@@ -164,12 +172,16 @@ export function busyText(busy: TrackerTask[]): string {
     : `Трекер не удалить: в ${copies.length === 1 ? 'копии' : 'копиях'} ${listed(copies)} идут задачи из него — ${listed(tasks)}.`
 }
 
-/** Каких строк нет или какие записаны не так — красной строкой под проектом, как у «Бэклога» (B-288). */
+/**
+ * Что в описании не указано или указано не так — красной строкой под проектом, как у «Бэклога» (B-288): названиями
+ * полей окна, а не строками файла — оператор файлы руками не правит (B-285).
+ */
 export function faultsText(faults: string[] | null | undefined): string {
-  const named = (faults?.length ? faults : ['трекер', 'сервер', 'проект']).map((key) => `«${key}:»`)
+  const fields: Record<string, string> = { трекер: 'вид трекера', сервер: 'адрес сервера', проект: 'проект' }
+  const named = (faults?.length ? faults : ['трекер', 'сервер', 'проект']).map((key) => fields[key] ?? key)
   return named.length === 1
-    ? `В описании трекера нет строки ${named[0]} или она записана не так.`
-    : `В описании трекера нет строк ${listed(named)} или они записаны не так.`
+    ? `В описании трекера не указан ${named[0]} или указан не так.`
+    : `В описании трекера не указаны ${listed(named)} или указаны не так.`
 }
 
 /**
@@ -179,19 +191,19 @@ export function faultsText(faults: string[] | null | undefined): string {
 export function checkText(code: string, detail: string | null | undefined, description: TrackerDescription): string {
   const server = description.server.trim()
   const project = description.project.trim()
-  const card = 'в разделе «Трекеры», в списке «Серверы трекеров»'
+  const jira = knownTracker(description.tracker) === 'Jira'
   const said = (() => {
     switch (code) {
       case 'project-missing':
-        return `На сервере ${server} нет проекта ${project} или у вашего ключа нет к нему доступа.`
+        return `Проект ${project} не найден на сервере ${server} или у вашего ключа нет к нему доступа.`
       case 'repo-unreachable':
         return `GitHub не нашёл репозиторий ${project} или у вашего аккаунта нет к нему доступа${detail ? `: ${detail}` : ''}.`
       case 'no-key':
-        return `Для сервера ${server} нет ключа. Добавьте сервер и ключ ${card}.`
+        return `Нет ключа к серверу ${server}. Введите ключ.`
       case 'key-rejected':
-        return `Сервер ${server} отклонил ключ. Замените ключ ${card}.`
+        return jira ? `Сервер ${server} отклонил почту или ключ.` : `Сервер ${server} отклонил ключ.`
       case 'key-unreadable':
-        return `Ключ сервера ${server} не прочитать на этом компьютере. Замените ключ ${card}.`
+        return `Ключ к серверу ${server} не прочитать на этом компьютере. Введите ключ заново.`
       case 'key-forbidden':
         return `Сервер ${server} принял ключ, но у его владельца нет прав на проект ${project}.`
       case 'server-silent':
@@ -202,6 +214,8 @@ export function checkText(code: string, detail: string | null | undefined, descr
         return 'Программа gh не вошла в аккаунт GitHub. Войдите командой gh auth login.'
       case 'youtrack-error':
         return `YouTrack ответил ошибкой: ${detail ?? code}.`
+      case 'jira-error':
+        return `Jira ответила ошибкой: ${detail ?? code}.`
       case 'filter-rejected':
         return `${knownTracker(description.tracker) ?? 'Трекер'} не принял фильтр${detail ? `: ${detail}` : ''}.`
       default:
@@ -215,8 +229,9 @@ export function checkText(code: string, detail: string | null | undefined, descr
 export type TrackerRejected = {
   problem: string
   detail?: string | null
-  faults?: Partial<Record<DescriptionField, string>> | null
-  field?: DescriptionField | null
+  /** По полям окна: поля описания и email, key — почта и ключ к серверу (B-285). */
+  faults?: Partial<Record<WindowField, string>> | null
+  field?: WindowField | null
   code?: string | null
   busy?: TrackerTask[] | null
 }
@@ -242,6 +257,8 @@ export function rejectedText(rejected: TrackerRejected): { text: string; output?
       return { text: 'Базу не забрать с сервера, и описание не записано. Кит ответил:', output: rejected.detail ?? undefined }
     case 'invalid':
       return { text: 'Описание не в форме кита — причины стоят под полями.' }
+    case 'keys-broken':
+      return { text: `Файл ключей к серверам трекеров не прочитан, и ключ не сохранить: ${rejected.detail ?? 'trackers.json'}.` }
     default:
       return { text: 'Git не записал описание.', output: rejected.detail ?? undefined }
   }

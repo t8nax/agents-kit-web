@@ -33,7 +33,8 @@ import { freeCopies, runningTasks } from './copies'
 import StartTaskModal, { PlayIcon } from './StartTaskModal'
 import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { normalizeNumber, numberLetters } from './taskTitle'
-import TrackerGroup from './TrackerGroup'
+import ProjectFilter from './ProjectFilter'
+import TrackerGroup, { type TrackerField } from './TrackerGroup'
 import TrackerMoveModal, { SendIcon } from './TrackerMoveModal'
 import LabelsPick, { TickIcon } from './LabelsPick'
 import { initialTrackerLoad, labelChoices, loadTrackerIssues, readable, type TrackerInfo, type TrackerLoad } from './tracker'
@@ -75,8 +76,8 @@ type Load =
  * writeFor — база просьбы, к которой вернулся оператор: окно записи открывается сразу на ней.
  * onStarted — запущенная задача: сообщение о ней показывает App, потому что раздел оператор
  * тут же покидает, чтобы посмотреть строку копии.
- * onTrackers — переход в раздел «Трекеры» к трекеру проекта из строки о поломке описания трекера, а из строки о ключе —
- * к «Серверам трекеров» (servers).
+ * onTrackers — переход в раздел «Трекеры» к трекеру проекта из строки о поломке описания трекера, а из строки о ключе,
+ * адресе или проекте — в окно трекера с курсором в этом поле (field, B-285).
  */
 export default function Backlog({
   writeFor = null,
@@ -85,7 +86,7 @@ export default function Backlog({
 }: {
   writeFor?: string | null
   onStarted?: (copy: string) => void
-  onTrackers?: (base: string, servers: boolean) => void
+  onTrackers?: (base: string, field?: TrackerField) => void
 } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' })
   // Проект просьбы главнее запомненного и дальше запоминается сам — решение оператора на B-267
@@ -564,15 +565,25 @@ export default function Backlog({
               <div className="backlog-list">
                 {trackerShown.map(({ backlog, tracker, issues, running }) => (
                   <section key={backlog.base} aria-label={backlog.project}>
-                    <div className="base-head">
+                    {/* Фильтр проекта — в его шапке (вариант А макета B-285): у проекта, чьи задачи не прочитаны по другой
+                        причине, отбирать нечего, и воронки нет */}
+                    <div className={`base-head ${filterable(tracker, trackers[backlog.base]) ? 'fa-head' : ''}`}>
                       <h3>{backlog.project}</h3>
+                      {filterable(tracker, trackers[backlog.base]) && (
+                        <ProjectFilter
+                          base={backlog.base}
+                          tracker={tracker}
+                          rejected={problemOf(trackers[backlog.base]) === 'filter-rejected'}
+                          onApplied={() => loadBacklogs(false, backlog.base)}
+                        />
+                      )}
                     </div>
                     <TrackerGroup
                       tracker={tracker}
                       load={trackers[backlog.base] ?? initialTrackerLoad(tracker)}
                       issues={issues}
                       mine={selection.mine ?? false}
-                      onTrackers={onTrackers && ((servers) => onTrackers(backlog.base, servers))}
+                      onTrackers={onTrackers && ((field) => onTrackers(backlog.base, field))}
                     >
                       {(issue) => (
                         <button
@@ -771,6 +782,16 @@ function trackerIssues(load: TrackerLoad | undefined) {
 
 function problemOf(load: TrackerLoad | undefined) {
   return load?.kind === 'loaded' ? load.problem : null
+}
+
+/**
+ * Проекту можно задать фильтр: трекер читается панелью, а задачи прочитаны или читаются — или не прочитаны только
+ * из-за самого фильтра. Нет ключа, проект не найден — отбирать нечего (макет B-285).
+ */
+function filterable(tracker: TrackerInfo, load: TrackerLoad | undefined): boolean {
+  if (!readable(tracker) || load?.kind === 'failed') return false
+  const problem = problemOf(load)
+  return problem === null || problem === 'filter-rejected'
 }
 
 /** Ширина колонки номера в знаках — по самому длинному номеру проекта; номеров нет — колонки нет. */

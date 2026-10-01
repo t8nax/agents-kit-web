@@ -101,13 +101,31 @@
   font-size: 13px;
 }
 
-.tp-mark.yt {
-  border: 1px solid var(--accent-done-text);
-  background: var(--accent-done-bg);
-  color: var(--accent-done-text);
+/* У каждого трекера из таблицы кита свой цвет — токены --mark-*, которых больше нигде в панели нет (B-285) */
+.tp-mark.gh {
+  border: 1px solid var(--mark-gh-border);
+  background: var(--mark-gh-bg);
+  color: var(--mark-gh-text);
 }
 
-.tp-mark.gh,
+.tp-mark.gl {
+  border: 1px solid var(--mark-gl-border);
+  background: var(--mark-gl-bg);
+  color: var(--mark-gl-text);
+}
+
+.tp-mark.ji {
+  border: 1px solid var(--mark-ji-border);
+  background: var(--mark-ji-bg);
+  color: var(--mark-ji-text);
+}
+
+.tp-mark.yt {
+  border: 1px solid var(--mark-yt-border);
+  background: var(--mark-yt-bg);
+  color: var(--mark-yt-text);
+}
+
 .tp-mark.other {
   border: 1px solid var(--border-strong);
   background: var(--bg-surface-hover);

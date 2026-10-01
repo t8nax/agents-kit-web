@@ -46,7 +46,7 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
     fetch(`/api/backlog/tracker/draft?base=${encodeURIComponent(base)}&number=${encodeURIComponent(entry.number)}`)
       .then((response) => {
         if (response.status === 404) throw new Error('Этой записи больше нет в бэклоге: её взяли или удалили.')
-        if (response.status === 409) throw new Error('Трекер проекта больше не GitHub и не YouTrack со строками описания трекера.')
+        if (response.status === 409) throw new Error('Трекер проекта больше не GitHub, не YouTrack и не Jira с описанием, по которому панель его читает.')
         if (!response.ok) throw new Error(`Задача не собрана: HTTP ${response.status}.`)
         return response.json() as Promise<TrackerDraft>
       })
@@ -76,7 +76,7 @@ export default function TrackerMoveModal({ base, entry, onClose, onMoved }: Prop
           response.status === 404
             ? 'Этой записи больше нет в бэклоге: её взяли или удалили.'
             : response.status === 409
-              ? 'Трекер проекта больше не GitHub и не YouTrack со строками описания трекера.'
+              ? 'Трекер проекта больше не GitHub, не YouTrack и не Jira с описанием, по которому панель его читает.'
               : `Задача не заведена: HTTP ${response.status}.`,
         )
         return

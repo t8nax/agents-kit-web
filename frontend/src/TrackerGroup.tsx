@@ -1,31 +1,33 @@
 import type { CSSProperties, ReactNode } from 'react'
 import { Sk, Skeleton } from './Skeleton'
 import { useReveal } from './reveal'
-import { ISSUE_LIMIT, issueLabel, type TrackerInfo, type TrackerIssue, type TrackerLoad } from './tracker'
+import { ISSUE_LIMIT, issueLabel, trackerTitle, type TrackerInfo, type TrackerIssue, type TrackerLoad } from './tracker'
 
 /** Строка на месте задач: спокойная — серая, поломка — красная со значком и советом. */
 type State = { warning: boolean; text: ReactNode }
 
-function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (servers: boolean) => void): State | null {
+/** Поле окна трекера проекта, куда ставится курсор после перехода из строки причины (B-285). */
+export type TrackerField = 'server' | 'project' | 'key'
+
+/** Что в описании не указано или указано не так — названиями полей окна, а не строками файла (оператор на B-285). */
+const faultFields: Record<string, string> = { трекер: 'вид трекера', сервер: 'адрес сервера', проект: 'проект' }
+
+function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (field?: TrackerField) => void): State | null {
   if (load.kind === 'loading') return null
-  // Трекеры — свой раздел панели (B-323): ссылка ведёт в него, к проекту этой группы.
-  const section = (
-    <button type="button" className="tracker-link" onClick={() => onTrackers?.(false)}>
+  // Трекеры — свой раздел панели (B-323): ссылка ведёт в него, к трекеру этого проекта, а у причины ключа, адреса
+  // или проекта открывает окно трекера с курсором в этом поле (B-285).
+  const section = (field?: TrackerField) => (
+    <button type="button" className="tracker-link" onClick={() => onTrackers?.(field)}>
       «Трекеры»
     </button>
   )
-  // Где на это посмотреть — одними словами у всех причин ключа; ссылка ведёт к списку серверов (ревью B-323).
-  const servers = (
-    <>
-      в разделе{' '}
-      <button type="button" className="tracker-link" onClick={() => onTrackers?.(true)}>
-        «Трекеры»
-      </button>
-      , в списке «Серверы трекеров»
-    </>
-  )
   if (load.kind === 'failed') return { warning: true, text: `Задачи трекера не загрузились: ${load.message}.` }
   const server = <code>{tracker.server}</code>
+  const name = trackerTitle(tracker)
+  // Jira — она, GitHub и YouTrack — он
+  const answered = tracker.kind === 'jira' ? 'ответила' : 'ответил'
+  const took = tracker.kind === 'jira' ? 'не приняла' : 'не принял'
+  const none = tracker.kind === 'github' ? 'открытых задач этого репозитория' : 'незакрытых задач этого проекта'
   switch (load.problem) {
     case null:
       if (load.issues.length > 0) return null
@@ -33,38 +35,31 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (ser
       if (tracker.filter)
         return {
           warning: false,
-          text:
-            tracker.kind === 'youtrack' ? (
-              <>
-                По фильтру <code>{tracker.filter}</code> в YouTrack сейчас нет задач этого проекта.
-              </>
-            ) : (
-              <>
-                По фильтру <code>{tracker.filter}</code> в GitHub сейчас нет открытых задач этого репозитория.
-              </>
-            ),
+          text: (
+            <>
+              По фильтру <code>{tracker.filter}</code> в {name} сейчас нет{' '}
+              {tracker.kind === 'github' ? 'открытых задач этого репозитория' : 'задач этого проекта'}.
+            </>
+          ),
         }
-      return tracker.kind === 'youtrack'
-        ? { warning: false, text: 'В YouTrack нет незакрытых задач этого проекта.' }
-        : { warning: false, text: 'В GitHub нет открытых задач этого репозитория.' }
+      return { warning: false, text: `В ${name} нет ${none}.` }
     case 'other':
       return {
         warning: false,
-        text: `Трекер проекта — ${tracker.name ?? 'не GitHub и не YouTrack'}. Панель пока читает задачи только из GitHub и YouTrack.`,
+        text: `Трекер проекта — ${tracker.name ?? 'не GitHub, не YouTrack и не Jira'}. Панель пока читает задачи только из GitHub, YouTrack и Jira.`,
       }
     case 'no-keys': {
-      // Называются именно те строки, которых нет или что записаны не так, — как на макете B-288; описание
-      // исправляется в разделе «Трекеры», а не словами киту в сессии (макет B-293, B-323)
-      const faults = (tracker.faults?.length ? tracker.faults : ['трекер', 'сервер', 'проект']).map((key) => `«${key}:»`)
+      // Называются именно те поля, которых нет или что заданы не так; описание исправляется в разделе «Трекеры»
+      const faults = (tracker.faults?.length ? tracker.faults : ['трекер', 'сервер', 'проект']).map((key) => faultFields[key] ?? key)
       const named = faults.length === 1 ? faults[0] : `${faults.slice(0, -1).join(', ')} и ${faults[faults.length - 1]}`
       return {
         warning: true,
         text: (
           <>
             {faults.length === 1
-              ? `В описании трекера проекта нет строки ${named} или она записана не так. `
-              : `В описании трекера проекта нет строк ${named} или они записаны не так. `}
-            Исправьте описание в разделе {section}.
+              ? `В описании трекера проекта не указан ${named} или указан не так. `
+              : `В описании трекера проекта не указаны ${named} или указаны не так. `}
+            Исправьте описание в разделе {section()}.
           </>
         ),
       }
@@ -74,25 +69,30 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (ser
         warning: true,
         text: (
           <>
-            Для сервера {server} нет ключа. Добавьте сервер и ключ {servers}.
+            Нет ключа к серверу {server}. Введите ключ в разделе {section('key')}.
           </>
         ),
       }
     case 'key-rejected':
       return {
         warning: true,
-        text: (
-          <>
-            Сервер {server} отклонил ключ. Замените ключ {servers}.
-          </>
-        ),
+        text:
+          tracker.kind === 'jira' ? (
+            <>
+              Сервер {server} отклонил почту или ключ. Проверьте их в разделе {section('key')}.
+            </>
+          ) : (
+            <>
+              Сервер {server} отклонил ключ. Замените ключ в разделе {section('key')}.
+            </>
+          ),
       }
     case 'key-unreadable':
       return {
         warning: true,
         text: (
           <>
-            Ключ сервера {server} не прочитать на этом компьютере. Замените ключ {servers}.
+            Ключ к серверу {server} не прочитать на этом компьютере. Введите ключ заново в разделе {section('key')}.
           </>
         ),
       }
@@ -102,7 +102,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (ser
         text: (
           <>
             Сервер {server} принял ключ, но у его владельца нет прав на проект <code>{tracker.project}</code>. Проверьте права
-            владельца ключа в YouTrack.
+            владельца ключа в {name}.
           </>
         ),
       }
@@ -111,7 +111,7 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (ser
         warning: true,
         text: (
           <>
-            Сервер {server} не ответил: {load.detail ?? 'нет связи'}. Проверьте адрес сервера в описании трекера проекта и
+            Сервер {server} не ответил: {load.detail ?? 'нет связи'}. Проверьте адрес сервера в разделе {section('server')} и
             подключение к сети.
           </>
         ),
@@ -121,20 +121,22 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (ser
         warning: true,
         text: (
           <>
-            На сервере {server} нет проекта <code>{tracker.project}</code> или у вашего ключа нет к нему доступа. Проверьте
-            строку «проект:» в описании трекера проекта.
+            Проект <code>{tracker.project}</code> не найден на сервере {server} или у вашего ключа нет к нему доступа. Проверьте
+            проект в разделе {section('project')}.
           </>
         ),
       }
     case 'youtrack-error':
-      return { warning: true, text: `YouTrack ответил ошибкой: ${load.detail ?? load.problem}.` }
+    case 'jira-error':
+      return { warning: true, text: `${name} ${answered} ошибкой: ${load.detail ?? load.problem}.` }
     case 'filter-rejected':
+      // Фильтр — в шапке проекта, рядом с этой строкой: в «Трекеры» за ним ходить незачем (B-285)
       return {
         warning: true,
         text: (
           <>
-            {tracker.kind === 'youtrack' ? 'YouTrack' : 'GitHub'} не принял фильтр <code>{tracker.filter}</code>
-            {load.detail ? <>: {load.detail}</> : ''}. Исправьте его в разделе {section}.
+            {/* Jira и YouTrack ставят точку в конце своей строки сами */}
+            {name} {took} фильтр{load.detail ? <>: {load.detail.replace(/\.$/, '')}</> : ''}. Исправьте фильтр проекта.
           </>
         ),
       }
@@ -175,7 +177,6 @@ function trackerState(load: TrackerLoad, tracker: TrackerInfo, onTrackers?: (ser
       return { warning: true, text: `GitHub ответил ошибкой: ${load.detail ?? load.problem}.` }
   }
 }
-
 /**
  * Задачи трекера проекта на вкладке «Задачи трекера» (B-305; раньше — подписанная группа под записями, макеты B-277
  * и B-288). Строка задачи — ссылка на трекер во вкладку браузера, а не окно: описание задачи лежит в трекере.
@@ -196,8 +197,8 @@ export default function TrackerGroup({
   issues: TrackerIssue[]
   /** Включён флажок «Мои задачи»: проект без своих задач не прячется, а говорит это строкой. */
   mine?: boolean
-  /** Переход в раздел «Трекеры»: к трекеру проекта — из строки о поломке описания и из строки о пределе задач, к серверам — из строки о ключе. */
-  onTrackers?: (servers: boolean) => void
+  /** Переход в раздел «Трекеры» к трекеру проекта; field — открыть его окно с курсором в этом поле (B-285). */
+  onTrackers?: (field?: TrackerField) => void
   /** Кнопка запуска задачи — её держит раздел: окно запуска у него. */
   children: (issue: TrackerIssue) => ReactNode
 }) {
@@ -267,13 +268,7 @@ export default function TrackerGroup({
       )}
       {load.kind === 'loaded' && load.problem === null && load.truncated && (
         <p className="tracker-state text-sec">
-          <span>
-            Показаны первые {ISSUE_LIMIT} задач — сузьте список фильтром{' '}
-            <button type="button" className="tracker-link tracker-link-quiet" onClick={() => onTrackers?.(false)}>
-              в разделе «Трекеры»
-            </button>
-            .
-          </span>
+          <span>Показаны первые {ISSUE_LIMIT} задач — сузьте список фильтром проекта.</span>
         </p>
       )}
     </>

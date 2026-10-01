@@ -19,6 +19,7 @@ import RollbackTaskModal, { RollbackIcon } from './RollbackTaskModal'
 import RowMenu from './RowMenu'
 import Sessions, { SessionsIcon } from './Sessions'
 import Settings from './Settings'
+import type { TrackerField } from './TrackerGroup'
 import Trackers from './Trackers'
 import { TicketIcon } from './TrackerProjects'
 import Guide from './Guide'
@@ -163,8 +164,9 @@ function App() {
     subject?: string | null
     at: number
   } | null>(null)
-  // Переход из строки «Бэклога» о поломке трекера: раздел «Трекеры» встаёт на проекте этой базы, о ключе — на серверах.
-  const [trackersAt, setTrackersAt] = useState<{ base: string; at: number; servers: boolean } | null>(null)
+  // Переход из строки «Бэклога» о поломке трекера: раздел «Трекеры» встаёт на проекте этой базы, а с полем — открывает
+  // окно его трекера с курсором в этом поле (B-285).
+  const [trackersAt, setTrackersAt] = useState<{ base: string; at: number; field?: TrackerField } | null>(null)
   const [creating, setCreating] = useState(false)
   // Копия, в которую раздел «Бэклог» запустил задачу: сообщение о ней переживает уход из раздела
   const [started, setStarted] = useState<string | null>(null)
@@ -364,10 +366,10 @@ function App() {
             <Backlog
               key={openRequest?.kind === 'backlog' ? openRequest.at : 'backlog'}
               writeFor={openRequest?.kind === 'backlog' ? openRequest.base : null}
-              onTrackers={(base, servers) => {
+              onTrackers={(base, field) => {
                 setSection('trackers')
                 setOpenRequest(null)
-                setTrackersAt({ base, at: Date.now(), servers })
+                setTrackersAt({ base, at: Date.now(), field })
               }}
               onStarted={(copy) => {
                 setStarted(copy)

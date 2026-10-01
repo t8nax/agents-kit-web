@@ -124,7 +124,10 @@ test('у нового трекера — форма без пометок, ви�
   expect(dialog.getByLabelText('Проект')).toHaveAttribute('placeholder', 'Ключ проекта, например PAY')
   expect(dialog.getByLabelText('Задача закрыта')).toHaveAttribute('placeholder', 'Что менять при закрытии, или «ничего, её закрывает мерж»')
   expect(dialog.queryByText('изменено')).not.toBeInTheDocument()
-  expect(dialog.getByText('Задачи Jira панель не проверяет: описание запишется без проверки.')).toBeInTheDocument()
+  // Jira панель теперь читает — и проверяет перед записью (B-285); без проверки пишется только GitLab
+  expect(dialog.queryByText(/панель не проверяет/)).not.toBeInTheDocument()
+  fireEvent.click(dialog.getByRole('radio', { name: 'GitLab' }))
+  expect(dialog.getByText('Задачи GitLab панель не проверяет: описание запишется без проверки.')).toBeInTheDocument()
   expect(dialog.getByRole('button', { name: 'Завести с Чудо-Юдо' })).toBeEnabled()
   expect(screen.queryByRole('dialog', { name: 'Трекер проекта с Чудо-Юдо' })).not.toBeInTheDocument()
 })
@@ -153,7 +156,8 @@ test('«Сохранить» проверяет трекер, пишет пов�
   expect(note).toHaveTextContent('Панель читает задачи проекта CRM2 на сервере https://acme.youtrack.cloud…')
   expect(form().getByRole('button', { name: 'Проверка…' })).toBeDisabled()
   expect(form().getByLabelText('Проект')).toBeDisabled()
-  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: { ...youtrack, project: 'CRM2' } })
+  // Пустой ключ — оставить сохранённый; почты у YouTrack нет
+  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: { ...youtrack, project: 'CRM2' }, key: '', email: null })
 
   answer(Response.json({ version: 'v2', checked: true, pushed: true, message: null }))
   await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
@@ -170,76 +174,117 @@ test('трекер не прочитан — причина под полем п
   save()
 
   expect(await within(field('Проект')).findByRole('alert')).toHaveTextContent(
-    'На сервере https://acme.youtrack.cloud нет проекта CRMX или у вашего ключа нет к нему доступа. Описание не записано.',
+    'Проект CRMX не найден на сервере https://acme.youtrack.cloud или у вашего ключа нет к нему доступа. Описание не записано.',
   )
   expect(form().getByLabelText('Проект')).toHaveAttribute('aria-invalid', 'true')
   expect(onSaved).not.toHaveBeenCalled()
   expect(onClose).not.toHaveBeenCalled()
 })
 
-// B-300: поле «Фильтр» — только у трекеров, задачи которых панель читает; заполненное уходит строкой описания.
-test('поле «Фильтр» есть у YouTrack и GitHub, нет у Jira, заполненное уходит с правками', async () => {
-  const { puts } = stubFetch(controlledStream<TrackerEvent>())
+// ——— Ключ к серверу — в окне трекера, только у трекеров, которым он нужен (ответ оператора на B-285) ———
+
+const owner = { server: 'https://acme.youtrack.cloud', login: 'boris.k', email: null }
+
+test('«Ключ» — у YouTrack, «Почта» и «Ключ» — у Jira, у GitHub и GitLab их нет; «Фильтра» в окне нет', () => {
+  stubFetch(controlledStream<TrackerEvent>())
   renderModal()
 
   const dialog = form()
-  expect(dialog.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска YouTrack, например Assignee: me — только ваши задачи')
-  fireEvent.click(dialog.getByRole('radio', { name: 'GitHub' }))
-  expect(dialog.getByLabelText('Фильтр')).toHaveAttribute('placeholder', 'Строка поиска GitHub, например assignee:@me — только ваши задачи')
-  fireEvent.click(dialog.getByRole('radio', { name: 'Jira' }))
+  expect(dialog.getByLabelText('Ключ')).toHaveAttribute('placeholder', 'Постоянный токен YouTrack')
+  expect(dialog.queryByLabelText('Почта')).not.toBeInTheDocument()
   expect(dialog.queryByLabelText('Фильтр')).not.toBeInTheDocument()
-  fireEvent.click(dialog.getByRole('radio', { name: 'YouTrack' }))
+  fireEvent.click(dialog.getByRole('radio', { name: 'Jira' }))
+  expect(dialog.getByLabelText('Почта')).toHaveAttribute('placeholder', 'Почта аккаунта Atlassian')
+  expect(dialog.getByLabelText('Ключ')).toHaveAttribute('placeholder', 'API-токен Atlassian')
+  for (const name of ['GitHub', 'GitLab']) {
+    fireEvent.click(dialog.getByRole('radio', { name }))
+    expect(dialog.queryByLabelText('Ключ')).not.toBeInTheDocument()
+    expect(dialog.queryByLabelText('Почта')).not.toBeInTheDocument()
+  }
+})
 
-  fireEvent.change(dialog.getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
-  expect(within(field('Фильтр')).getByText('изменено')).toBeInTheDocument()
-  expect(within(field('Фильтр')).getByText('пусто')).toHaveClass('rewrite-was', 'mono')
+test('сохранённый ключ не показывается: подсказка называет владельца, пустое поле его оставляет, новый — правка', async () => {
+  const { puts } = stubFetch(controlledStream<TrackerEvent>())
+  render(<TrackerModal row={row} keyOwner={owner} onSaved={vi.fn()} onClose={vi.fn()} />)
+
+  const key = form().getByLabelText('Ключ')
+  expect(key).toHaveAttribute('type', 'password')
+  expect(key).toHaveValue('')
+  expect(key).toHaveAttribute('placeholder', 'сохранён ключ пользователя boris.k — оставьте пустым, чтобы не менять')
+  expect(form().getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+
+  fireEvent.change(key, { target: { value: 'perm:новый' } })
+  expect(form().getByRole('button', { name: 'Сохранить' })).toBeEnabled()
   save()
 
   await waitFor(() => expect(puts).toHaveLength(1))
-  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: { ...youtrack, filter: 'State: {To Do}' } })
+  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: youtrack, key: 'perm:новый', email: null })
 })
 
-test('у Jira фильтр не пишется, даже если был набран до смены трекера', async () => {
+test('у Jira почта и ключ уходят с описанием; сменённая почта — тоже правка', async () => {
+  const jira: TrackerDescription = { ...youtrack, tracker: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' }
   const { puts } = stubFetch(controlledStream<TrackerEvent>())
-  renderModal()
+  render(
+    <TrackerModal
+      row={{ ...row, tracker: { kind: 'jira', name: 'Jira', server: jira.server, project: 'PAY' }, description: jira }}
+      keyOwner={{ server: 'https://acme.atlassian.net', login: 'anna@acme.example', email: 'anna@acme.example' }}
+      onSaved={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  )
 
-  fireEvent.change(form().getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
-  fireEvent.click(form().getByRole('radio', { name: 'Jira' }))
+  expect(form().getByLabelText('Почта')).toHaveValue('anna@acme.example')
+  expect(form().getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+  fireEvent.change(form().getByLabelText('Почта'), { target: { value: 'ivan@acme.example' } })
+  fireEvent.change(form().getByLabelText('Ключ'), { target: { value: 'токен' } })
+  save()
+
+  await waitFor(() => expect(puts).toHaveLength(1))
+  expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: jira, key: 'токен', email: 'ivan@acme.example' })
+})
+
+test('ключ отклонён — причина под полем «Ключ», поле в красной рамке', async () => {
+  stubFetch(controlledStream<TrackerEvent>(), () =>
+    Response.json({ problem: 'check', field: 'key', code: 'key-rejected' }, { status: 422 }),
+  )
+  const { onSaved } = renderModal()
+
+  fireEvent.change(form().getByLabelText('Ключ'), { target: { value: 'плохой' } })
+  save()
+
+  expect(await within(field('Ключ')).findByRole('alert')).toHaveTextContent(
+    'Сервер https://acme.youtrack.cloud отклонил ключ. Описание не записано.',
+  )
+  expect(form().getByLabelText('Ключ')).toHaveAttribute('aria-invalid', 'true')
+  expect(onSaved).not.toHaveBeenCalled()
+})
+
+test('ключ общий для проектов одного сервера — окно называет их', () => {
+  stubFetch(controlledStream<TrackerEvent>())
+  render(<TrackerModal row={row} keyOwner={owner} sharedWith={['Склад', 'Биллинг']} onSaved={vi.fn()} onClose={vi.fn()} />)
+
+  expect(form().getByText('Этот ключ читает и проекты: Склад, Биллинг.')).toBeInTheDocument()
+})
+
+// Переход из причины «Бэклога»: курсор — в поле, которое она называет (B-285)
+test('окно, открытое из причины о ключе, ставит курсор в поле «Ключ»', () => {
+  stubFetch(controlledStream<TrackerEvent>())
+  render(<TrackerModal row={row} focusField="key" onSaved={vi.fn()} onClose={vi.fn()} />)
+
+  expect(form().getByLabelText('Ключ')).toHaveFocus()
+})
+
+// Фильтр — на вкладке «Задачи трекера» (B-285): строка «фильтр:» описания окном не пишется
+test('прежняя строка «фильтр:» описания не уходит с правкой', async () => {
+  const { puts } = stubFetch(controlledStream<TrackerEvent>())
+  renderModal({ ...row, description: { ...youtrack, filter: 'State: {To Do}' } })
+
+  fireEvent.change(form().getByLabelText('Проект'), { target: { value: 'CRM2' } })
   save()
 
   await waitFor(() => expect(puts).toHaveLength(1))
   expect((puts[0].body.description as TrackerDescription).filter).toBe('')
 })
-
-// Ревью B-300: скрытый фильтр — не правка; у трекера, поменявшего вид обратно, записывать нечего.
-test('набранный фильтр, скрытый сменой трекера на Jira, правкой не считается', () => {
-  stubFetch(controlledStream<TrackerEvent>())
-  renderModal({ ...row, tracker: { kind: 'other', name: 'Jira' }, description: { ...youtrack, tracker: 'Jira' } })
-
-  fireEvent.click(form().getByRole('radio', { name: 'YouTrack' }))
-  fireEvent.change(form().getByLabelText('Фильтр'), { target: { value: 'State: {To Do}' } })
-  expect(form().getByRole('button', { name: 'Сохранить' })).toBeEnabled()
-  fireEvent.click(form().getByRole('radio', { name: 'Jira' }))
-
-  expect(form().getByRole('button', { name: 'Сохранить' })).toBeDisabled()
-})
-
-test('трекер не принял фильтр — причина его словами под полем «Фильтр»', async () => {
-  stubFetch(controlledStream<TrackerEvent>(), () =>
-    Response.json({ problem: 'check', field: 'filter', code: 'filter-rejected', detail: 'Unknown field "Stat"' }, { status: 422 }),
-  )
-  const { onSaved } = renderModal()
-
-  fireEvent.change(form().getByLabelText('Фильтр'), { target: { value: 'Stat: {To Do}' } })
-  save()
-
-  expect(await within(field('Фильтр')).findByRole('alert')).toHaveTextContent(
-    'YouTrack не принял фильтр: Unknown field "Stat". Описание не записано.',
-  )
-  expect(form().getByLabelText('Фильтр')).toHaveAttribute('aria-invalid', 'true')
-  expect(onSaved).not.toHaveBeenCalled()
-})
-
 test('описание не в форме кита — причины под своими полями', async () => {
   stubFetch(controlledStream<TrackerEvent>(), () =>
     Response.json({ problem: 'invalid', faults: { closed: 'Раздел не может быть пустым' } }, { status: 400 }),

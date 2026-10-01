@@ -17,6 +17,155 @@
   font-weight: 500;
 }
 
+/* Фильтр проекта в шапке группы задач трекера — вариант А макета B-285: воронка раскрывает поле, заданный фильтр —
+   плашка с крестиком. Шапка с фильтром отстоит от первой задачи заметнее обычного — замечание оператора «слипается
+   с задачами». */
+.base-head.fa-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 30px;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.fa-icon {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.fa-icon:hover,
+.fa-icon.on {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+}
+
+.fa-icon svg,
+.fa-pill svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.fa-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 420px;
+  padding: 1px 4px 1px 8px;
+  color: var(--text-secondary);
+  background: var(--accent-free-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+
+.fa-pill-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 18px;
+  color: inherit;
+  background: none;
+  border: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fa-pill-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fa-pill svg {
+  width: 12px;
+  height: 12px;
+}
+
+.fa-x {
+  display: inline-flex;
+  padding: 1px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.fa-x:hover {
+  color: var(--text-primary);
+  background: var(--bg-surface-hover);
+}
+
+.fa-pill.bad {
+  color: var(--accent-error-text);
+  background: var(--accent-error-bg);
+  border-color: var(--accent-error-border);
+}
+
+.fa-pill.bad .fa-x {
+  color: var(--accent-error-text);
+}
+
+.fa-edit {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fa-edit .fa-icon {
+  margin-left: 0;
+}
+
+.flt-input {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  width: 340px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.flt-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.flt-input:focus {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.fa-error {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
 /* Плашка о базе нового формата под заголовком проекта — во всю ширину списка, без отступов раздела (B-281) */
 .backlog-list .format-notice {
   margin: 0 0 2px;

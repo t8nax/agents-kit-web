@@ -3,15 +3,18 @@ import { AGENT_NAME } from './BacklogWriteModal'
 import { ChoiceMark } from './ChoiceMark'
 import { WarningIcon } from './Problems'
 import TrackerChatModal, { CloseIcon, TrackerIcon } from './TrackerChatModal'
+import type { TrackerField } from './TrackerGroup'
 import {
   checked,
   checkText,
   emptyDescription,
-  filterPlaceholder,
+  keyed,
+  keyPlaceholder,
   knownTracker,
   projectPlaceholder,
   rejectedText,
   sameField,
+  sameValue,
   sections,
   serverPlaceholder,
   trackerNames,
@@ -19,8 +22,10 @@ import {
   type ProjectTrackerRow,
   type TrackerDescription,
   type TrackerRejected,
+  type WindowField,
   written,
 } from './projectTracker'
+import type { TrackerServer } from './TrackerProjects'
 import './Modal.css'
 import './AskModal.css'
 import './FlowRewriteModal.css'
@@ -29,14 +34,21 @@ import './TrackerModal.css'
 
 /** Чем кончилась запись: отказ по полям, отказ целиком или записано, но база не ушла на сервер. */
 type Outcome =
-  | { kind: 'fields'; faults: Partial<Record<DescriptionField, string>> }
+  | { kind: 'fields'; faults: Partial<Record<WindowField, string>> }
   | { kind: 'failed'; text: string; output?: string }
   | { kind: 'unpushed'; output: string }
 
-const fields: DescriptionField[] = ['tracker', 'server', 'project', 'filter', 'where', 'backlog', 'take', 'closed', 'move']
+// Фильтра в окне нет: он задаётся на вкладке «Задачи трекера» (B-285)
+const fields: DescriptionField[] = ['tracker', 'server', 'project', 'where', 'backlog', 'take', 'closed', 'move']
 
 type Props = {
   row: ProjectTrackerRow
+  /** Поле, куда встаёт курсор, — переход из строки причины «Бэклога» (B-285). */
+  focusField?: TrackerField | null
+  /** Сохранённый ключ к серверу трекера — его владелец и почта; null — ключа нет. */
+  keyOwner?: TrackerServer | null
+  /** Другие проекты на том же сервере: их читает тот же ключ. */
+  sharedWith?: string[]
   /** Окно открыто возвратом к переписке из шапки панели: переписка с Чудо-Юдо встаёт поверх сразу. */
   talking?: boolean
   /** Описание записано — раздел перечитывает проекты. */
@@ -49,7 +61,15 @@ type Props = {
  * правятся руками, а с Чудо-Юдо их пишут перепиской в окне поверх этого. «Сохранить» проверяет трекер, записывает
  * описание в базу и отправляет базу на сервер (B-293).
  */
-export default function TrackerModal({ row, talking = false, onSaved, onClose }: Props) {
+export default function TrackerModal({
+  row,
+  focusField = null,
+  keyOwner = null,
+  sharedWith = [],
+  talking = false,
+  onSaved,
+  onClose,
+}: Props) {
   const saved = row.description
   const [draft, setDraft] = useState<TrackerDescription>(saved ?? emptyDescription)
   // Поля, какими они были до принятых правок Чудо-Юдо: «вернуть как было» ставит их обратно.
@@ -57,11 +77,24 @@ export default function TrackerModal({ row, talking = false, onSaved, onClose }:
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [saving, setSaving] = useState(false)
   const [chatting, setChatting] = useState(talking)
+  // Ключ и почта к серверу — только у трекеров, которым они нужны; в базу они не пишутся (ответ оператора на B-285).
+  const [key, setKey] = useState('')
+  const [email, setEmail] = useState(keyOwner?.email ?? '')
   const kind = knownTracker(draft.tracker)
   const filtered = checked(kind)
-  // Имеющееся описание без правок записывать нечего.
-  const unchanged = saved !== null && fields.every((field) => sameField(field, saved, written(draft)))
+  const withKey = keyed(kind)
+  const jira = kind === 'Jira'
+  // Ключ сохранён к тому серверу, что сейчас в поле адреса: к другому серверу он не относится.
+  const owner = keyOwner && sameValue(draft.server.replace(/\/+$/, ''), keyOwner.server.replace(/\/+$/, '')) ? keyOwner : null
+  const keyEdited = withKey && (key.trim() !== '' || (jira && !sameValue(email, owner?.email ?? '')))
+  // Имеющееся описание без правок и без нового ключа записывать нечего.
+  const unchanged = saved !== null && !keyEdited && fields.every((field) => sameField(field, saved, written(draft)))
   const faults = outcome?.kind === 'fields' ? outcome.faults : {}
+
+  // Переход из причины «Бэклога»: курсор — в поле, которое она называет.
+  useEffect(() => {
+    if (focusField) document.getElementById(`tf-${focusField}`)?.focus()
+  }, [focusField])
 
   // Закрытая переписка возвращает фокус на свою кнопку в подвале.
   const chatButton = useRef<HTMLButtonElement>(null)
@@ -82,6 +115,10 @@ export default function TrackerModal({ row, talking = false, onSaved, onClose }:
 
   function edit(field: DescriptionField, next: string) {
     setDraft((prev) => ({ ...prev, [field]: next }))
+    clearFault(field)
+  }
+
+  function clearFault(field: WindowField) {
     setOutcome((prev) => (prev?.kind === 'fields' ? { kind: 'fields', faults: { ...prev.faults, [field]: undefined } } : null))
   }
 
@@ -109,7 +146,13 @@ export default function TrackerModal({ row, talking = false, onSaved, onClose }:
       const response = await fetch('/api/trackers/projects', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base: row.base, version: row.version, description }),
+        body: JSON.stringify({
+          base: row.base,
+          version: row.version,
+          description,
+          key: withKey ? key : null,
+          email: jira ? email : null,
+        }),
       })
       if (response.ok) {
         const answer = (await response.json()) as { pushed: boolean; message?: string | null }
@@ -164,7 +207,7 @@ export default function TrackerModal({ row, talking = false, onSaved, onClose }:
       </>
     )
   }
-  function fault(field: DescriptionField) {
+  function fault(field: WindowField) {
     return (
       faults[field] && (
         <p className="field-error tf-error" role="alert">
@@ -269,25 +312,68 @@ export default function TrackerModal({ row, talking = false, onSaved, onClose }:
                   </div>
                 ))}
               </div>
-              {filtered && (
-                <div className={fieldClass('filter')}>
-                  {head('filter', 'Фильтр', 'tf-filter')}
+            </div>
+            {withKey && (
+              <div className="tf-group">
+                <p className="rewrite-group-title">Ключ к серверу</p>
+                {jira && (
+                  <div className="tf-field">
+                    <div className="tf-head">
+                      <label className="tf-label" htmlFor="tf-email">
+                        Почта
+                      </label>
+                    </div>
+                    <input
+                      id="tf-email"
+                      className="tf-input"
+                      type="email"
+                      value={email}
+                      placeholder="Почта аккаунта Atlassian"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={saving}
+                      aria-invalid={faults.email ? true : undefined}
+                      onChange={(e) => {
+                        setEmail(e.target.value)
+                        clearFault('email')
+                      }}
+                    />
+                    {fault('email')}
+                  </div>
+                )}
+                <div className="tf-field">
+                  <div className="tf-head">
+                    <label className="tf-label" htmlFor="tf-key">
+                      Ключ
+                    </label>
+                  </div>
                   <input
-                    id="tf-filter"
+                    id="tf-key"
                     className="tf-input"
-                    type="text"
-                    value={draft.filter ?? ''}
-                    placeholder={kind ? filterPlaceholder[kind] : undefined}
+                    type="password"
+                    value={key}
+                    // Сохранённый ключ не показывается: пустое поле его оставляет
+                    placeholder={
+                      owner
+                        ? `сохранён ключ пользователя ${owner.login} — оставьте пустым, чтобы не менять`
+                        : kind
+                          ? keyPlaceholder[kind]
+                          : undefined
+                    }
                     autoComplete="off"
                     spellCheck={false}
                     disabled={saving}
-                    aria-invalid={faults.filter ? true : undefined}
-                    onChange={(e) => edit('filter', e.target.value)}
+                    aria-invalid={faults.key ? true : undefined}
+                    onChange={(e) => {
+                      setKey(e.target.value)
+                      clearFault('key')
+                    }}
                   />
-                  {fault('filter')}
+                  {fault('key')}
+                  {sharedWith.length > 0 && <p className="tf-note">Этот ключ читает и проекты: {sharedWith.join(', ')}.</p>}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
             <div className="tf-group">
               <p className="rewrite-group-title">Разделы описания</p>
               {sections.map(({ field, label, hint }) => (
