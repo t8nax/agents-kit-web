@@ -138,7 +138,8 @@ public sealed class TaskRollbackTests : IDisposable
         WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
         TestBases.TaskSession(_root, copy, "7339dced");
         var client = Client();
-        var taskSessions = new TaskSessions(TaskSessions.FileBeside(TestBases.File(_root, _base)));
+        // Файл сессий задач — рядом с bases.json панели; сам bases.json панель держит открытым, и он не переписывается
+        var taskSessions = new TaskSessions(TaskSessions.FileBeside(Path.Combine(_root, "panel", "bases.json")));
 
         Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, TaskRollback.Session, client)).StatusCode);
         Assert.Equal(["stop", "7339dced"], Assert.Single(_agent.Started).ArgumentList);
@@ -358,6 +359,34 @@ public sealed class TaskRollbackTests : IDisposable
 
         Assert.True(plan!.Unpushed);
         Assert.False(plan.OnGitHub);
+    }
+
+    [Fact]
+    public async Task Plan_TaskBranchWithoutOwnCommits_HasNothingToLose()
+    {
+        var copy = Path.Combine(_root, "quiet-cedar");
+        Git(_main, "worktree", "add", "-q", copy, "-b", "quiet-cedar");
+        Git(copy, "checkout", "-q", "-b", "b-7-blink");
+        WriteMemory(copy, "B-7 Кнопка мигает", "b-7-blink");
+
+        var plan = await Client().GetFromJsonAsync<RollbackPlan>(PlanUrl(copy));
+
+        // Сервера у копии нет: коммиты прежней ветки своими для задачи не считаются
+        Assert.False(plan!.Unpushed);
+    }
+
+    [Fact]
+    public async Task Backlog_FileEndingWithSeveralBlankLines_KeepsItsTail()
+    {
+        File.WriteAllText(TestLayout.Backlog(_base), Backlog("## B-7 Кнопка мигает\n\nКнопка мигает при наведении.\n\n## B-8 Другая\n\nТекст.\n\n\n\n"));
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-q", "-am", "хвост");
+        var copy = TakeTask("B-7 Кнопка мигает");
+        var cut = File.ReadAllText(TestLayout.Backlog(_base));
+
+        await Step(copy, TaskRollback.Backlog);
+
+        // Прежний текст, с его пустыми строками в конце, остаётся как был: запись идёт сразу за ним
+        Assert.Equal(cut + "## B-7 Кнопка мигает\n\nКнопка мигает при наведении.\n", File.ReadAllText(TestLayout.Backlog(_base)));
     }
 
     [Fact]

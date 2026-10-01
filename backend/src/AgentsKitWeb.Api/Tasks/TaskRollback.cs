@@ -79,7 +79,7 @@ public static partial class TaskRollback
             var dirty = status.ExitCode != 0 || status.Output.Split('\n').Any(line => StatusLine.IsMatch(line));
             var branches = await BranchesAsync(target);
             var (unpushed, onGitHub) = branches is { Deleted: { } deleted }
-                ? (await UnpushedAsync(branches.Root, deleted), await OnServerAsync(branches.Root, deleted))
+                ? (await UnpushedAsync(branches.Root, deleted, branches.Previous), await OnServerAsync(branches.Root, deleted))
                 : (false, true);
             return Results.Ok(new RollbackPlan(
                 target.Memory.Task ?? "",
@@ -329,10 +329,16 @@ public static partial class TaskRollback
     private static async Task<bool> BranchExistsAsync(string root, string branch) =>
         (await GitRunner.RunAsync(root, GitTimeout, CancellationToken.None, "rev-parse", "--verify", "-q", $"refs/heads/{branch}")).ExitCode == 0;
 
-    /// <summary>В ветке есть коммиты, которых нет ни в одной ветке сервера: с удалением ветки они пропадут.</summary>
-    private static async Task<bool> UnpushedAsync(string root, string branch)
+    /// <summary>
+    /// В ветке есть свои коммиты — которых нет ни в прежней ветке копии, ни в одной ветке сервера: с удалением ветки
+    /// они пропадут. Прежняя ветка в счёт: без сервера иначе своими считалась бы вся история.
+    /// </summary>
+    private static async Task<bool> UnpushedAsync(string root, string branch, string previous)
     {
-        var run = await GitRunner.RunAsync(root, GitTimeout, CancellationToken.None, "rev-list", "--count", $"refs/heads/{branch}", "--not", "--remotes");
+        string[] args = await BranchExistsAsync(root, previous)
+            ? ["rev-list", "--count", $"refs/heads/{branch}", "--not", "--remotes", $"refs/heads/{previous}"]
+            : ["rev-list", "--count", $"refs/heads/{branch}", "--not", "--remotes"];
+        var run = await GitRunner.RunAsync(root, GitTimeout, CancellationToken.None, args);
         return run.ExitCode != 0 || !int.TryParse(run.Output.Split('\n')[^1].Trim(), out var count) || count > 0;
     }
 
