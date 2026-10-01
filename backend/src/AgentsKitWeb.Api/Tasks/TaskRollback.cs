@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AgentsKitWeb.Api.Ask;
 using AgentsKitWeb.Api.Bases;
 using AgentsKitWeb.Api.Flow;
@@ -11,12 +12,17 @@ public sealed record RollbackStepRequest(string? Base, string? Copy, string? Ste
 
 /// <summary>
 /// Что окно отката знает до нажатия. Source — откуда задача (RollbackSource): от него зависит, вернётся ли запись
-/// в бэклог. Dirty — в копии есть несохранённые правки, и откат их сотрёт. Blockers — сессии копии, которые панель
-/// погасить не может: пока они живы, откат отказывает.
+/// в бэклог. Dirty — в копии есть несохранённые правки, и откат их сотрёт. Unpushed — в ветке задачи есть коммиты,
+/// которых нет на сервере, и с удалением ветки они пропадут. OnGitHub — ветка задачи есть на сервере и там останется;
+/// удалять откату нечего — тоже да. Blockers — сессии, которые откат гасить не станет: пока они живы, он отказывает.
 /// </summary>
-public sealed record RollbackPlan(string Task, string Source, bool Dirty, IReadOnlyList<RollbackBlocker> Blockers);
+public sealed record RollbackPlan(
+    string Task, string Source, bool Dirty, IReadOnlyList<RollbackBlocker> Blockers, bool Unpushed = false, bool OnGitHub = true);
 
-/// <summary>Сессия, которая мешает откату: Kind — vscode или terminal, Name — имя сессии, если оно есть.</summary>
+/// <summary>
+/// Сессия, которая мешает откату: Kind — vscode, terminal или background (фоновая, но не сессия задачи), Name — имя
+/// сессии, если оно есть.
+/// </summary>
 public sealed record RollbackBlocker(string Kind, string? Name);
 
 /// <summary>Почему шаг не прошёл: problem — чем именно, message — что сказали git или claude.</summary>
@@ -34,10 +40,10 @@ public static class RollbackSource
 /// <summary>
 /// Откат задачи, которая ещё в работе, — решения оператора на B-108. Шаги идут по одному, каждый своим запросом:
 /// окно отмечает сделанное по ходу, а упавший шаг останавливает откат, и сделанное остаётся. Повторный откат проходит
-/// все шаги снова, поэтому каждый шаг, уже сделанный, проходит молча. Память задачи снимается последней: пока она
-/// есть, копия числится занятой, и откат можно повторить из того же меню.
+/// все шаги снова, и шаг, сделанный прошлым откатом, ничего не меняет. Память задачи снимается последней: пока она
+/// есть, копия числится занятой и откат можно повторить; после неё шаги отвечают, что задачи уже нет.
 /// </summary>
-public static class TaskRollback
+public static partial class TaskRollback
 {
     public const string Session = "session";
     public const string Backlog = "backlog";
@@ -48,6 +54,11 @@ public static class TaskRollback
 
     // Сброс копии и коммит базы могут идти долго на большой копии или с хуком сверки кита.
     private static readonly TimeSpan GitTimeout = TimeSpan.FromSeconds(60);
+
+    // Строка `git status --porcelain`: два знака состояния и пробел. Предупреждения git, которые GitRunner кладёт
+    // в тот же вывод, правками не считаются.
+    [GeneratedRegex(@"^[ MTADRCU?!]{2} ")]
+    private static partial Regex StatusLine { get; }
 
     public static void MapTaskRollbackEndpoints(this IEndpointRouteBuilder app)
     {
@@ -64,11 +75,18 @@ public static class TaskRollback
                 return refused!;
 
             var status = await GitRunner.RunAsync(target.Row.Path, GitTimeout, cancellationToken, "status", "--porcelain");
+            var dirty = status.ExitCode != 0 || status.Output.Split('\n').Any(line => StatusLine.IsMatch(line));
+            var branches = await BranchesAsync(target);
+            var (unpushed, onGitHub) = branches is { Deleted: { } deleted }
+                ? (await UnpushedAsync(branches.Root, deleted), await OnServerAsync(branches.Root, deleted))
+                : (false, true);
             return Results.Ok(new RollbackPlan(
                 target.Memory.Task ?? "",
                 target.Source,
-                status.ExitCode != 0 || status.Output.Length > 0,
-                Blockers(sessions, target.Row.Path)));
+                dirty,
+                Blockers(sessions, taskSessions, target, branches?.Root),
+                unpushed,
+                onGitHub));
         });
 
         app.MapPost("/api/tasks/rollback", async (
@@ -85,16 +103,17 @@ public static class TaskRollback
             var (target, refused) = await FindAsync(request.Base, request.Copy, bases, sessions, taskSessions, cancellationToken);
             if (target is null)
                 return refused!;
-            // Сессию своего окна панель не гасит: её закрывает оператор, и до того копию не трогают.
-            if (Blockers(sessions, target.Row.Path) is [_, ..] blockers)
-                return Results.Conflict(new RollbackProblem("blocked", string.Join(", ", blockers.Select(b => b.Kind))));
+            // Сессию своего окна и чужую фоновую панель не гасит: их закрывает оператор, и до того копию не трогают.
+            var branches = await BranchesAsync(target);
+            if (Blockers(sessions, taskSessions, target, branches?.Root) is [_, ..] blockers)
+                return Results.Conflict(new RollbackProblem("blocked", string.Join(", ", blockers.Select(b => b.Kind).Distinct())));
 
             // Начавшись, шаг отменой запроса не рвётся: оборванный git оставил бы базу или копию на полпути.
             var failure = step switch
             {
-                Session => await StopSessionsAsync(target, sessions, taskSessions, started, agent),
+                Session => await StopTaskSessionAsync(target, sessions, taskSessions, started, agent),
                 Backlog => await ReturnEntryAsync(target),
-                Copy => await ResetCopyAsync(target),
+                Copy => branches is null ? "git не прочитал копию" : await ResetCopyAsync(branches),
                 _ => await RemoveMemoryAsync(target),
             };
             return failure is null
@@ -136,23 +155,36 @@ public static class TaskRollback
         return (new Target(layout, row, memory.File, memory.Memory, source, number), null);
     }
 
-    /// <summary>Сессии копии, которые панель погасить не может: всё, кроме фоновых.</summary>
-    private static List<RollbackBlocker> Blockers(AgentSessions sessions, string copy) =>
-        sessions.LiveIn(copy)
-            .Where(s => !s.InBackground)
-            .Select(s => new RollbackBlocker(s.InVsCode ? "vscode" : "terminal", s.Name))
+    /// <summary>
+    /// Сессии, которые откат гасить не станет, а они правили бы копию, которую он возвращает: сессии своего окна —
+    /// VS Code и терминала — и фоновые, кроме сессии задачи. Сброс идёт по всему дереву копии, поэтому сессия
+    /// в его подкаталоге мешает так же.
+    /// </summary>
+    private static List<RollbackBlocker> Blockers(AgentSessions sessions, TaskSessions taskSessions, Target target, string? root)
+    {
+        var tree = WorkspaceCollector.Normalize(root ?? target.Row.Path);
+        var task = taskSessions.SessionIn(target.Row.Path);
+        return sessions.Live()
+            .Where(s =>
+            {
+                var cwd = WorkspaceCollector.Normalize(s.Cwd);
+                return cwd.Equals(tree, StringComparison.OrdinalIgnoreCase) || cwd.StartsWith(tree + '\\', StringComparison.OrdinalIgnoreCase);
+            })
+            .Where(s => !(s.InBackground && s.JobId == task))
+            .Select(s => new RollbackBlocker(s.InVsCode ? "vscode" : s.InBackground ? "background" : "terminal", s.Name))
             .ToList();
+    }
 
     /// <summary>
-    /// Гасит фоновые сессии копии — сессию задачи и заведённые рядом с ней: они правили бы копию, которую откат
-    /// сейчас вернёт. Панель забывает свой запуск задачи в копии: иначе копия числилась бы запускаемой.
+    /// Гасит сессию задачи — ту, что панель завела в копии под задачу, — и забывает свой запуск: иначе копия
+    /// числилась бы запускаемой. Сессии задачи нет в живых — гасить нечего.
     /// </summary>
-    private static async Task<string?> StopSessionsAsync(
+    private static async Task<string?> StopTaskSessionAsync(
         Target target, AgentSessions sessions, TaskSessions taskSessions, StartedTasks started, IAgentProcess agent)
     {
-        foreach (var session in sessions.LiveIn(target.Row.Path).Where(s => s.InBackground).ToList())
-            if (await SessionStop.StopAsync(agent, session, CancellationToken.None) is { } failure)
-                return $"Сессия {session.Name ?? session.JobId} не погасла: {failure}";
+        if (sessions.BackgroundIn(target.Row.Path, taskSessions.SessionIn(target.Row.Path)) is { } session
+            && await SessionStop.StopAsync(agent, session, CancellationToken.None) is { } failure)
+            return $"Сессия задачи не погасла: {failure}";
         started.Forget(target.Row.Path);
         taskSessions.Forget(target.Row.Path);
         return null;
@@ -161,15 +193,29 @@ public static class TaskRollback
     /// <summary>
     /// Возвращает запись бэклога тем же номером и тем же текстом, какой она была, когда её взяли, — в конец
     /// backlog.md; счётчик номеров не трогается. Текст берётся из истории: из родителя коммита, который её вырезал.
-    /// Запись уже в бэклоге — шаг сделан прошлым откатом.
+    /// Запись уже в бэклоге — шаг сделан прошлым откатом. Пишет под тем же замком, что «Сохранить» Чудо-Юдо
+    /// и перенос записи в трекер: иначе один коммит прихватил бы незакоммиченную правку другого.
     /// </summary>
     private static async Task<string?> ReturnEntryAsync(Target target)
     {
         if (target.Source != RollbackSource.Backlog || target.Number is not { } number)
             return null;
 
-        var personal = target.Layout.Personal;
-        var file = target.Layout.BacklogFile;
+        await BacklogTracker.Writing.WaitAsync();
+        try
+        {
+            return await ReturnEntryAsync(target.Layout, number);
+        }
+        finally
+        {
+            BacklogTracker.Writing.Release();
+        }
+    }
+
+    private static async Task<string?> ReturnEntryAsync(BaseLayout layout, string number)
+    {
+        var personal = layout.Personal;
+        var file = layout.BacklogFile;
         switch (await BaseGit.IsDirtyAsync(personal, BaseLayout.BacklogName, CancellationToken.None))
         {
             case null:
@@ -236,54 +282,89 @@ public static class TaskRollback
         return null;
     }
 
-    /// <summary>Запись в конце файла, через пустую строку, с переводами строк, какие у файла.</summary>
+    /// <summary>
+    /// Запись в конце файла, через пустую строку, с переводами строк, какие у файла. Прежний текст остаётся как был:
+    /// дописываются только перевод строки, если файл без него кончается, и пустая строка, если её там нет.
+    /// </summary>
     internal static string Appended(string text, string entry)
     {
         var newline = text.Contains("\r\n") ? "\r\n" : "\n";
-        var body = text.TrimEnd('\r', '\n');
-        var separator = body.Length == 0 ? "" : newline + newline;
-        return body + separator + entry.Replace("\n", newline) + newline;
+        var body = text;
+        if (body.Length > 0 && !body.EndsWith('\n'))
+            body += newline;
+        if (body.Length > 0 && !body.EndsWith(newline + newline) && !body.EndsWith("\n\n"))
+            body += newline;
+        return body + entry.Replace("\n", newline) + newline;
     }
 
     /// <summary>
-    /// Возвращает копию на ветку, на которой она стояла до задачи, и стирает несохранённые правки; ветка задачи
-    /// удаляется на компьютере, а на GitHub остаётся — решение оператора на макете B-108. Прежняя ветка копии —
-    /// имя её каталога, как его заводит кит (worktree-add.ps1), у основной копии — master.
+    /// Ветки копии для отката. Root — корень её дерева, где идёт git. Previous — ветка, на которой копия стояла до
+    /// задачи: имя каталога дерева, как его заводит кит (worktree-add.ps1), у основной копии — master. Deleted — ветка
+    /// задачи, которую откат удалит; null — удалять нечего: её нет на компьютере, она и есть прежняя или общая.
     /// </summary>
-    private static async Task<string?> ResetCopyAsync(Target target)
+    private sealed record Branches(string Root, string Previous, string Current, string? Deleted);
+
+    private static async Task<Branches?> BranchesAsync(Target target)
     {
         var copy = WorkspaceCollector.Normalize(target.Row.Path);
         if (await GitWorktrees.ListAsync(copy, CancellationToken.None) is not [var main, ..] worktrees)
-            return "git не прочитал копию";
+            return null;
         var worktree = worktrees
             .Where(w => copy.Equals(WorkspaceCollector.Normalize(w.Path), StringComparison.OrdinalIgnoreCase)
                 || copy.StartsWith(WorkspaceCollector.Normalize(w.Path) + '\\', StringComparison.OrdinalIgnoreCase))
             .MaxBy(w => w.Path.Length);
         if (worktree is null)
-            return "git не назвал дерево копии";
+            return null;
 
         var root = WorkspaceCollector.Normalize(worktree.Path);
         var previous = root.Equals(WorkspaceCollector.Normalize(main.Path), StringComparison.OrdinalIgnoreCase)
             ? "master"
             : Path.GetFileName(root);
         var task = target.Memory.Branch is { Length: > 0 } branch && branch != "отсоединён" ? branch : worktree.Branch;
+        // Общие ветки проекта откат не удаляет, даже если задача шла прямо в них.
+        var deleted = task == previous || task is "master" or "dev" or "отсоединён" || !await BranchExistsAsync(root, task)
+            ? null
+            : task;
+        return new Branches(root, previous, worktree.Branch, deleted);
+    }
+
+    private static async Task<bool> BranchExistsAsync(string root, string branch) =>
+        (await GitRunner.RunAsync(root, GitTimeout, CancellationToken.None, "rev-parse", "--verify", "-q", $"refs/heads/{branch}")).ExitCode == 0;
+
+    /// <summary>В ветке есть коммиты, которых нет ни в одной ветке сервера: с удалением ветки они пропадут.</summary>
+    private static async Task<bool> UnpushedAsync(string root, string branch)
+    {
+        var run = await GitRunner.RunAsync(root, GitTimeout, CancellationToken.None, "rev-list", "--count", $"refs/heads/{branch}", "--not", "--remotes");
+        return run.ExitCode != 0 || !int.TryParse(run.Output.Split('\n')[^1].Trim(), out var count) || count > 0;
+    }
+
+    /// <summary>Ветка есть на сервере — по последнему, что о нём знает копия.</summary>
+    private static async Task<bool> OnServerAsync(string root, string branch) =>
+        (await GitRunner.RunAsync(root, GitTimeout, CancellationToken.None, "rev-parse", "--verify", "-q", $"refs/remotes/origin/{branch}")).ExitCode == 0;
+
+    /// <summary>
+    /// Возвращает копию на ветку, на которой она стояла до задачи, и стирает несохранённые правки; ветка задачи
+    /// удаляется на компьютере, а на GitHub остаётся — решение оператора на макете B-108. Прежняя ветка проверяется
+    /// до сброса: без неё шаг падает, ничего не стерев.
+    /// </summary>
+    private static async Task<string?> ResetCopyAsync(Branches branches)
+    {
+        var (root, previous, current, deleted) = branches;
+        if (current != previous && !await BranchExistsAsync(root, previous))
+            return $"Ветки {previous}, на которой копия стояла до задачи, на компьютере нет — копия не тронута";
 
         // Неотслеживаемые файлы — тоже несохранённые правки; игнорируемые (субагенты кита, сборки) остаются.
         if (await GitAsync(root, "reset", "--hard", "-q") is { } notReset)
             return $"Несохранённые правки не стёрлись: {notReset}";
         if (await GitAsync(root, "clean", "-fdq") is { } notCleaned)
             return $"Новые файлы не стёрлись: {notCleaned}";
-        if (worktree.Branch != previous && await GitAsync(root, "checkout", "-q", previous) is { } notSwitched)
+        if (current != previous && await GitAsync(root, "switch", "-q", previous) is { } notSwitched)
             return $"Копия не перешла на ветку {previous}: {notSwitched}";
 
-        // Общие ветки проекта откат не удаляет, даже если задача шла прямо в них.
-        if (task == previous || task is "master" or "dev" or "отсоединён")
+        if (deleted is null)
             return null;
-        var exists = await GitRunner.RunAsync(root, GitTimeout, CancellationToken.None, "rev-parse", "--verify", "-q", $"refs/heads/{task}");
-        if (exists.ExitCode != 0)
-            return null;
-        return await GitAsync(root, "branch", "-D", task) is { } notDeleted
-            ? $"Ветка задачи {task} не удалилась: {notDeleted}"
+        return await GitAsync(root, "branch", "-D", deleted) is { } notDeleted
+            ? $"Ветка задачи {deleted} не удалилась: {notDeleted}"
             : null;
     }
 
@@ -345,8 +426,9 @@ public static class TaskRollback
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            await RestoreAllAsync(kept);
-            return $"Память задачи не снята: {e.Message}";
+            return await RestoreAllAsync(kept) is { } lost
+                ? $"Память задачи не снята, и не все её файлы вернулись: {lost}"
+                : $"Память задачи не снята: {e.Message}";
         }
 
         if (tracked.Count == 0)
@@ -355,9 +437,11 @@ public static class TaskRollback
             personal, tracked, $"{target.Number ?? target.Memory.Task} откачена из панели: память задачи снята", CancellationToken.None);
         if (commit.Error is not { } refused)
             return null;
-        await RestoreAllAsync(kept);
+        var notBack = await RestoreAllAsync(kept);
         await BaseGit.ResetFilesAsync(personal, tracked, CancellationToken.None);
-        return $"Коммит не прошёл — память задачи оставлена: {refused}";
+        return notBack is null
+            ? $"Коммит не прошёл — память задачи оставлена: {refused}"
+            : $"Коммит не прошёл, и не все файлы памяти вернулись ({notBack}): {refused}";
     }
 
     private static async Task<string?> RestoreAsync(string file, byte[] bytes)
@@ -373,8 +457,10 @@ public static class TaskRollback
         }
     }
 
-    private static async Task RestoreAllAsync(IEnumerable<(string File, byte[] Bytes)> kept)
+    /// <summary>Возвращает файлы как были; null — вернулись все, иначе — какие нет.</summary>
+    private static async Task<string?> RestoreAllAsync(IEnumerable<(string File, byte[] Bytes)> kept)
     {
+        var lost = new List<string>();
         foreach (var (file, bytes) in kept)
         {
             try
@@ -384,8 +470,9 @@ public static class TaskRollback
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
-                // Не вернувшийся файл назовёт сверка кита: git знает, каким он был.
+                lost.Add(Path.GetFileName(file));
             }
         }
+        return lost.Count == 0 ? null : string.Join(", ", lost);
     }
 }

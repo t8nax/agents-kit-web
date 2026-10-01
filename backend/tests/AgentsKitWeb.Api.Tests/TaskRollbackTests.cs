@@ -81,13 +81,16 @@ public sealed class TaskRollbackTests : IDisposable
     {
         var copy = TakeTask("B-7 Кнопка мигает");
         WriteSession(copy, 100, entrypoint: "claude-vscode");
-        WriteSession(copy, 101, entrypoint: "cli", name: "ручная");
+        WriteSession(Path.Combine(copy, "src"), 101, entrypoint: "cli", name: "ручная");
         WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
+        WriteSession(copy, 103, entrypoint: "cli", kind: "bg", jobId: "9919e753", name: "соседняя");
+        TestBases.TaskSession(_root, copy, "7339dced");
 
         var plan = await Client().GetFromJsonAsync<RollbackPlan>(PlanUrl(copy));
 
+        // Сессию задачи откат гасит сам; сессия своего окна — и в подкаталоге копии — и чужая фоновая ему мешают
         Assert.Equal(
-            [new RollbackBlocker("terminal", "ручная"), new RollbackBlocker("vscode", null)],
+            [new RollbackBlocker("background", "соседняя"), new RollbackBlocker("terminal", "ручная"), new RollbackBlocker("vscode", null)],
             plan!.Blockers.OrderBy(b => b.Kind, StringComparer.Ordinal));
     }
 
@@ -111,7 +114,7 @@ public sealed class TaskRollbackTests : IDisposable
     }
 
     [Fact]
-    public async Task Session_StopsBackgroundSessionsOfCopyAndForgetsTaskSession()
+    public async Task Session_StopsTaskSessionAndForgetsIt()
     {
         var copy = TakeTask("B-7 Кнопка мигает");
         WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
@@ -129,6 +132,7 @@ public sealed class TaskRollbackTests : IDisposable
     {
         var copy = TakeTask("B-7 Кнопка мигает");
         WriteSession(copy, 102, entrypoint: "cli", kind: "bg", jobId: "7339dced");
+        TestBases.TaskSession(_root, copy, "7339dced");
         _agent.Exit = new AgentExit(1, "no such session");
 
         var response = await Step(copy, TaskRollback.Session);
@@ -253,9 +257,10 @@ public sealed class TaskRollbackTests : IDisposable
     }
 
     [Fact]
-    public async Task Copy_PreviousBranchIsGone_IsFailure()
+    public async Task Copy_PreviousBranchIsGone_IsFailureThatErasesNothing()
     {
         var copy = TakeTask("B-7 Кнопка мигает");
+        File.WriteAllText(Path.Combine(copy, "draft.txt"), "черновик");
         Git(_main, "branch", "-D", "quiet-cedar");
 
         var response = await Step(copy, TaskRollback.Copy);
@@ -263,6 +268,93 @@ public sealed class TaskRollbackTests : IDisposable
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Contains("quiet-cedar", (await response.Content.ReadFromJsonAsync<RollbackProblem>())!.Message);
         Assert.Equal("b-7-blink", Output(copy, "branch", "--show-current"));
+        Assert.True(File.Exists(Path.Combine(copy, "draft.txt")));
+    }
+
+    [Fact]
+    public async Task AllSteps_CopyFailedThenCauseRemoved_RepeatFinishesAndCopyIsFree()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        var start = Output(_main, "rev-parse", "dev");
+        Git(_main, "branch", "-D", "quiet-cedar");
+        var client = Client();
+
+        Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, TaskRollback.Session, client)).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, TaskRollback.Backlog, client)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Step(copy, TaskRollback.Copy, client)).StatusCode);
+
+        // Оператор вернул прежнюю ветку и откатывает снова: все шаги по порядку, сделанные — без изменений
+        Git(_main, "branch", "quiet-cedar", start);
+        foreach (var step in TaskRollback.Steps)
+            Assert.Equal(HttpStatusCode.NoContent, (await Step(copy, step, client)).StatusCode);
+
+        Assert.Equal("quiet-cedar", Output(copy, "branch", "--show-current"));
+        Assert.Single(Workspaces.Backlog.Parse(File.ReadAllText(TestLayout.Backlog(_base))), e => e.Number == "B-7");
+        var rows = await client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
+        Assert.Equal(WorkspaceStatus.Free, rows!.Single(r => string.Equals(r.Path, copy, StringComparison.OrdinalIgnoreCase)).Status);
+    }
+
+    [Fact]
+    public async Task Copy_Repeated_ChangesNothing()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        var client = Client();
+        await Step(copy, TaskRollback.Copy, client);
+
+        var response = await Step(copy, TaskRollback.Copy, client);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal("quiet-cedar", Output(copy, "branch", "--show-current"));
+    }
+
+    [Fact]
+    public async Task Copy_TaskBranchOnServer_StaysThere()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+        var server = Path.Combine(_root, "server.git");
+        Git(_root, "init", "-q", "--bare", server);
+        Git(copy, "remote", "add", "origin", server);
+        Git(copy, "push", "-q", "origin", "b-7-blink");
+
+        var plan = await Client().GetFromJsonAsync<RollbackPlan>(PlanUrl(copy));
+        var response = await Step(copy, TaskRollback.Copy);
+
+        Assert.True(plan!.OnGitHub);
+        Assert.False(plan.Unpushed);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(Output(_main, "branch", "--list", "b-7-blink"));
+        Assert.NotEmpty(Output(server, "branch", "--list", "b-7-blink"));
+    }
+
+    [Fact]
+    public async Task Plan_TaskBranchNeverPushed_WarnsCommitsWillBeLost()
+    {
+        var copy = TakeTask("B-7 Кнопка мигает");
+
+        var plan = await Client().GetFromJsonAsync<RollbackPlan>(PlanUrl(copy));
+
+        Assert.True(plan!.Unpushed);
+        Assert.False(plan.OnGitHub);
+    }
+
+    [Fact]
+    public async Task Backlog_FileWithCrlfAndBom_KeepsItsTextAndLineEnds()
+    {
+        var bom = new byte[] { 0xEF, 0xBB, 0xBF };
+        var text = Backlog("## B-7 Кнопка мигает\n\nКнопка мигает при наведении.\n\n## B-8 Другая\n\nТекст.\n").Replace("\n", "\r\n");
+        File.WriteAllBytes(TestLayout.Backlog(_base), [.. bom, .. System.Text.Encoding.UTF8.GetBytes(text)]);
+        TestGit.Run(TestLayout.Personal(_base), "commit", "-q", "-am", "CRLF");
+        var copy = TakeTask("B-7 Кнопка мигает");
+        var cut = File.ReadAllBytes(TestLayout.Backlog(_base));
+
+        var response = await Step(copy, TaskRollback.Backlog);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var after = File.ReadAllBytes(TestLayout.Backlog(_base));
+        // Прежний текст — байт в байт, с BOM, запись дописана после него теми же переводами строк
+        Assert.Equal(bom, cut[..3]);
+        Assert.Equal(cut, after[..cut.Length]);
+        Assert.Equal("\r\n## B-7 Кнопка мигает\r\n\r\nКнопка мигает при наведении.\r\n", System.Text.Encoding.UTF8.GetString(after[cut.Length..]));
     }
 
     [Fact]
@@ -351,7 +443,13 @@ public sealed class TaskRollbackTests : IDisposable
 
     private static string Output(string directory, params string[] args)
     {
-        var startInfo = new ProcessStartInfo("git") { WorkingDirectory = directory, RedirectStandardOutput = true, RedirectStandardError = true };
+        var startInfo = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = directory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+        };
         foreach (var arg in args)
             startInfo.ArgumentList.Add(arg);
         using var process = TestProcess.Start(startInfo);
@@ -382,9 +480,11 @@ public sealed class TaskRollbackTests : IDisposable
         File.WriteAllText(Path.Combine(flow, "scenarios.md"), "# Сценарии\n");
         File.WriteAllText(Path.Combine(flow, "stages", "implementation.md"), "# Реализация\n");
         // Взятую запись кит вырезает из бэклога тем же коммитом, что заводит память.
-        var backlog = File.ReadAllText(TestLayout.Backlog(_base));
+        var (backlog, bom) = AgentsKitWeb.Api.Flow.FlowFolder.Decode(File.ReadAllBytes(TestLayout.Backlog(_base)));
         if (Workspaces.Backlog.Blocks(backlog).FirstOrDefault(b => task.StartsWith(b.Number + " ")) is { } taken)
-            File.WriteAllText(TestLayout.Backlog(_base), backlog.Remove(taken.Start, taken.End - taken.Start));
+            File.WriteAllBytes(
+                TestLayout.Backlog(_base),
+                AgentsKitWeb.Api.Flow.FlowFolder.Encode(backlog.Remove(taken.Start, taken.End - taken.Start), bom));
         TestGit.Run(personal, "add", "-A");
         TestGit.Run(personal, "commit", "-q", "-m", "задача взята");
     }

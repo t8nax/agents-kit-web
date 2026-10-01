@@ -196,8 +196,7 @@ public sealed class AgentSessions(string directory, Func<int, long?>? processSta
         _ => 0,
     };
 
-    /// <summary>Все живые сессии в каталоге копии — какие бы они ни были.</summary>
-    public IEnumerable<AgentSession> LiveIn(string copyPath)
+    private IEnumerable<AgentSession> LiveIn(string copyPath)
     {
         var copy = WorkspaceCollector.Normalize(copyPath);
         return All().Where(session =>
