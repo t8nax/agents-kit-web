@@ -315,9 +315,11 @@ export default function BacklogWriteModal({
       })
     }
   }
-  // Другой разговор без ждущего предложения заменяется сразу: окно от записи — про неё.
+  // Другой разговор без ждущего предложения заменяется сразу: окно от записи — про неё. Заменённый убран — разговор,
+  // который окно начнёт, уже его собственный: иначе его первая же реплика пряталась бы за «Загрузка…» навсегда
+  // (приёмка AKW-15).
   useEffect(() => {
-    if (verdict === 'other') void forget()
+    if (verdict === 'other') void forget().then(() => setVerdict('none'))
   }, [verdict, forget])
 
   async function save(id: string) {

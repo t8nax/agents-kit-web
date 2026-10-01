@@ -656,6 +656,13 @@ test('«Изменить» у другой записи заменяет иду�
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+
+  // Новый разговор — уже окна: его реплика и ответ видны, а не прячутся за «Загрузка…» (приёмка AKW-15)
+  await say('Поставь высокий')
+  stream.send({ type: 'reply', text: 'Поставь высокий', number: 'B-40' })
+  stream.send(answer({ text: 'Сделаю.' }))
+  expect(await screen.findByText('Сделаю.')).toBeInTheDocument()
+  expect(screen.queryByText('Загрузка…')).not.toBeInTheDocument()
 })
 
 test('«Изменить» у другой записи при ждущем предложении переспрашивает, «Отмена» оставляет прежний разговор', async () => {
