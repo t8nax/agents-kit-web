@@ -10,6 +10,11 @@ type TrackersProps = {
   trackersAt?: { base: string; at: number; field?: TrackerField } | null
 }
 
+/** Файл ключей к серверам трекеров не разобран: панель его не перезаписывает, поправить или удалить его — оператору. */
+function brokenText(file: string | null | undefined): string {
+  return `Файл ключей к серверам трекеров не разобран${file ? `: ${file}` : ''}. Поправьте или удалите его — после удаления ключи придётся ввести заново.`
+}
+
 /**
  * Раздел «Трекеры» (B-323): слева проекты, справа трекер выбранного. Ключи к серверам вводятся в окне трекера проекта,
  * отдельного списка серверов нет (ответ оператора на B-285): раздел читает только владельцев ключей — их называет
@@ -17,10 +22,26 @@ type TrackersProps = {
  */
 export default function Trackers({ trackerFor = null, trackersAt = null }: TrackersProps) {
   const [servers, setServers] = useState<TrackerServer[] | null>(null)
+  // Битый файл ключей — красной строкой с путём, а не молча: панель его не перезаписывает, поправить его — оператору
+  // (ревью B-288, B-285)
+  const [broken, setBroken] = useState<string | null>(null)
   const loadServers = useCallback(() => {
     fetch('/api/trackers')
-      .then((response) => (response.ok ? (response.json() as Promise<TrackerServer[]>) : Promise.reject()))
-      .then(setServers, () => setServers(null))
+      .then(async (response) => {
+        if (response.ok) return response.json() as Promise<TrackerServer[]>
+        const body = (await response.json().catch(() => null)) as { problem?: string; detail?: string | null } | null
+        throw new Error(body?.problem === 'file-broken' ? brokenText(body.detail) : `Ключи к серверам трекеров не прочитаны: HTTP ${response.status}.`)
+      })
+      .then(
+        (list) => {
+          setServers(list)
+          setBroken(null)
+        },
+        (e: unknown) => {
+          setServers(null)
+          setBroken(e instanceof TypeError ? null : String((e as Error).message))
+        },
+      )
   }, [])
   useEffect(loadServers, [loadServers])
   return (
@@ -28,6 +49,11 @@ export default function Trackers({ trackerFor = null, trackersAt = null }: Track
       <div className="content-head">
         <h2>Трекеры</h2>
       </div>
+      {broken && (
+        <p className="bases-error tp-error" role="alert">
+          {broken}
+        </p>
+      )}
       <TrackerProjects
         key={trackerFor?.at ?? trackersAt?.at ?? 'trackers'}
         rewriteFor={trackerFor}
