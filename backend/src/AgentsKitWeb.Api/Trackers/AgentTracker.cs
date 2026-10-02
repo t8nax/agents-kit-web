@@ -94,8 +94,12 @@ public sealed class AgentTrackers(string claudeDir)
         if (tracker.Kind is not (TrackerInfo.YouTrack or TrackerInfo.Jira) || tracker.Server is null)
             return new AgentTracker(tracker);
 
-        // Подходит подключение к хосту сервера трекера, а у Jira — и к удалённому серверу Atlassian
-        string[] hosts = tracker.Kind == TrackerInfo.Jira ? [new Uri(tracker.Server).Host, AtlassianHost] : [new Uri(tracker.Server).Host];
+        // Подходит подключение к хосту сервера трекера, а у облачной Jira (сайт на atlassian.net) — и к удалённому серверу
+        // Atlassian: серверной Jira облачное подключение не годится — задача ушла бы не в тот трекер (ревью B-285)
+        var site = new Uri(tracker.Server).Host;
+        string[] hosts = tracker.Kind == TrackerInfo.Jira && site.EndsWith(".atlassian.net", StringComparison.OrdinalIgnoreCase)
+            ? [site, AtlassianHost]
+            : [site];
         foreach (var (name, entry) in Servers(dirs.OfType<string>().ToList()))
             if (entry["url"]?.GetValueKind() == JsonValueKind.String
                 && Uri.TryCreate(entry["url"]!.GetValue<string>(), UriKind.Absolute, out var url)

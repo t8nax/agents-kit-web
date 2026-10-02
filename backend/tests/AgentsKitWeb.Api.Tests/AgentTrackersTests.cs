@@ -60,6 +60,16 @@ public sealed class AgentTrackersTests : IDisposable
         Assert.Equal("jira", Find()!.McpName);
     }
 
+    /// <summary>Jira не на atlassian.net — не облачная: облачное подключение Atlassian ей не подаётся (ревью B-285).</summary>
+    [Fact]
+    public void JiraNotCloud_DoesNotTakeAtlassianRemoteServer()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://jira.acme.local", "PAY");
+        Config(new { mcpServers = new { atlassian = Http("https://mcp.atlassian.com/v1/sse") } });
+
+        Assert.False(Find()!.Reachable);
+    }
+
     [Fact]
     public void Jira_NoConnection_SaysUnreachable()
     {
