@@ -855,6 +855,23 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("не json", File.ReadAllText(file));
     }
 
+    /// <summary>Переносить и снимать нечего — битый файл фильтров записи не мешает (ревью B-285, круг 2).</summary>
+    [Fact]
+    public async Task Save_FiltersFileBrokenButNothingToMove_IsWritten()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        var file = TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "не json");
+        var client = await Client();
+
+        var response = await Save(client, _base, (await Row(client)).Version, GitHub with { Project = "acme/crm" });
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Contains("acme/crm", File.ReadAllText(TrackerFile));
+        Assert.Equal("не json", File.ReadAllText(file));
+    }
+
     /// <summary>Ключ к серверу без проектов показать негде — он уходит с последним трекером на сервере.</summary>
     [Fact]
     public async Task Delete_LastProjectOnServer_RemovesKey()

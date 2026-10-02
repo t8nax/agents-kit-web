@@ -260,6 +260,20 @@ test('почта владельца ключа, пришедшая после о
   expect(form().getByLabelText('Почта')).toHaveValue('ivan@acme.example')
 })
 
+test('битый файл фильтров — описание не записано, окно называет файл', async () => {
+  stubFetch(controlledStream<TrackerEvent>(), () =>
+    Response.json({ problem: 'filters-broken', detail: 'C:\\op\\filters.json' }, { status: 409 }),
+  )
+  renderModal()
+
+  fireEvent.change(form().getByLabelText('Проект'), { target: { value: 'CRM2' } })
+  save()
+
+  expect(await form().findByRole('alert')).toHaveTextContent(
+    'Файл фильтров задач трекеров не прочитан, и описание не записано: C:\\op\\filters.json. Поправьте или удалите его.',
+  )
+})
+
 test('ключ отклонён — причина под полем «Ключ», поле в красной рамке', async () => {
   stubFetch(controlledStream<TrackerEvent>(), () =>
     Response.json({ problem: 'check', field: 'key', code: 'key-rejected' }, { status: 422 }),

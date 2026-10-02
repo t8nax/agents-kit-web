@@ -101,22 +101,26 @@ public static partial class ProjectTrackersEndpoints
                 {
                     return Results.Conflict(new ProjectTrackerRejected("keys-broken", broken.File));
                 }
-            // Запись убирает строку «фильтр:» из описания и переносит её в фильтры панели — битый файл фильтров останавливает
-            // её до коммита, иначе строка пропала бы молча (ревью B-285)
-            try
-            {
-                filters.Check();
-            }
-            catch (FiltersFileBroken broken)
-            {
-                return Results.Conflict(new ProjectTrackerRejected("filters-broken", broken.File));
-            }
 
             if (SyncOf(bases, layout, out var unready) is not { } sync)
                 return unready;
 
             if (await RefreshAsync(sync, layout, request.Version) is { } stale)
                 return stale;
+
+            // Запись переносит строку «фильтр:» описания в фильтры панели или снимает фильтр сменившего вид трекера — битый
+            // файл фильтров останавливает её до коммита, иначе строка пропала бы молча. Переносить и снимать нечего — файл
+            // фильтров записи не мешает (ревью B-285).
+            var earlier = Workspaces.Tracker.Read(layout);
+            if (!string.IsNullOrWhiteSpace(earlier?.Filter) || (earlier is not null && earlier.Kind != parsed.Kind))
+                try
+                {
+                    filters.Check();
+                }
+                catch (FiltersFileBroken broken)
+                {
+                    return Results.Conflict(new ProjectTrackerRejected("filters-broken", broken.File));
+                }
 
             // Введённый ключ сохраняется, только когда сервер назвал его владельца — решение оператора на B-288.
             string? owner = null;
