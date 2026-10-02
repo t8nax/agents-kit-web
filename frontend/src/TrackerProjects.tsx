@@ -160,7 +160,8 @@ export default function TrackerProjects({
         <DeleteProjectTrackerModal
           row={deleted}
           onClose={() => setDeleting(null)}
-          keyLeaves={sharedWith(deleted, rows).length === 0}
+          // О ключе окно говорит, только когда он сохранён и других проектов на его сервере нет (ревью B-285)
+          keyLeaves={keyOwner(deleted, servers) !== null && sharedWith(deleted, rows).length === 0}
           onRemoved={() => {
             setDeleting(null)
             void reload()

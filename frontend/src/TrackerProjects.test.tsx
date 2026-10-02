@@ -352,7 +352,14 @@ test('окно удаления говорит, что уйдёт и ключ, �
   unmount()
 
   stubApi({ 'GET /api/trackers/projects': () => json([pay, jira('D:\\Projects\\billing-knowledge', 'Billing')]) })
-  render(<TrackerProjects servers={servers} />)
+  const other = render(<TrackerProjects servers={servers} />)
+  fireEvent.click((await row('Pay')).getByRole('button', { name: 'Удалить трекер Pay' }))
+  expect(within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' })).queryByText(phrase)).not.toBeInTheDocument()
+  other.unmount()
+
+  // Ключа к серверу нет — и уходить нечему (ревью B-285)
+  stubApi({ 'GET /api/trackers/projects': () => json([pay]) })
+  render(<TrackerProjects servers={[]} />)
   fireEvent.click((await row('Pay')).getByRole('button', { name: 'Удалить трекер Pay' }))
   expect(within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' })).queryByText(phrase)).not.toBeInTheDocument()
 })
