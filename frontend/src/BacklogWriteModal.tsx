@@ -10,7 +10,7 @@ import { FormatNotice } from './NewerFormat'
 import { useAgentConversation } from './agentConversation'
 import { appendSpoken } from './voice'
 import VoiceButton from './VoiceButton'
-import { issueLabel, type TrackerDraft, type TrackerIssue } from './tracker'
+import { issueLabel, type TrackerIssue } from './tracker'
 import { OutIcon } from './TrackerGroup'
 import './Modal.css'
 import './ReplyModal.css'
@@ -28,27 +28,27 @@ export type WriteBase = { base: string; project: string; closed?: string | null 
 
 export type WrittenEntry = BacklogEntry
 
-/**
- * Правка предложения: change — запись станет entry, delete — запись entry уходит (into — куда влита), track — запись
- * уходит задачей в трекер проекта (B-286).
- */
+/** Правка предложения: change — запись станет entry, delete — запись entry уходит (into — куда влита). */
 export type ProposalChange = {
-  kind: 'change' | 'delete' | 'track'
+  kind: 'change' | 'delete'
   number: string
   entry: WrittenEntry
   into?: string | null
-  /** У переноса — задача, какой её заведёт «Сохранить»: описание и файлы, которые в неё не попадут. */
-  draft?: TrackerDraft | null
 }
 
 export type Proposal = { id: string; changes: ProposalChange[] }
+
+/**
+ * Запись, которую Чудо-Юдо сам перенёс в трекер (AKW-15): waiting — задача заведена, а запись ждёт, пока оператор
+ * прикрепит к задаче её файлы; иначе запись уже вырезана. entry — запись, какой была; files — её файлы artifacts/.
+ */
+export type BacklogMove = { number: string; entry: WrittenEntry; issue: TrackerIssue; waiting: boolean; files: string[] }
 
 /** События разговора о бэклоге — те, что пишет панель (BacklogWriteEvent в API). */
 export type WriteEvent =
   | { type: 'reply'; text: string; number?: string | null; files?: string[] | null }
   | { type: 'step'; text: string }
-  // issues — задачи трекера, заведённые брошенным предложением: записи о них остались в бэклоге
-  | { type: 'note'; text: string; issues?: Record<string, TrackerIssue> | null }
+  | { type: 'note'; text: string }
   | { type: 'stopped'; text: string }
   | {
       type: 'answer'
@@ -57,10 +57,10 @@ export type WriteEvent =
       commit?: string | null
       durationMs?: number | null
       proposal?: Proposal | null
+      moves?: BacklogMove[] | null
     }
   | { type: 'error'; text: string; output?: string | null; entries?: WrittenEntry[] | null }
-  // issues — задачи трекера, в которые ушли записи предложения: номер записи → задача
-  | { type: 'saved'; text: string; commit?: string | null; proposalId: string; issues?: Record<string, TrackerIssue> | null }
+  | { type: 'saved'; text: string; commit?: string | null; proposalId: string }
   | { type: 'refused'; text: string; proposalId: string }
 
 /**
@@ -78,8 +78,13 @@ type ProposalState = 'pending' | 'saved' | 'refused' | 'replaced'
 type Props = {
   bases: WriteBase[]
   initialBase: string | null
-  /** Запись, от которой окно открыто кнопкой «Изменить»: разговор начнётся про неё. */
+  /** Запись, от которой окно открыто кнопкой «Изменить» или «В трекер»: разговор начнётся про неё. */
   subject?: { base: string; entry: WrittenEntry } | null
+  /**
+   * Готовая просьба в поле, неотправленная: окно от «В трекер» — перенести запись (AKW-15). У такого окна запись
+   * с файлами несёт предупреждение, что в задачу они сами не попадут.
+   */
+  request?: string | null
   /** Запись бэклога по номеру: окно, открытое заново, показывает запись, о которой шёл разговор. */
   findEntry?: (base: string, number: string) => WrittenEntry | undefined
   onClose: () => void
@@ -88,8 +93,8 @@ type Props = {
   /** Панель записала изменения по «Сохранить»: список бэклога перечитывается. */
   onSaved?: (base: string) => void
   /**
-   * Разговор завёл задачи трекера — сохранённым предложением или тем, чей бэклог записать не вышло: раздел
-   * перечитывает трекер базы. Задачи — именами трекера («GitHub #58»); окно, открытое заново, зовёт снова с теми же.
+   * Чудо-Юдо завёл задачи трекера, перенося записи: раздел перечитывает трекер базы. Задачи — именами трекера
+   * («GitHub #58»); окно, открытое заново, зовёт снова с теми же.
    */
   onTracked?: (base: string, issues: string[]) => void
 }
@@ -98,6 +103,7 @@ export default function BacklogWriteModal({
   bases,
   initialBase,
   subject = null,
+  request = null,
   findEntry,
   onClose,
   onEntries,
@@ -108,17 +114,12 @@ export default function BacklogWriteModal({
   const [chosen, setChosen] = useState<string | null>(
     subject?.base ?? writable(initialBase) ?? bases.find((b) => !b.closed)?.base ?? bases[0]?.base ?? null,
   )
-  // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть.
+  // null — поле не трогали: в нём стоит реплика, на которой агент сорвался, если она есть. Готовую просьбу окна от
+  // «В трекер» поле получает, когда окно решило, что разговор — про эту запись (ниже, у решения о разговоре).
   const [text, setText] = useState<string | null>(null)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
-  // issues — задачи трекера, уже заведённые этим «Сохранить», хотя бэклог не записан
-  const [saveError, setSaveError] = useState<{
-    id: string
-    text: string
-    output?: string | null
-    issues?: Record<string, TrackerIssue> | null
-  } | null>(null)
+  const [saveError, setSaveError] = useState<{ id: string; text: string; output?: string | null } | null>(null)
   // Переспрос на месте поля ввода: несохранённое предложение не уходит молча — решение оператора на B-228.
   const [asking, setAsking] = useState<Asking | null>(null)
   // Запись, про которую окно: после «Новой переписки» окно от «Изменить» становится общим окном её проекта.
@@ -170,8 +171,14 @@ export default function BacklogWriteModal({
   // После «Сохранить» запись разговора показывается такой, какой её записали, а удалённая — отметкой «удалена».
   // Что с ней стало, говорит сохранённое предложение, а не список раздела: тот мог и не перечитаться.
   const saved = savedChange(events, aboutNumber)
-  const aboutGone = saved?.kind === 'delete' || saved?.kind === 'track'
-  const about = saved ? (aboutGone ? saved.entry : (current ?? saved.entry)) : (own?.entry ?? current)
+  // Перенесённую в трекер запись Чудо-Юдо вырезал сам: она стоит отметкой «перенесена»
+  const moved = movedOf(events, aboutNumber)
+  const aboutGone = saved?.kind === 'delete' || moved !== null
+  const about = moved
+    ? moved.entry
+    : saved
+      ? (aboutGone ? saved.entry : (current ?? saved.entry))
+      : (own?.entry ?? current)
 
   // Закрытое окно разговор не трогает: открытое снова, оно показывает его на месте, а кончает его только
   // «Новая переписка» — как в окне вопроса по базе, решение оператора на B-228.
@@ -205,20 +212,23 @@ export default function BacklogWriteModal({
     if (base && savedCount > 0 && !hidden) onSaved?.(base)
   }, [base, savedCount, hidden, onSaved])
 
-  // Заведённые задачи трекера: у сохранённого предложения, у несохранённого и у брошенного — в строке панели
-  const tracked = [
-    ...events.flatMap((e) => (e.type === 'saved' || e.type === 'note' ? Object.values(e.issues ?? {}) : [])),
-    ...Object.values(saveError?.issues ?? {}),
-  ]
-    .map((issue) => issue.name)
+  // Чудо-Юдо вырезал записи, перенеся их в трекер, — список бэклога перечитывается, как после «Сохранить». Задачу
+  // он мог назвать ещё ходом «ждёт файлов», и перечитывание трекера под неё тогда уже прошло (AKW-15).
+  const movedOut = events.filter((e) => e.type === 'answer' && (e.moves ?? []).some((m) => !m.waiting)).length
+  useEffect(() => {
+    if (base && movedOut > 0 && !hidden) onSaved?.(base)
+  }, [base, movedOut, hidden, onSaved])
+
+  // Задачи трекера, которые Чудо-Юдо завёл, перенося записи, — и те, что ждут файлов
+  const tracked = events
+    .flatMap((e) => (e.type === 'answer' ? (e.moves ?? []) : []))
+    .map((move) => move.issue.name)
     .join('\n')
   useEffect(() => {
     if (base && tracked && !hidden) onTracked?.(base, tracked.split('\n'))
   }, [base, tracked, hidden, onTracked])
 
   const states = proposalStates(events)
-  // Задачи трекера, заведённые сохранённым предложением: по ним карточка переноса показывает номер задачи ссылкой
-  const issues = new Map(events.flatMap((e) => (e.type === 'saved' ? [[e.proposalId, e.issues ?? {}] as const] : [])))
   const pendingProposal =
     events
       .flatMap((e) => (e.type === 'answer' && e.proposal ? [e.proposal] : []))
@@ -273,7 +283,8 @@ export default function BacklogWriteModal({
     setOwn(to ?? null)
     // Проект нового разговора — тот, о котором шёл прежний, даже если окно подхватило его из шапки.
     setChosen(to?.base ?? conversation.base ?? chosen)
-    setText(null)
+    // Переписка про запись окна от «В трекер» начинается с его готовой просьбы
+    setText(sameSubject(to ?? null, subject) ? request : null)
     setSaveError(null)
     attach.clear()
     inFlight.current = null
@@ -291,6 +302,10 @@ export default function BacklogWriteModal({
           ? 'ask'
           : 'other'
     setVerdict(next)
+    // Просьба о переносе — только в разговоре про запись кнопки и только пока перенос по ней не начат: в разговоре,
+    // где задача уже ждёт файлов, она завела бы задачу второй раз (ревью AKW-15)
+    if (next === 'none' || next === 'other' || (next === 'same' && !moveStarted(events, subject.entry.number)))
+      setText(request)
     if (next === 'ask') {
       setOwn(null)
       setAsking({
@@ -300,9 +315,11 @@ export default function BacklogWriteModal({
       })
     }
   }
-  // Другой разговор без ждущего предложения заменяется сразу: окно от записи — про неё.
+  // Другой разговор без ждущего предложения заменяется сразу: окно от записи — про неё. Заменённый убран — разговор,
+  // который окно начнёт, уже его собственный: иначе его первая же реплика пряталась бы за «Загрузка…» навсегда
+  // (приёмка AKW-15).
   useEffect(() => {
-    if (verdict === 'other') void forget()
+    if (verdict === 'other') void forget().then(() => setVerdict('none'))
   }, [verdict, forget])
 
   async function save(id: string) {
@@ -317,13 +334,8 @@ export default function BacklogWriteModal({
       if (response.status === 404) setSaveError({ id, text: 'Предложение уже не ждёт сохранения' })
       else if (!response.ok) setSaveError({ id, text: 'Панель не сохранила изменения' })
       else {
-        const saved = (await response.json()) as {
-          commit?: string | null
-          error?: string | null
-          output?: string | null
-          issues?: Record<string, TrackerIssue> | null
-        }
-        if (saved.error) setSaveError({ id, text: saved.error, output: saved.output, issues: saved.issues })
+        const saved = (await response.json()) as { commit?: string | null; error?: string | null; output?: string | null }
+        if (saved.error) setSaveError({ id, text: saved.error, output: saved.output })
       }
     } catch {
       setSaveError({ id, text: 'Нет связи с API' })
@@ -419,7 +431,6 @@ export default function BacklogWriteModal({
             <strong>Не сохранено</strong>
             <span>{saveError.text}</span>
             {saveError.output && <pre>{saveError.output}</pre>}
-            <IssueLinks issues={saveError.issues} />
           </div>
         )}
 
@@ -432,9 +443,10 @@ export default function BacklogWriteModal({
               <p className="talk-label">Запись</p>
               <ul className="write-entries">
                 {aboutGone ? (
-                  <EntryCard entry={about} badge={saved?.kind === 'track' ? 'перенесена' : 'удалена'} tone="added" removed />
+                  <EntryCard entry={about} badge={moved ? 'перенесена' : 'удалена'} tone="added" removed />
                 ) : (
-                  <EntryCard entry={about} base={base} />
+                  // Окно от «В трекер»: файлы записи в задачу сами не попадут — макет AKW-15, вариант 1А
+                  <EntryCard entry={about} base={base} warn={request !== null && sameSubject(own, subject) && !moveStarted(events, about.number) ? filesWarning(about) : null} />
                 )}
               </ul>
             </div>
@@ -455,7 +467,6 @@ export default function BacklogWriteModal({
                 return (
                   <p className="ask-note" key={i}>
                     {event.text}
-                    {event.type === 'note' && <IssueLinks issues={event.issues} />}
                   </p>
                 )
               case 'answer':
@@ -463,8 +474,8 @@ export default function BacklogWriteModal({
                   <Answer
                     key={i}
                     event={event}
+                    base={base}
                     state={event.proposal ? (states.get(event.proposal.id) ?? 'replaced') : null}
-                    issues={event.proposal ? (issues.get(event.proposal.id) ?? {}) : {}}
                   />
                 )
               case 'error':
@@ -605,18 +616,22 @@ export default function BacklogWriteModal({
   )
 }
 
-/** Ответ Чудо-Юдо: его слова, записи, добавленные сразу, и карточки предложения; его кнопки — в полосе под шапкой. */
+/**
+ * Ответ Чудо-Юдо: его слова, записи, добавленные сразу, итог переноса в трекер и карточки предложения; кнопки
+ * предложения — в полосе под шапкой.
+ */
 function Answer({
   event,
+  base,
   state,
-  issues,
 }: {
   event: Extract<WriteEvent, { type: 'answer' }>
+  base: string | null
   state: ProposalState | null
-  issues: Record<string, TrackerIssue>
 }) {
   const entries = event.entries ?? []
   const proposal = event.proposal ?? null
+  const moves = event.moves ?? []
   return (
     <div className="agent-q talk-agent">
       {event.text && <Markdown className="talk-text" text={event.text} />}
@@ -627,25 +642,74 @@ function Answer({
           ))}
         </ul>
       )}
+      {moves.length > 0 && (
+        <ul className="write-entries" aria-label="Перенос в трекер">
+          {moves.map((move) =>
+            move.waiting ? (
+              <WaitingCard key={move.number} move={move} base={base} />
+            ) : (
+              <MovedCards key={move.number} move={move} />
+            ),
+          )}
+        </ul>
+      )}
       {proposal && state && (
         <div className={`talk-group ${state === 'refused' || state === 'replaced' ? 'is-void' : ''}`}>
-          <ProposalEntries proposal={proposal} state={state} issues={issues} />
+          <ProposalEntries proposal={proposal} state={state} />
         </div>
       )}
     </div>
   )
 }
 
+/**
+ * Задача заведена, а запись ждёт, пока оператор прикрепит к задаче её файлы (макет AKW-15, вариант 3Б): номер
+ * задачи плашкой-ссылкой, отметка ожидания и файлы, которые открываются в VS Code.
+ */
+function WaitingCard({ move, base }: { move: BacklogMove; base: string | null }) {
+  const { entry, issue } = move
+  return (
+    <li className="write-entry move-waiting">
+      <div className="write-entry-head">
+        <span className="entry-num">{move.number}</span>
+        <InlineMarkdown className="write-entry-title" text={entry.title} />
+        <IssueLink issue={issue} />
+        <span className="change-badge waiting">задача заведена, ждёт файлов</span>
+      </div>
+      {base && entry.artifacts && entry.artifacts.length > 0 && (
+        <EntryArtifacts base={base} number={move.number} artifacts={entry.artifacts} compact files />
+      )}
+    </li>
+  )
+}
+
+/** Запись перенесена (вариант 4Б): запись «удалена» и задача трекера своим заголовком — «заведена». */
+function MovedCards({ move }: { move: BacklogMove }) {
+  return (
+    <>
+      <EntryCard entry={move.entry} badge="удалена" tone="added" removed />
+      <li className="write-entry move-issue">
+        <div className="write-entry-head">
+          <IssueLink issue={move.issue} />
+          <InlineMarkdown className="write-entry-title" text={move.issue.title} />
+          <span className="change-badge added">заведена</span>
+        </div>
+      </li>
+    </>
+  )
+}
+
+function IssueLink({ issue }: { issue: TrackerIssue }) {
+  return (
+    <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
+      {issueLabel(issue)}
+      <OutIcon />
+    </a>
+  )
+}
+
 /** Записи предложения: объединение — «Останется» и «Уйдёт в …», остальное — списком. */
-function ProposalEntries({
-  proposal,
-  state,
-  issues,
-}: {
-  proposal: Proposal
-  state: ProposalState
-  issues: Record<string, TrackerIssue>
-}) {
+function ProposalEntries({ proposal, state }: { proposal: Proposal; state: ProposalState }) {
   const targets = [...new Set(proposal.changes.filter((c) => c.kind === 'delete' && c.into).map((c) => c.into!))]
   const merged = new Set([
     ...targets,
@@ -656,13 +720,9 @@ function ProposalEntries({
     <>
       {rest.length > 0 && (
         <ul className="write-entries" aria-label="Изменения">
-          {rest.map((change) =>
-            change.kind === 'track' ? (
-              <TrackCard key={change.number} change={change} state={state} issue={issues[change.number] ?? null} />
-            ) : (
-              <ChangeCard key={change.number} change={change} state={state} />
-            ),
-          )}
+          {rest.map((change) => (
+            <ChangeCard key={change.number} change={change} state={state} />
+          ))}
         </ul>
       )}
       {targets.map((target) => {
@@ -718,77 +778,6 @@ function ChangeCard({ change, state }: { change: ProposalChange; state: Proposal
   )
 }
 
-/**
- * Перенос записи в трекер (макет B-286, карточка А): пока ждёт — описание будущей задачи, как его заведёт «Сохранить»,
- * со строкой о файлах, которые в задачу не попадут; после «Сохранить» — заголовок и номер задачи плашкой-ссылкой рядом
- * с отметкой, без вложенной рамки.
- */
-function TrackCard({ change, state, issue }: { change: ProposalChange; state: ProposalState; issue: TrackerIssue | null }) {
-  const { entry } = change
-  const body = change.draft ? change.draft.body : entry.text
-  const files = change.draft?.files ?? (entry.artifacts ?? []).filter((a) => !/^https?:\/\//i.test(a.address))
-  const badge = { pending: 'перенести', saved: 'перенесена', refused: 'отказались', replaced: 'заменено' }[state]
-  const open = state === 'pending' || state === 'replaced' || state === 'refused'
-  return (
-    <li className={`write-entry ${state === 'refused' ? 'is-struck' : ''}`}>
-      <div className="write-entry-head">
-        <span className="entry-num">{entry.number}</span>
-        <InlineMarkdown className="write-entry-title" text={entry.title} />
-        {state === 'saved' && issue && (
-          <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
-            {issueLabel(issue)}
-            <OutIcon />
-          </a>
-        )}
-        <span className={`change-badge ${state === 'saved' ? 'added' : ''}`}>{badge}</span>
-      </div>
-      {open &&
-        (body ? (
-          <Markdown className="write-entry-text" text={body} />
-        ) : (
-          <p className="write-entry-text entry-no-text">Описания нет</p>
-        ))}
-      {open && files.length > 0 && (
-        <p className="write-entry-warn">
-          <WarnIcon />
-          <span>
-            {files.length === 1 ? 'Файл ' : 'Файлы '}
-            {files.map((file, i) => (
-              <span key={file.address}>
-                {i > 0 && (i === files.length - 1 ? ' и ' : ', ')}
-                <span className="mono">{file.address.split('/').pop()}</span>
-              </span>
-            ))}
-            {files.length === 1 ? ' в задачу не попадёт и удалится вместе с записью.' : ' в задачу не попадут и удалятся вместе с записью.'}
-          </span>
-        </p>
-      )}
-    </li>
-  )
-}
-
-/**
- * Задачи трекера, заведённые, хотя бэклог не записан: номер записи и номер задачи плашкой-ссылкой, как на карточке
- * переноса, — по ним оператор найдёт задачу и уберёт запись (ревью B-286).
- */
-function IssueLinks({ issues }: { issues?: Record<string, TrackerIssue> | null }) {
-  const list = Object.entries(issues ?? {})
-  if (list.length === 0) return null
-  return (
-    <span className="talk-issues">
-      {list.map(([number, issue]) => (
-        <span className="talk-issue" key={number}>
-          <span className="entry-num">{number}</span>
-          <a className="wc-issue" href={issue.url} target="_blank" rel="noreferrer" title={`Открыть ${issue.name} во вкладке браузера`}>
-            {issueLabel(issue)}
-            <OutIcon />
-          </a>
-        </span>
-      ))}
-    </span>
-  )
-}
-
 function WarnIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -801,7 +790,8 @@ function WarnIcon() {
 
 /**
  * Запись карточкой: номер, заголовок и отметка; удаляемая — только номером и зачёркнутым заголовком. С базой — ещё
- * и артефакты записи блоком под описанием: так стоит запись, про которую открыт разговор (B-260).
+ * и артефакты записи блоком под описанием: так стоит запись, про которую открыт разговор (B-260); warn — красная
+ * строка под ними.
  */
 function EntryCard({
   entry,
@@ -810,6 +800,7 @@ function EntryCard({
   removed = false,
   struck = false,
   base,
+  warn = null,
 }: {
   entry: WrittenEntry
   badge?: string
@@ -817,6 +808,7 @@ function EntryCard({
   removed?: boolean
   struck?: boolean
   base?: string | null
+  warn?: string | null
 }) {
   return (
     <li className={`write-entry ${removed ? 'is-removed' : ''} ${struck ? 'is-struck' : ''}`}>
@@ -839,8 +831,47 @@ function EntryCard({
       {!removed && base && entry.artifacts && entry.artifacts.length > 0 && (
         <EntryArtifacts base={base} number={entry.number} artifacts={entry.artifacts} compact />
       )}
+      {!removed && warn && (
+        <p className="write-entry-warn">
+          <WarnIcon />
+          <span>{warn}</span>
+        </p>
+      )}
     </li>
   )
+}
+
+/** Файлы artifacts/ записи сами в задачу трекера не попадут: Чудо-Юдо попросит прикрепить их вручную. */
+function filesWarning(entry: WrittenEntry): string | null {
+  const files = (entry.artifacts ?? []).filter((a) => !/^https?:\/\//i.test(a.address))
+  if (files.length === 0) return null
+  const names = files.map((file) => file.address.split('/').pop())
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} и ${names[names.length - 1]}`
+  return files.length === 1
+    ? `Файл ${list} в задачу сам не попадёт — ${AGENT_NAME} попросит прикрепить его вручную.`
+    : `Файлы ${list} в задачу сами не попадут — ${AGENT_NAME} попросит прикрепить их вручную.`
+}
+
+/**
+ * Разговор про запись кнопки: та же база и тот же номер. Раздел отдаёт запись новым объектом на каждой перерисовке,
+ * поэтому сравнивать объекты нельзя.
+ */
+function sameSubject(a: Props['subject'], b: Props['subject']): boolean {
+  return !!a && !!b && a.base === b.base && a.entry.number === b.entry.number
+}
+
+/** Чудо-Юдо уже переносил эту запись в трекер: задача заведена — ждёт файлов или запись вырезана. */
+function moveStarted(events: WriteEvent[], number: string | null): boolean {
+  return events.some((e) => e.type === 'answer' && (e.moves ?? []).some((m) => m.number === number))
+}
+
+/** Последний перенос записи в трекер, уже вырезавший её из бэклога. */
+function movedOf(events: WriteEvent[], number: string | null): BacklogMove | null {
+  if (number === null) return null
+  let last: BacklogMove | null = null
+  for (const event of events)
+    if (event.type === 'answer') last = (event.moves ?? []).find((m) => m.number === number && !m.waiting) ?? last
+  return last
 }
 
 /**
@@ -895,11 +926,9 @@ function pendingParts(proposal: Proposal) {
   const targets = new Set(into.map((c) => c.into!))
   const changes = proposal.changes.filter((c) => c.kind === 'change' && !targets.has(c.number)).length
   const deletes = proposal.changes.filter((c) => c.kind === 'delete' && !c.into).length
-  const tracks = proposal.changes.filter((c) => c.kind === 'track').length
   const parts = [
     changes > 0 && `изменить ${changes}`,
     deletes > 0 && `удалить ${deletes}`,
-    tracks > 0 && `перенести ${tracks} в трекер`,
     ...[...targets].map((target) => {
       const count = 1 + into.filter((c) => c.into === target).length
       return `объединить ${count} ${plural(count, 'запись', 'записи', 'записей')} в одну`

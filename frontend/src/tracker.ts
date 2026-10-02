@@ -62,9 +62,14 @@ export function labelChoices(load: TrackerLoad | undefined): string[] {
   return [...new Set(load.issues.flatMap((issue) => issue.labels ?? []))].sort((a, b) => a.localeCompare(b))
 }
 
-/** Трекер, задачи которого панель читает и в который переносит записи бэклога. */
+/** Трекер, задачи которого панель читает. */
 export function readable(tracker: TrackerInfo | null | undefined): boolean {
   return tracker?.kind === 'github' || tracker?.kind === 'youtrack' || tracker?.kind === 'jira'
+}
+
+/** Трекер, в который Чудо-Юдо переносит записи бэклога (AKW-15): GitHub программой gh, YouTrack подключением Claude Code. */
+export function movable(tracker: TrackerInfo | null | undefined): boolean {
+  return tracker?.kind === 'github' || tracker?.kind === 'youtrack'
 }
 
 /** Имя трекера, как его пишет кит и панель в своих строках. */
@@ -111,33 +116,6 @@ export function trackerIssueName(text: string): string | null {
 /** Имя задачи трекера, которым начат заголовок задачи в строке копии: «YouTrack ABC-12 Заголовок». */
 export function trackerIssueAtStart(task: string): string | null {
   return canonical(new RegExp(`^\\s*${issuePattern}(?:\\s|$)`, 'i').exec(task))
-}
-
-/**
- * Задача трекера, какой её заведёт перенос записи: заголовок без номера, описание — текст записи, её «Агенту»
- * и ссылки; files — файлы записи, которые в задачу не попадут. original — запись, как её видело окно.
- */
-export type TrackerDraft = {
-  number: string
-  title: string
-  body: string
-  files: { label: string; address: string }[]
-  original: string
-}
-
-/**
- * Чем кончился перенос. error — фраза для оператора, её пишет API: без issue — задача не заведена (problem — почему,
- * detail — строка трекера) или перенос не начат; с issue — задача заведена, а запись осталась в бэклоге.
- */
-export type TrackerMoved = {
-  issue: TrackerIssue | null
-  problem?: string | null
-  detail?: string | null
-  error?: string | null
-  output?: string | null
-  commit?: string | null
-  /** Файлы artifacts/, ушедшие вместе с записью: на них больше ничего не ссылалось. */
-  removed?: string[] | null
 }
 
 export function loadTrackerIssues(base: string): Promise<TrackerLoad> {

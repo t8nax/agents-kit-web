@@ -24,9 +24,6 @@ public interface IJira
     /// </summary>
     Task<TrackerIssues> OpenAsync(
         string server, string email, string key, string project, string? filter, CancellationToken cancellationToken);
-
-    /// <summary>Новая задача проекта, назначенная на владельца ключа, без других полей.</summary>
-    Task<CreatedIssue> CreateAsync(string server, string email, string key, string project, string title, string body);
 }
 
 /// <summary>
@@ -38,10 +35,8 @@ public sealed class JiraApi(IHttpClientFactory clients) : IJira
 {
     public const string Client = "jira";
 
-    // Чтение ждёт недолго: раздел не должен висеть на открытии. Заведение — дольше: оборванное,
-    // оно могло завести задачу, и оператору пришлось бы её искать.
+    // Чтение ждёт недолго: раздел не должен висеть на открытии.
     private static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan CreateTimeout = TimeSpan.FromMinutes(1);
 
     public async Task<JiraUser> WhoAsync(string server, string email, string key, CancellationToken cancellationToken)
     {
@@ -119,68 +114,6 @@ public sealed class JiraApi(IHttpClientFactory clients) : IJira
         };
     }
 
-    /// <summary>
-    /// Отмены у заведения нет, как у gh (B-286): оборванный запрос мог завести задачу. Задача назначается на
-    /// владельца ключа тем же запросом. Тип задачи — «Task», если он есть в проекте, иначе первый тип, который
-    /// не подзадача: подзадачу без родителя Jira не заводит.
-    /// </summary>
-    public async Task<CreatedIssue> CreateAsync(string server, string email, string key, string project, string title, string body)
-    {
-        var who = await WhoAsync(server, email, key, CancellationToken.None);
-        if (who.Problem is not null)
-            return new CreatedIssue(null, who.Problem, who.Detail);
-        var found = await ProjectAsync(server, email, key, project, CancellationToken.None);
-        if (found.Problem is not null)
-            return new CreatedIssue(null, found.Problem, found.Detail);
-        if (found.IssueType is null)
-            return new CreatedIssue(null, TrackerIssues.JiraError, "в проекте нет типа задачи, который не подзадача");
-
-        var payload = new JsonObject
-        {
-            ["fields"] = new JsonObject
-            {
-                ["project"] = new JsonObject { ["key"] = found.Key },
-                ["issuetype"] = new JsonObject { ["id"] = found.IssueType },
-                ["summary"] = title,
-                ["description"] = Document(body),
-                ["assignee"] = new JsonObject { ["accountId"] = who.AccountId },
-            },
-        };
-        var request = Request(HttpMethod.Post, server, email, key, "rest/api/3/issue");
-        request.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-        var reply = await SendAsync(request, CreateTimeout, CancellationToken.None);
-        if (reply.Problem == TrackerIssues.ServerSilent)
-            return new CreatedIssue(null, CreatedIssue.JiraSilent, reply.Detail);
-        if (reply.Problem is not null)
-            return new CreatedIssue(null, reply.Problem, reply.Detail);
-        return Issue(server, Text(reply.Json, "key"), title) is { } issue
-            ? new CreatedIssue(issue)
-            : new CreatedIssue(null, CreatedIssue.CreatedUnknown);
-    }
-
-    /// <summary>
-    /// Описание задачи REST v3 принимает только документом Atlassian, а не строкой: абзацы — по пустым строкам,
-    /// переводы строк внутри абзаца — разрывами. Пустого текстового узла Jira не принимает.
-    /// </summary>
-    public static JsonObject Document(string body)
-    {
-        var paragraphs = new JsonArray();
-        foreach (var block in body.ReplaceLineEndings("\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
-        {
-            var content = new JsonArray();
-            foreach (var line in block.Split('\n'))
-            {
-                if (content.Count > 0)
-                    content.Add(new JsonObject { ["type"] = "hardBreak" });
-                if (line.Length > 0)
-                    content.Add(new JsonObject { ["type"] = "text", ["text"] = line });
-            }
-            if (content.Any(node => Text(node, "type") == "text"))
-                paragraphs.Add(new JsonObject { ["type"] = "paragraph", ["content"] = content });
-        }
-        return new JsonObject { ["type"] = "doc", ["version"] = 1, ["content"] = paragraphs };
-    }
-
     /// <summary>Задача по её ключу «PAY-12»: имя — как у кита, «Jira PAY-12», адрес — страница задачи.</summary>
     public static TrackerIssue? Issue(string server, string? id, string title)
     {
@@ -189,29 +122,21 @@ public sealed class JiraApi(IHttpClientFactory clients) : IJira
         return new TrackerIssue($"Jira {id}", number, title, $"{server.TrimEnd('/')}/browse/{id}");
     }
 
-    private sealed record Project(string? Key, string? IssueType, string? Problem = null, string? Detail = null);
+    private sealed record Project(string? Key, string? Problem = null, string? Detail = null);
 
-    /// <summary>
-    /// Проект — по ключу из описания трекера; 404 — проекта нет или владельцу ключа он не виден, Jira их не различает.
-    /// Тип для заведения задачи — из типов того же ответа.
-    /// </summary>
+    /// <summary>Проект — по ключу из описания трекера; 404 — проекта нет или владельцу ключа он не виден, Jira их не различает.</summary>
     private async Task<Project> ProjectAsync(
         string server, string email, string key, string project, CancellationToken cancellationToken)
     {
         var reply = await SendAsync(
             Get(server, email, key, $"rest/api/3/project/{Uri.EscapeDataString(project)}"), ReadTimeout, cancellationToken);
         if (reply.Status == HttpStatusCode.NotFound)
-            return new Project(null, null, TrackerIssues.ProjectMissing);
+            return new Project(null, TrackerIssues.ProjectMissing);
         if (reply.Problem is not null)
-            return new Project(null, null, reply.Problem, reply.Detail);
-        if (Text(reply.Json, "key") is not { Length: > 0 } found)
-            return new Project(null, null, TrackerIssues.JiraError, NotJira);
-        var types = (reply.Json?["issueTypes"] as JsonArray)?.OfType<JsonObject>()
-            .Where(t => !(t["subtask"] is JsonValue sub && sub.TryGetValue<bool>(out var isSub) && isSub))
-            .ToList() ?? [];
-        var type = types.FirstOrDefault(t => string.Equals(Text(t, "name"), "Task", StringComparison.OrdinalIgnoreCase))
-            ?? types.FirstOrDefault();
-        return new Project(found, Text(type, "id"));
+            return new Project(null, reply.Problem, reply.Detail);
+        return Text(reply.Json, "key") is { Length: > 0 } found
+            ? new Project(found)
+            : new Project(null, TrackerIssues.JiraError, NotJira);
     }
 
     private const string NotJira = "сервер ответил не как Jira";
@@ -222,12 +147,9 @@ public sealed class JiraApi(IHttpClientFactory clients) : IJira
 
     private sealed record Reply(JsonNode? Json, string? Problem = null, string? Detail = null, HttpStatusCode? Status = null);
 
-    private static HttpRequestMessage Get(string server, string email, string key, string path) =>
-        Request(HttpMethod.Get, server, email, key, path);
-
-    private static HttpRequestMessage Request(HttpMethod method, string server, string email, string key, string path)
+    private static HttpRequestMessage Get(string server, string email, string key, string path)
     {
-        var request = new HttpRequestMessage(method, new Uri(new Uri(server.TrimEnd('/') + "/"), path));
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(server.TrimEnd('/') + "/"), path));
         request.Headers.Authorization = new AuthenticationHeaderValue(
             "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes($"{email}:{key}")));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));

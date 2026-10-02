@@ -76,22 +76,6 @@ public sealed record TrackerIssues(
     public const string FilterRejected = "filter-rejected";
 }
 
-/// <summary>
-/// Задача, заведённая в трекере. Problem задан — задача не заведена, значения те же, что у TrackerIssues;
-/// «github-silent» и «youtrack-silent» — трекер не ответил в срок, «created-unknown» — трекер не назвал номер
-/// задачи, «jira-silent» — то же у Jira: во всех этих случаях задача могла завестись.
-/// </summary>
-public sealed record CreatedIssue(TrackerIssue? Issue, string? Problem = null, string? Detail = null)
-{
-    public const string GitHubSilent = "github-silent";
-    public const string YouTrackSilent = "youtrack-silent";
-    public const string JiraSilent = "jira-silent";
-    public const string CreatedUnknown = "created-unknown";
-
-    /// <summary>Задача могла завестись, хотя её адреса нет: повторять заведение вслепую — завести дубль.</summary>
-    public bool MaybeCreated => Problem is GitHubSilent or YouTrackSilent or JiraSilent or CreatedUnknown;
-}
-
 public interface IGitHubIssues
 {
     /// <summary>
@@ -100,17 +84,13 @@ public interface IGitHubIssues
     /// </summary>
     Task<TrackerIssues> OpenAsync(string repo, string? filter, CancellationToken cancellationToken);
 
-    /// <summary>Новая задача репозитория, назначенная на того, кем gh вошла в GitHub, без меток.</summary>
-    Task<CreatedIssue> CreateAsync(string repo, string title, string body);
-
     /// <summary>Имена всех меток репозитория; не прочитали — null.</summary>
     Task<IReadOnlyList<string>?> LabelsAsync(string repo, CancellationToken cancellationToken);
 }
 
 /// <summary>
-/// Задачи GitHub читает и заводит программа gh оператора: вход в аккаунт — её, панель ключей не хранит — решение
-/// оператора на B-277. Заводит панель только задачу из записи бэклога (B-286); назначает взятую задачу и меняет
-/// её состояние сессия, которая её берёт.
+/// Задачи GitHub читает программа gh оператора: вход в аккаунт — её, панель ключей не хранит — решение
+/// оператора на B-277. Заводит и меняет задачи не панель, а агент — тоже программой gh (AKW-15).
 /// </summary>
 public sealed partial class GhIssues : IGitHubIssues
 {
@@ -136,25 +116,6 @@ public sealed partial class GhIssues : IGitHubIssues
         if (run.ExitCode == 0)
             return Parse(run.Output, who is { Missing: false, TimedOut: false, ExitCode: 0 } ? who.Output.Trim() : null);
         return Failed(run.ExitCode, run.Error);
-    }
-
-    /// <summary>
-    /// Отмены у заведения нет: оборванная посреди запроса, gh могла успеть завести задачу, и панель не знала бы
-    /// её адреса. Её гасит только срок, и тогда оператор узнаёт, что задачу стоит поискать в трекере.
-    /// </summary>
-    public async Task<CreatedIssue> CreateAsync(string repo, string title, string body)
-    {
-        var run = await RunAsync(CreateStartInfo(repo, title), body, CancellationToken.None);
-        if (run.Missing)
-            return new CreatedIssue(null, TrackerIssues.GhMissing);
-        if (run.TimedOut)
-            return new CreatedIssue(null, CreatedIssue.GitHubSilent, "GitHub не ответил за минуту");
-        if (run.ExitCode != 0)
-        {
-            var failed = Failed(run.ExitCode, run.Error);
-            return new CreatedIssue(null, failed.Problem, failed.Detail);
-        }
-        return ParseCreated(run.Output, title);
     }
 
     /// <summary>
@@ -259,20 +220,6 @@ public sealed partial class GhIssues : IGitHubIssues
     public static ProcessStartInfo LabelsStartInfo(string repo) =>
         GhStartInfo("label", "list", "--repo", repo, "--limit", LabelLimit.ToString(), "--sort", "name", "--json", "name");
 
-    /// <summary>
-    /// Запуск gh на заведение задачи: назначена на того, кем gh вошла, без меток — критерий B-286. Описание
-    /// уходит во ввод (`--body-file -`), а не аргументом: длинный текст с кавычками и переводами строк
-    /// командная строка Windows не донесла бы как есть.
-    /// </summary>
-    public static ProcessStartInfo CreateStartInfo(string repo, string title)
-    {
-        var startInfo = GhStartInfo(
-            "issue", "create", "--repo", repo, "--title", title, "--body-file", "-", "--assignee", "@me");
-        startInfo.RedirectStandardInput = true;
-        startInfo.StandardInputEncoding = new UTF8Encoding(false);
-        return startInfo;
-    }
-
     /// <summary>Запуск gh без окна и без вопросов; им же выкладка панели в Стабильный зовёт gh.</summary>
     public static ProcessStartInfo GhStartInfo(params string[] args)
     {
@@ -293,24 +240,6 @@ public sealed partial class GhIssues : IGitHubIssues
         startInfo.Environment["GH_NO_UPDATE_NOTIFIER"] = "1";
         return startInfo;
     }
-
-    /// <summary>
-    /// gh issue create печатает адрес заведённой задачи последней строкой; номер — хвост адреса. Адреса нет —
-    /// задача, скорее всего, заведена, но панель её не знает, и оператору это говорится.
-    /// </summary>
-    public static CreatedIssue ParseCreated(string output, string title)
-    {
-        var url = output.ReplaceLineEndings("\n").Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.Length > 0);
-        var match = url is null ? null : IssueUrl().Match(url);
-        if (match is null || !match.Success)
-            return new CreatedIssue(null, CreatedIssue.CreatedUnknown);
-        var number = int.Parse(match.Groups[1].Value);
-        return new CreatedIssue(new TrackerIssue($"GitHub #{number}", number, title, url!));
-    }
-
-    // Хост любой: у GitHub Enterprise задача живёт на его сервере.
-    [GeneratedRegex(@"^https://[^/\s]+/[^/\s]+/[^/\s]+/issues/(\d+)$")]
-    private static partial Regex IssueUrl();
 
     /// <summary>
     /// Отказ gh: без входа она выходит с кодом 4 и зовёт «gh auth login», с негодным ключом — 401 Bad credentials;

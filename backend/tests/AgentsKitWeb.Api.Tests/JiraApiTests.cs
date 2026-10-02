@@ -247,74 +247,6 @@ public sealed class JiraApiTests
         Assert.Equal(2, _asked.Count(a => a.Url.Contains("/search/jql")));
     }
 
-    [Fact]
-    public async Task Create_AssignsToKeyOwner_AsTaskType_WithDocumentDescription()
-    {
-        var api = Routed(request => request.Method == HttpMethod.Post
-            ? Json("""{"id":"10050","key":"PAY-42","self":"https://acme.atlassian.net/rest/api/3/issue/10050"}""", HttpStatusCode.Created)
-            : Json("{}", HttpStatusCode.NotFound));
-
-        var created = await api.CreateAsync(Server, Email, Key, "PAY", "Оплата падает", "Первая строка\nвторая\n\nНовый абзац");
-
-        Assert.Equal(new CreatedIssue(new TrackerIssue("Jira PAY-42", 42, "Оплата падает", "https://acme.atlassian.net/browse/PAY-42")), created);
-        var (_, url, _, body) = Assert.Single(_asked, a => a.Method == HttpMethod.Post);
-        Assert.Equal("https://acme.atlassian.net/rest/api/3/issue", url);
-        var fields = JsonNode.Parse(body!)!["fields"]!;
-        Assert.Equal("PAY", (string?)fields["project"]!["key"]);
-        Assert.Equal("7", (string?)fields["issuetype"]!["id"]);
-        Assert.Equal("Оплата падает", (string?)fields["summary"]);
-        Assert.Equal("acc-anna", (string?)fields["assignee"]!["accountId"]);
-        Assert.Equal(
-            """{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Первая строка"},{"type":"hardBreak"},{"type":"text","text":"вторая"}]},{"type":"paragraph","content":[{"type":"text","text":"Новый абзац"}]}]}""",
-            fields["description"]!.ToJsonString(new System.Text.Json.JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping }));
-    }
-
-    /// <summary>Типа «Task» в проекте нет — берётся первый, который не подзадача.</summary>
-    [Fact]
-    public async Task Create_WithoutTaskType_TakesFirstNotSubtask()
-    {
-        var api = Routed(request => Json("""{"key":"PAY-1"}""", HttpStatusCode.Created),
-            """{"key":"PAY","issueTypes":[{"id":"3","name":"Sub","subtask":true},{"id":"9","name":"Story","subtask":false}]}""");
-
-        await api.CreateAsync(Server, Email, Key, "PAY", "Т", "О");
-
-        var body = Assert.Single(_asked, a => a.Method == HttpMethod.Post).Body;
-        Assert.Equal("9", (string?)JsonNode.Parse(body!)!["fields"]!["issuetype"]!["id"]);
-    }
-
-    [Fact]
-    public async Task Create_OnlySubtaskTypes_IsNotCreated()
-    {
-        var api = Routed(_ => Json("{}"), """{"key":"PAY","issueTypes":[{"id":"3","name":"Sub","subtask":true}]}""");
-
-        var created = await api.CreateAsync(Server, Email, Key, "PAY", "Т", "О");
-
-        Assert.Equal(TrackerIssues.JiraError, created.Problem);
-        Assert.DoesNotContain(_asked, a => a.Method == HttpMethod.Post);
-    }
-
-    [Fact]
-    public async Task Create_Silent_MaybeCreated()
-    {
-        var api = Routed(request => throw new HttpRequestException(HttpRequestError.ConnectionError, "оборвано"));
-
-        var created = await api.CreateAsync(Server, Email, Key, "PAY", "Т", "О");
-
-        Assert.Equal(CreatedIssue.JiraSilent, created.Problem);
-        Assert.True(created.MaybeCreated);
-    }
-
-    [Fact]
-    public async Task Create_Refused_IsNotCreated()
-    {
-        var api = Routed(_ => Json("""{"errorMessages":[],"errors":{"assignee":"Нельзя назначить"}}""", HttpStatusCode.BadRequest));
-
-        var created = await api.CreateAsync(Server, Email, Key, "PAY", "Т", "О");
-
-        Assert.Equal(new CreatedIssue(null, TrackerIssues.JiraError, "Нельзя назначить"), created);
-        Assert.False(created.MaybeCreated);
-    }
-
     [Theory]
     [InlineData("PAY-12", 12)]
     [InlineData("PAY2-7", 7)]
@@ -333,12 +265,6 @@ public sealed class JiraApiTests
     public void Issue_WithoutNumber_IsNull(string? id)
     {
         Assert.Null(JiraApi.Issue(Server, id, "Т"));
-    }
-
-    [Fact]
-    public void Document_EmptyBody_HasNoParagraphs()
-    {
-        Assert.Equal("""{"type":"doc","version":1,"content":[]}""", JiraApi.Document("\n\n").ToJsonString());
     }
 
     private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> answer) : HttpMessageHandler

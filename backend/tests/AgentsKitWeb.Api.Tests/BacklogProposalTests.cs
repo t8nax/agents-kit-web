@@ -79,31 +79,55 @@ public sealed class BacklogProposalTests
     }
 
     [Fact]
-    public void Build_TrackCutsEntryLikeDelete()
+    public void Build_RefusesTrackCommandAsUnknownLine()
     {
-        var (proposal, error) = BacklogProposal.Build(["в трекер b-2", "изменить B-1\n## B-1 Первая\n\nДругой текст."], File);
-        Assert.Null(error);
-
-        var track = proposal!.Changes[0];
-        Assert.Equal(BacklogChange.Track, track.Kind);
-        Assert.Equal("B-2", track.Number);
-        Assert.Equal("## B-2 Вторая", track.Original);
-        // Карточка показывает задачу, какой её заведёт «Сохранить», — ревью B-286
-        Assert.Equal(("Вторая", ""), (track.Draft!.Title, track.Draft.Body));
-        Assert.True(proposal.Tracks);
-        Assert.Equal(
-            "# Бэклог\r\n\r\nследующий номер: B-4\r\n\r\n## B-1 Первая\r\n\r\nДругой текст.\r\n\r\n## B-3 Третья\r\nХвост.\r\n",
-            proposal.Apply(File).Text);
+        // Перенос в трекер предложением больше не бывает — его делает агент сам (AKW-15).
+        Assert.Equal("Непонятная строка предложения: «в трекер B-2»", BacklogProposal.Build(["в трекер B-2"], File).Error);
     }
 
     [Fact]
-    public void Build_RefusesTrackOfUnknownEntryAndMergeIntoTrackedEntry()
+    public void Moves_TakeMoveBlocksAndLeaveProposalBlocks()
     {
-        Assert.Equal("Записи B-9 в бэклоге нет", BacklogProposal.Build(["в трекер B-9"], File).Error);
+        var (moves, others, error) = BacklogMoves.Take([
+            "Перенесена b-2 в youtrack abc-20 https://acme.youtrack.cloud/issue/ABC-20\n",
+            "удалить B-1\n",
+            "ждет файлов B-3 в GitHub#37 https://github.com/acme/orders/issues/37\n",
+            "Ждёт файлов B-1 в github #5 https://github.com/acme/orders/issues/5",
+        ]);
+
+        Assert.Null(error);
         Assert.Equal(
-            "Запись B-2 уходит в B-1, а B-1 удаляется в том же предложении",
-            BacklogProposal.Build(["в трекер B-1", "удалить B-2 в B-1"], File).Error);
-        Assert.False(BacklogProposal.Build(["удалить B-2"], File).Proposal!.Tracks);
+            [
+                new BacklogMoves.Said("B-2", false, "YouTrack ABC-20", "https://acme.youtrack.cloud/issue/ABC-20"),
+                new BacklogMoves.Said("B-3", true, "GitHub #37", "https://github.com/acme/orders/issues/37"),
+                new BacklogMoves.Said("B-1", true, "GitHub #5", "https://github.com/acme/orders/issues/5"),
+            ],
+            moves);
+        Assert.Equal(["удалить B-1\n"], others);
+    }
+
+    [Theory]
+    [InlineData("перенесена B-2 куда-то")]
+    [InlineData("перенесена B-2 в YouTrack ABC-20")]
+    [InlineData("ждёт файлов B-2 в Jira ABC-20 https://acme.atlassian.net/browse/ABC-20")]
+    [InlineData("перенесена нечто в GitHub #3 https://github.com/acme/orders/issues/3")]
+    public void Moves_RefuseMoveBlockNotByForm(string command)
+    {
+        var (moves, others, error) = BacklogMoves.Take(["удалить B-1\n", command + "\n"]);
+
+        Assert.Equal($"Непонятная строка итога переноса: «{command}»", error);
+        Assert.Empty(moves);
+        Assert.Empty(others);
+    }
+
+    [Fact]
+    public void Moves_WithoutMoveBlocksGiveAllBlocksBack()
+    {
+        var (moves, others, error) = BacklogMoves.Take(["удалить B-1\n", "изменить B-2\n## B-2 Вторая\n"]);
+
+        Assert.Null(error);
+        Assert.Empty(moves);
+        Assert.Equal(["удалить B-1\n", "изменить B-2\n## B-2 Вторая\n"], others);
     }
 
     [Fact]

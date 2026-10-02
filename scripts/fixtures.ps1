@@ -685,6 +685,40 @@ if ($baseDir) {
         $found = [regex]::Match($Text, "(?ms)^## $([regex]::Escape($Number))\s.*?(?=^## |\z)")
         if ($found.Success) { return $found.Value.TrimEnd() } else { return $null }
     }
+    # Перенос в трекер агент делает сам (AKW-15): заводит задачу, у записи с файлами ждёт слова оператора, потом
+    # вырезает запись с её файлами и коммитит. Задача — подставная: номер по счёту, адрес по строкам tracker.md базы.
+    $trackerText = if (Test-Path -LiteralPath (Join-Path $baseDir 'tracker.md')) { [IO.File]::ReadAllText((Join-Path $baseDir 'tracker.md')) } else { '' }
+    function Get-TrackerKey([string]$Name) {
+        $m = [regex]::Match($trackerText, "(?m)^$Name\s*:\s*(.+)$")
+        if ($m.Success) { return $m.Groups[1].Value.Trim() } else { return '' }
+    }
+    $issueCount = 0
+    $waitingFiles = @{}
+    function New-StubIssue {
+        $script:issueCount++
+        $n = 200 + $script:issueCount
+        if ((Get-TrackerKey 'трекер') -match 'youtrack') {
+            $id = "$(Get-TrackerKey 'проект')-$n"
+            return @{ Name = "YouTrack $id"; Url = "$((Get-TrackerKey 'сервер').TrimEnd('/'))/issue/$id" }
+        }
+        return @{ Name = "GitHub #$n"; Url = "https://github.com/$(Get-TrackerKey 'проект')/issues/$n" }
+    }
+    function Get-EntryFiles([string]$Block) {
+        @([regex]::Matches($Block, '(?m)^- [^:\n]+:\s*(artifacts/\S+)\s*$') | ForEach-Object { $_.Groups[1].Value })
+    }
+    function Remove-Entry([string]$Number, [string[]]$Files) {
+        $now = [IO.File]::ReadAllText($backlog)
+        $block = Get-Block $now $Number
+        $now = ($now.Replace($block, '') -replace "(\r?\n){3,}", "`n`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($backlog, $now, [Text.UTF8Encoding]::new($false))
+        Write-Step 'Edit' @{ file_path = $backlog }
+        foreach ($file in $Files) {
+            Write-Step 'PowerShell' @{ command = "git -C `"$personal`" rm -q -- $file" }
+            git -C $personal rm -q -- $file
+        }
+        if ($Files.Count -gt 0) { git -C $personal commit -q -m 'Записать в бэклог из панели' -- backlog.md artifacts }
+        else { git -C $personal commit -q -m 'Записать в бэклог из панели' -- backlog.md }
+    }
     while ($null -ne ($line = $stdinReader.ReadLine())) {
         if (-not $line.Trim()) { continue }
         $said = try { ([string]($line | ConvertFrom-Json).message.content[0].text).Trim() } catch { $line.Trim() }
@@ -699,6 +733,18 @@ if ($baseDir) {
         $text = [IO.File]::ReadAllText($backlog)
         $letters, $number = if ($text -match '(?m)^следующий номер:\s*([A-Z][A-Z0-9]*)-(\d+)\s*$') { $Matches[1], [int]$Matches[2] } else { 'B', 1 }
 
+        # «Перенёс» после «ждёт файлов»: запись уходит из бэклога вместе с файлами
+        if ($waitingFiles.Count -gt 0 -and $said -match 'перен[её]с(?!и)') {
+            $blocks = @()
+            foreach ($n in @($waitingFiles.Keys)) {
+                $issue = $waitingFiles[$n]
+                Remove-Entry $n (Get-EntryFiles (Get-Block $text $n))
+                $blocks += "~~~backlog`nперенесена $n в $($issue.Name) $($issue.Url)`n~~~"
+                $waitingFiles.Remove($n)
+            }
+            Write-Result ("Вырезал запись вместе с файлами.`n`n" + ($blocks -join "`n"))
+            continue
+        }
         if ($asked -and $said -match '^да\b') { $said = $asked.Said; $numbers = @($asked.Number) }
         else { $numbers = @([regex]::Matches($said, "\b$letters-\d+\b") | ForEach-Object Value) }
         if ($about -and $numbers.Count -eq 0) { $numbers = @($about) }
@@ -731,9 +777,30 @@ if ($baseDir) {
                 $blocks += "~~~backlog`nудалить $gone в $keep`n~~~"
                 $reply = "Объединю $gone в $keep."
             } elseif ($verb -eq 'track') {
-                # Перенос в трекер (B-286): задачу заведёт панель по «Сохранить», агент только предлагает
-                $blocks += $numbers | ForEach-Object { "~~~backlog`nв трекер $_`n~~~" }
-                $reply = "Перенесу $($numbers -join ', ') в трекер."
+                # Перенос в трекер (AKW-15): задачу заводит сам агент; запись без файлов он вырезает тем же ходом,
+                # у записи с файлами — просит прикрепить их и ждёт «перенёс»
+                if (-not (Get-TrackerKey 'трекер')) {
+                    Write-Result 'У проекта нет трекера GitHub или YouTrack со строками описания: в трекер не пройти.'
+                    continue
+                }
+                $lines = @('Похожих задач в трекере нет.')
+                foreach ($n in $numbers) {
+                    $issue = New-StubIssue
+                    Write-Step 'PowerShell' @{ command = "завести задачу «$n» в трекере" }
+                    $files = Get-EntryFiles (Get-Block $text $n)
+                    if ($files.Count -gt 0) {
+                        $waitingFiles[$n] = $issue
+                        $lines += "Завёл $($issue.Name): $($issue.Url). Прикрепите к ней файлы $((($files | ForEach-Object { Join-Path $personal $_ }) -join ', ')) и напишите, когда перенесёте."
+                        $blocks += "~~~backlog`nждёт файлов $n в $($issue.Name) $($issue.Url)`n~~~"
+                    } else {
+                        Remove-Entry $n @()
+                        $text = [IO.File]::ReadAllText($backlog)
+                        $lines += "Завёл $($issue.Name) и вырезал $n из бэклога."
+                        $blocks += "~~~backlog`nперенесена $n в $($issue.Name) $($issue.Url)`n~~~"
+                    }
+                }
+                Write-Result (($lines -join ' ') + "`n`n" + ($blocks -join "`n"))
+                continue
             } elseif ($verb -eq 'delete') {
                 $blocks += $numbers | ForEach-Object { "~~~backlog`nудалить $_`n~~~" }
                 $reply = "Удалю $($numbers -join ', ')."

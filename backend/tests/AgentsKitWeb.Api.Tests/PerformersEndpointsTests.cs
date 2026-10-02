@@ -167,6 +167,73 @@ public sealed class PerformersEndpointsTests : IDisposable
     }
 
     [Fact]
+    // Принятые правки Чудо-Юдо совпали с прежними: `git commit -- путь` на неизменённом файле
+    // отказывает, а сохранять нечего — это обычное сохранение, а не отказ базы (B-333).
+    public async Task Performers_SavingTheSamePerformerAgainSucceedsWithoutACommit()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var request = new SavePerformerRequest(basePath, "reviewer", "Описание", "opus", "Read, Grep", "Тело", null);
+        await Save(basePath, request);
+        var personal = TestLayout.Personal(basePath);
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
+        var before = Run(personal, "rev-list", "--count", "HEAD").Trim();
+        var bytes = File.ReadAllBytes(file);
+
+        var again = await Save(basePath, request with { Editing = "reviewer" });
+
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal(before, Run(personal, "rev-list", "--count", "HEAD").Trim());
+        Assert.Equal(bytes, File.ReadAllBytes(file));
+        Assert.Empty(Status(personal));
+    }
+
+    [Fact]
+    // Исходный случай — база под Windows: файл с CRLF, сохранённый ещё раз теми же полями, тоже обходится без коммита.
+    public async Task Performers_SavingTheSameCrlfPerformerAgainSucceedsWithoutACommit()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var request = new SavePerformerRequest(basePath, "reviewer", "Описание", "opus", "Read, Grep", "Тело", null);
+        await Save(basePath, request);
+        var personal = TestLayout.Personal(basePath);
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
+        // Как в базе под Windows: git хранит LF, на диске CRLF, и git status, не тронув индекс, зовёт файл изменённым,
+        // хотя коммитить нечего — на этом и падало сохранение.
+        Run(personal, "config", "core.autocrlf", "true");
+        File.WriteAllText(file, File.ReadAllText(file).ReplaceLineEndings("\r\n"));
+        var before = Run(personal, "rev-list", "--count", "HEAD").Trim();
+        var bytes = File.ReadAllBytes(file);
+
+        var again = await Save(basePath, request with { Editing = "reviewer" });
+
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal(before, Run(personal, "rev-list", "--count", "HEAD").Trim());
+        Assert.Equal(bytes, File.ReadAllBytes(file));
+        Assert.Empty(Run(personal, "diff", "--name-only", "HEAD").Trim());
+    }
+
+    [Fact]
+    // Тот же текст, но не закоммиченный — его всё-таки коммитят: иначе он ушёл бы в чужой коммит соседней сессии.
+    public async Task Performers_SavingTheSameButUncommittedPerformerCommitsIt()
+    {
+        var basePath = CreateBase("app-knowledge");
+        var request = new SavePerformerRequest(basePath, "reviewer", "Описание", null, null, "Тело", null);
+        await Save(basePath, request);
+        var personal = TestLayout.Personal(basePath);
+        var file = Path.Combine(TestLayout.Agents(basePath), "reviewer.md");
+        var saved = File.ReadAllBytes(file);
+        File.WriteAllText(file, "---\nname: reviewer\n---\n\nПравка руками.\n");
+        Run(personal, "commit", "-qam", "Правка руками");
+        File.WriteAllBytes(file, saved);
+        var before = Run(personal, "rev-list", "--count", "HEAD").Trim();
+
+        var again = await Save(basePath, request with { Editing = "reviewer" });
+
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal(int.Parse(before) + 1, int.Parse(Run(personal, "rev-list", "--count", "HEAD").Trim()));
+        Assert.Empty(Status(personal));
+    }
+
+    [Fact]
     public async Task Performers_RefusesNameAlreadyTakenInTheBase()
     {
         var basePath = CreateBase("app-knowledge");

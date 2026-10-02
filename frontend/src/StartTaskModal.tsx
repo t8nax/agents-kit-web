@@ -236,7 +236,7 @@ export default function StartTaskModal({ base, entry, onClose, onStarted, onTake
           </button>
         </div>
 
-        <div className="st-body">
+        <div className="st-body st-start-body">
           {failure && (
             <p className="st-failure" role="alert">
               {failure}

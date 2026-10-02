@@ -35,9 +35,8 @@ import { forgetGoneIssueWords, forgetGoneStartWords } from './startWords'
 import { normalizeNumber, numberLetters } from './taskTitle'
 import ProjectFilter from './ProjectFilter'
 import TrackerGroup, { type TrackerField } from './TrackerGroup'
-import TrackerMoveModal, { SendIcon } from './TrackerMoveModal'
 import LabelsPick, { TickIcon } from './LabelsPick'
-import { initialTrackerLoad, labelChoices, loadTrackerIssues, readable, type TrackerInfo, type TrackerLoad } from './tracker'
+import { initialTrackerLoad, labelChoices, loadTrackerIssues, movable, readable, type TrackerInfo, type TrackerLoad } from './tracker'
 
 export type BacklogEntry = {
   number: string | null
@@ -119,12 +118,11 @@ export default function Backlog({
   }, [])
   const [opened, setOpened] = useState<{ base: string; entry: BacklogEntry } | null>(null)
   const [writing, setWriting] = useState(writeFor !== null)
-  // Запись, от которой окно Чудо-Юдо открыто кнопкой «Изменить»; null — окно из шапки раздела.
-  const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry } | null>(null)
+  // Запись, от которой окно Чудо-Юдо открыто кнопкой «Изменить» или «В трекер»; null — окно из шапки раздела.
+  // request — готовая просьба в поле: у «В трекер» — перенести запись (AKW-15).
+  const [editing, setEditing] = useState<{ base: string; entry: BacklogEntry; request?: string } | null>(null)
   // Запись, которую берут в работу
   const [starting, setStarting] = useState<Started | null>(null)
-  // Запись, которую переносят в трекер проекта
-  const [moving, setMoving] = useState<Started | null>(null)
   // Копии всех баз: по ним видно, есть ли у проекта записи куда запускать. null — ещё не прочитаны.
   const [copies, setCopies] = useState<WorkspaceRow[] | null>(null)
   // Записи, добавленные из панели, ключом «база|номер»: отмечены новыми до следующего «Обновить».
@@ -466,8 +464,10 @@ export default function Backlog({
                           Изменить
                         </button>
                       )}
-                      {/* Переносят в трекер GitHub или YouTrack со строками описания — B-286, B-288; между «Изменить» и «Взять задачу» */}
-                      {entry.number && readable(backlog.tracker) && (
+                      {/* Переносят в трекер GitHub или YouTrack со строками описания — B-286, B-288; между «Изменить»
+                          и «Взять задачу». Переносит Чудо-Юдо: кнопка открывает его окно об этой записи с готовой
+                          просьбой в поле, неотправленной (AKW-15) */}
+                      {entry.number && movable(backlog.tracker) && (
                         <button
                           type="button"
                           className="entry-start"
@@ -476,7 +476,8 @@ export default function Backlog({
                           title={backlog.formatWarning ? NEWER_FORMAT_REFUSAL : undefined}
                           onClick={(e) => {
                             opener.current = e.currentTarget
-                            setMoving({ base: backlog.base, entry: { ...entry, number: entry.number! } })
+                            setEditing({ base: backlog.base, entry, request: moveRequest(entry.number!, entry) })
+                            setWriting(true)
                           }}
                         >
                           <SendIcon />
@@ -632,19 +633,6 @@ export default function Backlog({
           }}
         />
       )}
-      {moving && (
-        <TrackerMoveModal
-          base={moving.base}
-          entry={moving.entry}
-          onClose={() => {
-            setMoving(null)
-            focusOpener()
-          }}
-          // Задача заведена — бэклог перечитывается: запись из него ушла или, если вырезать не вышло, осталась;
-          // трекер этой базы перечитывается с заготовкой, как по «Обновить», и показывает заведённую задачу
-          onMoved={() => loadBacklogs(false, moving.base)}
-        />
-      )}
       {writing && (
         <BacklogWriteModal
           bases={backlogs.map((b) => ({
@@ -653,7 +641,8 @@ export default function Backlog({
             closed: b.formatWarning ? NEWER_FORMAT_REFUSAL : null,
           }))}
           initialBase={filter}
-          subject={editing}
+          subject={editing && { base: editing.base, entry: editing.entry }}
+          request={editing?.request ?? null}
           findEntry={(base, number) =>
             backlogs.find((b) => b.base === base)?.entries.find((entry) => entry.number === number)
           }
@@ -664,6 +653,28 @@ export default function Backlog({
         />
       )}
     </>
+  )
+}
+
+/**
+ * Готовая просьба кнопки «В трекер» — макет AKW-15: искать похожую задачу до переноса; у записи с файлами — что
+ * их оператор прикрепит к задаче сам, в задачу они не попадут.
+ */
+function moveRequest(number: string, entry: BacklogEntry): string {
+  const files = (entry.artifacts ?? []).some((artifact) => !/^https?:\/\//i.test(artifact.address))
+  return `Перенеси запись ${number} в трекер проекта. Сначала проверь, нет ли в трекере похожей задачи.${
+    files ? ' Файлы записи я прикреплю к задаче сам.' : ''
+  }`
+}
+
+/** Значок кнопки «В трекер» — стрелка вверх из лотка: запись уходит из бэклога наружу. */
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
+      <polyline points="16 6 12 2 8 6" />
+      <line x1="12" y1="2" x2="12" y2="15" />
+    </svg>
   )
 }
 

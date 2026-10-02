@@ -57,7 +57,11 @@ function stubFetch(
 }
 
 function renderModal(
-  options: { initialBase?: string | null; subject?: { base: string; entry: WrittenEntry } | null } = {},
+  options: {
+    initialBase?: string | null
+    subject?: { base: string; entry: WrittenEntry } | null
+    request?: string | null
+  } = {},
 ) {
   const onEntries = vi.fn()
   const onSaved = vi.fn()
@@ -68,7 +72,8 @@ function renderModal(
       bases={bases}
       initialBase={options.initialBase ?? null}
       subject={options.subject ?? null}
-      findEntry={(_, number) => [B40, B36].find((entry) => entry.number === number)}
+      request={options.request ?? null}
+      findEntry={(_, number) => [B40, B36, B281].find((entry) => entry.number === number)}
       onClose={onClose}
       onEntries={onEntries}
       onSaved={onSaved}
@@ -286,8 +291,6 @@ test('изменение и удаление ждут «Сохранить», а
   expect(onTracked).not.toHaveBeenCalled()
 })
 
-// ——— Перенос записи в трекер (B-286) ———
-
 const B281: WrittenEntry = {
   number: 'B-281',
   title: 'Экспорт истории задачи копии в markdown',
@@ -299,159 +302,109 @@ const B281: WrittenEntry = {
   ],
 }
 
-// Задачу, какой её заведёт «Сохранить», собирает API: текст записи, её «Агенту» и ссылки
-const B281draft = {
-  number: 'B-281',
-  title: B281.title,
-  body: 'Нужна выгрузка истории.\n\n### Артефакты\n- формат: https://commonmark.org/help/\n\n### Агенту\n- где: ReplyModal.tsx',
-  files: [
-    { label: 'образец', address: 'artifacts/B-281-sample-export.md' },
-    { label: 'снимок', address: 'artifacts/B-281-reply-window.png' },
-  ],
-  original: '## B-281 Экспорт истории задачи копии в markdown',
-}
-
-const withTrack: Proposal = {
-  id: 'p5',
-  changes: [
-    { kind: 'track', number: 'B-281', entry: B281, draft: B281draft },
-    { kind: 'change', number: 'B-40', entry: B40 },
-  ],
-}
-
-test('перенос в трекер ждёт «Сохранить» вместе с правкой, а после — номер задачи ссылкой у отметки «перенесена»', async () => {
-  const stream = controlledStream<WriteEvent>()
-  const { calls } = stubFetch(stream)
-  const { onTracked } = renderModal()
-
-  await say('перенеси B-281 в трекер, а в B-40 приоритет высокий')
-  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер, а в B-40 приоритет высокий' })
-  stream.send(answer({ proposal: withTrack }))
-
-  expect(await screen.findByText('Ждут сохранения: изменить 1, перенести 1 в трекер')).toBeInTheDocument()
-  const changes = within(screen.getByRole('list', { name: 'Изменения' }))
-  const card = changes.getByText('перенести').closest('li')!
-  expect(card).toHaveTextContent('Нужна выгрузка истории.')
-  // Карточка показывает то, что уйдёт в задачу: часть для агента и ссылки из артефактов тоже (ревью B-286)
-  expect(within(card as HTMLElement).getByRole('heading', { name: 'Агенту' })).toBeInTheDocument()
-  expect(within(card as HTMLElement).getByRole('link', { name: 'https://commonmark.org/help/' })).toBeInTheDocument()
-  // Файлы названы: в задачу они не попадут
-  expect(card).toHaveTextContent('Файлы B-281-sample-export.md и B-281-reply-window.png в задачу не попадут и удалятся вместе с записью.')
-  // Строки о репозитории и назначении на карточке нет — ответ оператора на макет
-  expect(card).not.toHaveTextContent('назначена на вас')
-
-  fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
-  await waitFor(() => expect(calls).toEqual([{ url: '/api/backlog/write/save', body: { id: 'p5' } }]))
-  stream.send({
-    type: 'saved',
-    text: '',
-    commit: 'c0ffee1',
-    proposalId: 'p5',
-    issues: { 'B-281': { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' } },
-  })
-
-  const moved = (await changes.findByText('перенесена')).closest('li')!
-  expect(within(moved).getByText('перенесена')).toHaveClass('added')
-  const link = within(moved).getByRole('link', { name: '#58' })
-  expect(link).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
-  expect(link).toHaveAttribute('target', '_blank')
-  // После сохранения — одна строка заголовка, без описания и без вложенной рамки со строкой задачи
-  expect(moved).not.toHaveTextContent('Нужна выгрузка истории.')
-  expect(moved).not.toHaveTextContent('в задачу не попадут')
-  expect(changes.getByText('изменена')).toBeInTheDocument()
-  // Заведённую задачу раздел покажет в группе трекера, перечитав его
-  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
-})
+// ——— Перенос записи в трекер делает сам Чудо-Юдо (AKW-15) ———
 
 const issue58 = { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' }
-
-test('задача заведена, а бэклог не записан — причина и ссылка на задачу у несохранённого', async () => {
-  const stream = controlledStream<WriteEvent>()
-  stubFetch(stream, {
-    save: () =>
-      Response.json({
-        error: 'Коммит не прошёл — backlog.md оставлен как был. Уже заведены в трекере: B-281 — #58 — «Сохранить» ещё раз их не повторит',
-        issues: { 'B-281': issue58 },
-      }),
-  })
-  const { onSaved, onTracked } = renderModal()
-
-  await say('перенеси B-281 в трекер')
-  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
-  stream.send(answer({ proposal: { id: 'p7', changes: [withTrack.changes[0]] } }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
-
-  const alert = await screen.findByRole('alert')
-  expect(alert).toHaveTextContent('Уже заведены в трекере: B-281 — #58')
-  expect(within(alert).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
-  expect(screen.getByRole('button', { name: 'Сохранить' })).toBeEnabled()
-  // Бэклог не записан, а задача в трекере есть — раздел её покажет
-  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
-  expect(onSaved).not.toHaveBeenCalled()
-})
-
-test('брошенное предложение с заведёнными задачами панель называет в ленте со ссылками', async () => {
-  const stream = controlledStream<WriteEvent>()
-  stubFetch(stream)
-  const { onTracked } = renderModal()
-
-  await say('перенеси B-281 в трекер')
-  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
-  stream.send({
-    type: 'note',
-    text: 'Задачи в трекере уже заведены, а записи остались в бэклоге: B-281 — #58. Уберите эти записи из бэклога.',
-    issues: { 'B-281': issue58 },
-  })
-
-  const note = (await screen.findByText(/Задачи в трекере уже заведены/)).closest('p')!
-  expect(within(note).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
-  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
-})
-
 const issueYouTrack = { name: 'YouTrack ABC-58', number: 58, title: B281.title, url: 'https://acme.youtrack.cloud/issue/ABC-58' }
+const moveRequest = 'Перенеси запись B-281 в трекер проекта. Сначала проверь, нет ли в трекере похожей задачи.'
 
-test('задача YouTrack — номером ABC-58 без решётки и у отметки «перенесена», и в ленте (B-288)', async () => {
+test('окно от «В трекер»: готовая просьба в поле не отправлена, у записи — предупреждение о файлах', async () => {
+  const stream = controlledStream<WriteEvent>()
+  const { posts } = stubFetch(stream)
+  renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
+
+  const field = await screen.findByLabelText('Просьба к Чудо-Юдо')
+  await waitFor(() => expect(field).toBeEnabled())
+  expect(field).toHaveValue(moveRequest)
+  expect(posts).toEqual([])
+  const subject = screen.getByText('Запись').closest('.talk-subject')!
+  // Файлы записи — без ссылок на сайты: в задачу они сами не попадут (макет AKW-15, вариант 1А)
+  expect(subject).toHaveTextContent(
+    'Файлы B-281-sample-export.md и B-281-reply-window.png в задачу сами не попадут — Чудо-Юдо попросит прикрепить их вручную.',
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+  await waitFor(() => expect(posts[0].body).toEqual({ base: bases[0].base, text: moveRequest, number: 'B-281' }))
+})
+
+test('предупреждение о файлах держится, когда раздел перерисован и отдал запись новым объектом', async () => {
+  stubFetch(controlledStream<WriteEvent>())
+  const props = { bases, initialBase: null, request: moveRequest, onClose: vi.fn(), onEntries: vi.fn() }
+  const view = render(<BacklogWriteModal {...props} subject={{ base: bases[0].base, entry: B281 }} />)
+  await waitFor(() => expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled())
+
+  view.rerender(<BacklogWriteModal {...props} subject={{ base: bases[0].base, entry: { ...B281 } }} />)
+
+  expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toHaveValue(moveRequest)
+  expect(screen.getByText(/в задачу сами не попадут/)).toBeInTheDocument()
+})
+
+test('окно от «Изменить» предупреждения о файлах не показывает и поле оставляет пустым', async () => {
+  stubFetch(controlledStream<WriteEvent>())
+  renderModal({ subject: { base: bases[0].base, entry: B281 } })
+
+  const field = await screen.findByLabelText('Просьба к Чудо-Юдо')
+  await waitFor(() => expect(field).toBeEnabled())
+  expect(field).toHaveValue('')
+  expect(screen.queryByText(/в задачу сами не попадут/)).not.toBeInTheDocument()
+})
+
+test('задача заведена и ждёт файлов — карточка с номером задачи ссылкой и файлами, запись на месте', async () => {
   const stream = controlledStream<WriteEvent>()
   stubFetch(stream)
-  renderModal()
+  const { onTracked } = renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
 
-  await say('перенеси B-281 в трекер')
-  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
-  stream.send(answer({ proposal: { id: 'p8', changes: [withTrack.changes[0]] } }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
-  stream.send({ type: 'saved', text: '', commit: 'c0ffee2', proposalId: 'p8', issues: { 'B-281': issueYouTrack } })
+  await say(moveRequest)
+  stream.send({ type: 'reply', text: moveRequest, number: 'B-281' })
+  stream.send(
+    answer({
+      text: 'Похожих задач нет. Завёл #58 — прикрепите к ней файлы и напишите, когда готово.',
+      moves: [{ number: 'B-281', entry: B281, issue: issue58, waiting: true, files: ['artifacts/B-281-sample-export.md', 'artifacts/B-281-reply-window.png'] }],
+    }),
+  )
 
-  const changes = within(screen.getByRole('list', { name: 'Изменения' }))
-  const moved = (await changes.findByText('перенесена')).closest('li')!
-  const link = within(moved).getByRole('link', { name: 'ABC-58' })
+  const moves = within(await screen.findByRole('list', { name: 'Перенос в трекер' }))
+  const card = moves.getByText('задача заведена, ждёт файлов').closest('li')!
+  expect(within(card).getByText('задача заведена, ждёт файлов')).toHaveClass('waiting')
+  expect(within(card).getByRole('link', { name: '#58' })).toHaveAttribute('href', 'https://github.com/acme/orders/issues/58')
+  // Файлы открываются в VS Code; ссылка на сайт в этот список не входит
+  expect(within(card).getByRole('button', { name: 'artifacts/B-281-sample-export.md' })).toHaveAttribute('title', 'Открыть в VS Code')
+  expect(within(card).getByRole('button', { name: 'artifacts/B-281-reply-window.png' })).toBeInTheDocument()
+  expect(within(card).queryByText('https://commonmark.org/help/')).not.toBeInTheDocument()
+  // Запись вверху ленты ещё в бэклоге — без отметки
+  expect(screen.queryByText('перенесена')).not.toBeInTheDocument()
+  // Полосы «Сохранить» у переноса нет
+  expect(screen.queryByRole('button', { name: 'Сохранить' })).not.toBeInTheDocument()
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['GitHub #58']))
+})
+
+test('запись перенесена — карточки «удалена» и «заведена», запись вверху ленты «перенесена»', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream)
+  const { onTracked, onSaved } = renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
+
+  await say('Перенёс оба файла в ABC-58.')
+  stream.send({ type: 'reply', text: 'Перенёс оба файла в ABC-58.', number: 'B-281' })
+  stream.send(
+    answer({ text: 'Запись вырезана.', commit: 'c0ffee3', moves: [{ number: 'B-281', entry: B281, issue: issueYouTrack, waiting: false, files: [] }] }),
+  )
+
+  const moves = within(await screen.findByRole('list', { name: 'Перенос в трекер' }))
+  const gone = moves.getByText('удалена').closest('li')!
+  expect(gone).toHaveClass('is-removed')
+  expect(gone).toHaveTextContent('B-281')
+  const issue = moves.getByText('заведена').closest('li')!
+  expect(within(issue).getByText('заведена')).toHaveClass('added')
+  const link = within(issue).getByRole('link', { name: 'ABC-58' })
   expect(link).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-58')
   expect(link).toHaveAttribute('title', 'Открыть YouTrack ABC-58 во вкладке браузера')
-
-  stream.send({
-    type: 'note',
-    text: 'Задачи в трекере уже заведены, а записи остались в бэклоге: B-281 — ABC-58. Уберите эти записи из бэклога.',
-    issues: { 'B-281': issueYouTrack },
-  })
-  const note = (await screen.findByText(/Задачи в трекере уже заведены/)).closest('p')!
-  expect(within(note).getByRole('link', { name: 'ABC-58' })).toHaveAttribute('href', 'https://acme.youtrack.cloud/issue/ABC-58')
-})
-
-test('перенос, от которого отказались, зачёркнут и задачи не показывает', async () => {
-  const stream = controlledStream<WriteEvent>()
-  stubFetch(stream)
-  renderModal()
-
-  await say('перенеси B-281 в трекер')
-  stream.send({ type: 'reply', text: 'перенеси B-281 в трекер' })
-  stream.send(answer({ proposal: { id: 'p6', changes: [withTrack.changes[0]] } }))
-  expect(await screen.findByText('Ждёт сохранения: перенести 1 в трекер')).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('button', { name: 'Отказаться' }))
-  stream.send({ type: 'refused', text: '', proposalId: 'p6' })
-
-  const card = (await screen.findByText('отказались')).closest('li')!
-  expect(card).toHaveClass('is-struck')
-  expect(within(card).queryByRole('link', { name: /^#\d+$/ })).not.toBeInTheDocument()
+  expect(issue).toHaveTextContent(B281.title)
+  const subject = screen.getByText('Запись').closest('.talk-subject')!
+  expect(within(subject as HTMLElement).getByText('перенесена')).toBeInTheDocument()
+  expect(subject).not.toHaveTextContent('в задачу сами не попадут')
+  await waitFor(() => expect(onTracked).toHaveBeenCalledWith(bases[0].base, ['YouTrack ABC-58']))
+  // Запись ушла из бэклога — список раздела перечитывается
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith(bases[0].base))
 })
 
 test('несохранённое остаётся с кнопками, а причина видна в ответе', async () => {
@@ -690,8 +643,18 @@ test('«Изменить» у записи, про которую идёт ра�
 
 test('«Изменить» у другой записи заменяет идущий разговор новым про неё', async () => {
   const stream = controlledStream<WriteEvent>()
-  const { deletes } = stubFetch(stream, {
+  // Новый разговор читает свой поток: поток заменённого окно оборвало
+  const next = controlledStream<WriteEvent>()
+  let replaced = false
+  const { deletes } = stubPanel('backlog', stream, {
     running: runningRequest('backlog', 'другое', bases[0].base, 'Agents Kit Web', 0, 'B-36'),
+    project: 'Agents Kit Web',
+    others: (url, init) => {
+      if ((init?.method ?? 'GET') === 'DELETE') replaced = true
+      return replaced && url.startsWith('/api/agent/backlog/stream')
+        ? new Response(next.body, { headers: { 'Content-Type': 'application/x-ndjson' } })
+        : null
+    },
   })
   renderModal({ subject: { base: bases[0].base, entry: B40 } })
 
@@ -703,6 +666,13 @@ test('«Изменить» у другой записи заменяет иду�
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   expect(screen.getByText('Показывать, сколько длится задача')).toBeInTheDocument()
   expect(screen.getByLabelText('Просьба к Чудо-Юдо')).toBeEnabled()
+
+  // Новый разговор — уже окна: его реплика и ответ видны, а не прячутся за «Загрузка…» (приёмка AKW-15)
+  await say('Поставь высокий')
+  next.send({ type: 'reply', text: 'Поставь высокий', number: 'B-40' })
+  next.send(answer({ text: 'Сделаю.' }))
+  expect(await screen.findByText('Сделаю.')).toBeInTheDocument()
+  expect(screen.queryByText('Загрузка…')).not.toBeInTheDocument()
 })
 
 test('«Изменить» у другой записи при ждущем предложении переспрашивает, «Отмена» оставляет прежний разговор', async () => {
@@ -724,6 +694,40 @@ test('«Изменить» у другой записи при ждущем пр
   expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   expect(screen.getByText('Сохраню, когда скажете.')).toBeInTheDocument()
   expect(deletes).toEqual([])
+})
+
+test('«В трекер» при ждущем предложении о другой записи: «Отмена» оставляет прежний разговор без чужой просьбы и предупреждения', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, { running: runningRequest('backlog', 'убери', bases[0].base, 'Agents Kit Web') })
+  renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
+
+  stream.send({ type: 'reply', text: 'убери' })
+  stream.send(answer({ text: 'Сохраню, когда скажете.', proposal }))
+  const asking = await screen.findByRole('alertdialog', { name: 'Начать переписку про B-281?' })
+  fireEvent.click(within(asking).getByRole('button', { name: 'Отмена' }))
+
+  expect(await screen.findByLabelText('Просьба к Чудо-Юдо')).toHaveValue('')
+  expect(screen.queryByText(/в задачу сами не попадут/)).not.toBeInTheDocument()
+})
+
+test('«В трекер» у записи, задача по которой уже ждёт файлов, просьбу о переносе в поле не кладёт', async () => {
+  const stream = controlledStream<WriteEvent>()
+  stubFetch(stream, { running: runningRequest('backlog', moveRequest, bases[0].base, 'Agents Kit Web', 0, 'B-281') })
+  renderModal({ subject: { base: bases[0].base, entry: B281 }, request: moveRequest })
+
+  stream.send({ type: 'reply', text: moveRequest, number: 'B-281' })
+  stream.send(
+    answer({
+      text: 'Прикрепите файлы.',
+      moves: [{ number: 'B-281', entry: B281, issue: { name: 'GitHub #58', number: 58, title: B281.title, url: 'https://github.com/acme/orders/issues/58' }, waiting: true, files: [] }],
+    }),
+  )
+
+  expect(await screen.findByText('задача заведена, ждёт файлов')).toBeInTheDocument()
+  const field = screen.getByLabelText('Просьба к Чудо-Юдо')
+  await waitFor(() => expect(field).toBeEnabled())
+  expect(field).toHaveValue('')
+  expect(screen.queryByText(/в задачу сами не попадут/)).not.toBeInTheDocument()
 })
 
 test('«Начать про …» выбрасывает ждущее предложение и начинает разговор про запись', async () => {

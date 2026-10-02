@@ -151,28 +151,12 @@ public sealed partial class ProjectTracker(
         }
     }
 
-    /// <summary>Почему записи бэклога проекта переносить некуда — продолжением фразы.</summary>
-    public const string NotMovable = "трекер проекта — не GitHub, не YouTrack и не Jira со строками «трекер:», «сервер:», «проект:»";
+    /// <summary>Почему агенту в трекер проекта не пройти — продолжением фразы.</summary>
+    public const string NotMovable = "трекер проекта — не GitHub и не YouTrack со строками «трекер:», «сервер:», «проект:»";
 
-    /// <summary>Трекер, в который запись бэклога переносится: GitHub, YouTrack или Jira; иначе null.</summary>
+    /// <summary>Трекер, в который агент ходит и переносит записи бэклога: GitHub или YouTrack; иначе null.</summary>
     public static TrackerInfo? Movable(BaseLayout layout) =>
-        Tracker.Read(layout) is { } tracker && Readable(tracker) ? tracker : null;
-
-    /// <summary>Новая задача трекера на оператора — перенос записи бэклога (B-286, B-288, B-285).</summary>
-    public async Task<CreatedIssue> CreateAsync(TrackerInfo tracker, string title, string body) =>
-        tracker switch
-        {
-            { GitHubRepo: { } repo } => await github.CreateAsync(repo, title, body),
-            { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
-                KeyOf(server, out var problem) is { } key
-                    ? await youTrack.CreateAsync(server, key.Key, project, title, body)
-                    : new CreatedIssue(null, problem),
-            { Kind: TrackerInfo.Jira, Server: { } server, Project: { } project } =>
-                KeyOf(server, out var problem, email: true) is { } key
-                    ? await jira.CreateAsync(server, key.Email!, key.Key, project, title, body)
-                    : new CreatedIssue(null, problem),
-            _ => new CreatedIssue(null, tracker.Kind),
-        };
+        Tracker.Read(layout) is { Kind: TrackerInfo.GitHub or TrackerInfo.YouTrack } tracker ? tracker : null;
 
     /// <summary>
     /// Имя задачи трекера, как его пишет кит: «GitHub #37», «YouTrack ABC-12», «Jira PAY-7». Регистр и пробел перед

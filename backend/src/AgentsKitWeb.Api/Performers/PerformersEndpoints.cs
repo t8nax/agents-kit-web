@@ -149,13 +149,25 @@ public static class PerformersEndpoints
             if (prior is not null && await BaseGit.TrackedAsync(root, Relative(prior), cancellationToken))
                 paths.Add(Relative(prior));
 
+            // Тот же исполнитель байт в байт и уже закоммичен — сохранять нечего: `git commit -- путь`
+            // на неизменённом файле отказывает, и оператор видел бы ложный отказ базы (B-333).
+            var bytes = Encoding.UTF8.GetBytes(PerformerFile.Serialize(fields, newline));
+            if (prior is null && kept is not null && bytes.AsSpan().SequenceEqual(kept)
+                && await BaseGit.CommittedAsync(root, paths[0], cancellationToken)
+                && await BaseGit.DiffersFromHeadAsync(root, paths[0], cancellationToken) is false)
+            {
+                // Закоммиченный мимо панели мог ещё не доехать до копий — проверку просят, как после записи.
+                health.RequestCheck();
+                return Results.Ok(new PerformerSavedResponse(file));
+            }
+
             // Начавшись, запись отменой запроса не рвётся: закрытая посреди записи вкладка оставила бы
             // исполнителя незакоммиченным, а то и в индексе, для чужого коммита соседней сессии.
             try
             {
                 System.IO.Directory.CreateDirectory(directory);
                 // Через временный файл рядом: сорвавшаяся запись оставляет прежнего исполнителя целым.
-                await FlowEndpoints.WriteAsync(file, Encoding.UTF8.GetBytes(PerformerFile.Serialize(fields, newline)));
+                await FlowEndpoints.WriteAsync(file, bytes);
                 // Правка сменила имя — прежний файл уходит тем же коммитом, что приносит новый.
                 if (prior is not null)
                     Remove(prior);
