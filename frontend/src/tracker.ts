@@ -67,9 +67,12 @@ export function readable(tracker: TrackerInfo | null | undefined): boolean {
   return tracker?.kind === 'github' || tracker?.kind === 'youtrack' || tracker?.kind === 'jira'
 }
 
-/** Трекер, в который Чудо-Юдо переносит записи бэклога (AKW-15): GitHub программой gh, YouTrack подключением Claude Code. */
+/**
+ * Трекер, в который Чудо-Юдо переносит записи бэклога (AKW-15): GitHub программой gh, YouTrack и Jira подключением
+ * Claude Code (B-285) — те же, задачи которых панель читает.
+ */
 export function movable(tracker: TrackerInfo | null | undefined): boolean {
-  return tracker?.kind === 'github' || tracker?.kind === 'youtrack'
+  return readable(tracker)
 }
 
 /** Имя трекера, как его пишет кит и панель в своих строках. */

@@ -1073,7 +1073,7 @@ public static class BacklogWriteEndpoints
         var remove = $"git -C \"{personal}\" rm -q -- {ArtifactFiles.Folder}/";
         var reachable = tracker is { Reachable: true };
         var track = tracker is null
-            ? $"Трекера у этого проекта нет или он не GitHub и не YouTrack: {ProjectTracker.NotMovable}. Спросят о трекере или попросят перенести запись — скажи это."
+            ? $"Трекера у этого проекта нет или он не GitHub, не YouTrack и не Jira: {ProjectTracker.NotMovable}. Спросят о трекере или попросят перенести запись — скажи это."
             : reachable
                 ? $"""
                   {tracker!.Prompt}
@@ -1092,7 +1092,7 @@ public static class BacklogWriteEndpoints
                   ~~~backlog
                   {BacklogMoves.Moved} B-14 в {tracker.Tracker.Name} <номер задачи> <адрес задачи>
                   ~~~
-                  Номер задачи — как в трекере: «ABC-20» у YouTrack, «#37» у GitHub.
+                  Номер задачи — как в трекере: «ABC-20» у YouTrack, «PAY-20» у Jira, «#37» у GitHub.
                   """
                 : $"""
                   {tracker!.Prompt}

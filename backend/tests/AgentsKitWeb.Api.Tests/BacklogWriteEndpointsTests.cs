@@ -726,6 +726,31 @@ public sealed class BacklogWriteEndpointsTests : IDisposable
         Assert.Contains("mcp__yt__", PromptOf(args));
     }
 
+    /// <summary>Jira — одним подключением Claude Code к удалённому серверу Atlassian, переносит Чудо-Юдо сам (B-285).</summary>
+    [Fact]
+    public void StartInfo_Jira_PassesAtlassianConnectionAndMoveRules()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+        File.WriteAllText(Path.Combine(_root, ".claude.json"), JsonSerializer.Serialize(new
+        {
+            mcpServers = new
+            {
+                slack = new { type = "http", url = "https://mcp.slack.com/mcp" },
+                atlassian = new { type = "sse", url = "https://mcp.atlassian.com/v1/sse" },
+            },
+        }));
+
+        var args = Args();
+
+        Assert.Contains("mcp__atlassian", args);
+        var config = args[args.IndexOf("--mcp-config") + 1];
+        Assert.Contains("mcp.atlassian.com", config);
+        Assert.DoesNotContain("slack", config);
+        Assert.Contains("mcp__atlassian__", PromptOf(args));
+        Assert.Contains("«Вынести в трекер»", PromptOf(args));
+        Assert.Contains("«PAY-20» у Jira", PromptOf(args));
+    }
+
     [Fact]
     public void StartInfo_YouTrackWithoutConnection_SaysUnreachable()
     {

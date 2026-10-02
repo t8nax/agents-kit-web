@@ -93,6 +93,7 @@ public sealed class BacklogProposalTests
             "удалить B-1\n",
             "ждет файлов B-3 в GitHub#37 https://github.com/acme/orders/issues/37\n",
             "Ждёт файлов B-1 в github #5 https://github.com/acme/orders/issues/5",
+            "перенесена B-4 в jira pay-20 https://acme.atlassian.net/browse/PAY-20",
         ]);
 
         Assert.Null(error);
@@ -101,6 +102,7 @@ public sealed class BacklogProposalTests
                 new BacklogMoves.Said("B-2", false, "YouTrack ABC-20", "https://acme.youtrack.cloud/issue/ABC-20"),
                 new BacklogMoves.Said("B-3", true, "GitHub #37", "https://github.com/acme/orders/issues/37"),
                 new BacklogMoves.Said("B-1", true, "GitHub #5", "https://github.com/acme/orders/issues/5"),
+                new BacklogMoves.Said("B-4", false, "Jira PAY-20", "https://acme.atlassian.net/browse/PAY-20"),
             ],
             moves);
         Assert.Equal(["удалить B-1\n"], others);
@@ -109,7 +111,7 @@ public sealed class BacklogProposalTests
     [Theory]
     [InlineData("перенесена B-2 куда-то")]
     [InlineData("перенесена B-2 в YouTrack ABC-20")]
-    [InlineData("ждёт файлов B-2 в Jira ABC-20 https://acme.atlassian.net/browse/ABC-20")]
+    [InlineData("ждёт файлов B-2 в GitLab ABC-20 https://gitlab.com/acme/orders/-/issues/20")]
     [InlineData("перенесена нечто в GitHub #3 https://github.com/acme/orders/issues/3")]
     public void Moves_RefuseMoveBlockNotByForm(string command)
     {

@@ -701,6 +701,11 @@ if ($baseDir) {
             $id = "$(Get-TrackerKey 'проект')-$n"
             return @{ Name = "YouTrack $id"; Url = "$((Get-TrackerKey 'сервер').TrimEnd('/'))/issue/$id" }
         }
+        # Jira — так же, адрес задачи облачной Jira (B-285)
+        if ((Get-TrackerKey 'трекер') -match 'jira') {
+            $id = "$(Get-TrackerKey 'проект')-$n"
+            return @{ Name = "Jira $id"; Url = "$((Get-TrackerKey 'сервер').TrimEnd('/'))/browse/$id" }
+        }
         return @{ Name = "GitHub #$n"; Url = "https://github.com/$(Get-TrackerKey 'проект')/issues/$n" }
     }
     function Get-EntryFiles([string]$Block) {
@@ -780,7 +785,7 @@ if ($baseDir) {
                 # Перенос в трекер (AKW-15): задачу заводит сам агент; запись без файлов он вырезает тем же ходом,
                 # у записи с файлами — просит прикрепить их и ждёт «перенёс»
                 if (-not (Get-TrackerKey 'трекер')) {
-                    Write-Result 'У проекта нет трекера GitHub или YouTrack со строками описания: в трекер не пройти.'
+                    Write-Result 'У проекта нет трекера GitHub, YouTrack или Jira со строками описания: в трекер не пройти.'
                     continue
                 }
                 $lines = @('Похожих задач в трекере нет.')

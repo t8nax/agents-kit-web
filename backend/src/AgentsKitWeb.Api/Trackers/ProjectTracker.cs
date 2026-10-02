@@ -152,11 +152,11 @@ public sealed partial class ProjectTracker(
     }
 
     /// <summary>Почему агенту в трекер проекта не пройти — продолжением фразы.</summary>
-    public const string NotMovable = "трекер проекта — не GitHub и не YouTrack со строками «трекер:», «сервер:», «проект:»";
+    public const string NotMovable = "трекер проекта — не GitHub, не YouTrack и не Jira со строками «трекер:», «сервер:», «проект:»";
 
-    /// <summary>Трекер, в который агент ходит и переносит записи бэклога: GitHub или YouTrack; иначе null.</summary>
+    /// <summary>Трекер, в который агент ходит и переносит записи бэклога: GitHub, YouTrack или Jira (B-285); иначе null.</summary>
     public static TrackerInfo? Movable(BaseLayout layout) =>
-        Tracker.Read(layout) is { Kind: TrackerInfo.GitHub or TrackerInfo.YouTrack } tracker ? tracker : null;
+        Tracker.Read(layout) is { } tracker && Readable(tracker) ? tracker : null;
 
     /// <summary>
     /// Имя задачи трекера, как его пишет кит: «GitHub #37», «YouTrack ABC-12», «Jira PAY-7». Регистр и пробел перед
