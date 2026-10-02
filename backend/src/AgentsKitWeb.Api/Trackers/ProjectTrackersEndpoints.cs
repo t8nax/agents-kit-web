@@ -47,7 +47,7 @@ public sealed record ProjectTrackerSaved(string Version, bool Checked, bool Push
 /// Запись не прошла. Problem: newer-format — база нового формата кита; invalid — описание не в форме кита (Faults — по
 /// полям окна, и email, key — почта и ключ к серверу); check — трекер не прочитан или ключ не принят (Field — поле, Code —
 /// причина кодами задач «Бэклога», Detail — строка трекера); keys-broken — файл ключей этого компьютера не разобран
-/// (Detail — его путь); changed — описание поменялось с тех пор, как его видел оператор; dirty — в tracker.md чужая
+/// (Detail — его путь); filters-broken — так же файл фильтров проектов; changed — описание поменялось с тех пор, как его видел оператор; dirty — в tracker.md чужая
 /// незакоммиченная правка; busy — идут задачи трекера (Busy); kit-not-set, kit-not-found — нет кита или его sync.ps1;
 /// no-copy — нет копии проекта на диске, скрипту кита свести базу не из чего; pull — базу не забрать с сервера
 /// (Detail — слова кита); not-written, not-committed, not-restored — как у записи флоу.
@@ -101,6 +101,16 @@ public static partial class ProjectTrackersEndpoints
                 {
                     return Results.Conflict(new ProjectTrackerRejected("keys-broken", broken.File));
                 }
+            // Запись убирает строку «фильтр:» из описания и переносит её в фильтры панели — битый файл фильтров останавливает
+            // её до коммита, иначе строка пропала бы молча (ревью B-285)
+            try
+            {
+                filters.Check();
+            }
+            catch (FiltersFileBroken broken)
+            {
+                return Results.Conflict(new ProjectTrackerRejected("filters-broken", broken.File));
+            }
 
             if (SyncOf(bases, layout, out var unready) is not { } sync)
                 return unready;

@@ -837,6 +837,24 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("не json", File.ReadAllText(file));
     }
 
+    /// <summary>Битый файл фильтров останавливает запись до коммита: иначе строка «фильтр:» пропала бы молча (ревью B-285).</summary>
+    [Fact]
+    public async Task Save_FiltersFileBroken_WritesNothing()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub with { Filter = "label:bug" }, "Order Service"));
+        var file = TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "не json");
+        var client = await Client();
+        var before = File.ReadAllText(TrackerFile);
+
+        var response = await Save(client, _base, (await Row(client)).Version, GitHub);
+
+        Assert.Equal(new ProjectTrackerRejected("filters-broken", file), await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
+        Assert.Equal(before, File.ReadAllText(TrackerFile));
+        Assert.Equal("не json", File.ReadAllText(file));
+    }
+
     /// <summary>Ключ к серверу без проектов показать негде — он уходит с последним трекером на сервере.</summary>
     [Fact]
     public async Task Delete_LastProjectOnServer_RemovesKey()

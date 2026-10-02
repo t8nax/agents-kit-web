@@ -257,6 +257,8 @@ export function rejectedText(rejected: TrackerRejected): { text: string; output?
       return { text: 'Базу не забрать с сервера, и описание не записано. Кит ответил:', output: rejected.detail ?? undefined }
     case 'invalid':
       return { text: 'Описание не в форме кита — причины стоят под полями.' }
+    case 'filters-broken':
+      return { text: `Файл фильтров задач трекеров не прочитан, и описание не записано: ${rejected.detail ?? 'filters.json'}. Поправьте или удалите его.` }
     case 'keys-broken':
       return { text: `Файл ключей к серверам трекеров не прочитан, и ключ не сохранить: ${rejected.detail ?? 'trackers.json'}.` }
     default:

@@ -49,6 +49,13 @@ public sealed class TrackerFiltersStore(string file)
         return string.IsNullOrWhiteSpace(filter) ? null : filter.Trim();
     }
 
+    /// <summary>Файл фильтров разобран; битый — FiltersFileBroken с его путём.</summary>
+    public void Check()
+    {
+        lock (_lock)
+            Read();
+    }
+
     /// <summary>Задаёт фильтр проекта; пустой — отбора нет, и строка «фильтр:» описания больше не действует.</summary>
     public void Set(string basePath, string? filter)
     {
