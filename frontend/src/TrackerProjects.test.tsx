@@ -330,6 +330,33 @@ test('«Удалить» спрашивает окном, удаляет пов�
   expect(new URLSearchParams(deleted.split('?')[1])).toEqual(new URLSearchParams({ base: described.base, version: 'v1' }))
 })
 
+// Ключ к серверу без проектов показать негде — он уходит с последним трекером сервера, и окно говорит это заранее (B-285)
+test('окно удаления говорит, что уйдёт и ключ, только когда других проектов на сервере нет', async () => {
+  const jira = (base: string, project: string): ProjectTrackerRow => ({
+    ...described,
+    base,
+    project,
+    tracker: { kind: 'jira', name: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' },
+    description: { ...github, tracker: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' },
+  })
+  const pay = jira('D:\\Projects\\pay-knowledge', 'Pay')
+  const servers = [{ server: 'https://acme.atlassian.net', login: 'anna@acme.example', email: 'anna@acme.example' }]
+  const phrase = /удалится и ключ к нему/
+
+  stubApi({ 'GET /api/trackers/projects': () => json([pay]) })
+  const { unmount } = render(<TrackerProjects servers={servers} />)
+  fireEvent.click((await row('Pay')).getByRole('button', { name: 'Удалить трекер Pay' }))
+  expect(within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' })).getByText(phrase)).toHaveTextContent(
+    'Других проектов на сервере https://acme.atlassian.net нет, поэтому с этого компьютера удалится и ключ к нему.',
+  )
+  unmount()
+
+  stubApi({ 'GET /api/trackers/projects': () => json([pay, jira('D:\\Projects\\billing-knowledge', 'Billing')]) })
+  render(<TrackerProjects servers={servers} />)
+  fireEvent.click((await row('Pay')).getByRole('button', { name: 'Удалить трекер Pay' }))
+  expect(within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' })).queryByText(phrase)).not.toBeInTheDocument()
+})
+
 test('база не ушла на сервер после удаления — окно говорит это словами кита, «Закрыть» перечитывает проекты', async () => {
   let listed = [described]
   stubApi({
