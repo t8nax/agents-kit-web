@@ -1888,10 +1888,14 @@ test('«Взять задачу» у задачи YouTrack запускает е
   )
 })
 
-test('«В трекер» есть и у записей проекта с YouTrack, а у проекта с Jira — нет', async () => {
+test.each([
+  ['YouTrack', youTrack],
+  // Jira — как YouTrack: переносит Чудо-Юдо подключением Claude Code (B-285)
+  ['Jira', { kind: 'jira' as const, name: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' }],
+])('«В трекер» есть и у записей проекта с %s, а у проекта с другим трекером — нет', async (_, tracker) => {
   const fetchMock = stubFetch([
-    { ...backlogs[0], tracker: youTrack },
-    { ...backlogs[1], tracker: { kind: 'other', name: 'Jira' } },
+    { ...backlogs[0], tracker },
+    { ...backlogs[1], tracker: { kind: 'other', name: 'GitLab' } },
   ])
   fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
 
