@@ -38,7 +38,8 @@
   --mark-yt-text: #e879f9;
   --mark-yt-bg: rgba(232, 121, 249, 0.12);
   --mark-yt-border: rgba(232, 121, 249, 0.45);
-  --grid-line: rgba(255, 255, 255, 0.035);  --overlay: rgba(9, 9, 11, 0.72);
+  --grid-line: rgba(255, 255, 255, 0.035);
+  --overlay: rgba(9, 9, 11, 0.72);
   --overlay-deep: rgba(0, 0, 0, 0.85);
   --shadow-color: rgba(0, 0, 0, 0.5);
   --footer-tint: rgba(0, 0, 0, 0.2);
@@ -89,7 +90,8 @@
     --mark-yt-text: #a21caf;
     --mark-yt-bg: rgba(162, 28, 175, 0.1);
     --mark-yt-border: rgba(162, 28, 175, 0.4);
-    --grid-line: rgba(24, 24, 27, 0.05);    --overlay: rgba(24, 24, 27, 0.38);
+    --grid-line: rgba(24, 24, 27, 0.05);
+    --overlay: rgba(24, 24, 27, 0.38);
     --overlay-deep: rgba(24, 24, 27, 0.45);
     --shadow-color: rgba(24, 24, 27, 0.18);
     --footer-tint: rgba(24, 24, 27, 0.03);
@@ -135,7 +137,8 @@
   --mark-yt-text: #a21caf;
   --mark-yt-bg: rgba(162, 28, 175, 0.1);
   --mark-yt-border: rgba(162, 28, 175, 0.4);
-  --grid-line: rgba(24, 24, 27, 0.05);  --overlay: rgba(24, 24, 27, 0.38);
+  --grid-line: rgba(24, 24, 27, 0.05);
+  --overlay: rgba(24, 24, 27, 0.38);
   --overlay-deep: rgba(24, 24, 27, 0.45);
   --shadow-color: rgba(24, 24, 27, 0.18);
   --footer-tint: rgba(24, 24, 27, 0.03);
