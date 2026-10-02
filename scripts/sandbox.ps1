@@ -1200,7 +1200,7 @@ Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, ma
 Write-Host "  сведение базы:  $(Join-Path $Root 'sync-mode.txt')    (ok, push-fail, pull-fail, offline, push-offline); вызовы — sync.log у скриптов кита"
 Write-Host "  перевод базы:   $(Join-Path $Root 'migrate-mode.txt') (ok, operator, fail, slow, kit-old); вызовы — migrate.log у скриптов кита"
 Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"
-Write-Host "  Jira:           $jiraServer, почта operator@sandbox.example, ключ sandbox-token; режим — jira-mode.txt (ok, rejected, error, slow, slow-create), задачи — jira-issues.json"
+Write-Host "  Jira:           $jiraServer, почта operator@sandbox.example, ключ sandbox-token; режим — jira-mode.txt (ok, rejected, error, slow), задачи — jira-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
 $self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
 $where = ''

@@ -1153,8 +1153,8 @@ function New-JiraStub([string]$Root, [int]$Port) {
 # и API-токен «sandbox-token» (Basic), владелец ключа — «Оператор песочницы», accountId acc-operator.
 # Проекты и их задачи — jira-issues.json корня песочницы: объект «ключ проекта: [задачи]», у задачи — номер, заголовок,
 # статус status, метки labels, исполнитель assignee — { accountId, displayName } (нет его — задача ничья) и done —
-# задача закрыта: в поиск незакрытых она не попадает. Новая задача (перенос записи бэклога) дописывается туда следующим
-# номером, назначенная на владельца ключа, её описание — в jira-created\<ключ>.md.
+# задача закрыта: в поиск незакрытых она не попадает. Задач панель в Jira не заводит: запись бэклога переносит Чудо-Юдо
+# (AKW-15), а в песочнице — подставной агент, без этого сервера.
 # Фильтр проекта (JQL после «AND (») понимает условия через AND: assignee = currentUser(), assignee = <accountId>,
 # status = <статус>, labels = <метка>; другое поле Jira отвергает ответом 400, как настоящая.
 # Режим читается на каждый запрос из jira-mode.txt корня песочницы:
@@ -1162,8 +1162,6 @@ function New-JiraStub([string]$Root, [int]$Port) {
 #   rejected  отклоняет любую почту и ключ
 #   error     отвечает ошибкой сервера
 #   slow      отвечает через двадцать секунд — панель считает, что сервер не ответил
-#   slow-create  читает как ok, а заведение задачи отвечает через семьдесят секунд — задача заводится, но панель
-#             не дожидается ответа и пишет, что задача, возможно, заведена
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $issuesFile = Join-Path $root 'jira-issues.json'
@@ -1177,13 +1175,6 @@ function Send($context, [int]$status, $body) {
     $context.Response.ContentType = 'application/json; charset=utf-8'
     $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
     $context.Response.Close()
-}
-
-# Текст описания из документа Atlassian: абзацы через пустую строку, разрывы — переводом строки.
-function Text($doc) {
-    @($doc.content | ForEach-Object {
-            (@($_.content | ForEach-Object { if ($_.type -eq 'hardBreak') { "`n" } else { $_.text } }) -join '')
-        }) -join "`n`n"
 }
 
 $listener = [Net.HttpListener]::new()
@@ -1245,23 +1236,6 @@ while ($listener.IsListening) {
                     @{ key = "$project-$($_.number)"; fields = @{ summary = $_.title; assignee = $assignee } }
                 })
             Send $context 200 @{ issues = $found; isLast = $true }
-            continue
-        }
-        if ($path -eq '/rest/api/3/issue' -and $context.Request.HttpMethod -eq 'POST') {
-            $reader = [IO.StreamReader]::new($context.Request.InputStream, $utf8)
-            $payload = ($reader.ReadToEnd() | ConvertFrom-Json).fields
-            $project = $payload.project.key
-            $known = @($issues.$project)
-            # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
-            $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
-            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary; status = 'To Do'; labels = @()
-                assignee = $operator }
-            [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), $utf8)
-            $created = Join-Path $root 'jira-created'
-            New-Item -ItemType Directory -Force -Path $created | Out-Null
-            [IO.File]::WriteAllText((Join-Path $created "$project-$number.md"), "# $($payload.summary)`n`n$(Text $payload.description)", $utf8)
-            if ($mode -eq 'slow-create') { Start-Sleep -Seconds 70 }
-            Send $context 201 @{ id = "2$number"; key = "$project-$number"; self = "http://localhost:__PORT__/rest/api/3/issue/2$number" }
             continue
         }
         Send $context 404 @{ errorMessages = @("Нет такого адреса: $path"); errors = @{} }
