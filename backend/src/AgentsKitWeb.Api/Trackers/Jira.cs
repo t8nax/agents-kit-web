@@ -60,6 +60,10 @@ public sealed class JiraApi(IHttpClientFactory clients) : IJira
         var me = WhoAsync(server, email, key, cancellationToken);
         var found = await ProjectAsync(server, email, key, project, cancellationToken);
         var who = await me;
+        // Отклонённые почта или ключ — причина раньше ответа о проекте: на чужой ключ сервер может отвечать по проекту
+        // «не найден», и «Бэклог» повёл бы оператора в поле проекта, а не ключа (ревью B-285).
+        if (who.Problem == TrackerIssues.KeyRejected)
+            return new TrackerIssues([], who.Problem, who.Detail);
         if (found.Problem is not null)
             return new TrackerIssues([], found.Problem, found.Detail);
 

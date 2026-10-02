@@ -205,6 +205,19 @@ public sealed class JiraApiTests
         Assert.Equal(new TrackerIssues([], TrackerIssues.KeyRejected), issues);
     }
 
+    /// <summary>Ключ отклонён, а про проект сервер ответил «не найден» — причина всё равно ключ (ревью B-285).</summary>
+    [Fact]
+    public async Task Open_KeyRejectedButProjectNotFound_IsKeyRejected()
+    {
+        var api = Api(request => request.RequestUri!.AbsolutePath == "/rest/api/3/myself"
+            ? Json("{}", HttpStatusCode.Unauthorized)
+            : Json("{}", HttpStatusCode.NotFound));
+
+        var issues = await api.OpenAsync(Server, Email, Key, "PAY", null, CancellationToken.None);
+
+        Assert.Equal(new TrackerIssues([], TrackerIssues.KeyRejected), issues);
+    }
+
     /// <summary>Владелец ключа не узнан — задачи видны, своих не отмечено.</summary>
     [Fact]
     public async Task Open_OwnerUnknown_ShowsIssuesWithoutMine()
