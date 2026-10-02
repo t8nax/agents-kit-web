@@ -79,7 +79,10 @@ export default function TrackerModal({
   const [chatting, setChatting] = useState(talking)
   // Ключ и почта к серверу — только у трекеров, которым они нужны; в базу они не пишутся (ответ оператора на B-285).
   const [key, setKey] = useState('')
-  const [email, setEmail] = useState(keyOwner?.email ?? '')
+  // Владельцев ключей раздел читает своим запросом, и окно, открытое переходом из «Бэклога», может их опередить:
+  // пока оператор поле не трогал, в нём почта владельца ключа, какой она пришла (ревью B-285). null — не трогал.
+  const [typedEmail, setTypedEmail] = useState<string | null>(null)
+  const email = typedEmail ?? keyOwner?.email ?? ''
   const kind = knownTracker(draft.tracker)
   const filtered = checked(kind)
   const withKey = keyed(kind)
@@ -334,7 +337,7 @@ export default function TrackerModal({
                       disabled={saving}
                       aria-invalid={faults.email ? true : undefined}
                       onChange={(e) => {
-                        setEmail(e.target.value)
+                        setTypedEmail(e.target.value)
                         clearFault('email')
                       }}
                     />

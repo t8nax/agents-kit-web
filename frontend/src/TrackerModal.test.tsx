@@ -243,6 +243,23 @@ test('у Jira почта и ключ уходят с описанием; сме�
   expect(puts[0].body).toEqual({ base: row.base, version: 'v1', description: jira, key: 'токен', email: 'ivan@acme.example' })
 })
 
+// Ревью B-285: владельцы ключей приходят своим запросом и могут опоздать к открытому окну
+test('почта владельца ключа, пришедшая после открытия окна, ложится в поле, пока его не трогали', () => {
+  const jira: TrackerDescription = { ...youtrack, tracker: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' }
+  const jiraRow: ProjectTrackerRow = { ...row, tracker: { kind: 'jira', name: 'Jira', server: jira.server, project: 'PAY' }, description: jira }
+  const owner = { server: 'https://acme.atlassian.net', login: 'anna@acme.example', email: 'anna@acme.example' }
+  stubFetch(controlledStream<TrackerEvent>())
+  const { rerender } = render(<TrackerModal row={jiraRow} keyOwner={null} onSaved={vi.fn()} onClose={vi.fn()} />)
+
+  rerender(<TrackerModal row={jiraRow} keyOwner={owner} onSaved={vi.fn()} onClose={vi.fn()} />)
+  expect(form().getByLabelText('Почта')).toHaveValue('anna@acme.example')
+  expect(form().getByRole('button', { name: 'Сохранить' })).toBeDisabled()
+
+  fireEvent.change(form().getByLabelText('Почта'), { target: { value: 'ivan@acme.example' } })
+  rerender(<TrackerModal row={jiraRow} keyOwner={{ ...owner }} onSaved={vi.fn()} onClose={vi.fn()} />)
+  expect(form().getByLabelText('Почта')).toHaveValue('ivan@acme.example')
+})
+
 test('ключ отклонён — причина под полем «Ключ», поле в красной рамке', async () => {
   stubFetch(controlledStream<TrackerEvent>(), () =>
     Response.json({ problem: 'check', field: 'key', code: 'key-rejected' }, { status: 422 }),
