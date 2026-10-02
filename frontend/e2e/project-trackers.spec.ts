@@ -163,18 +163,16 @@ test('проект без трекера — круг пунктиром, заг
   expect(look).toEqual({ background: 'none', border: 'dashed', round: '50%', size: 96 })
 })
 
-// Приёмка B-323: «Добавить» у недостающего ключа — экран у «Серверов трекеров», адрес подставлен, курсор в «Ключе».
-test('«Добавить» у недостающего ключа подставляет адрес сервера и ставит курсор в «Ключ»', async ({ page }) => {
-  await page.setViewportSize({ width: 1400, height: 600 })
+// Ключ к серверу — в окне трекера (ответ оператора на B-285): отдельного списка серверов нет, у строки ключа — без «Добавить».
+test('без ключа — красная строка ключа без кнопки, и раздел без списка «Серверы трекеров»', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 })
   await mockApi(page)
 
   await openSection(page)
-  await detail(page, logistics).getByRole('button', { name: `Добавить ключ к серверу ${long}` }).click()
-
-  const servers = page.getByRole('region', { name: 'Серверы трекеров' })
-  await expect(servers.getByLabel('Адрес сервера')).toHaveValue(long)
-  await expect(servers.getByLabel('Ключ')).toBeFocused()
-  await expect(servers.getByLabel('Ключ')).toBeInViewport()
+  const card = detail(page, logistics)
+  await expect(card.getByText('нет ключа к этому серверу')).toBeVisible()
+  await expect(card.getByRole('button', { name: /Добавить/ })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Серверы трекеров' })).toHaveCount(0)
 })
 
 // Замечание оператора к макету B-293: окно без горизонтальной прокрутки на любой ширине.
@@ -198,7 +196,7 @@ for (const width of [1400, 700]) {
     await dialog.getByRole('button', { name: 'Сохранить' }).click()
     await expect
       .poll(() => saved)
-      .toEqual([{ base: rows[0].base, version: 'v1', description: { ...description, project: 'LOGISTICS' } }])
+      .toEqual([{ base: rows[0].base, version: 'v1', description: { ...description, project: 'LOGISTICS', filter: '' }, key: '', email: null }])
     await expect(dialog).toBeHidden()
   })
 }
@@ -232,25 +230,57 @@ test('переписка открывается поверх окна треке
   await expect(form).toBeHidden()
 })
 
-// Макет B-300: фильтр — строкой в подробностях проекта и полем под парой «Адрес сервера / Проект» во всю её ширину.
-test('фильтр трекера — в подробностях проекта и под сервером и проектом в окне', async ({ page }) => {
-  await page.setViewportSize({ width: 1400, height: 900 })
-  const filter = 'State: {To Do}'
-  await mockApi(page, [{ ...rows[0], tracker: { ...rows[0].tracker, filter }, description: { ...description, filter } }, rows[1]])
+// Макет B-285: у Jira в окне группа «Ключ к серверу» — «Почта» и «Ключ» под сервером и проектом; фильтра в окне нет,
+// почта и ключ уходят с описанием.
+for (const width of [1400, 700]) {
+  test(`у Jira в окне «Почта» и «Ключ» под сервером и проектом, без горизонтальной прокрутки (${width}px)`, async ({ page }) => {
+    const jira = {
+      ...rows[0],
+      tracker: { kind: 'jira', name: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' },
+      description: { ...description, tracker: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY', filter: 'assignee = currentUser()' },
+    }
+    const saved = await mockApi(page, [jira, rows[1]])
 
-  await openSection(page)
-  const card = detail(page, logistics)
-  await expect(card.getByText(filter)).toBeVisible()
+    await openSection(page)
+    await detail(page, logistics).getByRole('button', { name: /^Изменить трекер/ }).click()
+    const dialog = page.getByRole('dialog', { name: 'Трекер проекта', exact: true })
+    await page.setViewportSize({ width, height: 900 })
+    await expect(dialog.getByLabel('Фильтр')).toHaveCount(0)
+    const [address, project, email, key] = await Promise.all(
+      [dialog.getByLabel('Адрес сервера'), dialog.getByLabel('Проект'), dialog.getByLabel('Почта'), dialog.getByLabel('Ключ')].map((one) =>
+        one.boundingBox(),
+      ),
+    )
+    expect(email!.y).toBeGreaterThan(Math.max(address!.y + address!.height, project!.y + project!.height))
+    expect(key!.y).toBeGreaterThan(email!.y + email!.height)
+    await noSideScroll(dialog.locator('.ask-body'))
 
-  await card.getByRole('button', { name: /^Изменить трекер/ }).click()
-  const dialog = page.getByRole('dialog', { name: 'Трекер проекта', exact: true })
-  await expect(dialog.getByLabel('Фильтр')).toHaveValue(filter)
-  const [address, key, field] = await Promise.all(
-    [dialog.getByLabel('Адрес сервера'), dialog.getByLabel('Проект'), dialog.getByLabel('Фильтр')].map((one) => one.boundingBox()),
+    await dialog.getByLabel('Почта').fill('anna@acme.example')
+    await dialog.getByLabel('Ключ').fill('токен')
+    await dialog.getByRole('button', { name: 'Сохранить' }).click()
+    await expect
+      .poll(() => saved)
+      .toEqual([{ base: jira.base, version: 'v1', description: { ...jira.description, filter: '' }, key: 'токен', email: 'anna@acme.example' }])
+  })
+}
+
+// Причина о ключе в «Бэклоге» открывает окно трекера проекта, курсор — в поле «Ключ» (комментарий оператора к макету B-285).
+test('строка о ключе в «Бэклоге» открывает окно трекера с курсором в «Ключ»', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 })
+  await mockApi(page)
+  await page.route('**/api/backlog', (route) =>
+    route.fulfill({ json: [{ base: rows[0].base, project: logistics, entries: [], error: null, tracker: rows[0].tracker }] }),
   )
-  expect(field!.y).toBeGreaterThan(address!.y + address!.height)
-  expect(Math.abs(field!.x - address!.x)).toBeLessThanOrEqual(1)
-  expect(Math.abs(field!.x + field!.width - (key!.x + key!.width))).toBeLessThanOrEqual(1)
+  await page.route('**/api/backlog/tracker?**', (route) => route.fulfill({ json: { issues: [], problem: 'no-key' } }))
+
+  await page.goto('/')
+  await page.getByRole('navigation', { name: 'Разделы панели' }).getByRole('button', { name: 'Бэклог' }).click()
+  await page.getByRole('tab', { name: 'Задачи трекера' }).click()
+  await expect(page.getByText(`Нет ключа к серверу ${long}. Введите ключ в разделе «Трекеры».`)).toBeVisible()
+  await page.getByRole('button', { name: '«Трекеры»' }).click()
+
+  const dialog = page.getByRole('dialog', { name: 'Трекер проекта', exact: true })
+  await expect(dialog.getByLabel('Ключ')).toBeFocused()
 })
 
 // Критерий 4 B-323: строка поломки в «Бэклоге» ведёт в раздел «Трекеры» и выбирает проект с поломкой.
@@ -279,7 +309,7 @@ test('строка поломки трекера в «Бэклоге» ведё�
 
   const card = detail(page, 'CRM')
   await expect(card).toBeInViewport()
-  await expect(card.getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeVisible()
+  await expect(card.getByText('В описании трекера не указан проект или указан не так.')).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Трекеры проектов' }).getByRole('button', { name: /^CRM/ })).toHaveAttribute(
     'aria-current',
     'true',

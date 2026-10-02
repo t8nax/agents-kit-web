@@ -218,3 +218,45 @@ test('«Взять задачу» у задачи трекера запуска�
     .poll(() => posts)
     .toEqual([{ base, copy: 'D:\\Projects\\rustic-silver-sparrow', number: 'GitHub #7', flow: 'полный' }])
 })
+
+// Фильтр проекта — воронкой в шапке его группы (макет B-285, вариант А): Enter записывает его в панели, плашка с ним
+// встаёт в шапку, а шапка отстоит от первой задачи заметнее обычного — замечание оператора «слипается с задачами».
+for (const width of [1400, 700]) {
+  test(`фильтр проекта: воронка раскрывает поле, Enter записывает фильтр плашкой в шапке (${width}px)`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await routeApi(page)
+    let filter: string | null = null
+    const written: unknown[] = []
+    await page.route('**/api/backlog/tracker/filter', async (route) => {
+      const body = route.request().postDataJSON() as { filter: string }
+      written.push(body)
+      filter = body.filter || null
+      await route.fulfill({ status: 204 })
+    })
+    await page.route('**/api/backlog', (route) =>
+      route.fulfill({ json: backlog.map((one) => (one.tracker ? { ...one, tracker: { ...one.tracker, filter } } : one)) }),
+    )
+
+    await openTrackerTab(page)
+    const project = page.getByRole('region', { name: 'Agents Kit Web' })
+    await expect(project.getByRole('link', { name: /#52/ })).toBeVisible()
+    await project.getByRole('button', { name: 'Фильтр проекта' }).click()
+    const field = project.getByRole('textbox', { name: 'Фильтр проекта' })
+    await expect(field).toBeFocused()
+    await expect(field).toHaveAttribute('placeholder', 'assignee:@me — только ваши')
+    await field.fill('assignee:@me')
+    await field.press('Enter')
+
+    await expect.poll(() => written).toEqual([{ base, filter: 'assignee:@me' }])
+    const pill = project.getByRole('button', { name: 'assignee:@me' })
+    await expect(pill).toBeVisible()
+    await expect(field).toHaveCount(0)
+    // Шапка с фильтром — не вплотную к первой задаче
+    await expect(async () => {
+      const [head, first] = await Promise.all([project.locator('.base-head').boundingBox(), project.locator('.entry-row').first().boundingBox()])
+      expect(first!.y - (head!.y + head!.height)).toBeGreaterThanOrEqual(10)
+    }).toPass()
+    const { scroll, client } = await page.locator('html').evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth }))
+    expect(scroll).toBeLessThanOrEqual(client + 1)
+  })
+}
