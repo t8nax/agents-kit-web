@@ -127,13 +127,13 @@ public sealed class BacklogEndpointTests : IDisposable
         TestLayout.GitHubTracker(withTracker, "acme/orders");
         var withoutTracker = CreateBase("nota-knowledge", "## B-1 Первая\n");
         var withoutBacklog = TestLayout.Base(Path.Combine(_root, "empty-knowledge"));
-        TestLayout.Tracker(withoutBacklog, "Jira", "https://acme.atlassian.net", "PAY");
+        TestLayout.Tracker(withoutBacklog, "GitLab", "https://gitlab.com", "acme/orders");
 
         var backlogs = await GetBacklogs(withTracker, withoutTracker, withoutBacklog);
 
         Assert.Equal(new TrackerInfo(TrackerInfo.GitHub, "GitHub", "https://github.com", "acme/orders"), Assert.Single(backlogs, b => b.Base == withTracker).Tracker);
         Assert.Null(Assert.Single(backlogs, b => b.Base == withoutTracker).Tracker);
-        Assert.Equal(new TrackerInfo(TrackerInfo.Other, "Jira"), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
+        Assert.Equal(new TrackerInfo(TrackerInfo.Other, "GitLab"), Assert.Single(backlogs, b => b.Base == withoutBacklog).Tracker);
     }
 
     [Fact]
@@ -226,7 +226,8 @@ public sealed class BacklogEndpointTests : IDisposable
 
     [Theory]
     [InlineData(null, TrackerIssues.NoTracker)]
-    [InlineData("## Где задачи\n\nтрекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY\n", TrackerInfo.Other)]
+    [InlineData("## Где задачи\n\nтрекер: GitLab\nсервер: https://gitlab.com\nпроект: acme/orders\n", TrackerInfo.Other)]
+    [InlineData("## Где задачи\n\nтрекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY\n", TrackerIssues.NoKey)]
     [InlineData("## Где задачи\nGitHub Issues https://github.com/acme/orders, через gh\n", TrackerInfo.NoKeys)]
     public async Task TrackerIssues_WithoutGitHubKeys_DoesNotRunGh(string? tracker, string problem)
     {
@@ -324,8 +325,72 @@ public sealed class BacklogEndpointTests : IDisposable
         Assert.Empty(_youTrack.Read);
     }
 
+    /// <summary>Задачи Jira раздел читает клиентом панели с почтой и ключом сервера (B-285).</summary>
+    [Fact]
+    public async Task TrackerIssues_Jira_ReadWithEmailAndKey()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        TestLayout.Tracker(basePath, "Jira", "https://acme.atlassian.net", "PAY");
+        new TrackerServersStore(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")))
+            .Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+        _jira.Answer = new TrackerIssues(
+            [new TrackerIssue("Jira PAY-7", 7, "Оплата падает", "https://acme.atlassian.net/browse/PAY-7", Assignee: "Анна Петрова", Mine: true)]);
+
+        var issues = await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(_jira.Answer.Issues, issues.Issues);
+        Assert.Null(issues.Labels);
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ", "PAY")], _jira.Read);
+    }
+
+    /// <summary>
+    /// Фильтр, заданный на вкладке, хранится в панели и идёт в запрос к трекеру вместо строки описания; список бэклога
+    /// называет его у трекера (B-285).
+    /// </summary>
+    [Fact]
+    public async Task TrackerFilter_SetInPanel_GoesToTrackerAndBacklogList()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(basePath, "tracker.md"),
+            "## Где задачи\n\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nфильтр: label:bug\n");
+        var client = TrackerClient(basePath);
+
+        using var set = await client.PutAsJsonAsync("/api/backlog/tracker/filter", new SetTrackerFilterRequest(basePath, " assignee:@me "));
+        await client.GetAsync($"/api/backlog/tracker?base={Uri.EscapeDataString(basePath)}");
+        var backlogs = await client.GetFromJsonAsync<List<BaseBacklog>>("/api/backlog");
+
+        Assert.Equal(HttpStatusCode.NoContent, set.StatusCode);
+        Assert.Equal(["assignee:@me"], _github.Filters);
+        Assert.Equal("assignee:@me", Assert.Single(backlogs!).Tracker!.Filter);
+    }
+
+    /// <summary>Пока в панели фильтр не задан, действует строка «фильтр:» описания — как до переезда.</summary>
+    [Fact]
+    public async Task TrackerFilter_NotSet_DescribedFilterStillWorks()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+        File.WriteAllText(Path.Combine(basePath, "tracker.md"),
+            "## Где задачи\n\nтрекер: GitHub\nсервер: https://github.com\nпроект: acme/orders\nфильтр: label:bug\n");
+
+        await GetTrackerIssues(basePath, basePath);
+
+        Assert.Equal(["label:bug"], _github.Filters);
+    }
+
+    [Fact]
+    public async Task TrackerFilter_BaseNotInList_IsNotFound()
+    {
+        var basePath = CreateBase("orders-knowledge", "## B-1 Первая\n");
+
+        using var set = await TrackerClient(basePath).PutAsJsonAsync(
+            "/api/backlog/tracker/filter", new SetTrackerFilterRequest(Path.Combine(_root, "чужая"), "x"));
+
+        Assert.Equal(HttpStatusCode.NotFound, set.StatusCode);
+    }
+
     private readonly FakeGitHubIssues _github = new();
     private readonly FakeYouTrack _youTrack = new();
+    private readonly FakeJira _jira = new();
 
     /// <summary>Ключ сервера — в trackers.json рядом с bases.json панели теста.</summary>
     private void TrackerKey(string server, string key) =>
@@ -345,6 +410,8 @@ public sealed class BacklogEndpointTests : IDisposable
                 services.AddSingleton<IGitHubIssues>(_github);
                 services.RemoveAll<IYouTrack>();
                 services.AddSingleton<IYouTrack>(_youTrack);
+                services.RemoveAll<IJira>();
+                services.AddSingleton<IJira>(_jira);
             });
         })).CreateClient();
 

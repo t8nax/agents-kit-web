@@ -353,6 +353,74 @@ public sealed class TaskEndpointsTests : IDisposable
         Assert.Null(_agent.StartInfo);
     }
 
+    private readonly FakeJira _jira = new();
+
+    private void WriteJiraTracker()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+        new TrackerServersStore(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")))
+            .Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+    }
+
+    /// <summary>Задачу Jira берёт навык кита по имени «Jira PAY-7» — так её пишет кит (backlog-record.md, «Номер»).</summary>
+    [Theory]
+    [InlineData("Jira PAY-7")]
+    [InlineData("jira pay-7")]
+    public async Task Start_TakesJiraIssueByItsName(string name)
+    {
+        WriteJiraTracker();
+        _jira.Answer = new TrackerIssues([new TrackerIssue("Jira PAY-7", 7, "Оплата падает", "https://acme.atlassian.net/browse/PAY-7")]);
+        _agent.Lines = ["backgrounded · abc123"];
+        var client = Client();
+
+        var response = await client.PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, name));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ", "PAY")], _jira.Read);
+        Assert.Equal("/agents-kit:drive Jira PAY-7", _agent.StartInfo!.ArgumentList[^1]);
+        var rows = await client.GetFromJsonAsync<List<WorkspaceRow>>("/api/workspaces");
+        Assert.Equal("Jira PAY-7 Оплата падает", Assert.Single(rows!, r => r.Path == _copy).Task);
+    }
+
+    /// <summary>Закрытую задачу Jira поиск незакрытых не вернёт — панель её не запускает.</summary>
+    [Fact]
+    public async Task Start_RejectsJiraIssueNotOpen()
+    {
+        WriteJiraTracker();
+        _jira.Answer = new TrackerIssues([new TrackerIssue("Jira PAY-11", 11, "Другая", "https://acme.atlassian.net/browse/PAY-11")]);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "Jira PAY-7"));
+
+        Assert.Equal("issue-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Null(_agent.StartInfo);
+    }
+
+    /// <summary>Перепроверка перед запуском идёт с фильтром проекта, заданным в панели (B-285).</summary>
+    [Fact]
+    public async Task Start_RechecksWithFilterSetInPanel()
+    {
+        WriteJiraTracker();
+        new TrackerFiltersStore(TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")))
+            .Set(_base, "assignee = currentUser()");
+        _jira.Answer = new TrackerIssues([]);
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "Jira PAY-7"));
+
+        Assert.Equal("issue-unknown", (await response.Content.ReadFromJsonAsync<TaskStartProblem>())!.Problem);
+        Assert.Equal(["assignee = currentUser()"], _jira.Filters);
+    }
+
+    [Fact]
+    public async Task Start_JiraRefusal_CarriesJiraMessage()
+    {
+        WriteJiraTracker();
+        _jira.Answer = new TrackerIssues([], TrackerIssues.JiraError, "Сайт на обслуживании");
+
+        var response = await Client().PostAsJsonAsync("/api/tasks", new TaskStartRequest(_base, _copy, "Jira PAY-7"));
+
+        Assert.Equal(new TaskStartProblem("tracker-unavailable", "Сайт на обслуживании"), await response.Content.ReadFromJsonAsync<TaskStartProblem>());
+    }
+
     [Fact]
     public async Task Start_TrackerIssueWithoutGitHubTracker_IsNotStarted()
     {
@@ -541,6 +609,8 @@ public sealed class TaskEndpointsTests : IDisposable
     [InlineData("GitHub #37x Не номер", "B", null)]
     [InlineData("YouTrack abc-12 Оплата падает", "B", "YouTrack ABC-12")]
     [InlineData("YouTrack ABC-12x Не номер", "B", null)]
+    [InlineData("Jira pay-7 Оплата падает", "B", "Jira PAY-7")]
+    [InlineData("Jira PAY Не номер", "B", null)]
     // Номером панель признаёт только номер буквами своего проекта — decisions/backlog-numbers.md
     [InlineData("UTF-8 в именах файлов", "B", null)]
     [InlineData("B-7 Буквы проекта не известны", null, null)]
@@ -910,6 +980,8 @@ public sealed class TaskEndpointsTests : IDisposable
                 services.AddSingleton<IGitHubIssues>(_github);
                 services.RemoveAll<IYouTrack>();
                 services.AddSingleton<IYouTrack>(_youTrack);
+                services.RemoveAll<IJira>();
+                services.AddSingleton<IJira>(_jira);
                 services.RemoveAll<TimeProvider>();
                 services.AddSingleton<TimeProvider>(_time);
             });

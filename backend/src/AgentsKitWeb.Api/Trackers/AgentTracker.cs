@@ -8,10 +8,11 @@ namespace AgentsKitWeb.Api.Trackers;
 
 /// <summary>
 /// Как агент панели ходит в трекер проекта — так, как его описывает tracker.md, а не ключом панели (AKW-15):
-/// у GitHub — программой gh оператора, у YouTrack — подключением MCP самого Claude Code к серверу из строки «сервер:».
+/// у GitHub — программой gh оператора, у YouTrack и Jira — подключением MCP самого Claude Code к серверу из строки
+/// «сервер:», у облачной Jira — и к удалённому серверу Atlassian (B-285).
 /// Ключ подключения лежит в настройках Claude Code оператора; панель подаёт агенту только это одно подключение
 /// (--strict-mcp-config): прочих подключений Claude Code — Slack, почты — агент не видит.
-/// Mcp задан — подключение найдено; у YouTrack без него агент в трекер не пройдёт и скажет это.
+/// Mcp задан — подключение найдено; у YouTrack и Jira без него агент в трекер не пройдёт и скажет это.
 /// </summary>
 public sealed record AgentTracker(TrackerInfo Tracker, string? McpName = null, string? McpConfig = null)
 {
@@ -20,7 +21,7 @@ public sealed record AgentTracker(TrackerInfo Tracker, string? McpName = null, s
 
     public bool GitHub => Tracker.GitHubRepo is not null;
 
-    /// <summary>Пройти в трекер агенту есть чем: gh у GitHub или найденное подключение у YouTrack.</summary>
+    /// <summary>Пройти в трекер агенту есть чем: gh у GitHub или найденное подключение у YouTrack и Jira.</summary>
     public bool Reachable => GitHub || McpName is not null;
 
     /// <summary>Правила --allowedTools: всё подключение MCP или команды gh.</summary>
@@ -80,19 +81,29 @@ public sealed class AgentTrackers(string claudeDir)
 {
     private string ConfigFile => Path.Combine(Path.GetDirectoryName(Path.GetFullPath(claudeDir)) ?? claudeDir, ".claude.json");
 
-    /// <summary>Трекер базы для агента, идущего в каталогах dirs (первый — рабочий); трекера нет или не GitHub/YouTrack — null.</summary>
+    /// <summary>
+    /// Удалённый сервер MCP Atlassian: облачная Jira подключается к Claude Code им, а не адресом своего сайта (B-285).
+    /// </summary>
+    public const string AtlassianHost = "mcp.atlassian.com";
+
+    /// <summary>Трекер базы для агента, идущего в каталогах dirs (первый — рабочий); трекера нет или не GitHub/YouTrack/Jira — null.</summary>
     public AgentTracker? For(BaseLayout? layout, params string?[] dirs)
     {
         if (layout is null || ProjectTracker.Movable(layout) is not { } tracker)
             return null;
-        if (tracker.Kind != TrackerInfo.YouTrack || tracker.Server is null)
+        if (tracker.Kind is not (TrackerInfo.YouTrack or TrackerInfo.Jira) || tracker.Server is null)
             return new AgentTracker(tracker);
 
-        var host = new Uri(tracker.Server).Host;
+        // Подходит подключение к хосту сервера трекера, а у облачной Jira (сайт на atlassian.net) — и к удалённому серверу
+        // Atlassian: серверной Jira облачное подключение не годится — задача ушла бы не в тот трекер (ревью B-285)
+        var site = new Uri(tracker.Server).Host;
+        string[] hosts = tracker.Kind == TrackerInfo.Jira && site.EndsWith(".atlassian.net", StringComparison.OrdinalIgnoreCase)
+            ? [site, AtlassianHost]
+            : [site];
         foreach (var (name, entry) in Servers(dirs.OfType<string>().ToList()))
             if (entry["url"]?.GetValueKind() == JsonValueKind.String
                 && Uri.TryCreate(entry["url"]!.GetValue<string>(), UriKind.Absolute, out var url)
-                && url.Host.Equals(host, StringComparison.OrdinalIgnoreCase))
+                && hosts.Any(host => url.Host.Equals(host, StringComparison.OrdinalIgnoreCase)))
             {
                 var config = new JsonObject { ["mcpServers"] = new JsonObject { [name] = entry.DeepClone() } };
                 return new AgentTracker(tracker, name, config.ToJsonString());

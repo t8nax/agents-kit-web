@@ -29,18 +29,25 @@ public sealed record ProjectTrackerRow(
     bool NewerFormat,
     IReadOnlyDictionary<string, string>? Faults = null);
 
-public sealed record SaveProjectTrackerRequest(string? Base, string? Version, TrackerDescription? Description);
+/// <summary>
+/// Запись описания. Key и Email — ключ к серверу YouTrack или Jira и почта, с которой ключ входит в Jira, введённые
+/// в окне трекера (B-285): пустой ключ — оставить сохранённый. В базу они не попадают — только в ключи этого компьютера.
+/// </summary>
+public sealed record SaveProjectTrackerRequest(
+    string? Base, string? Version, TrackerDescription? Description, string? Key = null, string? Email = null);
 
 /// <summary>
-/// Описание записано. Checked — панель проверила трекер чтением задач (у Jira и GitLab — нет); Pushed — база ушла
-/// на сервер, иначе Message — слова кита, почему нет. Version — отпечаток записанного файла.
+/// Описание записано. Checked — панель проверила трекер чтением задач (у GitLab — нет); Pushed — база ушла
+/// на сервер, иначе Message — слова кита, почему нет. Version — отпечаток записанного файла. KeyRemoved — с удалённым
+/// описанием ушёл и ключ к серверу: других проектов на этом сервере нет (B-285).
 /// </summary>
-public sealed record ProjectTrackerSaved(string Version, bool Checked, bool Pushed, string? Message);
+public sealed record ProjectTrackerSaved(string Version, bool Checked, bool Pushed, string? Message, bool KeyRemoved = false);
 
 /// <summary>
 /// Запись не прошла. Problem: newer-format — база нового формата кита; invalid — описание не в форме кита (Faults — по
-/// полям окна); check — трекер не прочитан (Field — поле, Code — причина кодами задач «Бэклога», Detail — строка
-/// трекера); changed — описание поменялось с тех пор, как его видел оператор; dirty — в tracker.md чужая
+/// полям окна, и email, key — почта и ключ к серверу); check — трекер не прочитан или ключ не принят (Field — поле, Code —
+/// причина кодами задач «Бэклога», Detail — строка трекера); keys-broken — файл ключей этого компьютера не разобран
+/// (Detail — его путь); filters-broken — так же файл фильтров проектов; changed — описание поменялось с тех пор, как его видел оператор; dirty — в tracker.md чужая
 /// незакоммиченная правка; busy — идут задачи трекера (Busy); kit-not-set, kit-not-found — нет кита или его sync.ps1;
 /// no-copy — нет копии проекта на диске, скрипту кита свести базу не из чего; pull — базу не забрать с сервера
 /// (Detail — слова кита); not-written, not-committed, not-restored — как у записи флоу.
@@ -65,11 +72,14 @@ public static partial class ProjectTrackersEndpoints
             bases.List().Select(basePath => Row(basePath, started)).ToList());
 
         app.MapPut("/api/trackers/projects", async (
-            SaveProjectTrackerRequest request, BasesStore bases, ProjectTracker tracker, CancellationToken cancellationToken) =>
+            SaveProjectTrackerRequest request, BasesStore bases, ProjectTracker tracker, TrackerServersStore servers,
+            TrackerFiltersStore filters, CancellationToken cancellationToken) =>
         {
             if (Configured(bases, request.Base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout
-                || request.Description is not { } description)
+                || request.Description is not { } asked)
                 return Results.NotFound();
+            // Фильтр задач — уже не строка описания, а настройка панели на этом компьютере (B-285): в базу он не пишется.
+            var description = asked with { Filter = "" };
             if (layout.NewerFormat)
                 return Results.Conflict(new ProjectTrackerRejected("newer-format", BaseLayout.NewerFormatRefusal));
 
@@ -77,14 +87,55 @@ public static partial class ProjectTrackersEndpoints
             if (TrackerDescriptions.Faults(description) is { Count: > 0 } faults)
                 return Results.BadRequest(new ProjectTrackerRejected("invalid", Faults: faults));
 
+            // Ключ к серверу — в окне трекера, у тех трекеров, которым он нужен (ответ оператора на B-285).
+            var parsed = Workspaces.Tracker.Parse(TrackerDescriptions.Serialize(description, "Проверка"));
+            if (KeyOf(request, parsed, servers, out var typed) is { } keyFaults)
+                return Results.BadRequest(new ProjectTrackerRejected("invalid", Faults: keyFaults));
+            // Ключ пишется после коммита описания: битый файл ключей должен остановить запись до неё (ревью B-288 — его не перезаписывают).
+            if (typed is not null)
+                try
+                {
+                    servers.List();
+                }
+                catch (TrackersFileBroken broken)
+                {
+                    return Results.Conflict(new ProjectTrackerRejected("keys-broken", broken.File));
+                }
+
             if (SyncOf(bases, layout, out var unready) is not { } sync)
                 return unready;
 
             if (await RefreshAsync(sync, layout, request.Version) is { } stale)
                 return stale;
 
+            // Запись переносит строку «фильтр:» описания в фильтры панели или снимает фильтр сменившего вид трекера — битый
+            // файл фильтров останавливает её до коммита, иначе строка пропала бы молча. Переносить и снимать нечего — файл
+            // фильтров записи не мешает (ревью B-285).
+            var earlier = Workspaces.Tracker.Read(layout);
+            if (!string.IsNullOrWhiteSpace(earlier?.Filter) || (earlier is not null && earlier.Kind != parsed.Kind))
+                try
+                {
+                    filters.Check();
+                }
+                catch (FiltersFileBroken broken)
+                {
+                    return Results.Conflict(new ProjectTrackerRejected("filters-broken", broken.File));
+                }
+
+            // Введённый ключ сохраняется, только когда сервер назвал его владельца — решение оператора на B-288.
+            string? owner = null;
+            if (typed is not null)
+            {
+                var who = await tracker.OwnerAsync(parsed.Kind, parsed.Server!, typed, cancellationToken);
+                if (who.Login is not { } login)
+                    return Results.UnprocessableEntity(new ProjectTrackerRejected(
+                        "check", who.Detail, Field: who.Problem == TrackerIssues.ServerSilent ? "server" : "key",
+                        Code: who.Problem ?? (parsed.Kind == TrackerInfo.Jira ? TrackerIssues.JiraError : TrackerIssues.YouTrackError)));
+                owner = login;
+            }
+
             // Проверка трекера — решение оператора на B-293: описание, по которому задач не прочитать, не пишется.
-            var check = await tracker.CheckAsync(description, cancellationToken);
+            var check = await tracker.CheckAsync(description, cancellationToken, typed);
             if (!check.Passed)
                 return Results.UnprocessableEntity(
                     new ProjectTrackerRejected("check", check.Detail, Field: check.Field, Code: check.Problem));
@@ -95,11 +146,36 @@ public static partial class ProjectTrackersEndpoints
                 return Results.Conflict(new ProjectTrackerRejected("changed"));
 
             var before = File.Exists(layout.TrackerFile) ? await File.ReadAllBytesAsync(layout.TrackerFile, CancellationToken.None) : null;
+            // Строка «фильтр:», которую запись уберёт из описания, переезжает в фильтр проекта, если он ещё не задан.
+            var previous = Workspaces.Tracker.Read(layout);
+            var described = previous?.Filter;
             var bytes = Bytes(description, ProjectName.Of(basePath), before);
             // То же описание байт в байт — коммитить нечего, оно уже записано; базу панель всё равно отдаёт.
             if (before is null || !bytes.AsSpan().SequenceEqual(before))
                 if (await CommitAsync(layout, bytes, CommitMessage) is { } failure)
                     return Results.Json(failure, statusCode: StatusCodes.Status502BadGateway);
+
+            // Ключ — только когда описание записано: иначе отвергнутая правка оставила бы новый ключ общим проектам сервера.
+            if (typed is not null)
+                servers.Save(parsed.Server!, owner!, typed.Key, typed.Email);
+            // Проект ушёл с прежнего сервера, а других проектов там нет — ключ к нему показать негде, он уходит, как при
+            // удалении трекера (ревью B-285).
+            if (previous is { Server: { } was } && ProjectTracker.NeedsKey(previous.Kind)
+                && !(ProjectTracker.NeedsKey(parsed.Kind) && parsed.Server is { } now && TrackerServersStore.SameServer(was, now))
+                && !OthersOnServer(bases, basePath, was))
+                RemoveKey(servers, was);
+            try
+            {
+                // Трекер сменил вид — строка поиска прежнего ему не годится, и фильтр проекта снимается (ревью B-285)
+                if (previous is not null && previous.Kind != parsed.Kind)
+                    filters.Remove(basePath);
+                else
+                    filters.Keep(basePath, described);
+            }
+            catch (FiltersFileBroken)
+            {
+                // Битый файл фильтров не перезаписывается; описание уже записано, а фильтр оператор задаст на вкладке.
+            }
 
             var pushed = await KitSync.RunAsync(sync.Script, sync.Copy, KitSync.Push);
             return Results.Ok(new ProjectTrackerSaved(
@@ -107,7 +183,8 @@ public static partial class ProjectTrackersEndpoints
         });
 
         app.MapDelete("/api/trackers/projects", async (
-            string? @base, string? version, BasesStore bases, StartedTasks started, CancellationToken cancellationToken) =>
+            string? @base, string? version, BasesStore bases, StartedTasks started, TrackerServersStore servers,
+            TrackerFiltersStore filters, CancellationToken cancellationToken) =>
         {
             if (Configured(bases, @base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
@@ -129,12 +206,79 @@ public static partial class ProjectTrackersEndpoints
             if (!File.Exists(layout.TrackerFile))
                 return Results.Conflict(new ProjectTrackerRejected("changed"));
 
+            var removed = Workspaces.Tracker.Read(layout);
             if (await CommitAsync(layout, null, DeleteMessage) is { } failure)
                 return Results.Json(failure, statusCode: StatusCodes.Status502BadGateway);
 
+            // Ключ к серверу без проектов показать негде: он уходит вместе с последним трекером на сервере (B-285).
+            var keyRemoved = removed is { Server: { } server } && ProjectTracker.NeedsKey(removed.Kind)
+                && !OthersOnServer(bases, basePath, server) && RemoveKey(servers, server);
+            // Без трекера отбирать нечего: фильтр проекта уходит вместе с ним (ревью B-285)
+            try
+            {
+                filters.Remove(basePath);
+            }
+            catch (FiltersFileBroken)
+            {
+                // Битый файл фильтров не перезаписывается; описание уже удалено.
+            }
+
             var pushed = await KitSync.RunAsync(sync.Script, sync.Copy, KitSync.Push);
-            return Results.Ok(new ProjectTrackerSaved("", false, pushed.Done, pushed.Done ? null : pushed.Message));
+            return Results.Ok(new ProjectTrackerSaved("", false, pushed.Done, pushed.Done ? null : pushed.Message, keyRemoved));
         });
+    }
+
+    /// <summary>
+    /// Ключ из окна трекера. Трекер без ключа (GitHub, GitLab) — null без отказа. Пустой ключ — оставить сохранённый:
+    /// typed — null. Отказ — по полям окна: Jira без почты не впустит, а сменённую почту проверить нечем без ключа.
+    /// </summary>
+    private static Dictionary<string, string>? KeyOf(
+        SaveProjectTrackerRequest request, TrackerInfo tracker, TrackerServersStore servers, out ServerKey? typed)
+    {
+        typed = null;
+        if (!ProjectTracker.NeedsKey(tracker.Kind) || tracker.Server is not { } server)
+            return null;
+        var jira = tracker.Kind == TrackerInfo.Jira;
+        var key = (request.Key ?? "").Trim();
+        var email = (request.Email ?? "").Trim();
+        if (jira && email.Length == 0)
+            return new() { ["email"] = "Укажите почту, с которой вы входите в Jira." };
+        if (key.Length > 0)
+        {
+            typed = new ServerKey(key, jira ? email : null);
+            return null;
+        }
+        string? stored;
+        try
+        {
+            stored = servers.Find(server).Email;
+        }
+        catch (TrackersFileBroken)
+        {
+            stored = null;
+        }
+        return jira && stored is not null && !string.Equals(stored, email, StringComparison.OrdinalIgnoreCase)
+            ? new() { ["key"] = "Почта изменилась — введите ключ заново." }
+            : null;
+    }
+
+    /// <summary>Есть ли среди баз панели, кроме этой, проект с трекером, ключ к которому нужен, на том же сервере.</summary>
+    private static bool OthersOnServer(BasesStore bases, string basePath, string server) =>
+        bases.List()
+            .Where(b => !BasesStore.SamePath(b, basePath))
+            .Select(b => BaseLayout.Read(b) is { } layout ? Workspaces.Tracker.Read(layout) : null)
+            .Any(t => t is { Server: { } other } && ProjectTracker.NeedsKey(t.Kind) && TrackerServersStore.SameServer(other, server));
+
+    private static bool RemoveKey(TrackerServersStore servers, string server)
+    {
+        try
+        {
+            return servers.Remove(server);
+        }
+        catch (TrackersFileBroken)
+        {
+            return false;
+        }
     }
 
     /// <summary>

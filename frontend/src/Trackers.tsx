@@ -1,55 +1,68 @@
-import { useEffect, useRef, useState } from 'react'
-import TrackerProjects from './TrackerProjects'
-import TrackerServersCard, { type TrackerServer } from './TrackerServersCard'
+import { useCallback, useEffect, useState } from 'react'
+import type { TrackerField } from './TrackerGroup'
+import TrackerProjects, { type TrackerServer } from './TrackerProjects'
 import './Settings.css'
 
 type TrackersProps = {
   /** Окно трекера этой базы открывается само — возврат к просьбе о трекере из шапки панели. */
   trackerFor?: { base: string; at: number } | null
-  /** Выбрать проект этой базы — переход из строки «Бэклога» о поломке трекера; servers — о ключе: показать серверы. */
-  trackersAt?: { base: string; at: number; servers: boolean } | null
+  /** Выбрать проект этой базы — переход из строки «Бэклога» о поломке трекера; field — открыть окно его трекера с курсором в этом поле. */
+  trackersAt?: { base: string; at: number; field?: TrackerField } | null
+}
+
+/** Файл ключей к серверам трекеров не разобран: панель его не перезаписывает, поправить или удалить его — оператору. */
+function brokenText(file: string | null | undefined): string {
+  return `Файл ключей к серверам трекеров не разобран${file ? `: ${file}` : ''}. Поправьте или удалите его — после удаления ключи придётся ввести заново.`
 }
 
 /**
- * Раздел «Трекеры» (B-323): слева проекты, справа трекер выбранного, ниже серверы трекеров с ключами.
- * Список серверов читает карточка серверов, а подробности проекта по нему называют ключ к серверу проекта.
+ * Раздел «Трекеры» (B-323): слева проекты, справа трекер выбранного. Ключи к серверам вводятся в окне трекера проекта,
+ * отдельного списка серверов нет (ответ оператора на B-285): раздел читает только владельцев ключей — их называет
+ * строка ключа в подробностях проекта и подсказка поля ключа в окне.
  */
 export default function Trackers({ trackerFor = null, trackersAt = null }: TrackersProps) {
   const [servers, setServers] = useState<TrackerServer[] | null>(null)
-  const [projectsRead, setProjectsRead] = useState(false)
-  // «Добавить» у недостающего ключа: адрес сервера проекта ложится в поле «Адрес сервера», курсор — в «Ключ».
-  const [addKey, setAddKey] = useState<{ server: string; at: number } | null>(null)
-  const serversCard = useRef<HTMLDivElement>(null)
-  const scrolledAt = useRef<number | null>(null)
-  const toServers = trackersAt?.servers ? trackersAt.at : null
-  const serversRead = servers !== null
-  // Переход из строки о ключе: на экране — список серверов, где ключ добавляют и меняют. Прокрутка — одна на переход
-  // и после того, как прочитаны и проекты над списком, и сам список: правка ключа экран больше не дёргает (ревью B-323).
-  useEffect(() => {
-    if (toServers === null || scrolledAt.current === toServers || !projectsRead || !serversRead) return
-    scrolledAt.current = toServers
-    serversCard.current?.scrollIntoView?.({ block: 'start' })
-  }, [toServers, projectsRead, serversRead])
+  // Битый файл ключей — красной строкой с путём, а не молча: панель его не перезаписывает, поправить его — оператору
+  // (ревью B-288, B-285)
+  const [broken, setBroken] = useState<string | null>(null)
+  const loadServers = useCallback(() => {
+    fetch('/api/trackers')
+      .then(async (response) => {
+        if (response.ok) return response.json() as Promise<TrackerServer[]>
+        const body = (await response.json().catch(() => null)) as { problem?: string; detail?: string | null } | null
+        throw new Error(body?.problem === 'file-broken' ? brokenText(body.detail) : `Ключи к серверам трекеров не прочитаны: HTTP ${response.status}.`)
+      })
+      .then(
+        (list) => {
+          setServers(list)
+          setBroken(null)
+        },
+        (e: unknown) => {
+          setServers(null)
+          setBroken(e instanceof TypeError ? null : String((e as Error).message))
+        },
+      )
+  }, [])
+  useEffect(loadServers, [loadServers])
   return (
-    <div className="settings">
+    <div className="settings trackers">
       <div className="content-head">
         <h2>Трекеры</h2>
       </div>
+      {broken && (
+        <p className="bases-error tp-error" role="alert">
+          {broken}
+        </p>
+      )}
       <TrackerProjects
         key={trackerFor?.at ?? trackersAt?.at ?? 'trackers'}
         rewriteFor={trackerFor}
-        focus={trackersAt?.servers ? null : trackersAt}
+        focus={trackersAt}
         selected={trackersAt?.base ?? null}
         servers={servers}
-        onRead={setProjectsRead}
-        onAddKey={(server) => {
-          setAddKey({ server, at: Date.now() })
-          serversCard.current?.scrollIntoView?.({ block: 'start' })
-        }}
+        // Записанное описание могло сохранить ключ или снять его вместе с последним трекером сервера
+        onChanged={loadServers}
       />
-      <div ref={serversCard}>
-        <TrackerServersCard onServers={setServers} prefill={addKey} />
-      </div>
     </div>
   )
 }

@@ -80,7 +80,7 @@ async function mockApi(page: Page) {
     bases = bases.filter((b) => b !== path)
     return route.fulfill({ status: 204 })
   })
-  // Трекеры — свой раздел, их проверяют trackers.spec.ts и project-trackers.spec.ts; «Настройки» их не читают
+  // Трекеры — свой раздел, их проверяет project-trackers.spec.ts; «Настройки» их не читают
   await page.route('**/api/trackers**', (route) => route.fulfill({ json: [] }))
 }
 

@@ -665,6 +665,12 @@ $youTrackServer = "http://localhost:$youTrackPort"
 $youTrackIssues = [ordered]@{}
 New-YouTrackStub $Root $youTrackPort
 Write-Utf8 (Join-Path $Root 'youtrack-mode.txt') "ok`n"
+# Подставная облачная Jira — следующим портом за YouTrack (B-285): порты песочниц чётные, и он ничей.
+$jiraPort = $Port + 1001
+$jiraServer = "http://localhost:$jiraPort"
+$jiraIssues = [ordered]@{}
+New-JiraStub $Root $jiraPort
+Write-Utf8 (Join-Path $Root 'jira-mode.txt') "ok`n"
 
 $links = [Collections.Generic.List[object]]::new()
 $findings = [Collections.Generic.List[object]]::new()
@@ -726,9 +732,10 @@ if (Test-Piece 'orders') {
 
 # Проекты с трекером (B-277, B-288): открытые задачи проекта — свои, чужие и ничьи (AKW-17) — раздел «Бэклог»
 # показывает на вкладке «Задачи трекера». Трекер описание называет строками «трекер:», «сервер:», «проект:» (кит формата 7). Задачи GitHub отдаёт
-# подставная gh из gh-issues.json, задачи YouTrack — подставной сервер youtrack-stub.ps1 из youtrack-issues.json;
-# ключ к нему оператор вводит в разделе «Трекеры». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом,
-# которого на сервере нет, описание без строк и Jira — задач панель не читает и называет причину.
+# подставная gh из gh-issues.json, задачи YouTrack — подставной сервер youtrack-stub.ps1 из youtrack-issues.json,
+# задачи Jira — jira-stub.ps1 из jira-issues.json (B-285); ключ (у Jira — и почту) оператор вводит в окне трекера
+# проекта в разделе «Трекеры». Ещё проекты: YouTrack на сервере без ключа, YouTrack с проектом, которого на сервере
+# нет, описание без строк и GitLab — задач панель не читает и называет причину.
 if (Test-Piece 'tracker') {
     $trackerCopy = Join-Path $copiesDir 'tracker'
     $trackerBase = Join-Path $basesDir 'tracker-knowledge'
@@ -847,12 +854,56 @@ if (Test-Piece 'tracker') {
     $links.Add([pscustomobject]@{ path = $ytCopy; status = 'Linked'; base = $ytBase })
     $findings.Add([pscustomobject]@{ base = $ytBase; findings = @() })
 
+    # Jira: своя копия — задачу Jira в неё берут, а запись её бэклога переносят в Jira (B-285).
+    $jiraCopy = Join-Path $copiesDir 'tracker-jira'
+    New-Repo $jiraCopy
+    Write-Utf8 (Join-Path $jiraCopy 'README.md') "# Jira`n`nВыдуманный проект песочницы.`n"
+    Add-Commit $jiraCopy 'Первый коммит'
+    $jiraBase = Join-Path $basesDir 'tracker-jira'
+    New-Base $jiraBase 'Jira' @($jiraCopy)
+    Write-Utf8 (Join-Path $jiraBase 'tracker.md') @"
+# Jira — трекер
+
+## Где задачи
+
+трекер: Jira
+сервер: $jiraServer
+проект: PAY
+
+MCP-сервер atlassian.
+
+## Показ бэклога
+Незакрытые задачи проекта PAY.
+
+## Взятие задачи
+Назначить на себя и перевести в статус «В работе».
+
+## Задача закрыта
+Ничего: задачу закрывает мерж.
+
+## Вынос записи бэклога
+Задача типа Task в проекте PAY, назначенная на меня.
+"@
+    Add-Commit $jiraBase 'Трекер проекта'
+    # Исполнитель — владелец ключа (acc-operator), чужой или никто; PAY-3 закрыта и не видна; статусы и метки — для
+    # фильтра проекта на вкладке «Задачи трекера».
+    $jiraOperator = [pscustomobject]@{ accountId = 'acc-operator'; displayName = 'Оператор песочницы' }
+    $jiraIssues['PAY'] = @(
+        [pscustomobject]@{ number = 12; title = 'Повторная отправка вебхука после таймаута банка'; status = 'To Do'; labels = @('bank'); assignee = $jiraOperator }
+        [pscustomobject]@{ number = 31; title = 'Сверка возвратов падает на пустой выписке'; status = 'In Progress'; labels = @(); assignee = [pscustomobject]@{ accountId = 'acc-anna'; displayName = 'Анна Петрова' } }
+        [pscustomobject]@{ number = 7; title = 'Логировать идентификатор платежа в каждой строке журнала шлюза'; status = 'To Do'; labels = @('ops') }
+        [pscustomobject]@{ number = 3; title = 'Закрытая задача — на вкладке её нет'; status = 'Done'; labels = @(); assignee = $jiraOperator; done = $true }
+    )
+    $bases.Add($jiraBase)
+    $links.Add([pscustomobject]@{ path = $jiraCopy; status = 'Linked'; base = $jiraBase })
+    $findings.Add([pscustomobject]@{ base = $jiraBase; findings = @() })
+
     $keys = { param($tracker, $server, $project) "`nтрекер: $tracker`nсервер: $server`nпроект: $project`n" }
     foreach ($other in @(
             @{ Dir = 'tracker-youtrack-nokey'; Title = 'YouTrack без ключа'; Where = (& $keys 'YouTrack' "$youTrackServer/other" 'ABC') }
             @{ Dir = 'tracker-youtrack-noproject'; Title = 'YouTrack без проекта'; Where = (& $keys 'YouTrack' $youTrackServer 'ZZZ') }
             @{ Dir = 'tracker-no-keys'; Title = 'Трекер без строк'; Where = 'GitHub Issues репозитория https://github.com/sandbox/tracker, ходить программой gh.' }
-            @{ Dir = 'tracker-jira'; Title = 'Трекер Jira'; Where = (& $keys 'Jira' 'https://sandbox.atlassian.net' 'PAY') + "`nMCP-сервер atlassian." })) {
+            @{ Dir = 'tracker-gitlab'; Title = 'Трекер GitLab'; Where = (& $keys 'GitLab' 'https://gitlab.com' 'sandbox/team/tracker') + "`nПрограммой glab." })) {
         $otherBase = Join-Path $basesDir $other.Dir
         New-Base $otherBase $other.Title @()
         Write-Utf8 (Join-Path $otherBase 'tracker.md') "# $($other.Title) — трекер`n`n## Где задачи`n$($other.Where)`n"
@@ -1052,6 +1103,7 @@ Write-Json (Join-Path $panelDir 'bases.json') ([pscustomobject]@{ bases = $bases
 Write-Utf8 (Join-Path $Root 'gh-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$ghIssues) -Depth 6)
 Write-Utf8 (Join-Path $Root 'gh-labels.json') (ConvertTo-Json -InputObject ([pscustomobject]$ghLabels) -Depth 3)
 Write-Utf8 (Join-Path $Root 'youtrack-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$youTrackIssues) -Depth 6)
+Write-Utf8 (Join-Path $Root 'jira-issues.json') (ConvertTo-Json -InputObject ([pscustomobject]$jiraIssues) -Depth 6)
 
 # --- живые сессии агентов ----------------------------------------------------------------
 
@@ -1110,10 +1162,11 @@ if (-not (Test-Path -LiteralPath '$(Join-Path $frontend 'node_modules')')) {
 
 `$api = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @(
     '-NoProfile', '-NonInteractive', '-Command',
-    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --PublishedFile '$(Join-Path $panelDir 'published.json')' --TrackersFile '$(Join-Path $panelDir 'trackers.json')' --VoiceDir '$(Join-Path $Root 'voice')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
-# Подставной YouTrack песочницы: ключ к нему — в разделе «Трекеры», в списке «Серверы трекеров» (trackers.json лежит
+    "dotnet run --project '$api' --no-launch-profile -- --urls 'http://localhost:$apiPort' --BasesFile '$(Join-Path $panelDir 'bases.json')' --SessionsDir '$sessionsDir' --ClaudeDir '$claudeDir' --PublishedFile '$(Join-Path $panelDir 'published.json')' --TrackersFile '$(Join-Path $panelDir 'trackers.json')' --FiltersFile '$(Join-Path $panelDir 'filters.json')' --VoiceDir '$(Join-Path $Root 'voice')' --FinishedSessionIntervalSeconds 10 --FinishedSessionDelaySeconds 20")
+# Подставные YouTrack и Jira песочницы: ключ к ним — в окне трекера проекта в разделе «Трекеры» (trackers.json лежит
 # рядом с bases.json песочницы, ключи оператора панель песочницы не видит).
 `$youTrack = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-File', '$(Join-Path $Root 'youtrack-stub.ps1')')
+`$jira = Start-Process pwsh -PassThru -WindowStyle Hidden -ArgumentList @('-NoProfile', '-NonInteractive', '-File', '$(Join-Path $Root 'jira-stub.ps1')')
 
 try {
     `$env:WEB_PORT = '$Port'
@@ -1127,6 +1180,7 @@ finally {
     # dotnet run держит API отдельным дочерним процессом: гасим всё дерево.
     & taskkill.exe /PID `$api.Id /T /F 2>`$null | Out-Null
     & taskkill.exe /PID `$youTrack.Id /T /F 2>`$null | Out-Null
+    & taskkill.exe /PID `$jira.Id /T /F 2>`$null | Out-Null
 }
 "@
 
@@ -1146,6 +1200,7 @@ Write-Host "  режим gh:       $(Join-Path $Root 'gh-mode.txt')      (ok, ma
 Write-Host "  сведение базы:  $(Join-Path $Root 'sync-mode.txt')    (ok, push-fail, pull-fail, offline, push-offline); вызовы — sync.log у скриптов кита"
 Write-Host "  перевод базы:   $(Join-Path $Root 'migrate-mode.txt') (ok, operator, fail, slow, kit-old); вызовы — migrate.log у скриптов кита"
 Write-Host "  YouTrack:       $youTrackServer, ключ perm:sandbox; режим — youtrack-mode.txt (ok, rejected, error, slow, slow-create), задачи — youtrack-issues.json"
+Write-Host "  Jira:           $jiraServer, почта operator@sandbox.example, ключ sandbox-token; режим — jira-mode.txt (ok, rejected, error, slow), задачи — jira-issues.json"
 # Пересборка повторяет те же ключи: без кусков песочница не соберётся.
 $self = "pwsh -NoProfile -File `"$(Join-Path $PSScriptRoot 'sandbox.ps1')`""
 $where = ''

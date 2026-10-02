@@ -41,7 +41,8 @@ public sealed record TrackerIssue(
 /// сервер ключ отклонил, «key-forbidden» — ключ принят, но у его владельца нет прав
 /// на это действие, «server-silent» — сервер не ответил, «project-missing» —
 /// проекта нет или к нему нет доступа, «youtrack-error» — YouTrack отказал иначе, Detail — его строка.
-/// «filter-rejected» — YouTrack не принял строку «фильтр:» описания (B-300), Detail — его строка; поиск GitHub
+/// У Jira — те же причины ключа, сервера и проекта, что у YouTrack, и «jira-error» — Jira отказала иначе.
+/// «filter-rejected» — YouTrack или Jira не приняли строку фильтра (B-300), Detail — их строка; поиск GitHub
 /// фильтр не отвергает.
 /// Labels — все метки репозитория GitHub, перечень фильтра «Метки» (B-305); null — трекер не GitHub или меток
 /// прочитать не вышло, и фильтр предлагает метки прочитанных задач.
@@ -71,6 +72,7 @@ public sealed record TrackerIssues(
     public const string ServerSilent = "server-silent";
     public const string ProjectMissing = "project-missing";
     public const string YouTrackError = "youtrack-error";
+    public const string JiraError = "jira-error";
     public const string FilterRejected = "filter-rejected";
 }
 

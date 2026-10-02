@@ -9,6 +9,7 @@ public sealed class TrackerCheckTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "akw-tracker-check-" + Guid.NewGuid().ToString("N"));
     private readonly FakeGitHubIssues _github = new();
     private readonly FakeYouTrack _youTrack = new();
+    private readonly FakeJira _jira = new();
     private readonly TrackerServersStore _servers;
 
     private static readonly TrackerDescription Described = new(
@@ -22,7 +23,7 @@ public sealed class TrackerCheckTests : IDisposable
 
     public void Dispose() => TestDirs.Delete(_root);
 
-    private ProjectTracker Tracker() => new(_github, _youTrack, _servers);
+    private ProjectTracker Tracker() => new(_github, _youTrack, _jira, _servers, new TrackerFiltersStore(Path.Combine(_root, "filters.json")));
 
     [Fact]
     public async Task GitHub_IssuesRead_PassesAndAsksTheRepo()
@@ -67,12 +68,12 @@ public sealed class TrackerCheckTests : IDisposable
     }
 
     [Fact]
-    public async Task YouTrack_NoKey_BlamesServer()
+    public async Task YouTrack_NoKey_BlamesKey()
     {
         var check = await Tracker().CheckAsync(
             Described with { Tracker = "YouTrack", Server = "https://acme.youtrack.cloud", Project = "PAY" }, CancellationToken.None);
 
-        Assert.Equal(new TrackerCheck(true, "server", TrackerIssues.NoKey), check);
+        Assert.Equal(new TrackerCheck(true, "key", TrackerIssues.NoKey), check);
         Assert.Empty(_youTrack.Read);
     }
 
@@ -88,18 +89,55 @@ public sealed class TrackerCheckTests : IDisposable
         Assert.Equal(new TrackerCheck(true, "project", TrackerIssues.ProjectMissing), check);
     }
 
-    /// <summary>Jira и GitLab панель не читает: описание пишется без проверки, и в трекер никто не ходит.</summary>
-    [Theory]
-    [InlineData("Jira", "https://acme.atlassian.net", "PAY")]
-    [InlineData("GitLab", "https://gitlab.com", "acme/team/orders")]
-    public async Task UnreadTracker_NotChecked(string tracker, string server, string project)
+    /// <summary>Jira проверяется чтением задач, как YouTrack: ключ входит с почтой (B-285).</summary>
+    [Fact]
+    public async Task Jira_KeyKnown_ReadsProjectWithEmailAndKey()
+    {
+        _servers.Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+
+        var check = await Tracker().CheckAsync(
+            Described with { Tracker = "Jira", Server = "https://acme.atlassian.net/", Project = "PAY" }, CancellationToken.None);
+
+        Assert.True(check.Passed);
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ", "PAY")], _jira.Read);
+    }
+
+    /// <summary>Ключ без почты Jira не впустит — это «нет ключа», а не поход на сервер.</summary>
+    [Fact]
+    public async Task Jira_KeyWithoutEmail_IsNoKey()
+    {
+        _servers.Save("https://acme.atlassian.net", "b", "ключ");
+
+        var check = await Tracker().CheckAsync(
+            Described with { Tracker = "Jira", Server = "https://acme.atlassian.net", Project = "PAY" }, CancellationToken.None);
+
+        Assert.Equal(new TrackerCheck(true, "key", TrackerIssues.NoKey), check);
+        Assert.Empty(_jira.Read);
+    }
+
+    [Fact]
+    public async Task Jira_FilterRejected_BlamesFilter()
+    {
+        _servers.Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+        _jira.Answer = new TrackerIssues([], TrackerIssues.FilterRejected, "Field 'x' does not exist.");
+
+        var check = await Tracker().CheckAsync(
+            Described with { Tracker = "Jira", Server = "https://acme.atlassian.net", Project = "PAY" }, CancellationToken.None);
+
+        Assert.Equal(new TrackerCheck(true, "filter", TrackerIssues.FilterRejected, "Field 'x' does not exist."), check);
+    }
+
+    /// <summary>GitLab панель не читает: описание пишется без проверки, и в трекер никто не ходит.</summary>
+    [Fact]
+    public async Task GitLab_NotChecked()
     {
         var check = await Tracker().CheckAsync(
-            Described with { Tracker = tracker, Server = server, Project = project }, CancellationToken.None);
+            Described with { Tracker = "GitLab", Server = "https://gitlab.com", Project = "acme/team/orders" }, CancellationToken.None);
 
         Assert.Equal(new TrackerCheck(false), check);
         Assert.True(check.Passed);
         Assert.Empty(_github.Asked);
         Assert.Empty(_youTrack.Read);
+        Assert.Empty(_jira.Read);
     }
 }

@@ -24,6 +24,20 @@
   --accent-error-text: #f87171;
   --accent-error-bg: rgba(248, 113, 113, 0.08);
   --accent-error-border: rgba(248, 113, 113, 0.35);
+  /* Метки трекеров в разделе «Трекеры» — у каждого свой цвет, которого в панели больше нигде нет: зелёный, янтарь,
+     синий и красный уже значат состояния (ответ оператора на B-285) */
+  --mark-gh-text: #818cf8;
+  --mark-gh-bg: rgba(129, 140, 248, 0.12);
+  --mark-gh-border: rgba(129, 140, 248, 0.45);
+  --mark-gl-text: #fb923c;
+  --mark-gl-bg: rgba(251, 146, 60, 0.12);
+  --mark-gl-border: rgba(251, 146, 60, 0.45);
+  --mark-ji-text: #22d3ee;
+  --mark-ji-bg: rgba(34, 211, 238, 0.12);
+  --mark-ji-border: rgba(34, 211, 238, 0.45);
+  --mark-yt-text: #e879f9;
+  --mark-yt-bg: rgba(232, 121, 249, 0.12);
+  --mark-yt-border: rgba(232, 121, 249, 0.45);
   --grid-line: rgba(255, 255, 255, 0.035);
   --overlay: rgba(9, 9, 11, 0.72);
   --overlay-deep: rgba(0, 0, 0, 0.85);
@@ -64,6 +78,18 @@
     --accent-error-text: #b91c1c;
     --accent-error-bg: rgba(185, 28, 28, 0.08);
     --accent-error-border: rgba(185, 28, 28, 0.35);
+    --mark-gh-text: #4338ca;
+    --mark-gh-bg: rgba(67, 56, 202, 0.1);
+    --mark-gh-border: rgba(67, 56, 202, 0.4);
+    --mark-gl-text: #c2410c;
+    --mark-gl-bg: rgba(194, 65, 12, 0.1);
+    --mark-gl-border: rgba(194, 65, 12, 0.4);
+    --mark-ji-text: #0e7490;
+    --mark-ji-bg: rgba(14, 116, 144, 0.1);
+    --mark-ji-border: rgba(14, 116, 144, 0.4);
+    --mark-yt-text: #a21caf;
+    --mark-yt-bg: rgba(162, 28, 175, 0.1);
+    --mark-yt-border: rgba(162, 28, 175, 0.4);
     --grid-line: rgba(24, 24, 27, 0.05);
     --overlay: rgba(24, 24, 27, 0.38);
     --overlay-deep: rgba(24, 24, 27, 0.45);
@@ -99,6 +125,18 @@
   --accent-error-text: #b91c1c;
   --accent-error-bg: rgba(185, 28, 28, 0.08);
   --accent-error-border: rgba(185, 28, 28, 0.35);
+  --mark-gh-text: #4338ca;
+  --mark-gh-bg: rgba(67, 56, 202, 0.1);
+  --mark-gh-border: rgba(67, 56, 202, 0.4);
+  --mark-gl-text: #c2410c;
+  --mark-gl-bg: rgba(194, 65, 12, 0.1);
+  --mark-gl-border: rgba(194, 65, 12, 0.4);
+  --mark-ji-text: #0e7490;
+  --mark-ji-bg: rgba(14, 116, 144, 0.1);
+  --mark-ji-border: rgba(14, 116, 144, 0.4);
+  --mark-yt-text: #a21caf;
+  --mark-yt-bg: rgba(162, 28, 175, 0.1);
+  --mark-yt-border: rgba(162, 28, 175, 0.4);
   --grid-line: rgba(24, 24, 27, 0.05);
   --overlay: rgba(24, 24, 27, 0.38);
   --overlay-deep: rgba(24, 24, 27, 0.45);

@@ -63,7 +63,7 @@ public static partial class BacklogMoves
     private static bool StartsWaiting(string command) =>
         command.Replace('ё', 'е').StartsWith(Waiting.Replace('ё', 'е'), StringComparison.OrdinalIgnoreCase);
 
-    [GeneratedRegex(@"^(?:(?<moved>перенесена)|жд[её]т\s+файлов)\s+(?<number>\S+)\s+в\s+(?<issue>github\s*#\d+|youtrack\s+\S+)\s+(?<url>https?://\S+)$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?:(?<moved>перенесена)|жд[её]т\s+файлов)\s+(?<number>\S+)\s+в\s+(?<issue>github\s*#\d+|youtrack\s+\S+|jira\s+\S+)\s+(?<url>https?://\S+)$", RegexOptions.IgnoreCase)]
     private static partial Regex MoveCommand();
 }
 

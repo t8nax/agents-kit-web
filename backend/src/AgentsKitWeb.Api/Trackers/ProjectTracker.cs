@@ -5,7 +5,7 @@ using AgentsKitWeb.Api.Workspaces;
 namespace AgentsKitWeb.Api.Trackers;
 
 /// <summary>
-/// Чем кончилась проверка описания трекера перед записью. Checked — false: трекер панель не читает (Jira, GitLab),
+/// Чем кончилась проверка описания трекера перед записью. Checked — false: трекер панель не читает (GitLab),
 /// и описание пишется без проверки. Problem задан — задачи не прочитаны: значения — как у TrackerIssues.
 /// </summary>
 public sealed record TrackerCheck(bool Checked, string? Field = null, string? Problem = null, string? Detail = null)
@@ -13,15 +13,29 @@ public sealed record TrackerCheck(bool Checked, string? Field = null, string? Pr
     public bool Passed => Problem is null;
 }
 
+/// <summary>Ключ к серверу трекера и почта, с которой он входит в Jira (у YouTrack — null).</summary>
+public sealed record ServerKey(string Key, string? Email);
+
 /// <summary>
 /// Трекер проекта, как его называет описание трекера базы: GitHub панель читает программой gh оператора (B-277),
-/// YouTrack — своим клиентом с ключом из раздела «Трекеры» (B-288). Другие трекеры панель не читает.
+/// YouTrack — своим клиентом с ключом из раздела «Трекеры» (B-288), облачную Jira — своим клиентом с почтой
+/// и ключом оттуда же (B-285). Другие трекеры панель не читает.
 /// </summary>
-public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTrack, TrackerServersStore servers)
+public sealed partial class ProjectTracker(
+    IGitHubIssues github, IYouTrack youTrack, IJira jira, TrackerServersStore servers, TrackerFiltersStore filters)
 {
-    /// <summary>Незакрытые задачи трекера базы, все, с фильтром описания; не прочитали — Problem.</summary>
+    /// <summary>Незакрытые задачи трекера базы, все, с фильтром проекта; не прочитали — Problem.</summary>
     public Task<TrackerIssues> OpenAsync(BaseLayout layout, CancellationToken cancellationToken) =>
-        OpenAsync(Tracker.Read(layout), cancellationToken);
+        OpenAsync(Read(layout), cancellationToken);
+
+    /// <summary>
+    /// Трекер базы с фильтром проекта, заданным в панели на этом компьютере (B-285); не задан — со строкой «фильтр:»
+    /// описания, как было до переезда.
+    /// </summary>
+    public TrackerInfo? Read(BaseLayout layout) =>
+        Tracker.Read(layout) is { } tracker && Readable(tracker)
+            ? tracker with { Filter = filters.Of(layout.Base, tracker.Filter) }
+            : Tracker.Read(layout);
 
     /// <summary>
     /// Задачи для раздела «Бэклог» — с метками репозитория GitHub для фильтра «Метки» (B-305); метки читаются
@@ -29,7 +43,7 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
     /// </summary>
     public async Task<TrackerIssues> ForBacklogAsync(BaseLayout layout, CancellationToken cancellationToken)
     {
-        var tracker = Tracker.Read(layout);
+        var tracker = Read(layout);
         var labels = tracker?.GitHubRepo is { } repo
             ? github.LabelsAsync(repo, cancellationToken)
             : Task.FromResult<IReadOnlyList<string>?>(null);
@@ -39,55 +53,96 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
     }
 
     /// <summary>
-    /// Проверка описания перед записью — решение оператора на B-293: у GitHub и YouTrack панель читает задачи,
+    /// Проверка описания перед записью — решение оператора на B-293: у GitHub, YouTrack и Jira панель читает
     /// открытые задачи названных трекера и проекта — тем же разбором, которым прочтёт записанный файл;
-    /// у Jira и GitLab проверить нечем, и Checked — false. Не прочитала — Problem, как у задач «Бэклога», и Field —
-    /// поле окна, к которому причина относится: server, project или filter — трекер не принял строку фильтра (B-300);
-    /// причина вне полей (нет gh) — null. Отбор, который сейчас ничего не нашёл, проверку проходит: задач по нему
-    /// может просто не быть, и «Бэклог» скажет это сам — ответ оператора на B-300.
+    /// у GitLab проверить нечем, и Checked — false. Не прочитала — Problem, как у задач «Бэклога», и Field —
+    /// поле окна, к которому причина относится: server, project, key — ключ к серверу (B-285) — или filter — трекер не
+    /// принял строку фильтра (B-300); причина вне полей (нет gh) — null. Отбор, который сейчас ничего не нашёл, проверку
+    /// проходит: задач по нему может просто не быть, и «Бэклог» скажет это сам — ответ оператора на B-300.
+    /// key — ключ и почта, которые оператор ввёл в окне: проверяется ими, а не сохранёнными (B-285); null — сохранёнными.
     /// </summary>
-    public async Task<TrackerCheck> CheckAsync(TrackerDescription description, CancellationToken cancellationToken)
+    public async Task<TrackerCheck> CheckAsync(
+        TrackerDescription description, CancellationToken cancellationToken, ServerKey? key = null)
     {
-        var tracker = Tracker.Parse(TrackerDescriptions.Serialize(description, "Проверка"));
-        if (tracker.Kind is not (TrackerInfo.GitHub or TrackerInfo.YouTrack))
+        // Фильтр — уже не часть описания (B-285): проверяется, читаются ли задачи проекта, а не отбор.
+        var tracker = Tracker.Parse(TrackerDescriptions.Serialize(description with { Filter = "" }, "Проверка"));
+        if (!Readable(tracker))
             return new TrackerCheck(false);
 
-        var issues = await OpenAsync(tracker, cancellationToken);
+        var issues = await OpenAsync(tracker, cancellationToken, key);
         return issues.Problem switch
         {
             null => new TrackerCheck(true),
             TrackerIssues.RepoUnreachable or TrackerIssues.ProjectMissing =>
                 new TrackerCheck(true, "project", issues.Problem, issues.Detail),
             TrackerIssues.FilterRejected => new TrackerCheck(true, "filter", issues.Problem, issues.Detail),
+            TrackerIssues.NoKey or TrackerIssues.KeyRejected or TrackerIssues.KeyUnreadable or TrackerIssues.KeyForbidden =>
+                new TrackerCheck(true, "key", issues.Problem, issues.Detail),
             TrackerIssues.GhMissing or TrackerIssues.GhLogin =>
                 new TrackerCheck(true, null, issues.Problem, issues.Detail),
             _ => new TrackerCheck(true, "server", issues.Problem, issues.Detail),
         };
     }
 
-    private async Task<TrackerIssues> OpenAsync(TrackerInfo? tracker, CancellationToken cancellationToken) =>
+    private async Task<TrackerIssues> OpenAsync(TrackerInfo? tracker, CancellationToken cancellationToken, ServerKey? given = null) =>
         tracker switch
         {
             null => new TrackerIssues([], TrackerIssues.NoTracker),
             { GitHubRepo: { } repo } => await github.OpenAsync(repo, tracker.Filter, cancellationToken),
             { Kind: TrackerInfo.YouTrack, Server: { } server, Project: { } project } =>
-                KeyOf(server, out var problem) is { } key
-                    ? await youTrack.OpenAsync(server, key, project, tracker.Filter, cancellationToken)
+                KeyOf(server, given, out var problem) is { } key
+                    ? await youTrack.OpenAsync(server, key.Key, project, tracker.Filter, cancellationToken)
+                    : new TrackerIssues([], problem),
+            { Kind: TrackerInfo.Jira, Server: { } server, Project: { } project } =>
+                KeyOf(server, given, out var problem, email: true) is { } key
+                    ? await jira.OpenAsync(server, key.Email!, key.Key, project, tracker.Filter, cancellationToken)
                     : new TrackerIssues([], problem),
             var other => new TrackerIssues([], other.Kind),
         };
 
+    /// <summary>Ключ, введённый в окне трекера, а без него — сохранённый.</summary>
+    private ServerKey? KeyOf(string server, ServerKey? given, out string? problem, bool email = false)
+    {
+        problem = null;
+        return given ?? KeyOf(server, out problem, email);
+    }
+
+    /// <summary>Трекер, задачи которого панель читает своим кодом.</summary>
+    private static bool Readable(TrackerInfo tracker) =>
+        tracker.Kind is TrackerInfo.GitHub or TrackerInfo.YouTrack or TrackerInfo.Jira;
+
+    /// <summary>Трекер, к серверу которого нужен ключ из панели: YouTrack и Jira; у GitHub вход — у программы gh.</summary>
+    public static bool NeedsKey(string kind) => kind is TrackerInfo.YouTrack or TrackerInfo.Jira;
+
     /// <summary>
-    /// Ключ сервера YouTrack. Нет его — почему: сервера нет в разделе «Трекеры» (no-key) или ключ не прочитать —
-    /// не расшифровался на этом компьютере или файл серверов битый (key-unreadable, совет — «Заменить ключ»).
+    /// Кому принадлежит ключ к серверу трекера — им проверяется ключ, введённый в окне трекера проекта, прежде чем
+    /// его сохранить (решение оператора на B-288). У Jira владелец назван почтой, у YouTrack — логином.
     /// </summary>
-    private string? KeyOf(string server, out string? problem)
+    public async Task<(string? Login, string? Problem, string? Detail)> OwnerAsync(
+        string kind, string server, ServerKey key, CancellationToken cancellationToken)
+    {
+        if (kind == TrackerInfo.Jira)
+        {
+            var who = await jira.WhoAsync(server, key.Email ?? "", key.Key, cancellationToken);
+            return (who.Name, who.Problem, who.Detail);
+        }
+        var user = await youTrack.WhoAsync(server, key.Key, cancellationToken);
+        return (user.Login, user.Problem, user.Detail);
+    }
+
+    /// <summary>
+    /// Ключ сервера YouTrack или Jira. Нет его — почему: сервера нет среди сохранённых (no-key) или ключ не прочитать —
+    /// не расшифровался на этом компьютере или файл серверов битый (key-unreadable). Jira без почты не войти — тоже no-key.
+    /// </summary>
+    private ServerKey? KeyOf(string server, out string? problem, bool email = false)
     {
         try
         {
-            var (known, key) = servers.Find(server);
-            problem = key is not null ? null : known ? TrackerIssues.KeyUnreadable : TrackerIssues.NoKey;
-            return key;
+            var (known, key, address) = servers.Find(server);
+            problem = key is null ? known ? TrackerIssues.KeyUnreadable : TrackerIssues.NoKey
+                : email && string.IsNullOrWhiteSpace(address) ? TrackerIssues.NoKey
+                : null;
+            return problem is null ? new ServerKey(key!, address) : null;
         }
         catch (TrackersFileBroken)
         {
@@ -97,15 +152,16 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
     }
 
     /// <summary>Почему агенту в трекер проекта не пройти — продолжением фразы.</summary>
-    public const string NotMovable = "трекер проекта — не GitHub и не YouTrack со строками «трекер:», «сервер:», «проект:»";
+    public const string NotMovable = "трекер проекта — не GitHub, не YouTrack и не Jira со строками «трекер:», «сервер:», «проект:»";
 
-    /// <summary>Трекер, в который агент ходит и переносит записи бэклога: GitHub или YouTrack; иначе null.</summary>
+    /// <summary>Трекер, в который агент ходит и переносит записи бэклога: GitHub, YouTrack или Jira (B-285); иначе null.</summary>
     public static TrackerInfo? Movable(BaseLayout layout) =>
-        Tracker.Read(layout) is { Kind: TrackerInfo.GitHub or TrackerInfo.YouTrack } tracker ? tracker : null;
+        Tracker.Read(layout) is { } tracker && Readable(tracker) ? tracker : null;
 
     /// <summary>
-    /// Имя задачи трекера, как его пишет кит: «GitHub #37», «YouTrack ABC-12». Регистр и пробел перед «#» ничего
-    /// не значат, у YouTrack буквы номера — прописными (backlog-record.md кита, «Номер»). Не имя задачи — null.
+    /// Имя задачи трекера, как его пишет кит: «GitHub #37», «YouTrack ABC-12», «Jira PAY-7». Регистр и пробел перед
+    /// «#» ничего не значат, у YouTrack и Jira буквы номера — прописными (backlog-record.md кита, «Номер»). Не имя
+    /// задачи — null.
     /// </summary>
     public static string? IssueName(string text)
     {
@@ -124,11 +180,12 @@ public sealed partial class ProjectTracker(IGitHubIssues github, IYouTrack youTr
         match.Groups["github"].Success && int.TryParse(match.Groups["github"].Value, out var number) && number > 0
             ? $"GitHub #{number}"
             : match.Groups["youtrack"].Success ? $"YouTrack {match.Groups["youtrack"].Value.ToUpperInvariant()}"
+            : match.Groups["jira"].Success ? $"Jira {match.Groups["jira"].Value.ToUpperInvariant()}"
             : null;
 
-    [GeneratedRegex(@"^(?:github\s*#(?<github>\d{1,9})|youtrack\s+(?<youtrack>[A-Za-z][A-Za-z0-9_]*-\d{1,9}))$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(?:github\s*#(?<github>\d{1,9})|youtrack\s+(?<youtrack>[A-Za-z][A-Za-z0-9_]*-\d{1,9})|jira\s+(?<jira>[A-Za-z][A-Za-z0-9_]*-\d{1,9}))$", RegexOptions.IgnoreCase)]
     private static partial Regex IssueNamePattern();
 
-    [GeneratedRegex(@"^\s*(?:github\s*#(?<github>\d{1,9})|youtrack\s+(?<youtrack>[A-Za-z][A-Za-z0-9_]*-\d{1,9}))(?:\s|$)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^\s*(?:github\s*#(?<github>\d{1,9})|youtrack\s+(?<youtrack>[A-Za-z][A-Za-z0-9_]*-\d{1,9})|jira\s+(?<jira>[A-Za-z][A-Za-z0-9_]*-\d{1,9}))(?:\s|$)", RegexOptions.IgnoreCase)]
     private static partial Regex IssueTitlePattern();
 }

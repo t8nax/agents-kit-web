@@ -38,6 +38,7 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
     private readonly TestHosts _hosts = new();
     private readonly FakeGitHubIssues _github = new();
     private readonly FakeYouTrack _youTrack = new();
+    private readonly FakeJira _jira = new();
     private readonly string _main;
     private readonly string _base;
     private string _kit = "";
@@ -71,14 +72,15 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
 
     private string SyncLog => Path.Combine(_kit, "scripts", "sync.log");
 
-    private async Task<HttpClient> Client(bool kit = true)
+    private async Task<HttpClient> Client(bool kit = true, string[]? others = null)
     {
         _factory = _hosts.Add(new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, config) =>
             {
                 config.Sources.Clear();
-                config.AddInMemoryCollection([new("BasesFile", TestBases.File(_root, _base)), new("HealthIntervalSeconds", "3600")]);
+                config.AddInMemoryCollection(
+                    [new("BasesFile", TestBases.File(_root, [_base, .. others ?? []])), new("HealthIntervalSeconds", "3600")]);
             });
             builder.ConfigureServices(services =>
             {
@@ -86,6 +88,8 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
                 services.AddSingleton<IGitHubIssues>(_github);
                 services.RemoveAll<IYouTrack>();
                 services.AddSingleton<IYouTrack>(_youTrack);
+                services.RemoveAll<IJira>();
+                services.AddSingleton<IJira>(_jira);
             });
         }));
         var client = _factory.CreateClient();
@@ -426,45 +430,109 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal([$"Pull|Base|{_main}"], File.ReadAllLines(SyncLog));
     }
 
-    /// <summary>Трекер не принял строку отбора — причина под полем «Фильтр», описание не записано (B-300).</summary>
+    private TrackerFiltersStore Filters => new(TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+
+    /// <summary>
+    /// Фильтр — настройка панели, а не строка описания (B-285): в базу он не пишется, и описание проверяется без отбора.
+    /// </summary>
     [Fact]
-    public async Task Save_FilterRejected_NamesFilterFieldAndDoesNotWrite()
+    public async Task Save_FilterInDescription_IsNotWrittenNorChecked()
     {
-        _github.Answer = new TrackerIssues([], TrackerIssues.FilterRejected, "Invalid search query");
         var client = await Client();
 
         var response = await Save(client, _base, "", GitHub with { Filter = "label:" });
 
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal(
-            new ProjectTrackerRejected("check", "Invalid search query", Field: "filter", Code: TrackerIssues.FilterRejected),
-            await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
-        Assert.Equal(["label:"], _github.Filters);
-        Assert.False(File.Exists(TrackerFile));
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal([null], _github.Filters);
+        Assert.DoesNotContain("фильтр", File.ReadAllText(TrackerFile));
     }
 
-    /// <summary>Отбор, по которому сейчас задач нет, записывается: пустой список — не ошибка (ответ оператора на B-300).</summary>
+    /// <summary>Строка «фильтр:», которую запись убирает из описания, переезжает в фильтр проекта (B-285).</summary>
     [Fact]
-    public async Task Save_FilterFindingNothing_IsWritten()
+    public async Task Save_FilterLineOfDescription_MovesToPanel()
     {
+        Committed(TrackerDescriptions.Serialize(GitHub with { Filter = "label:bug" }, "Order Service"));
         var client = await Client();
+        var row = await Row(client);
 
-        var response = await Save(client, _base, "", GitHub with { Filter = "label:bug" });
+        var response = await Save(client, _base, row.Version, GitHub);
 
         Assert.True(response.IsSuccessStatusCode);
-        Assert.Equal("label:bug", TrackerDescriptions.Parse(File.ReadAllText(TrackerFile)).Filter);
+        Assert.DoesNotContain("фильтр", File.ReadAllText(TrackerFile));
+        Assert.Equal("label:bug", Filters.Of(_base, null));
     }
 
-    /// <summary>Jira панель не читает — описание пишется без проверки, и окно говорит об этом.</summary>
+    /// <summary>Трекер сменил вид — фильтр прежнего ему не годится и снимается; удалённый трекер уносит фильтр с собой.</summary>
     [Fact]
-    public async Task Save_Jira_WrittenUnchecked()
+    public async Task Save_KindChanged_AndDelete_DropProjectFilter()
+    {
+        Committed(TrackerDescriptions.Serialize(YouTrack, "Order Service"));
+        Keys.Save("https://acme.youtrack.cloud", "b", "perm:ключ");
+        Filters.Set(_base, "State: Open");
+        var client = await Client();
+
+        var response = await Save(client, _base, (await Row(client)).Version, GitHub);
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Null(Filters.Of(_base, null));
+
+        Filters.Set(_base, "label:bug");
+        var row = await Row(client);
+        await client.DeleteAsync($"{Url}?base={Uri.EscapeDataString(_base)}&version={row.Version}");
+        Assert.Null(Filters.Of(_base, null));
+    }
+
+    /// <summary>Проект ушёл на другой сервер, а других проектов на прежнем нет — ключ к прежнему уходит (ревью B-285).</summary>
+    [Fact]
+    public async Task Save_ServerChanged_DropsKeyOfFormerServer()
+    {
+        Committed(TrackerDescriptions.Serialize(YouTrack, "Order Service"));
+        Keys.Save("https://acme.youtrack.cloud", "b", "perm:старый");
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, (await Row(client)).Version, YouTrack with { Server = "https://yt.acme.local" }, "perm:новый");
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal(["https://yt.acme.local"], Keys.List().Select(s => s.Server));
+    }
+
+    /// <summary>Тот же вид трекера — заданный фильтр остаётся.</summary>
+    [Fact]
+    public async Task Save_SameKind_KeepsProjectFilter()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        Filters.Set(_base, "label:bug");
+        var client = await Client();
+
+        await Save(client, _base, (await Row(client)).Version, GitHub with { Project = "acme/crm" });
+
+        Assert.Equal("label:bug", Filters.Of(_base, null));
+    }
+
+    /// <summary>Фильтр, уже заданный в панели, переезд строки описания не перезаписывает — даже пустой.</summary>
+    [Fact]
+    public async Task Save_FilterAlreadySetInPanel_IsKept()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub with { Filter = "label:bug" }, "Order Service"));
+        Filters.Set(_base, "");
+        var client = await Client();
+        var row = await Row(client);
+
+        await Save(client, _base, row.Version, GitHub);
+
+        Assert.Null(Filters.Of(_base, "label:bug"));
+    }
+
+    /// <summary>GitLab панель не читает — описание пишется без проверки, и окно говорит об этом.</summary>
+    [Fact]
+    public async Task Save_GitLab_WrittenUnchecked()
     {
         var client = await Client();
 
-        var response = await Save(client, _base, "", GitHub with { Tracker = "Jira", Server = "https://acme.atlassian.net", Project = "PAY" });
+        var response = await Save(client, _base, "", GitHub with { Tracker = "GitLab", Server = "https://gitlab.com", Project = "acme/team/orders" });
 
         Assert.False((await response.Content.ReadFromJsonAsync<ProjectTrackerSaved>())!.Checked);
-        Assert.Contains("трекер: Jira", File.ReadAllText(TrackerFile));
+        Assert.Contains("трекер: GitLab", File.ReadAllText(TrackerFile));
         Assert.Empty(_github.Asked);
     }
 
@@ -620,5 +688,218 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal([new TrackerTask("GitHub #37 Починить выгрузку", _main)], row.Busy);
         Assert.Equal("busy", (await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>())!.Problem);
         Assert.True(File.Exists(TrackerFile));
+    }
+
+    // ——— Ключ к серверу в окне трекера (B-285) ———
+
+    private static readonly TrackerDescription Jira =
+        GitHub with { Tracker = "Jira", Server = "https://acme.atlassian.net", Project = "PAY" };
+
+    private static readonly TrackerDescription YouTrack =
+        GitHub with { Tracker = "YouTrack", Server = "https://acme.youtrack.cloud", Project = "ABC" };
+
+    private TrackerServersStore Keys => new(TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json")));
+
+    private static Task<HttpResponseMessage> SaveWithKey(
+        HttpClient client, string @base, string? version, TrackerDescription description, string? key, string? email = null) =>
+        client.PutAsJsonAsync(Url, new SaveProjectTrackerRequest(@base, version, description, key, email));
+
+    /// <summary>Ключ и почта из окна проверяются владельцем на сервере и сохраняются, когда описание записано.</summary>
+    [Fact]
+    public async Task Save_JiraWithKeyAndEmail_ChecksOwnerAndKeepsKey()
+    {
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, " ключ ", " anna@acme.example ");
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.True((await response.Content.ReadFromJsonAsync<ProjectTrackerSaved>())!.Checked);
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ")], _jira.Asked);
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "ключ", "PAY")], _jira.Read);
+        Assert.Equal((true, "ключ", "anna@acme.example"), Keys.Find("https://acme.atlassian.net"));
+        Assert.Equal([new TrackerServer("https://acme.atlassian.net", "anna@acme.example", "anna@acme.example")], Keys.List());
+        Assert.Contains("трекер: Jira", File.ReadAllText(TrackerFile));
+    }
+
+    [Fact]
+    public async Task Save_YouTrackWithKey_KeepsKeyWithoutEmail()
+    {
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", YouTrack, "perm:ключ", "лишняя@почта");
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal((true, "perm:ключ", (string?)null), Keys.Find("https://acme.youtrack.cloud"));
+        Assert.Equal([("https://acme.youtrack.cloud", "perm:ключ", "ABC")], _youTrack.Read);
+    }
+
+    [Fact]
+    public async Task Save_JiraWithoutEmail_IsInvalidWithoutAskingServer()
+    {
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, "ключ", " ");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var rejected = await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>();
+        Assert.Equal("invalid", rejected!.Problem);
+        Assert.True(rejected.Faults!.ContainsKey("email"));
+        Assert.Empty(_jira.Asked);
+        Assert.False(File.Exists(TrackerFile));
+    }
+
+    /// <summary>Отклонённый ключ не сохраняется, и описание не пишется: причина — под полем ключа.</summary>
+    [Fact]
+    public async Task Save_KeyRejected_WritesNothing()
+    {
+        _jira.Who = new JiraUser(null, null, TrackerIssues.KeyRejected);
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, "плохой", "anna@acme.example");
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(
+            new ProjectTrackerRejected("check", Field: "key", Code: TrackerIssues.KeyRejected),
+            await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
+        Assert.Empty(Keys.List());
+        Assert.False(File.Exists(TrackerFile));
+    }
+
+    /// <summary>Пустой ключ — оставить сохранённый: описание проверяется им.</summary>
+    [Fact]
+    public async Task Save_EmptyKey_UsesStoredKey()
+    {
+        Keys.Save("https://acme.atlassian.net", "anna@acme.example", "старый", "anna@acme.example");
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, "", "ANNA@acme.example");
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Empty(_jira.Asked);
+        Assert.Equal([("https://acme.atlassian.net", "anna@acme.example", "старый", "PAY")], _jira.Read);
+    }
+
+    /// <summary>Ключа нет ни в окне, ни сохранённого — причина под полем ключа, а не адреса.</summary>
+    [Fact]
+    public async Task Save_NoKeyAnywhere_BlamesKeyField()
+    {
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, null, "anna@acme.example");
+
+        Assert.Equal(
+            new ProjectTrackerRejected("check", Field: "key", Code: TrackerIssues.NoKey),
+            await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
+        Assert.Empty(_jira.Read);
+    }
+
+    /// <summary>Сменённую почту без ключа проверить нечем: окно просит ввести ключ заново.</summary>
+    [Fact]
+    public async Task Save_EmailChangedWithoutKey_AsksForKey()
+    {
+        Keys.Save("https://acme.atlassian.net", "anna@acme.example", "старый", "anna@acme.example");
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, "", "ivan@acme.example");
+
+        var rejected = await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>();
+        Assert.Equal("invalid", rejected!.Problem);
+        Assert.True(rejected.Faults!.ContainsKey("key"));
+        Assert.Equal("anna@acme.example", Keys.Find("https://acme.atlassian.net").Email);
+    }
+
+    /// <summary>Описание не записалось — новый ключ не сохраняется: он общий для проектов этого сервера.</summary>
+    [Fact]
+    public async Task Save_DescriptionRefused_KeepsOldKey()
+    {
+        Keys.Save("https://acme.atlassian.net", "anna@acme.example", "старый", "anna@acme.example");
+        _jira.Answer = new TrackerIssues([], TrackerIssues.ProjectMissing);
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, "новый", "anna@acme.example");
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("старый", Keys.Find("https://acme.atlassian.net").Key);
+    }
+
+    [Fact]
+    public async Task Save_KeysFileBroken_WritesNothing()
+    {
+        var file = TrackerServersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "не json");
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, "", Jira, "ключ", "anna@acme.example");
+
+        Assert.Equal(new ProjectTrackerRejected("keys-broken", file), await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
+        Assert.False(File.Exists(TrackerFile));
+        Assert.Equal("не json", File.ReadAllText(file));
+    }
+
+    /// <summary>Битый файл фильтров останавливает запись до коммита: иначе строка «фильтр:» пропала бы молча (ревью B-285).</summary>
+    [Fact]
+    public async Task Save_FiltersFileBroken_WritesNothing()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub with { Filter = "label:bug" }, "Order Service"));
+        var file = TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "не json");
+        var client = await Client();
+        var before = File.ReadAllText(TrackerFile);
+
+        var response = await Save(client, _base, (await Row(client)).Version, GitHub);
+
+        Assert.Equal(new ProjectTrackerRejected("filters-broken", file), await response.Content.ReadFromJsonAsync<ProjectTrackerRejected>());
+        Assert.Equal(before, File.ReadAllText(TrackerFile));
+        Assert.Equal("не json", File.ReadAllText(file));
+    }
+
+    /// <summary>Переносить и снимать нечего — битый файл фильтров записи не мешает (ревью B-285, круг 2).</summary>
+    [Fact]
+    public async Task Save_FiltersFileBrokenButNothingToMove_IsWritten()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        var file = TrackerFiltersStore.FileBeside(Path.Combine(_root, "panel", "bases.json"));
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "не json");
+        var client = await Client();
+
+        var response = await Save(client, _base, (await Row(client)).Version, GitHub with { Project = "acme/crm" });
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Contains("acme/crm", File.ReadAllText(TrackerFile));
+        Assert.Equal("не json", File.ReadAllText(file));
+    }
+
+    /// <summary>Ключ к серверу без проектов показать негде — он уходит с последним трекером на сервере.</summary>
+    [Fact]
+    public async Task Delete_LastProjectOnServer_RemovesKey()
+    {
+        Committed(TrackerDescriptions.Serialize(Jira, "Order Service"));
+        Keys.Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+        var client = await Client();
+        var row = await Row(client);
+
+        var response = await client.DeleteAsync($"{Url}?base={Uri.EscapeDataString(_base)}&version={row.Version}");
+
+        Assert.True((await response.Content.ReadFromJsonAsync<ProjectTrackerSaved>())!.KeyRemoved);
+        Assert.Empty(Keys.List());
+    }
+
+    [Fact]
+    public async Task Delete_OtherProjectOnServer_KeepsKey()
+    {
+        Committed(TrackerDescriptions.Serialize(Jira, "Order Service"));
+        Keys.Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+        var other = TestLayout.Base(Path.Combine(_root, "billing-knowledge"));
+        TestLayout.Tracker(other, "Jira", "https://ACME.atlassian.net/", "BILL");
+        var client = await Client(others: [other]);
+        var row = Assert.Single((await client.GetFromJsonAsync<List<ProjectTrackerRow>>(Url))!, r => r.Base == _base);
+
+        var response = await client.DeleteAsync($"{Url}?base={Uri.EscapeDataString(_base)}&version={row.Version}");
+
+        Assert.False((await response.Content.ReadFromJsonAsync<ProjectTrackerSaved>())!.KeyRemoved);
+        Assert.Single(Keys.List());
     }
 }

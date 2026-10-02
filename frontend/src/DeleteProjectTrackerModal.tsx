@@ -7,6 +7,8 @@ import './DeleteWorkspaceModal.css'
 
 type Props = {
   row: ProjectTrackerRow
+  /** Ключ к серверу трекера сохранён, а других проектов на сервере нет: вместе с описанием уйдёт и ключ (B-285). */
+  keyLeaves?: boolean
   onClose: () => void
   /** Описание удалено — карточка перечитывает строки. */
   onRemoved: () => void
@@ -20,7 +22,7 @@ type Failure = { title: string; text: string; output?: string }
  * Удаление трекера проекта — окном с подтверждением, как удаление сервера трекера (макет B-293): описание уходит
  * из базы, база — на сервер. Пока идёт задача из этого трекера, окно не открывается: «Удалить» погашено.
  */
-export default function DeleteProjectTrackerModal({ row, onClose, onRemoved, onChanged }: Props) {
+export default function DeleteProjectTrackerModal({ row, keyLeaves = false, onClose, onRemoved, onChanged }: Props) {
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<Failure | null>(null)
   // Описание удалено, а база на сервер не ушла: окно остаётся сказать об этом, и кнопка одна — «Закрыть».
@@ -75,7 +77,9 @@ export default function DeleteProjectTrackerModal({ row, onClose, onRemoved, onC
 
   const name = knownTracker(row.description?.tracker) ?? row.tracker?.name ?? null
   const project = row.tracker?.project ?? row.description?.project.trim() ?? ''
-  const shown = row.tracker?.kind === 'github' || row.tracker?.kind === 'youtrack'
+  const shown = row.tracker?.kind === 'github' || row.tracker?.kind === 'youtrack' || row.tracker?.kind === 'jira'
+  // Ключ показать негде без проектов на его сервере — он уходит с последним трекером (B-285)
+  const keyGoes = keyLeaves && (row.tracker?.kind === 'youtrack' || row.tracker?.kind === 'jira') && !!row.tracker.server
 
   return (
     <div className="modal-overlay" onMouseDown={(event) => event.target === event.currentTarget && !busy && close()}>
@@ -103,6 +107,12 @@ export default function DeleteProjectTrackerModal({ row, onClose, onRemoved, onC
             ) : null}
             . Панель отправит базу на сервер.
           </p>
+          {keyGoes && (
+            <p className="dw-lead">
+              Других проектов на сервере <span className="dw-strong mono">{row.tracker!.server}</span> нет, поэтому с этого
+              компьютера удалится и ключ к нему.
+            </p>
+          )}
 
           {failure && (
             <div className="dw-error" role="alert">

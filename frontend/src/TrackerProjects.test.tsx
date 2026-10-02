@@ -112,7 +112,7 @@ test('переход из «Бэклога» выбирает проект св�
   expect(await screen.findByRole('region', { name: 'Трекер проекта CRM' })).toBeInTheDocument()
 })
 
-// Ключ к серверу — по списку «Серверов трекеров»: у GitHub вход программы gh, у YouTrack — владелец ключа.
+// Ключ к серверу: у GitHub вход программы gh, у YouTrack — владелец ключа, введённого в окне трекера (B-285).
 test('ключ к серверу: вход через gh, владелец ключа YouTrack, а без ключа — красная плашка', async () => {
   const youtrack: ProjectTrackerRow = {
     ...described,
@@ -137,43 +137,89 @@ test('ключ к серверу: вход через gh, владелец кл�
   expect((await row('Legacy')).getByText(/нет ключа/)).toHaveClass('bad')
 })
 
-// Приёмка B-323: у недостающего ключа — «Добавить», он заводит сервер проекта в «Серверах трекеров».
-test('«Добавить» у недостающего ключа отдаёт разделу сервер проекта', async () => {
-  const legacy: ProjectTrackerRow = {
+// Ключ вводится кнопкой «Изменить» в окне трекера (ответ оператора на B-285): у строки «нет ключа» своей кнопки нет.
+test('у Jira — владелец ключа почтой, без ключа — красная плашка без кнопки «Добавить»', async () => {
+  const jira: ProjectTrackerRow = {
     ...described,
-    project: 'Legacy',
-    tracker: { kind: 'youtrack', name: 'YouTrack', server: 'https://yt.legacy.ru', project: 'CRM' },
-    description: { ...github, tracker: 'YouTrack', server: 'https://yt.legacy.ru', project: 'CRM' },
+    project: 'Pay',
+    tracker: { kind: 'jira', name: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' },
+    description: { ...github, tracker: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' },
   }
-  stubApi({ 'GET /api/trackers/projects': () => json([legacy]) })
-  const onAddKey = vi.fn()
+  const other: ProjectTrackerRow = {
+    ...jira,
+    base: 'D:\\Projects\\delivery-knowledge',
+    project: 'Delivery',
+    tracker: { ...jira.tracker!, server: 'https://globex.atlassian.net' },
+  }
+  stubApi({ 'GET /api/trackers/projects': () => json([jira, other]) })
 
-  render(<TrackerProjects servers={[]} onAddKey={onAddKey} />)
+  render(<TrackerProjects servers={[{ server: 'https://acme.atlassian.net', login: 'anna@acme.example', email: 'anna@acme.example' }]} />)
 
-  const card = await row('Legacy')
-  expect(card.getByText('нет ключа к этому серверу')).toHaveClass('bad')
-  fireEvent.click(card.getByRole('button', { name: 'Добавить ключ к серверу https://yt.legacy.ru' }))
-  expect(onAddKey).toHaveBeenCalledExactlyOnceWith('https://yt.legacy.ru')
+  expect((await row('Pay')).getByText(/ключ пользователя/)).toHaveTextContent('ключ пользователя anna@acme.example')
+  const delivery = await row('Delivery')
+  expect(delivery.getByText('нет ключа к этому серверу')).toHaveClass('bad')
+  expect(delivery.queryByRole('button', { name: /Добавить/ })).not.toBeInTheDocument()
 })
 
-// B-300: заданный отбор виден строкой под сервером и проектом; без отбора строки нет.
-test('фильтр трекера — строкой «Фильтр» в подробностях проекта, без фильтра — «нет»', async () => {
+// Фильтр задаётся на вкладке «Задачи трекера» (B-285): в подробностях проекта его нет
+test('фильтра в подробностях проекта нет', async () => {
   stubApi({
     'GET /api/trackers/projects': () =>
-      json([
-        { ...described, tracker: { ...described.tracker, filter: 'label:bug milestone:v2' }, description: { ...github, filter: 'label:bug milestone:v2' } },
-        { ...described, base: 'D:\\Projects\\crm-knowledge', project: 'CRM' },
-      ]),
+      json([{ ...described, tracker: { ...described.tracker, filter: 'label:bug' }, description: { ...github, filter: 'label:bug' } }]),
   })
 
   render(<TrackerProjects />)
 
   const orders = await row('Orders')
-  expect(orders.getByText('Фильтр')).toBeInTheDocument()
-  expect(orders.getByText('label:bug milestone:v2')).toBeInTheDocument()
-  expect((await row('CRM')).getByText('нет, берутся все задачи проекта')).toBeInTheDocument()
+  expect(orders.queryByText('Фильтр')).not.toBeInTheDocument()
+  expect(orders.queryByText('label:bug')).not.toBeInTheDocument()
 })
 
+// У каждого трекера своя метка своим цветом (ответ оператора на B-285)
+test('метки трекеров в списке — GH, GL, JI, YT, каждая своим классом цвета', async () => {
+  const kinds = [
+    ['GitHub', 'https://github.com', 'acme/a', 'gh'],
+    ['GitLab', 'https://gitlab.com', 'acme/b', 'gl'],
+    ['Jira', 'https://acme.atlassian.net', 'PAY', 'ji'],
+    ['YouTrack', 'https://acme.youtrack.cloud', 'ABC', 'yt'],
+  ] as const
+  stubApi({
+    'GET /api/trackers/projects': () =>
+      json(
+        kinds.map(([tracker, server, project], i) => ({
+          ...described,
+          base: `D:\\Projects\\p${i}`,
+          project: `P${i}`,
+          tracker: { kind: tracker === 'GitLab' ? 'other' : tracker.toLowerCase(), name: tracker, server, project },
+          description: { ...github, tracker, server, project },
+        })),
+      ),
+  })
+
+  render(<TrackerProjects />)
+
+  const list = within(await screen.findByRole('navigation', { name: 'Трекеры проектов' }))
+  kinds.forEach(([, , , mark], i) => {
+    const item = list.getByRole('button', { name: new RegExp(`^P${i}`) })
+    expect(item.querySelector('.tp-mark')).toHaveClass(mark)
+    expect(item).toHaveTextContent(new RegExp(`^${mark.toUpperCase()}P${i}$`))
+  })
+})
+
+// Переход из причины «Бэклога» о ключе: окно трекера проекта открыто, курсор — в поле «Ключ» (B-285)
+test('переход из «Бэклога» с полем открывает окно трекера проекта с курсором в нём', async () => {
+  const youtrack: ProjectTrackerRow = {
+    ...described,
+    tracker: { kind: 'youtrack', name: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'BILL' },
+    description: { ...github, tracker: 'YouTrack', server: 'https://acme.youtrack.cloud', project: 'BILL' },
+  }
+  stubApi({ 'GET /api/trackers/projects': () => json([youtrack]) })
+
+  render(<TrackerProjects servers={[]} focus={{ base: youtrack.base, at: 1, field: 'key' }} />)
+
+  const dialog = await screen.findByRole('dialog', { name: 'Трекер проекта' })
+  expect(within(dialog).getByLabelText('Ключ')).toHaveFocus()
+})
 // Удалить нельзя, пока идёт задача из трекера: подсказка называет копии и задачи — ответ оператора на B-293.
 test('задачи трекера в работе гасят «Удалить», подсказка называет копии и номера', async () => {
   stubApi({
@@ -201,7 +247,7 @@ test('задачи трекера в работе гасят «Удалить»,
   expect(orders.getByRole('button', { name: 'Изменить трекер Orders' })).toBeEnabled()
 })
 
-test('сломанное описание — красная строка о строках, которых нет, кнопки открыты', async () => {
+test('сломанное описание — красная строка о полях, которые не указаны, кнопки открыты', async () => {
   stubApi({
     'GET /api/trackers/projects': () =>
       json([{ ...described, tracker: { kind: 'no-keys', faults: ['проект'] }, description: { ...github, project: '' } }]),
@@ -210,7 +256,7 @@ test('сломанное описание — красная строка о с�
   render(<TrackerProjects />)
 
   const orders = await row('Orders')
-  expect(orders.getByText('В описании трекера нет строки «проект:» или она записана не так.')).toBeInTheDocument()
+  expect(orders.getByText('В описании трекера не указан проект или указан не так.')).toBeInTheDocument()
   expect(orders.getByText('GitHub')).toBeInTheDocument()
   expect(orders.getByRole('button', { name: 'Изменить трекер Orders' })).toBeEnabled()
 })
@@ -282,6 +328,40 @@ test('«Удалить» спрашивает окном, удаляет пов�
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   const deleted = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')![0]
   expect(new URLSearchParams(deleted.split('?')[1])).toEqual(new URLSearchParams({ base: described.base, version: 'v1' }))
+})
+
+// Ключ к серверу без проектов показать негде — он уходит с последним трекером сервера, и окно говорит это заранее (B-285)
+test('окно удаления говорит, что уйдёт и ключ, только когда других проектов на сервере нет', async () => {
+  const jira = (base: string, project: string): ProjectTrackerRow => ({
+    ...described,
+    base,
+    project,
+    tracker: { kind: 'jira', name: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' },
+    description: { ...github, tracker: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' },
+  })
+  const pay = jira('D:\\Projects\\pay-knowledge', 'Pay')
+  const servers = [{ server: 'https://acme.atlassian.net', login: 'anna@acme.example', email: 'anna@acme.example' }]
+  const phrase = /удалится и ключ к нему/
+
+  stubApi({ 'GET /api/trackers/projects': () => json([pay]) })
+  const { unmount } = render(<TrackerProjects servers={servers} />)
+  fireEvent.click((await row('Pay')).getByRole('button', { name: 'Удалить трекер Pay' }))
+  expect(within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' })).getByText(phrase)).toHaveTextContent(
+    'Других проектов на сервере https://acme.atlassian.net нет, поэтому с этого компьютера удалится и ключ к нему.',
+  )
+  unmount()
+
+  stubApi({ 'GET /api/trackers/projects': () => json([pay, jira('D:\\Projects\\billing-knowledge', 'Billing')]) })
+  const other = render(<TrackerProjects servers={servers} />)
+  fireEvent.click((await row('Pay')).getByRole('button', { name: 'Удалить трекер Pay' }))
+  expect(within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' })).queryByText(phrase)).not.toBeInTheDocument()
+  other.unmount()
+
+  // Ключа к серверу нет — и уходить нечему (ревью B-285)
+  stubApi({ 'GET /api/trackers/projects': () => json([pay]) })
+  render(<TrackerProjects servers={[]} />)
+  fireEvent.click((await row('Pay')).getByRole('button', { name: 'Удалить трекер Pay' }))
+  expect(within(screen.getByRole('dialog', { name: 'Удалить трекер проекта' })).queryByText(phrase)).not.toBeInTheDocument()
 })
 
 test('база не ушла на сервер после удаления — окно говорит это словами кита, «Закрыть» перечитывает проекты', async () => {

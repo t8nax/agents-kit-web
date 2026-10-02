@@ -25,13 +25,14 @@ test('задачи копий базы — номерами, какими они
         row('в-7 Кириллицей'),
         row('GitHub #037 Оплата падает'),
         row('youtrack abc-12 Письмо о сбросе пароля'),
+        row('jira pay-7 Выгрузка отчётов'),
         row('B-9 Чужая база', { base: 'D:\\Projects\\nota-knowledge' }),
         row('B-10 Сломанная копия', { error: 'Копии нет на диске' }),
         row(null, { status: 'free' }),
       ],
       base,
     ),
-  ).toEqual(new Set(['B-7', 'GitHub #37', 'YouTrack ABC-12']))
+  ).toEqual(new Set(['B-7', 'GitHub #37', 'YouTrack ABC-12', 'Jira PAY-7']))
 })
 
 test('номером признаётся только номер буквами проекта — decisions/backlog-numbers.md', () => {

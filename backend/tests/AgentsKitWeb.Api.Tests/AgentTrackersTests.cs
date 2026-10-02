@@ -35,10 +35,57 @@ public sealed class AgentTrackersTests : IDisposable
         Assert.Null(Find());
     }
 
+    /// <summary>Облачная Jira подключается к Claude Code удалённым сервером Atlassian — его агент и получает (B-285).</summary>
     [Fact]
-    public void Jira_IsNull()
+    public void Jira_TakesAtlassianRemoteServer()
     {
         TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+        Config(new { mcpServers = new { slack = Http("https://slack.example.com/mcp"), atlassian = Http("https://mcp.atlassian.com/v1/sse") } });
+
+        var tracker = Find()!;
+
+        Assert.True(tracker.Reachable);
+        Assert.Equal("atlassian", tracker.McpName);
+        Assert.Equal(["mcp__atlassian"], tracker.AllowedTools);
+        Assert.Contains("Jira, проект PAY", tracker.Prompt);
+    }
+
+    /// <summary>Подключение к самому сайту Jira тоже годится, как у YouTrack.</summary>
+    [Fact]
+    public void Jira_TakesServerWithSiteHost()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+        Config(new { mcpServers = new { jira = Http("https://acme.atlassian.net/mcp") } });
+
+        Assert.Equal("jira", Find()!.McpName);
+    }
+
+    /// <summary>Jira не на atlassian.net — не облачная: облачное подключение Atlassian ей не подаётся (ревью B-285).</summary>
+    [Fact]
+    public void JiraNotCloud_DoesNotTakeAtlassianRemoteServer()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://jira.acme.local", "PAY");
+        Config(new { mcpServers = new { atlassian = Http("https://mcp.atlassian.com/v1/sse") } });
+
+        Assert.False(Find()!.Reachable);
+    }
+
+    [Fact]
+    public void Jira_NoConnection_SaysUnreachable()
+    {
+        TestLayout.Tracker(_base, "Jira", "https://acme.atlassian.net", "PAY");
+        Config(new { mcpServers = new { youtrack = Http($"{Server}/mcp") } });
+
+        var tracker = Find()!;
+
+        Assert.False(tracker.Reachable);
+        Assert.Contains("посоветуй подключить Jira в Claude Code", tracker.Prompt);
+    }
+
+    [Fact]
+    public void GitLab_IsNull()
+    {
+        TestLayout.Tracker(_base, "GitLab", "https://gitlab.com", "acme/orders");
 
         Assert.Null(Find());
     }

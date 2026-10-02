@@ -48,6 +48,18 @@ test('черновики задач трекера чтение бэклога �
   expect(readStartWords(b, 'GitHub #5')).toBe('другая база')
 })
 
+test('черновики задач Jira держатся так же, как у GitHub (B-285)', () => {
+  saveStartWords(a, 'Jira PAY-12', 'живая задача')
+  saveStartWords(a, 'Jira PAY-11', 'закрыта')
+
+  forgetGoneStartWords([backlog(a, ['B-1'])])
+  expect(readStartWords(a, 'Jira PAY-12')).toBe('живая задача')
+
+  forgetGoneIssueWords(a, ['Jira PAY-12'])
+  expect(readStartWords(a, 'Jira PAY-12')).toBe('живая задача')
+  expect(readStartWords(a, 'Jira PAY-11')).toBe('')
+})
+
 test('черновики задач YouTrack держатся так же, как у GitHub', () => {
   saveStartWords(a, 'YouTrack ABC-12', 'живая задача')
   saveStartWords(a, 'YouTrack ABC-11', 'закрыта')

@@ -74,6 +74,11 @@ function stubFetch(...responses: BaseBacklog[][]) {
       expect(reply, `задачи трекера ${base} не ожидались`).toBeDefined()
       return reply!()
     }
+    // Фильтр проекта: панель хранит его на этом компьютере (B-285)
+    if (url === '/api/backlog/tracker/filter') {
+      posts.push(JSON.parse(String(init?.body)))
+      return Promise.resolve(new Response(null, { status: 204 }))
+    }
     if (url === '/api/backlog/artifact/open') {
       posts.push(JSON.parse(String(init?.body)))
       return Promise.resolve(artifactReply())
@@ -1134,20 +1139,21 @@ test('ответ трекера прошлого чтения, пришедши�
 })
 
 test.each([
-  [{ kind: 'other' as const, name: 'Jira' }, /^Трекер проекта — Jira\. Панель пока читает задачи только из GitHub и YouTrack\.$/, false],
+  [{ kind: 'other' as const, name: 'GitLab' }, /^Трекер проекта — GitLab\. Панель пока читает задачи только из GitHub, YouTrack и Jira\.$/, false],
+  // Поля называются, как в окне трекера, а не строками файла: оператор файлы руками не правит (B-285)
   [
     { kind: 'no-keys' as const, faults: ['трекер', 'сервер', 'проект'] },
-    /^В описании трекера проекта нет строк «трекер:», «сервер:» и «проект:» или они записаны не так\. Исправьте описание в разделе «Трекеры»\.$/,
+    /^В описании трекера проекта не указаны вид трекера, адрес сервера и проект или указаны не так\. Исправьте описание в разделе «Трекеры»\.$/,
     true,
   ],
   [
     { kind: 'no-keys' as const, faults: ['сервер', 'проект'] },
-    /^В описании трекера проекта нет строк «сервер:» и «проект:» или они записаны не так\. Исправьте описание в разделе «Трекеры»\.$/,
+    /^В описании трекера проекта не указаны адрес сервера и проект или указаны не так\. Исправьте описание в разделе «Трекеры»\.$/,
     true,
   ],
   [
     { kind: 'no-keys' as const, faults: ['проект'] },
-    /^В описании трекера проекта нет строки «проект:» или она записана не так\. Исправьте описание в разделе «Трекеры»\.$/,
+    /^В описании трекера проекта не указан проект или указан не так\. Исправьте описание в разделе «Трекеры»\.$/,
     true,
   ],
 ])('трекер, которого панель не читает (%o), — строка на месте задач, трекер не зовётся', async (tracker, text, warning) => {
@@ -1173,7 +1179,7 @@ test('строка поломки описания трекера ведёт в 
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   fireEvent.click(project.getByRole('button', { name: '«Трекеры»' }))
-  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, false)
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, undefined)
 })
 
 test.each([
@@ -1273,22 +1279,20 @@ test('флажок «Мои задачи» при задачах больше с
   expect(project.queryByText('Ваших задач в этом проекте нет.')).not.toBeInTheDocument()
 })
 
-// Больше сотни задач — строка, а не молчаливая обрезка; её ссылка ведёт к описанию трекера, где задают фильтр (AKW-17)
-test('задач больше сотни — серая строка под списком со ссылкой к трекеру проекта в разделе «Трекеры»', async () => {
+// Больше сотни задач — строка, а не молчаливая обрезка (AKW-17); сузить список — фильтром проекта в его шапке (B-285)
+test('задач больше сотни — серая строка под списком о фильтре проекта', async () => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker(github))
   fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null, truncated: true }))
-  const onTrackers = vi.fn()
 
-  render(<Backlog onTrackers={onTrackers} />)
+  render(<Backlog />)
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   const line = await project.findByText(
-    (_, el) => el?.matches('p.tracker-state > span') === true && el.textContent === 'Показаны первые 100 задач — сузьте список фильтром в разделе «Трекеры».',
+    (_, el) => el?.matches('p.tracker-state > span') === true && el.textContent === 'Показаны первые 100 задач — сузьте список фильтром проекта.',
   )
   expect(line.closest('p')).toHaveClass('text-sec')
-  fireEvent.click(project.getByRole('button', { name: 'в разделе «Трекеры»' }))
-  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, false)
+  expect(project.getByRole('button', { name: 'Фильтр проекта' })).toBeInTheDocument()
 })
 
 test('задач не больше сотни — строки о пределе нет', async () => {
@@ -1626,17 +1630,17 @@ test.each([
   [{ issues: [], problem: null }, /^В YouTrack нет незакрытых задач этого проекта\.$/, false],
   [
     { issues: [], problem: 'no-key' },
-    /^Для сервера https:\/\/acme\.youtrack\.cloud нет ключа\. Добавьте сервер и ключ в разделе «Трекеры», в списке «Серверы трекеров»\.$/,
+    /^Нет ключа к серверу https:\/\/acme\.youtrack\.cloud\. Введите ключ в разделе «Трекеры»\.$/,
     true,
   ],
   [
     { issues: [], problem: 'key-rejected' },
-    /^Сервер https:\/\/acme\.youtrack\.cloud отклонил ключ\. Замените ключ в разделе «Трекеры», в списке «Серверы трекеров»\.$/,
+    /^Сервер https:\/\/acme\.youtrack\.cloud отклонил ключ\. Замените ключ в разделе «Трекеры»\.$/,
     true,
   ],
   [
     { issues: [], problem: 'key-unreadable' },
-    /^Ключ сервера https:\/\/acme\.youtrack\.cloud не прочитать на этом компьютере\. Замените ключ в разделе «Трекеры», в списке «Серверы трекеров»\.$/,
+    /^Ключ к серверу https:\/\/acme\.youtrack\.cloud не прочитать на этом компьютере\. Введите ключ заново в разделе «Трекеры»\.$/,
     true,
   ],
   [
@@ -1646,12 +1650,12 @@ test.each([
   ],
   [
     { issues: [], problem: 'server-silent', detail: 'истекло время ожидания' },
-    /^Сервер https:\/\/acme\.youtrack\.cloud не ответил: истекло время ожидания\. Проверьте адрес сервера в описании трекера проекта и подключение к сети\.$/,
+    /^Сервер https:\/\/acme\.youtrack\.cloud не ответил: истекло время ожидания\. Проверьте адрес сервера в разделе «Трекеры» и подключение к сети\.$/,
     true,
   ],
   [
     { issues: [], problem: 'project-missing' },
-    /^На сервере https:\/\/acme\.youtrack\.cloud нет проекта ABC или у вашего ключа нет к нему доступа\. Проверьте строку «проект:» в описании трекера проекта\.$/,
+    /^Проект ABC не найден на сервере https:\/\/acme\.youtrack\.cloud или у вашего ключа нет к нему доступа\. Проверьте проект в разделе «Трекеры»\.$/,
     true,
   ],
   [{ issues: [], problem: 'youtrack-error', detail: 'Сервер на обслуживании' }, /^YouTrack ответил ошибкой: Сервер на обслуживании\.$/, true],
@@ -1667,28 +1671,33 @@ test.each([
   expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
 })
 
-// Критерий 4 B-323: и причина ключа ведёт в раздел «Трекеры», где стоят серверы с ключами.
-test('строка о ключе сервера ведёт в раздел «Трекеры» к серверам трекеров', async () => {
+// Ключ вводится в окне трекера проекта: причина о ключе, адресе или проекте открывает его с курсором в этом поле (B-285)
+test.each([
+  ['no-key', 'key'],
+  ['key-rejected', 'key'],
+  ['project-missing', 'project'],
+  ['server-silent', 'server'],
+])('строка «%s» ведёт в окно трекера проекта к полю %s', async (problem, field) => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker(youTrack))
-  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: 'no-key' }))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem }))
   const onTrackers = vi.fn()
 
   render(<Backlog onTrackers={onTrackers} />)
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   fireEvent.click(await project.findByRole('button', { name: '«Трекеры»' }))
-  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, true)
+  expect(onTrackers).toHaveBeenCalledExactlyOnceWith(backlogs[0].base, field)
 })
 
-// B-300: отбор задан — пустой список называет его, а отказ трекера на него ведёт в раздел «Трекеры».
+// B-300: отбор задан — пустой список называет его; отказ трекера — красной строкой рядом с фильтром проекта (B-285).
 test.each([
   [youTrack, 'State: {To Do}', { issues: [], problem: null }, /^По фильтру State: \{To Do\} в YouTrack сейчас нет задач этого проекта\.$/, false],
   [
     youTrack,
     'State: {To Do}',
     { issues: [], problem: 'filter-rejected', detail: 'Unknown field "Stat"' },
-    /^YouTrack не принял фильтр State: \{To Do\}: Unknown field "Stat"\. Исправьте его в разделе «Трекеры»\.$/,
+    /^YouTrack не принял фильтр: Unknown field "Stat"\. Исправьте фильтр проекта\.$/,
     true,
   ],
   [github, 'label:bug', { issues: [], problem: null }, /^По фильтру label:bug в GitHub сейчас нет открытых задач этого репозитория\.$/, false],
@@ -1702,10 +1711,12 @@ test.each([
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   const line = (await project.findByText((_, el) => el?.matches('p.tracker-state > span') === true && text.test(el.textContent))).closest('p')!
   expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
-  expect(within(line).getByText(filter).tagName).toBe('CODE')
+  // Фильтр — плашкой в шапке проекта, красной, если трекер его не принял (макет B-285, вариант А)
+  const pill = project.getByRole('button', { name: filter }).closest('.fa-pill')!
+  expect(pill.classList.contains('bad')).toBe(warning)
 })
 
-test('отбор задан, задачи есть — группа как без отбора, фильтр не назван', async () => {
+test('отбор задан, задачи есть — фильтр виден только плашкой в шапке проекта', async () => {
   onTrackerTab()
   const fetchMock = stubFetch(withTracker({ ...youTrack, filter: 'State: {To Do}' }))
   fetchMock.setTracker(backlogs[0].base, answer({ issues: ytIssues, problem: null }))
@@ -1714,7 +1725,145 @@ test('отбор задан, задачи есть — группа как бе�
 
   const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
   await project.findByRole('link', { name: /ABC-7/ })
-  expect(project.queryByText(/State: \{To Do\}/)).not.toBeInTheDocument()
+  expect(project.getByRole('button', { name: 'State: {To Do}' })).toHaveAttribute('title', 'Изменить фильтр')
+  expect(project.queryByText((_, el) => el?.matches('p.tracker-state > span') === true)).not.toBeInTheDocument()
+})
+
+// ——— Jira (B-285) ———
+
+const jira = { kind: 'jira' as const, name: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' }
+
+const jiraIssues = [
+  { name: 'Jira PAY-12', number: 12, title: 'Повторная отправка вебхука', url: 'https://acme.atlassian.net/browse/PAY-12', assignee: 'Анна Петрова', mine: true },
+  { name: 'Jira PAY-7', number: 7, title: 'Логировать идентификатор платежа', url: 'https://acme.atlassian.net/browse/PAY-7', assignee: null },
+]
+
+test('задачи Jira — номером PAY-N ссылкой на задачу, с исполнителем или «никому»', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(jira))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: jiraIssues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const link = await project.findByRole('link', { name: /PAY-12/ })
+  expect(link).toHaveAttribute('href', 'https://acme.atlassian.net/browse/PAY-12')
+  expect(within(link).getByText('PAY-12')).toHaveClass('tracker-num')
+  expect(within(link).getByText('Анна Петрова')).toHaveClass('issue-assignee')
+  expect(within(project.getByRole('link', { name: /PAY-7/ })).getByText('никому')).toHaveClass('nobody')
+  expect(fetchMock.trackerReads()).toBe(1)
+})
+
+test.each([
+  [{ issues: [], problem: null }, /^В Jira нет незакрытых задач этого проекта\.$/, false],
+  [
+    { issues: [], problem: 'key-rejected' },
+    /^Сервер https:\/\/acme\.atlassian\.net отклонил почту или ключ\. Проверьте их в разделе «Трекеры»\.$/,
+    true,
+  ],
+  [
+    { issues: [], problem: 'key-forbidden' },
+    /^Сервер https:\/\/acme\.atlassian\.net принял ключ, но у его владельца нет прав на проект PAY\. Проверьте права владельца ключа в Jira\.$/,
+    true,
+  ],
+  [{ issues: [], problem: 'jira-error', detail: 'Сайт на обслуживании' }, /^Jira ответила ошибкой: Сайт на обслуживании\.$/, true],
+])('ответ Jira %o — своей строкой на месте задач', async (reply, text, warning) => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(jira))
+  fetchMock.setTracker(backlogs[0].base, answer(reply))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  const line = (await project.findByText((_, el) => el?.matches('p.tracker-state > span') === true && text.test(el.textContent))).closest('p')!
+  expect(line).toHaveClass(warning ? 'warning-text' : 'text-sec')
+})
+
+test('Jira не приняла фильтр — красная плашка в шапке и причина её словами', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker({ ...jira, filter: 'assignee = currentUser( AND x' }))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: 'filter-rejected', detail: "Expecting ')' but got 'AND'." }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  expect(
+    await project.findByText(
+      (_, el) => el?.matches('p.tracker-state > span') === true && el.textContent === "Jira не приняла фильтр: Expecting ')' but got 'AND'. Исправьте фильтр проекта.",
+    ),
+  ).toBeInTheDocument()
+  expect(project.getByRole('button', { name: 'assignee = currentUser( AND x' }).closest('.fa-pill')).toHaveClass('bad')
+})
+
+// ——— Фильтр проекта на вкладке (B-285, вариант А макета) ———
+
+test('воронка в шапке проекта раскрывает поле с примером трекера, Enter записывает фильтр и перечитывает трекер', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(jira), withTracker({ ...jira, filter: 'assignee = currentUser()' }))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: jiraIssues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /PAY-12/ })
+  fireEvent.click(project.getByRole('button', { name: 'Фильтр проекта' }))
+  const field = project.getByRole('textbox', { name: 'Фильтр проекта' })
+  expect(field).toHaveFocus()
+  expect(field).toHaveAttribute('placeholder', 'assignee = currentUser() — только ваши')
+
+  fireEvent.change(field, { target: { value: ' assignee = currentUser() ' } })
+  fireEvent.keyDown(field, { key: 'Enter' })
+
+  await waitFor(() => expect(fetchMock.posts).toContainEqual({ base: backlogs[0].base, filter: 'assignee = currentUser()' }))
+  await waitFor(() => expect(fetchMock.trackerReads()).toBe(2))
+  expect(fetchMock.backlogReads()).toBe(2)
+  expect(await project.findByRole('button', { name: 'assignee = currentUser()' })).toBeInTheDocument()
+  expect(project.queryByRole('textbox', { name: 'Фильтр проекта' })).not.toBeInTheDocument()
+})
+
+test('Escape закрывает поле фильтра и ничего не записывает', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(github))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /#52/ })
+  fireEvent.click(project.getByRole('button', { name: 'Фильтр проекта' }))
+  const field = project.getByRole('textbox', { name: 'Фильтр проекта' })
+  expect(field).toHaveAttribute('placeholder', 'assignee:@me — только ваши')
+  fireEvent.change(field, { target: { value: 'label:bug' } })
+  fireEvent.keyDown(field, { key: 'Escape' })
+
+  expect(project.queryByRole('textbox', { name: 'Фильтр проекта' })).not.toBeInTheDocument()
+  expect(fetchMock.posts).toEqual([])
+})
+
+test('крестик на плашке снимает фильтр проекта', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker({ ...youTrack, filter: 'State: Open' }))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: ytIssues, problem: null }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('link', { name: /ABC-7/ })
+  fireEvent.click(project.getByRole('button', { name: 'Снять фильтр' }))
+
+  await waitFor(() => expect(fetchMock.posts).toContainEqual({ base: backlogs[0].base, filter: '' }))
+})
+
+test('у проекта, чьи задачи не прочитаны не из-за фильтра, воронки нет', async () => {
+  onTrackerTab()
+  const fetchMock = stubFetch(withTracker(jira))
+  fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: 'no-key' }))
+
+  render(<Backlog />)
+
+  const project = within(await screen.findByRole('region', { name: 'Agents Kit Web' }))
+  await project.findByRole('button', { name: '«Трекеры»' })
+  expect(project.queryByRole('button', { name: 'Фильтр проекта' })).not.toBeInTheDocument()
 })
 
 test('«Взять задачу» у задачи YouTrack запускает её по имени «YouTrack ABC-N»', async () => {
@@ -1739,10 +1888,14 @@ test('«Взять задачу» у задачи YouTrack запускает е
   )
 })
 
-test('«В трекер» есть и у записей проекта с YouTrack, а у проекта с Jira — нет', async () => {
+test.each([
+  ['YouTrack', youTrack],
+  // Jira — как YouTrack: переносит Чудо-Юдо подключением Claude Code (B-285)
+  ['Jira', { kind: 'jira' as const, name: 'Jira', server: 'https://acme.atlassian.net', project: 'PAY' }],
+])('«В трекер» есть и у записей проекта с %s, а у проекта с другим трекером — нет', async (_, tracker) => {
   const fetchMock = stubFetch([
-    { ...backlogs[0], tracker: youTrack },
-    { ...backlogs[1], tracker: { kind: 'other', name: 'Jira' } },
+    { ...backlogs[0], tracker },
+    { ...backlogs[1], tracker: { kind: 'other', name: 'GitLab' } },
   ])
   fetchMock.setTracker(backlogs[0].base, answer({ issues: [], problem: null }))
 

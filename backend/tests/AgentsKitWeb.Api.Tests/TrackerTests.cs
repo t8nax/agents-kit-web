@@ -49,6 +49,29 @@ public class TrackerTests
         Assert.Null(tracker.GitHubRepo);
     }
 
+    /// <summary>Облачную Jira панель читает своим клиентом (B-285): ключ проекта — как в таблице трекеров кита.</summary>
+    [Fact]
+    public void Parse_JiraKeys_TakesServerAndProject()
+    {
+        var tracker = Tracker.Parse(Describe("трекер: Jira\nсервер: https://acme.atlassian.net/\nпроект: PAY_2"));
+
+        Assert.Equal(new TrackerInfo(TrackerInfo.Jira, "Jira", "https://acme.atlassian.net", "PAY_2"), tracker);
+        Assert.Null(tracker.GitHubRepo);
+    }
+
+    [Theory]
+    [InlineData("pay")]
+    [InlineData("P")]
+    [InlineData("1PAY")]
+    [InlineData("PAY-1")]
+    public void Parse_JiraProjectNotByTemplate_IsNoKeys(string project)
+    {
+        var tracker = Tracker.Parse(Describe($"трекер: Jira\nсервер: https://acme.atlassian.net\nпроект: {project}"));
+
+        Assert.Equal(TrackerInfo.NoKeys, tracker.Kind);
+        Assert.Equal(["проект"], tracker.Faults);
+    }
+
     /// <summary>Строка «фильтр:» среди строк кита — отбор задач трекера (B-300); повтор — берётся первая, как в окне.</summary>
     [Fact]
     public void Parse_FilterLine_TakesFirstFilter()
@@ -62,7 +85,7 @@ public class TrackerTests
     }
 
     [Theory]
-    [InlineData("трекер: Jira\nсервер: https://acme.atlassian.net\nпроект: PAY", "Jira")]
+    [InlineData("трекер: GitLab\nсервер: https://gitlab.com\nпроект: acme/orders", "GitLab")]
     [InlineData("трекер: Redmine\nсервер: http://redmine.acme.local:8080/tasks\nпроект: заказы", "Redmine")]
     public void Parse_OtherTracker_IsOtherWithItsName(string where, string name)
     {

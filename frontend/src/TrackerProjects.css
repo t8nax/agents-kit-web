@@ -1,5 +1,17 @@
 /* Трекеры проектов раздела «Трекеры»: список проектов слева, подробности выбранного справа (B-323, макет в памяти задачи) */
 
+/* Раздел «Трекеры» — колонкой во всю высоту области содержимого, а рамка проектов тянется до низа экрана
+   (замечание оператора на приёмке B-285) */
+.trackers {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.trackers > .tp {
+  flex: 1 0 auto;
+}
+
 .tp {
   margin: 0 24px 16px;
   display: grid;
@@ -101,13 +113,31 @@
   font-size: 13px;
 }
 
-.tp-mark.yt {
-  border: 1px solid var(--accent-done-text);
-  background: var(--accent-done-bg);
-  color: var(--accent-done-text);
+/* У каждого трекера из таблицы кита свой цвет — токены --mark-*, которых больше нигде в панели нет (B-285) */
+.tp-mark.gh {
+  border: 1px solid var(--mark-gh-border);
+  background: var(--mark-gh-bg);
+  color: var(--mark-gh-text);
 }
 
-.tp-mark.gh,
+.tp-mark.gl {
+  border: 1px solid var(--mark-gl-border);
+  background: var(--mark-gl-bg);
+  color: var(--mark-gl-text);
+}
+
+.tp-mark.ji {
+  border: 1px solid var(--mark-ji-border);
+  background: var(--mark-ji-bg);
+  color: var(--mark-ji-text);
+}
+
+.tp-mark.yt {
+  border: 1px solid var(--mark-yt-border);
+  background: var(--mark-yt-bg);
+  color: var(--mark-yt-text);
+}
+
 .tp-mark.other {
   border: 1px solid var(--border-strong);
   background: var(--bg-surface-hover);

@@ -701,6 +701,11 @@ if ($baseDir) {
             $id = "$(Get-TrackerKey 'проект')-$n"
             return @{ Name = "YouTrack $id"; Url = "$((Get-TrackerKey 'сервер').TrimEnd('/'))/issue/$id" }
         }
+        # Jira — так же, адрес задачи облачной Jira (B-285)
+        if ((Get-TrackerKey 'трекер') -match 'jira') {
+            $id = "$(Get-TrackerKey 'проект')-$n"
+            return @{ Name = "Jira $id"; Url = "$((Get-TrackerKey 'сервер').TrimEnd('/'))/browse/$id" }
+        }
         return @{ Name = "GitHub #$n"; Url = "https://github.com/$(Get-TrackerKey 'проект')/issues/$n" }
     }
     function Get-EntryFiles([string]$Block) {
@@ -780,7 +785,7 @@ if ($baseDir) {
                 # Перенос в трекер (AKW-15): задачу заводит сам агент; запись без файлов он вырезает тем же ходом,
                 # у записи с файлами — просит прикрепить их и ждёт «перенёс»
                 if (-not (Get-TrackerKey 'трекер')) {
-                    Write-Result 'У проекта нет трекера GitHub или YouTrack со строками описания: в трекер не пройти.'
+                    Write-Result 'У проекта нет трекера GitHub, YouTrack или Jira со строками описания: в трекер не пройти.'
                     continue
                 }
                 $lines = @('Похожих задач в трекере нет.')
@@ -1137,4 +1142,108 @@ while ($listener.IsListening) {
 }
 '@
     Write-Utf8 (Join-Path $Root 'youtrack-stub.ps1') ($stub -replace '__PORT__', $Port)
+}
+
+# Задачи облачной Jira панель читает сама, по REST v3 с почтой и API-токеном (B-285), и в песочнице ей отвечает свой
+# сервер на localhost — jira-stub.ps1 корня песочницы, его поднимает start-panel.ps1 рядом с API. Почту и ключ
+# оператор вводит в окне трекера проекта, в разделе «Трекеры».
+function New-JiraStub([string]$Root, [int]$Port) {
+    $stub = @'
+# Подставная облачная Jira песочницы на http://localhost:__PORT__/. Вход — почта «operator@sandbox.example»
+# и API-токен «sandbox-token» (Basic), владелец ключа — «Оператор песочницы», accountId acc-operator.
+# Проекты и их задачи — jira-issues.json корня песочницы: объект «ключ проекта: [задачи]», у задачи — номер, заголовок,
+# статус status, метки labels, исполнитель assignee — { accountId, displayName } (нет его — задача ничья) и done —
+# задача закрыта: в поиск незакрытых она не попадает. Задач панель в Jira не заводит: запись бэклога переносит Чудо-Юдо
+# (AKW-15), а в песочнице — подставной агент, без этого сервера.
+# Фильтр проекта (JQL после «AND (») понимает условия через AND: assignee = currentUser(), assignee = <accountId>,
+# status = <статус>, labels = <метка>; другое поле Jira отвергает ответом 400, как настоящая.
+# Режим читается на каждый запрос из jira-mode.txt корня песочницы:
+#   ok        отвечает как Jira
+#   rejected  отклоняет любую почту и ключ
+#   error     отвечает ошибкой сервера
+#   slow      отвечает через двадцать секунд — панель считает, что сервер не ответил
+$ErrorActionPreference = 'Stop'
+$root = $PSScriptRoot
+$issuesFile = Join-Path $root 'jira-issues.json'
+$utf8 = [Text.UTF8Encoding]::new($false)
+$auth = 'Basic ' + [Convert]::ToBase64String($utf8.GetBytes('operator@sandbox.example:sandbox-token'))
+$operator = [pscustomobject]@{ accountId = 'acc-operator'; displayName = 'Оператор песочницы' }
+
+function Send($context, [int]$status, $body) {
+    $bytes = $utf8.GetBytes((ConvertTo-Json -InputObject $body -Depth 8 -Compress))
+    $context.Response.StatusCode = $status
+    $context.Response.ContentType = 'application/json; charset=utf-8'
+    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+    $context.Response.Close()
+}
+
+$listener = [Net.HttpListener]::new()
+$listener.Prefixes.Add('http://localhost:__PORT__/')
+$listener.Start()
+while ($listener.IsListening) {
+    $context = $listener.GetContext()
+    try {
+        $modeFile = Join-Path $root 'jira-mode.txt'
+        $mode = if (Test-Path -LiteralPath $modeFile) { (Get-Content -LiteralPath $modeFile -Raw).Trim().ToLowerInvariant() } else { 'ok' }
+        if ($mode -eq 'slow') { Start-Sleep -Seconds 20 }
+        if ($mode -eq 'error') { Send $context 503 @{ errorMessages = @('Сайт песочницы на обслуживании'); errors = @{} }; continue }
+        if ($mode -eq 'rejected' -or $context.Request.Headers['Authorization'] -ne $auth) {
+            Send $context 401 @{ errorMessages = @('Client must be authenticated to access this resource.'); errors = @{} }
+            continue
+        }
+        $path = $context.Request.Url.AbsolutePath
+        $issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
+        $projects = @($issues.PSObject.Properties.Name)
+        if ($path -eq '/rest/api/3/myself') {
+            Send $context 200 @{ accountId = $operator.accountId; emailAddress = 'operator@sandbox.example'; displayName = $operator.displayName }
+            continue
+        }
+        if ($path -match '^/rest/api/3/project/([^/]+)$') {
+            $key = [Uri]::UnescapeDataString($Matches[1])
+            $known = $projects | Where-Object { $_ -eq $key.ToUpperInvariant() }
+            if (-not $known) { Send $context 404 @{ errorMessages = @("No project could be found with key '$key'."); errors = @{} }; continue }
+            Send $context 200 @{ id = "1000$([array]::IndexOf($projects, $known))"; key = $known; issueTypes = @(
+                    @{ id = '10002'; name = 'Sub-task'; subtask = $true }
+                    @{ id = '10001'; name = 'Task'; subtask = $false }) }
+            continue
+        }
+        if ($path -eq '/rest/api/3/search/jql') {
+            $jql = "$($context.Request.QueryString['jql'])"
+            $project = if ($jql -match 'project = "([^"]+)"') { $Matches[1] } else { $null }
+            $list = if ($project -and $projects -contains $project) { @($issues.$project | Where-Object { -not $_.done }) } else { @() }
+            # Фильтр панель дописывает в скобках перед «ORDER BY»: «… statusCategory != Done AND (<фильтр>) ORDER BY …»
+            $filter = if ($jql -match 'statusCategory != Done AND \((.*)\) ORDER BY') { $Matches[1].Trim() } else { '' }
+            $bad = $null
+            foreach ($condition in ($filter -split '\s+AND\s+' | Where-Object { $_ })) {
+                if ($condition -notmatch '^\s*(\w+)\s*=\s*"?([^"]*?)"?\s*$') { $bad = "Error in the JQL Query: Expecting operator but got '$condition'."; break }
+                $field = $Matches[1].ToLowerInvariant(); $value = $Matches[2]
+                switch ($field) {
+                    'assignee' {
+                        $who = if ($value -eq 'currentUser()') { $operator.accountId } else { $value }
+                        $list = @($list | Where-Object { $_.assignee -and $_.assignee.accountId -eq $who })
+                    }
+                    'status' { $list = @($list | Where-Object { $_.status -eq $value }) }
+                    'labels' { $list = @($list | Where-Object { @($_.labels) -contains $value }) }
+                    default { $bad = "Field '$($Matches[1])' does not exist or you do not have permission to view it." }
+                }
+                if ($bad) { break }
+            }
+            if ($bad) { Send $context 400 @{ errorMessages = @($bad); errors = @{} }; continue }
+            $max = if ($context.Request.QueryString['maxResults']) { [int]$context.Request.QueryString['maxResults'] } else { 50 }
+            # Новые сверху, как «ORDER BY created DESC»
+            $found = @($list | Sort-Object { [int]$_.number } -Descending | Select-Object -First $max | ForEach-Object {
+                    $assignee = if ($_.assignee) { @{ accountId = $_.assignee.accountId; displayName = $_.assignee.displayName } } else { $null }
+                    @{ key = "$project-$($_.number)"; fields = @{ summary = $_.title; assignee = $assignee } }
+                })
+            Send $context 200 @{ issues = $found; isLast = $true }
+            continue
+        }
+        Send $context 404 @{ errorMessages = @("Нет такого адреса: $path"); errors = @{} }
+    }
+    catch {
+        try { Send $context 500 @{ errorMessages = @($_.Exception.Message); errors = @{} } } catch { }
+    }
+}
+'@
+    Write-Utf8 (Join-Path $Root 'jira-stub.ps1') ($stub -replace '__PORT__', $Port)
 }

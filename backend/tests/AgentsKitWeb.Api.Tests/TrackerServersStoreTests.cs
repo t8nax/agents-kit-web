@@ -24,6 +24,29 @@ public sealed class TrackerServersStoreTests : IDisposable
         Assert.DoesNotContain("perm:", System.IO.File.ReadAllText(File));
     }
 
+    /// <summary>У Jira ключ входит с почтой: она хранится у сервера рядом с ключом (B-285).</summary>
+    [Fact]
+    public void Save_WithEmail_KeepsEmailBesideKey()
+    {
+        var store = new TrackerServersStore(File);
+
+        store.Save("https://acme.atlassian.net", "anna@acme.example", "ключ", "anna@acme.example");
+
+        Assert.Equal([new TrackerServer("https://acme.atlassian.net", "anna@acme.example", "anna@acme.example")], store.List());
+        Assert.Equal((true, "ключ", "anna@acme.example"), new TrackerServersStore(File).Find("https://acme.atlassian.net"));
+    }
+
+    /// <summary>Файл, записанный до Jira, почты не несёт — сервер читается, почта пуста.</summary>
+    [Fact]
+    public void Find_FileWithoutEmail_ReadsKeyWithoutEmail()
+    {
+        new TrackerServersStore(File).Save("https://acme.youtrack.cloud", "boris.k", "perm:ключ");
+        System.IO.File.WriteAllText(File, System.IO.File.ReadAllText(File).Replace(",\n      \"email\": null", "").Replace(",\r\n      \"email\": null", ""));
+
+        Assert.DoesNotContain("email", System.IO.File.ReadAllText(File));
+        Assert.Equal((true, "perm:ключ", (string?)null), new TrackerServersStore(File).Find("https://acme.youtrack.cloud"));
+    }
+
     [Fact]
     public void Save_KnownServer_ReplacesKeyInPlace()
     {
