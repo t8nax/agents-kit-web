@@ -144,6 +144,12 @@ public static partial class ProjectTrackersEndpoints
             // Ключ — только когда описание записано: иначе отвергнутая правка оставила бы новый ключ общим проектам сервера.
             if (typed is not null)
                 servers.Save(parsed.Server!, owner!, typed.Key, typed.Email);
+            // Проект ушёл с прежнего сервера, а других проектов там нет — ключ к нему показать негде, он уходит, как при
+            // удалении трекера (ревью B-285).
+            if (previous is { Server: { } was } && ProjectTracker.NeedsKey(previous.Kind)
+                && !(ProjectTracker.NeedsKey(parsed.Kind) && parsed.Server is { } now && TrackerServersStore.SameServer(was, now))
+                && !OthersOnServer(bases, basePath, was))
+                RemoveKey(servers, was);
             try
             {
                 // Трекер сменил вид — строка поиска прежнего ему не годится, и фильтр проекта снимается (ревью B-285)

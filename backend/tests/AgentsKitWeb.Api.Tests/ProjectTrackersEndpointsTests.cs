@@ -482,6 +482,20 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Null(Filters.Of(_base, null));
     }
 
+    /// <summary>Проект ушёл на другой сервер, а других проектов на прежнем нет — ключ к прежнему уходит (ревью B-285).</summary>
+    [Fact]
+    public async Task Save_ServerChanged_DropsKeyOfFormerServer()
+    {
+        Committed(TrackerDescriptions.Serialize(YouTrack, "Order Service"));
+        Keys.Save("https://acme.youtrack.cloud", "b", "perm:старый");
+        var client = await Client();
+
+        var response = await SaveWithKey(client, _base, (await Row(client)).Version, YouTrack with { Server = "https://yt.acme.local" }, "perm:новый");
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal(["https://yt.acme.local"], Keys.List().Select(s => s.Server));
+    }
+
     /// <summary>Тот же вид трекера — заданный фильтр остаётся.</summary>
     [Fact]
     public async Task Save_SameKind_KeepsProjectFilter()
