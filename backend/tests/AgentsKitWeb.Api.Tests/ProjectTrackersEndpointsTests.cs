@@ -462,6 +462,39 @@ public sealed class ProjectTrackersEndpointsTests : IDisposable
         Assert.Equal("label:bug", Filters.Of(_base, null));
     }
 
+    /// <summary>Трекер сменил вид — фильтр прежнего ему не годится и снимается; удалённый трекер уносит фильтр с собой.</summary>
+    [Fact]
+    public async Task Save_KindChanged_AndDelete_DropProjectFilter()
+    {
+        Committed(TrackerDescriptions.Serialize(YouTrack, "Order Service"));
+        Keys.Save("https://acme.youtrack.cloud", "b", "perm:ключ");
+        Filters.Set(_base, "State: Open");
+        var client = await Client();
+
+        var response = await Save(client, _base, (await Row(client)).Version, GitHub);
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Null(Filters.Of(_base, null));
+
+        Filters.Set(_base, "label:bug");
+        var row = await Row(client);
+        await client.DeleteAsync($"{Url}?base={Uri.EscapeDataString(_base)}&version={row.Version}");
+        Assert.Null(Filters.Of(_base, null));
+    }
+
+    /// <summary>Тот же вид трекера — заданный фильтр остаётся.</summary>
+    [Fact]
+    public async Task Save_SameKind_KeepsProjectFilter()
+    {
+        Committed(TrackerDescriptions.Serialize(GitHub, "Order Service"));
+        Filters.Set(_base, "label:bug");
+        var client = await Client();
+
+        await Save(client, _base, (await Row(client)).Version, GitHub with { Project = "acme/crm" });
+
+        Assert.Equal("label:bug", Filters.Of(_base, null));
+    }
+
     /// <summary>Фильтр, уже заданный в панели, переезд строки описания не перезаписывает — даже пустой.</summary>
     [Fact]
     public async Task Save_FilterAlreadySetInPanel_IsKept()

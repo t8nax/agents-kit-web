@@ -61,6 +61,23 @@ public sealed class TrackerFiltersStore(string file)
         }
     }
 
+    /// <summary>
+    /// Снимает фильтр проекта совсем: трекер удалён или сменил вид, и строка поиска прежнего трекера новому не годится
+    /// (ревью B-285). Строки «фильтр:» в описании к этому времени уже нет — её убирает запись описания.
+    /// </summary>
+    public void Remove(string basePath)
+    {
+        lock (_lock)
+        {
+            var filters = Read();
+            var known = filters.Keys.FirstOrDefault(k => BasesStore.SamePath(k, basePath));
+            if (known is null)
+                return;
+            filters.Remove(known);
+            Write(filters);
+        }
+    }
+
     /// <summary>Переезд строки «фильтр:» описания: задаёт её фильтром проекта, только если в панели он ещё не задан.</summary>
     public void Keep(string basePath, string? described)
     {

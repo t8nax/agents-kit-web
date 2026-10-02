@@ -133,7 +133,8 @@ public static partial class ProjectTrackersEndpoints
 
             var before = File.Exists(layout.TrackerFile) ? await File.ReadAllBytesAsync(layout.TrackerFile, CancellationToken.None) : null;
             // Строка «фильтр:», которую запись уберёт из описания, переезжает в фильтр проекта, если он ещё не задан.
-            var described = Workspaces.Tracker.Read(layout)?.Filter;
+            var previous = Workspaces.Tracker.Read(layout);
+            var described = previous?.Filter;
             var bytes = Bytes(description, ProjectName.Of(basePath), before);
             // То же описание байт в байт — коммитить нечего, оно уже записано; базу панель всё равно отдаёт.
             if (before is null || !bytes.AsSpan().SequenceEqual(before))
@@ -145,7 +146,11 @@ public static partial class ProjectTrackersEndpoints
                 servers.Save(parsed.Server!, owner!, typed.Key, typed.Email);
             try
             {
-                filters.Keep(basePath, described);
+                // Трекер сменил вид — строка поиска прежнего ему не годится, и фильтр проекта снимается (ревью B-285)
+                if (previous is not null && previous.Kind != parsed.Kind)
+                    filters.Remove(basePath);
+                else
+                    filters.Keep(basePath, described);
             }
             catch (FiltersFileBroken)
             {
@@ -159,7 +164,7 @@ public static partial class ProjectTrackersEndpoints
 
         app.MapDelete("/api/trackers/projects", async (
             string? @base, string? version, BasesStore bases, StartedTasks started, TrackerServersStore servers,
-            CancellationToken cancellationToken) =>
+            TrackerFiltersStore filters, CancellationToken cancellationToken) =>
         {
             if (Configured(bases, @base) is not { } basePath || BaseLayout.Read(basePath) is not { } layout)
                 return Results.NotFound();
@@ -188,6 +193,15 @@ public static partial class ProjectTrackersEndpoints
             // Ключ к серверу без проектов показать негде: он уходит вместе с последним трекером на сервере (B-285).
             var keyRemoved = removed is { Server: { } server } && ProjectTracker.NeedsKey(removed.Kind)
                 && !OthersOnServer(bases, basePath, server) && RemoveKey(servers, server);
+            // Без трекера отбирать нечего: фильтр проекта уходит вместе с ним (ревью B-285)
+            try
+            {
+                filters.Remove(basePath);
+            }
+            catch (FiltersFileBroken)
+            {
+                // Битый файл фильтров не перезаписывается; описание уже удалено.
+            }
 
             var pushed = await KitSync.RunAsync(sync.Script, sync.Copy, KitSync.Push);
             return Results.Ok(new ProjectTrackerSaved("", false, pushed.Done, pushed.Done ? null : pushed.Message, keyRemoved));
