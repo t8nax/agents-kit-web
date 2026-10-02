@@ -45,7 +45,7 @@ export default function Trackers({ trackerFor = null, trackersAt = null }: Track
   }, [])
   useEffect(loadServers, [loadServers])
   return (
-    <div className="settings">
+    <div className="settings trackers">
       <div className="content-head">
         <h2>Трекеры</h2>
       </div>

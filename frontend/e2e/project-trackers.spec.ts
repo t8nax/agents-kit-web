@@ -102,6 +102,21 @@ for (const width of [1400, 900]) {
   })
 }
 
+// Замечание оператора на приёмке B-285: рамка проектов тянется до низа экрана, а не стоит низкой полосой.
+test('рамка проектов раздела «Трекеры» тянется до низа экрана', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 1000 })
+  await mockApi(page)
+
+  await openSection(page)
+  const frame = page.locator('.trackers > .tp')
+  await expect(async () => {
+    const box = await frame.boundingBox()
+    // Под рамкой — только её отступ и отступ раздела
+    expect(1000 - (box!.y + box!.height)).toBeLessThanOrEqual(48)
+  }).toPass()
+  await noSideScroll(page.locator('html'))
+})
+
 // Критерий 2 B-323: выбранный проект выделен, как выбранный пункт полосы разделов (ответ оператора на макет).
 test('выбранный проект выделен так же, как выбранный раздел в полосе', async ({ page }) => {
   await page.setViewportSize({ width: 1400, height: 900 })
