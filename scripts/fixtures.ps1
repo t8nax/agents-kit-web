@@ -1071,3 +1071,133 @@ while ($listener.IsListening) {
 '@
     Write-Utf8 (Join-Path $Root 'youtrack-stub.ps1') ($stub -replace '__PORT__', $Port)
 }
+
+# Задачи облачной Jira панель читает сама, по REST v3 с почтой и API-токеном (B-285), и в песочнице ей отвечает свой
+# сервер на localhost — jira-stub.ps1 корня песочницы, его поднимает start-panel.ps1 рядом с API. Почту и ключ
+# оператор вводит в окне трекера проекта, в разделе «Трекеры».
+function New-JiraStub([string]$Root, [int]$Port) {
+    $stub = @'
+# Подставная облачная Jira песочницы на http://localhost:__PORT__/. Вход — почта «operator@sandbox.example»
+# и API-токен «sandbox-token» (Basic), владелец ключа — «Оператор песочницы», accountId acc-operator.
+# Проекты и их задачи — jira-issues.json корня песочницы: объект «ключ проекта: [задачи]», у задачи — номер, заголовок,
+# статус status, метки labels, исполнитель assignee — { accountId, displayName } (нет его — задача ничья) и done —
+# задача закрыта: в поиск незакрытых она не попадает. Новая задача (перенос записи бэклога) дописывается туда следующим
+# номером, назначенная на владельца ключа, её описание — в jira-created\<ключ>.md.
+# Фильтр проекта (JQL после «AND (») понимает условия через AND: assignee = currentUser(), assignee = <accountId>,
+# status = <статус>, labels = <метка>; другое поле Jira отвергает ответом 400, как настоящая.
+# Режим читается на каждый запрос из jira-mode.txt корня песочницы:
+#   ok        отвечает как Jira
+#   rejected  отклоняет любую почту и ключ
+#   error     отвечает ошибкой сервера
+#   slow      отвечает через двадцать секунд — панель считает, что сервер не ответил
+#   slow-create  читает как ok, а заведение задачи отвечает через семьдесят секунд — задача заводится, но панель
+#             не дожидается ответа и пишет, что задача, возможно, заведена
+$ErrorActionPreference = 'Stop'
+$root = $PSScriptRoot
+$issuesFile = Join-Path $root 'jira-issues.json'
+$utf8 = [Text.UTF8Encoding]::new($false)
+$auth = 'Basic ' + [Convert]::ToBase64String($utf8.GetBytes('operator@sandbox.example:sandbox-token'))
+$operator = [pscustomobject]@{ accountId = 'acc-operator'; displayName = 'Оператор песочницы' }
+
+function Send($context, [int]$status, $body) {
+    $bytes = $utf8.GetBytes((ConvertTo-Json -InputObject $body -Depth 8 -Compress))
+    $context.Response.StatusCode = $status
+    $context.Response.ContentType = 'application/json; charset=utf-8'
+    $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+    $context.Response.Close()
+}
+
+# Текст описания из документа Atlassian: абзацы через пустую строку, разрывы — переводом строки.
+function Text($doc) {
+    @($doc.content | ForEach-Object {
+            (@($_.content | ForEach-Object { if ($_.type -eq 'hardBreak') { "`n" } else { $_.text } }) -join '')
+        }) -join "`n`n"
+}
+
+$listener = [Net.HttpListener]::new()
+$listener.Prefixes.Add('http://localhost:__PORT__/')
+$listener.Start()
+while ($listener.IsListening) {
+    $context = $listener.GetContext()
+    try {
+        $modeFile = Join-Path $root 'jira-mode.txt'
+        $mode = if (Test-Path -LiteralPath $modeFile) { (Get-Content -LiteralPath $modeFile -Raw).Trim().ToLowerInvariant() } else { 'ok' }
+        if ($mode -eq 'slow') { Start-Sleep -Seconds 20 }
+        if ($mode -eq 'error') { Send $context 503 @{ errorMessages = @('Сайт песочницы на обслуживании'); errors = @{} }; continue }
+        if ($mode -eq 'rejected' -or $context.Request.Headers['Authorization'] -ne $auth) {
+            Send $context 401 @{ errorMessages = @('Client must be authenticated to access this resource.'); errors = @{} }
+            continue
+        }
+        $path = $context.Request.Url.AbsolutePath
+        $issues = Get-Content -LiteralPath $issuesFile -Raw -Encoding utf8 | ConvertFrom-Json
+        $projects = @($issues.PSObject.Properties.Name)
+        if ($path -eq '/rest/api/3/myself') {
+            Send $context 200 @{ accountId = $operator.accountId; emailAddress = 'operator@sandbox.example'; displayName = $operator.displayName }
+            continue
+        }
+        if ($path -match '^/rest/api/3/project/([^/]+)$') {
+            $key = [Uri]::UnescapeDataString($Matches[1])
+            $known = $projects | Where-Object { $_ -eq $key.ToUpperInvariant() }
+            if (-not $known) { Send $context 404 @{ errorMessages = @("No project could be found with key '$key'."); errors = @{} }; continue }
+            Send $context 200 @{ id = "1000$([array]::IndexOf($projects, $known))"; key = $known; issueTypes = @(
+                    @{ id = '10002'; name = 'Sub-task'; subtask = $true }
+                    @{ id = '10001'; name = 'Task'; subtask = $false }) }
+            continue
+        }
+        if ($path -eq '/rest/api/3/search/jql') {
+            $jql = "$($context.Request.QueryString['jql'])"
+            $project = if ($jql -match 'project = "([^"]+)"') { $Matches[1] } else { $null }
+            $list = if ($project -and $projects -contains $project) { @($issues.$project | Where-Object { -not $_.done }) } else { @() }
+            # Фильтр панель дописывает в скобках перед «ORDER BY»: «… statusCategory != Done AND (<фильтр>) ORDER BY …»
+            $filter = if ($jql -match 'statusCategory != Done AND \((.*)\) ORDER BY') { $Matches[1].Trim() } else { '' }
+            $bad = $null
+            foreach ($condition in ($filter -split '\s+AND\s+' | Where-Object { $_ })) {
+                if ($condition -notmatch '^\s*(\w+)\s*=\s*"?([^"]*?)"?\s*$') { $bad = "Error in the JQL Query: Expecting operator but got '$condition'."; break }
+                $field = $Matches[1].ToLowerInvariant(); $value = $Matches[2]
+                switch ($field) {
+                    'assignee' {
+                        $who = if ($value -eq 'currentUser()') { $operator.accountId } else { $value }
+                        $list = @($list | Where-Object { $_.assignee -and $_.assignee.accountId -eq $who })
+                    }
+                    'status' { $list = @($list | Where-Object { $_.status -eq $value }) }
+                    'labels' { $list = @($list | Where-Object { @($_.labels) -contains $value }) }
+                    default { $bad = "Field '$($Matches[1])' does not exist or you do not have permission to view it." }
+                }
+                if ($bad) { break }
+            }
+            if ($bad) { Send $context 400 @{ errorMessages = @($bad); errors = @{} }; continue }
+            $max = if ($context.Request.QueryString['maxResults']) { [int]$context.Request.QueryString['maxResults'] } else { 50 }
+            # Новые сверху, как «ORDER BY created DESC»
+            $found = @($list | Sort-Object { [int]$_.number } -Descending | Select-Object -First $max | ForEach-Object {
+                    $assignee = if ($_.assignee) { @{ accountId = $_.assignee.accountId; displayName = $_.assignee.displayName } } else { $null }
+                    @{ key = "$project-$($_.number)"; fields = @{ summary = $_.title; assignee = $assignee } }
+                })
+            Send $context 200 @{ issues = $found; isLast = $true }
+            continue
+        }
+        if ($path -eq '/rest/api/3/issue' -and $context.Request.HttpMethod -eq 'POST') {
+            $reader = [IO.StreamReader]::new($context.Request.InputStream, $utf8)
+            $payload = ($reader.ReadToEnd() | ConvertFrom-Json).fields
+            $project = $payload.project.key
+            $known = @($issues.$project)
+            # Measure-Object отдаёт дробное: «53.0» панель как номер задачи не прочитала бы
+            $number = 1 + [int](@($known | ForEach-Object { [int]$_.number }) + 0 | Measure-Object -Maximum).Maximum
+            $issues.$project = @($known) + [pscustomobject]@{ number = $number; title = $payload.summary; status = 'To Do'; labels = @()
+                assignee = $operator }
+            [IO.File]::WriteAllText($issuesFile, (ConvertTo-Json -InputObject $issues -Depth 6), $utf8)
+            $created = Join-Path $root 'jira-created'
+            New-Item -ItemType Directory -Force -Path $created | Out-Null
+            [IO.File]::WriteAllText((Join-Path $created "$project-$number.md"), "# $($payload.summary)`n`n$(Text $payload.description)", $utf8)
+            if ($mode -eq 'slow-create') { Start-Sleep -Seconds 70 }
+            Send $context 201 @{ id = "2$number"; key = "$project-$number"; self = "http://localhost:__PORT__/rest/api/3/issue/2$number" }
+            continue
+        }
+        Send $context 404 @{ errorMessages = @("Нет такого адреса: $path"); errors = @{} }
+    }
+    catch {
+        try { Send $context 500 @{ errorMessages = @($_.Exception.Message); errors = @{} } } catch { }
+    }
+}
+'@
+    Write-Utf8 (Join-Path $Root 'jira-stub.ps1') ($stub -replace '__PORT__', $Port)
+}
